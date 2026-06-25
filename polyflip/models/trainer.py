@@ -8,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 
-from polyflip.db.models import MarketSnapshot, ModelRegistry
+from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -23,6 +23,22 @@ class ModelTrainer:
         исторических (разрезолвленных) данных и сохраняет в БД.
         """
         logger.info("starting_training", asset=asset)
+        
+        # Получаем активные фичи из RuntimeSettings
+        settings_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "ACTIVE_FEATURES")
+        settings_result = await self.db.execute(settings_stmt)
+        active_features_setting = settings_result.scalar_one_or_none()
+        
+        if active_features_setting and active_features_setting.value.strip():
+            active_features = active_features_setting.value.split(",")
+        else:
+            active_features = settings.ACTIVE_FEATURES.split(",")
+            
+        active_features = [f.strip() for f in active_features if f.strip()]
+        
+        if not active_features:
+            logger.error("no_active_features_selected", asset=asset)
+            return False
         
         # 1. Получаем обучающую выборку (исключаем PENDING)
         stmt = select(MarketSnapshot).where(
@@ -57,8 +73,13 @@ class ModelTrainer:
             logger.warning("only_one_class_in_target", asset=asset)
             return False
             
-        # BUG-006 FIX: Использование hour_of_day
-        X = df[["time_left_min", "mid_price", "spread", "price_velocity", "volume_5min", "hour_of_day"]]
+        # Используем только те фичи, которые включены в дашборде
+        missing_features = [f for f in active_features if f not in df.columns]
+        if missing_features:
+            logger.error("missing_features_in_df", missing=missing_features)
+            return False
+            
+        X = df[active_features]
         y = df["target"]
 
         # BUG-001 FIX: train_test_split и валидация

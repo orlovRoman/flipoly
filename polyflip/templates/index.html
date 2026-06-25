@@ -103,15 +103,48 @@
                 
                 <form class="settings-form" id="settings-form">
                     <div class="form-group">
-                        <label for="poll_interval">Интервал опроса (сек)</label>
-                        <input type="number" id="poll_interval" value="60">
-                        <small>Как часто опрашивать CLOB API для вычисления velocity</small>
+                        <label for="api_key">API Key (для доступа к бекенду)</label>
+                        <input type="password" id="api_key" value="test-key" placeholder="Enter API key...">
+                    </div>
+                    
+                    <h3>Выбор параметров для ML-модели</h3>
+                    <div class="checkbox-group" id="ml-features">
+                        <label><input type="checkbox" value="time_left_min"> Время до конца (мин)</label>
+                        <label><input type="checkbox" value="mid_price"> Текущая цена (mid_price)</label>
+                        <label><input type="checkbox" value="spread"> Спред</label>
+                        <label><input type="checkbox" value="volume_5min"> Объем за 5 минут</label>
+                        <label><input type="checkbox" value="price_velocity"> Скорость изменения цены</label>
+                        <label><input type="checkbox" value="hour_of_day"> Час дня</label>
+                        <small>Включите только нужные параметры и нажмите "Сохранить", затем "Запустить переобучение" на вкладке Аналитика.</small>
+                    </div>
+
+                    <h3 style="margin-top: 1.5rem;">Торговые настройки</h3>
+                    
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 10px;">
+                        <label for="TRADING_ENABLED" style="margin: 0;">Включить торговлю (Trading Enabled)</label>
+                        <input type="checkbox" id="TRADING_ENABLED" style="width: auto;">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="TRADE_EXECUTION_TIME_SEC">Время ордера (в сек. до конца)</label>
+                        <input type="number" id="TRADE_EXECUTION_TIME_SEC" value="30">
                     </div>
                     
                     <div class="form-group">
-                        <label for="api_key">API Key (для доступа к бекенду)</label>
-                        <input type="password" id="api_key" value="test-key" placeholder="Enter API key...">
-                        <small>Ключ передается в заголовке X-API-Key при каждом запросе из дашборда</small>
+                        <label for="TRADE_BET_SIZE_USDC">Размер ставки (USDC)</label>
+                        <input type="number" step="0.1" id="TRADE_BET_SIZE_USDC" value="10.0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="TRADE_NO_FLIP_THRESHOLD">Порог ставки ПО ТРЕНДУ (%, ниже - ставим на фаворита)</label>
+                        <input type="number" step="1" max="100" min="0" id="TRADE_NO_FLIP_THRESHOLD" value="15">
+                        <small>Например, 15%. Если модель предсказывает вероятность флипа меньше 15%, бот купит фаворита.</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="TRADE_FLIP_THRESHOLD">Порог ставки ПРОТИВ ТОЛПЫ (%, выше - ставим на аутсайдера)</label>
+                        <input type="number" step="1" max="100" min="0" id="TRADE_FLIP_THRESHOLD" value="85">
+                        <small>Например, 85%. Если модель предсказывает вероятность флипа больше 85%, бот купит аутсайдера.</small>
                     </div>
                 </form>
             </section>

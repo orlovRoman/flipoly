@@ -5,6 +5,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from polyflip.collector.parser import run_collector_cycle
 from polyflip.collector.resolver import resolve_pending_markets
+from polyflip.trading.engine import trade_worker_cycle
 from polyflip.db.connection import async_session
 from polyflip.config import settings
 from polyflip.db.models import RuntimeSettings
@@ -24,6 +25,10 @@ async def resolver_job():
         await resolve_pending_markets(session)
     logger.info("finished_resolver_job")
 
+async def trade_job():
+    async with async_session() as session:
+        await trade_worker_cycle(session)
+
 async def main():
     logger.info("scheduler_starting", interval=settings.LIVE_POLL_INTERVAL_SECONDS)
     
@@ -41,6 +46,14 @@ async def main():
         resolver_job,
         trigger=IntervalTrigger(seconds=3600),
         id="resolver_job",
+        replace_existing=True
+    )
+    
+    # Запускаем торговый движок каждые 5 секунд
+    scheduler.add_job(
+        trade_job,
+        trigger=IntervalTrigger(seconds=5),
+        id="trade_job",
         replace_existing=True
     )
     

@@ -103,11 +103,25 @@ class SettingUpdate(BaseModel):
 
 @router.get("/settings")
 async def get_all_settings(db: AsyncSession = Depends(get_db_session)):
-    """Возвращает все рантайм-настройки"""
+    """Возвращает все рантайм-настройки (мерджит с дефолтными)"""
     result = await db.execute(select(RuntimeSettings))
-    db_settings = result.scalars().all()
+    db_settings = {s.key: s.value for s in result.scalars().all()}
     
-    return {s.key: s.value for s in db_settings}
+    # Мержим с дефолтными
+    default_settings = {
+        "ACTIVE_FEATURES": settings.ACTIVE_FEATURES,
+        "TRADE_EXECUTION_TIME_SEC": str(settings.TRADE_EXECUTION_TIME_SEC),
+        "TRADE_BET_SIZE_USDC": str(settings.TRADE_BET_SIZE_USDC),
+        "TRADE_NO_FLIP_THRESHOLD": str(settings.TRADE_NO_FLIP_THRESHOLD),
+        "TRADE_FLIP_THRESHOLD": str(settings.TRADE_FLIP_THRESHOLD),
+        "TRADING_ENABLED": str(settings.TRADING_ENABLED).lower()
+    }
+    
+    for k, v in default_settings.items():
+        if k not in db_settings:
+            db_settings[k] = v
+            
+    return db_settings
 
 @router.put("/settings/{key}", dependencies=[Depends(verify_api_key)])
 async def update_setting(key: str, payload: SettingUpdate, db: AsyncSession = Depends(get_db_session)):

@@ -77,3 +77,23 @@ class LiveMarket(Base):
     __table_args__ = (
         Index("idx_live_markets_asset", "asset"),
     )
+
+class TradeHistory(Base):
+    __tablename__ = "trade_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    market_id = Column(String(128), nullable=False)
+    asset = Column(String(32), nullable=False)
+    outcome_bought = Column(String(16), nullable=False)  # "YES" or "NO"
+    amount_usdc = Column(Float, nullable=False)
+    executed_price = Column(Float, nullable=False)
+    predicted_flip_prob = Column(Float, nullable=False)
+    active_features = Column(String, nullable=False)
+    status = Column(String(32), nullable=False) # "SUCCESS", "FAILED"
+    error_msg = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    
+    __table_args__ = (
+        Index("idx_trade_history_market_id", "market_id"),
+        Index("idx_trade_history_created_at", "created_at"),
+    )

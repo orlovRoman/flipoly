@@ -127,6 +127,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 3. Fetch and Populate Settings
+    async function loadSettings() {
+        try {
+            const res = await fetch(window.API_BASE + '/api/settings');
+            const data = await res.json();
+            
+            if(data.TRADE_EXECUTION_TIME_SEC) document.getElementById('TRADE_EXECUTION_TIME_SEC').value = data.TRADE_EXECUTION_TIME_SEC;
+            if(data.TRADE_BET_SIZE_USDC) document.getElementById('TRADE_BET_SIZE_USDC').value = data.TRADE_BET_SIZE_USDC;
+            if(data.TRADE_NO_FLIP_THRESHOLD) document.getElementById('TRADE_NO_FLIP_THRESHOLD').value = data.TRADE_NO_FLIP_THRESHOLD;
+            if(data.TRADE_FLIP_THRESHOLD) document.getElementById('TRADE_FLIP_THRESHOLD').value = data.TRADE_FLIP_THRESHOLD;
+            if(data.TRADING_ENABLED) document.getElementById('TRADING_ENABLED').checked = (data.TRADING_ENABLED === 'true');
+            
+            if(data.ACTIVE_FEATURES) {
+                const active = data.ACTIVE_FEATURES.split(',');
+                document.querySelectorAll('#ml-features input[type="checkbox"]').forEach(cb => {
+                    cb.checked = active.includes(cb.value);
+                });
+            }
+        } catch (e) {
+            console.error("Failed to load settings", e);
+        }
+    }
+
     // === Button Handlers ===
 
     // Train Model
@@ -157,22 +180,39 @@ document.addEventListener('DOMContentLoaded', () => {
     // Save Settings
     document.getElementById('btn-save-settings').addEventListener('click', async (e) => {
         e.preventDefault();
-        const interval = document.getElementById('poll_interval').value;
         
-        try {
-            const res = await fetch(window.API_BASE + '/api/settings/LIVE_POLL_INTERVAL_SECONDS', {
-                method: 'PUT',
-                headers: getHeaders(),
-                body: JSON.stringify({ value: interval })
-            });
-            
-            if(res.ok) {
-                alert("Настройки успешно сохранены!");
-            } else {
-                alert("Ошибка сохранения. Проверьте API Key.");
+        // Сбор фичей
+        const activeFeatures = Array.from(document.querySelectorAll('#ml-features input[type="checkbox"]:checked'))
+                                    .map(cb => cb.value).join(',');
+                                    
+        const settingsToSave = {
+            'ACTIVE_FEATURES': activeFeatures,
+            'TRADE_EXECUTION_TIME_SEC': document.getElementById('TRADE_EXECUTION_TIME_SEC').value,
+            'TRADE_BET_SIZE_USDC': document.getElementById('TRADE_BET_SIZE_USDC').value,
+            'TRADE_NO_FLIP_THRESHOLD': document.getElementById('TRADE_NO_FLIP_THRESHOLD').value,
+            'TRADE_FLIP_THRESHOLD': document.getElementById('TRADE_FLIP_THRESHOLD').value,
+            'TRADING_ENABLED': document.getElementById('TRADING_ENABLED').checked ? 'true' : 'false'
+        };
+        
+        let allOk = true;
+        
+        for (const [key, val] of Object.entries(settingsToSave)) {
+            try {
+                const res = await fetch(window.API_BASE + `/api/settings/${key}`, {
+                    method: 'PUT',
+                    headers: getHeaders(),
+                    body: JSON.stringify({ value: String(val) })
+                });
+                if(!res.ok) allOk = false;
+            } catch(err) {
+                allOk = false;
             }
-        } catch(e) {
-            console.error(e);
+        }
+        
+        if(allOk) {
+            alert("Настройки успешно сохранены!");
+        } else {
+            alert("Ошибка при сохранении части настроек. Проверьте API Key.");
         }
     });
 
@@ -186,4 +226,5 @@ document.addEventListener('DOMContentLoaded', () => {
     // === Init ===
     loadSummary();
     loadCharts();
+    loadSettings();
 });
