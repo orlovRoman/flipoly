@@ -1,7 +1,9 @@
 import os
 import structlog
 import time
+import asyncio
 from typing import Optional, Dict, Any
+from datetime import datetime, timezone
 
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs, OrderType
@@ -13,6 +15,11 @@ class PolyTrader:
     def __init__(self):
         self.host = "https://clob.polymarket.com"
         self.chain_id = POLYGON
+        # Кеширование клиента для BUG-N05
+        self._client_cache: Optional[ClobClient] = None
+        self._client_cache_time: float = 0
+        self._last_key: str = ""
+        self._last_address: str = ""
 
     def get_client(self) -> Optional[ClobClient]:
         # BUG-T01 FIX: Читаем ключ перед каждой сделкой
@@ -22,6 +29,14 @@ class PolyTrader:
         if not private_key or not address:
             return None
             
+        now = time.time()
+        # Если прошло меньше 5 минут и ключи не изменились — используем кэш
+        if (self._client_cache and 
+            (now - self._client_cache_time) < 300 and
+            self._last_key == private_key and
+            self._last_address == address):
+            return self._client_cache
+            
         try:
             client = ClobClient(
                 self.host,
@@ -29,12 +44,19 @@ class PolyTrader:
                 chain_id=self.chain_id
             )
             client.set_creds(client.create_or_derive_creds())
+            
+            # Сохраняем в кэш
+            self._client_cache = client
+            self._client_cache_time = now
+            self._last_key = private_key
+            self._last_address = address
+            
             return client
         except Exception as e:
             logger.error("failed_to_init_clob_client", error=str(e))
             return None
 
-    def execute_trade(
+    async def execute_trade(
         self, 
         market_id: str, 
         token_id: str, 
@@ -76,7 +98,7 @@ class PolyTrader:
                 logger.warning("trade_failed_attempt", attempt=attempt, error=err, size=current_size)
                 
                 if attempt < max_retries:
-                    time.sleep(0.5)
+                    await asyncio.sleep(0.5)
                     # Если первый фейл — пробуем уменьшить размер в 2 раза
                     if attempt == 1:
                         current_size = round(current_size / 2, 2)
@@ -85,6 +107,6 @@ class PolyTrader:
             except Exception as e:
                 logger.warning("trade_exception_attempt", attempt=attempt, error=str(e))
                 if attempt < max_retries:
-                    time.sleep(0.5)
+                    await asyncio.sleep(0.5)
                     
         return {"status": "FAILED", "mode": "LIVE", "error_msg": "Max retries exceeded"}

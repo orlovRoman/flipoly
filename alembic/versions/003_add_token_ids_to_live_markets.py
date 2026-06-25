@@ -20,8 +20,8 @@ def upgrade() -> None:
     op.add_column('live_markets', sa.Column('no_token_id', sa.String(length=128), server_default='N/A', nullable=False))
     
     # Remove the server default now that rows are populated
-    op.alter_column('live_markets', 'yes_token_id', server_default=None)
-    op.alter_column('live_markets', 'no_token_id', server_default=None)
+    op.alter_column('live_markets', 'yes_token_id', server_default=None, existing_type=sa.String(length=128), existing_nullable=False)
+    op.alter_column('live_markets', 'no_token_id', server_default=None, existing_type=sa.String(length=128), existing_nullable=False)
 
 def downgrade() -> None:
     op.drop_column('live_markets', 'no_token_id')

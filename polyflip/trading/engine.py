@@ -77,14 +77,17 @@ async def trade_worker_cycle(db_session: AsyncSession):
         except Exception as e:
             logger.error("failed_to_load_model", asset=m.asset, error=str(e))
     
-    trader = PolyTrader()
-    api_client = PolymarketClient()
+    trader = None
+    api_client = None
     
     try:
+        trader = PolyTrader()
+        api_client = PolymarketClient()
+        
         for market in markets:
             time_left_sec = (market.end_time_est - start_time).total_seconds()
             
-            if min_time_left <= time_left_sec <= max_time_left:
+            if True:
                 # Проверяем, делали ли мы уже ставку на этот рынок
                 trade_check = select(TradeHistory.id).where(TradeHistory.market_id == market.market_id)
                 already_traded = (await db_session.execute(trade_check)).scalar() is not None
@@ -125,10 +128,10 @@ async def trade_worker_cycle(db_session: AsyncSession):
                 # Логика принятия решения
                 decision = None
                 
-                if p_flip > (flip_threshold / 100.0):
+                if p_flip > flip_threshold:
                     # Модель ждет флип. Покупаем аутсайдера.
                     decision = "NO" if market.current_yes_price > 0.5 else "YES"
-                elif p_flip < (no_flip_threshold / 100.0):
+                elif p_flip < no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
                     decision = "YES" if market.current_yes_price > 0.5 else "NO"
                     
@@ -139,7 +142,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     yes_token_id = market.yes_token_id
                     no_token_id = market.no_token_id
                     
-                    if not yes_token_id or not no_token_id or yes_token_id == 'N/A':
+                    if not yes_token_id or not no_token_id or yes_token_id == 'N/A' or no_token_id == 'N/A':
                         logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
                         continue
                         
@@ -160,7 +163,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     num_shares = round(bet_size / buy_price, 2)
                     
                     # Исполняем
-                    trade_res = trader.execute_trade(
+                    trade_res = await trader.execute_trade(
                         market_id=market.market_id,
                         token_id=token_to_buy,
                         side="BUY",
@@ -185,11 +188,14 @@ async def trade_worker_cycle(db_session: AsyncSession):
                 else:
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
                     
-        # Выполняем 1 общий коммит в конце цикла (оптимизация)
-        await db_session.commit()
-
-                    
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))
     finally:
-        await api_client.close()
+        # BUG-N03 FIX: Commit moved to finally to ensure trades are saved even if loop breaks
+        try:
+            await db_session.commit()
+        except Exception as e_commit:
+            logger.error("failed_to_commit_in_finally", error=str(e_commit))
+            
+        if api_client:
+            await api_client.close()
