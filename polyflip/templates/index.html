@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyFlip Dashboard</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar / Navigation -->
+        <nav class="sidebar">
+            <div class="logo">
+                <span class="poly">Poly</span><span class="flip">Flip</span>
+            </div>
+            <ul class="nav-links">
+                <li class="nav-item active" data-tab="analytics">Аналитика</li>
+                <li class="nav-item" data-tab="status">Статус Парсера</li>
+                <li class="nav-item" data-tab="settings">Настройки</li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- TAB: Analytics -->
+            <section id="analytics" class="tab-content active">
+                <header class="tab-header">
+                    <h1>Аналитика</h1>
+                    <button id="btn-train" class="btn primary-btn">Запустить переобучение</button>
+                </header>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>Рынков обработано</h3>
+                        <div class="stat-value" id="stat-markets">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Процент флипов</h3>
+                        <div class="stat-value highlight" id="stat-flips">--%</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Текущая модель (BTC)</h3>
+                        <div class="stat-value" id="stat-model-btc">v-- (Acc: --)</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Текущая модель (ETH)</h3>
+                        <div class="stat-value" id="stat-model-eth">v-- (Acc: --)</div>
+                    </div>
+                </div>
+
+                <div class="charts-container">
+                    <div class="chart-box">
+                        <h3>Вероятность изменения исхода (BTC) по времени</h3>
+                        <p class="chart-desc">Зависимость вероятности флипа от оставшегося времени (0-15 мин)</p>
+                        <canvas id="btcProbChart"></canvas>
+                    </div>
+                    <div class="chart-box">
+                        <h3>Вероятность изменения исхода (ETH) по времени</h3>
+                        <canvas id="ethProbChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: Status -->
+            <section id="status" class="tab-content">
+                <header class="tab-header">
+                    <h1>Статус Парсера</h1>
+                    <button id="btn-refresh-status" class="btn outline-btn">Обновить</button>
+                </header>
+                <div class="status-panel">
+                    <p>Сборщик рынков (Polymarket Gamma/CLOB) запущен в фоне.</p>
+                    <p>Сервер базы данных: <span class="status-indicator online">Online</span></p>
+                    <div class="log-box" id="log-box">
+                        (Здесь будут последние логи сборщика, в разработке)
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: Settings -->
+            <section id="settings" class="tab-content">
+                <header class="tab-header">
+                    <h1>Настройки Системы</h1>
+                    <button id="btn-save-settings" class="btn primary-btn">Сохранить</button>
+                </header>
+                
+                <form class="settings-form" id="settings-form">
+                    <div class="form-group">
+                        <label for="poll_interval">Интервал опроса (сек)</label>
+                        <input type="number" id="poll_interval" value="60">
+                        <small>Как часто опрашивать CLOB API для вычисления velocity</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="api_key">API Key (для доступа к бекенду)</label>
+                        <input type="password" id="api_key" value="test-key" placeholder="Enter API key...">
+                        <small>Ключ передается в заголовке X-API-Key при каждом запросе из дашборда</small>
+                    </div>
+                </form>
+            </section>
+        </main>
+    </div>
+
+    <!-- Custom JS -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

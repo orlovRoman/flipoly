@@ -1,7 +1,10 @@
 from fastapi import FastAPI, Depends
+from fastapi.staticfiles import StaticFiles
 import structlog
+import os
 from polyflip.api.auth import verify_api_key
 from polyflip.api.analytics import router as analytics_router
+from polyflip.api.dashboard import router as dashboard_router
 
 structlog.configure(
     processors=[
@@ -13,6 +16,11 @@ logger = structlog.get_logger()
 
 app = FastAPI(title="PolyFlip API", version="0.1.0")
 app.include_router(analytics_router)
+app.include_router(dashboard_router)
+
+# Подключение статических файлов
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+app.mount("/static", StaticFiles(directory=os.path.join(base_dir, "static")), name="static")
 
 @app.on_event("startup")
 async def startup_event():

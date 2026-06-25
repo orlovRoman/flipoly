@@ -58,6 +58,44 @@ async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession =
     background_tasks.add_task(train_all)
     return {"status": "training_started"}
 
+@router.get("/analytics/probabilities")
+async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):
+    """
+    Возвращает вероятности изменения цены (флипа) в зависимости от оставшегося времени (0-15 минут)
+    для графиков по ETH и BTC.
+    """
+    # Группируем по asset и округленному времени (time_left_min)
+    # Используем CAST(time_left_min AS INTEGER) для агрегации по минутам
+    stmt = select(
+        MarketSnapshot.asset,
+        func.cast(MarketSnapshot.time_left_min, func.Integer).label("minute"),
+        func.count(MarketSnapshot.id).label("total"),
+        func.sum(func.cast(MarketSnapshot.flip_vs_final, func.Integer)).label("flips")
+    ).where(
+        MarketSnapshot.final_outcome != "PENDING",
+        MarketSnapshot.time_left_min <= 16.0,
+        MarketSnapshot.time_left_min >= 0.0
+    ).group_by(
+        MarketSnapshot.asset,
+        func.cast(MarketSnapshot.time_left_min, func.Integer)
+    )
+    
+    result = await db.execute(stmt)
+    rows = result.all()
+    
+    # Форматируем данные: { "BTC": { "15": 0.1, "14": 0.15, ... }, "ETH": { ... } }
+    data = {}
+    for row in rows:
+        asset = row.asset
+        minute = str(row.minute)
+        prob = row.flips / row.total if row.total > 0 else 0
+        
+        if asset not in data:
+            data[asset] = {}
+        data[asset][minute] = round(prob, 3)
+        
+    return data
+
 # --- Settings ---
 
 class SettingUpdate(BaseModel):
