@@ -3,6 +3,7 @@ import structlog
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import json
 
 from polyflip.db.models import MarketSnapshot
 
@@ -55,17 +56,15 @@ async def resolve_pending_markets(db_session: AsyncSession):
                     prices = market_data.get("outcomePrices", [])
                     outcomes = market_data.get("outcomes", ["Yes", "No"])
                     
-                    if type(outcomes) is str:
-                        import json
+                    if isinstance(outcomes, str):
                         outcomes = json.loads(outcomes)
-                    if type(prices) is str:
-                        import json
+                    if isinstance(prices, str):
                         prices = json.loads(prices)
                         
                     if prices and len(prices) >= 2 and outcomes and len(outcomes) >= 2:
-                        if str(prices[0]) in ("1", "1.0"):
+                        if float(prices[0]) >= 0.99:
                             answer = outcomes[0]
-                        elif str(prices[1]) in ("1", "1.0"):
+                        elif float(prices[1]) >= 0.99:
                             answer = outcomes[1]
 
                 if not answer:
