@@ -28,6 +28,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // === Data Fetching & Rendering ===
     
+    // Simple helper to prevent XSS in innerHTML
+    const escapeHtml = (unsafe) => {
+        return String(unsafe)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    };
+    
     // 1. Fetch Summary
     async function loadSummary() {
         try {
@@ -250,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
             for (const [asset, counts] of Object.entries(data.dataset_summary)) {
                 dtBody.innerHTML += `
                     <tr>
-                        <td><strong>${asset}</strong></td>
+                        <td><strong>${escapeHtml(asset)}</strong></td>
                         <td style="color: var(--poly-green)">${counts.RESOLVED}</td>
                         <td style="color: #FFB020">${counts.PENDING}</td>
                     </tr>
@@ -266,8 +276,8 @@ document.addEventListener('DOMContentLoaded', () => {
             for (const lm of data.live_markets) {
                 ltBody.innerHTML += `
                     <tr>
-                        <td><strong>${lm.asset}</strong></td>
-                        <td style="font-size: 0.8rem">${lm.question}</td>
+                        <td><strong>${escapeHtml(lm.asset)}</strong></td>
+                        <td style="font-size: 0.8rem">${escapeHtml(lm.question)}</td>
                         <td>${lm.current_yes_price}</td>
                         <td>${lm.current_spread}</td>
                         <td>${lm.volume_5min}</td>

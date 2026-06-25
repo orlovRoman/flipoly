@@ -1,11 +1,11 @@
 import os
-from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from polyflip.db.connection import get_db_session
 from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot
+from polyflip.api.auth import verify_api_key
 
 router = APIRouter(tags=["Dashboard"])
 
@@ -18,7 +18,7 @@ async def get_dashboard(request: Request):
     """Отдает главную страницу дашборда"""
     return templates.TemplateResponse("index.html", {"request": request})
 
-@router.get("/api/dashboard/status")
+@router.get("/api/dashboard/status", dependencies=[Depends(verify_api_key)])
 async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     """Отдает данные для вкладки Статус Парсера"""
     # 1. Последний статус коллектора
