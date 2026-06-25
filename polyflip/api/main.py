@@ -5,6 +5,7 @@ import os
 from polyflip.api.auth import verify_api_key
 from polyflip.api.analytics import router as analytics_router
 from polyflip.api.dashboard import router as dashboard_router
+from polyflip.api.settings import router as settings_router
 
 structlog.configure(
     processors=[
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)
 app.include_router(analytics_router)
 app.include_router(dashboard_router)
+app.include_router(settings_router)
 
 # Подключение статических файлов
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
