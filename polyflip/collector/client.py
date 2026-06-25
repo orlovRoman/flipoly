@@ -139,7 +139,8 @@ class PolymarketClient:
             # Пытаемся получить последние сделки по токену
             response = await self.client.get(f"{self.CLOB_API}/trades", params={"token_id": yes_token_id})
             if response.status_code != 200:
-                logger.warning("clob_trades_api_error", token_id=yes_token_id, status=response.status_code)
+                if response.status_code != 401: # 401 means no CLOB API keys, don't spam
+                    logger.warning("clob_trades_api_error", token_id=yes_token_id, status=response.status_code)
                 return 0.0
                 
             trades = response.json()
