@@ -229,7 +229,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // 4. Fetch Parser Status
     async function loadParserStatus() {
         try {
-            const res = await fetch(window.API_BASE + '/api/dashboard/status');
+            const res = await fetch(window.API_BASE + '/api/dashboard/status', {
+                headers: getHeaders()
+            });
             const data = await res.json();
             
             // 4.1 Collector Card
