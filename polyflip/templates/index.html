@@ -14,7 +14,12 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    
+    <script>
+        // Это позволяет API работать корректно, даже если приложение висит на /polyflip/
+        window.API_BASE = "{{ url_for('get_dashboard') }}".replace('/dashboard', '');
+    </script>
 </head>
 <body>
     <div class="app-container">
@@ -114,6 +119,6 @@
     </div>
 
     <!-- Custom JS -->
-    <script src="/static/js/app.js"></script>
+    <script src="{{ url_for('static', path='/js/app.js') }}"></script>
 </body>
 </html>

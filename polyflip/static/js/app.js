@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. Fetch Summary
     async function loadSummary() {
         try {
-            const res = await fetch('/api/analytics/summary');
+            const res = await fetch(window.API_BASE + '/api/analytics/summary');
             const data = await res.json();
             
             document.getElementById('stat-markets').innerText = data.total_resolved_markets || 0;
@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadCharts() {
         try {
-            const res = await fetch('/api/analytics/probabilities');
+            const res = await fetch(window.API_BASE + '/api/analytics/probabilities');
             chartDataStore = await res.json();
             renderSelectedChart();
         } catch (e) {
@@ -136,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.disabled = true;
         
         try {
-            const res = await fetch('/api/analytics/train', {
+            const res = await fetch(window.API_BASE + '/api/analytics/train', {
                 method: 'POST',
                 headers: getHeaders()
             });
@@ -160,7 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const interval = document.getElementById('poll_interval').value;
         
         try {
-            const res = await fetch('/api/settings/LIVE_POLL_INTERVAL_SECONDS', {
+            const res = await fetch(window.API_BASE + '/api/settings/LIVE_POLL_INTERVAL_SECONDS', {
                 method: 'PUT',
                 headers: getHeaders(),
                 body: JSON.stringify({ value: interval })
