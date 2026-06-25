@@ -17,62 +17,77 @@ class PolymarketClient:
 
     async def get_active_15m_markets(self, assets: List[str]) -> List[Dict[str, Any]]:
         """
-        Получает активные 15-минутные рынки для заданных активов.
-        Используем фильтрацию по активным событиям.
+        Получает активные 15-минутные рынки (Up/Down) для заданных активов.
         """
         markets = []
+        
+        # Маппинг тикеров в полные названия для поиска в тегах и заголовках
+        asset_mapping = {
+            "BTC": ["BITCOIN", "BTC"],
+            "ETH": ["ETHEREUM", "ETH"],
+            "SOL": ["SOLANA", "SOL"],
+            "XRP": ["XRP"],
+            "DOGE": ["DOGECOIN", "DOGE"],
+            "BNB": ["BNB"],
+            "HYPE": ["HYPERLIQUID", "HYPE"]
+        }
+        
         try:
-            # Polymarket events API - берем активные и незакрытые
+            # Запрашиваем конкретно 15-минутные рынки через tag_slug=15m
             response = await self.client.get(
                 f"{self.GAMMA_API}/events",
-                params={"active": "true", "closed": "false", "limit": 100}
+                params={"active": "true", "closed": "false", "tag_slug": "15m", "limit": 100}
             )
             response.raise_for_status()
             events = response.json()
 
             for event in events:
-                # Проверяем, относится ли к нужным активам
-                # Обычно токены есть в tags или названии
                 title = event.get("title", "").upper()
                 tags = [t.get("label", "").upper() for t in event.get("tags", [])]
                 
-                is_target_asset = any(a.upper() in title or a.upper() in tags for a in assets)
-                if not is_target_asset:
+                # Ищем, какому активу из наших настроек принадлежит этот рынок
+                matched_asset = None
+                for a in assets:
+                    search_terms = asset_mapping.get(a.upper(), [a.upper()])
+                    if any(term in title or term in tags for term in search_terms):
+                        matched_asset = a.upper()
+                        break
+                        
+                if not matched_asset:
                     continue
 
                 for market in event.get("markets", []):
                     if not market.get("active") or market.get("closed"):
                         continue
                         
-                    # Нас интересуют только бинарные YES/NO рынки
+                    # Нас интересуют бинарные рынки Up/Down (или Yes/No на всякий случай)
                     outcomes = market.get("outcomes", [])
-                    if outcomes != ["Yes", "No"]:
+                    if type(outcomes) is str:
+                        import json
+                        outcomes = json.loads(outcomes)
+                        
+                    if outcomes != ["Up", "Down"] and outcomes != ["Yes", "No"]:
                         continue
 
-                    market_question = market.get("question", "").lower()
-                    
-                    # Фильтрация 15-минутных рынков (UP/DOWN)
-                    # Обычно они содержат "15m", "15 min" или что-то подобное в вопросе или title.
-                    is_15m = "15m" in market_question or "15 min" in market_question or "15m" in title.lower()
-                    
-                    # Также можно проверять end_date - start_date, но строковый фильтр надежнее
-                    # Для CLOB API нам нужен token_id (обычно первый элемент - это токен YES)
                     clob_token_ids = market.get("clobTokenIds", [])
-                    if not clob_token_ids:
+                    if type(clob_token_ids) is str:
+                        import json
+                        clob_token_ids = json.loads(clob_token_ids)
+                        
+                    if not clob_token_ids or len(clob_token_ids) < 2:
                         continue
                         
-                    yes_token_id = clob_token_ids[0]
-                    no_token_id = clob_token_ids[1] if len(clob_token_ids) > 1 else ""
+                    yes_token_id = clob_token_ids[0] # Up или Yes
+                    no_token_id = clob_token_ids[1]  # Down или No
 
-                    if is_15m:
-                        markets.append({
-                            "market_id": market.get("id"), # Уникальный ID рынка
-                            "yes_token_id": yes_token_id,
-                            "no_token_id": no_token_id,
-                            "question": market.get("question"),
-                            "asset": next((a for a in assets if a.upper() in title or a.upper() in tags), "UNKNOWN"),
-                            "end_date_iso": market.get("endDate"),
-                        })
+                    markets.append({
+                        "market_id": market.get("id"),
+                        "yes_token_id": yes_token_id,
+                        "no_token_id": no_token_id,
+                        "question": market.get("question"),
+                        "asset": matched_asset,
+                        "end_date_iso": market.get("endDate"),
+                    })
                         
         except Exception as e:
             logger.error("error_fetching_gamma_markets", error=str(e))
