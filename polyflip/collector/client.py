@@ -62,11 +62,13 @@ class PolymarketClient:
                         continue
                         
                     yes_token_id = clob_token_ids[0]
+                    no_token_id = clob_token_ids[1] if len(clob_token_ids) > 1 else ""
 
                     if is_15m:
                         markets.append({
                             "market_id": market.get("id"), # Уникальный ID рынка
                             "yes_token_id": yes_token_id,
+                            "no_token_id": no_token_id,
                             "question": market.get("question"),
                             "asset": next((a for a in assets if a.upper() in title or a.upper() in tags), "UNKNOWN"),
                             "end_date_iso": market.get("endDate"),

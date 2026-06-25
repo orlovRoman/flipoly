@@ -54,7 +54,9 @@ async def main():
         trade_job,
         trigger=IntervalTrigger(seconds=5),
         id="trade_job",
-        replace_existing=True
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=None
     )
     
     scheduler.start()

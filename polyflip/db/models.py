@@ -66,6 +66,8 @@ class LiveMarket(Base):
     market_id = Column(String(128), primary_key=True)
     asset = Column(String(32), nullable=False)
     question = Column(String, nullable=False)
+    yes_token_id = Column(String(128), nullable=False)
+    no_token_id = Column(String(128), nullable=False)
     end_time_est = Column(DateTime(timezone=True), nullable=False)
     current_yes_price = Column(Float, nullable=False)
     current_no_price = Column(Float, nullable=False)

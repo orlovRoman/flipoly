@@ -1,5 +1,6 @@
 import os
 import structlog
+import time
 from typing import Optional, Dict, Any
 
 from py_clob_client.client import ClobClient
@@ -12,22 +13,26 @@ class PolyTrader:
     def __init__(self):
         self.host = "https://clob.polymarket.com"
         self.chain_id = POLYGON
-        self.private_key = os.getenv("POLYGON_PRIVATE_KEY")
-        self.address = os.getenv("POLYGON_ADDRESS")
+
+    def get_client(self) -> Optional[ClobClient]:
+        # BUG-T01 FIX: Читаем ключ перед каждой сделкой
+        private_key = os.getenv("POLYGON_PRIVATE_KEY")
+        address = os.getenv("POLYGON_ADDRESS")
         
-        self.client = None
-        if self.private_key and self.address:
-            try:
-                self.client = ClobClient(
-                    self.host,
-                    key=self.private_key,
-                    chain_id=self.chain_id
-                )
-                self.client.set_creds(self.client.create_or_derive_creds())
-            except Exception as e:
-                logger.error("failed_to_init_clob_client", error=str(e))
-        else:
-            logger.warning("missing_polygon_credentials_paper_trading_mode")
+        if not private_key or not address:
+            return None
+            
+        try:
+            client = ClobClient(
+                self.host,
+                key=private_key,
+                chain_id=self.chain_id
+            )
+            client.set_creds(client.create_or_derive_creds())
+            return client
+        except Exception as e:
+            logger.error("failed_to_init_clob_client", error=str(e))
+            return None
 
     def execute_trade(
         self, 
@@ -42,29 +47,44 @@ class PolyTrader:
         """
         logger.info("executing_trade", market_id=market_id, side=side, price=price, size=size)
         
-        if not self.client:
+        client = self.get_client()
+        
+        if not client:
             logger.info("paper_trade_executed", market_id=market_id, side=side, price=price, size=size)
             return {"status": "SUCCESS", "mode": "PAPER", "error_msg": None}
             
-        try:
-            order_args = OrderArgs(
-                price=price,
-                size=size,
-                side=side,
-                token_id=token_id
-            )
-            
-            # Размещаем ордер FOK, чтобы он исполнился сразу или отменился
-            resp = self.client.create_and_post_order(order_args, order_type=OrderType.FOK)
-            
-            if resp and resp.get("success"):
-                logger.info("trade_success", order_id=resp.get("orderID"))
-                return {"status": "SUCCESS", "mode": "LIVE", "error_msg": None}
-            else:
-                err = resp.get("errorMsg") if resp else "Unknown error"
-                logger.error("trade_failed", error=err)
-                return {"status": "FAILED", "mode": "LIVE", "error_msg": err}
+        # BUG-T02 FIX: Retry logic с fallback на size/2
+        max_retries = 3
+        current_size = size
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                order_args = OrderArgs(
+                    price=price,
+                    size=current_size,
+                    side=side,
+                    token_id=token_id
+                )
                 
-        except Exception as e:
-            logger.exception("trade_exception", error=str(e))
-            return {"status": "FAILED", "mode": "LIVE", "error_msg": str(e)}
+                resp = client.create_and_post_order(order_args, order_type=OrderType.FOK)
+                
+                if resp and resp.get("success"):
+                    logger.info("trade_success", order_id=resp.get("orderID"), attempt=attempt, size=current_size)
+                    return {"status": "SUCCESS", "mode": "LIVE", "error_msg": None}
+                
+                err = resp.get("errorMsg") if resp else "Unknown error"
+                logger.warning("trade_failed_attempt", attempt=attempt, error=err, size=current_size)
+                
+                if attempt < max_retries:
+                    time.sleep(0.5)
+                    # Если первый фейл — пробуем уменьшить размер в 2 раза
+                    if attempt == 1:
+                        current_size = round(current_size / 2, 2)
+                        logger.info("fallback_trade_size", new_size=current_size)
+                        
+            except Exception as e:
+                logger.warning("trade_exception_attempt", attempt=attempt, error=str(e))
+                if attempt < max_retries:
+                    time.sleep(0.5)
+                    
+        return {"status": "FAILED", "mode": "LIVE", "error_msg": "Max retries exceeded"}

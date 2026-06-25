@@ -70,12 +70,17 @@ async def run_collector_cycle(db_session: AsyncSession):
                 live_m.price_velocity = price_velocity
                 live_m.volume_5min = volume_5min
                 live_m.last_updated = start_time
+                # На всякий случай обновляем token_id, если добавились
+                live_m.yes_token_id = yes_token_id
+                live_m.no_token_id = m_data["no_token_id"]
             else:
                 # Создаем новую запись в LiveMarket
                 live_m = LiveMarket(
                     market_id=market_id,
                     asset=m_data["asset"],
                     question=m_data["question"],
+                    yes_token_id=yes_token_id,
+                    no_token_id=m_data["no_token_id"],
                     end_time_est=end_date,
                     current_yes_price=mid_price,
                     current_no_price=prices["current_no_price"],

@@ -54,13 +54,28 @@ async def trade_worker_cycle(db_session: AsyncSession):
     min_time_left = execution_time_sec - 5
     max_time_left = execution_time_sec + 15
     
-    live_markets_stmt = select(LiveMarket)
+    from datetime import timedelta
+    min_td = timedelta(seconds=min_time_left)
+    max_td = timedelta(seconds=max_time_left)
+    
+    live_markets_stmt = select(LiveMarket).where(
+        and_(
+            LiveMarket.end_time_est >= start_time + min_td,
+            LiveMarket.end_time_est <= start_time + max_td
+        )
+    )
     markets = (await db_session.execute(live_markets_stmt)).scalars().all()
     
     # Загружаем активные модели
     models_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
     active_models = (await db_session.execute(models_stmt)).scalars().all()
-    models_by_asset = {m.asset: pickle.loads(m.model_blob) for m in active_models}
+    
+    models_by_asset = {}
+    for m in active_models:
+        try:
+            models_by_asset[m.asset] = pickle.loads(m.model_blob)
+        except Exception as e:
+            logger.error("failed_to_load_model", asset=m.asset, error=str(e))
     
     trader = PolyTrader()
     api_client = PolymarketClient()
@@ -120,29 +135,22 @@ async def trade_worker_cycle(db_session: AsyncSession):
                 if decision:
                     logger.info("trade_decision_made", market_id=market.market_id, p_flip=p_flip, decision=decision)
                     
-                    # Получаем yes_token_id из API
-                    m_data = await api_client.get_active_15m_markets([market.asset])
-                    target_market = next((m for m in m_data if m["market_id"] == market.market_id), None)
+                    # Извлекаем токены напрямую из БД (без дополнительных API запросов)
+                    yes_token_id = market.yes_token_id
+                    no_token_id = market.no_token_id
                     
-                    if not target_market:
-                        logger.error("cannot_find_token_id", market_id=market.market_id)
+                    if not yes_token_id or not no_token_id or yes_token_id == 'N/A':
+                        logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
                         continue
                         
-                    yes_token_id = target_market["yes_token_id"]
-                    no_token_id = target_market["no_token_id"]
-                    
                     token_to_buy = yes_token_id if decision == "YES" else no_token_id
                     
-                    # Цена = лучший Ask. У нас нет no_ask, но можно грубо прикинуть
-                    # В проде лучше запросить свежий стакан (get_market_prices) перед ставкой
-                    fresh_prices = await api_client.get_market_prices(yes_token_id)
+                    # Цена = лучший Ask. Запрашиваем книгу именно для того токена, который покупаем
+                    fresh_prices = await api_client.get_market_prices(token_to_buy)
                     if not fresh_prices:
                         continue
                         
-                    best_yes_ask = fresh_prices["best_ask"]
-                    best_no_ask = 1.0 - fresh_prices["best_bid"] # spread inversion
-                    
-                    buy_price = best_yes_ask if decision == "YES" else best_no_ask
+                    buy_price = fresh_prices.get("best_ask", 0)
                     
                     if buy_price <= 0 or buy_price >= 1:
                         logger.warning("invalid_buy_price", price=buy_price)
@@ -174,9 +182,12 @@ async def trade_worker_cycle(db_session: AsyncSession):
                         created_at=start_time
                     )
                     db_session.add(history)
-                    await db_session.commit()
                 else:
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
+                    
+        # Выполняем 1 общий коммит в конце цикла (оптимизация)
+        await db_session.commit()
+
                     
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))
