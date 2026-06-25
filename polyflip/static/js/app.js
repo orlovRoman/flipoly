@@ -140,7 +140,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // 3. Fetch and Populate Settings
     async function loadSettings() {
         try {
-            const res = await fetch(window.API_BASE + '/api/settings');
+            const res = await fetch(window.API_BASE + '/api/settings', {
+                headers: getHeaders()
+            });
             const data = await res.json();
             
             if(data.TRADE_EXECUTION_TIME_SEC) document.getElementById('TRADE_EXECUTION_TIME_SEC').value = data.TRADE_EXECUTION_TIME_SEC;
