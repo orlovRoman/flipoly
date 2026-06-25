@@ -52,37 +52,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 2. Fetch Probabilities and Render Charts
-    let btcChartInstance = null;
-    let ethChartInstance = null;
+    let probChartInstance = null;
+    let chartDataStore = {};
 
     async function loadCharts() {
         try {
             const res = await fetch('/api/analytics/probabilities');
-            const data = await res.json();
-            
-            const btcData = data['BTC'] || {};
-            const ethData = data['ETH'] || {};
-            
-            // X-axis: 0 to 15 minutes
-            const labels = Array.from({length: 16}, (_, i) => i.toString());
-            
-            const btcPoints = labels.map(l => btcData[l] || 0);
-            const ethPoints = labels.map(l => ethData[l] || 0);
-
-            // Render BTC Chart
-            const ctxBtc = document.getElementById('btcProbChart').getContext('2d');
-            if(btcChartInstance) btcChartInstance.destroy();
-            btcChartInstance = createChart(ctxBtc, labels, btcPoints, 'BTC Вероятность Флипа', '#0072F5');
-
-            // Render ETH Chart
-            const ctxEth = document.getElementById('ethProbChart').getContext('2d');
-            if(ethChartInstance) ethChartInstance.destroy();
-            ethChartInstance = createChart(ctxEth, labels, ethPoints, 'ETH Вероятность Флипа', '#00D395');
-
+            chartDataStore = await res.json();
+            renderSelectedChart();
         } catch (e) {
             console.error("Failed to load charts", e);
         }
     }
+
+    function renderSelectedChart() {
+        const selectedAsset = document.getElementById('asset-selector').value;
+        const assetData = chartDataStore[selectedAsset] || {};
+        
+        // X-axis: 0 to 15 minutes
+        const labels = Array.from({length: 16}, (_, i) => i.toString());
+        const points = labels.map(l => assetData[l] || 0);
+
+        const color = selectedAsset === 'BTC' ? '#0072F5' : '#00D395';
+        const ctx = document.getElementById('probChart').getContext('2d');
+        
+        if(probChartInstance) probChartInstance.destroy();
+        probChartInstance = createChart(ctx, labels, points, `${selectedAsset} Вероятность Флипа`, color);
+    }
+
+    document.getElementById('asset-selector').addEventListener('change', renderSelectedChart);
 
     function createChart(ctx, labels, data, labelText, color) {
         return new Chart(ctx, {

@@ -59,15 +59,17 @@
                     </div>
                 </div>
 
-                <div class="charts-container">
+                <div class="charts-container" style="grid-template-columns: 1fr;">
                     <div class="chart-box">
-                        <h3>Вероятность изменения исхода (BTC) по времени</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <h3>Вероятность изменения исхода по времени</h3>
+                            <select id="asset-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none;">
+                                <option value="BTC">BTC</option>
+                                <option value="ETH">ETH</option>
+                            </select>
+                        </div>
                         <p class="chart-desc">Зависимость вероятности флипа от оставшегося времени (0-15 мин)</p>
-                        <canvas id="btcProbChart"></canvas>
-                    </div>
-                    <div class="chart-box">
-                        <h3>Вероятность изменения исхода (ETH) по времени</h3>
-                        <canvas id="ethProbChart"></canvas>
+                        <canvas id="probChart"></canvas>
                     </div>
                 </div>
             </section>
