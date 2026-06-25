@@ -113,8 +113,10 @@ class PolymarketClient:
             if not bids or not asks:
                 return {}
                 
-            best_bid = float(bids[0].get("price", 0))
-            best_ask = float(asks[0].get("price", 1))
+            # Polymarket API может возвращать стакан отсортированным от худших цен к лучшим.
+            # Поэтому надежнее искать максимум для bid и минимум для ask.
+            best_bid = max(float(b.get("price", 0)) for b in bids)
+            best_ask = min(float(a.get("price", 1)) for a in asks)
             
             mid_price = (best_bid + best_ask) / 2.0
             spread = best_ask - best_bid
