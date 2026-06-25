@@ -30,6 +30,10 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
       - API_KEY=${API_KEY:-test-key}
       - ASSETS=${ASSETS:-BTC,ETH}
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
     command: uvicorn polyflip.api.main:app --host 0.0.0.0 --port 8001
     deploy:
       resources:
@@ -46,6 +50,10 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
       - API_KEY=${API_KEY:-test-key}
       - ASSETS=${ASSETS:-BTC,ETH}
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
     command: python -m polyflip.scheduler.jobs
     deploy:
       resources:
