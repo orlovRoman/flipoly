@@ -41,10 +41,10 @@ async def main():
         replace_existing=True
     )
     
-    # Запускаем резолвер каждый час (3600 сек)
+    # Запускаем резолвер каждые 2 минуты (120 сек)
     scheduler.add_job(
         resolver_job,
-        trigger=IntervalTrigger(seconds=3600),
+        trigger=IntervalTrigger(seconds=120),
         id="resolver_job",
         replace_existing=True
     )
