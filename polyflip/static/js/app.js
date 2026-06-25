@@ -216,15 +216,84 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // 4. Fetch Parser Status
+    async function loadParserStatus() {
+        try {
+            const res = await fetch(window.API_BASE + '/api/dashboard/status');
+            const data = await res.json();
+            
+            // 4.1 Collector Card
+            const collector = data.collector;
+            if (collector) {
+                const statusSpan = document.getElementById('cs-status');
+                statusSpan.innerText = collector.status;
+                statusSpan.style.color = collector.status === 'success' ? 'var(--poly-green)' : '#ff3366';
+                
+                document.getElementById('cs-run-at').innerText = new Date(collector.run_at).toLocaleString();
+                document.getElementById('cs-duration').innerText = collector.duration_sec;
+                document.getElementById('cs-found').innerText = collector.markets_found;
+                document.getElementById('cs-saved').innerText = collector.markets_saved;
+                
+                if(collector.error_message) {
+                    document.getElementById('cs-error').innerText = "Error: " + collector.error_message;
+                    document.getElementById('cs-error').style.display = 'block';
+                } else {
+                    document.getElementById('cs-error').style.display = 'none';
+                }
+            } else {
+                document.getElementById('cs-status').innerText = "No data yet";
+            }
+            
+            // 4.2 Dataset Table
+            const dtBody = document.querySelector('#dataset-table tbody');
+            dtBody.innerHTML = '';
+            for (const [asset, counts] of Object.entries(data.dataset_summary)) {
+                dtBody.innerHTML += `
+                    <tr>
+                        <td><strong>${asset}</strong></td>
+                        <td style="color: var(--poly-green)">${counts.RESOLVED}</td>
+                        <td style="color: #FFB020">${counts.PENDING}</td>
+                    </tr>
+                `;
+            }
+            if(Object.keys(data.dataset_summary).length === 0) {
+                dtBody.innerHTML = `<tr><td colspan="3">Нет собранных данных</td></tr>`;
+            }
+            
+            // 4.3 Live Markets Table
+            const ltBody = document.querySelector('#live-table tbody');
+            ltBody.innerHTML = '';
+            for (const lm of data.live_markets) {
+                ltBody.innerHTML += `
+                    <tr>
+                        <td><strong>${lm.asset}</strong></td>
+                        <td style="font-size: 0.8rem">${lm.question}</td>
+                        <td>${lm.current_yes_price}</td>
+                        <td>${lm.current_spread}</td>
+                        <td>${lm.volume_5min}</td>
+                        <td style="font-size: 0.8rem">${new Date(lm.end_time_est).toLocaleTimeString()}</td>
+                    </tr>
+                `;
+            }
+            if(data.live_markets.length === 0) {
+                ltBody.innerHTML = `<tr><td colspan="6">Нет активных рынков</td></tr>`;
+            }
+
+        } catch (e) {
+            console.error("Failed to load parser status", e);
+        }
+    }
+
     // Refresh Status
     document.getElementById('btn-refresh-status').addEventListener('click', () => {
-        // Just reload everything for now
         loadSummary();
         loadCharts();
+        loadParserStatus();
     });
 
     // === Init ===
     loadSummary();
     loadCharts();
     loadSettings();
+    loadParserStatus();
 });

@@ -86,10 +86,46 @@
                     <button id="btn-refresh-status" class="btn outline-btn">Обновить</button>
                 </header>
                 <div class="status-panel">
-                    <p>Сборщик рынков (Polymarket Gamma/CLOB) запущен в фоне.</p>
-                    <p>Сервер базы данных: <span class="status-indicator online">Online</span></p>
-                    <div class="log-box" id="log-box">
-                        (Здесь будут последние логи сборщика, в разработке)
+                    <div id="collector-status-card" class="stat-card" style="margin-bottom: 20px;">
+                        <h3>Сборщик (Коллектор)</h3>
+                        <p>Статус: <span id="cs-status">--</span></p>
+                        <p>Последний запуск: <span id="cs-run-at">--</span></p>
+                        <p>Длительность: <span id="cs-duration">--</span> сек.</p>
+                        <p>Рынков найдено: <span id="cs-found">--</span> | Сохранено: <span id="cs-saved">--</span></p>
+                        <p id="cs-error" style="color: #ff3366; display: none;"></p>
+                    </div>
+
+                    <h3>Снепшоты (Датасет)</h3>
+                    <table class="data-table" id="dataset-table" style="width: 100%; margin-bottom: 20px; text-align: left;">
+                        <thead>
+                            <tr>
+                                <th>Актив</th>
+                                <th>Готово к ML (RESOLVED)</th>
+                                <th>В процессе (PENDING)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Рендерится через JS -->
+                        </tbody>
+                    </table>
+
+                    <h3>Активные рынки (Live)</h3>
+                    <div style="overflow-x: auto;">
+                        <table class="data-table" id="live-table" style="width: 100%; text-align: left;">
+                            <thead>
+                                <tr>
+                                    <th>Актив</th>
+                                    <th>Рынок</th>
+                                    <th>Цена YES</th>
+                                    <th>Спред</th>
+                                    <th>Объем (5m)</th>
+                                    <th>Закрытие</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Рендерится через JS -->
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </section>
