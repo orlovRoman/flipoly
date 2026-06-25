@@ -31,13 +31,14 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
     models_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
     models = (await db.execute(models_stmt)).scalars().all()
     
-    active_models = {}
-    for m in models:
-        active_models[m.asset] = {
+    active_models = {
+        m.asset: {
             "version": m.version,
             "accuracy": round(m.accuracy, 4),
             "trained_at": m.trained_at
         }
+        for m in models
+    }
 
     return {
         "total_resolved_markets": total_markets,

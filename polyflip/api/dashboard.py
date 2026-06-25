@@ -42,16 +42,17 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     live_res = await db.execute(live_stmt)
     live_markets = live_res.scalars().all()
     
-    live_data = []
-    for lm in live_markets:
-        live_data.append({
+    live_data = [
+        {
             "asset": lm.asset,
             "question": lm.question,
             "end_time_est": lm.end_time_est,
             "current_yes_price": lm.current_yes_price,
             "current_spread": round(lm.current_spread, 4),
             "volume_5min": round(lm.volume_5min, 2)
-        })
+        }
+        for lm in live_markets
+    ]
         
     # 3. Сводка по снепшотам
     # SELECT asset, final_outcome, count(*) FROM market_snapshots GROUP BY asset, final_outcome
@@ -65,16 +66,8 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     
     dataset_summary = {}
     for row in snap_res.all():
-        asset = row.asset
-        outcome = row.final_outcome
-        cnt = row.cnt
-        if asset not in dataset_summary:
-            dataset_summary[asset] = {"PENDING": 0, "RESOLVED": 0}
-        
-        if outcome == "PENDING":
-            dataset_summary[asset]["PENDING"] += cnt
-        else:
-            dataset_summary[asset]["RESOLVED"] += cnt
+        ds = dataset_summary.setdefault(row.asset, {"PENDING": 0, "RESOLVED": 0})
+        ds["PENDING" if row.final_outcome == "PENDING" else "RESOLVED"] += row.cnt
             
     return {
         "collector": collector_data,

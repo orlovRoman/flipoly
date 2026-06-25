@@ -114,12 +114,11 @@ async def trade_worker_cycle(db_session: AsyncSession):
                 df_features = pd.DataFrame([feature_data])
                 
                 # Фильтруем только активные фичи
-                missing_features = [f for f in active_features if f not in df_features.columns]
-                if missing_features:
-                    logger.error("trade_engine_missing_features", missing=missing_features)
+                try:
+                    X_real = df_features[active_features]
+                except KeyError as e:
+                    logger.error("trade_engine_missing_features", error=str(e))
                     continue
-                    
-                X_real = df_features[active_features]
                 
                 # Предсказываем вероятность флипа (класс 1)
                 proba = model.predict_proba(X_real)[0]
