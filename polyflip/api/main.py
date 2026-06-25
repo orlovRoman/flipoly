@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends
 import structlog
 from polyflip.api.auth import verify_api_key
+from polyflip.api.analytics import router as analytics_router
 
 structlog.configure(
     processors=[
@@ -11,6 +12,7 @@ structlog.configure(
 logger = structlog.get_logger()
 
 app = FastAPI(title="PolyFlip API", version="0.1.0")
+app.include_router(analytics_router)
 
 @app.on_event("startup")
 async def startup_event():
