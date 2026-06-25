@@ -32,6 +32,7 @@ services:
       - ASSETS=${ASSETS:-BTC,ETH}
     volumes:
       - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
     command: uvicorn polyflip.api.main:app --host 0.0.0.0 --port 8001
@@ -52,6 +53,7 @@ services:
       - ASSETS=${ASSETS:-BTC,ETH}
     volumes:
       - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
     command: python -m polyflip.scheduler.jobs

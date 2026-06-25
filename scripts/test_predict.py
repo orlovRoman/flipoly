@@ -5,6 +5,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import warnings
+import datetime
 warnings.filterwarnings('ignore')
 
 from polyflip.db.connection import async_session
@@ -63,8 +64,11 @@ async def main():
             return
             
         for lm in live_markets[:3]: # Возьмем первые 3 рынка
-            import datetime
-            time_left_sec = (lm.end_time_est.replace(tzinfo=datetime.timezone.utc) - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+            end_time = lm.end_time_est
+            if end_time.tzinfo is None:
+                end_time = end_time.replace(tzinfo=datetime.timezone.utc)
+            
+            time_left_sec = (end_time - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
             time_left_min = max(0, time_left_sec / 60.0)
             
             X_test = pd.DataFrame([{
