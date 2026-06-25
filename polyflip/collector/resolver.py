@@ -32,6 +32,10 @@ async def resolve_pending_markets(db_session: AsyncSession):
             try:
                 # Получаем инфу о рынке из Gamma API
                 response = await client.get(f"https://gamma-api.polymarket.com/markets/{market_id}")
+                
+                # BUG-009 FIX: Rate limit protection
+                await asyncio.sleep(0.2)
+                
                 if response.status_code != 200:
                     continue
                 

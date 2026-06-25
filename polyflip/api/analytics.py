@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from pydantic import BaseModel
 from typing import Dict, Any
 
-from polyflip.db.connection import get_db_session
+from polyflip.db.connection import get_db_session, async_session
 from polyflip.api.auth import verify_api_key
 from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.config import settings
@@ -46,14 +46,13 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
 @router.post("/analytics/train", dependencies=[Depends(verify_api_key)])
 async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db_session)):
     """Ручной запуск обучения моделей по всем активам"""
-    trainer = ModelTrainer(db)
     
-    # Чтобы не блокировать API-запрос, обучаем асинхронно или быстро
-    # Для текущей архитектуры (logistic regression на небольшом датасете) можно в синхронном режиме, 
-    # но лучше обернуть
+    # Чтобы не блокировать API-запрос, обучаем асинхронно
     async def train_all():
-        for asset in settings.asset_list:
-            await trainer.train_model(asset)
+        async with async_session() as bg_session:
+            trainer = ModelTrainer(bg_session)
+            for asset in settings.asset_list:
+                await trainer.train_model(asset)
             
     background_tasks.add_task(train_all)
     return {"status": "training_started"}

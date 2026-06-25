@@ -110,5 +110,46 @@ class PolymarketClient:
                 "best_ask": best_ask
             }
         except Exception as e:
-            logger.error("error_fetching_clob_book", market_id=market_id, error=str(e))
+            logger.error("error_fetching_clob_book", market_id=yes_token_id, error=str(e))
             return {}
+
+    async def get_recent_trades_volume(self, yes_token_id: str, minutes: int = 5) -> float:
+        """
+        Получает историю сделок из CLOB API и суммирует объем за последние N минут.
+        Используется для вычисления volume_5min (BUG-003).
+        """
+        try:
+            # Пытаемся получить последние сделки по токену
+            response = await self.client.get(f"{self.CLOB_API}/trades", params={"token_id": yes_token_id})
+            if response.status_code != 200:
+                logger.warning("clob_trades_api_error", token_id=yes_token_id, status=response.status_code)
+                return 0.0
+                
+            trades = response.json()
+            if not isinstance(trades, list):
+                # Иногда API отдает словарь с ключом data или history
+                trades = trades.get("data", []) or trades.get("trades", [])
+
+            now = datetime.now(timezone.utc)
+            total_volume = 0.0
+            
+            for t in trades:
+                # Парсим время сделки. Формат обычно ISO8601
+                timestamp_str = t.get("timestamp") or t.get("created_at")
+                if not timestamp_str:
+                    continue
+                
+                # Приводим к UTC
+                trade_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                delta_minutes = (now - trade_time).total_seconds() / 60.0
+                
+                if delta_minutes <= minutes:
+                    size = float(t.get("size", 0))
+                    price = float(t.get("price", 0))
+                    total_volume += size * price # Учитываем объем в долларах (USDC)
+                    
+            return total_volume
+            
+        except Exception as e:
+            logger.error("error_fetching_clob_trades", token_id=yes_token_id, error=str(e))
+            return 0.0

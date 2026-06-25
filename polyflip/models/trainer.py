@@ -6,8 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
 
 from polyflip.db.models import MarketSnapshot, ModelRegistry
+from polyflip.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -30,8 +32,9 @@ class ModelTrainer:
         result = await self.db.execute(stmt)
         snapshots = result.scalars().all()
 
-        if not snapshots:
-            logger.warning("no_training_data_found", asset=asset)
+        # BUG-004 FIX: Используем настройку из конфига
+        if len(snapshots) < settings.MIN_SAMPLES_FOR_MODEL:
+            logger.warning("not_enough_data_for_training", asset=asset, samples=len(snapshots), required=settings.MIN_SAMPLES_FOR_MODEL)
             return False
 
         # 2. Формируем DataFrame
@@ -43,6 +46,7 @@ class ModelTrainer:
                 "spread": s.spread,
                 "price_velocity": s.price_velocity,
                 "volume_5min": s.volume_5min,
+                "hour_of_day": s.hour_of_day, # BUG-006 FIX: Добавлена фича hour_of_day
                 "target": 1 if s.flip_vs_final else 0
             })
             
@@ -53,17 +57,25 @@ class ModelTrainer:
             logger.warning("only_one_class_in_target", asset=asset)
             return False
             
-        X = df[["time_left_min", "mid_price", "spread", "price_velocity", "volume_5min"]]
+        # BUG-006 FIX: Использование hour_of_day
+        X = df[["time_left_min", "mid_price", "spread", "price_velocity", "volume_5min", "hour_of_day"]]
         y = df["target"]
 
-        # 3. Обучаем модель (пока без гиперпараметрического поиска для простоты)
-        model = LogisticRegression(class_weight="balanced", random_state=42)
-        model.fit(X, y)
+        # BUG-001 FIX: train_test_split и валидация
+        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
         
-        # Вычисляем accuracy на тренировочной выборке (просто для логов)
-        preds = model.predict(X)
-        acc = accuracy_score(y, preds)
-        logger.info("model_trained", asset=asset, samples=len(df), accuracy=acc)
+        # 3. Обучаем модель
+        model = LogisticRegression(class_weight="balanced", random_state=42)
+        model.fit(X_train, y_train)
+        
+        # Вычисляем accuracy на валидационной выборке
+        val_preds = model.predict(X_val)
+        val_acc = accuracy_score(y_val, val_preds)
+        
+        # Baseline для логирования
+        baseline_acc = max(y_val.mean(), 1 - y_val.mean())
+        
+        logger.info("model_trained", asset=asset, samples=len(df), val_accuracy=val_acc, baseline_accuracy=baseline_acc)
 
         # 4. Сериализуем модель
         model_bytes = pickle.dumps(model)
@@ -86,7 +98,7 @@ class ModelTrainer:
             asset=asset,
             version=next_version,
             model_blob=model_bytes,
-            accuracy=acc,
+            accuracy=val_acc,
             is_active=True,
             trained_at=datetime.now(timezone.utc)
         )

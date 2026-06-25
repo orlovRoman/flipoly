@@ -55,14 +55,12 @@ async def run_collector_cycle(db_session: AsyncSession):
             )
             live_m = result.scalar_one_or_none()
 
-            volume_5min = 0.0
+            # BUG-003 FIX: Расчет реального объема через историю сделок CLOB
+            volume_5min = await client.get_recent_trades_volume(yes_token_id, minutes=5)
             price_velocity = 0.0
 
             if live_m:
-                # Считаем дельту. Поскольку мы запускаемся раз в N минут, 
-                # мы просто берем разницу цен. Для объема у нас пока нет сырых данных 
-                # из CLOB (нужен trade history), поэтому будем использовать заглушку 0.0 
-                # или имитировать объем через изменение спреда/стакана (упрощение для Фазы 2)
+                # Считаем дельту скорости цены
                 price_velocity = mid_price - live_m.current_yes_price
                 
                 # Обновляем LiveMarket
@@ -70,6 +68,7 @@ async def run_collector_cycle(db_session: AsyncSession):
                 live_m.current_no_price = prices["current_no_price"]
                 live_m.current_spread = spread
                 live_m.price_velocity = price_velocity
+                live_m.volume_5min = volume_5min
                 live_m.last_updated = start_time
             else:
                 # Создаем новую запись в LiveMarket
@@ -81,7 +80,7 @@ async def run_collector_cycle(db_session: AsyncSession):
                     current_yes_price=mid_price,
                     current_no_price=prices["current_no_price"],
                     current_spread=spread,
-                    volume_5min=0.0,
+                    volume_5min=volume_5min,
                     price_velocity=0.0,
                     last_updated=start_time
                 )

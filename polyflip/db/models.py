@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -20,6 +20,7 @@ class MarketSnapshot(Base):
     recorded_at = Column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
+        UniqueConstraint("market_id", "recorded_at", name="uix_market_recorded"),
         Index("idx_market_snapshots_asset", "asset"),
         Index("idx_market_snapshots_asset_time", "asset", "time_left_min"),
         Index("idx_market_snapshots_recorded_at", "recorded_at"),

@@ -14,17 +14,21 @@ structlog.configure(
 )
 logger = structlog.get_logger()
 
-app = FastAPI(title="PolyFlip API", version="0.1.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("application_startup")
+    yield
+    # Cleanup here if needed
+
+app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)
 app.include_router(analytics_router)
 app.include_router(dashboard_router)
 
 # Подключение статических файлов
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 app.mount("/static", StaticFiles(directory=os.path.join(base_dir, "static")), name="static")
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("application_startup")
 
 @app.get("/health")
 async def health_check():
