@@ -52,12 +52,21 @@ async def resolve_pending_markets(db_session: AsyncSession):
                 
                 # Если явного ответа нет, но токены залочены (один стоит 1, другой 0)
                 if not answer:
-                    tokens = market_data.get("tokens", [])
-                    if tokens and len(tokens) >= 2:
-                        if tokens[0].get("price") == 1:
-                            answer = market_data.get("outcomes", ["Yes", "No"])[0]
-                        elif tokens[1].get("price") == 1:
-                            answer = market_data.get("outcomes", ["Yes", "No"])[1]
+                    prices = market_data.get("outcomePrices", [])
+                    outcomes = market_data.get("outcomes", ["Yes", "No"])
+                    
+                    if type(outcomes) is str:
+                        import json
+                        outcomes = json.loads(outcomes)
+                    if type(prices) is str:
+                        import json
+                        prices = json.loads(prices)
+                        
+                    if prices and len(prices) >= 2 and outcomes and len(outcomes) >= 2:
+                        if str(prices[0]) in ("1", "1.0"):
+                            answer = outcomes[0]
+                        elif str(prices[1]) in ("1", "1.0"):
+                            answer = outcomes[1]
 
                 if not answer:
                     logger.warning("market_closed_but_no_answer", market_id=market_id)
