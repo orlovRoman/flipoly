@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: polyflip_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-polyflip}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+      POSTGRES_DB: ${DB_NAME:-polyflip}
+    ports:
+      - "5432:5432"
+    volumes:
+      - polyflip_db_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  api:
+    build: .
+    container_name: polyflip_api
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - API_KEY=${API_KEY:-test-key}
+      - ASSETS=${ASSETS:-BTC,ETH}
+    command: uvicorn polyflip.api.main:app --host 0.0.0.0 --port 8001
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  scheduler:
+    build: .
+    container_name: polyflip_scheduler
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - API_KEY=${API_KEY:-test-key}
+      - ASSETS=${ASSETS:-BTC,ETH}
+    command: python -m polyflip.scheduler.jobs
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+volumes:
+  polyflip_db_data:
