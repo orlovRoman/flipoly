@@ -63,7 +63,9 @@ async def resolve_pending_markets(db_session: AsyncSession):
                     logger.warning("market_closed_but_no_answer", market_id=market_id)
                     continue
                 
-                final_outcome = answer.upper() # "YES" или "NO"
+                # Нормализуем UP/DOWN в YES/NO для корректного расчета флипа (BUG-005)
+                outcome_map = {"UP": "YES", "DOWN": "NO", "YES": "YES", "NO": "NO"}
+                final_outcome = outcome_map.get(answer.upper(), answer.upper()) # "YES" или "NO"
                 
                 # Теперь обновляем все снепшоты этого рынка
                 snapshots_stmt = select(MarketSnapshot).where(MarketSnapshot.market_id == market_id)

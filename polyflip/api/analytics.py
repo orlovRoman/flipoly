@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast, Integer
 from pydantic import BaseModel
 from typing import Dict, Any
 
@@ -67,16 +67,16 @@ async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):
     # Используем CAST(time_left_min AS INTEGER) для агрегации по минутам
     stmt = select(
         MarketSnapshot.asset,
-        func.cast(MarketSnapshot.time_left_min, func.Integer).label("minute"),
+        cast(MarketSnapshot.time_left_min, Integer).label("minute"),
         func.count(MarketSnapshot.id).label("total"),
-        func.sum(func.cast(MarketSnapshot.flip_vs_final, func.Integer)).label("flips")
+        func.sum(cast(MarketSnapshot.flip_vs_final, Integer)).label("flips")
     ).where(
         MarketSnapshot.final_outcome != "PENDING",
         MarketSnapshot.time_left_min <= 16.0,
         MarketSnapshot.time_left_min >= 0.0
     ).group_by(
         MarketSnapshot.asset,
-        func.cast(MarketSnapshot.time_left_min, func.Integer)
+        cast(MarketSnapshot.time_left_min, Integer)
     )
     
     result = await db.execute(stmt)

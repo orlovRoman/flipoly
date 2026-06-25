@@ -87,7 +87,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
         for market in markets:
             time_left_sec = (market.end_time_est - start_time).total_seconds()
             
-            if True:
+            if time_left_sec > 0:
                 # Проверяем, делали ли мы уже ставку на этот рынок
                 trade_check = select(TradeHistory.id).where(TradeHistory.market_id == market.market_id)
                 already_traded = (await db_session.execute(trade_check)).scalar() is not None
