@@ -2,6 +2,7 @@ import httpx
 from typing import List, Dict, Any
 from datetime import datetime, timezone
 import structlog
+import json
 
 logger = structlog.get_logger(__name__)
 
@@ -63,7 +64,6 @@ class PolymarketClient:
                     # Нас интересуют бинарные рынки Up/Down (или Yes/No на всякий случай)
                     outcomes = market.get("outcomes", [])
                     if type(outcomes) is str:
-                        import json
                         outcomes = json.loads(outcomes)
                         
                     if outcomes != ["Up", "Down"] and outcomes != ["Yes", "No"]:
@@ -71,7 +71,6 @@ class PolymarketClient:
 
                     clob_token_ids = market.get("clobTokenIds", [])
                     if type(clob_token_ids) is str:
-                        import json
                         clob_token_ids = json.loads(clob_token_ids)
                         
                     if not clob_token_ids or len(clob_token_ids) < 2:
@@ -117,6 +116,10 @@ class PolymarketClient:
             # Поэтому надежнее искать максимум для bid и минимум для ask.
             best_bid = max(float(b.get("price", 0)) for b in bids)
             best_ask = min(float(a.get("price", 1)) for a in asks)
+            
+            if best_ask <= best_bid:
+                logger.warning("crossed_book", token_id=yes_token_id, bid=best_bid, ask=best_ask)
+                return {}
             
             mid_price = (best_bid + best_ask) / 2.0
             spread = best_ask - best_bid

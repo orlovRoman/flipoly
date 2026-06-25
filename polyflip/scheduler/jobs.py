@@ -56,7 +56,7 @@ async def main():
         id="trade_job",
         replace_existing=True,
         max_instances=1,
-        misfire_grace_time=None
+        misfire_grace_time=3
     )
     
     scheduler.start()

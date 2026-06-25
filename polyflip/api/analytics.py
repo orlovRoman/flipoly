@@ -21,7 +21,10 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
     total_markets_stmt = select(func.count(MarketSnapshot.id)).where(MarketSnapshot.final_outcome != "PENDING")
     total_markets = (await db.execute(total_markets_stmt)).scalar() or 0
 
-    flips_stmt = select(func.count(MarketSnapshot.id)).where(MarketSnapshot.flip_vs_final == True)
+    flips_stmt = select(func.count(MarketSnapshot.id)).where(
+        MarketSnapshot.flip_vs_final == True,
+        MarketSnapshot.final_outcome != "PENDING"
+    )
     total_flips = (await db.execute(flips_stmt)).scalar() or 0
 
     # 2. Получаем текущие активные модели
