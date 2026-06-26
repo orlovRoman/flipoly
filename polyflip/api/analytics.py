@@ -61,42 +61,67 @@ async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession =
     background_tasks.add_task(train_all)
     return {"status": "training_started"}
 
+import pandas as pd
+
 @router.get("/analytics/probabilities")
 async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):
     """
-    Возвращает вероятности изменения цены (флипа) в зависимости от оставшегося времени (0-15 минут)
-    для графиков по ETH и BTC.
+    Возвращает вероятности изменения цены (флипа) в зависимости от всех параметров.
     """
-    # Группируем по asset и округленному времени (time_left_min)
-    # Используем CAST(time_left_min AS INTEGER) для агрегации по минутам
     stmt = select(
         MarketSnapshot.asset,
-        cast(MarketSnapshot.time_left_min, Integer).label("minute"),
-        func.count(MarketSnapshot.id).label("total"),
-        func.sum(cast(MarketSnapshot.flip_vs_final, Integer)).label("flips")
-    ).where(
-        MarketSnapshot.final_outcome != "PENDING",
-        MarketSnapshot.time_left_min <= 16.0,
-        MarketSnapshot.time_left_min >= 0.0
-    ).group_by(
-        MarketSnapshot.asset,
-        cast(MarketSnapshot.time_left_min, Integer)
-    )
+        cast(MarketSnapshot.flip_vs_final, Integer).label("flip"),
+        MarketSnapshot.time_left_min,
+        MarketSnapshot.mid_price,
+        MarketSnapshot.spread,
+        MarketSnapshot.volume_5min,
+        MarketSnapshot.price_velocity,
+        MarketSnapshot.hour_of_day
+    ).where(MarketSnapshot.final_outcome != "PENDING")
     
     result = await db.execute(stmt)
     rows = result.all()
     
-    # Форматируем данные: { "BTC": { "15": 0.1, "14": 0.15, ... }, "ETH": { ... } }
-    data = {}
-    for row in rows:
-        asset = row.asset
-        minute = str(row.minute)
-        prob = row.flips / row.total if row.total > 0 else 0
+    if not rows:
+        return {}
         
-        if asset not in data:
-            data[asset] = {}
-        data[asset][minute] = round(prob, 3)
+    df = pd.DataFrame([dict(r._mapping) for r in rows])
+    
+    # Define bins: (edges, labels, right_closed)
+    bins_config = {
+        "time_left_min": (list(range(17)), [str(i) for i in range(16)], False),
+        "mid_price": ([-0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01], 
+                      ["0-0.1", "0.1-0.2", "0.2-0.3", "0.3-0.4", "0.4-0.5", "0.5-0.6", "0.6-0.7", "0.7-0.8", "0.8-0.9", "0.9-1.0"], True),
+        "spread": ([-0.01, 0.01, 0.02, 0.03, 0.05, 0.1, 100.0], 
+                   ["0-0.01", "0.01-0.02", "0.02-0.03", "0.03-0.05", "0.05-0.10", ">0.10"], True),
+        "volume_5min": ([-1, 100, 1000, 5000, 10000, 50000, 1e9], 
+                        ["0-100", "100-1k", "1k-5k", "5k-10k", "10k-50k", ">50k"], True),
+        "price_velocity": ([-100, -0.05, -0.01, -0.001, 0.001, 0.01, 0.05, 100], 
+                           ["<-5%", "-5% to -1%", "-1% to 0%", "0", "0% to 1%", "1% to 5%", ">5%"], True),
+        "hour_of_day": (list(range(25)), [str(i) for i in range(24)], False)
+    }
+    
+    out = {}
+    
+    for asset in df["asset"].unique():
+        out[asset] = {}
+        df_asset = df[df["asset"] == asset]
         
-    return data
+        for feature, (b, labels, right) in bins_config.items():
+            try:
+                binned = pd.cut(df_asset[feature], bins=b, labels=labels, right=right)
+                grouped = df_asset.groupby(binned, observed=False)["flip"].agg(['mean', 'count']).fillna(0)
+                
+                out[asset][feature] = {
+                    "labels": labels,
+                    "probabilities": [round(grouped.loc[lbl, 'mean'], 3) if lbl in grouped.index else 0 for lbl in labels],
+                    "counts": [int(grouped.loc[lbl, 'count']) if lbl in grouped.index else 0 for lbl in labels]
+                }
+            except Exception as e:
+                import structlog
+                structlog.get_logger(__name__).error("binning_error", feature=feature, error=str(e))
+                out[asset][feature] = {"labels": [], "probabilities": [], "counts": []}
+                
+    return out
 
 # --- End Analytics ---

@@ -64,17 +64,43 @@
                     </div>
                 </div>
 
-                <div class="charts-container" style="grid-template-columns: 1fr;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h2>Влияние параметров на вероятность флипа</h2>
+                    <select id="asset-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; font-size: 1rem; cursor: pointer;">
+                        <option value="BTC">BTC</option>
+                        <option value="ETH">ETH</option>
+                    </select>
+                </div>
+                <div class="charts-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 1.5rem;">
                     <div class="chart-box">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                            <h3>Вероятность изменения исхода по времени</h3>
-                            <select id="asset-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none;">
-                                <option value="BTC">BTC</option>
-                                <option value="ETH">ETH</option>
-                            </select>
-                        </div>
-                        <p class="chart-desc">Зависимость вероятности флипа от оставшегося времени (0-15 мин)</p>
-                        <canvas id="probChart"></canvas>
+                        <h3>Время до конца</h3>
+                        <p class="chart-desc">Вероятность флипа от оставшегося времени (мин)</p>
+                        <canvas id="chart-time"></canvas>
+                    </div>
+                    <div class="chart-box">
+                        <h3>Текущая цена (mid_price)</h3>
+                        <p class="chart-desc">Зависимость от текущей цены на рынке</p>
+                        <canvas id="chart-price"></canvas>
+                    </div>
+                    <div class="chart-box">
+                        <h3>Спред (spread)</h3>
+                        <p class="chart-desc">Зависимость от разницы между Bid и Ask</p>
+                        <canvas id="chart-spread"></canvas>
+                    </div>
+                    <div class="chart-box">
+                        <h3>Объем (volume_5min)</h3>
+                        <p class="chart-desc">Зависимость от объема торгов за последние 5 минут (USDC)</p>
+                        <canvas id="chart-volume"></canvas>
+                    </div>
+                    <div class="chart-box">
+                        <h3>Скорость изменения цены</h3>
+                        <p class="chart-desc">Зависимость от изменения цены за 5 минут</p>
+                        <canvas id="chart-velocity"></canvas>
+                    </div>
+                    <div class="chart-box">
+                        <h3>Час дня</h3>
+                        <p class="chart-desc">Зависимость от времени суток (UTC)</p>
+                        <canvas id="chart-hour"></canvas>
                     </div>
                 </div>
             </section>

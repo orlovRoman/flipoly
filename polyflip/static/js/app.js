@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 2. Fetch Probabilities and Render Charts
-    let probChartInstance = null;
+    let chartInstances = {};
     let chartDataStore = {};
 
     async function loadCharts() {
@@ -78,16 +78,30 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderSelectedChart() {
         const selectedAsset = document.getElementById('asset-selector').value;
         const assetData = chartDataStore[selectedAsset] || {};
-        
-        // X-axis: 0 to 15 minutes
-        const labels = Array.from({length: 16}, (_, i) => i.toString());
-        const points = labels.map(l => (assetData[l] || 0) * 100);
-
         const color = selectedAsset === 'BTC' ? '#0072F5' : '#00D395';
-        const ctx = document.getElementById('probChart').getContext('2d');
         
-        if(probChartInstance) probChartInstance.destroy();
-        probChartInstance = createChart(ctx, labels, points, `${selectedAsset} Вероятность Флипа`, color);
+        const chartConfigs = [
+            { id: 'chart-time', key: 'time_left_min' },
+            { id: 'chart-price', key: 'mid_price' },
+            { id: 'chart-spread', key: 'spread' },
+            { id: 'chart-volume', key: 'volume_5min' },
+            { id: 'chart-velocity', key: 'price_velocity' },
+            { id: 'chart-hour', key: 'hour_of_day' }
+        ];
+
+        chartConfigs.forEach(cfg => {
+            const featureData = assetData[cfg.key] || { labels: [], probabilities: [] };
+            const labels = featureData.labels;
+            const points = featureData.probabilities.map(p => p * 100);
+            
+            const canvas = document.getElementById(cfg.id);
+            if (!canvas) return; // safety check
+            const ctx = canvas.getContext('2d');
+            
+            if (chartInstances[cfg.id]) chartInstances[cfg.id].destroy();
+            
+            chartInstances[cfg.id] = createChart(ctx, labels, points, `${selectedAsset} Флип %`, color);
+        });
     }
 
     document.getElementById('asset-selector').addEventListener('change', renderSelectedChart);
@@ -137,12 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     },
                     x: {
                         grid: { display: false },
-                        ticks: { color: '#8F9BB3' },
-                        title: {
-                            display: true,
-                            text: 'Осталось минут до закрытия',
-                            color: '#8F9BB3'
-                        }
+                        ticks: { color: '#8F9BB3', maxRotation: 45, minRotation: 45 }
                     }
                 }
             }
