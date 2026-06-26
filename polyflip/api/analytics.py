@@ -124,7 +124,12 @@ async def set_training_status(session: AsyncSession, status: str, message: str, 
         "message": message,
         "last_run": last_run
     }
-    setting = RuntimeSettings(key="TRAINING_STATUS_JSON", value=json.dumps(data))
+    setting = RuntimeSettings(
+        key="TRAINING_STATUS_JSON", 
+        value=json.dumps(data),
+        updated_at=datetime.now(timezone.utc),
+        updated_by="train_job"
+    )
     await session.merge(setting)
     await session.commit()
 
