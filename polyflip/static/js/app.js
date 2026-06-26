@@ -59,6 +59,21 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#039;");
   };
 
+  const translateFeatures = (featuresStr) => {
+    if (!featuresStr) return "-";
+    const mapping = {
+      "time_left_min": "Время до конца",
+      "mid_price": "Текущая цена",
+      "spread": "Спред",
+      "volume_5min": "Объем (5м)",
+      "price_velocity": "Скорость цены",
+      "hour_of_day": "Час суток"
+    };
+    return featuresStr.split(",")
+      .map(f => mapping[f.trim()] || f.trim())
+      .join(", ");
+  };
+
   // 1. Fetch Summary
   async function loadSummary() {
     try {
@@ -488,7 +503,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td>v${m.version}</td>
                         <td>${m.accuracy}</td>
                         <td>${baselineText}</td>
-                        <td style="font-size: 0.85rem; max-width: 250px;">${escapeHtml(m.features)}</td>
+                        <td style="font-size: 0.85rem; max-width: 220px; word-break: break-word; white-space: normal;">${escapeHtml(translateFeatures(m.features))}</td>
                         <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>
                         <td>${statusHtml}</td>
                         <td>${actionHtml}</td>
