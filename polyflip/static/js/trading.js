@@ -253,7 +253,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            data.forEach(log => {
+            tbody.innerHTML = '';
+            
+            data.forEach((log, index) => {
                 const timeStr = new Date(log.created_at).toLocaleTimeString();
                 const flipColor = log.predicted_flip_prob > 0.5 ? '#00ff88' : '#ff3366';
                 let statusColor = '#8F9BB3'; // SKIPPED
@@ -268,11 +270,19 @@ document.addEventListener('DOMContentLoaded', () => {
                         <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
                         <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
                         <td style="padding: 8px;">${log.outcome_bought !== 'NONE' ? log.outcome_bought : '-'}</td>
-                        <td style="padding: 8px;">${log.executed_price > 0 ? '$' + log.executed_price.toFixed(3) : '-'}</td>
+                        <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? '$' + parseFloat(log.executed_price).toFixed(3) : '-'}</td>
                         <td style="padding: 8px; color: ${flipColor};">${(log.predicted_flip_prob * 100).toFixed(1)}%</td>
                         <td style="padding: 8px;">${reasonHtml}</td>
                     </tr>
                 `;
+                
+                // В dev-режиме: проверка рассинхронизации колонок
+                if (index === 0) {
+                    const tr = tbody.lastElementChild;
+                    const thCount = document.querySelectorAll('#logs-table th').length;
+                    const tdCount = tr.querySelectorAll('td').length;
+                    console.assert(thCount === tdCount, `Колонки рассинхронизированы: ${thCount} th vs ${tdCount} td`);
+                }
             });
         } catch (e) {
             console.error("Failed to load trade logs", e);
