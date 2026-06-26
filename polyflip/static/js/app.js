@@ -98,7 +98,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!canvas) return; // safety check
             const ctx = canvas.getContext('2d');
             
-            if (chartInstances[cfg.id]) chartInstances[cfg.id].destroy();
+            let existingChart = Chart.getChart(cfg.id);
+            if (existingChart) existingChart.destroy();
             
             chartInstances[cfg.id] = createChart(ctx, labels, points, `${selectedAsset} Флип %`, color);
         });

@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Integer
 from pydantic import BaseModel
 from typing import Dict, Any
+import pandas as pd
+import structlog
 
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.api.auth import verify_api_key
@@ -61,8 +63,6 @@ async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession =
     background_tasks.add_task(train_all)
     return {"status": "training_started"}
 
-import pandas as pd
-
 @router.get("/analytics/probabilities")
 async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):
     """
@@ -77,7 +77,7 @@ async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):
         MarketSnapshot.volume_5min,
         MarketSnapshot.price_velocity,
         MarketSnapshot.hour_of_day
-    ).where(MarketSnapshot.final_outcome != "PENDING")
+    ).where(MarketSnapshot.final_outcome != "PENDING").order_by(MarketSnapshot.created_at.desc()).limit(150000)
     
     result = await db.execute(stmt)
     rows = result.all()
@@ -118,7 +118,6 @@ async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):
                     "counts": [int(grouped.loc[lbl, 'count']) if lbl in grouped.index else 0 for lbl in labels]
                 }
             except Exception as e:
-                import structlog
                 structlog.get_logger(__name__).error("binning_error", feature=feature, error=str(e))
                 out[asset][feature] = {"labels": [], "probabilities": [], "counts": []}
                 
