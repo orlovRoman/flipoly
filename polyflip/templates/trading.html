@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyFlip Trading Dashboard</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    
+    <script>
+        window.API_BASE = "{{ url_for('get_dashboard') }}".replace('/dashboard', '');
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <nav class="sidebar">
+            <div class="logo">
+                <span class="poly">Poly</span><span class="flip">Flip</span>
+            </div>
+            <ul class="nav-links">
+                <li class="nav-item"><a href="/dashboard" style="color: white; text-decoration: none;">Аналитика & Настройки</a></li>
+                <li class="nav-item active">Торговля (PnL)</li>
+            </ul>
+        </nav>
+
+        <main class="main-content">
+            <section class="tab-content active">
+                <header class="tab-header">
+                    <h1>Торговый Дашборд</h1>
+                    <button id="btn-refresh-trading" class="btn primary-btn">Обновить данные</button>
+                </header>
+
+                <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+                    <div class="stat-card">
+                        <h3>Общий Капитал</h3>
+                        <div class="stat-value highlight" id="stat-capital">-- USDC</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Общий PnL</h3>
+                        <div class="stat-value" id="stat-pnl">-- USDC</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Winrate</h3>
+                        <div class="stat-value" id="stat-winrate">--%</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Победы / Поражения</h3>
+                        <div class="stat-value" id="stat-wl">-- / --</div>
+                    </div>
+                </div>
+
+                <div class="charts-container" style="display: grid; grid-template-columns: 1fr; gap: 1.5rem; margin-top: 1.5rem;">
+                    <div class="chart-box">
+                        <h3>График PnL (Доходность по дням)</h3>
+                        <canvas id="chart-daily-pnl" style="max-height: 300px;"></canvas>
+                    </div>
+                    <div class="chart-box">
+                        <h3>Выигрыши vs Проигрыши по дням</h3>
+                        <canvas id="chart-daily-wl" style="max-height: 300px;"></canvas>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem;">
+                    <div class="stat-card">
+                        <h3>Аналитика по активам</h3>
+                        <table class="data-table" id="asset-stats-table" style="width: 100%; text-align: left; margin-top: 1rem;">
+                            <thead>
+                                <tr>
+                                    <th>Актив</th>
+                                    <th>Сделок</th>
+                                    <th>Winrate</th>
+                                    <th>PnL</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Rendered via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <h3>Параметры ставок</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+                            <div>
+                                <h4 style="color: #00ff88; margin-bottom: 0.5rem;">Выигрышные ставки</h4>
+                                <p>Ср. цена входа: <span id="avg-win-price">--</span></p>
+                                <p>Ср. вероятность: <span id="avg-win-prob">--</span></p>
+                            </div>
+                            <div>
+                                <h4 style="color: #ff3366; margin-bottom: 0.5rem;">Проигрышные ставки</h4>
+                                <p>Ср. цена входа: <span id="avg-loss-price">--</span></p>
+                                <p>Ср. вероятность: <span id="avg-loss-prob">--</span></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', path='/js/trading.js') }}"></script>
+</body>
+</html>

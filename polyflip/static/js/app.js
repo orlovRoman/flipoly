@@ -178,6 +178,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if(data.TRADE_NO_FLIP_THRESHOLD) document.getElementById('TRADE_NO_FLIP_THRESHOLD').value = data.TRADE_NO_FLIP_THRESHOLD;
             if(data.TRADE_FLIP_THRESHOLD) document.getElementById('TRADE_FLIP_THRESHOLD').value = data.TRADE_FLIP_THRESHOLD;
             if(data.TRADING_ENABLED) document.getElementById('TRADING_ENABLED').checked = (data.TRADING_ENABLED === 'true');
+            if(data.INITIAL_CAPITAL) document.getElementById('INITIAL_CAPITAL').value = data.INITIAL_CAPITAL;
+            if(data.TRADE_ONLY_FAVORITE) document.getElementById('TRADE_ONLY_FAVORITE').checked = (data.TRADE_ONLY_FAVORITE === 'true');
+            if(data.TRADE_MIN_PRICE) document.getElementById('TRADE_MIN_PRICE').value = data.TRADE_MIN_PRICE;
+            if(data.TRADE_MAX_PRICE) document.getElementById('TRADE_MAX_PRICE').value = data.TRADE_MAX_PRICE;
             
             if(data.ACTIVE_FEATURES) {
                 const active = data.ACTIVE_FEATURES.split(',');
@@ -231,7 +235,11 @@ document.addEventListener('DOMContentLoaded', () => {
             'TRADE_BET_SIZE_USDC': document.getElementById('TRADE_BET_SIZE_USDC').value,
             'TRADE_NO_FLIP_THRESHOLD': document.getElementById('TRADE_NO_FLIP_THRESHOLD').value,
             'TRADE_FLIP_THRESHOLD': document.getElementById('TRADE_FLIP_THRESHOLD').value,
-            'TRADING_ENABLED': document.getElementById('TRADING_ENABLED').checked ? 'true' : 'false'
+            'TRADING_ENABLED': document.getElementById('TRADING_ENABLED').checked ? 'true' : 'false',
+            'INITIAL_CAPITAL': document.getElementById('INITIAL_CAPITAL').value,
+            'TRADE_ONLY_FAVORITE': document.getElementById('TRADE_ONLY_FAVORITE').checked ? 'true' : 'false',
+            'TRADE_MIN_PRICE': document.getElementById('TRADE_MIN_PRICE').value,
+            'TRADE_MAX_PRICE': document.getElementById('TRADE_MAX_PRICE').value
         };
         
         let allOk = true;

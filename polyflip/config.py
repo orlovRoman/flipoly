@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     TRADE_NO_FLIP_THRESHOLD: float = 0.15
     TRADE_FLIP_THRESHOLD: float = 0.85
     TRADING_ENABLED: bool = False
+    INITIAL_CAPITAL: float = 1000.0
+    TRADE_ONLY_FAVORITE: bool = False
+    TRADE_MIN_PRICE: float = 0.05
+    TRADE_MAX_PRICE: float = 0.95
     
     # Legacy параметры (оставил на всякий случай)
     DRIFT_THRESHOLD: float = 0.05

@@ -25,7 +25,10 @@ async def trade_worker_cycle(db_session: AsyncSession):
         "TRADE_BET_SIZE_USDC",
         "TRADE_NO_FLIP_THRESHOLD",
         "TRADE_FLIP_THRESHOLD",
-        "ACTIVE_FEATURES"
+        "ACTIVE_FEATURES",
+        "TRADE_ONLY_FAVORITE",
+        "TRADE_MIN_PRICE",
+        "TRADE_MAX_PRICE"
     ]
     
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
@@ -43,6 +46,10 @@ async def trade_worker_cycle(db_session: AsyncSession):
     bet_size = float(settings_db.get("TRADE_BET_SIZE_USDC", settings.TRADE_BET_SIZE_USDC))
     no_flip_threshold = float(settings_db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD))
     flip_threshold = float(settings_db.get("TRADE_FLIP_THRESHOLD", settings.TRADE_FLIP_THRESHOLD))
+    
+    trade_only_favorite = settings_db.get("TRADE_ONLY_FAVORITE", str(settings.TRADE_ONLY_FAVORITE)).lower() == "true"
+    trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
+    trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
     active_features = [f.strip() for f in active_features_str.split(",") if f.strip()]
@@ -127,7 +134,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                 # Логика принятия решения
                 decision = None
                 
-                if p_flip > flip_threshold:
+                if p_flip > flip_threshold and not trade_only_favorite:
                     # Модель ждет флип. Покупаем аутсайдера.
                     decision = "NO" if market.current_yes_price > 0.5 else "YES"
                 elif p_flip < no_flip_threshold:
@@ -154,8 +161,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
                         
                     buy_price = fresh_prices.get("best_ask", 0)
                     
-                    if buy_price <= 0 or buy_price >= 1:
-                        logger.warning("invalid_buy_price", price=buy_price)
+                    if buy_price < trade_min_price or buy_price > trade_max_price:
+                        logger.warning("trade_skipped_price_out_of_range", price=buy_price, min=trade_min_price, max=trade_max_price)
                         continue
                         
                     # Кол-во акций = size / price
