@@ -28,7 +28,11 @@ async def get_all_settings():
         "TRADE_BET_SIZE_USDC": str(settings.TRADE_BET_SIZE_USDC),
         "TRADE_NO_FLIP_THRESHOLD": str(settings.TRADE_NO_FLIP_THRESHOLD),
         "TRADE_FLIP_THRESHOLD": str(settings.TRADE_FLIP_THRESHOLD),
-        "TRADING_ENABLED": "true" if settings.TRADING_ENABLED else "false"
+        "TRADING_ENABLED": "true" if settings.TRADING_ENABLED else "false",
+        "INITIAL_CAPITAL": str(getattr(settings, 'INITIAL_CAPITAL', 100.0)),
+        "TRADE_ONLY_FAVORITE": "true" if getattr(settings, 'TRADE_ONLY_FAVORITE', False) else "false",
+        "TRADE_MIN_PRICE": str(getattr(settings, 'TRADE_MIN_PRICE', 0.05)),
+        "TRADE_MAX_PRICE": str(getattr(settings, 'TRADE_MAX_PRICE', 0.95))
     }
 
     async with async_session() as session:
@@ -52,7 +56,11 @@ async def update_setting(key: str, payload: SettingValue):
         "TRADE_BET_SIZE_USDC", 
         "TRADE_NO_FLIP_THRESHOLD", 
         "TRADE_FLIP_THRESHOLD", 
-        "TRADING_ENABLED"
+        "TRADING_ENABLED",
+        "INITIAL_CAPITAL",
+        "TRADE_ONLY_FAVORITE",
+        "TRADE_MIN_PRICE",
+        "TRADE_MAX_PRICE"
     ]
     
     if key not in valid_keys:
