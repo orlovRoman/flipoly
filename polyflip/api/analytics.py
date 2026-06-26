@@ -77,7 +77,7 @@ async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):
         MarketSnapshot.volume_5min,
         MarketSnapshot.price_velocity,
         MarketSnapshot.hour_of_day
-    ).where(MarketSnapshot.final_outcome != "PENDING").order_by(MarketSnapshot.created_at.desc()).limit(150000)
+    ).where(MarketSnapshot.final_outcome != "PENDING").order_by(MarketSnapshot.recorded_at.desc()).limit(150000)
     
     result = await db.execute(stmt)
     rows = result.all()
