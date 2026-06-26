@@ -11,11 +11,14 @@ from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.db.connection import async_session
 from polyflip.config import settings
-from sqlalchemy import select
+from sqlalchemy import select, and_, delete
 import os
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 from pathlib import Path
+
+from polyflip.db.models import RuntimeSettings, TradeHistory, MarketSnapshot, CollectorStatus
+from polyflip.models.trainer import ModelTrainer
 
 logger = structlog.get_logger(__name__)
 
@@ -101,8 +104,6 @@ async def backup_job():
 
 async def retrain_job():
     logger.info("starting_retrain_job")
-    from polyflip.models.trainer import ModelTrainer
-    from polyflip.db.models import RuntimeSettings
     try:
         async with async_session() as session:
             # Получаем список торгуемых активов из БД
@@ -127,8 +128,6 @@ async def retrain_job():
 
 async def resolve_trades_job():
     logger.info("starting_resolve_trades_job")
-    from polyflip.db.models import TradeHistory, MarketSnapshot
-    from sqlalchemy import and_
     try:
         async with async_session() as session:
             # Ищем сделки без PnL, которые были SUCCESS или PAPER
@@ -166,8 +165,6 @@ async def resolve_trades_job():
 
 async def cleanup_job():
     logger.info("starting_cleanup_job")
-    from polyflip.db.models import CollectorStatus
-    from sqlalchemy import delete
     try:
         async with async_session() as session:
             threshold = datetime.now(timezone.utc) - timedelta(days=7)

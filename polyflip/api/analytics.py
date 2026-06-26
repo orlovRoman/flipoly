@@ -108,11 +108,12 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
     await db.commit()
     return {"status": "success", "active_version": version}
 
-async def set_training_status(session: AsyncSession, status: str, message: str, last_run: str = None):
-    """Сохраняет статус обучения в RuntimeSettings в виде JSON-строки."""
-    logger.info("updating_training_status", status=status, message=message, last_run=last_run)
+async def set_training_status(session: AsyncSession, asset: str, status: str, message: str, last_run: str = None):
+    """Сохраняет статус обучения для конкретного актива в RuntimeSettings в виде JSON-строки."""
+    key = f"TRAINING_STATUS_{asset.upper()}"
+    logger.info("updating_training_status", asset=asset, status=status, message=message, last_run=last_run)
     if last_run is None:
-        stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TRAINING_STATUS_JSON")
+        stmt = select(RuntimeSettings).where(RuntimeSettings.key == key)
         res = await session.execute(stmt)
         row = res.scalar_one_or_none()
         if row:
@@ -128,7 +129,7 @@ async def set_training_status(session: AsyncSession, status: str, message: str, 
         "last_run": last_run
     }
     setting = RuntimeSettings(
-        key="TRAINING_STATUS_JSON", 
+        key=key, 
         value=json.dumps(data),
         updated_at=datetime.now(timezone.utc),
         updated_by="train_job"
@@ -136,9 +137,10 @@ async def set_training_status(session: AsyncSession, status: str, message: str, 
     await session.merge(setting)
     await session.commit()
 
-async def get_training_status(session: AsyncSession) -> Dict[str, Any]:
-    """Загружает статус обучения из RuntimeSettings."""
-    stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TRAINING_STATUS_JSON")
+async def get_training_status(session: AsyncSession, asset: str) -> Dict[str, Any]:
+    """Загружает статус обучения конкретного актива из RuntimeSettings."""
+    key = f"TRAINING_STATUS_{asset.upper()}"
+    stmt = select(RuntimeSettings).where(RuntimeSettings.key == key)
     res = await session.execute(stmt)
     row = res.scalar_one_or_none()
     if row:
@@ -156,7 +158,7 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks, db: As
         raise HTTPException(status_code=400, detail=f"Актив {asset} не настроен в системе")
     
     now_iso = datetime.now(timezone.utc).isoformat()
-    await set_training_status(db, "running", f"Обучение для {asset} началось...", now_iso)
+    await set_training_status(db, asset, "running", f"Обучение для {asset} началось...", now_iso)
     
     # Чтобы не блокировать API-запрос, обучаем асинхронно
     async def train_single_asset():
@@ -172,19 +174,27 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks, db: As
                     msg = f"Ошибка: {str(e)}"
                 
                 logger.info("train_single_asset_completed", asset=asset, status=msg)
-                await set_training_status(bg_session, "success", f"{asset}: {msg}", datetime.now(timezone.utc).isoformat())
+                await set_training_status(bg_session, asset, "success", f"{asset}: {msg}", datetime.now(timezone.utc).isoformat())
         except Exception as e:
             logger.exception("train_single_asset_failed", asset=asset, error=str(e))
             async with async_session() as bg_session:
-                await set_training_status(bg_session, "error", f"Ошибка: {str(e)}", datetime.now(timezone.utc).isoformat())
+                await set_training_status(bg_session, asset, "error", f"Ошибка: {str(e)}", datetime.now(timezone.utc).isoformat())
             
     background_tasks.add_task(train_single_asset)
-    return {"status": "training_started", "asset": asset}
+    return {"status": "running", "asset": asset}
+
+@router.get("/analytics/train_status/{asset}")
+async def get_train_status(asset: str, db: AsyncSession = Depends(get_db_session)):
+    """Возвращает статус последнего запущенного обучения для конкретного актива"""
+    return await get_training_status(db, asset)
 
 @router.get("/analytics/train_status")
-async def get_train_status(db: AsyncSession = Depends(get_db_session)):
-    """Возвращает статус последнего запущенного обучения"""
-    return await get_training_status(db)
+async def get_train_status_all(db: AsyncSession = Depends(get_db_session)):
+    """Возвращает статус обучения для всех активов"""
+    results = {}
+    for asset in settings.asset_list:
+        results[asset] = await get_training_status(db, asset)
+    return results
 
 @router.get("/analytics/probabilities")
 async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):

@@ -319,7 +319,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function pollTrainingStatus(btnEl, asset, originalText) {
     try {
-      const res = await fetch(window.API_BASE + "/api/analytics/train_status", {
+      const res = await fetch(window.API_BASE + `/api/analytics/train_status/${asset}`, {
         headers: getHeaders()
       });
       const data = await res.json();
