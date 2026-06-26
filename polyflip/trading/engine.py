@@ -1,4 +1,3 @@
-import asyncio
 import os
 import pickle
 import pandas as pd
@@ -85,7 +84,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     trade_assets = [a.strip() for a in trade_assets_str.split(",") if a.strip()]
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
-    active_features = [f.strip() for f in active_features_str.split(",") if f.strip()]
 
     # 2. Ищем рынки, которые подходят по времени для ставки (в пределах настраиваемого диапазона)
     # Чтобы не ставить дважды, проверяем TradeHistory.
@@ -123,15 +121,17 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             return
             
     # Загружаем активные модели
-    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
+    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
     active_models = (await db_session.execute(models_stmt)).scalars().all()
     
     models_by_asset = {}
     model_versions = {}
+    model_features = {}
     for m in active_models:
         try:
             models_by_asset[m.asset] = pickle.loads(m.model_blob)
             model_versions[m.asset] = m.version
+            model_features[m.asset] = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
         except Exception as e:
             logger.error("failed_to_load_model", asset=m.asset, error=str(e))
     
@@ -158,11 +158,18 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
 
                 model = models_by_asset.get(market.asset)
                 model_ver = model_versions.get(market.asset)
+                m_features = model_features.get(market.asset, [])
                 
                 if not model:
                     logger.warning("no_active_model_for_trade", asset=market.asset, market_id=market.market_id)
                     if not has_skipped_log:
                         await save_skipped_trade(db_session, market, "No active model", 0.0, model_ver, start_time)
+                    continue
+                    
+                if not m_features:
+                    logger.warning("model_has_no_features", asset=market.asset, version=model_ver)
+                    if not has_skipped_log:
+                        await save_skipped_trade(db_session, market, f"Model v{model_ver} has no features", 0.0, model_ver, start_time)
                     continue
                     
                 # Формируем X
@@ -178,11 +185,13 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 df_features = pd.DataFrame([feature_data])
                 
-                # Фильтруем только активные фичи
+                # Фильтруем только те фичи, на которых была обучена эта модель
                 try:
-                    X_real = df_features[active_features]
+                    X_real = df_features[m_features]
                 except KeyError as e:
                     logger.error("trade_engine_missing_features", error=str(e))
+                    if not has_skipped_log:
+                        await save_skipped_trade(db_session, market, f"Missing features: {str(e)}", 0.0, model_ver, start_time)
                     continue
                 
                 # Предсказываем вероятность флипа (класс 1)
