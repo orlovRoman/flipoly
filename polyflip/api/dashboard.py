@@ -118,3 +118,109 @@ async def get_trade_logs(db: AsyncSession = Depends(get_db_session)):
         }
         for log in logs
     ]
+
+@router.post("/api/dashboard/verify_resolves", dependencies=[Depends(verify_api_key)])
+async def verify_resolves(db: AsyncSession = Depends(get_db_session)):
+    """Сверяет последние 50 разрешенных рынков из БД с актуальными данными Polymarket Gamma API"""
+    import httpx
+    import json
+    
+    # 1. Загружаем последние снепшоты с разрешенными исходами
+    stmt = select(MarketSnapshot).where(MarketSnapshot.final_outcome != "PENDING")\
+        .order_by(MarketSnapshot.recorded_at.desc())\
+        .limit(200)
+    
+    res = await db.execute(stmt)
+    snapshots = res.scalars().all()
+    
+    # Отбираем уникальные market_id (до 50 штук)
+    unique_markets = {}
+    for s in snapshots:
+        if s.market_id not in unique_markets and len(unique_markets) < 50:
+            unique_markets[s.market_id] = {
+                "asset": s.asset,
+                "db_outcome": s.final_outcome
+            }
+            
+    if not unique_markets:
+        return {"status": "success", "results": [], "message": "Нет разрешенных рынков в БД для проверки"}
+        
+    results = []
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for market_id, info in unique_markets.items():
+            try:
+                response = await client.get(f"https://gamma-api.polymarket.com/markets/{market_id}")
+                
+                if response.status_code == 200:
+                    market_data = response.json()
+                    question = market_data.get("question", "N/A")
+                    closed = market_data.get("closed", False)
+                    
+                    # Ищем ответ по той же логике, что и в resolver.py
+                    answer = (
+                        market_data.get("answer")
+                        or market_data.get("winnerOutcome")
+                        or market_data.get("resolvedBy")
+                    )
+                    
+                    if not answer and closed:
+                        prices = market_data.get("outcomePrices", [])
+                        outcomes = market_data.get("outcomes", ["Yes", "No"])
+                        if isinstance(outcomes, str):
+                            outcomes = json.loads(outcomes)
+                        if isinstance(prices, str):
+                            prices = json.loads(prices)
+                        if prices and len(prices) >= 2 and outcomes and len(outcomes) >= 2:
+                            try:
+                                max_price = max(float(p) for p in prices)
+                                if max_price >= 0.95:
+                                    idx = [float(p) for p in prices].index(max_price)
+                                    answer = outcomes[idx]
+                            except Exception:
+                                pass
+                                
+                    if answer:
+                        outcome_map = {"UP": "YES", "DOWN": "NO", "YES": "YES", "NO": "NO"}
+                        api_outcome = outcome_map.get(answer.upper(), answer.upper())
+                        
+                        db_outcome = info["db_outcome"]
+                        status = "OK" if db_outcome == api_outcome else "MISMATCH"
+                        
+                        results.append({
+                            "market_id": market_id,
+                            "asset": info["asset"],
+                            "question": question,
+                            "db_outcome": db_outcome,
+                            "api_outcome": api_outcome,
+                            "status": status
+                        })
+                    else:
+                        results.append({
+                            "market_id": market_id,
+                            "asset": info["asset"],
+                            "question": question,
+                            "db_outcome": info["db_outcome"],
+                            "api_outcome": "PENDING/UNRESOLVED",
+                            "status": "UNRESOLVED_ON_API"
+                        })
+                else:
+                    results.append({
+                        "market_id": market_id,
+                        "asset": info["asset"],
+                        "question": f"Error HTTP {response.status_code}",
+                        "db_outcome": info["db_outcome"],
+                        "api_outcome": "ERROR",
+                        "status": f"HTTP_ERROR_{response.status_code}"
+                    })
+            except Exception as e:
+                results.append({
+                    "market_id": market_id,
+                    "asset": info["asset"],
+                    "question": f"Request failed: {str(e)}",
+                    "db_outcome": info["db_outcome"],
+                    "api_outcome": "ERROR",
+                    "status": "CONNECTION_FAILED"
+                })
+                
+    return {"status": "success", "results": results}

@@ -452,25 +452,42 @@ document.addEventListener("DOMContentLoaded", () => {
       tbody.innerHTML = "";
 
       if (data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7">Нет сохраненных моделей</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8">Нет сохраненных моделей</td></tr>`;
         return;
       }
 
+      // Вычисляем модель с максимальной точностью для каждого актива
+      const bestAccuracy = {};
+      data.forEach((m) => {
+        if (!bestAccuracy[m.asset] || m.accuracy > bestAccuracy[m.asset]) {
+          bestAccuracy[m.asset] = m.accuracy;
+        }
+      });
+
       data.forEach((m) => {
         const isActive = m.is_active;
-        const statusHtml = isActive
+        const isBest = m.accuracy === bestAccuracy[m.asset];
+        
+        let statusHtml = isActive
           ? `<span style="color: var(--poly-green); font-weight: bold;">Активна</span>`
           : `<span style="color: #8F9BB3;">Архив</span>`;
+          
+        if (isBest) {
+          statusHtml += ` <span class="status-indicator online" style="font-size: 0.75rem; padding: 0.1rem 0.5rem; margin-left: 5px; background: rgba(0, 114, 245, 0.1); color: var(--poly-blue); border: 1px solid rgba(0, 114, 245, 0.3);">Самая умная</span>`;
+        }
 
         const actionHtml = isActive
           ? `<button class="btn btn-primary" disabled style="opacity: 0.5;">Текущая</button>`
           : `<button class="btn btn-primary btn-activate-model" data-asset="${m.asset}" data-version="${m.version}">Активировать</button>`;
+
+        const baselineText = m.baseline !== null && m.baseline !== undefined ? m.baseline : "-";
 
         tbody.innerHTML += `
                     <tr>
                         <td><strong>${escapeHtml(m.asset)}</strong></td>
                         <td>v${m.version}</td>
                         <td>${m.accuracy}</td>
+                        <td>${baselineText}</td>
                         <td style="font-size: 0.85rem; max-width: 250px;">${escapeHtml(m.features)}</td>
                         <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>
                         <td>${statusHtml}</td>
@@ -528,6 +545,65 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // 6. Verify Resolves handler
+  const btnVerify = document.getElementById("btn-verify-resolves");
+  if (btnVerify) {
+    btnVerify.addEventListener("click", async () => {
+      btnVerify.innerText = "Сверка...";
+      btnVerify.disabled = true;
+      
+      const logPanel = document.getElementById("verify-resolves-log-panel");
+      const logBox = document.getElementById("verify-resolves-log");
+      
+      if (logPanel) logPanel.style.display = "block";
+      if (logBox) logBox.innerHTML = "Запуск сверки исходов последних 50 закрытых рынков с Polymarket...";
+      
+      try {
+        const res = await fetch(window.API_BASE + "/api/dashboard/verify_resolves", {
+          method: "POST",
+          headers: getHeaders(),
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          btnVerify.innerText = "Сверить исходы рынков";
+          btnVerify.disabled = false;
+          
+          if (data.results && data.results.length > 0) {
+            const logLines = [];
+            data.results.forEach((r) => {
+              const color = r.status === "OK" ? "#00ff88" : "#ff3366";
+              const questionEsc = escapeHtml(r.question);
+              logLines.push(
+                `<div style="margin-bottom: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">` +
+                `[${escapeHtml(r.asset)}] <strong>${questionEsc}</strong><br/>` +
+                `ID: <span style="color: var(--text-muted); font-size: 0.8rem;">${escapeHtml(r.market_id)}</span><br/>` +
+                `БД: <strong style="color: var(--poly-blue)">${escapeHtml(r.db_outcome)}</strong> | ` +
+                `API: <strong style="color: var(--poly-green)">${escapeHtml(r.api_outcome)}</strong> | ` +
+                `Статус: <strong style="color: ${color}">${escapeHtml(r.status)}</strong>` +
+                `</div>`
+              );
+            });
+            logBox.innerHTML = logLines.join("");
+          } else {
+            logBox.innerHTML = `<span style="color: #ffb020">${escapeHtml(data.message || "Нет данных")}</span>`;
+          }
+        } else {
+          alert("Ошибка при выполнении сверки.");
+          btnVerify.innerText = "Сверить исходы рынков";
+          btnVerify.disabled = false;
+          if (logPanel) logPanel.style.display = "none";
+        }
+      } catch (e) {
+        console.error(e);
+        alert("Ошибка сети.");
+        btnVerify.innerText = "Сверить исходы рынков";
+        btnVerify.disabled = false;
+        if (logPanel) logPanel.style.display = "none";
+      }
+    });
+  }
+ 
   // === Init ===
   loadSummary();
   loadCharts();

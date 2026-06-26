@@ -312,7 +312,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         let pnlText = "-";
         let pnlColor = "var(--text-main)";
-        if (log.status === "SUCCESS" && log.pnl !== null) {
+        if (log.status === "SUCCESS" && log.pnl !== null && log.pnl !== undefined) {
           const pnlVal = parseFloat(log.pnl);
           pnlText = (pnlVal >= 0 ? "+" : "") + pnlVal.toFixed(2) + " USDC";
           pnlColor = pnlVal >= 0 ? "#00ff88" : "#ff3366";

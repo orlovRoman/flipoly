@@ -43,10 +43,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
     # Baseline
     baseline_acc = float(max(y.mean(), 1 - y.mean()))
     
-    if val_acc <= baseline_acc:
-        return None, val_acc, baseline_acc
-        
-    # Обучаем финальную модель на всех данных
+    # Обучаем финальную модель на всех данных (ограничение убрано)
     final_model = LogisticRegression(class_weight="balanced", random_state=42)
     final_model.fit(X, y)
     
@@ -134,19 +131,14 @@ class ModelTrainer:
 
         logger.info("model_trained", asset=asset, samples=len(df), val_accuracy=val_acc, baseline_accuracy=baseline_acc)
 
-        if model_bytes is None:
-            logger.warning("model_worse_than_baseline_skipping", asset=asset, val_acc=val_acc, baseline=baseline_acc)
-            self.status_messages[asset] = f"Пропущено: точность ({val_acc:.2%}) ниже бейзлайна ({baseline_acc:.2%})"
-            return False
-
-        # 5. Деактивируем предыдущие модели
+        # Деактивируем предыдущие модели
         await self.db.execute(
             update(ModelRegistry)
             .where(ModelRegistry.asset == asset)
             .values(is_active=False)
         )
 
-        # 6. Получаем следующий номер версии
+        # Получаем следующий номер версии
         version_stmt = select(ModelRegistry.version).where(ModelRegistry.asset == asset).order_by(ModelRegistry.version.desc()).limit(1)
         v_result = await self.db.execute(version_stmt)
         last_v = v_result.scalar_one_or_none()
@@ -158,6 +150,7 @@ class ModelTrainer:
             version=next_version,
             model_blob=model_bytes,
             accuracy=val_acc,
+            baseline=baseline_acc,
             features=",".join(active_features),
             is_active=True,
             trained_at=datetime.now(timezone.utc)

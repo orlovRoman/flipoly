@@ -78,6 +78,7 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
             "asset": m.asset,
             "version": m.version,
             "accuracy": round(m.accuracy, 4),
+            "baseline": round(m.baseline, 4) if m.baseline is not None else None,
             "features": m.features or "",
             "is_active": m.is_active,
             "trained_at": m.trained_at.isoformat() if m.trained_at else None
@@ -162,7 +163,11 @@ async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession =
             async with async_session() as bg_session:
                 trainer = ModelTrainer(bg_session)
                 for asset in settings.asset_list:
-                    await trainer.train_model(asset)
+                    try:
+                        await trainer.train_model(asset)
+                    except Exception as e:
+                        logger.exception("train_model_failed_for_asset", asset=asset, error=str(e))
+                        trainer.status_messages[asset] = f"Ошибка: {str(e)}"
                 
                 # Собираем отчеты по обучению
                 summary_msgs = []

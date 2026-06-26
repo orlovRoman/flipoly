@@ -134,6 +134,7 @@
                                     <th>Актив</th>
                                     <th>Версия</th>
                                     <th>Точность</th>
+                                    <th>Бейзлайн</th>
                                     <th>Фичи</th>
                                     <th>Дата обучения</th>
                                     <th>Статус</th>
@@ -150,10 +151,21 @@
 
             <!-- TAB: Status -->
             <section id="status" class="tab-content">
-                <header class="tab-header">
-                    <h1>Статус Парсера</h1>
-                    <button id="btn-refresh-status" class="btn outline-btn">Обновить</button>
-                </header>
+                 <header class="tab-header">
+                     <h1>Статус Парсера</h1>
+                     <div style="display: flex; gap: 10px;">
+                         <button id="btn-verify-resolves" class="btn primary-btn">Сверить исходы рынков</button>
+                         <button id="btn-refresh-status" class="btn outline-btn">Обновить</button>
+                     </div>
+                 </header>
+                 
+                 <!-- Лог сверки исходов -->
+                 <div id="verify-resolves-log-panel" class="status-panel" style="max-width: 900px; margin-bottom: 20px; display: none;">
+                     <h3 style="margin-bottom: 1rem;">Лог сверки исходов с Polymarket</h3>
+                     <div id="verify-resolves-log" style="max-height: 300px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 1rem; border: 1px solid var(--border-color); font-family: monospace; font-size: 0.9rem; color: #FFF;">
+                         <!-- Заполняется через JS -->
+                     </div>
+                 </div>
                 <div class="status-panel">
                     <div id="collector-status-card" class="stat-card" style="margin-bottom: 20px;">
                         <h3>Сборщик (Коллектор)</h3>
