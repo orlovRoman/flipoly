@@ -35,6 +35,16 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    // === URL Tab Handling ===
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialTab = urlParams.get('tab');
+    if (initialTab) {
+        const targetNav = document.querySelector(`.nav-item[data-tab="${initialTab}"]`);
+        if (targetNav) {
+            targetNav.click();
+        }
+    }
+
     // === Data Fetching & Rendering ===
     
     // Simple helper to prevent XSS in innerHTML
