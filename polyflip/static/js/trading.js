@@ -137,8 +137,88 @@ document.addEventListener('DOMContentLoaded', () => {
     
     elements.refreshBtn.addEventListener('click', fetchStats);
     
+    // ----------------------------------------------------
+    // Trading Settings Logic
+    // ----------------------------------------------------
+    const settingsElements = {
+        executionTime: document.getElementById('TRADE_EXECUTION_TIME_SEC'),
+        betSize: document.getElementById('TRADE_BET_SIZE_USDC'),
+        noFlipThreshold: document.getElementById('TRADE_NO_FLIP_THRESHOLD'),
+        flipThreshold: document.getElementById('TRADE_FLIP_THRESHOLD'),
+        tradingEnabled: document.getElementById('TRADING_ENABLED'),
+        initialCapital: document.getElementById('INITIAL_CAPITAL'),
+        onlyFavorite: document.getElementById('TRADE_ONLY_FAVORITE'),
+        minPrice: document.getElementById('TRADE_MIN_PRICE'),
+        maxPrice: document.getElementById('TRADE_MAX_PRICE')
+    };
+
+    async function loadSettings() {
+        try {
+            const res = await fetch(window.API_BASE + '/api/settings', {
+                headers: { 'X-API-Key': apiKey }
+            });
+            const data = await res.json();
+            
+            if(settingsElements.executionTime && data.TRADE_EXECUTION_TIME_SEC) settingsElements.executionTime.value = data.TRADE_EXECUTION_TIME_SEC;
+            if(settingsElements.betSize && data.TRADE_BET_SIZE_USDC) settingsElements.betSize.value = data.TRADE_BET_SIZE_USDC;
+            if(settingsElements.noFlipThreshold && data.TRADE_NO_FLIP_THRESHOLD) settingsElements.noFlipThreshold.value = data.TRADE_NO_FLIP_THRESHOLD;
+            if(settingsElements.flipThreshold && data.TRADE_FLIP_THRESHOLD) settingsElements.flipThreshold.value = data.TRADE_FLIP_THRESHOLD;
+            if(settingsElements.tradingEnabled && data.TRADING_ENABLED) settingsElements.tradingEnabled.checked = (data.TRADING_ENABLED === 'true');
+            if(settingsElements.initialCapital && data.INITIAL_CAPITAL) settingsElements.initialCapital.value = data.INITIAL_CAPITAL;
+            if(settingsElements.onlyFavorite && data.TRADE_ONLY_FAVORITE) settingsElements.onlyFavorite.checked = (data.TRADE_ONLY_FAVORITE === 'true');
+            if(settingsElements.minPrice && data.TRADE_MIN_PRICE) settingsElements.minPrice.value = data.TRADE_MIN_PRICE;
+            if(settingsElements.maxPrice && data.TRADE_MAX_PRICE) settingsElements.maxPrice.value = data.TRADE_MAX_PRICE;
+        } catch (e) {
+            console.error("Failed to load settings", e);
+        }
+    }
+
+    const btnSaveSettings = document.getElementById('btn-save-trading-settings');
+    if (btnSaveSettings) {
+        btnSaveSettings.addEventListener('click', async (e) => {
+            e.preventDefault();
+            
+            const settingsToSave = {
+                'TRADE_EXECUTION_TIME_SEC': settingsElements.executionTime.value,
+                'TRADE_BET_SIZE_USDC': settingsElements.betSize.value,
+                'TRADE_NO_FLIP_THRESHOLD': settingsElements.noFlipThreshold.value,
+                'TRADE_FLIP_THRESHOLD': settingsElements.flipThreshold.value,
+                'TRADING_ENABLED': settingsElements.tradingEnabled.checked ? 'true' : 'false',
+                'INITIAL_CAPITAL': settingsElements.initialCapital.value,
+                'TRADE_ONLY_FAVORITE': settingsElements.onlyFavorite.checked ? 'true' : 'false',
+                'TRADE_MIN_PRICE': settingsElements.minPrice.value,
+                'TRADE_MAX_PRICE': settingsElements.maxPrice.value
+            };
+            
+            let allOk = true;
+            for (const [key, val] of Object.entries(settingsToSave)) {
+                try {
+                    const res = await fetch(window.API_BASE + `/api/settings/${key}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-API-Key': apiKey
+                        },
+                        body: JSON.stringify({ value: String(val) })
+                    });
+                    if(!res.ok) allOk = false;
+                } catch(err) {
+                    allOk = false;
+                }
+            }
+            
+            if(allOk) {
+                alert("Настройки торговли успешно сохранены!");
+                fetchStats(); // Update capital based on new initial_capital
+            } else {
+                alert("Ошибка при сохранении части настроек. Проверьте API Key.");
+            }
+        });
+    }
+
     // Initial fetch
     fetchStats();
+    loadSettings();
     
     // Auto refresh every 5 min
     setInterval(fetchStats, 5 * 60 * 1000);
