@@ -32,7 +32,8 @@ async def get_all_settings():
         "INITIAL_CAPITAL": str(getattr(settings, 'INITIAL_CAPITAL', 100.0)),
         "TRADE_ONLY_FAVORITE": "true" if getattr(settings, 'TRADE_ONLY_FAVORITE', False) else "false",
         "TRADE_MIN_PRICE": str(getattr(settings, 'TRADE_MIN_PRICE', 0.05)),
-        "TRADE_MAX_PRICE": str(getattr(settings, 'TRADE_MAX_PRICE', 0.95))
+        "TRADE_MAX_PRICE": str(getattr(settings, 'TRADE_MAX_PRICE', 0.95)),
+        "TRADE_ASSETS": str(getattr(settings, 'TRADE_ASSETS', 'BTC,ETH'))
     }
 
     async with async_session() as session:
@@ -60,7 +61,8 @@ async def update_setting(key: str, payload: SettingValue):
         "INITIAL_CAPITAL",
         "TRADE_ONLY_FAVORITE",
         "TRADE_MIN_PRICE",
-        "TRADE_MAX_PRICE"
+        "TRADE_MAX_PRICE",
+        "TRADE_ASSETS"
     ]
     
     if key not in valid_keys:
