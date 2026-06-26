@@ -139,11 +139,13 @@ document.addEventListener("DOMContentLoaded", () => {
               label: "Выигрыши",
               data: winData,
               backgroundColor: "#00ff88",
+              maxBarThickness: 30,
             },
             {
               label: "Проигрыши",
               data: lossData,
               backgroundColor: "#ff3366",
+              maxBarThickness: 30,
             },
           ],
         },
