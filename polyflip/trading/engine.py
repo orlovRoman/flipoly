@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 
 from polyflip.config import settings
 from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory
@@ -116,8 +116,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 TradeHistory.pnl.is_not(None)
             )
         )
-        # Обратите внимание, что func импортируется из sqlalchemy
-        from sqlalchemy import func
+
         daily_pnl = (await db_session.execute(daily_pnl_stmt)).scalar() or 0.0
         if daily_pnl <= -100.0:
             logger.warning("daily_loss_limit_reached", pnl=daily_pnl, limit=-100.0)

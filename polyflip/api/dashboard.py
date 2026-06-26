@@ -11,7 +11,7 @@ from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from polyflip.db.connection import get_db_session
-from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, TradeHistory, ModelRegistry
+from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, TradeHistory, ModelRegistry, RuntimeSettings
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
 
