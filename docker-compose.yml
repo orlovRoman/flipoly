@@ -35,6 +35,7 @@ services:
       - ./scripts:/app/scripts
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      - ./tests:/app/tests
     command: uvicorn polyflip.api.main:app --host 0.0.0.0 --port 8001
     deploy:
       resources:

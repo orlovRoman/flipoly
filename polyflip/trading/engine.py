@@ -92,7 +92,10 @@ async def trade_worker_cycle(db_session: AsyncSession):
         api_client = PolymarketClient()
         
         for market in markets:
-            time_left_sec = (market.end_time_est - start_time).total_seconds()
+            end_time = market.end_time_est
+            if end_time.tzinfo is None:
+                end_time = end_time.replace(tzinfo=timezone.utc)
+            time_left_sec = (end_time - start_time).total_seconds()
             
             if time_left_sec > 0:
                 # Проверяем, делали ли мы уже ставку на этот рынок
