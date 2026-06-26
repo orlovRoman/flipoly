@@ -129,9 +129,15 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     model_features = {}
     for m in active_models:
         try:
-            models_by_asset[m.asset] = pickle.loads(m.model_blob)
+            model_obj = pickle.loads(m.model_blob)
+            models_by_asset[m.asset] = model_obj
             model_versions[m.asset] = m.version
-            model_features[m.asset] = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
+            
+            m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
+            if not m_feats and hasattr(model_obj, "feature_names_in_"):
+                m_feats = list(model_obj.feature_names_in_)
+                
+            model_features[m.asset] = m_feats
         except Exception as e:
             logger.error("failed_to_load_model", asset=m.asset, error=str(e))
     
