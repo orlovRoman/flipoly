@@ -90,11 +90,7 @@ async def resolve_pending_markets(db_session: AsyncSession):
                     market_believed_yes = snap.mid_price > 0.5
                     actual_is_yes = (final_outcome == "YES")
                     
-                    # Исключаем идеальные 0.5 для чистоты (неопределенность)
-                    if snap.mid_price == 0.5:
-                        snap.flip_vs_final = False
-                    else:
-                        snap.flip_vs_final = (market_believed_yes != actual_is_yes)
+                    snap.flip_vs_final = (market_believed_yes != actual_is_yes)
                         
                 await db_session.commit()
                 logger.info("market_resolved", market_id=market_id, outcome=final_outcome)
