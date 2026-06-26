@@ -184,10 +184,16 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.executionTime.value = data.TRADE_EXECUTION_TIME_SEC;
       if (settingsElements.betSize && data.TRADE_BET_SIZE_USDC)
         settingsElements.betSize.value = data.TRADE_BET_SIZE_USDC;
-      if (settingsElements.noFlipThreshold && data.TRADE_NO_FLIP_THRESHOLD)
-        settingsElements.noFlipThreshold.value = Math.round(parseFloat(data.TRADE_NO_FLIP_THRESHOLD) * 100);
-      if (settingsElements.flipThreshold && data.TRADE_FLIP_THRESHOLD)
-        settingsElements.flipThreshold.value = Math.round(parseFloat(data.TRADE_FLIP_THRESHOLD) * 100);
+      if (settingsElements.noFlipThreshold && data.TRADE_NO_FLIP_THRESHOLD) {
+        let val = parseFloat(data.TRADE_NO_FLIP_THRESHOLD);
+        if (val > 1) val /= 100;
+        settingsElements.noFlipThreshold.value = Math.round(val * 100);
+      }
+      if (settingsElements.flipThreshold && data.TRADE_FLIP_THRESHOLD) {
+        let val = parseFloat(data.TRADE_FLIP_THRESHOLD);
+        if (val > 1) val /= 100;
+        settingsElements.flipThreshold.value = Math.round(val * 100);
+      }
       if (settingsElements.tradingEnabled && data.TRADING_ENABLED) {
         settingsElements.tradingEnabled.checked =
           data.TRADING_ENABLED === "true";
