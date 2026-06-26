@@ -205,6 +205,8 @@ h1 {
     border-radius: 12px;
     padding: 1.5rem;
     backdrop-filter: var(--glass-blur);
+    min-height: 300px;
+    position: relative;
 }
 
 .chart-box h3 {
