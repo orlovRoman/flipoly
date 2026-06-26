@@ -95,6 +95,7 @@ document.addEventListener("DOMContentLoaded", () => {
       plugins: { legend: { display: true, labels: { color: "white" } } },
       scales: {
         x: {
+          offset: true,
           ticks: { color: "rgba(255, 255, 255, 0.7)" },
           grid: { color: "rgba(255, 255, 255, 0.1)" },
         },
@@ -138,18 +139,33 @@ document.addEventListener("DOMContentLoaded", () => {
             {
               label: "Выигрыши",
               data: winData,
-              backgroundColor: "#00ff88",
+              backgroundColor: "#2ecc71",
               maxBarThickness: 30,
             },
             {
               label: "Проигрыши",
               data: lossData,
-              backgroundColor: "#ff3366",
+              backgroundColor: "#e74c3c",
               maxBarThickness: 30,
             },
           ],
         },
-        options: commonOptions,
+        options: {
+          ...commonOptions,
+          scales: {
+            x: {
+              stacked: true,
+              offset: true,
+              ticks: { color: "rgba(255, 255, 255, 0.7)" },
+              grid: { color: "rgba(255, 255, 255, 0.1)" },
+            },
+            y: {
+              stacked: true,
+              ticks: { color: "rgba(255, 255, 255, 0.7)" },
+              grid: { color: "rgba(255, 255, 255, 0.1)" },
+            }
+          }
+        },
       },
     );
   }
