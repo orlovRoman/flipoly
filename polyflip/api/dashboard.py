@@ -227,6 +227,7 @@ async def verify_resolves(db: AsyncSession = Depends(get_db_session)):
                     "api_outcome": "ERROR",
                     "status": "CONNECTION_FAILED"
                 }
+        return None
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         tasks = [fetch_market(client, mid, info) for mid, info in unique_markets.items()]

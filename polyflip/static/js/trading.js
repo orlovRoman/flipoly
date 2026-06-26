@@ -352,7 +352,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const logDate = new Date(log.created_at);
         const pad = (num) => String(num).padStart(2, '0');
-        const intervalOffsetStr = `${pad(logDate.getMinutes() % 15)}:${pad(logDate.getSeconds())}`;
+        const intervalOffsetStr = `${pad(logDate.getUTCMinutes() % 15)}:${pad(logDate.getUTCSeconds())}`;
 
         rows.push(`
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">

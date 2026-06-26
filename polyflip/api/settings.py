@@ -72,6 +72,18 @@ async def update_setting(key: str, payload: SettingValue):
     if key not in valid_keys:
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
+    # Валидация и нормализация порогов вероятности флипа
+    if key in ["TRADE_NO_FLIP_THRESHOLD", "TRADE_FLIP_THRESHOLD"]:
+        try:
+            val = float(payload.value)
+            if val < 0.0 or val > 100.0:
+                raise HTTPException(status_code=400, detail=f"Value for {key} must be between 0 and 100 (or 0.0 and 1.0)")
+            # Если прислали проценты (больше 1.0), автоматически переводим в доли для хранения в БД
+            if val > 1.0:
+                payload.value = str(val / 100.0)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
+
     async with async_session() as session:
         result = await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))
         setting = result.scalar_one_or_none()
