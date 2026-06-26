@@ -19,10 +19,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // === API Key Management ===
     // Simple helper to get headers
     function getHeaders() {
-        const key = document.getElementById('api_key').value || 'test-key';
+        let apiKey = "test-key";
+try {
+    apiKey = localStorage.getItem("polyflip_api_key") || "test-key";
+} catch (e) {
+    console.warn("localStorage unavailable, using default key");
+}
         return {
             'Content-Type': 'application/json',
-            'X-API-Key': key
+            'X-API-Key': apiKey
         };
     }
 

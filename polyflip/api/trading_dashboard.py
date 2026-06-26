@@ -81,7 +81,11 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
         is_win = (t.outcome_bought == outcome)
         pnl = 0
         if is_win:
-            pnl = (t.amount_usdc / t.executed_price) - t.amount_usdc
+            if t.executed_price > 0:
+                pnl = (t.amount_usdc / t.executed_price) - t.amount_usdc
+            else:
+                logger.error("zero_executed_price_in_trade", trade_id=t.id)
+                pnl = 0.0
             wins += 1
             win_prices.append(t.executed_price)
             win_probs.append(t.predicted_flip_prob)

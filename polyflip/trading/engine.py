@@ -137,9 +137,12 @@ async def trade_worker_cycle(db_session: AsyncSession):
                 # Логика принятия решения
                 decision = None
                 
-                if p_flip > flip_threshold and not trade_only_favorite:
-                    # Модель ждет флип. Покупаем аутсайдера.
-                    decision = "NO" if market.current_yes_price > 0.5 else "YES"
+                if p_flip > flip_threshold:
+                    if not trade_only_favorite:
+                        # Модель ждет флип. Покупаем аутсайдера.
+                        decision = "NO" if market.current_yes_price > 0.5 else "YES"
+                    else:
+                        logger.info("trade_flip_signal_skipped_only_favorite", market_id=market.market_id, p_flip=p_flip)
                 elif p_flip < no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
                     decision = "YES" if market.current_yes_price > 0.5 else "NO"
