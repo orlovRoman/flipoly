@@ -1,9 +1,14 @@
 import sqlite3
 import pandas as pd
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("db_path")
+args = parser.parse_args()
 
 try:
-    print("Reading SQLite database...")
-    conn = sqlite3.connect('Z:/polymarket-bot/vault/database.sqlite')
+    print(f"Reading SQLite database at {args.db_path}...")
+    conn = sqlite3.connect(args.db_path)
     tables = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table'", conn)
     print("Tables in SQLite:", tables['name'].tolist())
     

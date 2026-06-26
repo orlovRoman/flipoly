@@ -291,6 +291,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             console.error("Failed to load trade logs", e);
         }
+    }
+
     async function loadActiveModels() {
         try {
             const res = await fetch(window.API_BASE + '/api/dashboard/status', {

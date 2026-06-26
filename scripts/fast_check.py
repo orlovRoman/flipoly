@@ -1,7 +1,12 @@
 import sqlite3
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("db_path")
+args = parser.parse_args()
 
 try:
-    conn = sqlite3.connect('file:Z:/polymarket-bot/vault/database.sqlite?mode=ro', uri=True)
+    conn = sqlite3.connect(f'file:{args.db_path}?mode=ro', uri=True)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     

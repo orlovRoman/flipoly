@@ -13,6 +13,8 @@ from sqlalchemy import select
 import os
 import subprocess
 from datetime import datetime, timezone
+from urllib.parse import urlparse
+from pathlib import Path
 
 logger = structlog.get_logger(__name__)
 
@@ -42,12 +44,20 @@ async def backup_job():
         filepath = os.path.join(backup_dir, f"backup_polyflip_{timestamp}.sql")
         
         db_url = os.environ.get("DATABASE_URL", "")
-        # asyncpg URL like postgresql+asyncpg://... needs to be postgresql:// for pg_dump
         pg_url = db_url.replace("+asyncpg", "")
         
+        parsed = urlparse(pg_url)
         env = os.environ.copy()
+        env["PGPASSWORD"] = parsed.password or ""
         
-        cmd = ["pg_dump", "-d", pg_url, "-f", filepath, "-F", "c"]
+        cmd = [
+            "pg_dump",
+            "-h", parsed.hostname or "",
+            "-U", parsed.username or "",
+            "-d", (parsed.path or "").lstrip("/"),
+            "-f", filepath,
+            "-F", "c"
+        ]
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -59,6 +69,13 @@ async def backup_job():
         
         if process.returncode == 0:
             logger.info("backup_job_success", filepath=filepath)
+            
+            # Rotate backups
+            backups = sorted(Path(backup_dir).glob("backup_polyflip_*.sql"))
+            max_backups = int(os.environ.get("MAX_BACKUPS", "7"))
+            for old in backups[:-max_backups]:
+                old.unlink()
+                logger.info("backup_rotated", removed=str(old))
         else:
             logger.error("backup_job_failed", stderr=stderr.decode() if stderr else "unknown error")
             
