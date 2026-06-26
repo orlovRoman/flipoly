@@ -146,7 +146,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    document.getElementById('asset-selector').addEventListener('change', renderSelectedChart);
+    const assetSelector = document.getElementById('asset-selector');
+    if (assetSelector) {
+        assetSelector.addEventListener('change', renderSelectedChart);
+    }
 
     function createChart(ctx, labels, data, labelText, color, xTitle) {
         return new Chart(ctx, {
@@ -228,32 +231,36 @@ document.addEventListener('DOMContentLoaded', () => {
     // === Button Handlers ===
 
     // Train Model
-    document.getElementById('btn-train').addEventListener('click', async () => {
-        const btn = document.getElementById('btn-train');
-        btn.innerText = "Обучение...";
-        btn.disabled = true;
-        
-        try {
-            const res = await fetch(window.API_BASE + '/api/analytics/train', {
-                method: 'POST',
-                headers: getHeaders()
-            });
-            if(res.ok) {
-                alert("Задание на обучение отправлено в фон!");
-            } else {
-                alert("Ошибка запуска. Проверьте API Key.");
+    const btnTrain = document.getElementById('btn-train');
+    if (btnTrain) {
+        btnTrain.addEventListener('click', async () => {
+            btnTrain.innerText = "Обучение...";
+            btnTrain.disabled = true;
+            
+            try {
+                const res = await fetch(window.API_BASE + '/api/analytics/train', {
+                    method: 'POST',
+                    headers: getHeaders()
+                });
+                if(res.ok) {
+                    alert("Задание на обучение отправлено в фон!");
+                } else {
+                    alert("Ошибка запуска. Проверьте API Key.");
+                }
+            } catch(e) {
+                console.error(e);
+                alert("Network error.");
+            } finally {
+                btnTrain.innerText = "Запустить переобучение";
+                btnTrain.disabled = false;
             }
-        } catch(e) {
-            console.error(e);
-            alert("Network error.");
-        } finally {
-            btn.innerText = "Запустить переобучение";
-            btn.disabled = false;
-        }
-    });
+        });
+    }
 
     // Save Settings
-    document.getElementById('btn-save-settings').addEventListener('click', async (e) => {
+    const btnSaveSettings = document.getElementById('btn-save-settings');
+    if (btnSaveSettings) {
+        btnSaveSettings.addEventListener('click', async (e) => {
         e.preventDefault();
         
         // Сбор фичей
@@ -285,6 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
             alert("Ошибка при сохранении части настроек. Проверьте API Key.");
         }
     });
+    }
 
     // 4. Fetch Parser Status
     async function loadParserStatus() {
@@ -434,11 +442,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Refresh Status
-    document.getElementById('btn-refresh-status').addEventListener('click', () => {
-        loadSummary();
-        loadCharts();
-        loadParserStatus();
-    });
+    const btnRefreshStatus = document.getElementById('btn-refresh-status');
+    if (btnRefreshStatus) {
+        btnRefreshStatus.addEventListener('click', () => {
+            loadSummary();
+            loadCharts();
+            loadParserStatus();
+        });
+    }
 
     // === Init ===
     loadSummary();
