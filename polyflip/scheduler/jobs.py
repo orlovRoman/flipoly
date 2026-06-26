@@ -23,6 +23,14 @@ async def collector_job():
     logger.info("starting_collector_job")
     async with async_session() as session:
         await run_collector_cycle(session)
+        
+    # Обновляем файл-маркер для healthcheck
+    try:
+        with open("/tmp/scheduler_alive", "w") as f:
+            f.write(datetime.now(timezone.utc).isoformat())
+    except Exception as e:
+        logger.warning("failed_to_write_scheduler_health_marker", error=str(e))
+        
     logger.info("finished_collector_job")
 
 async def resolver_job():

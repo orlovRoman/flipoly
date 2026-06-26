@@ -28,6 +28,7 @@ async def resolve_pending_markets(db_session: AsyncSession):
 
     logger.info("resolving_pending_markets", count=len(pending_market_ids))
 
+    any_resolved = False
     async with httpx.AsyncClient(timeout=10.0) as client:
         for market_id in pending_market_ids:
             try:
@@ -98,9 +99,16 @@ async def resolve_pending_markets(db_session: AsyncSession):
                             actual_is_yes = (final_outcome == "YES")
                             snap.flip_vs_final = (market_believed_yes != actual_is_yes)
                         
-                await db_session.commit()
-                logger.info("market_resolved", market_id=market_id, outcome=final_outcome)
+                any_resolved = True
+                logger.info("market_prepared_to_resolve", market_id=market_id, outcome=final_outcome)
                 
             except Exception as e:
-                logger.error("error_resolving_market", market_id=market_id, error=str(e))
-                await db_session.rollback()
+                logger.error("error_preparing_market_resolve", market_id=market_id, error=str(e))
+
+    if any_resolved:
+        try:
+            await db_session.commit()
+            logger.info("resolved_markets_committed")
+        except Exception as e:
+            logger.error("error_committing_resolved_markets", error=str(e))
+            await db_session.rollback()

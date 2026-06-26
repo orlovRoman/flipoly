@@ -64,6 +64,11 @@ services:
       - ./alembic.ini:/app/alembic.ini
       - ./backups:/app/backups
     command: python -m polyflip.scheduler.jobs
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/scheduler_alive -mmin -5 | grep -q scheduler_alive"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     deploy:
       resources:
         limits:
