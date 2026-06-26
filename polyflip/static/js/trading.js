@@ -308,7 +308,7 @@ document.addEventListener("DOMContentLoaded", () => {
           log.status === "SKIPPED"
             ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>`
             : escapeHtml(log.error_msg || "-");
-        const modelStr = log.model_version ? `v${log.model_version}` : "-";
+        const modelStr = log.model_version ? `v${log.model_version}` : (log.status === "SUCCESS" ? "legacy" : "-");
 
         let pnlText = "-";
         let pnlColor = "var(--text-main)";
