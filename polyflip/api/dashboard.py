@@ -1,5 +1,10 @@
 import os
 import time
+import asyncio
+import httpx
+import json
+from typing import Dict, Any, List
+import structlog
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +14,7 @@ from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, Trad
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
 
+logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["Dashboard"])
 
 # Получаем абсолютный путь до папки templates, так как uvicorn может запускаться из разных мест
@@ -122,8 +128,6 @@ async def get_trade_logs(db: AsyncSession = Depends(get_db_session)):
 @router.post("/api/dashboard/verify_resolves", dependencies=[Depends(verify_api_key)])
 async def verify_resolves(db: AsyncSession = Depends(get_db_session)):
     """Сверяет последние 50 разрешенных рынков из БД с актуальными данными Polymarket Gamma API"""
-    import httpx
-    import json
     
     # 1. Загружаем последние снепшоты с разрешенными исходами
     stmt = select(MarketSnapshot).where(MarketSnapshot.final_outcome != "PENDING")\
@@ -146,9 +150,10 @@ async def verify_resolves(db: AsyncSession = Depends(get_db_session)):
         return {"status": "success", "results": [], "message": "Нет разрешенных рынков в БД для проверки"}
         
     results = []
+    semaphore = asyncio.Semaphore(10)  # не более 10 одновременных запросов
     
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        for market_id, info in unique_markets.items():
+    async def fetch_market(client, market_id, info):
+        async with semaphore:
             try:
                 response = await client.get(f"https://gamma-api.polymarket.com/markets/{market_id}")
                 
@@ -187,40 +192,50 @@ async def verify_resolves(db: AsyncSession = Depends(get_db_session)):
                         db_outcome = info["db_outcome"]
                         status = "OK" if db_outcome == api_outcome else "MISMATCH"
                         
-                        results.append({
+                        return {
                             "market_id": market_id,
                             "asset": info["asset"],
                             "question": question,
                             "db_outcome": db_outcome,
                             "api_outcome": api_outcome,
                             "status": status
-                        })
+                        }
                     else:
-                        results.append({
+                        return {
                             "market_id": market_id,
                             "asset": info["asset"],
                             "question": question,
                             "db_outcome": info["db_outcome"],
                             "api_outcome": "PENDING/UNRESOLVED",
                             "status": "UNRESOLVED_ON_API"
-                        })
+                        }
                 else:
-                    results.append({
+                    return {
                         "market_id": market_id,
                         "asset": info["asset"],
                         "question": f"Error HTTP {response.status_code}",
                         "db_outcome": info["db_outcome"],
                         "api_outcome": "ERROR",
                         "status": f"HTTP_ERROR_{response.status_code}"
-                    })
+                    }
             except Exception as e:
-                results.append({
+                return {
                     "market_id": market_id,
                     "asset": info["asset"],
                     "question": f"Request failed: {str(e)}",
                     "db_outcome": info["db_outcome"],
                     "api_outcome": "ERROR",
                     "status": "CONNECTION_FAILED"
-                })
+                }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        tasks = [fetch_market(client, mid, info) for mid, info in unique_markets.items()]
+        fetched_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for r in fetched_results:
+            if isinstance(r, dict):
+                results.append(r)
+            elif isinstance(r, Exception):
+                logger.error("error_fetching_market_data", error=str(r))
                 
     return {"status": "success", "results": results}

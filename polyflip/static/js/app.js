@@ -495,13 +495,14 @@ document.addEventListener("DOMContentLoaded", () => {
           ? `<button class="btn btn-primary" disabled style="opacity: 0.5;">Текущая</button>`
           : `<button class="btn btn-primary btn-activate-model" data-asset="${m.asset}" data-version="${m.version}">Активировать</button>`;
 
-        const baselineText = m.baseline !== null && m.baseline !== undefined ? m.baseline : "-";
+        const baselineText = m.baseline != null ? (m.baseline * 100).toFixed(1) + "%" : "-";
+        const accuracyText = m.accuracy != null ? (m.accuracy * 100).toFixed(1) + "%" : "-";
 
         tbody.innerHTML += `
                     <tr>
                         <td><strong>${escapeHtml(m.asset)}</strong></td>
                         <td>v${m.version}</td>
-                        <td>${m.accuracy}</td>
+                        <td>${accuracyText}</td>
                         <td>${baselineText}</td>
                         <td style="font-size: 0.85rem; max-width: 220px; word-break: break-word; white-space: normal;">${escapeHtml(translateFeatures(m.features))}</td>
                         <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>

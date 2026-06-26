@@ -328,7 +328,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         rows.push(`
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                        <td style="padding: 8px;">${timeStr}</td>
+                        <td style="padding: 8px;"><a href="#" class="market-link" data-market-id="${log.market_id}" data-asset="${escapeHtml(log.asset)}" style="color: var(--text-main); text-decoration: underline; cursor: pointer;">${timeStr}</a></td>
                         <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
                         <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
@@ -385,6 +385,49 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnRefreshLogs = document.getElementById("btn-refresh-logs");
   if (btnRefreshLogs) {
     btnRefreshLogs.addEventListener("click", loadLogs);
+  }
+
+  // Обработчик клика по ссылке на Polymarket
+  const logsTable = document.getElementById("trade-logs-table");
+  if (logsTable) {
+    logsTable.addEventListener("click", async (e) => {
+      const link = e.target.closest(".market-link");
+      if (!link) return;
+      e.preventDefault();
+      
+      const marketId = link.getAttribute("data-market-id");
+      const asset = link.getAttribute("data-asset");
+      if (!marketId) return;
+      
+      const originalText = link.textContent;
+      link.textContent = "⏳...";
+      link.style.pointerEvents = "none";
+      
+      try {
+        const response = await fetch(`https://gamma-api.polymarket.com/markets/${marketId}`);
+        if (!response.ok) throw new Error("Failed to fetch");
+        const marketData = await response.json();
+        
+        let slug = marketData.slug;
+        if (!slug && marketData.event) {
+          slug = marketData.event.slug;
+        }
+        
+        if (slug) {
+          window.open(`https://polymarket.com/market/${slug}`, "_blank");
+        } else if (marketData.eventSlug) {
+          window.open(`https://polymarket.com/event/${marketData.eventSlug}`, "_blank");
+        } else {
+          window.open(`https://polymarket.com/?search=${encodeURIComponent(asset)}`, "_blank");
+        }
+      } catch (err) {
+        console.error("Error fetching market slug from Polymarket:", err);
+        window.open(`https://polymarket.com/?search=${encodeURIComponent(asset)}`, "_blank");
+      } finally {
+        link.textContent = originalText;
+        link.style.pointerEvents = "auto";
+      }
+    });
   }
 
   // Initial fetch

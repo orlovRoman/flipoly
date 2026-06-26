@@ -2,13 +2,14 @@ import pytest
 from sqlalchemy import select
 from datetime import datetime, timezone
 from unittest.mock import patch
+from polyflip.config import settings
 from polyflip.db.models import MarketSnapshot, ModelRegistry
 from polyflip.models.trainer import ModelTrainer
 
 @pytest.mark.asyncio
 async def test_trainer_skips_insufficient_data(db_session):
     trainer = ModelTrainer(db_session)
-    with patch("polyflip.models.trainer.settings.MIN_SAMPLES_FOR_MODEL", 10):
+    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10):
         res = await trainer.train_model("BTC")
     assert res is False
 
@@ -33,7 +34,7 @@ async def test_trainer_creates_model(db_session):
     await db_session.commit()
 
     trainer = ModelTrainer(db_session)
-    with patch("polyflip.models.trainer.settings.MIN_SAMPLES_FOR_MODEL", 10):
+    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10):
         res = await trainer.train_model("BTC")
     assert res is True
 
@@ -60,7 +61,7 @@ async def test_trainer_saves_model_even_if_accuracy_is_low(db_session):
     await db_session.commit()
 
     trainer = ModelTrainer(db_session)
-    with patch("polyflip.models.trainer.settings.MIN_SAMPLES_FOR_MODEL", 10):
+    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10):
         res = await trainer.train_model("BTC")
     
     assert res is True # Модель должна успешно сохраниться, несмотря на низкую точность
