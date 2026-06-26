@@ -34,7 +34,11 @@
         <main class="main-content">
             <section class="tab-content active">
                 <header class="tab-header">
-                    <h1>Торговый Дашборд <span id="active-models-badge" style="font-size: 0.9rem; margin-left: 1rem; color: var(--poly-blue);"></span></h1>
+                    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                        <h1 style="margin: 0; background: linear-gradient(90deg, #fff, #a0aec0); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Торговый Дашборд</h1>
+                        <span id="active-models-badge" style="font-size: 0.85rem; color: var(--poly-blue); background: rgba(0, 114, 245, 0.1); border: 1px solid rgba(0, 114, 245, 0.3); padding: 0.25rem 0.75rem; border-radius: 20px; font-weight: 600; font-family: sans-serif;"></span>
+                        <span id="trading-status-badge" class="status-indicator" style="font-size: 0.8rem; font-weight: 600;">Загрузка...</span>
+                    </div>
                     <button id="btn-refresh-trading" class="btn primary-btn">Обновить данные</button>
                 </header>
 
@@ -187,6 +191,7 @@
                                     <th style="padding: 8px;">Статус</th>
                                     <th style="padding: 8px;">Ставка</th>
                                     <th style="padding: 8px;">Цена</th>
+                                    <th style="padding: 8px;">PnL</th>
                                     <th style="padding: 8px;">Flip %</th>
                                     <th style="padding: 8px;">Причина / Ошибка</th>
                                 </tr>

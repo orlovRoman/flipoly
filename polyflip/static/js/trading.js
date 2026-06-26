@@ -186,9 +186,17 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.noFlipThreshold.value = Math.round(parseFloat(data.TRADE_NO_FLIP_THRESHOLD) * 100);
       if (settingsElements.flipThreshold && data.TRADE_FLIP_THRESHOLD)
         settingsElements.flipThreshold.value = Math.round(parseFloat(data.TRADE_FLIP_THRESHOLD) * 100);
-      if (settingsElements.tradingEnabled && data.TRADING_ENABLED)
+      if (settingsElements.tradingEnabled && data.TRADING_ENABLED) {
         settingsElements.tradingEnabled.checked =
           data.TRADING_ENABLED === "true";
+      }
+
+      const statusBadge = document.getElementById("trading-status-badge");
+      if (statusBadge && data.TRADING_ENABLED !== undefined) {
+        const isEnabled = data.TRADING_ENABLED === "true";
+        statusBadge.textContent = isEnabled ? "Торговля: ВКЛЮЧЕНА" : "Торговля: ВЫКЛЮЧЕНА";
+        statusBadge.className = "status-indicator " + (isEnabled ? "online" : "offline");
+      }
       if (settingsElements.initialCapital && data.INITIAL_CAPITAL)
         settingsElements.initialCapital.value = data.INITIAL_CAPITAL;
       if (settingsElements.onlyFavorite && data.TRADE_ONLY_FAVORITE)
@@ -252,6 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (failed.length === 0) {
         alert("Настройки торговли успешно сохранены!");
+        await loadSettings();
         fetchStats(); // Update capital based on new initial_capital
       } else {
         alert(`Не удалось сохранить следующие настройки: ${failed.join(", ")}`);
@@ -301,6 +310,14 @@ document.addEventListener("DOMContentLoaded", () => {
             : escapeHtml(log.error_msg || "-");
         const modelStr = log.model_version ? `v${log.model_version}` : "-";
 
+        let pnlText = "-";
+        let pnlColor = "var(--text-main)";
+        if (log.status === "SUCCESS" && log.pnl !== null) {
+          const pnlVal = parseFloat(log.pnl);
+          pnlText = (pnlVal >= 0 ? "+" : "") + pnlVal.toFixed(2) + " USDC";
+          pnlColor = pnlVal >= 0 ? "#00ff88" : "#ff3366";
+        }
+
         rows.push(`
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                         <td style="padding: 8px;">${timeStr}</td>
@@ -309,6 +326,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
                         <td style="padding: 8px;">${log.outcome_bought !== "NONE" ? log.outcome_bought : "-"}</td>
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? "$" + parseFloat(log.executed_price).toFixed(3) : "-"}</td>
+                        <td style="padding: 8px; color: ${pnlColor}; font-weight: 600;">${pnlText}</td>
                         <td style="padding: 8px; color: ${flipColor};">${(log.predicted_flip_prob * 100).toFixed(1)}%</td>
                         <td style="padding: 8px;">${reasonHtml}</td>
                     </tr>

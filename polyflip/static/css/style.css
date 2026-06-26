@@ -253,6 +253,12 @@ canvas {
     border: 1px solid rgba(0, 211, 149, 0.3);
 }
 
+.status-indicator.offline {
+    background: rgba(255, 51, 102, 0.1);
+    color: #ff3366;
+    border: 1px solid rgba(255, 51, 102, 0.3);
+}
+
 .log-box {
     background: #000;
     border-radius: 8px;

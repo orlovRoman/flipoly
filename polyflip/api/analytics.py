@@ -14,6 +14,8 @@ from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.config import settings
 from polyflip.models.trainer import ModelTrainer
 
+logger = structlog.get_logger(__name__)
+
 router = APIRouter(prefix="/api", tags=["Analytics & Settings"])
 
 # --- Analytics ---
@@ -108,6 +110,7 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
 
 async def set_training_status(session: AsyncSession, status: str, message: str, last_run: str = None):
     """Сохраняет статус обучения в RuntimeSettings в виде JSON-строки."""
+    logger.info("updating_training_status", status=status, message=message, last_run=last_run)
     if last_run is None:
         stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TRAINING_STATUS_JSON")
         res = await session.execute(stmt)
@@ -154,14 +157,24 @@ async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession =
     
     # Чтобы не блокировать API-запрос, обучаем асинхронно
     async def train_all():
+        logger.info("train_all_started")
         try:
             async with async_session() as bg_session:
                 trainer = ModelTrainer(bg_session)
                 for asset in settings.asset_list:
                     await trainer.train_model(asset)
-                await set_training_status(bg_session, "success", "Обучение успешно завершено.", datetime.now(timezone.utc).isoformat())
+                
+                # Собираем отчеты по обучению
+                summary_msgs = []
+                for asset in settings.asset_list:
+                    msg = trainer.status_messages.get(asset, "Статус неизвестен")
+                    summary_msgs.append(f"{asset}: {msg}")
+                summary_message = " | ".join(summary_msgs)
+                
+                logger.info("train_all_completed", summary=summary_message)
+                await set_training_status(bg_session, "success", summary_message, datetime.now(timezone.utc).isoformat())
         except Exception as e:
-            structlog.get_logger(__name__).exception("train_all_failed", error=str(e))
+            logger.exception("train_all_failed", error=str(e))
             async with async_session() as bg_session:
                 await set_training_status(bg_session, "error", f"Ошибка: {str(e)}", datetime.now(timezone.utc).isoformat())
             

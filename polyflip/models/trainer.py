@@ -57,6 +57,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
 class ModelTrainer:
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
+        self.status_messages = {}
 
     async def train_model(self, asset: str) -> bool:
         """
@@ -79,6 +80,7 @@ class ModelTrainer:
         
         if not active_features:
             logger.error("no_active_features_selected", asset=asset)
+            self.status_messages[asset] = "Ошибка: не выбраны активные признаки"
             return False
         
         # 1. Получаем обучающую выборку (исключаем PENDING)
@@ -92,6 +94,7 @@ class ModelTrainer:
         # BUG-004 FIX: Используем настройку из конфига
         if len(snapshots) < settings.MIN_SAMPLES_FOR_MODEL:
             logger.warning("not_enough_data_for_training", asset=asset, samples=len(snapshots), required=settings.MIN_SAMPLES_FOR_MODEL)
+            self.status_messages[asset] = f"Пропущено: недостаточно данных ({len(snapshots)}/{settings.MIN_SAMPLES_FOR_MODEL})"
             return False
 
         # 2. Формируем DataFrame
@@ -112,12 +115,14 @@ class ModelTrainer:
         # Базовая проверка на разнообразие классов
         if len(df["target"].unique()) < 2:
             logger.warning("only_one_class_in_target", asset=asset)
+            self.status_messages[asset] = "Пропущено: все исходы одинаковы (1 класс)"
             return False
             
         # Используем только те фичи, которые включены в дашборде
         missing_features = [f for f in active_features if f not in df.columns]
         if missing_features:
             logger.error("missing_features_in_df", missing=missing_features)
+            self.status_messages[asset] = f"Ошибка: отсутствуют фичи {', '.join(missing_features)}"
             return False
             
         X = df[active_features]
@@ -131,6 +136,7 @@ class ModelTrainer:
 
         if model_bytes is None:
             logger.warning("model_worse_than_baseline_skipping", asset=asset, val_acc=val_acc, baseline=baseline_acc)
+            self.status_messages[asset] = f"Пропущено: точность ({val_acc:.2%}) ниже бейзлайна ({baseline_acc:.2%})"
             return False
 
         # 5. Деактивируем предыдущие модели
@@ -160,4 +166,5 @@ class ModelTrainer:
         await self.db.commit()
 
         logger.info("model_saved_to_db", asset=asset, version=next_version)
+        self.status_messages[asset] = f"Успешно: версия {next_version} (точность {val_acc:.2%}, бейзлайн {baseline_acc:.2%})"
         return True
