@@ -41,12 +41,27 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
         }
         for m in models
     }
+    
+    # 3. История моделей для графиков
+    history_stmt = select(ModelRegistry).order_by(ModelRegistry.trained_at.asc())
+    history_rows = (await db.execute(history_stmt)).scalars().all()
+    
+    model_history = {}
+    for r in history_rows:
+        if r.asset not in model_history:
+            model_history[r.asset] = []
+        model_history[r.asset].append({
+            "version": r.version,
+            "accuracy": round(r.accuracy, 4),
+            "trained_at": r.trained_at.isoformat() if r.trained_at else None
+        })
 
     return {
         "total_resolved_markets": total_markets,
         "total_flips": total_flips,
         "flip_percentage": round((total_flips / total_markets * 100) if total_markets > 0 else 0, 2),
-        "active_models": active_models
+        "active_models": active_models,
+        "model_history": model_history
     }
 
 @router.post("/analytics/train", dependencies=[Depends(verify_api_key)])

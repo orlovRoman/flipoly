@@ -20,11 +20,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Simple helper to get headers
     function getHeaders() {
         let apiKey = "test-key";
-try {
-    apiKey = localStorage.getItem("polyflip_api_key") || "test-key";
-} catch (e) {
-    console.warn("localStorage unavailable, using default key");
-}
+        try {
+            apiKey = localStorage.getItem("polyflip_api_key") || "test-key";
+        } catch (e) {
+            console.warn("localStorage unavailable, using default key");
+        }
         return {
             'Content-Type': 'application/json',
             'X-API-Key': apiKey
@@ -61,9 +61,27 @@ try {
             if(ethModel) {
                 document.getElementById('stat-model-eth').innerText = `v${ethModel.version} (Acc: ${ethModel.accuracy})`;
             }
+
+            if (data.model_history && data.model_history['BTC']) {
+                renderAccuracyChart(data.model_history['BTC']);
+            }
         } catch(e) {
             console.error("Failed to load summary", e);
         }
+    }
+
+    function renderAccuracyChart(historyData) {
+        const canvas = document.getElementById('chart-model-accuracy');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        
+        let existingChart = Chart.getChart('chart-model-accuracy');
+        if (existingChart) existingChart.destroy();
+        
+        const labels = historyData.map(h => `v${h.version}`);
+        const data = historyData.map(h => h.accuracy * 100);
+        
+        createChart(ctx, labels, data, 'Точность модели BTC', '#0072F5', 'Версия модели');
     }
 
     // 2. Fetch Probabilities and Render Charts

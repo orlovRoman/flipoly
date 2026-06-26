@@ -1,10 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
     let apiKey = "test-key";
-try {
-    apiKey = localStorage.getItem("polyflip_api_key") || "test-key";
-} catch (e) {
-    console.warn("localStorage unavailable, using default key");
-}
+    try {
+        apiKey = localStorage.getItem("polyflip_api_key") || "test-key";
+    } catch (e) {
+        console.warn("localStorage unavailable, using default key");
+    }
     
     const elements = {
         capital: document.getElementById('stat-capital'),

@@ -1,21 +1,14 @@
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+import httpx
+import respx
 from sqlalchemy import select
 from datetime import datetime, timezone
 from polyflip.db.models import MarketSnapshot
 from polyflip.collector.resolver import resolve_pending_markets
 
-@pytest.fixture
-def mock_httpx_client():
-    mock_client_instance = AsyncMock()
-    mock_client_context = AsyncMock()
-    mock_client_context.__aenter__.return_value = mock_client_instance
-    
-    with patch('httpx.AsyncClient', return_value=mock_client_context) as mock_client_class:
-        yield mock_client_instance
-
 @pytest.mark.asyncio
-async def test_resolver_skips_not_closed(db_session, mock_httpx_client):
+@respx.mock
+async def test_resolver_skips_not_closed(db_session):
     snap = MarketSnapshot(
         market_id="test_m1", asset="BTC", time_left_min=10.0, mid_price=0.8,
         spread=0.01, volume_5min=100.0, price_velocity=0.0, hour_of_day=12,
@@ -24,10 +17,9 @@ async def test_resolver_skips_not_closed(db_session, mock_httpx_client):
     db_session.add(snap)
     await db_session.commit()
 
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {"closed": False}
-    mock_httpx_client.get.return_value = mock_response
+    respx.get("https://gamma-api.polymarket.com/markets/test_m1").mock(
+        return_value=httpx.Response(200, json={"closed": False})
+    )
 
     await resolve_pending_markets(db_session)
 
@@ -36,7 +28,8 @@ async def test_resolver_skips_not_closed(db_session, mock_httpx_client):
     assert updated_snap.final_outcome == "PENDING"
 
 @pytest.mark.asyncio
-async def test_resolver_marks_yes_and_calculates_flip(db_session, mock_httpx_client):
+@respx.mock
+async def test_resolver_marks_yes_and_calculates_flip(db_session):
     # Market believed YES (0.8), but actually NO -> should be a flip
     snap1 = MarketSnapshot(
         market_id="test_m2", asset="BTC", time_left_min=5.0, mid_price=0.8,
@@ -52,11 +45,12 @@ async def test_resolver_marks_yes_and_calculates_flip(db_session, mock_httpx_cli
     db_session.add_all([snap1, snap2])
     await db_session.commit()
 
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    # Provide explicit answer
-    mock_response.json.return_value = {"closed": True, "answer": "NO"}
-    mock_httpx_client.get.return_value = mock_response
+    respx.get("https://gamma-api.polymarket.com/markets/test_m2").mock(
+        return_value=httpx.Response(200, json={
+            "closed": True,
+            "answer": "NO"
+        })
+    )
 
     await resolve_pending_markets(db_session)
 

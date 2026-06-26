@@ -68,6 +68,12 @@ async def test_engine_makes_trade_outsider(db_session):
          # mid_price = 0.6 (YES is fav). p_flip > 0.85 -> buy NO.
          assert trades[0].outcome_bought == "NO"
          assert trades[0].executed_price == 0.42
+         
+         mock_trainer_call = mock_trader.execute_trade.call_args
+         assert mock_trainer_call is not None, "execute_trade was never called"
+         _, kwargs = mock_trainer_call
+         assert kwargs["price"] == 0.42
+         assert kwargs["side"] == "BUY"
 
 @pytest.mark.asyncio
 async def test_engine_respects_only_favorite(db_session):
