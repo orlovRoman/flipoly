@@ -49,6 +49,7 @@ async def get_all_settings():
     return current_settings
 
 @router.put("/{key}")
+@router.post("/{key}")
 async def update_setting(key: str, payload: SettingValue):
     """
     Обновляет или создает настройку в БД.
