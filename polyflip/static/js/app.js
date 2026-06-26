@@ -81,12 +81,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const color = selectedAsset === 'BTC' ? '#0072F5' : '#00D395';
         
         const chartConfigs = [
-            { id: 'chart-time', key: 'time_left_min' },
-            { id: 'chart-price', key: 'mid_price' },
-            { id: 'chart-spread', key: 'spread' },
-            { id: 'chart-volume', key: 'volume_5min' },
-            { id: 'chart-velocity', key: 'price_velocity' },
-            { id: 'chart-hour', key: 'hour_of_day' }
+            { id: 'chart-time', key: 'time_left_min', xTitle: 'Оставшееся время (минуты)' },
+            { id: 'chart-price', key: 'mid_price', xTitle: 'Цена токена (USD)' },
+            { id: 'chart-spread', key: 'spread', xTitle: 'Спред (USD)' },
+            { id: 'chart-volume', key: 'volume_5min', xTitle: 'Объем торгов за 5 мин (USDC)' },
+            { id: 'chart-velocity', key: 'price_velocity', xTitle: 'Скорость изменения цены за 5 мин' },
+            { id: 'chart-hour', key: 'hour_of_day', xTitle: 'Время суток (UTC)' }
         ];
 
         chartConfigs.forEach(cfg => {
@@ -101,13 +101,13 @@ document.addEventListener('DOMContentLoaded', () => {
             let existingChart = Chart.getChart(cfg.id);
             if (existingChart) existingChart.destroy();
             
-            chartInstances[cfg.id] = createChart(ctx, labels, points, `${selectedAsset} Флип %`, color);
+            chartInstances[cfg.id] = createChart(ctx, labels, points, `${selectedAsset} Флип %`, color, cfg.xTitle);
         });
     }
 
     document.getElementById('asset-selector').addEventListener('change', renderSelectedChart);
 
-    function createChart(ctx, labels, data, labelText, color) {
+    function createChart(ctx, labels, data, labelText, color, xTitle) {
         return new Chart(ctx, {
             type: 'line',
             data: {
@@ -152,7 +152,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     },
                     x: {
                         grid: { display: false },
-                        ticks: { color: '#8F9BB3', maxRotation: 45, minRotation: 45 }
+                        ticks: { color: '#8F9BB3', maxRotation: 45, minRotation: 45 },
+                        title: {
+                            display: true,
+                            text: xTitle,
+                            color: '#8F9BB3',
+                            font: { size: 13 }
+                        }
                     }
                 }
             }
