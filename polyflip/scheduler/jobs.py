@@ -102,10 +102,24 @@ async def backup_job():
 async def retrain_job():
     logger.info("starting_retrain_job")
     from polyflip.models.trainer import ModelTrainer
+    from polyflip.db.models import RuntimeSettings
     try:
         async with async_session() as session:
+            # Получаем список торгуемых активов из БД
+            stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TRADE_ASSETS")
+            res = await session.execute(stmt)
+            setting = res.scalar_one_or_none()
+            
+            if setting and setting.value.strip():
+                trade_assets = [a.strip().upper() for a in setting.value.split(",") if a.strip()]
+            else:
+                trade_assets = [a.strip().upper() for a in settings.TRADE_ASSETS.split(",") if a.strip()]
+
             trainer = ModelTrainer(session)
             for asset in settings.asset_list:
+                if asset.upper() not in trade_assets:
+                    logger.info("retrain_skipped_asset_not_for_trading", asset=asset)
+                    continue
                 await trainer.train_model(asset)
         logger.info("finished_retrain_job")
     except Exception as e:
@@ -188,13 +202,13 @@ async def main():
         replace_existing=True
     )
     
-    # Ежедневно переобучаем модели (раз в 24 часа)
-    scheduler.add_job(
-        retrain_job,
-        trigger=IntervalTrigger(hours=settings.RETRAIN_INTERVAL_HOURS),
-        id="retrain_job",
-        replace_existing=True
-    )
+    # Ежедневно переобучаем модели (раз в 24 часа) - ОТКЛЮЧЕНО в пользу ручного обучения
+    # scheduler.add_job(
+    #     retrain_job,
+    #     trigger=IntervalTrigger(hours=settings.RETRAIN_INTERVAL_HOURS),
+    #     id="retrain_job",
+    #     replace_existing=True
+    # )
     
     # Расчет PnL для закрытых сделок (каждые 10 минут)
     scheduler.add_job(

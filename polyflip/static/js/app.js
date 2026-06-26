@@ -287,53 +287,56 @@ document.addEventListener("DOMContentLoaded", () => {
   // === Button Handlers ===
 
   // Train Model
-  const btnTrain = document.getElementById("btn-train");
-  if (btnTrain) {
-    btnTrain.addEventListener("click", async () => {
-      btnTrain.innerText = "Обучение...";
-      btnTrain.disabled = true;
+  document.querySelectorAll(".btn-train-asset").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      const asset = e.target.getAttribute("data-asset");
+      const originalText = e.target.innerText;
+      
+      e.target.innerText = `Обучение ${asset}...`;
+      e.target.disabled = true;
 
       try {
-        const res = await fetch(window.API_BASE + "/api/analytics/train", {
+        const res = await fetch(window.API_BASE + `/api/analytics/train/${asset}`, {
           method: "POST",
           headers: getHeaders(),
         });
         if (res.ok) {
-          alert("Задание на обучение отправлено в фон!");
-          pollTrainingStatus();
+          alert(`Задание на обучение ${asset} отправлено в фон!`);
+          pollTrainingStatus(e.target, asset, originalText);
         } else {
           alert("Ошибка запуска. Проверьте API Key.");
-          btnTrain.innerText = "Запустить переобучение";
-          btnTrain.disabled = false;
+          e.target.innerText = originalText;
+          e.target.disabled = false;
         }
-      } catch (e) {
-        console.error(e);
+      } catch (err) {
+        console.error(err);
         alert("Network error.");
-        btnTrain.innerText = "Запустить переобучение";
-        btnTrain.disabled = false;
+        e.target.innerText = originalText;
+        e.target.disabled = false;
       }
     });
+  });
 
-    async function pollTrainingStatus() {
-      try {
-        const res = await fetch(window.API_BASE + "/api/analytics/train_status", {
-          headers: getHeaders()
-        });
-        const data = await res.json();
-        if (data.status === "running") {
-          btnTrain.innerText = "Обучение в процессе...";
-          setTimeout(pollTrainingStatus, 2000);
-        } else {
-          btnTrain.innerText = "Запустить переобучение";
-          btnTrain.disabled = false;
-          alert(data.message);
-          loadSummary();
-          loadModelsHistory();
-        }
-      } catch(e) {
-        btnTrain.innerText = "Запустить переобучение";
-        btnTrain.disabled = false;
+  async function pollTrainingStatus(btnEl, asset, originalText) {
+    try {
+      const res = await fetch(window.API_BASE + "/api/analytics/train_status", {
+        headers: getHeaders()
+      });
+      const data = await res.json();
+      if (data.status === "running") {
+        btnEl.innerText = "В процессе...";
+        setTimeout(() => pollTrainingStatus(btnEl, asset, originalText), 2000);
+      } else {
+        btnEl.innerText = originalText;
+        btnEl.disabled = false;
+        alert(data.message);
+        loadSummary();
+        loadModelsHistory();
+        loadParserStatus();
       }
+    } catch(e) {
+      btnEl.innerText = originalText;
+      btnEl.disabled = false;
     }
   }
 

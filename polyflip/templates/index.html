@@ -44,7 +44,11 @@
             <section id="analytics" class="tab-content active">
                 <header class="tab-header">
                     <h1>Аналитика</h1>
-                    <button id="btn-train" class="btn primary-btn">Запустить переобучение</button>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;" id="train-buttons-container">
+                        {% for asset in assets %}
+                        <button class="btn primary-btn btn-train-asset" data-asset="{{ asset }}">Обучить {{ asset }}</button>
+                        {% endfor %}
+                    </div>
                 </header>
 
                 <div class="stats-grid">

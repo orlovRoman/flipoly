@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Integer, update
-from pydantic import BaseModel
 from typing import Dict, Any
 import pandas as pd
 import structlog
@@ -28,13 +27,13 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
     total_markets = (await db.execute(total_markets_stmt)).scalar() or 0
 
     flips_stmt = select(func.count(MarketSnapshot.id)).where(
-        MarketSnapshot.flip_vs_final == True,
+        MarketSnapshot.flip_vs_final,
         MarketSnapshot.final_outcome != "PENDING"
     )
     total_flips = (await db.execute(flips_stmt)).scalar() or 0
 
     # 2. Получаем текущие активные модели
-    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
+    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
     models = (await db.execute(models_stmt)).scalars().all()
     
     active_models = {
@@ -149,42 +148,38 @@ async def get_training_status(session: AsyncSession) -> Dict[str, Any]:
             pass
     return {"status": "idle", "message": "", "last_run": None}
 
-@router.post("/analytics/train", dependencies=[Depends(verify_api_key)])
-async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db_session)):
-    """Ручной запуск обучения моделей по всем активам"""
+@router.post("/analytics/train/{asset}", dependencies=[Depends(verify_api_key)])
+async def trigger_training(asset: str, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db_session)):
+    """Ручной запуск обучения моделей для конкретного актива"""
+    asset = asset.upper()
+    if asset not in settings.asset_list:
+        raise HTTPException(status_code=400, detail=f"Актив {asset} не настроен в системе")
     
     now_iso = datetime.now(timezone.utc).isoformat()
-    await set_training_status(db, "running", "Обучение началось...", now_iso)
+    await set_training_status(db, "running", f"Обучение для {asset} началось...", now_iso)
     
     # Чтобы не блокировать API-запрос, обучаем асинхронно
-    async def train_all():
-        logger.info("train_all_started")
+    async def train_single_asset():
+        logger.info("train_single_asset_started", asset=asset)
         try:
             async with async_session() as bg_session:
                 trainer = ModelTrainer(bg_session)
-                for asset in settings.asset_list:
-                    try:
-                        await trainer.train_model(asset)
-                    except Exception as e:
-                        logger.exception("train_model_failed_for_asset", asset=asset, error=str(e))
-                        trainer.status_messages[asset] = f"Ошибка: {str(e)}"
-                
-                # Собираем отчеты по обучению
-                summary_msgs = []
-                for asset in settings.asset_list:
+                try:
+                    await trainer.train_model(asset)
                     msg = trainer.status_messages.get(asset, "Статус неизвестен")
-                    summary_msgs.append(f"{asset}: {msg}")
-                summary_message = " | ".join(summary_msgs)
+                except Exception as e:
+                    logger.exception("train_model_failed_for_asset", asset=asset, error=str(e))
+                    msg = f"Ошибка: {str(e)}"
                 
-                logger.info("train_all_completed", summary=summary_message)
-                await set_training_status(bg_session, "success", summary_message, datetime.now(timezone.utc).isoformat())
+                logger.info("train_single_asset_completed", asset=asset, status=msg)
+                await set_training_status(bg_session, "success", f"{asset}: {msg}", datetime.now(timezone.utc).isoformat())
         except Exception as e:
-            logger.exception("train_all_failed", error=str(e))
+            logger.exception("train_single_asset_failed", asset=asset, error=str(e))
             async with async_session() as bg_session:
                 await set_training_status(bg_session, "error", f"Ошибка: {str(e)}", datetime.now(timezone.utc).isoformat())
             
-    background_tasks.add_task(train_all)
-    return {"status": "training_started"}
+    background_tasks.add_task(train_single_asset)
+    return {"status": "training_started", "asset": asset}
 
 @router.get("/analytics/train_status")
 async def get_train_status(db: AsyncSession = Depends(get_db_session)):
