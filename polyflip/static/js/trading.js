@@ -268,6 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
                         <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
                         <td style="padding: 8px;">${log.outcome_bought !== 'NONE' ? log.outcome_bought : '-'}</td>
+                        <td style="padding: 8px;">${log.executed_price > 0 ? '$' + log.executed_price.toFixed(3) : '-'}</td>
                         <td style="padding: 8px; color: ${flipColor};">${(log.predicted_flip_prob * 100).toFixed(1)}%</td>
                         <td style="padding: 8px;">${reasonHtml}</td>
                     </tr>
