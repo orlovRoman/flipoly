@@ -1,13 +1,9 @@
-import pickle
 import pandas as pd
 import asyncio
 from datetime import datetime, timezone
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import train_test_split
+from sqlalchemy import select, update, func
 
 from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.config import settings
@@ -80,19 +76,27 @@ class ModelTrainer:
             self.status_messages[asset] = "Ошибка: не выбраны активные признаки"
             return False
         
-        # 1. Получаем обучающую выборку (исключаем PENDING)
+        # 1. Сначала проверяем количество доступных сэмплов через быстрый COUNT(*)
+        count_stmt = select(func.count(MarketSnapshot.id)).where(
+            MarketSnapshot.asset == asset,
+            MarketSnapshot.final_outcome != "PENDING"
+        )
+        count_result = await self.db.execute(count_stmt)
+        total_samples = count_result.scalar() or 0
+        
+        # BUG-004 FIX: Используем настройку из конфига
+        if total_samples < settings.MIN_SAMPLES_FOR_MODEL:
+            logger.warning("not_enough_data_for_training", asset=asset, samples=total_samples, required=settings.MIN_SAMPLES_FOR_MODEL)
+            self.status_messages[asset] = f"Пропущено: недостаточно данных ({total_samples}/{settings.MIN_SAMPLES_FOR_MODEL})"
+            return False
+
+        # Получаем обучающую выборку (исключаем PENDING), так как данных достаточно
         stmt = select(MarketSnapshot).where(
             MarketSnapshot.asset == asset,
             MarketSnapshot.final_outcome != "PENDING"
         )
         result = await self.db.execute(stmt)
         snapshots = result.scalars().all()
-
-        # BUG-004 FIX: Используем настройку из конфига
-        if len(snapshots) < settings.MIN_SAMPLES_FOR_MODEL:
-            logger.warning("not_enough_data_for_training", asset=asset, samples=len(snapshots), required=settings.MIN_SAMPLES_FOR_MODEL)
-            self.status_messages[asset] = f"Пропущено: недостаточно данных ({len(snapshots)}/{settings.MIN_SAMPLES_FOR_MODEL})"
-            return False
 
         # 2. Формируем DataFrame
         data = []
