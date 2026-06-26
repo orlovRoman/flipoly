@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, cast, Integer
+from sqlalchemy import select, func, cast, Integer, update
 from pydantic import BaseModel
 from typing import Dict, Any
 import pandas as pd
@@ -85,7 +85,6 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
 async def activate_model(asset: str, version: int, db: AsyncSession = Depends(get_db_session)):
     """Смена активной модели"""
     # Деактивируем все модели этого актива
-    from sqlalchemy import update
     await db.execute(
         update(ModelRegistry)
         .where(ModelRegistry.asset == asset)

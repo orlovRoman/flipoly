@@ -365,6 +365,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             
             const tbody = document.querySelector('#models-table tbody');
+            if (!tbody) return;
+            
             tbody.innerHTML = '';
             
             if (data.length === 0) {

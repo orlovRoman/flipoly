@@ -110,9 +110,11 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     continue
                     
                 has_skipped_log = "SKIPPED" in existing_statuses
+                _logged = [False]
                 
                 def log_skip(reason: str, p_flip_val: float = 0.0):
-                    if not has_skipped_log:
+                    if not has_skipped_log and not _logged[0]:
+                        _logged[0] = True
                         history = TradeHistory(
                             market_id=market.market_id,
                             asset=market.asset,

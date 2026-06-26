@@ -289,6 +289,9 @@ document.addEventListener('DOMContentLoaded', () => {
     loadLogs();
     
     // Auto refresh every 5 min for stats, every 10 sec for logs
-    setInterval(fetchStats, 5 * 60 * 1000);
-    setInterval(loadLogs, 10000);
+    if (window.statsIntervalId) clearInterval(window.statsIntervalId);
+    if (window.logsIntervalId) clearInterval(window.logsIntervalId);
+    
+    window.statsIntervalId = setInterval(fetchStats, 5 * 60 * 1000);
+    window.logsIntervalId = setInterval(loadLogs, 10000);
 });
