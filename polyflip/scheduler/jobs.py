@@ -44,9 +44,17 @@ async def backup_job():
         filepath = os.path.join(backup_dir, f"backup_polyflip_{timestamp}.sql")
         
         db_url = os.environ.get("DATABASE_URL", "")
+        if not db_url:
+            logger.error("backup_job_failed", error="DATABASE_URL is not set")
+            return
+            
         pg_url = db_url.replace("+asyncpg", "")
-        
         parsed = urlparse(pg_url)
+        
+        if not parsed.hostname or not parsed.username:
+            logger.error("backup_job_failed", error="Invalid DATABASE_URL, missing hostname or username")
+            return
+            
         env = os.environ.copy()
         env["PGPASSWORD"] = parsed.password or ""
         

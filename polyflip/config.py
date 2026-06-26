@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     # Дефолтные настройки, которые могут быть переопределены в БД
     LIVE_POLL_INTERVAL_SECONDS: int = 10
     RETRAIN_INTERVAL_HOURS: int = 24
-    MIN_SAMPLES_FOR_MODEL: int = 500
+    MIN_SAMPLES_FOR_MODEL: int = 50
     
     # Новые параметры Фазы 5
     ACTIVE_FEATURES: str = "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day"
