@@ -61,7 +61,7 @@ body {
     gap: 0.5rem;
 }
 
-.nav-item, .nav-item-link {
+.nav-item {
     padding: 1rem 2rem;
     color: var(--text-muted);
     cursor: pointer;
@@ -71,12 +71,12 @@ body {
     display: block;
 }
 
-.nav-item:hover, .nav-item-link:hover {
+.nav-item:hover {
     background: var(--bg-panel-hover);
     color: var(--text-main);
 }
 
-.nav-item.active, .nav-item-link.active {
+.nav-item.active {
     color: var(--text-main);
     background: linear-gradient(90deg, rgba(0, 114, 245, 0.1) 0%, transparent 100%);
     border-right-color: var(--poly-blue);

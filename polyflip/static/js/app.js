@@ -12,7 +12,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // Add active class to clicked
             item.classList.add('active');
             const targetId = item.getAttribute('data-tab');
-            document.getElementById(targetId).classList.add('active');
+            if (targetId) {
+                document.getElementById(targetId).classList.add('active');
+            } else if (item.getAttribute('data-href')) {
+                window.location.href = item.getAttribute('data-href');
+            }
         });
     });
 
