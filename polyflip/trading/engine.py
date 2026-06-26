@@ -264,7 +264,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 else:
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
                     if not has_skipped_log:
-                        await save_skipped_trade(db_session, market, "Thresholds not met", p_flip, model_ver, start_time)
+                        reason = f"P(flip) {p_flip:.1%} is within [{no_flip_threshold:.1%} - {flip_threshold:.1%}] range"
+                        await save_skipped_trade(db_session, market, reason, p_flip, model_ver, start_time)
                     
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))
