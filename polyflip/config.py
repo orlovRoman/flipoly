@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     TRADE_NO_FLIP_THRESHOLD: float = 0.15
     TRADE_FLIP_THRESHOLD: float = 0.85
     TRADING_ENABLED: bool = False
+    TRADE_ASSETS: str = "BTC,ETH"
     INITIAL_CAPITAL: float = 1000.0
     TRADE_ONLY_FAVORITE: bool = False
     TRADE_MIN_PRICE: float = 0.05

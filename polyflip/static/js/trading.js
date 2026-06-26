@@ -168,6 +168,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if(settingsElements.onlyFavorite && data.TRADE_ONLY_FAVORITE) settingsElements.onlyFavorite.checked = (data.TRADE_ONLY_FAVORITE === 'true');
             if(settingsElements.minPrice && data.TRADE_MIN_PRICE) settingsElements.minPrice.value = data.TRADE_MIN_PRICE;
             if(settingsElements.maxPrice && data.TRADE_MAX_PRICE) settingsElements.maxPrice.value = data.TRADE_MAX_PRICE;
+            
+            if(data.TRADE_ASSETS) {
+                const assets = data.TRADE_ASSETS.split(',');
+                document.querySelectorAll('.asset-checkbox').forEach(cb => {
+                    cb.checked = assets.includes(cb.value);
+                });
+            }
         } catch (e) {
             console.error("Failed to load settings", e);
         }
@@ -178,6 +185,9 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSaveSettings.addEventListener('click', async (e) => {
             e.preventDefault();
             
+            const tradeAssets = Array.from(document.querySelectorAll('.asset-checkbox:checked'))
+                .map(cb => cb.value).join(',');
+
             const settingsToSave = {
                 'TRADE_EXECUTION_TIME_SEC': settingsElements.executionTime.value,
                 'TRADE_BET_SIZE_USDC': settingsElements.betSize.value,
@@ -187,7 +197,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 'INITIAL_CAPITAL': settingsElements.initialCapital.value,
                 'TRADE_ONLY_FAVORITE': settingsElements.onlyFavorite.checked ? 'true' : 'false',
                 'TRADE_MIN_PRICE': settingsElements.minPrice.value,
-                'TRADE_MAX_PRICE': settingsElements.maxPrice.value
+                'TRADE_MAX_PRICE': settingsElements.maxPrice.value,
+                'TRADE_ASSETS': tradeAssets
             };
             
             const failed = [];
@@ -216,10 +227,68 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ----------------------------------------------------
+    // Trade Logs Logic
+    // ----------------------------------------------------
+    const escapeHtml = (unsafe) => {
+        return String(unsafe)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    };
+
+    async function loadLogs() {
+        try {
+            const res = await fetch(window.API_BASE + '/api/dashboard/trade_logs', {
+                headers: { 'X-API-Key': apiKey }
+            });
+            const data = await res.json();
+            const tbody = document.querySelector('#trade-logs-table tbody');
+            tbody.innerHTML = '';
+            
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 1rem;">Нет событий</td></tr>';
+                return;
+            }
+            
+            data.forEach(log => {
+                const timeStr = new Date(log.created_at).toLocaleTimeString();
+                const flipColor = log.predicted_flip_prob > 0.5 ? '#00ff88' : '#ff3366';
+                let statusColor = '#8F9BB3'; // SKIPPED
+                if (log.status === 'SUCCESS') statusColor = '#00ff88';
+                if (log.status === 'FAILED') statusColor = '#ff3366';
+                
+                const reasonHtml = log.status === 'SKIPPED' ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>` : escapeHtml(log.error_msg || '-');
+                
+                tbody.innerHTML += `
+                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <td style="padding: 8px;">${timeStr}</td>
+                        <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
+                        <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
+                        <td style="padding: 8px;">${log.outcome_bought !== 'NONE' ? log.outcome_bought : '-'}</td>
+                        <td style="padding: 8px; color: ${flipColor};">${(log.predicted_flip_prob * 100).toFixed(1)}%</td>
+                        <td style="padding: 8px;">${reasonHtml}</td>
+                    </tr>
+                `;
+            });
+        } catch (e) {
+            console.error("Failed to load trade logs", e);
+        }
+    }
+
+    const btnRefreshLogs = document.getElementById('btn-refresh-logs');
+    if (btnRefreshLogs) {
+        btnRefreshLogs.addEventListener('click', loadLogs);
+    }
+
     // Initial fetch
     fetchStats();
     loadSettings();
+    loadLogs();
     
-    // Auto refresh every 5 min
+    // Auto refresh every 5 min for stats, every 10 sec for logs
     setInterval(fetchStats, 5 * 60 * 1000);
+    setInterval(loadLogs, 10000);
 });

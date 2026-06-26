@@ -34,6 +34,7 @@ class ModelRegistry(Base):
     version = Column(Integer, nullable=False)
     model_blob = Column(LargeBinary, nullable=False)
     accuracy = Column(Float, nullable=False)
+    features = Column(String, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     trained_at = Column(DateTime(timezone=True), nullable=False)
 

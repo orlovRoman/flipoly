@@ -120,6 +120,7 @@ class ModelTrainer:
             version=next_version,
             model_blob=model_bytes,
             accuracy=val_acc,
+            features=",".join(active_features),
             is_active=True,
             trained_at=datetime.now(timezone.utc)
         )

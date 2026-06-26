@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from polyflip.db.connection import get_db_session
-from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot
+from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, TradeHistory
 from polyflip.api.auth import verify_api_key
 
 router = APIRouter(tags=["Dashboard"])
@@ -74,3 +74,26 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
         "dataset_summary": dataset_summary,
         "live_markets": live_data
     }
+
+@router.get("/api/dashboard/trade_logs", dependencies=[Depends(verify_api_key)])
+async def get_trade_logs(db: AsyncSession = Depends(get_db_session)):
+    """Возвращает последние логи торговли (успешные, фейлы и пропущенные)"""
+    stmt = select(TradeHistory).order_by(TradeHistory.created_at.desc()).limit(50)
+    result = await db.execute(stmt)
+    logs = result.scalars().all()
+    
+    return [
+        {
+            "id": log.id,
+            "market_id": log.market_id,
+            "asset": log.asset,
+            "status": log.status,
+            "outcome_bought": log.outcome_bought,
+            "amount_usdc": log.amount_usdc,
+            "executed_price": log.executed_price,
+            "predicted_flip_prob": log.predicted_flip_prob,
+            "error_msg": log.error_msg,
+            "created_at": log.created_at.isoformat()
+        }
+        for log in logs
+    ]

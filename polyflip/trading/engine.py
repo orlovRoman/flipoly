@@ -28,7 +28,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
         "ACTIVE_FEATURES",
         "TRADE_ONLY_FAVORITE",
         "TRADE_MIN_PRICE",
-        "TRADE_MAX_PRICE"
+        "TRADE_MAX_PRICE",
+        "TRADE_ASSETS"
     ]
     
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
@@ -50,6 +51,9 @@ async def trade_worker_cycle(db_session: AsyncSession):
     trade_only_favorite = settings_db.get("TRADE_ONLY_FAVORITE", str(settings.TRADE_ONLY_FAVORITE)).lower() == "true"
     trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
     trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
+    
+    trade_assets_str = settings_db.get("TRADE_ASSETS", settings.TRADE_ASSETS)
+    trade_assets = [a.strip() for a in trade_assets_str.split(",") if a.strip()]
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
     active_features = [f.strip() for f in active_features_str.split(",") if f.strip()]
@@ -98,16 +102,41 @@ async def trade_worker_cycle(db_session: AsyncSession):
             time_left_sec = (end_time - start_time).total_seconds()
             
             if time_left_sec > 0:
-                # Проверяем, делали ли мы уже ставку на этот рынок
-                trade_check = select(TradeHistory.id).where(TradeHistory.market_id == market.market_id)
-                already_traded = (await db_session.execute(trade_check)).scalar() is not None
+                # Проверяем, делали ли мы уже ставку на этот рынок (или логировали пропуск)
+                trade_check = select(TradeHistory.status).where(TradeHistory.market_id == market.market_id)
+                existing_statuses = (await db_session.execute(trade_check)).scalars().all()
                 
-                if already_traded:
+                if "SUCCESS" in existing_statuses or "LIVE" in existing_statuses or "FAILED" in existing_statuses:
                     continue
                     
+                has_skipped_log = "SKIPPED" in existing_statuses
+                
+                def log_skip(reason: str, p_flip_val: float = 0.0):
+                    if not has_skipped_log:
+                        history = TradeHistory(
+                            market_id=market.market_id,
+                            asset=market.asset,
+                            outcome_bought="NONE",
+                            amount_usdc=0.0,
+                            executed_price=0.0,
+                            predicted_flip_prob=p_flip_val,
+                            active_features="",
+                            status="SKIPPED",
+                            error_msg=reason,
+                            created_at=start_time
+                        )
+                        db_session.add(history)
+
+                if market.asset not in trade_assets:
+                    logger.info("trade_skipped_asset_not_enabled", asset=market.asset)
+                    # We don't log this to DB to avoid spamming for disabled assets, or maybe we do? 
+                    # Let's not log disabled assets to DB to keep the log clean.
+                    continue
+
                 model = models_by_asset.get(market.asset)
                 if not model:
                     logger.warning("no_active_model_for_trade", asset=market.asset, market_id=market.market_id)
+                    log_skip("No active model")
                     continue
                     
                 # Формируем X
@@ -143,6 +172,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                         decision = "NO" if market.current_yes_price > 0.5 else "YES"
                     else:
                         logger.info("trade_flip_signal_skipped_only_favorite", market_id=market.market_id, p_flip=p_flip)
+                        log_skip("Flip expected, but Only Favorite is enabled", p_flip)
                 elif p_flip < no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
                     decision = "YES" if market.current_yes_price > 0.5 else "NO"
@@ -156,6 +186,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     
                     if not yes_token_id or not no_token_id or yes_token_id == 'N/A' or no_token_id == 'N/A':
                         logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
+                        log_skip("Token IDs missing in DB", p_flip)
                         continue
                         
                     token_to_buy = yes_token_id if decision == "YES" else no_token_id
@@ -169,6 +200,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     
                     if buy_price < trade_min_price or buy_price > trade_max_price:
                         logger.warning("trade_skipped_price_out_of_range", price=buy_price, min=trade_min_price, max=trade_max_price)
+                        log_skip(f"Price out of range: {buy_price}", p_flip)
                         continue
                         
                     # Кол-во акций = size / price
@@ -199,6 +231,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     db_session.add(history)
                 else:
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
+                    log_skip("Thresholds not met", p_flip)
                     
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))

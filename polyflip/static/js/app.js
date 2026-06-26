@@ -355,6 +355,81 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Failed to load parser status", e);
         }
     }
+    
+    // 5. Fetch Models History
+    async function loadModelsHistory() {
+        try {
+            const res = await fetch(window.API_BASE + '/api/analytics/models', {
+                headers: getHeaders()
+            });
+            const data = await res.json();
+            
+            const tbody = document.querySelector('#models-table tbody');
+            tbody.innerHTML = '';
+            
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7">Нет сохраненных моделей</td></tr>`;
+                return;
+            }
+            
+            data.forEach(m => {
+                const isActive = m.is_active;
+                const statusHtml = isActive 
+                    ? `<span style="color: var(--poly-green); font-weight: bold;">Активна</span>` 
+                    : `<span style="color: #8F9BB3;">Архив</span>`;
+                    
+                const actionHtml = isActive
+                    ? `<button class="btn btn-primary" disabled style="opacity: 0.5;">Текущая</button>`
+                    : `<button class="btn btn-primary btn-activate-model" data-asset="${m.asset}" data-version="${m.version}">Активировать</button>`;
+                    
+                tbody.innerHTML += `
+                    <tr>
+                        <td><strong>${escapeHtml(m.asset)}</strong></td>
+                        <td>v${m.version}</td>
+                        <td>${m.accuracy}</td>
+                        <td style="font-size: 0.85rem; max-width: 250px;">${escapeHtml(m.features)}</td>
+                        <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : 'N/A'}</td>
+                        <td>${statusHtml}</td>
+                        <td>${actionHtml}</td>
+                    </tr>
+                `;
+            });
+            
+            // Attach event listeners to activate buttons
+            document.querySelectorAll('.btn-activate-model').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const asset = e.target.getAttribute('data-asset');
+                    const version = e.target.getAttribute('data-version');
+                    if(confirm(`Сделать модель v${version} для ${asset} активной?`)) {
+                        e.target.disabled = true;
+                        e.target.innerText = 'Активация...';
+                        try {
+                            const res = await fetch(window.API_BASE + `/api/analytics/models/${asset}/activate/${version}`, {
+                                method: 'POST',
+                                headers: getHeaders()
+                            });
+                            if (res.ok) {
+                                alert(`Модель v${version} для ${asset} успешно активирована!`);
+                                loadModelsHistory();
+                                loadSummary(); // update active models in summary
+                            } else {
+                                alert("Ошибка при активации модели.");
+                                e.target.disabled = false;
+                                e.target.innerText = 'Активировать';
+                            }
+                        } catch(err) {
+                            alert("Ошибка сети.");
+                            e.target.disabled = false;
+                            e.target.innerText = 'Активировать';
+                        }
+                    }
+                });
+            });
+            
+        } catch (e) {
+            console.error("Failed to load models history", e);
+        }
+    }
 
     // Refresh Status
     document.getElementById('btn-refresh-status').addEventListener('click', () => {
@@ -368,4 +443,5 @@ document.addEventListener('DOMContentLoaded', () => {
     loadCharts();
     loadSettings();
     loadParserStatus();
+    loadModelsHistory();
 });

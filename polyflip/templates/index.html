@@ -30,6 +30,7 @@
             </div>
             <ul class="nav-links">
                 <li class="nav-item active" data-tab="analytics">Аналитика</li>
+                <li class="nav-item" data-tab="models">Модели ML</li>
                 <li class="nav-item" data-tab="status">Статус Парсера</li>
                 <li class="nav-item" data-tab="settings">Настройки</li>
                 <li class="nav-item" data-href="/trading">Торговля (PnL)</li>
@@ -119,6 +120,32 @@
                     </div>
                 </div>
             </section>
+
+            <!-- TAB: MODELS -->
+            <div id="models" class="tab-content">
+                <h2>Управление моделями ML</h2>
+                <div class="panel">
+                    <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Здесь отображается история всех обученных моделей. Вы можете переключаться между ними в один клик.</p>
+                    <div style="overflow-x: auto;">
+                        <table class="data-table" id="models-table">
+                            <thead>
+                                <tr>
+                                    <th>Актив</th>
+                                    <th>Версия</th>
+                                    <th>Точность</th>
+                                    <th>Фичи</th>
+                                    <th>Дата обучения</th>
+                                    <th>Статус</th>
+                                    <th>Действие</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- JS will populate this -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
 
             <!-- TAB: Status -->
             <section id="status" class="tab-content">

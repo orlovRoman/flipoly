@@ -64,6 +64,47 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
         "model_history": model_history
     }
 
+@router.get("/analytics/models")
+async def list_models(db: AsyncSession = Depends(get_db_session)):
+    """Получение истории всех моделей"""
+    stmt = select(ModelRegistry).order_by(ModelRegistry.asset, ModelRegistry.version.desc())
+    models = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "asset": m.asset,
+            "version": m.version,
+            "accuracy": round(m.accuracy, 4),
+            "features": m.features or "",
+            "is_active": m.is_active,
+            "trained_at": m.trained_at.isoformat() if m.trained_at else None
+        }
+        for m in models
+    ]
+
+@router.post("/analytics/models/{asset}/activate/{version}", dependencies=[Depends(verify_api_key)])
+async def activate_model(asset: str, version: int, db: AsyncSession = Depends(get_db_session)):
+    """Смена активной модели"""
+    # Деактивируем все модели этого актива
+    from sqlalchemy import update
+    await db.execute(
+        update(ModelRegistry)
+        .where(ModelRegistry.asset == asset)
+        .values(is_active=False)
+    )
+    
+    # Активируем выбранную
+    result = await db.execute(
+        update(ModelRegistry)
+        .where(ModelRegistry.asset == asset, ModelRegistry.version == version)
+        .values(is_active=True)
+    )
+    
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Model not found")
+        
+    await db.commit()
+    return {"status": "success", "active_version": version}
+
 @router.post("/analytics/train", dependencies=[Depends(verify_api_key)])
 async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db_session)):
     """Ручной запуск обучения моделей по всем активам"""
