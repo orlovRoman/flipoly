@@ -346,8 +346,13 @@ document.addEventListener("DOMContentLoaded", () => {
         if (log.outcome_bought === "YES") outcomeText = "UP";
         if (log.outcome_bought === "NO") outcomeText = "DOWN";
 
+        const logDate = new Date(log.created_at);
+        const pad = (num) => String(num).padStart(2, '0');
+        const intervalOffsetStr = `${pad(logDate.getMinutes() % 15)}:${pad(logDate.getSeconds())}`;
+
         rows.push(`
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <td style="padding: 8px; color: var(--text-muted);">${intervalOffsetStr}</td>
                         <td style="padding: 8px;"><a href="#" class="market-link" data-market-id="${log.market_id}" data-asset="${escapeHtml(log.asset)}" style="color: var(--text-main); text-decoration: underline; cursor: pointer;">${timeStr}</a></td>
                         <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
