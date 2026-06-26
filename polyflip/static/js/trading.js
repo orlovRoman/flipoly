@@ -152,7 +152,9 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
-  elements.refreshBtn.addEventListener("click", fetchStats);
+  if (elements.refreshBtn) {
+    elements.refreshBtn.addEventListener("click", fetchStats);
+  }
 
   // ----------------------------------------------------
   // Trading Settings Logic
@@ -219,22 +221,17 @@ document.addEventListener("DOMContentLoaded", () => {
         .map((cb) => cb.value)
         .join(",");
 
-      const settingsToSave = {
-        TRADE_EXECUTION_TIME_SEC: settingsElements.executionTime.value,
-        TRADE_BET_SIZE_USDC: settingsElements.betSize.value,
-        TRADE_NO_FLIP_THRESHOLD: settingsElements.noFlipThreshold.value,
-        TRADE_FLIP_THRESHOLD: settingsElements.flipThreshold.value,
-        TRADING_ENABLED: settingsElements.tradingEnabled.checked
-          ? "true"
-          : "false",
-        INITIAL_CAPITAL: settingsElements.initialCapital.value,
-        TRADE_ONLY_FAVORITE: settingsElements.onlyFavorite.checked
-          ? "true"
-          : "false",
-        TRADE_MIN_PRICE: settingsElements.minPrice.value,
-        TRADE_MAX_PRICE: settingsElements.maxPrice.value,
-        TRADE_ASSETS: tradeAssets,
-      };
+      const settingsToSave = {};
+      if (settingsElements.executionTime) settingsToSave.TRADE_EXECUTION_TIME_SEC = settingsElements.executionTime.value;
+      if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
+      if (settingsElements.noFlipThreshold) settingsToSave.TRADE_NO_FLIP_THRESHOLD = settingsElements.noFlipThreshold.value;
+      if (settingsElements.flipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = settingsElements.flipThreshold.value;
+      if (settingsElements.tradingEnabled) settingsToSave.TRADING_ENABLED = settingsElements.tradingEnabled.checked ? "true" : "false";
+      if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
+      if (settingsElements.onlyFavorite) settingsToSave.TRADE_ONLY_FAVORITE = settingsElements.onlyFavorite.checked ? "true" : "false";
+      if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
+      if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
+      settingsToSave.TRADE_ASSETS = tradeAssets;
 
       const failed = [];
       for (const [key, val] of Object.entries(settingsToSave)) {

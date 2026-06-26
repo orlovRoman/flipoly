@@ -130,7 +130,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderSelectedChart() {
-    const selectedAsset = document.getElementById("asset-selector").value;
+    const selectorEl = document.getElementById("asset-selector");
+    if (!selectorEl) return;
+    const selectedAsset = selectorEl.value;
     const assetData = chartDataStore[selectedAsset] || {};
     const color = selectedAsset === "BTC" ? "#0072F5" : "#00D395";
 
@@ -283,17 +285,41 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         if (res.ok) {
           alert("Задание на обучение отправлено в фон!");
+          pollTrainingStatus();
         } else {
           alert("Ошибка запуска. Проверьте API Key.");
+          btnTrain.innerText = "Запустить переобучение";
+          btnTrain.disabled = false;
         }
       } catch (e) {
         console.error(e);
         alert("Network error.");
-      } finally {
         btnTrain.innerText = "Запустить переобучение";
         btnTrain.disabled = false;
       }
     });
+
+    async function pollTrainingStatus() {
+      try {
+        const res = await fetch(window.API_BASE + "/api/analytics/train_status", {
+          headers: getHeaders()
+        });
+        const data = await res.json();
+        if (data.status === "running") {
+          btnTrain.innerText = "Обучение в процессе...";
+          setTimeout(pollTrainingStatus, 2000);
+        } else {
+          btnTrain.innerText = "Запустить переобучение";
+          btnTrain.disabled = false;
+          alert(data.message);
+          loadSummary();
+          loadModelsHistory();
+        }
+      } catch(e) {
+        btnTrain.innerText = "Запустить переобучение";
+        btnTrain.disabled = false;
+      }
+    }
   }
 
   // Save Settings
@@ -508,4 +534,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadSettings();
   loadParserStatus();
   loadModelsHistory();
+  
+  // Auto-refresh parser status every 30 seconds
+  setInterval(loadParserStatus, 30000);
 });

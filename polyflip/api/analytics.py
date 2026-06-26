@@ -104,19 +104,38 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
     await db.commit()
     return {"status": "success", "active_version": version}
 
+# Global status dictionary for manual training tracking
+training_status = {"status": "idle", "message": "", "last_run": None}
+
 @router.post("/analytics/train", dependencies=[Depends(verify_api_key)])
 async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db_session)):
     """Ручной запуск обучения моделей по всем активам"""
     
     # Чтобы не блокировать API-запрос, обучаем асинхронно
     async def train_all():
-        async with async_session() as bg_session:
-            trainer = ModelTrainer(bg_session)
-            for asset in settings.asset_list:
-                await trainer.train_model(asset)
+        from datetime import datetime, timezone
+        training_status["status"] = "running"
+        training_status["message"] = "Обучение началось..."
+        training_status["last_run"] = datetime.now(timezone.utc).isoformat()
+        try:
+            async with async_session() as bg_session:
+                trainer = ModelTrainer(bg_session)
+                for asset in settings.asset_list:
+                    await trainer.train_model(asset)
+            training_status["status"] = "success"
+            training_status["message"] = "Обучение успешно завершено."
+        except Exception as e:
+            structlog.get_logger(__name__).exception("train_all_failed", error=str(e))
+            training_status["status"] = "error"
+            training_status["message"] = f"Ошибка: {str(e)}"
             
     background_tasks.add_task(train_all)
     return {"status": "training_started"}
+
+@router.get("/analytics/train_status")
+async def get_train_status():
+    """Возвращает статус последнего запущенного обучения"""
+    return training_status
 
 @router.get("/analytics/probabilities")
 async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):

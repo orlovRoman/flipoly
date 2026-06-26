@@ -64,7 +64,7 @@ async def backup_job():
             "-U", parsed.username or "",
             "-d", (parsed.path or "").lstrip("/"),
             "-f", filepath,
-            "-F", "c"
+            "-F", "p"
         ]
         
         process = await asyncio.create_subprocess_exec(
@@ -90,6 +90,72 @@ async def backup_job():
     except Exception as e:
         logger.exception("backup_job_error", error=str(e))
 
+async def retrain_job():
+    logger.info("starting_retrain_job")
+    from polyflip.models.trainer import ModelTrainer
+    try:
+        async with async_session() as session:
+            trainer = ModelTrainer(session)
+            for asset in settings.asset_list:
+                await trainer.train_model(asset)
+        logger.info("finished_retrain_job")
+    except Exception as e:
+        logger.exception("retrain_job_error", error=str(e))
+
+async def resolve_trades_job():
+    logger.info("starting_resolve_trades_job")
+    from polyflip.db.models import TradeHistory, MarketSnapshot
+    from sqlalchemy import and_
+    try:
+        async with async_session() as session:
+            # Ищем сделки без PnL, которые были SUCCESS или PAPER
+            stmt = select(TradeHistory).where(
+                and_(TradeHistory.pnl.is_(None), TradeHistory.status == "SUCCESS")
+            )
+            trades = (await session.execute(stmt)).scalars().all()
+            
+            if not trades:
+                return
+                
+            market_ids = list(set([t.market_id for t in trades]))
+            outcomes_stmt = select(MarketSnapshot.market_id, MarketSnapshot.final_outcome).where(
+                and_(MarketSnapshot.market_id.in_(market_ids), MarketSnapshot.final_outcome != "PENDING")
+            )
+            outcomes = (await session.execute(outcomes_stmt)).all()
+            market_outcomes = {r.market_id: r.final_outcome for r in outcomes}
+            
+            for t in trades:
+                outcome = market_outcomes.get(t.market_id)
+                if outcome:
+                    is_win = (t.outcome_bought == outcome)
+                    if is_win:
+                        if t.executed_price > 0:
+                            t.pnl = (t.amount_usdc / t.executed_price) - t.amount_usdc
+                        else:
+                            t.pnl = 0.0
+                    else:
+                        t.pnl = -t.amount_usdc
+                        
+            await session.commit()
+            logger.info("finished_resolve_trades_job", resolved=len(trades))
+    except Exception as e:
+        logger.exception("resolve_trades_job_error", error=str(e))
+
+async def cleanup_job():
+    logger.info("starting_cleanup_job")
+    from polyflip.db.models import CollectorStatus
+    from sqlalchemy import delete
+    from datetime import timedelta
+    try:
+        async with async_session() as session:
+            threshold = datetime.now(timezone.utc) - timedelta(days=7)
+            stmt = delete(CollectorStatus).where(CollectorStatus.run_at < threshold)
+            result = await session.execute(stmt)
+            await session.commit()
+            logger.info("finished_cleanup_job", deleted_rows=result.rowcount)
+    except Exception as e:
+        logger.exception("cleanup_job_error", error=str(e))
+
 async def main():
     logger.info("scheduler_starting", interval=settings.LIVE_POLL_INTERVAL_SECONDS)
     
@@ -107,6 +173,30 @@ async def main():
         resolver_job,
         trigger=IntervalTrigger(seconds=120),
         id="resolver_job",
+        replace_existing=True
+    )
+    
+    # Ежедневно переобучаем модели (раз в 24 часа)
+    scheduler.add_job(
+        retrain_job,
+        trigger=IntervalTrigger(hours=settings.RETRAIN_INTERVAL_HOURS),
+        id="retrain_job",
+        replace_existing=True
+    )
+    
+    # Расчет PnL для закрытых сделок (каждые 10 минут)
+    scheduler.add_job(
+        resolve_trades_job,
+        trigger=IntervalTrigger(minutes=10),
+        id="resolve_trades_job",
+        replace_existing=True
+    )
+    
+    # Очистка старых статусов (раз в 24 часа)
+    scheduler.add_job(
+        cleanup_job,
+        trigger=IntervalTrigger(hours=24),
+        id="cleanup_job",
         replace_existing=True
     )
     

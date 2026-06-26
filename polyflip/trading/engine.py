@@ -6,6 +6,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
+from polyflip.config import settings
 from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
@@ -37,7 +38,6 @@ async def trade_worker_cycle(db_session: AsyncSession):
     settings_db = {s.key: s.value for s in result.scalars().all()}
     
     # Дефолтные значения из config, если нет в БД
-    from polyflip.config import settings
     trading_enabled = settings_db.get("TRADING_ENABLED", str(settings.TRADING_ENABLED)).lower() == "true"
     
     if not trading_enabled:
@@ -76,6 +76,23 @@ async def trade_worker_cycle(db_session: AsyncSession):
         )
     )
     markets = (await db_session.execute(live_markets_stmt)).scalars().all()
+    
+    if markets:
+        # Проверяем дневной PnL перед тем как торговать (лимит $100 убытка в день)
+        from sqlalchemy import func
+        today = start_time.date()
+        daily_pnl_stmt = select(func.sum(TradeHistory.pnl)).where(
+            and_(
+                func.date(TradeHistory.created_at) == today,
+                TradeHistory.status == "SUCCESS",
+                TradeHistory.pnl.is_not(None)
+            )
+        )
+        daily_pnl = (await db_session.execute(daily_pnl_stmt)).scalar() or 0.0
+        if daily_pnl <= -100.0:
+            logger.warning("daily_loss_limit_reached", pnl=daily_pnl, limit=-100.0)
+            return
+            
     
     # Загружаем активные модели
     models_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
@@ -128,6 +145,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                             model_version=model_versions.get(market.asset),
                             status="SKIPPED",
                             error_msg=reason,
+                            mode="LIVE" if getattr(settings, "LIVE_TRADING_ENABLED", False) else "PAPER",
                             created_at=start_time
                         )
                         db_session.add(history)
@@ -234,6 +252,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                         model_version=model_ver,
                         status=trade_res["status"],
                         error_msg=trade_res["error_msg"],
+                        mode="LIVE" if getattr(settings, "LIVE_TRADING_ENABLED", False) else "PAPER",
                         created_at=start_time
                     )
                     db_session.add(history)

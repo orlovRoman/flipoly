@@ -43,8 +43,9 @@ async def run_collector_cycle(db_session: AsyncSession):
             spread = prices["current_spread"]
 
             # Вычисляем time_left_min
+            current_time = datetime.now(timezone.utc)
             end_date = datetime.fromisoformat(m_data["end_date_iso"].replace("Z", "+00:00"))
-            time_left_min = (end_date - start_time).total_seconds() / 60.0
+            time_left_min = (end_date - current_time).total_seconds() / 60.0
 
             if time_left_min < 0:
                 continue # Рынок уже закрылся
@@ -69,7 +70,7 @@ async def run_collector_cycle(db_session: AsyncSession):
                 live_m.current_spread = spread
                 live_m.price_velocity = price_velocity
                 live_m.volume_5min = volume_5min
-                live_m.last_updated = start_time
+                live_m.last_updated = current_time
                 # На всякий случай обновляем token_id, если добавились
                 live_m.yes_token_id = yes_token_id
                 live_m.no_token_id = m_data["no_token_id"]
@@ -87,7 +88,7 @@ async def run_collector_cycle(db_session: AsyncSession):
                     current_spread=spread,
                     volume_5min=volume_5min,
                     price_velocity=0.0,
-                    last_updated=start_time
+                    last_updated=current_time
                 )
                 db_session.add(live_m)
 
@@ -102,10 +103,10 @@ async def run_collector_cycle(db_session: AsyncSession):
                 spread=spread,
                 volume_5min=volume_5min,
                 price_velocity=price_velocity,
-                hour_of_day=start_time.hour,
+                hour_of_day=current_time.hour,
                 final_outcome="PENDING",
                 flip_vs_final=False, # Обновится позже
-                recorded_at=start_time
+                recorded_at=current_time
             )
             db_session.add(snapshot)
             markets_saved += 1

@@ -12,14 +12,16 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Устанавливаем зависимости системы (опционально, если нужны для scikit-learn/psycopg2)
+# Устанавливаем зависимости системы
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     postgresql-client \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt pandas
+RUN pip install --no-cache-dir -r requirements.txt pandas \
+    && apt-get purge -y --auto-remove build-essential
 
 COPY . .
 

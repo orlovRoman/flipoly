@@ -95,6 +95,8 @@ class TradeHistory(Base):
     model_version = Column(Integer, nullable=True)
     status = Column(String(32), nullable=False) # "SUCCESS", "FAILED"
     error_msg = Column(String, nullable=True)
+    mode = Column(String(16), nullable=False, default="LIVE")
+    pnl = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
     
     __table_args__ = (

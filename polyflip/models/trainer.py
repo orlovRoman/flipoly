@@ -82,24 +82,42 @@ class ModelTrainer:
         X = df[active_features]
         y = df["target"]
 
-        # BUG-001 FIX: train_test_split и валидация
-        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+        from sklearn.model_selection import StratifiedKFold
+        from sklearn.base import clone
+        import numpy as np
         
-        # 3. Обучаем модель
-        model = LogisticRegression(class_weight="balanced", random_state=42)
-        model.fit(X_train, y_train)
+        # 3. Обучаем модель с кросс-валидацией
+        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        base_model = LogisticRegression(class_weight="balanced", random_state=42)
         
-        # Вычисляем accuracy на валидационной выборке
-        val_preds = model.predict(X_val)
-        val_acc = accuracy_score(y_val, val_preds)
+        accuracies = []
+        for train_index, val_index in skf.split(X, y):
+            X_train, X_val = X.iloc[train_index], X.iloc[val_index]
+            y_train, y_val = y.iloc[train_index], y.iloc[val_index]
+            
+            model_clone = clone(base_model)
+            model_clone.fit(X_train, y_train)
+            
+            preds = model_clone.predict(X_val)
+            accuracies.append(accuracy_score(y_val, preds))
+            
+        val_acc = np.mean(accuracies)
         
-        # Baseline для логирования
-        baseline_acc = max(y_val.mean(), 1 - y_val.mean())
+        # Baseline
+        baseline_acc = max(y.mean(), 1 - y.mean())
         
         logger.info("model_trained", asset=asset, samples=len(df), val_accuracy=val_acc, baseline_accuracy=baseline_acc)
 
+        if val_acc <= baseline_acc:
+            logger.warning("model_worse_than_baseline_skipping", asset=asset, val_acc=val_acc, baseline=baseline_acc)
+            return False
+
+        # Обучаем финальную модель на всех данных
+        final_model = LogisticRegression(class_weight="balanced", random_state=42)
+        final_model.fit(X, y)
+
         # 4. Сериализуем модель
-        model_bytes = pickle.dumps(model)
+        model_bytes = pickle.dumps(final_model)
 
         # 5. Деактивируем предыдущие модели
         await self.db.execute(

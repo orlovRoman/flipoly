@@ -8,6 +8,9 @@ from polyflip.db.connection import get_db_session
 from polyflip.db.models import TradeHistory, MarketSnapshot, RuntimeSettings
 from polyflip.config import settings
 from polyflip.api.auth import verify_api_key
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["TradingDashboard"])
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

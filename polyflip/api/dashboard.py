@@ -16,7 +16,17 @@ templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
 @router.get("/dashboard")
 async def get_dashboard(request: Request):
     """Отдает главную страницу дашборда"""
-    return templates.TemplateResponse("index.html", {"request": request})
+    import time
+    from polyflip.config import settings
+    
+    return templates.TemplateResponse(
+        "index.html", 
+        {
+            "request": request, 
+            "timestamp": int(time.time()),
+            "assets": settings.asset_list
+        }
+    )
 
 @router.get("/api/dashboard/status", dependencies=[Depends(verify_api_key)])
 async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
@@ -102,6 +112,8 @@ async def get_trade_logs(db: AsyncSession = Depends(get_db_session)):
             "predicted_flip_prob": log.predicted_flip_prob,
             "model_version": getattr(log, 'model_version', None),
             "error_msg": log.error_msg,
+            "mode": getattr(log, 'mode', 'LIVE'),
+            "pnl": getattr(log, 'pnl', None),
             "created_at": log.created_at.isoformat()
         }
         for log in logs
