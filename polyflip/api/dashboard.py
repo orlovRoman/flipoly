@@ -4,7 +4,6 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 import httpx
 import json
-from typing import Dict, Any, List
 import structlog
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends
@@ -87,7 +86,7 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
         ds["PENDING" if row.final_outcome == "PENDING" else "RESOLVED"] += row.cnt
             
     # 4. Активные модели
-    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
+    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
     models_res = await db.execute(models_stmt)
     active_models = {}
     for m in models_res.scalars().all():

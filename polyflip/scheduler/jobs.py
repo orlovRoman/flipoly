@@ -11,10 +11,8 @@ from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.db.connection import async_session
 from polyflip.config import settings
-from polyflip.db.models import RuntimeSettings
 from sqlalchemy import select
 import os
-import subprocess
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 from pathlib import Path
