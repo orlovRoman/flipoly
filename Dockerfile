@@ -11,6 +11,7 @@ RUN poetry export -f requirements.txt --output requirements.txt --without-hashes
 FROM python:3.12-slim
 
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 # Устанавливаем постоянные зависимости системы времени выполнения (этот слой отлично кэшируется)
 RUN apt-get update && apt-get install -y --no-install-recommends \
