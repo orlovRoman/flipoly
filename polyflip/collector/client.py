@@ -63,10 +63,19 @@ class PolymarketClient:
                         
                     # Нас интересуют бинарные рынки Up/Down (или Yes/No на всякий случай)
                     outcomes = market.get("outcomes", [])
-                    if type(outcomes) is str:
-                        outcomes = json.loads(outcomes)
+                    if isinstance(outcomes, str):
+                        try:
+                            outcomes = json.loads(outcomes)
+                        except Exception:
+                            pass
+                            
+                    if not isinstance(outcomes, list):
+                        logger.debug("skipping_market_invalid_outcomes_type", outcomes=outcomes, market_id=market.get("id"))
+                        continue
                         
-                    if outcomes != ["Up", "Down"] and outcomes != ["Yes", "No"]:
+                    outcomes_lower = [str(o).lower() for o in outcomes]
+                    if outcomes_lower != ["up", "down"] and outcomes_lower != ["yes", "no"]:
+                        logger.debug("skipping_market_unknown_outcomes", outcomes=outcomes, market_id=market.get("id"))
                         continue
 
                     clob_token_ids = market.get("clobTokenIds", [])

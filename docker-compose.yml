@@ -57,6 +57,7 @@ services:
       - ./scripts:/app/scripts
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      - ./backups:/app/backups
     command: python -m polyflip.scheduler.jobs
     deploy:
       resources:

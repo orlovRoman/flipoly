@@ -10,6 +10,9 @@ from polyflip.db.connection import async_session
 from polyflip.config import settings
 from polyflip.db.models import RuntimeSettings
 from sqlalchemy import select
+import os
+import subprocess
+from datetime import datetime, timezone
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +31,39 @@ async def resolver_job():
 async def trade_job():
     async with async_session() as session:
         await trade_worker_cycle(session)
+
+async def backup_job():
+    logger.info("starting_backup_job")
+    try:
+        backup_dir = "/app/backups"
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filepath = os.path.join(backup_dir, f"backup_polyflip_{timestamp}.sql")
+        
+        db_url = os.environ.get("DATABASE_URL", "")
+        # asyncpg URL like postgresql+asyncpg://... needs to be postgresql:// for pg_dump
+        pg_url = db_url.replace("+asyncpg", "")
+        
+        env = os.environ.copy()
+        
+        cmd = ["pg_dump", "-d", pg_url, "-f", filepath, "-F", "c"]
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode == 0:
+            logger.info("backup_job_success", filepath=filepath)
+        else:
+            logger.error("backup_job_failed", stderr=stderr.decode() if stderr else "unknown error")
+            
+    except Exception as e:
+        logger.exception("backup_job_error", error=str(e))
 
 async def main():
     logger.info("scheduler_starting", interval=settings.LIVE_POLL_INTERVAL_SECONDS)
@@ -57,6 +93,14 @@ async def main():
         replace_existing=True,
         max_instances=1,
         misfire_grace_time=3
+    )
+    
+    # Ежедневный бэкап базы данных (раз в 24 часа)
+    scheduler.add_job(
+        backup_job,
+        trigger=IntervalTrigger(hours=24),
+        id="backup_job",
+        replace_existing=True
     )
     
     scheduler.start()

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from polyflip.db.connection import get_db_session
-from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, TradeHistory
+from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, TradeHistory, ModelRegistry
 from polyflip.api.auth import verify_api_key
 
 router = APIRouter(tags=["Dashboard"])
@@ -69,10 +69,18 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
         ds = dataset_summary.setdefault(row.asset, {"PENDING": 0, "RESOLVED": 0})
         ds["PENDING" if row.final_outcome == "PENDING" else "RESOLVED"] += row.cnt
             
+    # 4. Активные модели
+    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
+    models_res = await db.execute(models_stmt)
+    active_models = {}
+    for m in models_res.scalars().all():
+        active_models[m.asset] = m.version
+            
     return {
         "collector": collector_data,
         "dataset_summary": dataset_summary,
-        "live_markets": live_data
+        "live_markets": live_data,
+        "active_models": active_models
     }
 
 @router.get("/api/dashboard/trade_logs", dependencies=[Depends(verify_api_key)])
@@ -92,6 +100,7 @@ async def get_trade_logs(db: AsyncSession = Depends(get_db_session)):
             "amount_usdc": log.amount_usdc,
             "executed_price": log.executed_price,
             "predicted_flip_prob": log.predicted_flip_prob,
+            "model_version": getattr(log, 'model_version', None),
             "error_msg": log.error_msg,
             "created_at": log.created_at.isoformat()
         }

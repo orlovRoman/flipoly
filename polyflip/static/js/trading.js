@@ -253,9 +253,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            tbody.innerHTML = '';
+            const rows = [];
             
-            data.forEach((log, index) => {
+            data.forEach((log) => {
                 const timeStr = new Date(log.created_at).toLocaleTimeString();
                 const flipColor = log.predicted_flip_prob > 0.5 ? '#00ff88' : '#ff3366';
                 let statusColor = '#8F9BB3'; // SKIPPED
@@ -263,29 +263,49 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (log.status === 'FAILED') statusColor = '#ff3366';
                 
                 const reasonHtml = log.status === 'SKIPPED' ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>` : escapeHtml(log.error_msg || '-');
+                const modelStr = log.model_version ? `v${log.model_version}` : '-';
                 
-                tbody.innerHTML += `
+                rows.push(`
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                         <td style="padding: 8px;">${timeStr}</td>
                         <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
+                        <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
                         <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
                         <td style="padding: 8px;">${log.outcome_bought !== 'NONE' ? log.outcome_bought : '-'}</td>
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? '$' + parseFloat(log.executed_price).toFixed(3) : '-'}</td>
                         <td style="padding: 8px; color: ${flipColor};">${(log.predicted_flip_prob * 100).toFixed(1)}%</td>
                         <td style="padding: 8px;">${reasonHtml}</td>
                     </tr>
-                `;
-                
-                // В dev-режиме: проверка рассинхронизации колонок
-                if (index === 0) {
-                    const tr = tbody.lastElementChild;
-                    const thCount = document.querySelectorAll('#logs-table th').length;
-                    const tdCount = tr.querySelectorAll('td').length;
-                    console.assert(thCount === tdCount, `Колонки рассинхронизированы: ${thCount} th vs ${tdCount} td`);
-                }
+                `);
             });
+
+            tbody.innerHTML = rows.join('');
+            
+            if (rows.length > 0) {
+                const tr = tbody.firstElementChild;
+                // Ищем th именно в той же таблице, что и tbody (в данном случае #trade-logs-table)
+                const thCount = document.querySelectorAll('#trade-logs-table th').length;
+                const tdCount = tr ? tr.querySelectorAll('td').length : 0;
+                console.assert(thCount === tdCount, `Колонки рассинхронизированы: ${thCount} th vs ${tdCount} td`);
+            }
         } catch (e) {
             console.error("Failed to load trade logs", e);
+        }
+    async function loadActiveModels() {
+        try {
+            const res = await fetch(window.API_BASE + '/api/dashboard/status', {
+                headers: { 'X-API-Key': apiKey }
+            });
+            const data = await res.json();
+            if (data.active_models) {
+                const badge = document.getElementById('active-models-badge');
+                if (badge) {
+                    const modelsText = Object.entries(data.active_models).map(([asset, v]) => `${asset} v${v}`).join(', ');
+                    badge.textContent = modelsText ? `[Активные модели: ${modelsText}]` : '[Нет активных моделей]';
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load active models", e);
         }
     }
 
@@ -298,11 +318,15 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchStats();
     loadSettings();
     loadLogs();
+    loadActiveModels();
     
     // Auto refresh every 5 min for stats, every 10 sec for logs
     if (window.statsIntervalId) clearInterval(window.statsIntervalId);
     if (window.logsIntervalId) clearInterval(window.logsIntervalId);
     
     window.statsIntervalId = setInterval(fetchStats, 5 * 60 * 1000);
-    window.logsIntervalId = setInterval(loadLogs, 10000);
+    window.logsIntervalId = setInterval(() => {
+        loadLogs();
+        loadActiveModels();
+    }, 10000);
 });

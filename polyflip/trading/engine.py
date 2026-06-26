@@ -82,9 +82,11 @@ async def trade_worker_cycle(db_session: AsyncSession):
     active_models = (await db_session.execute(models_stmt)).scalars().all()
     
     models_by_asset = {}
+    model_versions = {}
     for m in active_models:
         try:
             models_by_asset[m.asset] = pickle.loads(m.model_blob)
+            model_versions[m.asset] = m.version
         except Exception as e:
             logger.error("failed_to_load_model", asset=m.asset, error=str(e))
     
@@ -123,6 +125,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                             executed_price=0.0,
                             predicted_flip_prob=p_flip_val,
                             active_features="",
+                            model_version=model_versions.get(market.asset),
                             status="SKIPPED",
                             error_msg=reason,
                             created_at=start_time
@@ -136,6 +139,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     continue
 
                 model = models_by_asset.get(market.asset)
+                model_ver = model_versions.get(market.asset)
+                
                 if not model:
                     logger.warning("no_active_model_for_trade", asset=market.asset, market_id=market.market_id)
                     log_skip("No active model")
@@ -226,6 +231,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                         executed_price=buy_price,
                         predicted_flip_prob=p_flip,
                         active_features=active_features_str,
+                        model_version=model_ver,
                         status=trade_res["status"],
                         error_msg=trade_res["error_msg"],
                         created_at=start_time

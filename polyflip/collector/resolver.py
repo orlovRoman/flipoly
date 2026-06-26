@@ -49,7 +49,11 @@ async def resolve_pending_markets(db_session: AsyncSession):
                 # Если их нет, но рынок закрыт, возможно он INVALID.
                 # Для 15m рынков обычно ответ "Yes" или "No" (соответствует outcomes)
                 # Поищем поле "answer" или сымитируем через prices, если он жестко зафиксирован на 1 или 0
-                answer = market_data.get("answer") 
+                answer = (
+                    market_data.get("answer")
+                    or market_data.get("winnerOutcome")
+                    or market_data.get("resolvedBy")
+                )
                 
                 # Если явного ответа нет, но токены залочены (один стоит 1, другой 0)
                 if not answer:
@@ -62,10 +66,13 @@ async def resolve_pending_markets(db_session: AsyncSession):
                         prices = json.loads(prices)
                         
                     if prices and len(prices) >= 2 and outcomes and len(outcomes) >= 2:
-                        if float(prices[0]) >= 0.99:
-                            answer = outcomes[0]
-                        elif float(prices[1]) >= 0.99:
-                            answer = outcomes[1]
+                        try:
+                            max_price = max(float(p) for p in prices)
+                            if max_price >= 0.95:
+                                idx = [float(p) for p in prices].index(max_price)
+                                answer = outcomes[idx]
+                        except Exception:
+                            pass
 
                 if not answer:
                     logger.warning("market_closed_but_no_answer", market_id=market_id)
@@ -76,21 +83,17 @@ async def resolve_pending_markets(db_session: AsyncSession):
                 final_outcome = outcome_map.get(answer.upper(), answer.upper()) # "YES" или "NO"
                 
                 # Теперь обновляем все снепшоты этого рынка
-                snapshots_stmt = select(MarketSnapshot).where(MarketSnapshot.market_id == market_id)
-                snapshots_result = await db_session.execute(snapshots_stmt)
-                snapshots = snapshots_result.scalars().all()
-                
-                for snap in snapshots:
-                    snap.final_outcome = final_outcome
+                async with db_session.begin_nested():
+                    snapshots_stmt = select(MarketSnapshot).where(MarketSnapshot.market_id == market_id)
+                    snapshots_result = await db_session.execute(snapshots_stmt)
+                    snapshots = snapshots_result.scalars().all()
                     
-                    # Логика флипа:
-                    # mid_price > 0.5 означает, что рынок верил в "YES".
-                    # Если исход "NO", значит произошел флип.
-                    # И наоборот: mid_price < 0.5 -> верили в "NO", если исход "YES" -> флип.
-                    market_believed_yes = snap.mid_price > 0.5
-                    actual_is_yes = (final_outcome == "YES")
-                    
-                    snap.flip_vs_final = (market_believed_yes != actual_is_yes)
+                    for snap in snapshots:
+                        snap.final_outcome = final_outcome
+                        
+                        market_believed_yes = snap.mid_price > 0.5
+                        actual_is_yes = (final_outcome == "YES")
+                        snap.flip_vs_final = (market_believed_yes != actual_is_yes)
                         
                 await db_session.commit()
                 logger.info("market_resolved", market_id=market_id, outcome=final_outcome)

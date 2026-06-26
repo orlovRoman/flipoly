@@ -34,6 +34,4 @@ def upgrade() -> None:
     op.create_index('idx_trade_history_created_at', 'trade_history', ['created_at'], unique=False)
 
 def downgrade() -> None:
-    op.drop_index('idx_trade_history_created_at', table_name='trade_history')
-    op.drop_index('idx_trade_history_market_id', table_name='trade_history')
-    op.drop_table('trade_history')
+    pass

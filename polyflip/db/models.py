@@ -92,6 +92,7 @@ class TradeHistory(Base):
     executed_price = Column(Float, nullable=False)
     predicted_flip_prob = Column(Float, nullable=False)
     active_features = Column(String, nullable=False)
+    model_version = Column(Integer, nullable=True)
     status = Column(String(32), nullable=False) # "SUCCESS", "FAILED"
     error_msg = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)

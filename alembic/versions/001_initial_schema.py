@@ -96,13 +96,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index('idx_live_markets_asset', table_name='live_markets')
-    op.drop_table('live_markets')
-    op.drop_table('runtime_settings')
-    op.drop_table('collector_status')
-    op.drop_index('idx_model_registry_asset_active', table_name='model_registry')
-    op.drop_table('model_registry')
-    op.drop_index('idx_market_snapshots_recorded_at', table_name='market_snapshots')
-    op.drop_index('idx_market_snapshots_asset_time', table_name='market_snapshots')
-    op.drop_index('idx_market_snapshots_asset', table_name='market_snapshots')
-    op.drop_table('market_snapshots')
+    pass
