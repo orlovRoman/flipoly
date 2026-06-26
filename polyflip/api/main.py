@@ -1,12 +1,19 @@
-from fastapi import FastAPI, Depends
+import time
+from collections import defaultdict
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Depends, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 import structlog
 import os
+
 from polyflip.api.auth import verify_api_key
 from polyflip.api.analytics import router as analytics_router
 from polyflip.api.dashboard import router as dashboard_router
 from polyflip.api.trading_dashboard import router as trading_dashboard_router
 from polyflip.api.settings import router as settings_router
+from polyflip.config import settings
 
 structlog.configure(
     processors=[
@@ -16,15 +23,47 @@ structlog.configure(
 )
 logger = structlog.get_logger()
 
-from contextlib import asynccontextmanager
+class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, limit: int = 60, window: int = 60):
+        super().__init__(app)
+        self.limit = limit
+        self.window = window
+        # Храним таймстампы запросов по IP: ip -> list of float
+        self.requests = defaultdict(list)
+
+    async def dispatch(self, request: Request, call_next):
+        # Пропускаем статические файлы и проверку здоровья /health
+        if request.url.path.startswith("/static") or request.url.path == "/health":
+            return await call_next(request)
+
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+
+        # Очищаем запросы за пределами окна
+        self.requests[client_ip] = [t for t in self.requests[client_ip] if now - t < self.window]
+
+        if len(self.requests[client_ip]) >= self.limit:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests. Rate limit exceeded."}
+            )
+
+        self.requests[client_ip].append(now)
+        response = await call_next(request)
+        return response
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("application_startup")
+    if settings.API_KEY == "test-key":
+        logger.warning("API key is set to insecure default 'test-key'. Please change it in production.")
     yield
-    # Cleanup here if needed
 
 app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)
+
+# Подключаем middleware ограничения частоты запросов
+app.add_middleware(SimpleRateLimitMiddleware, limit=60, window=60)
+
 app.include_router(analytics_router)
 app.include_router(dashboard_router)
 app.include_router(trading_dashboard_router)

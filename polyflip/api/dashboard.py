@@ -34,6 +34,8 @@ async def get_dashboard(request: Request):
         }
     )
 
+from datetime import datetime, timezone, timedelta
+
 @router.get("/api/dashboard/status", dependencies=[Depends(verify_api_key)])
 async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     """Отдает данные для вкладки Статус Парсера"""
@@ -91,25 +93,65 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     active_models = {}
     for m in models_res.scalars().all():
         active_models[m.asset] = m.version
+        
+    # 5. Скользящая точность за 7 дней (rolling accuracy) по активам
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    trades_stmt = select(TradeHistory.asset, TradeHistory.pnl).where(
+        TradeHistory.created_at >= seven_days_ago,
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.pnl.is_not(None)
+    )
+    trades_res = await db.execute(trades_stmt)
+    trades_list = trades_res.all()
+    
+    asset_trades = {}
+    for row in trades_list:
+        asset_trades.setdefault(row.asset, []).append(row.pnl)
+        
+    rolling_accuracy = {}
+    for asset, pnls in asset_trades.items():
+        valid_pnls = [p for p in pnls if p != 0.0]
+        if not valid_pnls:
+            continue
+        wins = sum(1 for p in valid_pnls if p > 0.0)
+        acc = wins / len(valid_pnls)
+        rolling_accuracy[asset] = {
+            "accuracy": round(acc, 4),
+            "total_trades": len(valid_pnls)
+        }
             
+    # 6. Список торгуемых активов
+    trade_assets_stmt = select(RuntimeSettings.value).where(RuntimeSettings.key == "TRADE_ASSETS")
+    trade_assets_res = await db.execute(trade_assets_stmt)
+    trade_assets_val = trade_assets_res.scalar() or settings.TRADE_ASSETS
+    trade_assets_list = [a.strip().upper() for a in trade_assets_val.split(",") if a.strip()]
+
     return {
         "collector": collector_data,
         "dataset_summary": dataset_summary,
         "live_markets": live_data,
-        "active_models": active_models
+        "active_models": active_models,
+        "rolling_accuracy": rolling_accuracy,
+        "trade_assets": trade_assets_list
     }
 
 @router.get("/api/dashboard/trade_logs", dependencies=[Depends(verify_api_key)])
 async def get_trade_logs(db: AsyncSession = Depends(get_db_session)):
     """Возвращает последние логи торговли (успешные, фейлы и пропущенные)"""
-    stmt = select(TradeHistory).order_by(TradeHistory.created_at.desc()).limit(50)
+    stmt = (
+        select(TradeHistory, LiveMarket.question)
+        .outerjoin(LiveMarket, TradeHistory.market_id == LiveMarket.market_id)
+        .order_by(TradeHistory.created_at.desc())
+        .limit(50)
+    )
     result = await db.execute(stmt)
-    logs = result.scalars().all()
+    logs_with_questions = result.all()
     
     return [
         {
             "id": log.id,
             "market_id": log.market_id,
+            "question": question or log.market_id,
             "asset": log.asset,
             "status": log.status,
             "outcome_bought": log.outcome_bought,
@@ -122,7 +164,7 @@ async def get_trade_logs(db: AsyncSession = Depends(get_db_session)):
             "pnl": getattr(log, 'pnl', None),
             "created_at": log.created_at.isoformat()
         }
-        for log in logs
+        for log, question in logs_with_questions
     ]
 
 @router.post("/api/dashboard/verify_resolves", dependencies=[Depends(verify_api_key)])

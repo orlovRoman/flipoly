@@ -18,7 +18,7 @@ class PolyTrader:
         # Кеширование клиента для BUG-N05
         self._client_cache: Optional[ClobClient] = None
         self._client_cache_time: float = 0
-        self._last_key: str = ""
+        self._last_key_hash: str = ""
         self._last_address: str = ""
 
     def get_client(self) -> Optional[ClobClient]:
@@ -29,11 +29,16 @@ class PolyTrader:
         if not private_key or not address:
             return None
             
+        import hashlib
+        import hmac
+        
         now = time.time()
+        current_key_hash = hashlib.sha256(private_key.encode()).hexdigest()
+        
         # Если прошло меньше 5 минут и ключи не изменились — используем кэш
         if (self._client_cache and 
             (now - self._client_cache_time) < 300 and
-            self._last_key == private_key and
+            hmac.compare_digest(self._last_key_hash, current_key_hash) and
             self._last_address == address):
             return self._client_cache
             
@@ -48,7 +53,7 @@ class PolyTrader:
             # Сохраняем в кэш
             self._client_cache = client
             self._client_cache_time = now
-            self._last_key = private_key
+            self._last_key_hash = current_key_hash
             self._last_address = address
             
             return client

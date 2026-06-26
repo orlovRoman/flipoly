@@ -3,6 +3,7 @@ import os
 import pickle
 import pandas as pd
 from datetime import datetime, timezone
+from typing import Optional
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -14,7 +15,32 @@ from polyflip.collector.client import PolymarketClient
 
 logger = structlog.get_logger(__name__)
 
-async def trade_worker_cycle(db_session: AsyncSession):
+async def save_skipped_trade(
+    db_session: AsyncSession,
+    market,
+    reason: str,
+    p_flip_val: float,
+    model_version: Optional[int],
+    start_time: datetime
+):
+    """Сохраняет запись о пропуске сделки в БД."""
+    history = TradeHistory(
+        market_id=market.market_id,
+        asset=market.asset,
+        outcome_bought="NONE",
+        amount_usdc=0.0,
+        executed_price=0.0,
+        predicted_flip_prob=p_flip_val,
+        active_features="",
+        model_version=model_version,
+        status="SKIPPED",
+        error_msg=reason,
+        mode="LIVE" if bool(os.getenv("POLYGON_PRIVATE_KEY") and os.getenv("POLYGON_ADDRESS")) else "PAPER",
+        created_at=start_time
+    )
+    db_session.add(history)
+
+async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_client: PolymarketClient):
     """
     Фоновый процесс торгового движка.
     """
@@ -78,21 +104,25 @@ async def trade_worker_cycle(db_session: AsyncSession):
     
     if markets:
         # Проверяем дневной PnL перед тем как торговать (лимит $100 убытка в день)
-        from sqlalchemy import func
-        today = start_time.date()
+        # BUG-005 FIX: Явно фильтруем по диапазону UTC времени для надежного подсчета
+        start_of_today = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_today = start_of_today + timedelta(days=1)
+        
         daily_pnl_stmt = select(func.sum(TradeHistory.pnl)).where(
             and_(
-                func.date(TradeHistory.created_at) == today,
+                TradeHistory.created_at >= start_of_today,
+                TradeHistory.created_at < end_of_today,
                 TradeHistory.status == "SUCCESS",
                 TradeHistory.pnl.is_not(None)
             )
         )
+        # Обратите внимание, что func импортируется из sqlalchemy
+        from sqlalchemy import func
         daily_pnl = (await db_session.execute(daily_pnl_stmt)).scalar() or 0.0
         if daily_pnl <= -100.0:
             logger.warning("daily_loss_limit_reached", pnl=daily_pnl, limit=-100.0)
             return
             
-    
     # Загружаем активные модели
     models_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
     active_models = (await db_session.execute(models_stmt)).scalars().all()
@@ -106,13 +136,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
         except Exception as e:
             logger.error("failed_to_load_model", asset=m.asset, error=str(e))
     
-    trader = None
-    api_client = None
-    
     try:
-        trader = PolyTrader()
-        api_client = PolymarketClient()
-        
         for market in markets:
             end_time = market.end_time_est
             if end_time.tzinfo is None:
@@ -128,31 +152,9 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     continue
                     
                 has_skipped_log = "SKIPPED" in existing_statuses
-                _logged = [False]
-                
-                def log_skip(reason: str, p_flip_val: float = 0.0):
-                    if not has_skipped_log and not _logged[0]:
-                        _logged[0] = True
-                        history = TradeHistory(
-                            market_id=market.market_id,
-                            asset=market.asset,
-                            outcome_bought="NONE",
-                            amount_usdc=0.0,
-                            executed_price=0.0,
-                            predicted_flip_prob=p_flip_val,
-                            active_features="",
-                            model_version=model_versions.get(market.asset),
-                            status="SKIPPED",
-                            error_msg=reason,
-                            mode="LIVE" if bool(os.getenv("POLYGON_PRIVATE_KEY") and os.getenv("POLYGON_ADDRESS")) else "PAPER",
-                            created_at=start_time
-                        )
-                        db_session.add(history)
 
                 if market.asset not in trade_assets:
                     logger.info("trade_skipped_asset_not_enabled", asset=market.asset)
-                    # We don't log this to DB to avoid spamming for disabled assets, or maybe we do? 
-                    # Let's not log disabled assets to DB to keep the log clean.
                     continue
 
                 model = models_by_asset.get(market.asset)
@@ -160,7 +162,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
                 
                 if not model:
                     logger.warning("no_active_model_for_trade", asset=market.asset, market_id=market.market_id)
-                    log_skip("No active model")
+                    if not has_skipped_log:
+                        await save_skipped_trade(db_session, market, "No active model", 0.0, model_ver, start_time)
                     continue
                     
                 # Формируем X
@@ -196,7 +199,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
                         decision = "NO" if market.current_yes_price > 0.5 else "YES"
                     else:
                         logger.info("trade_flip_signal_skipped_only_favorite", market_id=market.market_id, p_flip=p_flip)
-                        log_skip("Flip expected, but Only Favorite is enabled", p_flip)
+                        if not has_skipped_log:
+                            await save_skipped_trade(db_session, market, "Flip expected, but Only Favorite is enabled", p_flip, model_ver, start_time)
                 elif p_flip < no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
                     decision = "YES" if market.current_yes_price > 0.5 else "NO"
@@ -210,7 +214,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     
                     if not yes_token_id or not no_token_id or yes_token_id == 'N/A' or no_token_id == 'N/A':
                         logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
-                        log_skip("Token IDs missing in DB", p_flip)
+                        if not has_skipped_log:
+                            await save_skipped_trade(db_session, market, "Token IDs missing in DB", p_flip, model_ver, start_time)
                         continue
                         
                     token_to_buy = yes_token_id if decision == "YES" else no_token_id
@@ -224,7 +229,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     
                     if buy_price < trade_min_price or buy_price > trade_max_price:
                         logger.warning("trade_skipped_price_out_of_range", price=buy_price, min=trade_min_price, max=trade_max_price)
-                        log_skip(f"Price out of range: {buy_price}", p_flip)
+                        if not has_skipped_log:
+                            await save_skipped_trade(db_session, market, f"Price out of range: {buy_price}", p_flip, model_ver, start_time)
                         continue
                         
                     # Кол-во акций = size / price
@@ -257,7 +263,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     db_session.add(history)
                 else:
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
-                    log_skip("Thresholds not met", p_flip)
+                    if not has_skipped_log:
+                        await save_skipped_trade(db_session, market, "Thresholds not met", p_flip, model_ver, start_time)
                     
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))
@@ -267,6 +274,3 @@ async def trade_worker_cycle(db_session: AsyncSession):
             await db_session.commit()
         except Exception as e_commit:
             logger.error("failed_to_commit_in_finally", error=str(e_commit))
-            
-        if api_client:
-            await api_client.close()

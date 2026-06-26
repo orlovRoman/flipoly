@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     ASSETS: str = "BTC,ETH"
     
     # Дефолтные настройки, которые могут быть переопределены в БД
-    LIVE_POLL_INTERVAL_SECONDS: int = 10
+    LIVE_POLL_INTERVAL_SECONDS: int = 60
     RETRAIN_INTERVAL_HOURS: int = 24
     MIN_SAMPLES_FOR_MODEL: int = 50
     

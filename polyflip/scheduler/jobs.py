@@ -30,9 +30,9 @@ async def resolver_job():
         await resolve_pending_markets(session)
     logger.info("finished_resolver_job")
 
-async def trade_job():
+async def trade_job(trader, api_client):
     async with async_session() as session:
-        await trade_worker_cycle(session)
+        await trade_worker_cycle(session, trader, api_client)
 
 async def backup_job():
     logger.info("starting_backup_job")
@@ -159,6 +159,14 @@ async def cleanup_job():
 async def main():
     logger.info("scheduler_starting", interval=settings.LIVE_POLL_INTERVAL_SECONDS)
     
+    import signal
+    from polyflip.trading.trader import PolyTrader
+    from polyflip.collector.client import PolymarketClient
+    
+    # Инициализируем общие клиенты для переиспользования соединений
+    trader = PolyTrader()
+    api_client = PolymarketClient()
+    
     scheduler = AsyncIOScheduler()
     
     scheduler.add_job(
@@ -200,14 +208,15 @@ async def main():
         replace_existing=True
     )
     
-    # Запускаем торговый движок каждые 5 секунд
+    # Запускаем торговый движок каждые 5 секунд с передачей общих клиентов
     scheduler.add_job(
         trade_job,
         trigger=IntervalTrigger(seconds=5),
         id="trade_job",
         replace_existing=True,
         max_instances=1,
-        misfire_grace_time=3
+        misfire_grace_time=3,
+        kwargs={"trader": trader, "api_client": api_client}
     )
     
     # Ежедневный бэкап базы данных (раз в 24 часа)
@@ -220,9 +229,30 @@ async def main():
     
     scheduler.start()
     
-    # Ждем вечно (пока процесс не убьют)
-    while True:
-        await asyncio.sleep(3600)
+    shutdown_event = asyncio.Event()
+    
+    def signal_handler():
+        logger.info("shutdown_signal_received")
+        shutdown_event.set()
+        
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, signal_handler)
+        except NotImplementedError:
+            pass
+            
+    try:
+        await shutdown_event.wait()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("interrupted_by_signal")
+        
+    logger.info("scheduler_stopping")
+    scheduler.shutdown(wait=True)
+    
+    # Закрываем общие сетевые клиенты
+    await api_client.close()
+    logger.info("scheduler_stopped")
 
 if __name__ == "__main__":
     structlog.configure(

@@ -335,7 +335,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (data.length === 0) {
         tbody.innerHTML =
-          '<tr><td colspan="8" style="text-align:center; padding: 1rem;">Нет событий</td></tr>';
+          '<tr><td colspan="11" style="text-align:center; padding: 1rem;">Нет событий</td></tr>';
         return;
       }
 
@@ -373,7 +373,8 @@ document.addEventListener("DOMContentLoaded", () => {
         rows.push(`
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                         <td style="padding: 8px; color: var(--text-muted);">${intervalOffsetStr}</td>
-                        <td style="padding: 8px;"><a href="#" class="market-link" data-market-id="${log.market_id}" data-asset="${escapeHtml(log.asset)}" style="color: var(--text-main); text-decoration: underline; cursor: pointer;">${timeStr}</a></td>
+                        <td style="padding: 8px; color: var(--text-muted);">${timeStr}</td>
+                        <td style="padding: 8px;"><a href="#" class="market-link" data-market-id="${log.market_id}" data-asset="${escapeHtml(log.asset)}" style="color: var(--text-main); text-decoration: underline; cursor: pointer;">${escapeHtml(log.question)}</a></td>
                         <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
                         <td style="padding: 8px; color: ${statusColor};">${log.status}</td>

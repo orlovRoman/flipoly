@@ -418,9 +418,22 @@ document.addEventListener("DOMContentLoaded", () => {
       const dtBody = document.querySelector("#dataset-table tbody");
       dtBody.innerHTML = "";
       for (const [asset, counts] of Object.entries(data.dataset_summary)) {
+        const hasModel = data.active_models && data.active_models[asset];
+        const isTrading = data.trade_assets && data.trade_assets.includes(asset.toUpperCase());
+        
+        let statusBadge = "";
+        if (hasModel && isTrading) {
+          statusBadge = `<span style="font-size: 0.8rem; background: rgba(0, 255, 136, 0.1); border: 1px solid rgba(0, 255, 136, 0.3); color: #00ff88; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600;">💰 Торгуется</span>`;
+        } else if (hasModel) {
+          statusBadge = `<span style="font-size: 0.8rem; background: rgba(0, 114, 245, 0.1); border: 1px solid rgba(0, 114, 245, 0.3); color: var(--poly-blue); padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600;">🤖 Обучена</span>`;
+        } else {
+          statusBadge = `<span style="font-size: 0.8rem; background: rgba(255, 176, 32, 0.1); border: 1px solid rgba(255, 176, 32, 0.3); color: #FFB020; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600;">📊 Сбор данных</span>`;
+        }
+
         dtBody.innerHTML += `
                     <tr>
                         <td><strong>${escapeHtml(asset)}</strong></td>
+                        <td>${statusBadge}</td>
                         <td style="color: var(--poly-green)">${counts.RESOLVED}</td>
                         <td style="color: #FFB020">${counts.PENDING}</td>
                     </tr>
