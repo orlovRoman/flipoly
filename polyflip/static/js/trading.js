@@ -326,13 +326,17 @@ document.addEventListener("DOMContentLoaded", () => {
           pnlColor = pnlVal >= 0 ? "#00ff88" : "#ff3366";
         }
 
+        let outcomeText = "-";
+        if (log.outcome_bought === "YES") outcomeText = "UP";
+        if (log.outcome_bought === "NO") outcomeText = "DOWN";
+
         rows.push(`
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                         <td style="padding: 8px;"><a href="#" class="market-link" data-market-id="${log.market_id}" data-asset="${escapeHtml(log.asset)}" style="color: var(--text-main); text-decoration: underline; cursor: pointer;">${timeStr}</a></td>
                         <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
                         <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
-                        <td style="padding: 8px;">${log.outcome_bought !== "NONE" ? log.outcome_bought : "-"}</td>
+                        <td style="padding: 8px; font-weight: bold; color: ${outcomeText === "UP" ? "#00ff88" : (outcomeText === "DOWN" ? "#ff3366" : "inherit")}">${outcomeText}</td>
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? "$" + parseFloat(log.executed_price).toFixed(3) : "-"}</td>
                         <td style="padding: 8px; color: ${pnlColor}; font-weight: 600;">${pnlText}</td>
                         <td style="padding: 8px; color: ${flipColor};">${(log.predicted_flip_prob * 100).toFixed(1)}%</td>
