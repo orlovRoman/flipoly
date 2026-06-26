@@ -178,7 +178,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // Trading Settings Logic
   // ----------------------------------------------------
   const settingsElements = {
-    executionTime: document.getElementById("TRADE_EXECUTION_TIME_SEC"),
+    minTimeLeft: document.getElementById("TRADE_MIN_TIME_LEFT_SEC"),
+    maxTimeLeft: document.getElementById("TRADE_MAX_TIME_LEFT_SEC"),
     betSize: document.getElementById("TRADE_BET_SIZE_USDC"),
     noFlipThreshold: document.getElementById("TRADE_NO_FLIP_THRESHOLD"),
     flipThreshold: document.getElementById("TRADE_FLIP_THRESHOLD"),
@@ -196,8 +197,10 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const data = await res.json();
 
-      if (settingsElements.executionTime && data.TRADE_EXECUTION_TIME_SEC)
-        settingsElements.executionTime.value = data.TRADE_EXECUTION_TIME_SEC;
+      if (settingsElements.minTimeLeft && data.TRADE_MIN_TIME_LEFT_SEC)
+        settingsElements.minTimeLeft.value = data.TRADE_MIN_TIME_LEFT_SEC;
+      if (settingsElements.maxTimeLeft && data.TRADE_MAX_TIME_LEFT_SEC)
+        settingsElements.maxTimeLeft.value = data.TRADE_MAX_TIME_LEFT_SEC;
       if (settingsElements.betSize && data.TRADE_BET_SIZE_USDC)
         settingsElements.betSize.value = data.TRADE_BET_SIZE_USDC;
       if (settingsElements.noFlipThreshold && data.TRADE_NO_FLIP_THRESHOLD) {
@@ -254,7 +257,8 @@ document.addEventListener("DOMContentLoaded", () => {
         .join(",");
 
       const settingsToSave = {};
-      if (settingsElements.executionTime) settingsToSave.TRADE_EXECUTION_TIME_SEC = settingsElements.executionTime.value;
+      if (settingsElements.minTimeLeft) settingsToSave.TRADE_MIN_TIME_LEFT_SEC = settingsElements.minTimeLeft.value;
+      if (settingsElements.maxTimeLeft) settingsToSave.TRADE_MAX_TIME_LEFT_SEC = settingsElements.maxTimeLeft.value;
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
       if (settingsElements.noFlipThreshold) settingsToSave.TRADE_NO_FLIP_THRESHOLD = parseFloat(settingsElements.noFlipThreshold.value) / 100;
       if (settingsElements.flipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.flipThreshold.value) / 100;

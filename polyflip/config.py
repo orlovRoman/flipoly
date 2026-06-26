@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     # Новые параметры Фазы 5
     ACTIVE_FEATURES: str = "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day"
     TRADE_EXECUTION_TIME_SEC: int = 30
+    TRADE_MIN_TIME_LEFT_SEC: int = 10
+    TRADE_MAX_TIME_LEFT_SEC: int = 360
     TRADE_BET_SIZE_USDC: float = 10.0
     TRADE_NO_FLIP_THRESHOLD: float = 0.15
     TRADE_FLIP_THRESHOLD: float = 0.85

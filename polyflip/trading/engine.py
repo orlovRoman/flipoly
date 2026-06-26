@@ -23,7 +23,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
     # 1. Загружаем торговые настройки
     settings_keys = [
         "TRADING_ENABLED", 
-        "TRADE_EXECUTION_TIME_SEC", 
+        "TRADE_MIN_TIME_LEFT_SEC",
+        "TRADE_MAX_TIME_LEFT_SEC",
         "TRADE_BET_SIZE_USDC",
         "TRADE_NO_FLIP_THRESHOLD",
         "TRADE_FLIP_THRESHOLD",
@@ -44,7 +45,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
     if not trading_enabled:
         return # Торговля выключена
         
-    execution_time_sec = int(settings_db.get("TRADE_EXECUTION_TIME_SEC", settings.TRADE_EXECUTION_TIME_SEC))
+    min_time_left = int(settings_db.get("TRADE_MIN_TIME_LEFT_SEC", settings.TRADE_MIN_TIME_LEFT_SEC))
+    max_time_left = int(settings_db.get("TRADE_MAX_TIME_LEFT_SEC", settings.TRADE_MAX_TIME_LEFT_SEC))
     bet_size = float(settings_db.get("TRADE_BET_SIZE_USDC", settings.TRADE_BET_SIZE_USDC))
     no_flip_threshold = float(settings_db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD))
     flip_threshold = float(settings_db.get("TRADE_FLIP_THRESHOLD", settings.TRADE_FLIP_THRESHOLD))
@@ -59,12 +61,8 @@ async def trade_worker_cycle(db_session: AsyncSession):
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
     active_features = [f.strip() for f in active_features_str.split(",") if f.strip()]
 
-    # 2. Ищем рынки, которые подходят по времени для ставки (например, ровно 30 сек до конца)
-    # Так как цикл работает раз в 5-10 сек, мы даем окно, например, от (X) до (X + 15) секунд, 
-    # чтобы не пропустить рынок. Чтобы не ставить дважды, проверяем TradeHistory.
-    
-    min_time_left = execution_time_sec - 5
-    max_time_left = execution_time_sec + 15
+    # 2. Ищем рынки, которые подходят по времени для ставки (в пределах настраиваемого диапазона)
+    # Чтобы не ставить дважды, проверяем TradeHistory.
     
     from datetime import timedelta
     min_td = timedelta(seconds=min_time_left)

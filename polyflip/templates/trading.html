@@ -133,10 +133,15 @@
 
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
                             <div class="form-group">
-                                <label for="TRADE_EXECUTION_TIME_SEC">Время ордера (в сек. до конца)</label>
-                                <input type="number" id="TRADE_EXECUTION_TIME_SEC" value="30">
+                                <label for="TRADE_MIN_TIME_LEFT_SEC">Мин. время до конца (в сек.)</label>
+                                <input type="number" id="TRADE_MIN_TIME_LEFT_SEC" value="10">
                             </div>
                             
+                            <div class="form-group">
+                                <label for="TRADE_MAX_TIME_LEFT_SEC">Макс. время до конца (в сек.)</label>
+                                <input type="number" id="TRADE_MAX_TIME_LEFT_SEC" value="360">
+                            </div>
+
                             <div class="form-group">
                                 <label for="TRADE_BET_SIZE_USDC">Размер ставки (USDC)</label>
                                 <input type="number" step="0.1" id="TRADE_BET_SIZE_USDC" value="10.0">

@@ -25,6 +25,8 @@ async def get_all_settings():
     current_settings = {
         "ACTIVE_FEATURES": settings.ACTIVE_FEATURES,
         "TRADE_EXECUTION_TIME_SEC": str(settings.TRADE_EXECUTION_TIME_SEC),
+        "TRADE_MIN_TIME_LEFT_SEC": str(getattr(settings, 'TRADE_MIN_TIME_LEFT_SEC', 10)),
+        "TRADE_MAX_TIME_LEFT_SEC": str(getattr(settings, 'TRADE_MAX_TIME_LEFT_SEC', 360)),
         "TRADE_BET_SIZE_USDC": str(settings.TRADE_BET_SIZE_USDC),
         "TRADE_NO_FLIP_THRESHOLD": str(settings.TRADE_NO_FLIP_THRESHOLD),
         "TRADE_FLIP_THRESHOLD": str(settings.TRADE_FLIP_THRESHOLD),
@@ -54,6 +56,8 @@ async def update_setting(key: str, payload: SettingValue):
     valid_keys = [
         "ACTIVE_FEATURES", 
         "TRADE_EXECUTION_TIME_SEC", 
+        "TRADE_MIN_TIME_LEFT_SEC",
+        "TRADE_MAX_TIME_LEFT_SEC",
         "TRADE_BET_SIZE_USDC", 
         "TRADE_NO_FLIP_THRESHOLD", 
         "TRADE_FLIP_THRESHOLD", 
