@@ -94,11 +94,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (displayDates.length > 0 && displayDates.length < 7) {
       const lastDateStr = displayDates[displayDates.length - 1];
       const lastDate = new Date(lastDateStr);
+      const lastPnl = pnlData[pnlData.length - 1] ?? 0;
       while (displayDates.length < 7) {
         lastDate.setUTCDate(lastDate.getUTCDate() + 1);
         const nextDateStr = lastDate.toISOString().split("T")[0];
         displayDates.push(nextDateStr);
-        pnlData.push(null);
+        pnlData.push(lastPnl);
         winData.push(null);
         lossData.push(null);
       }
