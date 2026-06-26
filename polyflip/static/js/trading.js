@@ -183,9 +183,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.betSize && data.TRADE_BET_SIZE_USDC)
         settingsElements.betSize.value = data.TRADE_BET_SIZE_USDC;
       if (settingsElements.noFlipThreshold && data.TRADE_NO_FLIP_THRESHOLD)
-        settingsElements.noFlipThreshold.value = data.TRADE_NO_FLIP_THRESHOLD;
+        settingsElements.noFlipThreshold.value = Math.round(parseFloat(data.TRADE_NO_FLIP_THRESHOLD) * 100);
       if (settingsElements.flipThreshold && data.TRADE_FLIP_THRESHOLD)
-        settingsElements.flipThreshold.value = data.TRADE_FLIP_THRESHOLD;
+        settingsElements.flipThreshold.value = Math.round(parseFloat(data.TRADE_FLIP_THRESHOLD) * 100);
       if (settingsElements.tradingEnabled && data.TRADING_ENABLED)
         settingsElements.tradingEnabled.checked =
           data.TRADING_ENABLED === "true";
@@ -224,8 +224,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const settingsToSave = {};
       if (settingsElements.executionTime) settingsToSave.TRADE_EXECUTION_TIME_SEC = settingsElements.executionTime.value;
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
-      if (settingsElements.noFlipThreshold) settingsToSave.TRADE_NO_FLIP_THRESHOLD = settingsElements.noFlipThreshold.value;
-      if (settingsElements.flipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = settingsElements.flipThreshold.value;
+      if (settingsElements.noFlipThreshold) settingsToSave.TRADE_NO_FLIP_THRESHOLD = parseFloat(settingsElements.noFlipThreshold.value) / 100;
+      if (settingsElements.flipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.flipThreshold.value) / 100;
       if (settingsElements.tradingEnabled) settingsToSave.TRADING_ENABLED = settingsElements.tradingEnabled.checked ? "true" : "false";
       if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
       if (settingsElements.onlyFavorite) settingsToSave.TRADE_ONLY_FAVORITE = settingsElements.onlyFavorite.checked ? "true" : "false";

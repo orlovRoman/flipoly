@@ -104,38 +104,70 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
     await db.commit()
     return {"status": "success", "active_version": version}
 
-# Global status dictionary for manual training tracking
-training_status = {"status": "idle", "message": "", "last_run": None}
+import json
+from datetime import datetime, timezone
+
+async def set_training_status(session: AsyncSession, status: str, message: str, last_run: str = None):
+    """Сохраняет статус обучения в RuntimeSettings в виде JSON-строки."""
+    if last_run is None:
+        stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TRAINING_STATUS_JSON")
+        res = await session.execute(stmt)
+        row = res.scalar_one_or_none()
+        if row:
+            try:
+                old_data = json.loads(row.value)
+                last_run = old_data.get("last_run")
+            except Exception:
+                pass
+    
+    data = {
+        "status": status,
+        "message": message,
+        "last_run": last_run
+    }
+    setting = RuntimeSettings(key="TRAINING_STATUS_JSON", value=json.dumps(data))
+    await session.merge(setting)
+    await session.commit()
+
+async def get_training_status(session: AsyncSession) -> Dict[str, Any]:
+    """Загружает статус обучения из RuntimeSettings."""
+    stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TRAINING_STATUS_JSON")
+    res = await session.execute(stmt)
+    row = res.scalar_one_or_none()
+    if row:
+        try:
+            return json.loads(row.value)
+        except Exception:
+            pass
+    return {"status": "idle", "message": "", "last_run": None}
 
 @router.post("/analytics/train", dependencies=[Depends(verify_api_key)])
 async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db_session)):
     """Ручной запуск обучения моделей по всем активам"""
     
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await set_training_status(db, "running", "Обучение началось...", now_iso)
+    
     # Чтобы не блокировать API-запрос, обучаем асинхронно
     async def train_all():
-        from datetime import datetime, timezone
-        training_status["status"] = "running"
-        training_status["message"] = "Обучение началось..."
-        training_status["last_run"] = datetime.now(timezone.utc).isoformat()
         try:
             async with async_session() as bg_session:
                 trainer = ModelTrainer(bg_session)
                 for asset in settings.asset_list:
                     await trainer.train_model(asset)
-            training_status["status"] = "success"
-            training_status["message"] = "Обучение успешно завершено."
+                await set_training_status(bg_session, "success", "Обучение успешно завершено.", now_iso)
         except Exception as e:
             structlog.get_logger(__name__).exception("train_all_failed", error=str(e))
-            training_status["status"] = "error"
-            training_status["message"] = f"Ошибка: {str(e)}"
+            async with async_session() as bg_session:
+                await set_training_status(bg_session, "error", f"Ошибка: {str(e)}", now_iso)
             
     background_tasks.add_task(train_all)
     return {"status": "training_started"}
 
 @router.get("/analytics/train_status")
-async def get_train_status():
+async def get_train_status(db: AsyncSession = Depends(get_db_session)):
     """Возвращает статус последнего запущенного обучения"""
-    return training_status
+    return await get_training_status(db)
 
 @router.get("/analytics/probabilities")
 async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):

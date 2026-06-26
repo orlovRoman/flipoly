@@ -1,4 +1,5 @@
 import asyncio
+import os
 import pickle
 import pandas as pd
 from datetime import datetime, timezone
@@ -145,7 +146,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                             model_version=model_versions.get(market.asset),
                             status="SKIPPED",
                             error_msg=reason,
-                            mode="LIVE" if getattr(settings, "LIVE_TRADING_ENABLED", False) else "PAPER",
+                            mode="LIVE" if bool(os.getenv("POLYGON_PRIVATE_KEY") and os.getenv("POLYGON_ADDRESS")) else "PAPER",
                             created_at=start_time
                         )
                         db_session.add(history)
@@ -252,7 +253,7 @@ async def trade_worker_cycle(db_session: AsyncSession):
                         model_version=model_ver,
                         status=trade_res["status"],
                         error_msg=trade_res["error_msg"],
-                        mode="LIVE" if getattr(settings, "LIVE_TRADING_ENABLED", False) else "PAPER",
+                        mode=trade_res["mode"],
                         created_at=start_time
                     )
                     db_session.add(history)
@@ -260,14 +261,14 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
                     log_skip("Thresholds not met", p_flip)
                     
+        # Коммитим транзакцию после успешного прохода цикла по всем рынкам
+        await db_session.commit()
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))
-    finally:
-        # BUG-N03 FIX: Commit moved to finally to ensure trades are saved even if loop breaks
         try:
-            await db_session.commit()
-        except Exception as e_commit:
-            logger.error("failed_to_commit_in_finally", error=str(e_commit))
-            
+            await db_session.rollback()
+        except Exception as e_rollback:
+            logger.error("failed_to_rollback", error=str(e_rollback))
+    finally:
         if api_client:
             await api_client.close()

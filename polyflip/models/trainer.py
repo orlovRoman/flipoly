@@ -1,5 +1,6 @@
 import pickle
 import pandas as pd
+import asyncio
 from datetime import datetime, timezone
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,46 @@ from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.config import settings
 
 logger = structlog.get_logger(__name__)
+
+def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
+    """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
+    import numpy as np
+    from sklearn.model_selection import StratifiedKFold
+    from sklearn.base import clone
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import accuracy_score
+    import pickle
+
+    # 3. Обучаем модель с кросс-валидацией
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    base_model = LogisticRegression(class_weight="balanced", random_state=42)
+    
+    accuracies = []
+    for train_index, val_index in skf.split(X, y):
+        X_train, X_val = X.iloc[train_index], X.iloc[val_index]
+        y_train, y_val = y.iloc[train_index], y.iloc[val_index]
+        
+        model_clone = clone(base_model)
+        model_clone.fit(X_train, y_train)
+        
+        preds = model_clone.predict(X_val)
+        accuracies.append(accuracy_score(y_val, preds))
+        
+    val_acc = float(np.mean(accuracies))
+    
+    # Baseline
+    baseline_acc = float(max(y.mean(), 1 - y.mean()))
+    
+    if val_acc <= baseline_acc:
+        return None, val_acc, baseline_acc
+        
+    # Обучаем финальную модель на всех данных
+    final_model = LogisticRegression(class_weight="balanced", random_state=42)
+    final_model.fit(X, y)
+    
+    # Сериализуем модель
+    model_bytes = pickle.dumps(final_model)
+    return model_bytes, val_acc, baseline_acc
 
 class ModelTrainer:
     def __init__(self, db_session: AsyncSession):
@@ -82,42 +123,15 @@ class ModelTrainer:
         X = df[active_features]
         y = df["target"]
 
-        from sklearn.model_selection import StratifiedKFold
-        from sklearn.base import clone
-        import numpy as np
-        
-        # 3. Обучаем модель с кросс-валидацией
-        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-        base_model = LogisticRegression(class_weight="balanced", random_state=42)
-        
-        accuracies = []
-        for train_index, val_index in skf.split(X, y):
-            X_train, X_val = X.iloc[train_index], X.iloc[val_index]
-            y_train, y_val = y.iloc[train_index], y.iloc[val_index]
-            
-            model_clone = clone(base_model)
-            model_clone.fit(X_train, y_train)
-            
-            preds = model_clone.predict(X_val)
-            accuracies.append(accuracy_score(y_val, preds))
-            
-        val_acc = np.mean(accuracies)
-        
-        # Baseline
-        baseline_acc = max(y.mean(), 1 - y.mean())
-        
+        # Выполняем CPU-bound обучение в отдельном потоке (BUG-A2 FIX)
+        fit_res = await asyncio.to_thread(_fit_and_serialize, X, y)
+        model_bytes, val_acc, baseline_acc = fit_res
+
         logger.info("model_trained", asset=asset, samples=len(df), val_accuracy=val_acc, baseline_accuracy=baseline_acc)
 
-        if val_acc <= baseline_acc:
+        if model_bytes is None:
             logger.warning("model_worse_than_baseline_skipping", asset=asset, val_acc=val_acc, baseline=baseline_acc)
             return False
-
-        # Обучаем финальную модель на всех данных
-        final_model = LogisticRegression(class_weight="balanced", random_state=42)
-        final_model.fit(X, y)
-
-        # 4. Сериализуем модель
-        model_bytes = pickle.dumps(final_model)
 
         # 5. Деактивируем предыдущие модели
         await self.db.execute(

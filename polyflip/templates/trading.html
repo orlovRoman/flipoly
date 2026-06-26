@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v=1.1">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ timestamp }}">
     
     <script>
         window.API_BASE = "{{ url_for('get_dashboard') }}".replace('/dashboard', '');
@@ -118,12 +118,11 @@
                         <div class="form-group" style="margin-top: 1rem; margin-bottom: 1.5rem;">
                             <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Торгуемые активы:</label>
                             <div id="trade-assets-container" style="display: flex; gap: 1.5rem;">
+                                {% for asset in assets %}
                                 <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                    <input type="checkbox" class="asset-checkbox" value="BTC" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue);"> Bitcoin (BTC)
+                                    <input type="checkbox" class="asset-checkbox" value="{{ asset }}" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue);"> {{ asset }}
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                    <input type="checkbox" class="asset-checkbox" value="ETH" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue);"> Ethereum (ETH)
-                                </label>
+                                {% endfor %}
                             </div>
                             <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">Бот будет анализировать рынки только для выбранных активов.</small>
                         </div>
@@ -203,6 +202,6 @@
         </main>
     </div>
 
-    <script src="{{ url_for('static', path='/js/trading.js') }}?v=1.1"></script>
+    <script src="{{ url_for('static', path='/js/trading.js') }}?v={{ timestamp }}"></script>
 </body>
 </html>

@@ -18,7 +18,16 @@ templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
 
 @router.get("/trading")
 async def get_trading_dashboard(request: Request):
-    return templates.TemplateResponse("trading.html", {"request": request})
+    import time
+    from polyflip.config import settings
+    return templates.TemplateResponse(
+        "trading.html", 
+        {
+            "request": request,
+            "timestamp": int(time.time()),
+            "assets": settings.asset_list
+        }
+    )
 
 @router.get("/api/trading/stats", dependencies=[Depends(verify_api_key)])
 async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
@@ -49,21 +58,6 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
             }
         }
 
-    # Load market outcomes for these trades (only one snapshot per market needed)
-    market_ids = list(set([t.market_id for t in trades]))
-    stmt_outcomes = select(MarketSnapshot.market_id, MarketSnapshot.final_outcome).where(
-        and_(
-            MarketSnapshot.market_id.in_(market_ids),
-            MarketSnapshot.final_outcome != "PENDING"
-        )
-    )
-    res_outcomes = await db.execute(stmt_outcomes)
-    
-    # Use a dictionary to store final outcomes for O(1) lookup
-    market_outcomes = {}
-    for r in res_outcomes.all():
-        market_outcomes[r.market_id] = r.final_outcome
-
     total_pnl = 0
     wins = 0
     losses = 0
@@ -77,26 +71,25 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
     loss_probs = []
 
     for t in trades:
-        outcome = market_outcomes.get(t.market_id)
-        if not outcome:
-            continue # Market is still pending or not resolved
+        # R5 FIX: Используем pnl из TradeHistory напрямую. Сделки с pnl IS NULL считаем PENDING.
+        if t.pnl is None:
+            continue
             
-        is_win = (t.outcome_bought == outcome)
-        pnl = 0
+        pnl = float(t.pnl)
+        is_win = (pnl > 0)
+        
         if is_win:
-            if t.executed_price > 0:
-                pnl = (t.amount_usdc / t.executed_price) - t.amount_usdc
-            else:
-                logger.error("zero_executed_price_in_trade", trade_id=t.id)
-                pnl = 0.0
             wins += 1
-            win_prices.append(t.executed_price)
-            win_probs.append(t.predicted_flip_prob)
+            if t.executed_price:
+                win_prices.append(float(t.executed_price))
+            if t.predicted_flip_prob:
+                win_probs.append(float(t.predicted_flip_prob))
         else:
-            pnl = -t.amount_usdc
             losses += 1
-            loss_prices.append(t.executed_price)
-            loss_probs.append(t.predicted_flip_prob)
+            if t.executed_price:
+                loss_prices.append(float(t.executed_price))
+            if t.predicted_flip_prob:
+                loss_probs.append(float(t.predicted_flip_prob))
 
         total_pnl += pnl
         
