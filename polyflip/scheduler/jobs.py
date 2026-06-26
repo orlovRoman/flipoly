@@ -1,4 +1,5 @@
 import asyncio
+import signal
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -6,13 +7,15 @@ from apscheduler.triggers.interval import IntervalTrigger
 from polyflip.collector.parser import run_collector_cycle
 from polyflip.collector.resolver import resolve_pending_markets
 from polyflip.trading.engine import trade_worker_cycle
+from polyflip.trading.trader import PolyTrader
+from polyflip.collector.client import PolymarketClient
 from polyflip.db.connection import async_session
 from polyflip.config import settings
 from polyflip.db.models import RuntimeSettings
 from sqlalchemy import select
 import os
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 from pathlib import Path
 
@@ -145,7 +148,6 @@ async def cleanup_job():
     logger.info("starting_cleanup_job")
     from polyflip.db.models import CollectorStatus
     from sqlalchemy import delete
-    from datetime import timedelta
     try:
         async with async_session() as session:
             threshold = datetime.now(timezone.utc) - timedelta(days=7)
@@ -158,10 +160,6 @@ async def cleanup_job():
 
 async def main():
     logger.info("scheduler_starting", interval=settings.LIVE_POLL_INTERVAL_SECONDS)
-    
-    import signal
-    from polyflip.trading.trader import PolyTrader
-    from polyflip.collector.client import PolymarketClient
     
     # Инициализируем общие клиенты для переиспользования соединений
     trader = PolyTrader()

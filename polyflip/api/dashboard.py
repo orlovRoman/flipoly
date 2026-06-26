@@ -1,6 +1,7 @@
 import os
 import time
 import asyncio
+from datetime import datetime, timezone, timedelta
 import httpx
 import json
 from typing import Dict, Any, List
@@ -33,8 +34,6 @@ async def get_dashboard(request: Request):
             "assets": settings.asset_list
         }
     )
-
-from datetime import datetime, timezone, timedelta
 
 @router.get("/api/dashboard/status", dependencies=[Depends(verify_api_key)])
 async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):

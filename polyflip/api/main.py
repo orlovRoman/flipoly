@@ -1,3 +1,4 @@
+import asyncio
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -28,8 +29,9 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.limit = limit
         self.window = window
-        # Храним таймстампы запросов по IP: ip -> list of float
         self.requests = defaultdict(list)
+        self._lock = asyncio.Lock()
+        self.request_count = 0
 
     async def dispatch(self, request: Request, call_next):
         # Пропускаем статические файлы и проверку здоровья /health
@@ -39,16 +41,26 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
 
-        # Очищаем запросы за пределами окна
-        self.requests[client_ip] = [t for t in self.requests[client_ip] if now - t < self.window]
+        async with self._lock:
+            # Периодическая полная очистка словаря от старых IP (каждые 1000 запросов)
+            self.request_count += 1
+            if self.request_count % 1000 == 0:
+                for ip in list(self.requests.keys()):
+                    self.requests[ip] = [t for t in self.requests[ip] if now - t < self.window]
+                    if not self.requests[ip]:
+                        self.requests.pop(ip, None)
 
-        if len(self.requests[client_ip]) >= self.limit:
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Too many requests. Rate limit exceeded."}
-            )
+            # Очищаем запросы за пределами окна
+            self.requests[client_ip] = [t for t in self.requests[client_ip] if now - t < self.window]
 
-        self.requests[client_ip].append(now)
+            if len(self.requests[client_ip]) >= self.limit:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many requests. Rate limit exceeded."}
+                )
+
+            self.requests[client_ip].append(now)
+
         response = await call_next(request)
         return response
 
