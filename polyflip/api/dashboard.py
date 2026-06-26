@@ -1,4 +1,5 @@
 import os
+import time
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +7,7 @@ from sqlalchemy import select, func
 from polyflip.db.connection import get_db_session
 from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, TradeHistory, ModelRegistry
 from polyflip.api.auth import verify_api_key
+from polyflip.config import settings
 
 router = APIRouter(tags=["Dashboard"])
 
@@ -16,8 +18,6 @@ templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
 @router.get("/dashboard")
 async def get_dashboard(request: Request):
     """Отдает главную страницу дашборда"""
-    import time
-    from polyflip.config import settings
     
     return templates.TemplateResponse(
         "index.html", 

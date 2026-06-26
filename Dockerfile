@@ -12,16 +12,16 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Устанавливаем зависимости системы
+COPY --from=builder /app/requirements.txt .
+
+# Устанавливаем зависимости системы, ставим pip-пакеты и очищаем кэш/билдеры в одном слое
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     postgresql-client \
     curl \
+    && pip install --no-cache-dir -r requirements.txt pandas \
+    && apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /app/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt pandas \
-    && apt-get purge -y --auto-remove build-essential
 
 COPY . .
 

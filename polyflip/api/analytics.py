@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from typing import Dict, Any
 import pandas as pd
 import structlog
+import json
+from datetime import datetime, timezone
 
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.api.auth import verify_api_key
@@ -103,9 +105,6 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
         
     await db.commit()
     return {"status": "success", "active_version": version}
-
-import json
-from datetime import datetime, timezone
 
 async def set_training_status(session: AsyncSession, status: str, message: str, last_run: str = None):
     """Сохраняет статус обучения в RuntimeSettings в виде JSON-строки."""
