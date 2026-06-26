@@ -1,4 +1,5 @@
 import os
+import time
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,8 +19,6 @@ templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
 
 @router.get("/trading")
 async def get_trading_dashboard(request: Request):
-    import time
-    from polyflip.config import settings
     return templates.TemplateResponse(
         "trading.html", 
         {

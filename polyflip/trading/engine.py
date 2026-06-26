@@ -261,14 +261,14 @@ async def trade_worker_cycle(db_session: AsyncSession):
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
                     log_skip("Thresholds not met", p_flip)
                     
-        # Коммитим транзакцию после успешного прохода цикла по всем рынкам
-        await db_session.commit()
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))
-        try:
-            await db_session.rollback()
-        except Exception as e_rollback:
-            logger.error("failed_to_rollback", error=str(e_rollback))
     finally:
+        # Commit in finally to ensure successfully executed trades are saved even if cycle crashed mid-way
+        try:
+            await db_session.commit()
+        except Exception as e_commit:
+            logger.error("failed_to_commit_in_finally", error=str(e_commit))
+            
         if api_client:
             await api_client.close()

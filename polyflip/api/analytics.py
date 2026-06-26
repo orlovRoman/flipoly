@@ -154,11 +154,11 @@ async def trigger_training(background_tasks: BackgroundTasks, db: AsyncSession =
                 trainer = ModelTrainer(bg_session)
                 for asset in settings.asset_list:
                     await trainer.train_model(asset)
-                await set_training_status(bg_session, "success", "Обучение успешно завершено.", now_iso)
+                await set_training_status(bg_session, "success", "Обучение успешно завершено.", datetime.now(timezone.utc).isoformat())
         except Exception as e:
             structlog.get_logger(__name__).exception("train_all_failed", error=str(e))
             async with async_session() as bg_session:
-                await set_training_status(bg_session, "error", f"Ошибка: {str(e)}", now_iso)
+                await set_training_status(bg_session, "error", f"Ошибка: {str(e)}", datetime.now(timezone.utc).isoformat())
             
     background_tasks.add_task(train_all)
     return {"status": "training_started"}
