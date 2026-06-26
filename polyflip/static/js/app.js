@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // X-axis: 0 to 15 minutes
         const labels = Array.from({length: 16}, (_, i) => i.toString());
-        const points = labels.map(l => assetData[l] || 0);
+        const points = labels.map(l => (assetData[l] || 0) * 100);
 
         const color = selectedAsset === 'BTC' ? '#0072F5' : '#00D395';
         const ctx = document.getElementById('probChart').getContext('2d');
@@ -114,14 +114,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: false }
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.parsed.y.toFixed(1) + '%';
+                            }
+                        }
+                    }
                 },
                 scales: {
                     y: {
                         beginAtZero: true,
-                        max: 1.0,
+                        max: 100,
                         grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                        ticks: { color: '#8F9BB3' }
+                        ticks: { 
+                            color: '#8F9BB3',
+                            callback: function(value) {
+                                return value + '%';
+                            }
+                        }
                     },
                     x: {
                         grid: { display: false },
