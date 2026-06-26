@@ -32,7 +32,7 @@
                 <li class="nav-item active" data-tab="analytics">Аналитика</li>
                 <li class="nav-item" data-tab="status">Статус Парсера</li>
                 <li class="nav-item" data-tab="settings">Настройки</li>
-                <li class="nav-item-link"><a href="/trading" style="color: white; text-decoration: none; padding: 0.8rem 1.5rem; display: block;">Торговля (PnL)</a></li>
+                <a href="/trading" class="nav-item-link" style="text-decoration: none;">Торговля (PnL)</a>
             </ul>
         </nav>
 
@@ -67,8 +67,13 @@
 
                 <div style="margin-top: 1.5rem; margin-bottom: 2rem;">
                     <h2>Точность моделей (Accuracy) со временем</h2>
-                    <div class="chart-box" style="height: 300px;">
-                        <canvas id="chart-model-accuracy"></canvas>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                        <div class="chart-box" style="height: 300px;">
+                            <canvas id="chart-model-accuracy-btc"></canvas>
+                        </div>
+                        <div class="chart-box" style="height: 300px;">
+                            <canvas id="chart-model-accuracy-eth"></canvas>
+                        </div>
                     </div>
                 </div>
 

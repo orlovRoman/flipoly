@@ -62,26 +62,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('stat-model-eth').innerText = `v${ethModel.version} (Acc: ${ethModel.accuracy})`;
             }
 
-            if (data.model_history && data.model_history['BTC']) {
-                renderAccuracyChart(data.model_history['BTC']);
-            }
+            ['BTC', 'ETH'].forEach(asset => {
+                if (data.model_history && data.model_history[asset]) {
+                    renderAccuracyChart(data.model_history[asset], asset);
+                }
+            });
         } catch(e) {
             console.error("Failed to load summary", e);
         }
     }
 
-    function renderAccuracyChart(historyData) {
-        const canvas = document.getElementById('chart-model-accuracy');
+    function renderAccuracyChart(historyData, asset) {
+        const canvasId = `chart-model-accuracy-${asset.toLowerCase()}`;
+        const canvas = document.getElementById(canvasId);
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         
-        let existingChart = Chart.getChart('chart-model-accuracy');
+        let existingChart = Chart.getChart(canvasId);
         if (existingChart) existingChart.destroy();
         
         const labels = historyData.map(h => `v${h.version}`);
         const data = historyData.map(h => h.accuracy * 100);
         
-        createChart(ctx, labels, data, 'Точность модели BTC', '#0072F5', 'Версия модели');
+        const color = asset === 'BTC' ? '#0072F5' : '#00D395';
+        createChart(ctx, labels, data, `Точность модели ${asset}`, color, 'Версия модели');
     }
 
     // 2. Fetch Probabilities and Render Charts

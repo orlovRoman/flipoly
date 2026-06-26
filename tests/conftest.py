@@ -17,7 +17,9 @@ async def engine():
 @pytest_asyncio.fixture(scope="function")
 async def db_session(engine):
     async with engine.connect() as conn:
+        await conn.begin()
         await conn.begin_nested()  # SAVEPOINT
-        session = AsyncSession(bind=conn)
+        session = AsyncSession(bind=conn, expire_on_commit=False)
         yield session
-        await session.rollback()
+        await session.close()
+        await conn.rollback()

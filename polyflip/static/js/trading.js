@@ -190,7 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 'TRADE_MAX_PRICE': settingsElements.maxPrice.value
             };
             
-            let allOk = true;
+            const failed = [];
             for (const [key, val] of Object.entries(settingsToSave)) {
                 try {
                     const res = await fetch(window.API_BASE + `/api/settings/${key}`, {
@@ -201,17 +201,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         },
                         body: JSON.stringify({ value: String(val) })
                     });
-                    if(!res.ok) allOk = false;
+                    if(!res.ok) failed.push(key);
                 } catch(err) {
-                    allOk = false;
+                    failed.push(key);
                 }
             }
             
-            if(allOk) {
+            if(failed.length === 0) {
                 alert("Настройки торговли успешно сохранены!");
                 fetchStats(); // Update capital based on new initial_capital
             } else {
-                alert("Ошибка при сохранении части настроек. Проверьте API Key.");
+                alert(`Не удалось сохранить следующие настройки: ${failed.join(', ')}`);
             }
         });
     }
