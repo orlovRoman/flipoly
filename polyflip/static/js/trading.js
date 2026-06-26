@@ -89,6 +89,21 @@ document.addEventListener("DOMContentLoaded", () => {
       lossData.push(dailyData[date].losses);
     }
 
+    const displayDates = [...sortedDates];
+    // Если дат слишком мало (меньше 7), дополняем будущими днями, чтобы первый день отображался слева, а не растягивался
+    if (displayDates.length > 0 && displayDates.length < 7) {
+      const lastDateStr = displayDates[displayDates.length - 1];
+      const lastDate = new Date(lastDateStr);
+      while (displayDates.length < 7) {
+        lastDate.setUTCDate(lastDate.getUTCDate() + 1);
+        const nextDateStr = lastDate.toISOString().split("T")[0];
+        displayDates.push(nextDateStr);
+        pnlData.push(null);
+        winData.push(null);
+        lossData.push(null);
+      }
+    }
+
     const commonOptions = {
       responsive: true,
       maintainAspectRatio: false,
@@ -112,7 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
       {
         type: "line",
         data: {
-          labels: sortedDates,
+          labels: displayDates,
           datasets: [
             {
               label: "Кумулятивный PnL (USDC)",
@@ -134,7 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
       {
         type: "bar",
         data: {
-          labels: sortedDates,
+          labels: displayDates,
           datasets: [
             {
               label: "Выигрыши",
