@@ -435,6 +435,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
       const activeMode = document.querySelector('input[name="trading_mode"]:checked')?.value || 'ml';
       settingsToSave.TRADING_MODE = activeMode;
+      if (settingsElements.kellyEnabled) {
+        settingsToSave.KELLY_ENABLED = settingsElements.kellyEnabled.checked ? "true" : "false";
+      }
       if (settingsElements.favoriteEntrySecInput) {
         settingsToSave.FAVORITE_MODE_ENTRY_SEC = settingsElements.favoriteEntrySecInput.value;
       }

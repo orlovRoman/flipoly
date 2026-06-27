@@ -352,3 +352,53 @@ async def test_ml_mode_unchanged_when_trading_mode_is_ml():
     assert trade_record is not None
     assert trade_record.status == "SKIPPED"
     assert "No active model" in trade_record.error_msg
+
+
+@pytest.mark.asyncio
+async def test_pure_favorite_skips_no_when_yes_becomes_favorite():
+    """NO фаворит в БД (YES цена 0.30), но по API NO подешевел до 0.30 (YES подорожал до 0.70) -> пропускаем."""
+    market = make_market(yes_price=0.30, end_offset_sec=200)
+    
+    db_session = AsyncMock()
+    db_session.execute = AsyncMock()
+    
+    settings_scalars = MagicMock()
+    settings_scalars.scalars.return_value.all.return_value = make_settings_db()
+    
+    empty_scalars = MagicMock()
+    empty_scalars.scalars.return_value.all.return_value = []
+    
+    markets_scalars = MagicMock()
+    markets_scalars.scalars.return_value.all.return_value = [market]
+
+    daily_pnl_scalar = MagicMock()
+    daily_pnl_scalar.scalar.return_value = 0.0
+    
+    trade_check_scalars = MagicMock()
+    trade_check_scalars.scalars.return_value.all.return_value = []
+    
+    db_session.execute.side_effect = [
+        settings_scalars,
+        empty_scalars,
+        markets_scalars,
+        daily_pnl_scalar,
+        trade_check_scalars
+    ]
+    db_session.scalar = AsyncMock(return_value=0.0)
+    
+    trader = AsyncMock()
+    api_client = AsyncMock()
+    # Мокаем цену NO-токена равной 0.30 (т.е. NO теперь аутсайдер, YES = 0.70)
+    api_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.30, "best_bid": 0.28})
+    
+    await trade_worker_cycle(db_session, trader, api_client)
+    
+    trader.execute_trade.assert_not_called()
+    
+    added = db_session.add.call_args_list
+    trade_record = next(
+        (a.args[0] for a in added if isinstance(a.args[0], TradeHistory)), None
+    )
+    assert trade_record is not None
+    assert trade_record.status == "SKIPPED"
+    assert "fresh NO price 0.3 below threshold" in trade_record.error_msg

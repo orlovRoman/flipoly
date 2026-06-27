@@ -108,11 +108,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         for s in t_result.scalars().all():
             settings_db[s.key] = s.value
 
-    # Дефолтные значения из config, если нет в БД
     trading_enabled = settings_db.get("TRADING_ENABLED", str(settings.TRADING_ENABLED)).lower() == "true"
+    trading_mode = settings_db.get("TRADING_MODE", settings.TRADING_MODE)
     
     if not trading_enabled:
-        return # Торговля выключена
+        logger.info("trading_disabled_skipping", mode=trading_mode)
+        return
         
     min_time_left = int(settings_db.get("TRADE_MIN_TIME_LEFT_SEC", settings.TRADE_MIN_TIME_LEFT_SEC))
     max_time_left = int(settings_db.get("TRADE_MAX_TIME_LEFT_SEC", settings.TRADE_MAX_TIME_LEFT_SEC))
@@ -127,7 +128,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
-    trading_mode = settings_db.get("TRADING_MODE", settings.TRADING_MODE)
     entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
 
     # 2. Ищем рынки, которые подходят по времени для ставки (в пределах настраиваемого диапазона)
@@ -183,6 +183,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 time_left_sec = (end_time - start_time).total_seconds()
                 
                 if time_left_sec <= 0:
+                    continue
+
+                # Проверка временного окна входа (двойная защита)
+                window_min = entry_sec
+                window_max = entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC
+                if not (window_min <= time_left_sec <= window_max):
                     continue
 
                 # Проверка дублей — не торговать дважды на одном рынке
@@ -246,11 +252,20 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     continue
                 
                 # Цена по API должна подтверждать фаворита
-                if buy_price < FAVORITE_THRESHOLD:
-                    logger.warning("favorite_mode_no_longer_favorite", price=buy_price)
+                if decision == "YES" and buy_price < FAVORITE_THRESHOLD:
+                    logger.warning("favorite_mode_no_longer_favorite", price=buy_price, decision=decision)
                     await save_or_update_skipped_trade(
                         db_session, market,
-                        f"Pure Favorite: fresh price {buy_price} — no longer favorite",
+                        f"Pure Favorite: fresh YES price {buy_price} below threshold {FAVORITE_THRESHOLD}",
+                        None, None, start_time,
+                        existing_skipped=existing_skipped
+                    )
+                    continue
+                elif decision == "NO" and (1.0 - buy_price) >= FAVORITE_THRESHOLD:
+                    logger.warning("favorite_mode_no_longer_favorite", price=buy_price, decision=decision)
+                    await save_or_update_skipped_trade(
+                        db_session, market,
+                        f"Pure Favorite: fresh NO price {buy_price} below threshold (YES price {round(1.0 - buy_price, 4)} is now favorite)",
                         None, None, start_time,
                         existing_skipped=existing_skipped
                     )
