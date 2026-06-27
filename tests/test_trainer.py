@@ -23,7 +23,7 @@ async def test_trainer_creates_model(db_session):
     snaps = []
     for i in range(20):
         snaps.append(MarketSnapshot(
-            market_id=f"test_m_{i}", asset="BTC", time_left_min=10.0,
+            market_id=f"test_m_{i}", asset="BTC", time_left_min=2.0,
             mid_price=0.8 if i % 2 == 0 else 0.2, spread=0.01,
             volume_5min=100.0, price_velocity=0.0, hour_of_day=12,
             final_outcome="NO", # Both resolved to NO
@@ -50,7 +50,7 @@ async def test_trainer_saves_model_even_if_accuracy_is_low(db_session):
     snaps = []
     for i in range(20):
         snaps.append(MarketSnapshot(
-            market_id=f"test_low_m_{i}", asset="BTC", time_left_min=10.0,
+            market_id=f"test_low_m_{i}", asset="BTC", time_left_min=2.0,
             mid_price=0.5, spread=0.01,
             volume_5min=100.0, price_velocity=0.0, hour_of_day=12,
             final_outcome="NO",

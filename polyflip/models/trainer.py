@@ -24,7 +24,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     gkf = GroupKFold(n_splits=5)
     base_model = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight="balanced", random_state=42))
+        ("model", LogisticRegression(class_weight="balanced", random_state=42, max_iter=1000))
     ])
     
     aucs = []
@@ -42,26 +42,26 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
         
     val_acc = float(np.mean(aucs))
     
-    # Baseline ROC-AUC для случайного классификатора = 0.5
-    baseline_acc = 0.5
+    # Baseline ROC-AUC/Accuracy (доля мажоритарного класса)
+    baseline_acc = float(max(y.mean(), 1.0 - y.mean()))
     
     # Обучаем финальную модель на всех данных
     final_model = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight="balanced", random_state=42))
+        ("model", LogisticRegression(class_weight="balanced", random_state=42, max_iter=1000))
     ])
     final_model.fit(X, y)
     
     # Калибровка порога с использованием Out-Of-Fold предсказаний (исключаем Data Leakage)
     precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, oof_scores)
 
-    optimal_threshold = None
-    for prec, thresh in zip(precision_arr, thresholds_pr):
-        if prec >= 0.60:
-            optimal_threshold = float(thresh)
-            break
-
-    if optimal_threshold is None:
+    # Найти порог с лучшим F1 среди тех где precision >= 0.60
+    valid_mask = precision_arr[:-1] >= 0.60
+    if valid_mask.any():
+        f1 = 2 * (precision_arr[:-1] * recall_arr[:-1]) / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
+        f1_filtered = np.where(valid_mask, f1, 0)
+        optimal_threshold = float(thresholds_pr[np.argmax(f1_filtered)])
+    else:
         f1_scores = 2 * (precision_arr[:-1] * recall_arr[:-1]) / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
         if len(thresholds_pr) > 0:
             optimal_threshold = float(thresholds_pr[np.argmax(f1_scores)])
@@ -109,9 +109,23 @@ class ModelTrainer:
             return False
         
         # 1. Сначала проверяем количество доступных сэмплов через быстрый COUNT(*)
+        min_time_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TRADE_MIN_TIME_LEFT_SEC")
+        max_time_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TRADE_MAX_TIME_LEFT_SEC")
+
+        min_time_row = (await self.db.execute(min_time_stmt)).scalar_one_or_none()
+        max_time_row = (await self.db.execute(max_time_stmt)).scalar_one_or_none()
+
+        min_time_sec = int(min_time_row.value) if min_time_row else settings.TRADE_MIN_TIME_LEFT_SEC
+        max_time_sec = int(max_time_row.value) if max_time_row else settings.TRADE_MAX_TIME_LEFT_SEC
+
+        min_time_min = min_time_sec / 60.0
+        max_time_min = max_time_sec / 60.0
+
         count_stmt = select(func.count(MarketSnapshot.id)).where(
             MarketSnapshot.asset == asset,
-            MarketSnapshot.final_outcome != "PENDING"
+            MarketSnapshot.final_outcome != "PENDING",
+            MarketSnapshot.time_left_min >= min_time_min,
+            MarketSnapshot.time_left_min <= max_time_min
         )
         count_result = await self.db.execute(count_stmt)
         total_samples = count_result.scalar() or 0
@@ -125,7 +139,9 @@ class ModelTrainer:
         # Получаем обучающую выборку (исключаем PENDING), так как данных достаточно
         stmt = select(MarketSnapshot).where(
             MarketSnapshot.asset == asset,
-            MarketSnapshot.final_outcome != "PENDING"
+            MarketSnapshot.final_outcome != "PENDING",
+            MarketSnapshot.time_left_min >= min_time_min,
+            MarketSnapshot.time_left_min <= max_time_min
         )
         result = await self.db.execute(stmt)
         snapshots = result.scalars().all()
