@@ -401,4 +401,4 @@ async def test_pure_favorite_skips_no_when_yes_becomes_favorite():
     )
     assert trade_record is not None
     assert trade_record.status == "SKIPPED"
-    assert "fresh NO price 0.3 below threshold" in trade_record.error_msg
+    assert "YES recovered to 0.7" in trade_record.error_msg

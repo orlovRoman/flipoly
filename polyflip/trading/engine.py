@@ -261,11 +261,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         existing_skipped=existing_skipped
                     )
                     continue
-                elif decision == "NO" and (1.0 - buy_price) >= FAVORITE_THRESHOLD:
+                elif decision == "NO" and buy_price < FAVORITE_THRESHOLD:
                     logger.warning("favorite_mode_no_longer_favorite", price=buy_price, decision=decision)
                     await save_or_update_skipped_trade(
                         db_session, market,
-                        f"Pure Favorite: fresh NO price {buy_price} below threshold (YES price {round(1.0 - buy_price, 4)} is now favorite)",
+                        f"Pure Favorite: NO token price {buy_price} — YES recovered to {round(1.0 - buy_price, 4)}, no longer valid",
                         0.0, None, start_time,
                         existing_skipped=existing_skipped
                     )
