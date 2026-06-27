@@ -60,7 +60,7 @@ async def test_skipped_then_signal_appears(db_session):
     mock_trader = MagicMock()
     mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
     mock_api = MagicMock()
-    mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.42})
+    mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.58})
     mock_api.close = AsyncMock()
 
     # ---------------------------------------------------------
@@ -138,7 +138,7 @@ async def test_no_double_entry(db_session):
     mock_trader = MagicMock()
     mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
     mock_api = MagicMock()
-    mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.42})
+    mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.58})
     mock_api.close = AsyncMock()
 
     # ---------------------------------------------------------

@@ -20,36 +20,31 @@ class SettingValue(BaseModel):
 @router.get("")
 async def get_all_settings():
     """
-    Возвращает текущие настройки (сначала из БД, если нет - из конфига).
+    Возвращает текущие настройки (сначала из БД, если нет - из конфига/констант).
     """
-    # Дефолтные значения из config.py
-    current_settings = {
-        "ACTIVE_FEATURES": settings.ACTIVE_FEATURES,
-        "TRADE_EXECUTION_TIME_SEC": str(settings.TRADE_EXECUTION_TIME_SEC),
-        "TRADE_MIN_TIME_LEFT_SEC": str(getattr(settings, 'TRADE_MIN_TIME_LEFT_SEC', 10)),
-        "TRADE_MAX_TIME_LEFT_SEC": str(getattr(settings, 'TRADE_MAX_TIME_LEFT_SEC', 360)),
-        "TRADE_BET_SIZE_USDC": str(settings.TRADE_BET_SIZE_USDC),
-        "TRADE_NO_FLIP_THRESHOLD": str(settings.TRADE_NO_FLIP_THRESHOLD),
-        "DEAD_ZONE_WIDTH": str(getattr(settings, 'DEAD_ZONE_WIDTH', 0.15)),
-        "KELLY_MAX_FRACTION": str(KELLY_MAX_FRACTION),
-        "DAILY_LOSS_LIMIT_USDC": str(DAILY_LOSS_LIMIT_USDC),
-        "TRADING_ENABLED": "true" if settings.TRADING_ENABLED else "false",
-        "INITIAL_CAPITAL": str(getattr(settings, 'INITIAL_CAPITAL', 100.0)),
-        "TRADE_MIN_PRICE": str(getattr(settings, 'TRADE_MIN_PRICE', 0.05)),
-        "TRADE_MAX_PRICE": str(getattr(settings, 'TRADE_MAX_PRICE', 0.95)),
-        "TRADE_ASSETS": str(getattr(settings, 'TRADE_ASSETS', 'BTC,ETH')),
-        "KELLY_ENABLED": "true" if getattr(settings, 'KELLY_ENABLED', True) else "false"
-    }
-
     async with async_session() as session:
         result = await session.execute(select(RuntimeSettings))
-        db_settings = result.scalars().all()
-        
-        for s in db_settings:
-            if s.key in current_settings:
-                current_settings[s.key] = s.value
+        db = {s.key: s.value for s in result.scalars().all()}
 
-    return current_settings
+    return {
+        "ACTIVE_FEATURES": db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES),
+        "TRADE_EXECUTION_TIME_SEC": db.get("TRADE_EXECUTION_TIME_SEC", str(settings.TRADE_EXECUTION_TIME_SEC)),
+        "TRADE_MIN_TIME_LEFT_SEC": db.get("TRADE_MIN_TIME_LEFT_SEC", str(getattr(settings, 'TRADE_MIN_TIME_LEFT_SEC', 10))),
+        "TRADE_MAX_TIME_LEFT_SEC": db.get("TRADE_MAX_TIME_LEFT_SEC", str(getattr(settings, 'TRADE_MAX_TIME_LEFT_SEC', 360))),
+        "TRADE_BET_SIZE_USDC": db.get("TRADE_BET_SIZE_USDC", str(settings.TRADE_BET_SIZE_USDC)),
+        "TRADE_NO_FLIP_THRESHOLD": db.get("TRADE_NO_FLIP_THRESHOLD", str(settings.TRADE_NO_FLIP_THRESHOLD)),
+        "DEAD_ZONE_WIDTH": db.get("DEAD_ZONE_WIDTH", str(getattr(settings, 'DEAD_ZONE_WIDTH', 0.15))),
+        "KELLY_MAX_FRACTION": db.get("KELLY_MAX_FRACTION", str(KELLY_MAX_FRACTION)),
+        "DAILY_LOSS_LIMIT_USDC": db.get("DAILY_LOSS_LIMIT_USDC", str(DAILY_LOSS_LIMIT_USDC)),
+        "TRADING_ENABLED": db.get("TRADING_ENABLED", "true" if settings.TRADING_ENABLED else "false"),
+        "INITIAL_CAPITAL": db.get("INITIAL_CAPITAL", str(getattr(settings, 'INITIAL_CAPITAL', 100.0))),
+        "TRADE_MIN_PRICE": db.get("TRADE_MIN_PRICE", str(getattr(settings, 'TRADE_MIN_PRICE', 0.05))),
+        "TRADE_MAX_PRICE": db.get("TRADE_MAX_PRICE", str(getattr(settings, 'TRADE_MAX_PRICE', 0.95))),
+        "TRADE_ASSETS": db.get("TRADE_ASSETS", str(getattr(settings, 'TRADE_ASSETS', 'BTC,ETH'))),
+        "KELLY_ENABLED": db.get("KELLY_ENABLED", "true" if getattr(settings, 'KELLY_ENABLED', True) else "false"),
+        "TRADING_MODE": db.get("TRADING_MODE", settings.TRADING_MODE),
+        "FAVORITE_MODE_ENTRY_SEC": db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC))
+    }
 
 @router.get("/recommended_thresholds")
 async def get_recommended_thresholds():
@@ -111,7 +106,9 @@ async def update_setting(key: str, payload: SettingValue):
         "TRADE_MIN_PRICE",
         "TRADE_MAX_PRICE",
         "TRADE_ASSETS",
-        "KELLY_ENABLED"
+        "KELLY_ENABLED",
+        "TRADING_MODE",
+        "FAVORITE_MODE_ENTRY_SEC"
     ]
     
     if key not in valid_keys:
@@ -138,6 +135,19 @@ async def update_setting(key: str, payload: SettingValue):
                 raise HTTPException(status_code=400, detail="Daily loss limit is too large (> $100k)")
         except ValueError:
             raise HTTPException(status_code=400, detail="Value for DAILY_LOSS_LIMIT_USDC must be a number")
+
+    if key == "TRADING_MODE":
+        if payload.value not in ("ml", "favorite"):
+            raise HTTPException(status_code=400, detail="TRADING_MODE must be 'ml' or 'favorite'")
+
+    if key == "FAVORITE_MODE_ENTRY_SEC":
+        try:
+            val = int(payload.value)
+            if not (30 <= val <= 600):
+                raise HTTPException(status_code=400, detail="FAVORITE_MODE_ENTRY_SEC must be between 30 and 600 seconds")
+            payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="FAVORITE_MODE_ENTRY_SEC must be an integer")
 
     async with async_session() as session:
         result = await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))

@@ -17,7 +17,11 @@ from polyflip.constants import (
     KELLY_MAX_FRACTION,
     DAILY_LOSS_LIMIT_USDC,
     FAVORITE_THRESHOLD,
-    TRADE_CHECK_LIMIT
+    TRADE_CHECK_LIMIT,
+    TRADING_MODE_ML,
+    TRADING_MODE_FAVORITE,
+    FAVORITE_MODE_ENTRY_SEC,
+    FAVORITE_MODE_ENTRY_WINDOW_SEC
 )
 
 logger = structlog.get_logger(__name__)
@@ -84,7 +88,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADE_MAX_PRICE",
         "TRADE_ASSETS",
         "TRADE_CAPITAL_USDC",  # Зарезервировано для будущего Kelly по % от капитала
-        "KELLY_ENABLED"
+        "KELLY_ENABLED",
+        "TRADING_MODE",
+        "FAVORITE_MODE_ENTRY_SEC"
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
@@ -121,13 +127,19 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
+    trading_mode = settings_db.get("TRADING_MODE", settings.TRADING_MODE)
+    entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
 
     # 2. Ищем рынки, которые подходят по времени для ставки (в пределах настраиваемого диапазона)
     # Чтобы не ставить дважды, проверяем TradeHistory.
     
     from datetime import timedelta
-    min_td = timedelta(seconds=min_time_left)
-    max_td = timedelta(seconds=max_time_left)
+    if trading_mode == TRADING_MODE_FAVORITE:
+        min_td = timedelta(seconds=entry_sec)
+        max_td = timedelta(seconds=entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC)
+    else:
+        min_td = timedelta(seconds=min_time_left)
+        max_td = timedelta(seconds=max_time_left)
     
     live_markets_stmt = select(LiveMarket).where(
         and_(
@@ -157,28 +169,159 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             logger.warning("daily_loss_limit_reached", pnl=daily_pnl, limit=daily_limit)
             return
             
-    # Загружаем активные модели
-    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
-    active_models = (await db_session.execute(models_stmt)).scalars().all()
-    
-    models_by_asset = {}
-    model_versions = {}
-    model_features = {}
-    for m in active_models:
-        try:
-            model_obj = pickle.loads(m.model_blob)
-            models_by_asset[m.asset] = model_obj
-            model_versions[m.asset] = m.version
-            
-            m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
-            if not m_feats and hasattr(model_obj, "feature_names_in_"):
-                m_feats = list(model_obj.feature_names_in_)
-                
-            model_features[m.asset] = m_feats
-        except Exception as e:
-            logger.error("failed_to_load_model", asset=m.asset, error=str(e))
-    
     try:
+        # ══════════════════════════════════════════════════
+        # PURE FAVORITE MODE — без ML, без Kelly
+        # ══════════════════════════════════════════════════
+        if trading_mode == TRADING_MODE_FAVORITE:
+            logger.info("pure_favorite_mode_active", entry_sec=entry_sec, markets_count=len(markets))
+            
+            for market in markets:
+                end_time = market.end_time_est
+                if end_time.tzinfo is None:
+                    end_time = end_time.replace(tzinfo=timezone.utc)
+                time_left_sec = (end_time - start_time).total_seconds()
+                
+                if time_left_sec <= 0:
+                    continue
+
+                # Проверка дублей — не торговать дважды на одном рынке
+                trade_check = select(TradeHistory).where(
+                    TradeHistory.market_id == market.market_id
+                ).limit(TRADE_CHECK_LIMIT)
+                existing_trades = (await db_session.execute(trade_check)).scalars().all()
+                
+                existing_statuses = [t.status for t in existing_trades]
+                if any(s in ("SUCCESS", "LIVE", "FAILED") for s in existing_statuses):
+                    continue
+                
+                existing_skipped = next((t for t in existing_trades if t.status == "SKIPPED"), None)
+                
+                # Актив разрешён?
+                if market.asset not in trade_assets:
+                    continue
+                
+                # Нет явного фаворита — пропускаем
+                if market.current_yes_price == 0.5:
+                    logger.info("favorite_mode_skip_no_favorite", market_id=market.market_id)
+                    await save_or_update_skipped_trade(
+                        db_session, market,
+                        "Pure Favorite: no clear favorite (price == 0.5)",
+                        None, None, start_time,
+                        existing_skipped=existing_skipped
+                    )
+                    continue
+                
+                # Определяем фаворита по цене из БД
+                decision = "YES" if market.current_yes_price > FAVORITE_THRESHOLD else "NO"
+                token_to_buy = market.yes_token_id if decision == "YES" else market.no_token_id
+                
+                if not token_to_buy or token_to_buy == "N/A":
+                    logger.error("favorite_mode_missing_token", market_id=market.market_id)
+                    continue
+                
+                # Запрашиваем свежую цену — исполнять только по актуальному ask
+                fresh_prices = await api_client.get_market_prices(token_to_buy)
+                if not fresh_prices:
+                    logger.warning("favorite_mode_no_fresh_prices", market_id=market.market_id)
+                    await save_or_update_skipped_trade(
+                        db_session, market,
+                        "Pure Favorite: no fresh prices from API",
+                        None, None, start_time,
+                        existing_skipped=existing_skipped
+                    )
+                    continue
+                
+                buy_price = fresh_prices.get("best_ask", 0)
+                
+                # Проверяем ценовые границы
+                if buy_price < trade_min_price or buy_price > trade_max_price:
+                    logger.warning("favorite_mode_price_out_of_range", price=buy_price)
+                    await save_or_update_skipped_trade(
+                        db_session, market,
+                        f"Pure Favorite: price {buy_price} out of range [{trade_min_price}, {trade_max_price}]",
+                        None, None, start_time,
+                        existing_skipped=existing_skipped
+                    )
+                    continue
+                
+                # Цена по API должна подтверждать фаворита
+                if buy_price < FAVORITE_THRESHOLD:
+                    logger.warning("favorite_mode_no_longer_favorite", price=buy_price)
+                    await save_or_update_skipped_trade(
+                        db_session, market,
+                        f"Pure Favorite: fresh price {buy_price} — no longer favorite",
+                        None, None, start_time,
+                        existing_skipped=existing_skipped
+                    )
+                    continue
+                
+                # Фиксированная ставка, Kelly не применяется
+                actual_bet_size = bet_size
+                num_shares = round(actual_bet_size / buy_price, 2)
+                
+                logger.info(
+                    "favorite_mode_trade",
+                    market_id=market.market_id,
+                    asset=market.asset,
+                    decision=decision,
+                    buy_price=buy_price,
+                    bet_size=actual_bet_size,
+                    time_left_sec=round(time_left_sec),
+                )
+                
+                trade_res = await trader.execute_trade(
+                    market_id=market.market_id,
+                    token_id=token_to_buy,
+                    side="BUY",
+                    price=buy_price,
+                    size=num_shares,
+                )
+                
+                if existing_skipped:
+                    await db_session.delete(existing_skipped)
+                
+                history = TradeHistory(
+                    market_id=market.market_id,
+                    asset=market.asset,
+                    outcome_bought=decision,
+                    amount_usdc=actual_bet_size,
+                    executed_price=buy_price,
+                    predicted_flip_prob=None,       # ML не использовался
+                    active_features="PURE_FAVORITE", # маркер режима
+                    model_version=None,
+                    status=trade_res.get("status", "FAILED"),
+                    error_msg=trade_res.get("error_msg"),
+                    mode=trade_res.get("mode", "PAPER"),
+                    kelly_fraction=None,
+                    kelly_multiplier=1.0,
+                    created_at=start_time,
+                )
+                db_session.add(history)
+            
+            return  # <- выходим, ML-блок не запускаем
+
+        # Загружаем активные модели
+        models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
+        active_models = (await db_session.execute(models_stmt)).scalars().all()
+        
+        models_by_asset = {}
+        model_versions = {}
+        model_features = {}
+        for m in active_models:
+            try:
+                model_obj = pickle.loads(m.model_blob)
+                models_by_asset[m.asset] = model_obj
+                model_versions[m.asset] = m.version
+                
+                m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
+                if not m_feats and hasattr(model_obj, "feature_names_in_"):
+                    m_feats = list(model_obj.feature_names_in_)
+                    
+                model_features[m.asset] = m_feats
+            except Exception as e:
+                logger.error("failed_to_load_model", asset=m.asset, error=str(e))
+
         for market in markets:
             end_time = market.end_time_est
             if end_time.tzinfo is None:

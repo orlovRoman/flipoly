@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     TRADE_ONLY_FAVORITE: bool = False
     TRADE_MIN_PRICE: float = 0.05
     TRADE_MAX_PRICE: float = 0.95
+    TRADING_MODE: str = "ml"
+    FAVORITE_MODE_ENTRY_SEC: int = 180
     
     # Legacy параметры (оставил на всякий случай)
     DRIFT_THRESHOLD: float = 0.05

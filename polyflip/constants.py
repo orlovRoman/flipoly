@@ -4,6 +4,13 @@ KELLY_MAX_FRACTION = 0.10         # максимальная Kelly-доля от
 DEAD_ZONE_WIDTH = 0.15            # ширина мёртвой зоны вокруг flip-порога
 DAILY_LOSS_LIMIT_USDC = -100.0    # стоп-лосс на день
 
+# --- Режимы торговли ---
+TRADING_MODE_ML = "ml"
+TRADING_MODE_FAVORITE = "favorite"
+DEFAULT_TRADING_MODE = TRADING_MODE_ML
+FAVORITE_MODE_ENTRY_SEC = 180        # дефолт: 3 минуты до закрытия
+FAVORITE_MODE_ENTRY_WINDOW_SEC = 60  # окно входа ±60 сек от точки входа
+
 # --- Калибровка модели ---
 MIN_PRECISION_FOR_THRESHOLD = 0.60  # минимальная precision при поиске порога
 MAX_SUSPICIOUS_THRESHOLD = 0.95     # выше этого — подозрение на leakage

@@ -25,6 +25,58 @@
         #trading-settings-form .form-group small {
             font-size: 0.8rem !important;
         }
+        .mode-badge {
+            font-size: 0.85rem;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        .mode-ml {
+            background: rgba(0, 192, 135, 0.1) !important;
+            border: 1px solid rgba(0, 192, 135, 0.3) !important;
+            color: #00c087 !important;
+        }
+        .mode-favorite {
+            background: rgba(240, 185, 11, 0.1) !important;
+            border: 1px solid rgba(240, 185, 11, 0.3) !important;
+            color: #f0b90b !important;
+        }
+        .settings-group {
+            margin-top: 1.5rem;
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .settings-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+        .radio-group {
+            display: flex;
+            gap: 1.5rem;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: #fff;
+        }
+        .radio-option input {
+            cursor: pointer;
+            accent-color: var(--poly-blue);
+            width: 1.1rem;
+            height: 1.1rem;
+        }
     </style>    
     <script>
         window.API_BASE = "{{ url_for('get_dashboard') }}".replace('/dashboard', '');
@@ -167,7 +219,10 @@
                 <div class="stat-card" style="margin-top: 1.5rem; max-width: 800px; margin-left: auto; margin-right: auto;">
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                        <h3>Торговые настройки</h3>
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <h3 style="margin: 0;">Торговые настройки</h3>
+                            <div id="trading-mode-badge" class="mode-badge mode-ml">🤖 Режим: ML</div>
+                        </div>
                         <button id="btn-save-trading-settings" class="btn primary-btn">Сохранить настройки</button>
                     </div>
                     <form id="trading-settings-form" style="background: none; border: none; padding: 0; max-width: 100%;">
@@ -179,6 +234,38 @@
                         <div class="form-group" style="margin-top: 1rem; margin-bottom: 1.5rem;">
                             <label for="API_KEY">API Key (для доступа к бэкенду)</label>
                             <input type="password" id="API_KEY" placeholder="Введите API ключ для авторизации...">
+                        </div>
+
+                        <!-- Режим торговли -->
+                        <div class="settings-group" id="trading-mode-group">
+                            <label class="settings-label" style="font-weight: 600; color: #fff; font-size: 0.95rem;">Режим торговли</label>
+                            <div class="radio-group">
+                                <label class="radio-option">
+                                    <input type="radio" name="trading_mode" value="ml" id="mode-ml" checked>
+                                    <span>🤖 ML (с моделью)</span>
+                                </label>
+                                <label class="radio-option">
+                                    <input type="radio" name="trading_mode" value="favorite" id="mode-favorite">
+                                    <span>⚡ Pure Favorite (без ML)</span>
+                                </label>
+                            </div>
+                            
+                            <!-- Настройки Pure Favorite — скрыты по умолчанию -->
+                            <div id="favorite-mode-settings" style="display: none; margin-top: 12px;">
+                                <div class="form-group" style="margin: 0;">
+                                    <label for="FAVORITE_MODE_ENTRY_SEC" class="settings-label">
+                                        Время входа до закрытия (сек)
+                                        <span style="color: var(--text-muted); font-size: 0.8rem; font-weight: normal; display: block; margin-top: 2px;">Допустимо 30–600 сек (дефолт 180 = 3 мин)</span>
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        id="FAVORITE_MODE_ENTRY_SEC" 
+                                        min="30" max="600" step="10" 
+                                        value="180"
+                                        style="width: 100%; max-width: 200px;"
+                                    >
+                                </div>
+                            </div>
                         </div>
                         
                         <div class="form-group" style="margin-top: 1rem; margin-bottom: 1.5rem;">

@@ -233,6 +233,10 @@ document.addEventListener("DOMContentLoaded", () => {
     minPrice: document.getElementById("TRADE_MIN_PRICE"),
     maxPrice: document.getElementById("TRADE_MAX_PRICE"),
     kellyEnabled: document.getElementById("KELLY_ENABLED"),
+    tradingModeRadios: document.querySelectorAll('input[name="trading_mode"]'),
+    favoriteModeSettings: document.getElementById('favorite-mode-settings'),
+    favoriteEntrySecInput: document.getElementById('FAVORITE_MODE_ENTRY_SEC'),
+    tradingModeBadge: document.getElementById('trading-mode-badge'),
   };
 
   if (settingsElements.apiKeyInput) {
@@ -309,6 +313,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function onTradingModeChange(mode) {
+    const isFavorite = mode === 'favorite';
+    if (settingsElements.favoriteModeSettings) {
+      settingsElements.favoriteModeSettings.style.display = isFavorite ? 'block' : 'none';
+    }
+    if (settingsElements.tradingModeBadge) {
+      settingsElements.tradingModeBadge.textContent = isFavorite 
+        ? '⚡ Режим: Pure Favorite' 
+        : '🤖 Режим: ML';
+      settingsElements.tradingModeBadge.className = `mode-badge mode-${mode}`;
+    }
+  }
+
+  if (settingsElements.tradingModeRadios) {
+    settingsElements.tradingModeRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => onTradingModeChange(e.target.value));
+    });
+  }
+
   async function loadSettings() {
     try {
       const res = await fetch(window.API_BASE + "/api/settings", {
@@ -358,6 +381,16 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.kellyEnabled && data.KELLY_ENABLED)
         settingsElements.kellyEnabled.checked = data.KELLY_ENABLED === "true";
 
+      if (data.TRADING_MODE) {
+        const mode = data.TRADING_MODE;
+        const radio = document.querySelector(`input[name="trading_mode"][value="${mode}"]`);
+        if (radio) radio.checked = true;
+        onTradingModeChange(mode);
+      }
+      if (settingsElements.favoriteEntrySecInput && data.FAVORITE_MODE_ENTRY_SEC) {
+        settingsElements.favoriteEntrySecInput.value = data.FAVORITE_MODE_ENTRY_SEC;
+      }
+
       if (data.TRADE_ASSETS) {
         const assets = data.TRADE_ASSETS.split(",");
         document.querySelectorAll(".asset-checkbox").forEach((cb) => {
@@ -400,7 +433,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
-      if (settingsElements.kellyEnabled) settingsToSave.KELLY_ENABLED = settingsElements.kellyEnabled.checked ? "true" : "false";
+      const activeMode = document.querySelector('input[name="trading_mode"]:checked')?.value || 'ml';
+      settingsToSave.TRADING_MODE = activeMode;
+      if (settingsElements.favoriteEntrySecInput) {
+        settingsToSave.FAVORITE_MODE_ENTRY_SEC = settingsElements.favoriteEntrySecInput.value;
+      }
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
       const failed = [];
