@@ -7,7 +7,7 @@ import json
 import structlog
 import math
 from fastapi.templating import Jinja2Templates
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from polyflip.db.connection import get_db_session
@@ -137,8 +137,8 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
 @router.get("/api/dashboard/trade_logs", dependencies=[Depends(verify_api_key)])
 async def get_trade_logs(
     db: AsyncSession = Depends(get_db_session),
-    page: int = 1,
-    page_size: int = 25
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100)
 ):
     """Возвращает последние логи торговли (успешные, фейлы и пропущенные) с пагинацией"""
     offset = (page - 1) * page_size
