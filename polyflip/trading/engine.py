@@ -39,6 +39,21 @@ async def save_skipped_trade(
     )
     db_session.add(history)
 
+def kelly_bet_size(p_win: float, buy_price: float, capital: float, max_fraction: float = 0.10) -> float:
+    """
+    Критерий Келли для расчета размера ставки на бинарном рынке.
+    p_win  — вероятность выигрыша нашей ставки.
+    buy_price — цена покупки токена (от 0 до 1).
+    capital — доступный торговый капитал.
+    max_fraction — максимальный риск на одну сделку (10% по умолчанию).
+    """
+    if buy_price <= 0.0 or buy_price >= 1.0:
+        return 0.0
+    b = (1.0 - buy_price) / buy_price
+    f = (p_win * (b + 1.0) - 1.0) / b
+    f = max(0.0, min(f, max_fraction))
+    return round(capital * f, 2)
+
 async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_client: PolymarketClient):
     """
     Фоновый процесс торгового движка.
@@ -57,9 +72,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADE_ONLY_FAVORITE",
         "TRADE_MIN_PRICE",
         "TRADE_MAX_PRICE",
-        "TRADE_ASSETS"
+        "TRADE_ASSETS",
+        "TRADE_CAPITAL_USDC"
     ]
-    
+    for asset in settings.asset_list:
+        settings_keys.append(f"TRADE_FLIP_THRESHOLD_{asset.upper()}")
+        
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
     settings_db = {s.key: s.value for s in result.scalars().all()}
@@ -74,7 +92,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     max_time_left = int(settings_db.get("TRADE_MAX_TIME_LEFT_SEC", settings.TRADE_MAX_TIME_LEFT_SEC))
     bet_size = float(settings_db.get("TRADE_BET_SIZE_USDC", settings.TRADE_BET_SIZE_USDC))
     no_flip_threshold = float(settings_db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD))
-    flip_threshold = float(settings_db.get("TRADE_FLIP_THRESHOLD", settings.TRADE_FLIP_THRESHOLD))
+    
+    capital = float(settings_db.get("TRADE_CAPITAL_USDC", bet_size * 20.0))
     
     trade_only_favorite = settings_db.get("TRADE_ONLY_FAVORITE", str(settings.TRADE_ONLY_FAVORITE)).lower() == "true"
     trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
@@ -207,7 +226,14 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 # Логика принятия решения
                 decision = None
                 
-                if p_flip > flip_threshold:
+                # Шаг 3: Калибровка порога. Считываем TRADE_FLIP_THRESHOLD_{asset}
+                flip_threshold_key = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
+                current_flip_threshold = float(settings_db.get(
+                    flip_threshold_key,
+                    settings_db.get("TRADE_FLIP_THRESHOLD", settings.TRADE_FLIP_THRESHOLD)
+                ))
+                
+                if p_flip > current_flip_threshold:
                     if not trade_only_favorite:
                         # Модель ждет флип. Покупаем аутсайдера.
                         decision = "NO" if market.current_yes_price > 0.5 else "YES"
@@ -248,8 +274,20 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                             await save_skipped_trade(db_session, market, f"Price out of range: {buy_price}", p_flip, model_ver, start_time)
                         continue
                         
+                    # Шаг 4: Вычисляем размер ставки по критерию Келли
+                    is_flip_bet = (p_flip > current_flip_threshold)
+                    p_win = p_flip if is_flip_bet else (1.0 - p_flip)
+                    
+                    actual_bet_size = kelly_bet_size(p_win, buy_price, capital)
+                    if actual_bet_size < 1.0:  # минимальная ставка $1
+                        logger.info("kelly_bet_too_small", p_flip=p_flip, buy_price=buy_price, bet_size=actual_bet_size)
+                        if not has_skipped_log:
+                            await save_skipped_trade(db_session, market, f"Kelly bet too small: ${actual_bet_size}", p_flip, model_ver, start_time)
+                            has_skipped_log = True
+                        continue
+                        
                     # Кол-во акций = size / price
-                    num_shares = round(bet_size / buy_price, 2)
+                    num_shares = round(actual_bet_size / buy_price, 2)
                     
                     # Исполняем
                     trade_res = await trader.execute_trade(
@@ -265,21 +303,21 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         market_id=market.market_id,
                         asset=market.asset,
                         outcome_bought=decision,
-                        amount_usdc=bet_size,
+                        amount_usdc=actual_bet_size,
                         executed_price=buy_price,
                         predicted_flip_prob=p_flip,
                         active_features=active_features_str,
                         model_version=model_ver,
-                        status=trade_res["status"],
-                        error_msg=trade_res["error_msg"],
-                        mode=trade_res["mode"],
+                        status=trade_res.get("status", "FAILED"),
+                        error_msg=trade_res.get("error_msg"),
+                        mode=trade_res.get("mode", "PAPER"),
                         created_at=start_time
                     )
                     db_session.add(history)
                 else:
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
                     if not has_skipped_log:
-                        reason = f"P(flip) {p_flip:.1%} is within [{no_flip_threshold:.1%} - {flip_threshold:.1%}] range"
+                        reason = f"P(flip) {p_flip:.1%} is within [{no_flip_threshold:.1%} - {current_flip_threshold:.1%}] range"
                         await save_skipped_trade(db_session, market, reason, p_flip, model_ver, start_time)
                     
     except Exception as e:

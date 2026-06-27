@@ -10,12 +10,15 @@ from polyflip.trading.engine import trade_worker_cycle
 class MockModel:
     def __init__(self, proba):
         self.proba = proba
+        self.feature_names_in_ = ["mid_price"]
     def predict_proba(self, X):
         return [self.proba] # [[p_no, p_yes_flip]]
 
 @pytest.mark.asyncio
 async def test_engine_skips_when_trading_disabled(db_session):
-    await trade_worker_cycle(db_session)
+    trader_mock = AsyncMock()
+    api_client_mock = AsyncMock()
+    await trade_worker_cycle(db_session, trader_mock, api_client_mock)
     res = await db_session.execute(select(TradeHistory))
     assert len(res.scalars().all()) == 0
 
@@ -46,7 +49,7 @@ async def test_engine_makes_trade_outsider(db_session):
     
     # Model predicts flip prob = 0.9
     model = MockModel([0.1, 0.9])
-    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, trained_at=now))
+    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
     
     with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
@@ -59,7 +62,7 @@ async def test_engine_makes_trade_outsider(db_session):
          mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.42})
          mock_api.close = AsyncMock()
          
-         await trade_worker_cycle(db_session)
+         await trade_worker_cycle(db_session, mock_trader, mock_api)
          
          res = await db_session.execute(select(TradeHistory))
          trades = res.scalars().all()
@@ -102,7 +105,7 @@ async def test_engine_respects_only_favorite(db_session):
     
     # Model predicts flip prob = 0.9 (Signal to buy outsider)
     model = MockModel([0.1, 0.9])
-    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, trained_at=now))
+    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
     
     with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
@@ -113,10 +116,12 @@ async def test_engine_respects_only_favorite(db_session):
          mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.42})
          mock_api.close = AsyncMock()
          
-         await trade_worker_cycle(db_session)
+         await trade_worker_cycle(db_session, mock_trader, mock_api)
          
          res = await db_session.execute(select(TradeHistory))
          trades = res.scalars().all()
-         
-         # Should be 0 because trade_only_favorite blocked the outsider bet
-         assert len(trades) == 0
+                  
+         # Should contain 1 record with SKIPPED status because only_favorite blocked the outsider bet
+         assert len(trades) == 1
+         assert trades[0].status == "SKIPPED"
+         assert "Only Favorite is enabled" in trades[0].error_msg

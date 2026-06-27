@@ -15,15 +15,20 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
     import numpy as np
     from sklearn.model_selection import StratifiedKFold
     from sklearn.base import clone
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
     from sklearn.linear_model import LogisticRegression
-    from sklearn.metrics import accuracy_score
+    from sklearn.metrics import roc_auc_score, precision_recall_curve
     import pickle
 
     # 3. Обучаем модель с кросс-валидацией
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    base_model = LogisticRegression(class_weight="balanced", random_state=42)
+    base_model = Pipeline([
+        ("scaler", StandardScaler()),
+        ("model", LogisticRegression(class_weight="balanced", random_state=42))
+    ])
     
-    accuracies = []
+    aucs = []
     for train_index, val_index in skf.split(X, y):
         X_train, X_val = X.iloc[train_index], X.iloc[val_index]
         y_train, y_val = y.iloc[train_index], y.iloc[val_index]
@@ -31,21 +36,41 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
         model_clone = clone(base_model)
         model_clone.fit(X_train, y_train)
         
-        preds = model_clone.predict(X_val)
-        accuracies.append(accuracy_score(y_val, preds))
+        y_proba = model_clone.predict_proba(X_val)[:, 1]
+        aucs.append(roc_auc_score(y_val, y_proba))
         
-    val_acc = float(np.mean(accuracies))
+    val_acc = float(np.mean(aucs))
     
-    # Baseline
-    baseline_acc = float(max(y.mean(), 1 - y.mean()))
+    # Baseline ROC-AUC для случайного классификатора = 0.5
+    baseline_acc = 0.5
     
-    # Обучаем финальную модель на всех данных (ограничение убрано)
-    final_model = LogisticRegression(class_weight="balanced", random_state=42)
+    # Обучаем финальную модель на всех данных
+    final_model = Pipeline([
+        ("scaler", StandardScaler()),
+        ("model", LogisticRegression(class_weight="balanced", random_state=42))
+    ])
     final_model.fit(X, y)
     
-    # Сериализуем модель
+    # Калибровка порога
+    y_scores = final_model.predict_proba(X)[:, 1]
+    precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, y_scores)
+
+    optimal_threshold = None
+    for prec, thresh in zip(precision_arr, thresholds_pr):
+        if prec >= 0.60:
+            optimal_threshold = float(thresh)
+            break
+
+    if optimal_threshold is None:
+        f1_scores = 2 * (precision_arr[:-1] * recall_arr[:-1]) / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
+        if len(thresholds_pr) > 0:
+            optimal_threshold = float(thresholds_pr[np.argmax(f1_scores)])
+        else:
+            optimal_threshold = 0.65
+
+    # Сериализуем модель (Pipeline сохраняет скейлер внутри)
     model_bytes = pickle.dumps(final_model)
-    return model_bytes, val_acc, baseline_acc
+    return model_bytes, val_acc, baseline_acc, optimal_threshold
 
 class ModelTrainer:
     def __init__(self, db_session: AsyncSession):
@@ -131,9 +156,9 @@ class ModelTrainer:
 
         # Выполняем CPU-bound обучение в отдельном потоке (BUG-A2 FIX)
         fit_res = await asyncio.to_thread(_fit_and_serialize, X, y)
-        model_bytes, val_acc, baseline_acc = fit_res
+        model_bytes, val_acc, baseline_acc, optimal_threshold = fit_res
 
-        logger.info("model_trained", asset=asset, samples=len(df), val_accuracy=val_acc, baseline_accuracy=baseline_acc)
+        logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc)
 
         # Деактивируем предыдущие модели
         await self.db.execute(
@@ -147,6 +172,22 @@ class ModelTrainer:
         v_result = await self.db.execute(version_stmt)
         last_v = v_result.scalar_one_or_none()
         next_version = (last_v or 0) + 1
+
+        # Сохраняем калиброванный порог в RuntimeSettings
+        threshold_key = f"TRADE_FLIP_THRESHOLD_{asset}"
+        existing = await self.db.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == threshold_key)
+        )
+        existing_row = existing.scalar_one_or_none()
+        if existing_row:
+            existing_row.value = str(round(optimal_threshold, 4))
+        else:
+            self.db.add(RuntimeSettings(
+                key=threshold_key,
+                value=str(round(optimal_threshold, 4)),
+                updated_at=datetime.now(timezone.utc),
+                updated_by="train_job"
+            ))
 
         # 7. Сохраняем новую модель
         new_model_record = ModelRegistry(
@@ -162,6 +203,11 @@ class ModelTrainer:
         self.db.add(new_model_record)
         await self.db.commit()
 
-        logger.info("model_saved_to_db", asset=asset, version=next_version)
-        self.status_messages[asset] = f"Успешно: версия {next_version} (точность {val_acc:.2%}, бейзлайн {baseline_acc:.2%})"
+        logger.info("model_saved_to_db", asset=asset, version=next_version, threshold=optimal_threshold)
+        
+        if val_acc < 0.55:
+            logger.warning("model_quality_too_low", asset=asset, auc=val_acc)
+            self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.2f} — модель слабее случайной+10%)"
+        else:
+            self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.2f})"
         return True
