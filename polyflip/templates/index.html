@@ -60,27 +60,23 @@
                         <h3>Процент флипов</h3>
                         <div class="stat-value highlight" id="stat-flips">--%</div>
                     </div>
+                    {% for asset in assets %}
                     <div class="stat-card">
-                        <h3>Текущая модель (BTC)</h3>
-                        <div class="stat-value" id="stat-model-btc">v-- (Acc: --)</div>
+                        <h3>Текущая модель ({{ asset }})</h3>
+                        <div class="stat-value" id="stat-model-{{ asset|lower }}">v-- (Acc: --)</div>
                     </div>
-                    <div class="stat-card">
-                        <h3>Текущая модель (ETH)</h3>
-                        <div class="stat-value" id="stat-model-eth">v-- (Acc: --)</div>
-                    </div>
+                    {% endfor %}
                 </div>
 
                 <div style="margin-top: 1.5rem; margin-bottom: 2rem;">
                     <h2>Точность моделей (Accuracy) со временем</h2>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+                        {% for asset in assets %}
                         <div class="chart-box">
-                            <h3>Bitcoin (BTC)</h3>
-                            <canvas id="chart-model-accuracy-btc"></canvas>
+                            <h3>{{ asset }}</h3>
+                            <canvas id="chart-model-accuracy-{{ asset|lower }}"></canvas>
                         </div>
-                        <div class="chart-box">
-                            <h3>Ethereum (ETH)</h3>
-                            <canvas id="chart-model-accuracy-eth"></canvas>
-                        </div>
+                        {% endfor %}
                     </div>
                 </div>
 

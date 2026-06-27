@@ -80,10 +80,10 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     
     snap_res = await db.execute(snap_stmt)
     
-    dataset_summary = {}
+    dataset_summary = {asset: {"PENDING": 0, "RESOLVED": 0} for asset in settings.asset_list}
     for row in snap_res.all():
-        ds = dataset_summary.setdefault(row.asset, {"PENDING": 0, "RESOLVED": 0})
-        ds["PENDING" if row.final_outcome == "PENDING" else "RESOLVED"] += row.cnt
+        if row.asset in dataset_summary:
+            dataset_summary[row.asset]["PENDING" if row.final_outcome == "PENDING" else "RESOLVED"] += row.cnt
             
     # 4. Активные модели
     models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)

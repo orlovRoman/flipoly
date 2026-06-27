@@ -3,10 +3,10 @@ import time
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select
 
 from polyflip.db.connection import get_db_session
-from polyflip.db.models import TradeHistory, MarketSnapshot, RuntimeSettings
+from polyflip.db.models import TradeHistory, RuntimeSettings
 from polyflip.config import settings
 from polyflip.api.auth import verify_api_key
 import structlog
@@ -46,7 +46,7 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
             "capital": initial_capital,
             "overall_pnl": 0,
             "daily_pnl": {},
-            "assets": {},
+            "assets": {asset: {"pnl": 0.0, "trades": 0, "wins": 0} for asset in settings.asset_list},
             "winrate": 0,
             "wins_vs_losses": {"wins": 0, "losses": 0},
             "parameters": {
@@ -62,7 +62,7 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
     losses = 0
     
     daily_pnl_map = {}
-    asset_stats = {}
+    asset_stats = {asset: {"pnl": 0.0, "trades": 0, "wins": 0} for asset in settings.asset_list}
     
     win_prices = []
     loss_prices = []

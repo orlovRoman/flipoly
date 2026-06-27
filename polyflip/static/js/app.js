@@ -85,23 +85,23 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("stat-flips").innerText =
         (data.flip_percentage || 0) + "%";
 
-      const btcModel = data.active_models["BTC"];
-      if (btcModel) {
-        document.getElementById("stat-model-btc").innerText =
-          `v${btcModel.version} (Acc: ${btcModel.accuracy})`;
-      }
-
-      const ethModel = data.active_models["ETH"];
-      if (ethModel) {
-        document.getElementById("stat-model-eth").innerText =
-          `v${ethModel.version} (Acc: ${ethModel.accuracy})`;
-      }
-
-      ["BTC", "ETH"].forEach((asset) => {
-        if (data.model_history && data.model_history[asset]) {
-          renderAccuracyChart(data.model_history[asset], asset);
+      // Заполняем карточки активных моделей для всех активов
+      document.querySelectorAll("[id^='stat-model-']").forEach((el) => {
+        const asset = el.id.replace("stat-model-", "").toUpperCase();
+        const model = data.active_models[asset];
+        if (model) {
+          el.innerText = `v${model.version} (Acc: ${(model.accuracy * 100).toFixed(1)}%)`;
+        } else {
+          el.innerText = "Нет модели";
         }
       });
+
+      // Рендерим графики точности для всех доступных в истории активов
+      if (data.model_history) {
+        Object.keys(data.model_history).forEach((asset) => {
+          renderAccuracyChart(data.model_history[asset], asset);
+        });
+      }
     } catch (e) {
       console.error("Failed to load summary", e);
     }
@@ -119,7 +119,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const labels = historyData.map((h) => `v${h.version}`);
     const data = historyData.map((h) => h.accuracy * 100);
 
-    const color = asset === "BTC" ? "#0072F5" : "#00D395";
+    function getAssetColor(asset) {
+      const colors = {
+        "BTC": "#0072F5",
+        "ETH": "#00D395",
+        "SOL": "#9945FF",
+        "XRP": "#23292F",
+        "DOGE": "#C2A633"
+      };
+      return colors[asset.toUpperCase()] || "#8F9BB3";
+    }
+
+    const color = getAssetColor(asset);
     createChart(
       ctx,
       labels,
@@ -149,7 +160,18 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!selectorEl) return;
     const selectedAsset = selectorEl.value;
     const assetData = chartDataStore[selectedAsset] || {};
-    const color = selectedAsset === "BTC" ? "#0072F5" : "#00D395";
+    function getAssetColor(asset) {
+      const colors = {
+        "BTC": "#0072F5",
+        "ETH": "#00D395",
+        "SOL": "#9945FF",
+        "XRP": "#23292F",
+        "DOGE": "#C2A633"
+      };
+      return colors[asset.toUpperCase()] || "#8F9BB3";
+    }
+
+    const color = getAssetColor(selectedAsset);
 
     const chartConfigs = [
       {
