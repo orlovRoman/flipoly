@@ -36,6 +36,12 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
     res_settings = await db.execute(stmt_settings)
     initial_capital_row = res_settings.scalar_one_or_none()
     initial_capital = float(initial_capital_row.value) if initial_capital_row else settings.INITIAL_CAPITAL
+ 
+    # Load KELLY_ENABLED setting
+    stmt_kelly_enabled = select(RuntimeSettings).where(RuntimeSettings.key == "KELLY_ENABLED")
+    res_kelly_enabled = await db.execute(stmt_kelly_enabled)
+    kelly_enabled_row = res_kelly_enabled.scalar_one_or_none()
+    kelly_enabled = (kelly_enabled_row.value.lower() == "true") if kelly_enabled_row else True
 
     # Load all successful trades
     stmt_trades = select(TradeHistory).where(TradeHistory.status == "SUCCESS").order_by(TradeHistory.created_at)
@@ -61,7 +67,8 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
                 "avg_mult": 1.0,
                 "min_f": 0.0,
                 "max_f": 0.0
-            }
+            },
+            "kelly_enabled": kelly_enabled
         }
 
     total_pnl = 0
@@ -160,5 +167,6 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
             "avg_win_prob": round(avg_win_prob, 3),
             "avg_loss_prob": round(avg_loss_prob, 3)
         },
-        "kelly_stats": kelly_stats
+        "kelly_stats": kelly_stats,
+        "kelly_enabled": kelly_enabled
     }

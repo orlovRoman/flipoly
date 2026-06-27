@@ -55,14 +55,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Update Avg Kelly Today
     if (data.kelly_stats) {
-      const k = data.kelly_stats;
       const avgKellyDiv = document.getElementById("stat-avg-kelly");
       const kellyRangeDiv = document.getElementById("stat-kelly-range");
       if (avgKellyDiv) {
-        avgKellyDiv.textContent = `f̄ = ${k.avg_f.toFixed(3)} (×${k.avg_mult.toFixed(1)})`;
+        if (data.kelly_enabled === false) {
+          avgKellyDiv.textContent = "Отключен";
+        } else {
+          const k = data.kelly_stats;
+          avgKellyDiv.textContent = `f̄ = ${k.avg_f.toFixed(3)} (×${k.avg_mult.toFixed(1)})`;
+        }
       }
       if (kellyRangeDiv) {
-        kellyRangeDiv.textContent = `Range: ${k.min_f.toFixed(2)} – ${k.max_f.toFixed(2)}`;
+        if (data.kelly_enabled === false) {
+          kellyRangeDiv.textContent = "Фиксированная ставка";
+        } else {
+          const k = data.kelly_stats;
+          kellyRangeDiv.textContent = `Range: ${k.min_f.toFixed(2)} – ${k.max_f.toFixed(2)}`;
+        }
       }
     }
 
