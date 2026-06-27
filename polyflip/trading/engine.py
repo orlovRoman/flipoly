@@ -176,7 +176,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             
             if time_left_sec > 0:
                 # Проверяем, делали ли мы уже ставку на этот рынок (или логировали пропуск)
-                trade_check = select(TradeHistory).where(TradeHistory.market_id == market.market_id)
+                trade_check = select(TradeHistory).where(TradeHistory.market_id == market.market_id).limit(5)
                 existing_trades = (await db_session.execute(trade_check)).scalars().all()
                 
                 existing_statuses = [t.status for t in existing_trades]

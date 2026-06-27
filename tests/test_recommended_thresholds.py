@@ -162,20 +162,20 @@ async def test_only_favorite_skips_flip_signal(db_session):
     db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
 
-    with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
-         patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         mock_trader = mock_trader_cls.return_value
-         mock_api = mock_api_cls.return_value
-         mock_api.close = AsyncMock()
+    from unittest.mock import MagicMock, AsyncMock
+    mock_trader = MagicMock()
+    mock_api = MagicMock()
+    mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.5})
+    mock_api.close = AsyncMock()
 
-         await trade_worker_cycle(db_session, mock_trader, mock_api)
+    await trade_worker_cycle(db_session, mock_trader, mock_api)
 
-         # 4. Проверяем TradeHistory
-         res = await db_session.execute(select(TradeHistory))
-         trades = res.scalars().all()
-         
-         # Должна быть ровно одна запись о пропуске
-         assert len(trades) == 1
-         assert trades[0].status == "SKIPPED"
-         assert "Only Favorite is enabled" in trades[0].error_msg
-         assert trades[0].predicted_flip_prob == 0.90
+    # 4. Проверяем TradeHistory
+    res = await db_session.execute(select(TradeHistory))
+    trades = res.scalars().all()
+    
+    # Должна быть ровно одна запись о пропуске
+    assert len(trades) == 1
+    assert trades[0].status == "SKIPPED"
+    assert "Only Favorite is enabled" in trades[0].error_msg
+    assert trades[0].predicted_flip_prob == 0.90
