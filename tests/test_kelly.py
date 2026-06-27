@@ -2,6 +2,26 @@ import pytest
 from unittest.mock import patch, PropertyMock
 from datetime import datetime, timezone
 from polyflip.db.models import TradeHistory, RuntimeSettings
+from polyflip.trading.utils import compute_kelly_multiplier
+
+def test_compute_kelly_multiplier_strong_signal():
+    f, mult = compute_kelly_multiplier(p_win=0.70, buy_price=0.30)
+    assert f > 0.0
+    assert 1.0 < mult <= 2.0
+
+def test_compute_kelly_multiplier_weak_signal():
+    f, mult = compute_kelly_multiplier(p_win=0.40, buy_price=0.50)
+    assert f == 0.0
+    assert mult == 0.5  # штраф за нулевой edge
+
+def test_compute_kelly_multiplier_boundary_price():
+    f, mult = compute_kelly_multiplier(p_win=0.80, buy_price=0.0)
+    assert f == 0.0 and mult == 0.5  # деление на 0 → безопасный fallback
+
+def test_compute_kelly_multiplier_max_fraction():
+    f, mult = compute_kelly_multiplier(p_win=0.99, buy_price=0.01)
+    assert f == 0.10  # зафиксировано max_fraction
+    assert mult == 2.0
 
 def test_capital_not_referenced():
     import inspect

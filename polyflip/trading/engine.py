@@ -11,6 +11,7 @@ from polyflip.config import settings
 from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
+from polyflip.trading.utils import compute_kelly_multiplier
 
 logger = structlog.get_logger(__name__)
 
@@ -282,24 +283,15 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     is_flip_bet = (p_flip > current_flip_threshold)
                     p_win = p_flip if is_flip_bet else (1.0 - p_flip)
                     
-                    max_fraction = 0.10
-                    b = (1.0 - buy_price) / buy_price
-                    if b > 0:
-                        kelly_f = (p_win * (b + 1) - 1) / b
-                    else:
-                        kelly_f = 0.0
-                    kelly_f = min(kelly_f, max_fraction)
-                    kelly_f = max(0.0, kelly_f)
-                    
-                    kelly_multiplier = 0.5 + (kelly_f / max_fraction) * 1.5  # от 0.5x до 2.0x
+                    kelly_f, kelly_multiplier = compute_kelly_multiplier(p_win, buy_price, max_fraction=0.10)
                     actual_bet_size = round(bet_size * kelly_multiplier, 2)
                     
                     logger.info(
                         "kelly_calculated",
                         p_win=round(p_win, 3),
                         buy_price=buy_price,
-                        kelly_f=round(kelly_f, 4),
-                        kelly_multiplier=round(kelly_multiplier, 2),
+                        kelly_f=kelly_f,
+                        kelly_multiplier=kelly_multiplier,
                         actual_bet_size=actual_bet_size,
                     )
                     
