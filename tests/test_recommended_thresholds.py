@@ -133,6 +133,7 @@ async def test_only_favorite_skips_flip_signal(db_session):
         RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
         RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_FLIP_THRESHOLD_BTC", value="0.85", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_ASSETS", value="BTC", updated_at=now, updated_by="test"),
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
@@ -142,7 +143,7 @@ async def test_only_favorite_skips_flip_signal(db_session):
 
     # 2. Создаем рынок BTC. У него current_yes_price = 0.3 (аутсайдер).
     # YES фаворит - NO, так как его цена 0.7.
-    # Если мы ждем флип (p_flip = 0.90 > calibrated_val = 0.30), сделка должна пропускаться
+    # Если мы ждем флип (p_flip = 0.90 >= calibrated_val = 0.85), сделка должна пропускаться
     market = LiveMarket(
         market_id="m_btc_fav", asset="BTC", question="BTC Up?",
         current_yes_price=0.3, current_no_price=0.7, current_spread=0.01,

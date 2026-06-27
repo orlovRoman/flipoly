@@ -251,7 +251,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const currentNoFlipPct = Math.round(currentNoFlipVal * 100);
       
       const firstAsset = Object.keys(data.per_asset)[0];
-      const recPct = firstAsset ? Math.round(data.per_asset[firstAsset].recommended_no_flip * 100) : 70;
+      const recPct = firstAsset ? Math.round(data.per_asset[firstAsset].recommended_no_flip * 100) : Math.round(g.current_no_flip * 100);
 
       // Подсказка под полем no_flip
       const hint = document.getElementById("no-flip-hint");

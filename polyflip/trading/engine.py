@@ -236,10 +236,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 if has_per_asset_threshold:
                     calibrated_val = float(settings_db[flip_threshold_key])
+                    current_no_flip_threshold = round(calibrated_val - dead_zone, 4)
                 else:
-                    calibrated_val = no_flip_threshold + dead_zone
-                    
-                current_no_flip_threshold = round(calibrated_val - dead_zone, 4)
+                    # Нет per-asset калибровки — используем глобальные настройки напрямую
+                    current_no_flip_threshold = no_flip_threshold
+                    calibrated_val = no_flip_threshold + dead_zone  # только для reason в логах
                 
                 if p_flip < current_no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
