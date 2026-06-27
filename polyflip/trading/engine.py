@@ -289,6 +289,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         await save_or_update_skipped_trade(db_session, market, f"Price out of range: {buy_price}", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
                         continue
                         
+                    # Защита от покупки аутсайдера при резком изменении цены между обновлением БД и вызовом API
+                    if buy_price < FAVORITE_THRESHOLD:
+                        logger.warning("trade_skipped_no_longer_favorite", price=buy_price, threshold=FAVORITE_THRESHOLD)
+                        await save_or_update_skipped_trade(db_session, market, f"Price dropped to {buy_price}, no longer favorite", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
+                        continue
+                        
                     # Шаг 4: Вычисляем размер ставки по критерию Келли
                     p_win = 1.0 - p_flip
                     
