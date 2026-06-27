@@ -179,3 +179,4 @@ async def test_only_favorite_skips_flip_signal(db_session):
     assert trades[0].status == "SKIPPED"
     assert "Only Favorite is enabled" in trades[0].error_msg
     assert trades[0].predicted_flip_prob == 0.90
+    assert mock_trader.execute_trade.call_count == 0

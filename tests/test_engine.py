@@ -120,8 +120,45 @@ async def test_engine_respects_only_favorite(db_session):
          
          res = await db_session.execute(select(TradeHistory))
          trades = res.scalars().all()
-                  
+         
          # Should contain 1 record with SKIPPED status because only_favorite blocked the outsider bet
          assert len(trades) == 1
          assert trades[0].status == "SKIPPED"
          assert "Only Favorite is enabled" in trades[0].error_msg
+         assert mock_trader.execute_trade.call_count == 0
+
+@pytest.mark.asyncio
+async def test_save_or_update_no_extra_select(db_session):
+    """Функция save_or_update_skipped_trade не должна делать SELECT, если передан existing_skipped."""
+    from polyflip.trading.engine import save_or_update_skipped_trade
+    
+    # Мокаем execute на сессии БД
+    original_execute = db_session.execute
+    mock_execute = AsyncMock(side_effect=original_execute)
+    db_session.execute = mock_execute
+    
+    class FakeMarket:
+        market_id = "m1"
+        asset = "BTC"
+    
+    now = datetime.now(timezone.utc)
+    existing = TradeHistory(
+        market_id="m1", asset="BTC", outcome_bought="NONE", amount_usdc=0.0,
+        executed_price=0.0, predicted_flip_prob=0.5, active_features="",
+        model_version=1, status="SKIPPED", error_msg="Old reason", created_at=now
+    )
+    
+    await save_or_update_skipped_trade(
+        db_session=db_session,
+        market=FakeMarket(),
+        reason="New reason",
+        p_flip_val=0.6,
+        model_version=1,
+        start_time=now,
+        existing_skipped=existing
+    )
+    
+    # Ни одного execute не должно быть вызвано (объект обновляется прямо в памяти)
+    assert mock_execute.call_count == 0
+    assert existing.error_msg == "New reason"
+    assert existing.predicted_flip_prob == 0.6
