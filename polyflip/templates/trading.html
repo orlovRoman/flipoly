@@ -11,7 +11,21 @@
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ timestamp }}">
-    
+    <style>
+        #trading-settings-form .form-group label {
+            font-size: 0.85rem !important;
+            color: var(--text-muted) !important;
+            font-weight: 500 !important;
+            margin-bottom: 0.4rem !important;
+        }
+        #trading-settings-form .form-group input {
+            font-size: 0.9rem !important;
+            padding: 0.6rem 0.85rem !important;
+        }
+        #trading-settings-form .form-group small {
+            font-size: 0.8rem !important;
+        }
+    </style>    
     <script>
         window.API_BASE = "{{ url_for('get_dashboard') }}".replace('/dashboard', '');
     </script>
@@ -151,21 +165,7 @@
 
                 <!-- Trading Settings -->
                 <div class="stat-card" style="margin-top: 1.5rem; max-width: 800px; margin-left: auto; margin-right: auto;">
-                    <style>
-                        #trading-settings-form .form-group label {
-                            font-size: 0.85rem !important;
-                            color: var(--text-muted) !important;
-                            font-weight: 500 !important;
-                            margin-bottom: 0.4rem !important;
-                        }
-                        #trading-settings-form .form-group input {
-                            font-size: 0.9rem !important;
-                            padding: 0.6rem 0.85rem !important;
-                        }
-                        #trading-settings-form .form-group small {
-                            font-size: 0.8rem !important;
-                        }
-                    </style>
+
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                         <h3>Торговые настройки</h3>
                         <button id="btn-save-trading-settings" class="btn primary-btn">Сохранить настройки</button>

@@ -235,11 +235,13 @@ document.addEventListener("DOMContentLoaded", () => {
     kellyEnabled: document.getElementById("KELLY_ENABLED"),
   };
 
+  if (settingsElements.apiKeyInput) {
+    settingsElements.apiKeyInput.value = apiKey;
+  }
+
   async function loadRecommendedThresholds() {
     try {
-      if (settingsElements.apiKeyInput) {
-        settingsElements.apiKeyInput.value = apiKey;
-      }
+
       const res = await fetch(`${window.API_BASE}/api/settings/recommended_thresholds`, {
         headers: { "X-API-Key": apiKey }
       });
