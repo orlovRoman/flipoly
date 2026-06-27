@@ -333,7 +333,7 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.KELLY_MAX_FRACTION);
         settingsElements.kellyMaxFraction.value = Math.round(val * 100);
       }
-      if (settingsElements.dailyLossLimit && data.DAILY_LOSS_LIMIT_USDC) {
+      if (settingsElements.dailyLossLimit && data.DAILY_LOSS_LIMIT_USDC !== undefined) {
         settingsElements.dailyLossLimit.value = data.DAILY_LOSS_LIMIT_USDC;
       }
       if (settingsElements.tradingEnabled && data.TRADING_ENABLED) {

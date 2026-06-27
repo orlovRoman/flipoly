@@ -35,6 +35,25 @@ async def test_get_all_settings_defaults(db_session):
         settings_module.async_session = original_session
 
 @pytest.mark.asyncio
+async def test_get_all_settings_from_db(db_session):
+    import polyflip.api.settings as settings_module
+    original_session = settings_module.async_session
+    settings_module.async_session = patch_session(db_session)
+    
+    try:
+        now = datetime.now(timezone.utc)
+        db_session.add(RuntimeSettings(key='DAILY_LOSS_LIMIT_USDC', value='-50.0', updated_at=now, updated_by='test'))
+        db_session.add(RuntimeSettings(key='KELLY_MAX_FRACTION', value='0.25', updated_at=now, updated_by='test'))
+        await db_session.commit()
+        
+        res = await get_all_settings()
+        assert res["DAILY_LOSS_LIMIT_USDC"] == "-50.0"
+        assert res["KELLY_MAX_FRACTION"] == "0.25"
+    finally:
+        settings_module.async_session = original_session
+
+
+@pytest.mark.asyncio
 async def test_update_setting_valid_kelly(db_session):
     import polyflip.api.settings as settings_module
     original_session = settings_module.async_session

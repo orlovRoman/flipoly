@@ -9,10 +9,17 @@ DEFAULTS = {
     "DAILY_LOSS_LIMIT_USDC": str(DAILY_LOSS_LIMIT_USDC),
 }
 
+from datetime import datetime, timezone
+
 async def seed_runtime_settings(session: AsyncSession):
     """Заполняет отсутствующие ключи дефолтами при старте."""
     for key, value in DEFAULTS.items():
         exists = await session.scalar(select(RuntimeSettings).where(RuntimeSettings.key == key))
         if not exists:
-            session.add(RuntimeSettings(key=key, value=value, updated_by="system"))
+            session.add(RuntimeSettings(
+                key=key,
+                value=value,
+                updated_by="system",
+                updated_at=datetime.now(timezone.utc)
+            ))
     await session.commit()
