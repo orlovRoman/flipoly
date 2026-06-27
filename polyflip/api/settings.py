@@ -35,7 +35,8 @@ async def get_all_settings():
         "TRADE_ONLY_FAVORITE": "true" if getattr(settings, 'TRADE_ONLY_FAVORITE', False) else "false",
         "TRADE_MIN_PRICE": str(getattr(settings, 'TRADE_MIN_PRICE', 0.05)),
         "TRADE_MAX_PRICE": str(getattr(settings, 'TRADE_MAX_PRICE', 0.95)),
-        "TRADE_ASSETS": str(getattr(settings, 'TRADE_ASSETS', 'BTC,ETH'))
+        "TRADE_ASSETS": str(getattr(settings, 'TRADE_ASSETS', 'BTC,ETH')),
+        "KELLY_ENABLED": "true" if getattr(settings, 'KELLY_ENABLED', True) else "false"
     }
 
     async with async_session() as session:
@@ -110,7 +111,8 @@ async def update_setting(key: str, payload: SettingValue):
         "TRADE_ONLY_FAVORITE",
         "TRADE_MIN_PRICE",
         "TRADE_MAX_PRICE",
-        "TRADE_ASSETS"
+        "TRADE_ASSETS",
+        "KELLY_ENABLED"
     ]
     
     if key not in valid_keys:

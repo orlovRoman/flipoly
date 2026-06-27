@@ -75,7 +75,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADE_MIN_PRICE",
         "TRADE_MAX_PRICE",
         "TRADE_ASSETS",
-        "TRADE_CAPITAL_USDC"
+        "TRADE_CAPITAL_USDC",
+        "KELLY_ENABLED"
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
@@ -287,11 +288,18 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     is_flip_bet = (p_flip > current_flip_threshold)
                     p_win = p_flip if is_flip_bet else (1.0 - p_flip)
                     
-                    kelly_f, kelly_multiplier = compute_kelly_multiplier(p_win, buy_price, max_fraction=0.10)
-                    actual_bet_size = round(bet_size * kelly_multiplier, 2)
+                    kelly_enabled = settings_db.get("KELLY_ENABLED", "true").lower() == "true"
+                    if kelly_enabled:
+                        kelly_f, kelly_multiplier = compute_kelly_multiplier(p_win, buy_price, max_fraction=0.10)
+                        actual_bet_size = round(bet_size * kelly_multiplier, 2)
+                    else:
+                        kelly_f = None
+                        kelly_multiplier = 1.0
+                        actual_bet_size = bet_size
                     
                     logger.info(
                         "kelly_calculated",
+                        kelly_enabled=kelly_enabled,
                         p_win=round(p_win, 3),
                         buy_price=buy_price,
                         kelly_f=kelly_f,
@@ -324,7 +332,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         status=trade_res.get("status", "FAILED"),
                         error_msg=trade_res.get("error_msg"),
                         mode=trade_res.get("mode", "PAPER"),
-                        kelly_fraction=round(kelly_f, 4),
+                        kelly_fraction=round(kelly_f, 4) if kelly_f is not None else None,
                         kelly_multiplier=round(kelly_multiplier, 2),
                         created_at=start_time
                     )

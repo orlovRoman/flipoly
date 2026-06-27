@@ -22,6 +22,10 @@ document.addEventListener("DOMContentLoaded", () => {
   let pnlChart = null;
   let wlChart = null;
 
+  let currentPage = 1;
+  let totalPages = 1;
+  const PAGE_SIZE = 25;
+
   async function fetchStats() {
     try {
       const response = await fetch(`${window.API_BASE}/api/trading/stats`, {
@@ -217,6 +221,7 @@ document.addEventListener("DOMContentLoaded", () => {
     onlyFavorite: document.getElementById("TRADE_ONLY_FAVORITE"),
     minPrice: document.getElementById("TRADE_MIN_PRICE"),
     maxPrice: document.getElementById("TRADE_MAX_PRICE"),
+    kellyEnabled: document.getElementById("KELLY_ENABLED"),
   };
 
   async function loadRecommendedThresholds(customFlipVal = null) {
@@ -342,6 +347,8 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.minPrice.value = data.TRADE_MIN_PRICE;
       if (settingsElements.maxPrice && data.TRADE_MAX_PRICE)
         settingsElements.maxPrice.value = data.TRADE_MAX_PRICE;
+      if (settingsElements.kellyEnabled && data.KELLY_ENABLED)
+        settingsElements.kellyEnabled.checked = data.KELLY_ENABLED === "true";
 
       if (data.TRADE_ASSETS) {
         const assets = data.TRADE_ASSETS.split(",");
@@ -378,6 +385,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.onlyFavorite) settingsToSave.TRADE_ONLY_FAVORITE = settingsElements.onlyFavorite.checked ? "true" : "false";
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
+      if (settingsElements.kellyEnabled) settingsToSave.KELLY_ENABLED = settingsElements.kellyEnabled.checked ? "true" : "false";
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
       const failed = [];
@@ -419,24 +427,32 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#039;");
   };
 
-  async function loadLogs() {
+  async function loadLogs(page = 1) {
+    if (typeof page !== 'number') {
+      page = currentPage;
+    }
     try {
-      const res = await fetch(window.API_BASE + "/api/dashboard/trade_logs", {
+      const res = await fetch(window.API_BASE + `/api/dashboard/trade_logs?page=${page}&page_size=${PAGE_SIZE}`, {
         headers: { "X-API-Key": apiKey },
       });
       const data = await res.json();
+      
+      currentPage = data.page;
+      totalPages = data.pages;
+
       const tbody = document.querySelector("#trade-logs-table tbody");
       tbody.innerHTML = "";
 
-      if (data.length === 0) {
+      if (!data.items || data.items.length === 0) {
         tbody.innerHTML =
-          '<tr><td colspan="11" style="text-align:center; padding: 1rem;">Нет событий</td></tr>';
+          '<tr><td colspan="13" style="text-align:center; padding: 1rem;">Нет событий</td></tr>';
+        renderPagination(currentPage, totalPages, data.total || 0);
         return;
       }
 
       const rows = [];
 
-      data.forEach((log) => {
+      data.items.forEach((log) => {
         const timeStr = new Date(log.created_at).toLocaleTimeString();
         const flipColor = log.predicted_flip_prob > 0.5 ? "#00ff88" : "#ff3366";
         let statusColor = "#8F9BB3"; // SKIPPED
@@ -514,8 +530,25 @@ document.addEventListener("DOMContentLoaded", () => {
           `Колонки рассинхронизированы: ${thCount} th vs ${tdCount} td`,
         );
       }
+      renderPagination(currentPage, totalPages, data.total || 0);
     } catch (e) {
       console.error("Failed to load trade logs", e);
+    }
+  }
+
+  function renderPagination(page, pages, total) {
+    const btnPrev = document.getElementById("btn-prev");
+    const btnNext = document.getElementById("btn-next");
+    const pageInfo = document.getElementById("page-info");
+    
+    if (pageInfo) {
+      pageInfo.textContent = `Стр. ${page} из ${pages || 1} (${total} записей)`;
+    }
+    if (btnPrev) {
+      btnPrev.disabled = page <= 1;
+    }
+    if (btnNext) {
+      btnNext.disabled = page >= pages;
     }
   }
 
@@ -605,6 +638,24 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Bind pagination buttons
+  const btnPrev = document.getElementById("btn-prev");
+  const btnNext = document.getElementById("btn-next");
+  if (btnPrev) {
+    btnPrev.addEventListener("click", () => {
+      if (currentPage > 1) {
+        loadLogs(currentPage - 1);
+      }
+    });
+  }
+  if (btnNext) {
+    btnNext.addEventListener("click", () => {
+      if (currentPage < totalPages) {
+        loadLogs(currentPage + 1);
+      }
+    });
+  }
+
   // Initial fetch
   fetchStats();
   loadSettings();
@@ -617,7 +668,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window.statsIntervalId = setInterval(fetchStats, 5 * 60 * 1000);
   window.logsIntervalId = setInterval(() => {
-    loadLogs();
+    loadLogs(currentPage);
     loadActiveModels();
   }, 10000);
 });

@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 import httpx
 import json
 import structlog
+import math
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -134,18 +135,29 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     }
 
 @router.get("/api/dashboard/trade_logs", dependencies=[Depends(verify_api_key)])
-async def get_trade_logs(db: AsyncSession = Depends(get_db_session)):
-    """Возвращает последние логи торговли (успешные, фейлы и пропущенные)"""
+async def get_trade_logs(
+    db: AsyncSession = Depends(get_db_session),
+    page: int = 1,
+    page_size: int = 25
+):
+    """Возвращает последние логи торговли (успешные, фейлы и пропущенные) с пагинацией"""
+    offset = (page - 1) * page_size
+
+    # Общее кол-во записей (для кол-ва страниц)
+    count_stmt = select(func.count(TradeHistory.id))
+    total = (await db.execute(count_stmt)).scalar_one()
+
     stmt = (
         select(TradeHistory, LiveMarket.question)
         .outerjoin(LiveMarket, TradeHistory.market_id == LiveMarket.market_id)
         .order_by(TradeHistory.created_at.desc())
-        .limit(50)
+        .offset(offset)
+        .limit(page_size)
     )
     result = await db.execute(stmt)
     logs_with_questions = result.all()
     
-    return [
+    items = [
         {
             "id": log.id,
             "market_id": log.market_id,
@@ -166,6 +178,14 @@ async def get_trade_logs(db: AsyncSession = Depends(get_db_session)):
         }
         for log, question in logs_with_questions
     ]
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": math.ceil(total / page_size) if page_size > 0 else 0,
+        "items": items
+    }
 
 @router.post("/api/dashboard/verify_resolves", dependencies=[Depends(verify_api_key)])
 async def verify_resolves(db: AsyncSession = Depends(get_db_session)):

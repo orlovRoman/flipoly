@@ -1,8 +1,20 @@
 import pytest
 from unittest.mock import patch, PropertyMock
 from datetime import datetime, timezone
-from polyflip.db.models import TradeHistory, RuntimeSettings
+from polyflip.db.models import TradeHistory, RuntimeSettings, LiveMarket, ModelRegistry
 from polyflip.trading.utils import compute_kelly_multiplier
+from polyflip.trading.engine import trade_worker_cycle
+from datetime import timedelta
+from sqlalchemy import select
+from unittest.mock import MagicMock, AsyncMock
+import pickle
+
+class PickleableMockModel:
+    def __init__(self):
+        self.feature_names_in_ = ["mid_price"]
+    def predict_proba(self, X):
+        return [[0.10, 0.90]]
+
 
 def test_compute_kelly_multiplier_strong_signal():
     f, mult = compute_kelly_multiplier(p_win=0.70, buy_price=0.30)
@@ -81,3 +93,105 @@ async def test_kelly_stats_exclude_zero_fraction(db_session):
     k = stats["kelly_stats"]
     assert abs(k["avg_f"] - 0.04) < 0.001, f"Ожидали avg_f=0.04, получили {k['avg_f']}"
     assert abs(k["avg_mult"] - 1.1) < 0.01, f"Ожидали avg_mult=1.1, получили {k['avg_mult']}"
+
+@pytest.mark.asyncio
+async def test_kelly_disabled_uses_fixed_bet(db_session):
+    now = datetime.now(timezone.utc)
+    
+    # 1. Настройки в БД: KELLY_ENABLED="false"
+    db_settings = [
+        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MAX_TIME_LEFT_SEC", value="360", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_FLIP_THRESHOLD", value="0.85", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_ASSETS", value="BTC", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="KELLY_ENABLED", value="false", updated_at=now, updated_by="test")
+    ]
+    db_session.add_all(db_settings)
+
+    # 2. Создаем рынок BTC
+    market = LiveMarket(
+        market_id="m_btc_fixed", asset="BTC", question="BTC Up?",
+        current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
+        volume_5min=100.0, price_velocity=0.0,
+        end_time_est=now + timedelta(seconds=120),
+        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+    )
+    db_session.add(market)
+
+    db_session.add(ModelRegistry(
+        asset="BTC", model_blob=pickle.dumps(PickleableMockModel()), is_active=True,
+        version=1, accuracy=0.9, features="mid_price", trained_at=now
+    ))
+    await db_session.commit()
+
+    mock_trader = MagicMock()
+    mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
+    mock_api = MagicMock()
+    mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.42})
+    mock_api.close = AsyncMock()
+
+    await trade_worker_cycle(db_session, mock_trader, mock_api)
+
+    # Проверяем запись в БД
+    res = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "m_btc_fixed"))
+    trade = res.scalar_one()
+    assert trade.amount_usdc == 10.0  # Фиксированная ставка
+    assert trade.kelly_fraction is None
+    assert trade.kelly_multiplier == 1.0
+
+@pytest.mark.asyncio
+async def test_kelly_enabled_scales_bet(db_session):
+    now = datetime.now(timezone.utc)
+    
+    # 1. Настройки в БД: KELLY_ENABLED="true"
+    db_settings = [
+        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MAX_TIME_LEFT_SEC", value="360", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_FLIP_THRESHOLD", value="0.85", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_ASSETS", value="BTC", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="KELLY_ENABLED", value="true", updated_at=now, updated_by="test")
+    ]
+    db_session.add_all(db_settings)
+
+    # 2. Создаем рынок BTC
+    market = LiveMarket(
+        market_id="m_btc_kelly", asset="BTC", question="BTC Up?",
+        current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
+        volume_5min=100.0, price_velocity=0.0,
+        end_time_est=now + timedelta(seconds=120),
+        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+    )
+    db_session.add(market)
+
+    db_session.add(ModelRegistry(
+        asset="BTC", model_blob=pickle.dumps(PickleableMockModel()), is_active=True,
+        version=1, accuracy=0.9, features="mid_price", trained_at=now
+    ))
+    await db_session.commit()
+
+    mock_trader = MagicMock()
+    mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
+    mock_api = MagicMock()
+    mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.42})
+    mock_api.close = AsyncMock()
+
+    await trade_worker_cycle(db_session, mock_trader, mock_api)
+
+    # Проверяем запись в БД
+    res = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "m_btc_kelly"))
+    trade = res.scalar_one()
+    assert trade.kelly_multiplier == 2.0
+    assert trade.amount_usdc == 20.0
+    assert trade.kelly_fraction == 0.1
