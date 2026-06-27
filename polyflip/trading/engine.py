@@ -60,7 +60,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     """
     start_time = datetime.now(timezone.utc)
     
-    # 1. Загружаем торговые настройки
+    # 1. Загружаем базовые торговые настройки
     settings_keys = [
         "TRADING_ENABLED", 
         "TRADE_MIN_TIME_LEFT_SEC",
@@ -75,13 +75,22 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADE_ASSETS",
         "TRADE_CAPITAL_USDC"
     ]
-    for asset in settings.asset_list:
-        settings_keys.append(f"TRADE_FLIP_THRESHOLD_{asset.upper()}")
-        
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
     settings_db = {s.key: s.value for s in result.scalars().all()}
     
+    # Сначала определяем список торгуемых активов
+    trade_assets_str = settings_db.get("TRADE_ASSETS", settings.TRADE_ASSETS)
+    trade_assets = [a.strip() for a in trade_assets_str.split(",") if a.strip()]
+    
+    # 2. Загружаем per-asset пороги для найденных активов
+    threshold_keys = [f"TRADE_FLIP_THRESHOLD_{asset.upper()}" for asset in trade_assets]
+    if threshold_keys:
+        t_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(threshold_keys))
+        t_result = await db_session.execute(t_stmt)
+        for s in t_result.scalars().all():
+            settings_db[s.key] = s.value
+
     # Дефолтные значения из config, если нет в БД
     trading_enabled = settings_db.get("TRADING_ENABLED", str(settings.TRADING_ENABLED)).lower() == "true"
     
@@ -98,9 +107,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     trade_only_favorite = settings_db.get("TRADE_ONLY_FAVORITE", str(settings.TRADE_ONLY_FAVORITE)).lower() == "true"
     trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
     trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
-    
-    trade_assets_str = settings_db.get("TRADE_ASSETS", settings.TRADE_ASSETS)
-    trade_assets = [a.strip() for a in trade_assets_str.split(",") if a.strip()]
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
 

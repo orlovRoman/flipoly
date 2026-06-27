@@ -1,8 +1,7 @@
-import asyncio
 from datetime import datetime, timezone
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from polyflip.collector.client import PolymarketClient
 from polyflip.db.models import MarketSnapshot, LiveMarket, CollectorStatus

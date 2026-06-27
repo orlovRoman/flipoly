@@ -16,3 +16,9 @@ def test_kelly_bet_size_logic():
     # 4. Граничная цена
     bet_edge = kelly_bet_size(p_win=0.80, buy_price=0.0, capital=1000)
     assert bet_edge == 0.0, "При нулевой цене Kelly должен вернуть 0"
+
+    # 5. Проверка корректности передачи цены покупки (из замечания пользователя)
+    # Фаворит стоит 0.85, а buy_price передаётся как 0.15 (цена аутсайдера)
+    bet_correct = kelly_bet_size(0.85, 0.85, 1000)   # ≈ $0 (почти не выгодно)
+    bet_wrong   = kelly_bet_size(0.85, 0.15, 1000)   # >> $0 (завышено — неверный buy_price)
+    assert bet_correct < bet_wrong, "Kelly даёт разные результаты при одинаковой p_win — проверить buy_price"

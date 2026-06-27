@@ -1,9 +1,17 @@
+import pickle
+import numpy as np
 import pandas as pd
 import asyncio
 from datetime import datetime, timezone
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
+from sklearn.model_selection import StratifiedKFold
+from sklearn.base import clone
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score, precision_recall_curve
 
 from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.config import settings
@@ -12,15 +20,6 @@ logger = structlog.get_logger(__name__)
 
 def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
     """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
-    import numpy as np
-    from sklearn.model_selection import StratifiedKFold
-    from sklearn.base import clone
-    from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.metrics import roc_auc_score, precision_recall_curve
-    import pickle
-
     # 3. Обучаем модель с кросс-валидацией
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     base_model = Pipeline([
@@ -29,6 +28,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
     ])
     
     aucs = []
+    oof_scores = np.zeros(len(y))
     for train_index, val_index in skf.split(X, y):
         X_train, X_val = X.iloc[train_index], X.iloc[val_index]
         y_train, y_val = y.iloc[train_index], y.iloc[val_index]
@@ -37,6 +37,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
         model_clone.fit(X_train, y_train)
         
         y_proba = model_clone.predict_proba(X_val)[:, 1]
+        oof_scores[val_index] = y_proba
         aucs.append(roc_auc_score(y_val, y_proba))
         
     val_acc = float(np.mean(aucs))
@@ -51,9 +52,8 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
     ])
     final_model.fit(X, y)
     
-    # Калибровка порога
-    y_scores = final_model.predict_proba(X)[:, 1]
-    precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, y_scores)
+    # Калибровка порога с использованием Out-Of-Fold предсказаний (исключаем Data Leakage)
+    precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, oof_scores)
 
     optimal_threshold = None
     for prec, thresh in zip(precision_arr, thresholds_pr):
@@ -67,6 +67,9 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
             optimal_threshold = float(thresholds_pr[np.argmax(f1_scores)])
         else:
             optimal_threshold = 0.65
+
+    # Проверка: если leakage есть — порог будет подозрительно высоким
+    assert optimal_threshold < 0.95, f"Порог {optimal_threshold} >= 0.95 — вероятно data leakage при калибровке"
 
     # Сериализуем модель (Pipeline сохраняет скейлер внутри)
     model_bytes = pickle.dumps(final_model)

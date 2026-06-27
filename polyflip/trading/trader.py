@@ -3,7 +3,6 @@ import structlog
 import time
 import asyncio
 from typing import Optional, Dict, Any
-from datetime import datetime, timezone
 
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs, OrderType
