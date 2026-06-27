@@ -215,6 +215,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         logger.info("trade_flip_signal_skipped_only_favorite", market_id=market.market_id, p_flip=p_flip)
                         if not has_skipped_log:
                             await save_skipped_trade(db_session, market, "Flip expected, but Only Favorite is enabled", p_flip, model_ver, start_time)
+                            has_skipped_log = True
                 elif p_flip < no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
                     decision = "YES" if market.current_yes_price > 0.5 else "NO"
