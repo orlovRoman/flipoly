@@ -43,20 +43,7 @@ async def save_skipped_trade(
     )
     db_session.add(history)
 
-def kelly_bet_size(p_win: float, buy_price: float, capital: float, max_fraction: float = 0.10) -> float:
-    """
-    Критерий Келли для расчета размера ставки на бинарном рынке.
-    p_win  — вероятность выигрыша нашей ставки.
-    buy_price — цена покупки токена (от 0 до 1).
-    capital — доступный торговый капитал.
-    max_fraction — максимальный риск на одну сделку (10% по умолчанию).
-    """
-    if buy_price <= 0.0 or buy_price >= 1.0:
-        return 0.0
-    b = (1.0 - buy_price) / buy_price
-    f = (p_win * (b + 1.0) - 1.0) / b
-    f = max(0.0, min(f, max_fraction))
-    return round(capital * f, 2)
+
 
 async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_client: PolymarketClient):
     """
@@ -352,7 +339,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         reason = f"P(flip) {p_flip:.1%} is within [{current_no_flip_threshold:.1%} - {current_flip_threshold:.1%}] range"
                         await save_skipped_trade(
                             db_session, market, reason, p_flip, model_ver, start_time,
-                            kelly_fraction=0.0, kelly_multiplier=1.0
+                            kelly_fraction=None, kelly_multiplier=None
                         )
                     
     except Exception as e:

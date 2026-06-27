@@ -106,8 +106,8 @@ async def test_recommended_thresholds_api(db_session):
     from unittest.mock import PropertyMock
 
     with patch("polyflip.api.settings.async_session", dummy_session_creator), \
-         patch.object(Settings, "asset_list", new_callable=PropertyMock(return_value=["BTC", "ETH"])):
-         
+         patch.object(Settings, "asset_list", new_callable=PropertyMock) as mock_prop:
+         mock_prop.return_value = ["BTC", "ETH"]
          response = await get_recommended_thresholds()
          
          # 3. Проверяем результаты
