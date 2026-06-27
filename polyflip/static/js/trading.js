@@ -468,7 +468,14 @@ document.addEventListener("DOMContentLoaded", () => {
           multHtml = `<span style="color: ${mColor}; font-weight: bold; font-family: monospace;">${mVal.toFixed(1)}×</span>`;
         }
 
-        const betText = log.amount_usdc > 0 ? `$${parseFloat(log.amount_usdc).toFixed(2)}` : "-";
+        let outcomeBadge = "";
+        if (log.outcome_bought === "YES") {
+          outcomeBadge = `<span style="color: #00ff88; font-size: 0.8em; margin-right: 6px; padding: 2px 4px; background: rgba(0,255,136,0.1); border-radius: 4px;">UP</span>`;
+        } else if (log.outcome_bought === "NO") {
+          outcomeBadge = `<span style="color: #ff3366; font-size: 0.8em; margin-right: 6px; padding: 2px 4px; background: rgba(255,51,102,0.1); border-radius: 4px;">DOWN</span>`;
+        }
+
+        const betText = log.amount_usdc > 0 ? `${outcomeBadge}$${parseFloat(log.amount_usdc).toFixed(2)}` : "-";
 
         const logDate = new Date(log.created_at);
         const pad = (num) => String(num).padStart(2, '0');
