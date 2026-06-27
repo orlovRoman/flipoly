@@ -234,10 +234,18 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 # Шаг 3: Калибровка порога. Считываем TRADE_FLIP_THRESHOLD_{asset}
                 flip_threshold_key = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
+                has_per_asset_threshold = flip_threshold_key in settings_db
                 current_flip_threshold = float(settings_db.get(
                     flip_threshold_key,
                     settings_db.get("TRADE_FLIP_THRESHOLD", settings.TRADE_FLIP_THRESHOLD)
                 ))
+                
+                # Задаем no_flip порог: если порог per-asset, то вычисляем (flip - 0.15),
+                # иначе используем глобальный.
+                if has_per_asset_threshold:
+                    current_no_flip_threshold = round(current_flip_threshold - 0.15, 4)
+                else:
+                    current_no_flip_threshold = no_flip_threshold
                 
                 if p_flip > current_flip_threshold:
                     if not trade_only_favorite:
@@ -248,7 +256,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         if not has_skipped_log:
                             await save_skipped_trade(db_session, market, "Flip expected, but Only Favorite is enabled", p_flip, model_ver, start_time)
                             has_skipped_log = True
-                elif p_flip < no_flip_threshold:
+                elif p_flip < current_no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
                     decision = "YES" if market.current_yes_price > 0.5 else "NO"
                     
@@ -323,7 +331,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 else:
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
                     if not has_skipped_log:
-                        reason = f"P(flip) {p_flip:.1%} is within [{no_flip_threshold:.1%} - {current_flip_threshold:.1%}] range"
+                        reason = f"P(flip) {p_flip:.1%} is within [{current_no_flip_threshold:.1%} - {current_flip_threshold:.1%}] range"
                         await save_skipped_trade(db_session, market, reason, p_flip, model_ver, start_time)
                     
     except Exception as e:

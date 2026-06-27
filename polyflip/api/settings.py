@@ -48,6 +48,50 @@ async def get_all_settings():
 
     return current_settings
 
+@router.get("/recommended_thresholds")
+async def get_recommended_thresholds():
+    """
+    Возвращает рекомендованные пороги на основе текущего flip_threshold.
+    Рекомендованный no_flip = flip_threshold - 0.15.
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(RuntimeSettings).where(
+                RuntimeSettings.key.in_([
+                    "TRADE_FLIP_THRESHOLD",
+                    "TRADE_NO_FLIP_THRESHOLD",
+                    *[f"TRADE_FLIP_THRESHOLD_{a.upper()}" for a in settings.asset_list]
+                ])
+            )
+        )
+        db = {s.key: s.value for s in result.scalars().all()}
+
+    # Глобальный flip_threshold
+    global_flip = float(db.get("TRADE_FLIP_THRESHOLD", settings.TRADE_FLIP_THRESHOLD))
+    recommended_no_flip = round(global_flip - 0.15, 4)
+
+    # Per-asset
+    per_asset = {}
+    for asset in settings.asset_list:
+        key = f"TRADE_FLIP_THRESHOLD_{asset.upper()}"
+        if key in db:
+            asset_flip = float(db[key])
+            per_asset[asset] = {
+                "flip_threshold": asset_flip,
+                "recommended_no_flip": round(asset_flip - 0.15, 4),
+                "is_auto_calibrated": True  # выставлен trainer'ом
+            }
+
+    return {
+        "global": {
+            "flip_threshold": global_flip,
+            "current_no_flip": float(db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD)),
+            "recommended_no_flip": recommended_no_flip,
+            "dead_zone_pp": round((global_flip - recommended_no_flip) * 100, 1)
+        },
+        "per_asset": per_asset
+    }
+
 @router.api_route("/{key}", methods=["PUT", "POST"])
 async def update_setting(key: str, payload: SettingValue):
     """

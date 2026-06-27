@@ -206,6 +206,63 @@ document.addEventListener("DOMContentLoaded", () => {
     maxPrice: document.getElementById("TRADE_MAX_PRICE"),
   };
 
+  async function loadRecommendedThresholds() {
+    try {
+      const res = await fetch(`${window.API_BASE}/api/settings/recommended_thresholds`, {
+        headers: { "X-API-Key": apiKey }
+      });
+      const data = await res.json();
+      const g = data.global;
+
+      // Подсказка под полем no_flip
+      const hint = document.getElementById("no-flip-hint");
+      if (hint) {
+        const recPct = Math.round(g.recommended_no_flip * 100);
+        const flipPct = Math.round(g.flip_threshold * 100);
+        hint.innerHTML = `
+            Рекомендовано: <strong style="color:#00ff88">${recPct}%</strong>
+            &nbsp;(flip ${flipPct}% − 15pp мёртвая зона).
+            Текущее значение: <strong>${Math.round(g.current_no_flip * 100)}%</strong>
+            &nbsp;→ мёртвая зона: <strong>${g.dead_zone_pp} pp</strong>
+            ${g.dead_zone_pp < 10
+                ? '<span style="color:#ff3366">⚠ слишком узко</span>'
+                : g.dead_zone_pp > 25
+                    ? '<span style="color:#ffa500">⚠ слишком широко</span>'
+                    : '<span style="color:#00ff88">✓ норм</span>'}
+        `;
+      }
+
+      // Кнопка "Применить рекомендованное"
+      const btn = document.getElementById("btn-apply-recommended-no-flip");
+      if (btn) {
+        const recPct = Math.round(g.recommended_no_flip * 100);
+        btn.onclick = () => {
+          document.getElementById("TRADE_NO_FLIP_THRESHOLD").value = recPct;
+          if (hint) {
+            hint.innerHTML += ' &nbsp;<span style="color:#00ff88">↑ применено</span>';
+          }
+        };
+      }
+
+      // Per-asset пороги (автокалиброванные trainer'ом)
+      const perAssetDiv = document.getElementById("per-asset-thresholds");
+      if (perAssetDiv) {
+        if (Object.keys(data.per_asset).length > 0) {
+          perAssetDiv.innerHTML = Object.entries(data.per_asset).map(([asset, v]) =>
+            `<span style="margin-right:1rem;">
+                ${asset}: <strong>${Math.round(v.flip_threshold * 100)}%</strong>
+                <span style="color:#00ff88; font-size:0.78rem;">(auto)</span>
+            </span>`
+          ).join("");
+        } else {
+          perAssetDiv.innerHTML = "";
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to load recommended thresholds", e);
+    }
+  }
+
   async function loadSettings() {
     try {
       const res = await fetch(window.API_BASE + "/api/settings", {
@@ -256,6 +313,8 @@ document.addEventListener("DOMContentLoaded", () => {
           cb.checked = assets.includes(cb.value);
         });
       }
+
+      await loadRecommendedThresholds();
     } catch (e) {
       console.error("Failed to load settings", e);
     }
@@ -474,6 +533,11 @@ document.addEventListener("DOMContentLoaded", () => {
         link.style.pointerEvents = "auto";
       }
     });
+  }
+
+  const flipInput = document.getElementById("TRADE_FLIP_THRESHOLD");
+  if (flipInput) {
+    flipInput.addEventListener("change", loadRecommendedThresholds);
   }
 
   // Initial fetch
