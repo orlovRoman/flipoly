@@ -69,7 +69,11 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
             optimal_threshold = 0.65
 
     # Проверка: если leakage есть — порог будет подозрительно высоким
-    assert optimal_threshold < 0.95, f"Порог {optimal_threshold} >= 0.95 — вероятно data leakage при калибровке"
+    if optimal_threshold >= 0.95:
+        raise ValueError(
+            f"Подозрительный порог {optimal_threshold:.3f} >= 0.95 — "
+            "вероятно data leakage при калибровке. Проверь OOF-скоры."
+        )
 
     # Сериализуем модель (Pipeline сохраняет скейлер внутри)
     model_bytes = pickle.dumps(final_model)

@@ -206,7 +206,7 @@ document.addEventListener("DOMContentLoaded", () => {
     maxPrice: document.getElementById("TRADE_MAX_PRICE"),
   };
 
-  async function loadRecommendedThresholds() {
+  async function loadRecommendedThresholds(customFlipVal = null) {
     try {
       const res = await fetch(`${window.API_BASE}/api/settings/recommended_thresholds`, {
         headers: { "X-API-Key": apiKey }
@@ -214,19 +214,39 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
       const g = data.global;
 
+      // Если передано пользовательское значение порога флипа из инпута, используем его
+      let flipVal = g.flip_threshold;
+      if (customFlipVal !== null) {
+        flipVal = customFlipVal;
+      } else {
+        const input = document.getElementById("TRADE_FLIP_THRESHOLD");
+        if (input && input.value) {
+          flipVal = parseFloat(input.value) / 100;
+        }
+      }
+
+      const recNoFlip = Math.round((flipVal - 0.15) * 10000) / 10000;
+      const recPct = Math.round(recNoFlip * 100);
+      const flipPct = Math.round(flipVal * 100);
+
+      // Текущее значение no_flip берем из инпута, если он загружен, иначе из API
+      const noFlipInput = document.getElementById("TRADE_NO_FLIP_THRESHOLD");
+      const currentNoFlipVal = noFlipInput ? parseFloat(noFlipInput.value) / 100 : g.current_no_flip;
+      const currentNoFlipPct = Math.round(currentNoFlipVal * 100);
+      
+      const deadZonePP = parseFloat(((flipVal - currentNoFlipVal) * 100).toFixed(1));
+
       // Подсказка под полем no_flip
       const hint = document.getElementById("no-flip-hint");
       if (hint) {
-        const recPct = Math.round(g.recommended_no_flip * 100);
-        const flipPct = Math.round(g.flip_threshold * 100);
         hint.innerHTML = `
             Рекомендовано: <strong style="color:#00ff88">${recPct}%</strong>
             &nbsp;(flip ${flipPct}% − 15pp мёртвая зона).
-            Текущее значение: <strong>${Math.round(g.current_no_flip * 100)}%</strong>
-            &nbsp;→ мёртвая зона: <strong>${g.dead_zone_pp} pp</strong>
-            ${g.dead_zone_pp < 10
+            Текущее значение: <strong>${currentNoFlipPct}%</strong>
+            &nbsp;→ мёртвая зона: <strong>${deadZonePP} pp</strong>
+            ${deadZonePP < 10
                 ? '<span style="color:#ff3366">⚠ слишком узко</span>'
-                : g.dead_zone_pp > 25
+                : deadZonePP > 25
                     ? '<span style="color:#ffa500">⚠ слишком широко</span>'
                     : '<span style="color:#00ff88">✓ норм</span>'}
         `;
@@ -235,11 +255,14 @@ document.addEventListener("DOMContentLoaded", () => {
       // Кнопка "Применить рекомендованное"
       const btn = document.getElementById("btn-apply-recommended-no-flip");
       if (btn) {
-        const recPct = Math.round(g.recommended_no_flip * 100);
         btn.onclick = () => {
-          document.getElementById("TRADE_NO_FLIP_THRESHOLD").value = recPct;
-          if (hint) {
-            hint.innerHTML += ' &nbsp;<span style="color:#00ff88">↑ применено</span>';
+          if (noFlipInput) {
+            noFlipInput.value = recPct;
+            // Перерисовываем подсказку с новым значением
+            loadRecommendedThresholds(flipVal);
+            if (hint) {
+              hint.innerHTML += ' &nbsp;<span style="color:#00ff88">↑ применено</span>';
+            }
           }
         };
       }
@@ -537,7 +560,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const flipInput = document.getElementById("TRADE_FLIP_THRESHOLD");
   if (flipInput) {
-    flipInput.addEventListener("change", loadRecommendedThresholds);
+    flipInput.addEventListener("input", () => {
+      const val = parseFloat(flipInput.value) / 100;
+      if (!isNaN(val)) loadRecommendedThresholds(val);
+    });
+  }
+
+  const noFlipInput = document.getElementById("TRADE_NO_FLIP_THRESHOLD");
+  if (noFlipInput) {
+    noFlipInput.addEventListener("input", () => {
+      const flipVal = flipInput ? parseFloat(flipInput.value) / 100 : 0.85;
+      if (!isNaN(flipVal)) loadRecommendedThresholds(flipVal);
+    });
   }
 
   // Initial fetch
