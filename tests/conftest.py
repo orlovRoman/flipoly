@@ -1,6 +1,5 @@
-import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from polyflip.db.models import Base
 
 @pytest_asyncio.fixture(scope="session")

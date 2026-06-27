@@ -6,7 +6,6 @@ from unittest.mock import patch, AsyncMock
 
 from polyflip.db.models import RuntimeSettings, LiveMarket, ModelRegistry, TradeHistory
 from polyflip.trading.engine import trade_worker_cycle
-from polyflip.config import settings
 
 class MockModel:
     def __init__(self, proba):
