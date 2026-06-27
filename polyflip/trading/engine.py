@@ -12,6 +12,13 @@ from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, Trade
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.utils import compute_kelly_multiplier
+from polyflip.constants import (
+    DEAD_ZONE_WIDTH,
+    KELLY_MAX_FRACTION,
+    DAILY_LOSS_LIMIT_USDC,
+    FAVORITE_THRESHOLD,
+    TRADE_CHECK_LIMIT
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +77,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADE_BET_SIZE_USDC",
         "TRADE_NO_FLIP_THRESHOLD",
         "DEAD_ZONE_WIDTH",
+        "KELLY_MAX_FRACTION",
+        "DAILY_LOSS_LIMIT_USDC",
         "ACTIVE_FEATURES",
         "TRADE_MIN_PRICE",
         "TRADE_MAX_PRICE",
@@ -105,7 +114,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     no_flip_threshold = float(settings_db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD))
     
     
-    dead_zone = float(settings_db.get("DEAD_ZONE_WIDTH", getattr(settings, 'DEAD_ZONE_WIDTH', 0.15)))
+    dead_zone = float(settings_db.get("DEAD_ZONE_WIDTH", str(DEAD_ZONE_WIDTH)))
+    kelly_max = float(settings_db.get("KELLY_MAX_FRACTION", str(KELLY_MAX_FRACTION)))
+    daily_limit = float(settings_db.get("DAILY_LOSS_LIMIT_USDC", str(DAILY_LOSS_LIMIT_USDC)))
     trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
     trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
     
@@ -142,8 +153,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         )
 
         daily_pnl = (await db_session.execute(daily_pnl_stmt)).scalar() or 0.0
-        if daily_pnl <= -100.0:
-            logger.warning("daily_loss_limit_reached", pnl=daily_pnl, limit=-100.0)
+        if daily_pnl <= daily_limit:
+            logger.warning("daily_loss_limit_reached", pnl=daily_pnl, limit=daily_limit)
             return
             
     # Загружаем активные модели
@@ -176,7 +187,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             
             if time_left_sec > 0:
                 # Проверяем, делали ли мы уже ставку на этот рынок (или логировали пропуск)
-                trade_check = select(TradeHistory).where(TradeHistory.market_id == market.market_id).limit(5)
+                trade_check = select(TradeHistory).where(TradeHistory.market_id == market.market_id).limit(TRADE_CHECK_LIMIT)
                 existing_trades = (await db_session.execute(trade_check)).scalars().all()
                 
                 existing_statuses = [t.status for t in existing_trades]
@@ -244,7 +255,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 if p_flip < current_no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
-                    decision = "YES" if market.current_yes_price > 0.5 else "NO"
+                    decision = "YES" if market.current_yes_price > FAVORITE_THRESHOLD else "NO"
                     
                 if decision:
                     logger.info("trade_decision_made", market_id=market.market_id, p_flip=p_flip, decision=decision)
@@ -283,7 +294,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     
                     kelly_enabled = settings_db.get("KELLY_ENABLED", "true").lower() == "true"
                     if kelly_enabled:
-                        kelly_f, kelly_multiplier = compute_kelly_multiplier(p_win, buy_price, max_fraction=0.10)
+                        kelly_f, kelly_multiplier = compute_kelly_multiplier(p_win, buy_price, max_fraction=kelly_max)
                         actual_bet_size = round(bet_size * kelly_multiplier, 2)
                     else:
                         kelly_f = None

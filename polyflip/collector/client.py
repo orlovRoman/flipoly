@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 from datetime import datetime, timezone
 import structlog
 import json
+from polyflip.constants import HTTP_TIMEOUT_SEC, VOLUME_WINDOW_MIN
 
 logger = structlog.get_logger(__name__)
 
@@ -11,7 +12,7 @@ class PolymarketClient:
     CLOB_API = "https://clob.polymarket.com"
 
     def __init__(self):
-        self.client = httpx.AsyncClient(timeout=10.0)
+        self.client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SEC)
 
     async def close(self):
         await self.client.aclose()
@@ -144,7 +145,7 @@ class PolymarketClient:
             logger.error("error_fetching_clob_book", market_id=yes_token_id, error=str(e))
             return {}
 
-    async def get_recent_trades_volume(self, yes_token_id: str, minutes: int = 5) -> float:
+    async def get_recent_trades_volume(self, yes_token_id: str, minutes: int = VOLUME_WINDOW_MIN) -> float:
         """
         Получает историю сделок из CLOB API и суммирует объем за последние N минут.
         Используется для вычисления volume_5min (BUG-003).

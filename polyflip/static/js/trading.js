@@ -225,6 +225,8 @@ document.addEventListener("DOMContentLoaded", () => {
     betSize: document.getElementById("TRADE_BET_SIZE_USDC"),
     noFlipThreshold: document.getElementById("TRADE_NO_FLIP_THRESHOLD"),
     deadZoneWidth: document.getElementById("DEAD_ZONE_WIDTH"),
+    kellyMaxFraction: document.getElementById("KELLY_MAX_FRACTION"),
+    dailyLossLimit: document.getElementById("DAILY_LOSS_LIMIT_USDC"),
     tradingEnabled: document.getElementById("TRADING_ENABLED"),
     initialCapital: document.getElementById("INITIAL_CAPITAL"),
     minPrice: document.getElementById("TRADE_MIN_PRICE"),
@@ -323,6 +325,13 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.DEAD_ZONE_WIDTH);
         settingsElements.deadZoneWidth.value = Math.round(val * 100);
       }
+      if (settingsElements.kellyMaxFraction && data.KELLY_MAX_FRACTION) {
+        let val = parseFloat(data.KELLY_MAX_FRACTION);
+        settingsElements.kellyMaxFraction.value = Math.round(val * 100);
+      }
+      if (settingsElements.dailyLossLimit && data.DAILY_LOSS_LIMIT_USDC) {
+        settingsElements.dailyLossLimit.value = data.DAILY_LOSS_LIMIT_USDC;
+      }
       if (settingsElements.tradingEnabled && data.TRADING_ENABLED) {
         settingsElements.tradingEnabled.checked =
           data.TRADING_ENABLED === "true";
@@ -373,6 +382,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
       if (settingsElements.noFlipThreshold) settingsToSave.TRADE_NO_FLIP_THRESHOLD = parseFloat(settingsElements.noFlipThreshold.value) / 100;
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
+      if (settingsElements.kellyMaxFraction) settingsToSave.KELLY_MAX_FRACTION = parseFloat(settingsElements.kellyMaxFraction.value) / 100;
+      if (settingsElements.dailyLossLimit) settingsToSave.DAILY_LOSS_LIMIT_USDC = settingsElements.dailyLossLimit.value;
       if (settingsElements.tradingEnabled) settingsToSave.TRADING_ENABLED = settingsElements.tradingEnabled.checked ? "true" : "false";
       if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;

@@ -15,16 +15,22 @@ from sklearn.metrics import roc_auc_score, precision_recall_curve
 
 from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.config import settings
+from polyflip.constants import (
+    CV_N_SPLITS,
+    CV_RANDOM_STATE,
+    MIN_PRECISION_FOR_THRESHOLD,
+    MAX_SUSPICIOUS_THRESHOLD
+)
 
 logger = structlog.get_logger(__name__)
 
 def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
     # 3. Обучаем модель с кросс-валидацией
-    gkf = GroupKFold(n_splits=5)
+    gkf = GroupKFold(n_splits=CV_N_SPLITS)
     base_model = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight="balanced", random_state=42, max_iter=1000))
+        ("model", LogisticRegression(class_weight="balanced", random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
     
     aucs = []
@@ -48,15 +54,15 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     # Обучаем финальную модель на всех данных
     final_model = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight="balanced", random_state=42, max_iter=1000))
+        ("model", LogisticRegression(class_weight="balanced", random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
     final_model.fit(X, y)
     
     # Калибровка порога с использованием Out-Of-Fold предсказаний (исключаем Data Leakage)
     precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, oof_scores)
 
-    # Найти порог с лучшим F1 среди тех где precision >= 0.60
-    valid_mask = precision_arr[:-1] >= 0.60
+    # Найти порог с лучшим F1 среди тех где precision >= MIN_PRECISION_FOR_THRESHOLD
+    valid_mask = precision_arr[:-1] >= MIN_PRECISION_FOR_THRESHOLD
     if valid_mask.any():
         f1 = 2 * (precision_arr[:-1] * recall_arr[:-1]) / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
         f1_filtered = np.where(valid_mask, f1, 0)
@@ -69,9 +75,9 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
             optimal_threshold = 0.65
 
     # Проверка: если leakage есть — порог будет подозрительно высоким
-    if optimal_threshold >= 0.95:
+    if optimal_threshold >= MAX_SUSPICIOUS_THRESHOLD:
         raise ValueError(
-            f"Подозрительный порог {optimal_threshold:.3f} >= 0.95 — "
+            f"Подозрительный порог {optimal_threshold:.3f} >= {MAX_SUSPICIOUS_THRESHOLD:.2f} — "
             "вероятно data leakage при калибровке. Проверь OOF-скоры."
         )
 

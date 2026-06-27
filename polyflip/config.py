@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+from polyflip.constants import DEAD_ZONE_WIDTH as _DEFAULT_DEAD_ZONE
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://polyflip:secret@db/polyflip"
@@ -18,8 +19,7 @@ class Settings(BaseSettings):
     TRADE_MAX_TIME_LEFT_SEC: int = 360
     TRADE_BET_SIZE_USDC: float = 10.0
     TRADE_NO_FLIP_THRESHOLD: float = 0.15
-    # TRADE_FLIP_THRESHOLD: float = 0.85  # DEPRECATED: use DEAD_ZONE_WIDTH
-    DEAD_ZONE_WIDTH: float = 0.15
+    DEAD_ZONE_WIDTH: float = _DEFAULT_DEAD_ZONE
     TRADING_ENABLED: bool = False
     TRADE_ASSETS: str = "BTC,ETH"
     INITIAL_CAPITAL: float = 1000.0

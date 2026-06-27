@@ -8,6 +8,7 @@ from polyflip.db.connection import async_session
 from polyflip.db.models import RuntimeSettings
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
+from polyflip.constants import KELLY_MAX_FRACTION, DAILY_LOSS_LIMIT_USDC
 
 logger = structlog.get_logger(__name__)
 
@@ -30,6 +31,8 @@ async def get_all_settings():
         "TRADE_BET_SIZE_USDC": str(settings.TRADE_BET_SIZE_USDC),
         "TRADE_NO_FLIP_THRESHOLD": str(settings.TRADE_NO_FLIP_THRESHOLD),
         "DEAD_ZONE_WIDTH": str(getattr(settings, 'DEAD_ZONE_WIDTH', 0.15)),
+        "KELLY_MAX_FRACTION": str(KELLY_MAX_FRACTION),
+        "DAILY_LOSS_LIMIT_USDC": str(DAILY_LOSS_LIMIT_USDC),
         "TRADING_ENABLED": "true" if settings.TRADING_ENABLED else "false",
         "INITIAL_CAPITAL": str(getattr(settings, 'INITIAL_CAPITAL', 100.0)),
         "TRADE_MIN_PRICE": str(getattr(settings, 'TRADE_MIN_PRICE', 0.05)),
@@ -101,6 +104,8 @@ async def update_setting(key: str, payload: SettingValue):
         "TRADE_BET_SIZE_USDC", 
         "TRADE_NO_FLIP_THRESHOLD", 
         "DEAD_ZONE_WIDTH", 
+        "KELLY_MAX_FRACTION",
+        "DAILY_LOSS_LIMIT_USDC",
         "TRADING_ENABLED",
         "INITIAL_CAPITAL",
         "TRADE_MIN_PRICE",
@@ -113,7 +118,7 @@ async def update_setting(key: str, payload: SettingValue):
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
     # Валидация и нормализация порогов вероятности флипа и мертвой зоны
-    if key in ["TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH"]:
+    if key in ["TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH", "KELLY_MAX_FRACTION"]:
         try:
             val = float(payload.value)
             if val < 0.0 or val > 100.0:
@@ -123,6 +128,16 @@ async def update_setting(key: str, payload: SettingValue):
                 payload.value = str(val / 100.0)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
+
+    if key == "DAILY_LOSS_LIMIT_USDC":
+        try:
+            val = float(payload.value)
+            if val >= 0.0:
+                raise HTTPException(status_code=400, detail="DAILY_LOSS_LIMIT_USDC must be strictly negative (e.g., -100)")
+            if val < -100000.0:
+                raise HTTPException(status_code=400, detail="Daily loss limit is too large (> $100k)")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Value for DAILY_LOSS_LIMIT_USDC must be a number")
 
     async with async_session() as session:
         result = await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))

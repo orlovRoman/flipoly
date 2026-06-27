@@ -64,11 +64,19 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
 
+from polyflip.db.connection import async_session
+from polyflip.db.init_runtime_settings import seed_runtime_settings
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("application_startup")
     if settings.API_KEY == "test-key":
         logger.warning("API key is set to insecure default 'test-key'. Please change it in production.")
+    
+    # Запускаем автопосев настроек в БД
+    async with async_session() as session:
+        await seed_runtime_settings(session)
+        
     yield
 
 app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)
