@@ -24,11 +24,11 @@ def test_compute_kelly_multiplier_strong_signal():
 def test_compute_kelly_multiplier_weak_signal():
     f, mult = compute_kelly_multiplier(p_win=0.40, buy_price=0.50)
     assert f == 0.0
-    assert mult == 0.5  # штраф за нулевой edge
+    assert mult == 1.0  # штраф за нулевой edge
 
 def test_compute_kelly_multiplier_boundary_price():
     f, mult = compute_kelly_multiplier(p_win=0.80, buy_price=0.0)
-    assert f == 0.0 and mult == 0.5  # деление на 0 → безопасный fallback
+    assert f == 0.0 and mult == 1.0  # деление на 0 → безопасный fallback
 
 def test_compute_kelly_multiplier_max_fraction():
     f, mult = compute_kelly_multiplier(p_win=0.99, buy_price=0.01)
@@ -44,11 +44,11 @@ def test_capital_not_referenced():
     assert len(lines) == 0, f"Найдены строки с 'capital' в trade_worker_cycle: {lines}"
 
 def test_kelly_multiplier_range():
-    # kelly_f = 0.0  → multiplier = 0.5 (штраф за слабый сигнал)
-    # kelly_f = 0.05 → multiplier = 1.25
+    # kelly_f = 0.0  → multiplier = 1.0 (штраф за слабый сигнал)
+    # kelly_f = 0.05 → multiplier = 1.5
     # kelly_f = 0.10 → multiplier = 2.0
-    for kelly_f, expected in [(0.0, 0.5), (0.05, 1.25), (0.10, 2.0)]:
-        mult = 0.5 + (kelly_f / 0.10) * 1.5
+    for kelly_f, expected in [(0.0, 1.0), (0.05, 1.5), (0.10, 2.0)]:
+        mult = 1.0 + (kelly_f / 0.10)
         assert abs(mult - expected) < 0.01
 
 @pytest.mark.asyncio
@@ -60,17 +60,17 @@ async def test_kelly_stats_exclude_zero_fraction(db_session):
     db_session.add(RuntimeSettings(key="INITIAL_CAPITAL", value="1000", updated_at=datetime.now(timezone.utc), updated_by="test"))
     
     now = datetime.now(timezone.utc)
-    # Создаём 1 SUCCESS с kelly_fraction=0.08, kelly_multiplier=1.7
+    # Создаём 1 SUCCESS с kelly_fraction=0.08, kelly_multiplier=1.8
     t1 = TradeHistory(
-        market_id="m1", asset="BTC", outcome_bought="YES", amount_usdc=17.0, executed_price=0.5,
+        market_id="m1", asset="BTC", outcome_bought="YES", amount_usdc=18.0, executed_price=0.5,
         predicted_flip_prob=0.8, active_features="", status="SUCCESS", pnl=10.0,
-        kelly_fraction=0.08, kelly_multiplier=1.7, created_at=now
+        kelly_fraction=0.08, kelly_multiplier=1.8, created_at=now
     )
-    # Создаём 1 SUCCESS с kelly_fraction=0.0, kelly_multiplier=0.5 (легитимная сделка с нулевым edge)
+    # Создаём 1 SUCCESS с kelly_fraction=0.0, kelly_multiplier=1.0 (легитимная сделка с нулевым edge)
     t2 = TradeHistory(
-        market_id="m2", asset="BTC", outcome_bought="YES", amount_usdc=5.0, executed_price=0.5,
+        market_id="m2", asset="BTC", outcome_bought="YES", amount_usdc=10.0, executed_price=0.5,
         predicted_flip_prob=0.5, active_features="", status="SUCCESS", pnl=2.0,
-        kelly_fraction=0.0, kelly_multiplier=0.5, created_at=now
+        kelly_fraction=0.0, kelly_multiplier=1.0, created_at=now
     )
     # Создаём 5 SKIPPED с kelly_fraction=None, kelly_multiplier=None
     skipped_trades = [
@@ -92,7 +92,7 @@ async def test_kelly_stats_exclude_zero_fraction(db_session):
         
     k = stats["kelly_stats"]
     assert abs(k["avg_f"] - 0.04) < 0.001, f"Ожидали avg_f=0.04, получили {k['avg_f']}"
-    assert abs(k["avg_mult"] - 1.1) < 0.01, f"Ожидали avg_mult=1.1, получили {k['avg_mult']}"
+    assert abs(k["avg_mult"] - 1.4) < 0.01, f"Ожидали avg_mult=1.4, получили {k['avg_mult']}"
 
 @pytest.mark.asyncio
 async def test_kelly_disabled_uses_fixed_bet(db_session):

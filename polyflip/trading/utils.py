@@ -12,12 +12,12 @@ def compute_kelly_multiplier(
     Возвращает:
         tuple[float, float]: (kelly_fraction, kelly_multiplier)
         kelly_fraction: от 0.0 до max_fraction
-        kelly_multiplier: от 0.5 до 2.0
+        kelly_multiplier: от 1.0 до 2.0
     """
     if buy_price <= 0.0 or buy_price >= 1.0:
-        return 0.0, 0.5
+        return 0.0, 1.0
     b = (1.0 - buy_price) / buy_price
     f = (p_win * (b + 1.0) - 1.0) / b
     f = max(0.0, min(f, max_fraction))
-    multiplier = 0.5 + (f / max_fraction) * 1.5
+    multiplier = 1.0 + (f / max_fraction)
     return round(f, 4), round(multiplier, 2)
