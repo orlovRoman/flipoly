@@ -22,25 +22,19 @@ async def save_or_update_skipped_trade(
     p_flip_val: float,
     model_version: Optional[int],
     start_time: datetime,
+    existing_skipped: Optional[TradeHistory] = None,
     kelly_fraction: Optional[float] = None,
     kelly_multiplier: Optional[float] = None
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
-    stmt = select(TradeHistory).where(
-        TradeHistory.market_id == market.market_id,
-        TradeHistory.status == "SKIPPED"
-    ).limit(1)
-    res = await db_session.execute(stmt)
-    existing = res.scalar_one_or_none()
-    
-    if existing:
-        if existing.error_msg != reason or existing.predicted_flip_prob != p_flip_val:
-            existing.error_msg = reason
-            existing.predicted_flip_prob = p_flip_val
-            existing.model_version = model_version
-            existing.kelly_fraction = kelly_fraction
-            existing.kelly_multiplier = kelly_multiplier
-            existing.created_at = start_time
+    if existing_skipped:
+        if existing_skipped.error_msg != reason or existing_skipped.predicted_flip_prob != p_flip_val:
+            existing_skipped.error_msg = reason
+            existing_skipped.predicted_flip_prob = p_flip_val
+            existing_skipped.model_version = model_version
+            existing_skipped.kelly_fraction = kelly_fraction
+            existing_skipped.kelly_multiplier = kelly_multiplier
+            existing_skipped.updated_at = start_time
     else:
         history = TradeHistory(
             market_id=market.market_id,
@@ -182,11 +176,14 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             
             if time_left_sec > 0:
                 # Проверяем, делали ли мы уже ставку на этот рынок (или логировали пропуск)
-                trade_check = select(TradeHistory.status).where(TradeHistory.market_id == market.market_id)
-                existing_statuses = (await db_session.execute(trade_check)).scalars().all()
+                trade_check = select(TradeHistory).where(TradeHistory.market_id == market.market_id)
+                existing_trades = (await db_session.execute(trade_check)).scalars().all()
                 
-                if "SUCCESS" in existing_statuses or "LIVE" in existing_statuses or "FAILED" in existing_statuses:
+                existing_statuses = [t.status for t in existing_trades]
+                if any(s in ("SUCCESS", "LIVE", "FAILED") for s in existing_statuses):
                     continue
+                    
+                existing_skipped = next((t for t in existing_trades if t.status == "SKIPPED"), None)
                     
                 if market.asset not in trade_assets:
                     logger.info("trade_skipped_asset_not_enabled", asset=market.asset)
@@ -198,12 +195,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 if not model:
                     logger.warning("no_active_model_for_trade", asset=market.asset, market_id=market.market_id)
-                    await save_or_update_skipped_trade(db_session, market, "No active model", 0.0, model_ver, start_time)
+                    await save_or_update_skipped_trade(db_session, market, "No active model", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
                     continue
                     
                 if not m_features:
                     logger.warning("model_has_no_features", asset=market.asset, version=model_ver)
-                    await save_or_update_skipped_trade(db_session, market, f"Model v{model_ver} has no features", 0.0, model_ver, start_time)
+                    await save_or_update_skipped_trade(db_session, market, f"Model v{model_ver} has no features", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
                     continue
                     
                 # Формируем X
@@ -223,7 +220,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     X_real = df_features[m_features]
                 except KeyError as e:
                     logger.error("trade_engine_missing_features", error=str(e))
-                    await save_or_update_skipped_trade(db_session, market, f"Missing features: {str(e)}", 0.0, model_ver, start_time)
+                    await save_or_update_skipped_trade(db_session, market, f"Missing features: {str(e)}", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
                     continue
                 
                 # Предсказываем вероятность флипа (класс 1)
@@ -254,7 +251,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         decision = "NO" if market.current_yes_price > 0.5 else "YES"
                     else:
                         logger.info("trade_flip_signal_skipped_only_favorite", market_id=market.market_id, p_flip=p_flip)
-                        await save_or_update_skipped_trade(db_session, market, "Flip expected, but Only Favorite is enabled", p_flip, model_ver, start_time)
+                        await save_or_update_skipped_trade(db_session, market, "Flip expected, but Only Favorite is enabled", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
                         continue
                 elif p_flip < current_no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
@@ -269,7 +266,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     
                     if not yes_token_id or not no_token_id or yes_token_id == 'N/A' or no_token_id == 'N/A':
                         logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
-                        await save_or_update_skipped_trade(db_session, market, "Token IDs missing in DB", p_flip, model_ver, start_time)
+                        await save_or_update_skipped_trade(db_session, market, "Token IDs missing in DB", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
                         continue
                         
                     token_to_buy = yes_token_id if decision == "YES" else no_token_id
@@ -283,7 +280,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     
                     if buy_price < trade_min_price or buy_price > trade_max_price:
                         logger.warning("trade_skipped_price_out_of_range", price=buy_price, min=trade_min_price, max=trade_max_price)
-                        await save_or_update_skipped_trade(db_session, market, f"Price out of range: {buy_price}", p_flip, model_ver, start_time)
+                        await save_or_update_skipped_trade(db_session, market, f"Price out of range: {buy_price}", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
                         continue
                         
                     # Шаг 4: Вычисляем размер ставки по критерию Келли
@@ -337,6 +334,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     reason = f"P(flip) {p_flip:.1%} is within [{current_no_flip_threshold:.1%} - {current_flip_threshold:.1%}] range"
                     await save_or_update_skipped_trade(
                         db_session, market, reason, p_flip, model_ver, start_time,
+                        existing_skipped=existing_skipped,
                         kelly_fraction=None, kelly_multiplier=None
                     )
                     

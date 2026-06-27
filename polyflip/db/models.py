@@ -100,6 +100,7 @@ class TradeHistory(Base):
     pnl = Column(Float, nullable=True)
     kelly_fraction = Column(Float, nullable=True)       # 0.0 – 0.10
     kelly_multiplier = Column(Float, nullable=True)     # 1.0 – 2.0
+    updated_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
     
     __table_args__ = (

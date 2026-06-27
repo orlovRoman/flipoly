@@ -28,7 +28,7 @@ def test_capital_not_referenced():
     import polyflip.trading.engine as engine_module
     
     source = inspect.getsource(engine_module.trade_worker_cycle)
-    lines = [l for l in source.split('\n') if 'capital' in l and '#' not in l]
+    lines = [line for line in source.split('\n') if 'capital' in line and '#' not in line]
     assert len(lines) == 0, f"Найдены строки с 'capital' в trade_worker_cycle: {lines}"
 
 def test_kelly_multiplier_range():
