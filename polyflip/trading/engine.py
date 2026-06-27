@@ -304,7 +304,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     kelly_f = min(kelly_f, max_fraction)
                     kelly_f = max(0.0, kelly_f)
                     
-                    kelly_multiplier = 1.0 + (kelly_f / max_fraction)  # от 1.0x до 2.0x
+                    kelly_multiplier = 0.5 + (kelly_f / max_fraction) * 1.5  # от 0.5x до 2.0x
                     actual_bet_size = round(bet_size * kelly_multiplier, 2)
                     
                     logger.info(

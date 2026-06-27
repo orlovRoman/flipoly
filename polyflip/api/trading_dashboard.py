@@ -134,7 +134,9 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
         func.max(TradeHistory.kelly_fraction).label("max_f")
     ).where(
         TradeHistory.created_at >= today_start,
-        TradeHistory.status.in_(["SUCCESS", "SKIPPED"])
+        TradeHistory.status.in_(["SUCCESS", "SKIPPED"]),
+        TradeHistory.kelly_fraction.is_not(None),
+        TradeHistory.kelly_fraction > 0.0
     )
     res_kelly = await db.execute(stmt_kelly)
     kelly_row = res_kelly.first()
