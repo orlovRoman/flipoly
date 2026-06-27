@@ -275,6 +275,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     # Цена = лучший Ask. Запрашиваем книгу именно для того токена, который покупаем
                     fresh_prices = await api_client.get_market_prices(token_to_buy)
                     if not fresh_prices:
+                        logger.warning("no_fresh_prices", market_id=market.market_id)
+                        await save_or_update_skipped_trade(
+                            db_session, market, "No fresh prices from API",
+                            p_flip, model_ver, start_time,
+                            existing_skipped=existing_skipped
+                        )
                         continue
                         
                     buy_price = fresh_prices.get("best_ask", 0)
