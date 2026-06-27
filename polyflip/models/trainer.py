@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import GroupKFold
 from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -18,10 +18,10 @@ from polyflip.config import settings
 
 logger = structlog.get_logger(__name__)
 
-def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
+def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
     # 3. Обучаем модель с кросс-валидацией
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    gkf = GroupKFold(n_splits=5)
     base_model = Pipeline([
         ("scaler", StandardScaler()),
         ("model", LogisticRegression(class_weight="balanced", random_state=42))
@@ -29,7 +29,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series):
     
     aucs = []
     oof_scores = np.zeros(len(y))
-    for train_index, val_index in skf.split(X, y):
+    for train_index, val_index in gkf.split(X, y, groups=groups):
         X_train, X_val = X.iloc[train_index], X.iloc[val_index]
         y_train, y_val = y.iloc[train_index], y.iloc[val_index]
         
@@ -134,6 +134,7 @@ class ModelTrainer:
         data = []
         for s in snapshots:
             data.append({
+                "market_id": s.market_id,
                 "time_left_min": s.time_left_min,
                 "mid_price": s.mid_price,
                 "spread": s.spread,
@@ -160,9 +161,10 @@ class ModelTrainer:
             
         X = df[active_features]
         y = df["target"]
+        groups = df["market_id"]
 
         # Выполняем CPU-bound обучение в отдельном потоке (BUG-A2 FIX)
-        fit_res = await asyncio.to_thread(_fit_and_serialize, X, y)
+        fit_res = await asyncio.to_thread(_fit_and_serialize, X, y, groups)
         model_bytes, val_acc, baseline_acc, optimal_threshold = fit_res
 
         logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc)
