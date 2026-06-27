@@ -75,7 +75,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADE_MIN_PRICE",
         "TRADE_MAX_PRICE",
         "TRADE_ASSETS",
-        "TRADE_CAPITAL_USDC",
+        "TRADE_CAPITAL_USDC",  # Зарезервировано для будущего Kelly по % от капитала
         "KELLY_ENABLED"
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))

@@ -7,21 +7,19 @@ from unittest.mock import MagicMock, AsyncMock
 from polyflip.db.models import RuntimeSettings, LiveMarket, ModelRegistry, TradeHistory
 from polyflip.trading.engine import trade_worker_cycle
 
-# Глобальная переменная для динамического управления вероятностью флипа в тестах
-TEST_PROB_YES = 0.50
 
 class DynamicMockModel:
-    def __init__(self):
+    def __init__(self, prob_yes: float = 0.50):
+        self.prob_yes = prob_yes
         self.feature_names_in_ = ["mid_price"]
+
     def predict_proba(self, X):
-        global TEST_PROB_YES
-        return [[1.0 - TEST_PROB_YES, TEST_PROB_YES]]
+        return [[1.0 - self.prob_yes, self.prob_yes]]
 
 
 @pytest.mark.asyncio
 async def test_skipped_then_signal_appears(db_session):
     """Тест: бот пропустил рынок на первом тике (SKIPPED), а на втором появился сильный сигнал — бот должен войти."""
-    global TEST_PROB_YES
     now = datetime.now(timezone.utc)
 
     # 1. Настройки
@@ -50,9 +48,10 @@ async def test_skipped_then_signal_appears(db_session):
     )
     db_session.add(market)
 
-    # 3. Регистрируем модель
+    # 3. Регистрируем модель с начальной вероятностью 0.50
+    mock_model = DynamicMockModel(prob_yes=0.50)
     db_session.add(ModelRegistry(
-        asset="BTC", model_blob=pickle.dumps(DynamicMockModel()), is_active=True,
+        asset="BTC", model_blob=pickle.dumps(mock_model), is_active=True,
         version=1, accuracy=0.9, features="mid_price", trained_at=now
     ))
     await db_session.commit()
@@ -67,7 +66,6 @@ async def test_skipped_then_signal_appears(db_session):
     # ---------------------------------------------------------
     # Цикл 1: p_flip = 0.50 (внутри диапазона пропуска) -> SKIPPED
     # ---------------------------------------------------------
-    TEST_PROB_YES = 0.50
     await trade_worker_cycle(db_session, mock_trader, mock_api)
 
     # Проверяем запись в БД
@@ -80,7 +78,13 @@ async def test_skipped_then_signal_appears(db_session):
     # ---------------------------------------------------------
     # Цикл 2: p_flip = 0.90 (выше порога 0.85) -> SUCCESS
     # ---------------------------------------------------------
-    TEST_PROB_YES = 0.90
+    # Обновляем модель в БД новой вероятностью 0.90
+    res_reg = await db_session.execute(select(ModelRegistry).where(ModelRegistry.asset == "BTC"))
+    registry = res_reg.scalar_one()
+    mock_model.prob_yes = 0.90
+    registry.model_blob = pickle.dumps(mock_model)
+    await db_session.commit()
+
     await trade_worker_cycle(db_session, mock_trader, mock_api)
 
     # Проверяем запись в БД: старый SKIPPED должен удалиться, новый SUCCESS записаться
@@ -94,7 +98,6 @@ async def test_skipped_then_signal_appears(db_session):
 @pytest.mark.asyncio
 async def test_no_double_entry(db_session):
     """Тест: после SUCCESS бот не входит повторно в рынок."""
-    global TEST_PROB_YES
     now = datetime.now(timezone.utc)
 
     # 1. Настройки
@@ -123,9 +126,10 @@ async def test_no_double_entry(db_session):
     )
     db_session.add(market)
 
-    # 3. Регистрируем модель
+    # 3. Регистрируем модель с вероятностью 0.90
+    mock_model = DynamicMockModel(prob_yes=0.90)
     db_session.add(ModelRegistry(
-        asset="ETH", model_blob=pickle.dumps(DynamicMockModel()), is_active=True,
+        asset="ETH", model_blob=pickle.dumps(mock_model), is_active=True,
         version=1, accuracy=0.9, features="mid_price", trained_at=now
     ))
     await db_session.commit()
@@ -140,7 +144,6 @@ async def test_no_double_entry(db_session):
     # ---------------------------------------------------------
     # Цикл 1: p_flip = 0.90 -> SUCCESS
     # ---------------------------------------------------------
-    TEST_PROB_YES = 0.90
     await trade_worker_cycle(db_session, mock_trader, mock_api)
 
     res = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "m_double"))
@@ -151,7 +154,13 @@ async def test_no_double_entry(db_session):
     # ---------------------------------------------------------
     # Цикл 2: p_flip = 0.95 (еще сильнее сигнал) -> Должен пропустить, так как уже зашли
     # ---------------------------------------------------------
-    TEST_PROB_YES = 0.95
+    # Обновляем модель в БД новой вероятностью 0.95
+    res_reg = await db_session.execute(select(ModelRegistry).where(ModelRegistry.asset == "ETH"))
+    registry = res_reg.scalar_one()
+    mock_model.prob_yes = 0.95
+    registry.model_blob = pickle.dumps(mock_model)
+    await db_session.commit()
+
     await trade_worker_cycle(db_session, mock_trader, mock_api)
 
     # В базе должна остаться ровно ОДНА запись со статусом SUCCESS
@@ -160,3 +169,6 @@ async def test_no_double_entry(db_session):
     assert len(trades) == 1
     assert trades[0].status == "SUCCESS"
     assert trades[0].predicted_flip_prob == 0.90  # значение не обновилось
+
+    # Трейдер должен быть вызван ровно один раз за все время
+    assert mock_trader.execute_trade.call_count == 1
