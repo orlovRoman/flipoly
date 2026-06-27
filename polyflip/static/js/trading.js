@@ -49,6 +49,19 @@ document.addEventListener("DOMContentLoaded", () => {
     elements.winrate.textContent = `${data.winrate}%`;
     elements.wl.textContent = `${data.wins_vs_losses.wins} / ${data.wins_vs_losses.losses}`;
 
+    // Update Avg Kelly Today
+    if (data.kelly_stats) {
+      const k = data.kelly_stats;
+      const avgKellyDiv = document.getElementById("stat-avg-kelly");
+      const kellyRangeDiv = document.getElementById("stat-kelly-range");
+      if (avgKellyDiv) {
+        avgKellyDiv.textContent = `f̄ = ${k.avg_f.toFixed(3)} (×${k.avg_mult.toFixed(1)})`;
+      }
+      if (kellyRangeDiv) {
+        kellyRangeDiv.textContent = `Range: ${k.min_f.toFixed(2)} – ${k.max_f.toFixed(2)}`;
+      }
+    }
+
     // Update Asset Table
     elements.assetTable.innerHTML = "";
     for (const [asset, stat] of Object.entries(data.assets)) {
@@ -444,9 +457,18 @@ document.addEventListener("DOMContentLoaded", () => {
           pnlColor = pnlVal >= 0 ? "#00ff88" : "#ff3366";
         }
 
-        let outcomeText = "-";
-        if (log.outcome_bought === "YES") outcomeText = "UP";
-        if (log.outcome_bought === "NO") outcomeText = "DOWN";
+        const kellyFraction = log.kelly_fraction !== null && log.kelly_fraction !== undefined
+          ? `<span style="color: #8F9BB3;">${parseFloat(log.kelly_fraction).toFixed(3)}</span>`
+          : "-";
+
+        let multHtml = "-";
+        if (log.kelly_multiplier !== null && log.kelly_multiplier !== undefined) {
+          const mVal = parseFloat(log.kelly_multiplier);
+          const mColor = mVal >= 1.7 ? "#00ff88" : (mVal >= 1.3 ? "#ffb020" : "#8F9BB3");
+          multHtml = `<span style="color: ${mColor}; font-weight: bold; font-family: monospace;">${mVal.toFixed(1)}×</span>`;
+        }
+
+        const betText = log.amount_usdc > 0 ? `$${parseFloat(log.amount_usdc).toFixed(2)}` : "-";
 
         const logDate = new Date(log.created_at);
         const pad = (num) => String(num).padStart(2, '0');
@@ -460,7 +482,9 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
                         <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
-                        <td style="padding: 8px; font-weight: bold; color: ${outcomeText === "UP" ? "#00ff88" : (outcomeText === "DOWN" ? "#ff3366" : "inherit")}">${outcomeText}</td>
+                        <td style="padding: 8px; font-weight: 500;">${kellyFraction}</td>
+                        <td style="padding: 8px;">${multHtml}</td>
+                        <td style="padding: 8px; font-weight: bold; color: var(--text-main);">${betText}</td>
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? "$" + parseFloat(log.executed_price).toFixed(3) : "-"}</td>
                         <td style="padding: 8px; color: ${pnlColor}; font-weight: 600;">${pnlText}</td>
                         <td style="padding: 8px; color: ${flipColor};">${(log.predicted_flip_prob * 100).toFixed(1)}%</td>

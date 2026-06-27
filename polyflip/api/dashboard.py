@@ -160,6 +160,8 @@ async def get_trade_logs(db: AsyncSession = Depends(get_db_session)):
             "error_msg": log.error_msg,
             "mode": getattr(log, 'mode', 'LIVE'),
             "pnl": getattr(log, 'pnl', None),
+            "kelly_fraction": getattr(log, 'kelly_fraction', None),
+            "kelly_multiplier": getattr(log, 'kelly_multiplier', None),
             "created_at": log.created_at.isoformat()
         }
         for log, question in logs_with_questions

@@ -20,7 +20,9 @@ async def save_skipped_trade(
     reason: str,
     p_flip_val: float,
     model_version: Optional[int],
-    start_time: datetime
+    start_time: datetime,
+    kelly_fraction: Optional[float] = None,
+    kelly_multiplier: Optional[float] = None
 ):
     """Сохраняет запись о пропуске сделки в БД."""
     history = TradeHistory(
@@ -35,6 +37,8 @@ async def save_skipped_trade(
         status="SKIPPED",
         error_msg=reason,
         mode="LIVE" if bool(os.getenv("POLYGON_PRIVATE_KEY") and os.getenv("POLYGON_ADDRESS")) else "PAPER",
+        kelly_fraction=kelly_fraction,
+        kelly_multiplier=kelly_multiplier,
         created_at=start_time
     )
     db_session.add(history)
@@ -102,7 +106,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     bet_size = float(settings_db.get("TRADE_BET_SIZE_USDC", settings.TRADE_BET_SIZE_USDC))
     no_flip_threshold = float(settings_db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD))
     
-    capital = float(settings_db.get("TRADE_CAPITAL_USDC", bet_size * 20.0))
     
     trade_only_favorite = settings_db.get("TRADE_ONLY_FAVORITE", str(settings.TRADE_ONLY_FAVORITE)).lower() == "true"
     trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
@@ -292,14 +295,27 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     is_flip_bet = (p_flip > current_flip_threshold)
                     p_win = p_flip if is_flip_bet else (1.0 - p_flip)
                     
-                    actual_bet_size = kelly_bet_size(p_win, buy_price, capital)
-                    if actual_bet_size < 1.0:  # минимальная ставка $1
-                        logger.info("kelly_bet_too_small", p_flip=p_flip, buy_price=buy_price, bet_size=actual_bet_size)
-                        if not has_skipped_log:
-                            await save_skipped_trade(db_session, market, f"Kelly bet too small: ${actual_bet_size}", p_flip, model_ver, start_time)
-                            has_skipped_log = True
-                        continue
-                        
+                    max_fraction = 0.10
+                    b = (1.0 - buy_price) / buy_price
+                    if b > 0:
+                        kelly_f = (p_win * (b + 1) - 1) / b
+                    else:
+                        kelly_f = 0.0
+                    kelly_f = min(kelly_f, max_fraction)
+                    kelly_f = max(0.0, kelly_f)
+                    
+                    kelly_multiplier = 1.0 + (kelly_f / max_fraction)  # от 1.0x до 2.0x
+                    actual_bet_size = round(bet_size * kelly_multiplier, 2)
+                    
+                    logger.info(
+                        "kelly_calculated",
+                        p_win=round(p_win, 3),
+                        buy_price=buy_price,
+                        kelly_f=round(kelly_f, 4),
+                        kelly_multiplier=round(kelly_multiplier, 2),
+                        actual_bet_size=actual_bet_size,
+                    )
+                    
                     # Кол-во акций = size / price
                     num_shares = round(actual_bet_size / buy_price, 2)
                     
@@ -325,6 +341,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         status=trade_res.get("status", "FAILED"),
                         error_msg=trade_res.get("error_msg"),
                         mode=trade_res.get("mode", "PAPER"),
+                        kelly_fraction=round(kelly_f, 4),
+                        kelly_multiplier=round(kelly_multiplier, 2),
                         created_at=start_time
                     )
                     db_session.add(history)
@@ -332,7 +350,10 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
                     if not has_skipped_log:
                         reason = f"P(flip) {p_flip:.1%} is within [{current_no_flip_threshold:.1%} - {current_flip_threshold:.1%}] range"
-                        await save_skipped_trade(db_session, market, reason, p_flip, model_ver, start_time)
+                        await save_skipped_trade(
+                            db_session, market, reason, p_flip, model_ver, start_time,
+                            kelly_fraction=0.0, kelly_multiplier=1.0
+                        )
                     
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))
