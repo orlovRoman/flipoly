@@ -224,16 +224,15 @@ document.addEventListener("DOMContentLoaded", () => {
     maxTimeLeft: document.getElementById("TRADE_MAX_TIME_LEFT_SEC"),
     betSize: document.getElementById("TRADE_BET_SIZE_USDC"),
     noFlipThreshold: document.getElementById("TRADE_NO_FLIP_THRESHOLD"),
-    flipThreshold: document.getElementById("TRADE_FLIP_THRESHOLD"),
+    deadZoneWidth: document.getElementById("DEAD_ZONE_WIDTH"),
     tradingEnabled: document.getElementById("TRADING_ENABLED"),
     initialCapital: document.getElementById("INITIAL_CAPITAL"),
-    onlyFavorite: document.getElementById("TRADE_ONLY_FAVORITE"),
     minPrice: document.getElementById("TRADE_MIN_PRICE"),
     maxPrice: document.getElementById("TRADE_MAX_PRICE"),
     kellyEnabled: document.getElementById("KELLY_ENABLED"),
   };
 
-  async function loadRecommendedThresholds(customFlipVal = null) {
+  async function loadRecommendedThresholds() {
     try {
       const res = await fetch(`${window.API_BASE}/api/settings/recommended_thresholds`, {
         headers: { "X-API-Key": apiKey }
@@ -241,57 +240,46 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
       const g = data.global;
 
-      // Если передано пользовательское значение порога флипа из инпута, используем его
-      let flipVal = g.flip_threshold;
-      if (customFlipVal !== null) {
-        flipVal = customFlipVal;
-      } else {
-        const input = document.getElementById("TRADE_FLIP_THRESHOLD");
-        if (input && input.value) {
-          flipVal = parseFloat(input.value) / 100;
-        }
-      }
-
-      const recNoFlip = Math.round((flipVal - 0.15) * 10000) / 10000;
-      const recPct = Math.round(recNoFlip * 100);
-      const flipPct = Math.round(flipVal * 100);
+      // Получаем dead_zone из инпута или API
+      const deadZoneInput = document.getElementById("DEAD_ZONE_WIDTH");
+      const deadZoneVal = deadZoneInput ? parseFloat(deadZoneInput.value) / 100 : g.dead_zone;
+      const deadZonePct = Math.round(deadZoneVal * 100);
 
       // Текущее значение no_flip берем из инпута, если он загружен, иначе из API
       const noFlipInput = document.getElementById("TRADE_NO_FLIP_THRESHOLD");
       const currentNoFlipVal = noFlipInput ? parseFloat(noFlipInput.value) / 100 : g.current_no_flip;
       const currentNoFlipPct = Math.round(currentNoFlipVal * 100);
       
-      const deadZonePP = parseFloat(((flipVal - currentNoFlipVal) * 100).toFixed(1));
+      const firstAsset = Object.keys(data.per_asset)[0];
+      const recPct = firstAsset ? Math.round(data.per_asset[firstAsset].recommended_no_flip * 100) : 70;
 
       // Подсказка под полем no_flip
       const hint = document.getElementById("no-flip-hint");
       if (hint) {
         hint.innerHTML = `
-            Рекомендовано: <strong style="color:#00ff88">${recPct}%</strong>
-            &nbsp;(flip ${flipPct}% − 15pp мёртвая зона).
             Текущее значение: <strong>${currentNoFlipPct}%</strong>
-            &nbsp;→ мёртвая зона: <strong>${deadZonePP} pp</strong>
-            ${deadZonePP < 10
-                ? '<span style="color:#ff3366">⚠ слишком узко</span>'
-                : deadZonePP > 25
-                    ? '<span style="color:#ffa500">⚠ слишком широко</span>'
-                    : '<span style="color:#00ff88">✓ норм</span>'}
+            &nbsp;(Ширина мёртвой зоны: <strong>${deadZonePct}%</strong>).
+            ${firstAsset ? `Рекомендовано для ${firstAsset}: <strong style="color:#00ff88">${recPct}%</strong>` : ""}
         `;
       }
 
       // Кнопка "Применить рекомендованное"
       const btn = document.getElementById("btn-apply-recommended-no-flip");
       if (btn) {
-        btn.onclick = () => {
-          if (noFlipInput) {
-            noFlipInput.value = recPct;
-            // Перерисовываем подсказку с новым значением
-            loadRecommendedThresholds(flipVal);
-            if (hint) {
-              hint.innerHTML += ' &nbsp;<span style="color:#00ff88">↑ применено</span>';
+        if (firstAsset) {
+          btn.style.display = "inline-block";
+          btn.onclick = () => {
+            if (noFlipInput) {
+              noFlipInput.value = recPct;
+              loadRecommendedThresholds();
+              if (hint) {
+                hint.innerHTML += ' &nbsp;<span style="color:#00ff88">↑ применено</span>';
+              }
             }
-          }
-        };
+          };
+        } else {
+          btn.style.display = "none";
+        }
       }
 
       // Per-asset пороги (автокалиброванные trainer'ом)
@@ -300,7 +288,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (Object.keys(data.per_asset).length > 0) {
           perAssetDiv.innerHTML = Object.entries(data.per_asset).map(([asset, v]) =>
             `<span style="margin-right:1rem;">
-                ${asset}: <strong>${Math.round(v.flip_threshold * 100)}%</strong>
+                ${asset}: <strong>${Math.round(v.recommended_no_flip * 100)}%</strong>
                 <span style="color:#00ff88; font-size:0.78rem;">(auto)</span>
             </span>`
           ).join("");
@@ -331,10 +319,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (val > 1) val /= 100;
         settingsElements.noFlipThreshold.value = Math.round(val * 100);
       }
-      if (settingsElements.flipThreshold && data.TRADE_FLIP_THRESHOLD) {
-        let val = parseFloat(data.TRADE_FLIP_THRESHOLD);
-        if (val > 1) val /= 100;
-        settingsElements.flipThreshold.value = Math.round(val * 100);
+      if (settingsElements.deadZoneWidth && data.DEAD_ZONE_WIDTH) {
+        let val = parseFloat(data.DEAD_ZONE_WIDTH);
+        settingsElements.deadZoneWidth.value = Math.round(val * 100);
       }
       if (settingsElements.tradingEnabled && data.TRADING_ENABLED) {
         settingsElements.tradingEnabled.checked =
@@ -349,9 +336,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (settingsElements.initialCapital && data.INITIAL_CAPITAL)
         settingsElements.initialCapital.value = data.INITIAL_CAPITAL;
-      if (settingsElements.onlyFavorite && data.TRADE_ONLY_FAVORITE)
-        settingsElements.onlyFavorite.checked =
-          data.TRADE_ONLY_FAVORITE === "true";
       if (settingsElements.minPrice && data.TRADE_MIN_PRICE)
         settingsElements.minPrice.value = data.TRADE_MIN_PRICE;
       if (settingsElements.maxPrice && data.TRADE_MAX_PRICE)
@@ -388,10 +372,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxTimeLeft) settingsToSave.TRADE_MAX_TIME_LEFT_SEC = settingsElements.maxTimeLeft.value;
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
       if (settingsElements.noFlipThreshold) settingsToSave.TRADE_NO_FLIP_THRESHOLD = parseFloat(settingsElements.noFlipThreshold.value) / 100;
-      if (settingsElements.flipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.flipThreshold.value) / 100;
+      if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
       if (settingsElements.tradingEnabled) settingsToSave.TRADING_ENABLED = settingsElements.tradingEnabled.checked ? "true" : "false";
       if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
-      if (settingsElements.onlyFavorite) settingsToSave.TRADE_ONLY_FAVORITE = settingsElements.onlyFavorite.checked ? "true" : "false";
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
       if (settingsElements.kellyEnabled) settingsToSave.KELLY_ENABLED = settingsElements.kellyEnabled.checked ? "true" : "false";

@@ -16,21 +16,20 @@ class MockModel:
 
 @pytest.mark.asyncio
 async def test_engine_dynamic_no_flip_threshold(db_session):
-    # Тестируем, что no_flip_threshold для ассета пересчитывается как (flip_threshold - 0.15)
+    # Тестируем, что no_flip_threshold для ассета пересчитывается как (flip_threshold - DEAD_ZONE_WIDTH)
     now = datetime.now(timezone.utc)
     
     # 1. Задаем настройки в БД:
-    # Глобальный flip_threshold = 0.85, глобальный no_flip = 0.15 (но он должен переопределиться!)
+    # Глобальный no_flip = 0.15 (но он должен переопределиться!)
     # Для BTC задаем per-asset flip_threshold = 0.60.
     # Значит, для BTC рекомендованный и применяемый no_flip порог должен стать 0.60 - 0.15 = 0.45.
     db_settings = [
         RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_ONLY_FAVORITE", value="false", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_TIME_LEFT_SEC", value="360", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_FLIP_THRESHOLD", value="0.85", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_FLIP_THRESHOLD_BTC", value="0.60", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_ASSETS", value="BTC", updated_at=now, updated_by="test"),
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
@@ -83,7 +82,7 @@ async def test_recommended_thresholds_api(db_session):
     # 1. Задаем настройки в нашей тестовой БД (db_session)
     now = datetime.now(timezone.utc)
     db_settings = [
-        RuntimeSettings(key="TRADE_FLIP_THRESHOLD", value="0.80", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.20", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_FLIP_THRESHOLD_BTC", value="0.65", updated_at=now, updated_by="test"),
     ]
@@ -111,10 +110,8 @@ async def test_recommended_thresholds_api(db_session):
          response = await get_recommended_thresholds()
          
          # 3. Проверяем результаты
-         assert response["global"]["flip_threshold"] == 0.80
+         assert response["global"]["dead_zone"] == 0.15
          assert response["global"]["current_no_flip"] == 0.20
-         assert response["global"]["recommended_no_flip"] == 0.65 # 0.80 - 0.15
-         assert response["global"]["dead_zone_pp"] == 15.0 # (0.80 - 0.65) * 100
          
          assert "BTC" in response["per_asset"]
          assert response["per_asset"]["BTC"]["flip_threshold"] == 0.65
@@ -125,18 +122,17 @@ async def test_recommended_thresholds_api(db_session):
 
 @pytest.mark.asyncio
 async def test_only_favorite_skips_flip_signal(db_session):
-    """При TRADE_ONLY_FAVORITE=True и p_flip > threshold → SKIPPED, не TRADE"""
+    """При высоком p_flip → сделка пропускается со статусом Ожидается флип"""
     now = datetime.now(timezone.utc)
     
     # 1. Задаем настройки в БД:
     db_settings = [
         RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_ONLY_FAVORITE", value="true", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_TIME_LEFT_SEC", value="360", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_FLIP_THRESHOLD", value="0.85", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_ASSETS", value="BTC", updated_at=now, updated_by="test"),
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
@@ -146,8 +142,7 @@ async def test_only_favorite_skips_flip_signal(db_session):
 
     # 2. Создаем рынок BTC. У него current_yes_price = 0.3 (аутсайдер).
     # YES фаворит - NO, так как его цена 0.7.
-    # Если мы ждем флип (p_flip = 0.90 > 0.85), мы должны покупать YES (аутсайдера).
-    # Но так как включен ONLY_FAVORITE, мы должны скипнуть эту ставку.
+    # Если мы ждем флип (p_flip = 0.90 > calibrated_val = 0.30), сделка должна пропускаться
     market = LiveMarket(
         market_id="m_btc_fav", asset="BTC", question="BTC Up?",
         current_yes_price=0.3, current_no_price=0.7, current_spread=0.01,
@@ -177,6 +172,6 @@ async def test_only_favorite_skips_flip_signal(db_session):
     # Должна быть ровно одна запись о пропуске
     assert len(trades) == 1
     assert trades[0].status == "SKIPPED"
-    assert "Only Favorite is enabled" in trades[0].error_msg
+    assert "Ожидается флип" in trades[0].error_msg
     assert trades[0].predicted_flip_prob == 0.90
     assert mock_trader.execute_trade.call_count == 0

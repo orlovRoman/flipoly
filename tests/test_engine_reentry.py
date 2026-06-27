@@ -78,10 +78,10 @@ async def test_skipped_then_signal_appears(db_session):
     # ---------------------------------------------------------
     # Цикл 2: p_flip = 0.90 (выше порога 0.85) -> SUCCESS
     # ---------------------------------------------------------
-    # Обновляем модель в БД новой вероятностью 0.90
+    # Обновляем модель в БД новой вероятностью 0.05 (высокая уверенность в фаворите)
     res_reg = await db_session.execute(select(ModelRegistry).where(ModelRegistry.asset == "BTC"))
     registry = res_reg.scalar_one()
-    mock_model.prob_yes = 0.90
+    mock_model.prob_yes = 0.05
     registry.model_blob = pickle.dumps(mock_model)
     await db_session.commit()
 
@@ -92,7 +92,7 @@ async def test_skipped_then_signal_appears(db_session):
     trades = res.scalars().all()
     assert len(trades) == 1
     assert trades[0].status == "SUCCESS"
-    assert trades[0].predicted_flip_prob == 0.90
+    assert trades[0].predicted_flip_prob == 0.05
 
 
 @pytest.mark.asyncio
@@ -126,8 +126,8 @@ async def test_no_double_entry(db_session):
     )
     db_session.add(market)
 
-    # 3. Регистрируем модель с вероятностью 0.90
-    mock_model = DynamicMockModel(prob_yes=0.90)
+    # 3. Регистрируем модель с вероятностью 0.05
+    mock_model = DynamicMockModel(prob_yes=0.05)
     db_session.add(ModelRegistry(
         asset="ETH", model_blob=pickle.dumps(mock_model), is_active=True,
         version=1, accuracy=0.9, features="mid_price", trained_at=now
@@ -154,10 +154,10 @@ async def test_no_double_entry(db_session):
     # ---------------------------------------------------------
     # Цикл 2: p_flip = 0.95 (еще сильнее сигнал) -> Должен пропустить, так как уже зашли
     # ---------------------------------------------------------
-    # Обновляем модель в БД новой вероятностью 0.95
+    # Обновляем модель в БД новой вероятностью 0.02 (еще сильнее сигнал)
     res_reg = await db_session.execute(select(ModelRegistry).where(ModelRegistry.asset == "ETH"))
     registry = res_reg.scalar_one()
-    mock_model.prob_yes = 0.95
+    mock_model.prob_yes = 0.02
     registry.model_blob = pickle.dumps(mock_model)
     await db_session.commit()
 
@@ -168,7 +168,7 @@ async def test_no_double_entry(db_session):
     trades = res.scalars().all()
     assert len(trades) == 1
     assert trades[0].status == "SUCCESS"
-    assert trades[0].predicted_flip_prob == 0.90  # значение не обновилось
+    assert trades[0].predicted_flip_prob == 0.05  # значение не обновилось
 
     # Трейдер должен быть вызван ровно один раз за все время
     assert mock_trader.execute_trade.call_count == 1

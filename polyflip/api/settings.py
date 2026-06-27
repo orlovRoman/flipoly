@@ -29,10 +29,9 @@ async def get_all_settings():
         "TRADE_MAX_TIME_LEFT_SEC": str(getattr(settings, 'TRADE_MAX_TIME_LEFT_SEC', 360)),
         "TRADE_BET_SIZE_USDC": str(settings.TRADE_BET_SIZE_USDC),
         "TRADE_NO_FLIP_THRESHOLD": str(settings.TRADE_NO_FLIP_THRESHOLD),
-        "TRADE_FLIP_THRESHOLD": str(settings.TRADE_FLIP_THRESHOLD),
+        "DEAD_ZONE_WIDTH": str(getattr(settings, 'DEAD_ZONE_WIDTH', 0.15)),
         "TRADING_ENABLED": "true" if settings.TRADING_ENABLED else "false",
         "INITIAL_CAPITAL": str(getattr(settings, 'INITIAL_CAPITAL', 100.0)),
-        "TRADE_ONLY_FAVORITE": "true" if getattr(settings, 'TRADE_ONLY_FAVORITE', False) else "false",
         "TRADE_MIN_PRICE": str(getattr(settings, 'TRADE_MIN_PRICE', 0.05)),
         "TRADE_MAX_PRICE": str(getattr(settings, 'TRADE_MAX_PRICE', 0.95)),
         "TRADE_ASSETS": str(getattr(settings, 'TRADE_ASSETS', 'BTC,ETH')),
@@ -52,14 +51,14 @@ async def get_all_settings():
 @router.get("/recommended_thresholds")
 async def get_recommended_thresholds():
     """
-    Возвращает рекомендованные пороги на основе текущего flip_threshold.
-    Рекомендованный no_flip = flip_threshold - 0.15.
+    Возвращает рекомендованные пороги.
+    Рекомендованный no_flip = flip_threshold - DEAD_ZONE_WIDTH.
     """
     async with async_session() as session:
         result = await session.execute(
             select(RuntimeSettings).where(
                 RuntimeSettings.key.in_([
-                    "TRADE_FLIP_THRESHOLD",
+                    "DEAD_ZONE_WIDTH",
                     "TRADE_NO_FLIP_THRESHOLD",
                     *[f"TRADE_FLIP_THRESHOLD_{a.upper()}" for a in settings.asset_list]
                 ])
@@ -67,9 +66,7 @@ async def get_recommended_thresholds():
         )
         db = {s.key: s.value for s in result.scalars().all()}
 
-    # Глобальный flip_threshold
-    global_flip = float(db.get("TRADE_FLIP_THRESHOLD", settings.TRADE_FLIP_THRESHOLD))
-    recommended_no_flip = round(global_flip - 0.15, 4)
+    dead_zone = float(db.get("DEAD_ZONE_WIDTH", getattr(settings, 'DEAD_ZONE_WIDTH', 0.15)))
 
     # Per-asset
     per_asset = {}
@@ -79,16 +76,14 @@ async def get_recommended_thresholds():
             asset_flip = float(db[key])
             per_asset[asset] = {
                 "flip_threshold": asset_flip,
-                "recommended_no_flip": round(asset_flip - 0.15, 4),
+                "recommended_no_flip": round(asset_flip - dead_zone, 4),
                 "is_auto_calibrated": True  # выставлен trainer'ом
             }
 
     return {
         "global": {
-            "flip_threshold": global_flip,
+            "dead_zone": dead_zone,
             "current_no_flip": float(db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD)),
-            "recommended_no_flip": recommended_no_flip,
-            "dead_zone_pp": round((global_flip - recommended_no_flip) * 100, 1)
         },
         "per_asset": per_asset
     }
@@ -105,10 +100,9 @@ async def update_setting(key: str, payload: SettingValue):
         "TRADE_MAX_TIME_LEFT_SEC",
         "TRADE_BET_SIZE_USDC", 
         "TRADE_NO_FLIP_THRESHOLD", 
-        "TRADE_FLIP_THRESHOLD", 
+        "DEAD_ZONE_WIDTH", 
         "TRADING_ENABLED",
         "INITIAL_CAPITAL",
-        "TRADE_ONLY_FAVORITE",
         "TRADE_MIN_PRICE",
         "TRADE_MAX_PRICE",
         "TRADE_ASSETS",
@@ -118,8 +112,8 @@ async def update_setting(key: str, payload: SettingValue):
     if key not in valid_keys:
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
-    # Валидация и нормализация порогов вероятности флипа
-    if key in ["TRADE_NO_FLIP_THRESHOLD", "TRADE_FLIP_THRESHOLD"]:
+    # Валидация и нормализация порогов вероятности флипа и мертвой зоны
+    if key in ["TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH"]:
         try:
             val = float(payload.value)
             if val < 0.0 or val > 100.0:

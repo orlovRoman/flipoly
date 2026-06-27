@@ -13,7 +13,7 @@ class PickleableMockModel:
     def __init__(self):
         self.feature_names_in_ = ["mid_price"]
     def predict_proba(self, X):
-        return [[0.10, 0.90]]
+        return [[0.95, 0.05]]
 
 
 def test_compute_kelly_multiplier_strong_signal():

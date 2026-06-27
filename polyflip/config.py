@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     TRADE_BET_SIZE_USDC: float = 10.0
     TRADE_NO_FLIP_THRESHOLD: float = 0.15
     TRADE_FLIP_THRESHOLD: float = 0.85
+    DEAD_ZONE_WIDTH: float = 0.15
     TRADING_ENABLED: bool = False
     TRADE_ASSETS: str = "BTC,ETH"
     INITIAL_CAPITAL: float = 1000.0

@@ -69,9 +69,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADE_MAX_TIME_LEFT_SEC",
         "TRADE_BET_SIZE_USDC",
         "TRADE_NO_FLIP_THRESHOLD",
-        "TRADE_FLIP_THRESHOLD",
+        "DEAD_ZONE_WIDTH",
         "ACTIVE_FEATURES",
-        "TRADE_ONLY_FAVORITE",
         "TRADE_MIN_PRICE",
         "TRADE_MAX_PRICE",
         "TRADE_ASSETS",
@@ -106,7 +105,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     no_flip_threshold = float(settings_db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD))
     
     
-    trade_only_favorite = settings_db.get("TRADE_ONLY_FAVORITE", str(settings.TRADE_ONLY_FAVORITE)).lower() == "true"
+    dead_zone = float(settings_db.get("DEAD_ZONE_WIDTH", getattr(settings, 'DEAD_ZONE_WIDTH', 0.15)))
     trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
     trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
     
@@ -234,27 +233,15 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 # Шаг 3: Калибровка порога. Считываем TRADE_FLIP_THRESHOLD_{asset}
                 flip_threshold_key = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
                 has_per_asset_threshold = flip_threshold_key in settings_db
-                current_flip_threshold = float(settings_db.get(
-                    flip_threshold_key,
-                    settings_db.get("TRADE_FLIP_THRESHOLD", settings.TRADE_FLIP_THRESHOLD)
-                ))
                 
-                # Задаем no_flip порог: если порог per-asset, то вычисляем (flip - 0.15),
-                # иначе используем глобальный.
                 if has_per_asset_threshold:
-                    current_no_flip_threshold = round(current_flip_threshold - 0.15, 4)
+                    calibrated_val = float(settings_db[flip_threshold_key])
                 else:
-                    current_no_flip_threshold = no_flip_threshold
+                    calibrated_val = no_flip_threshold + dead_zone
+                    
+                current_no_flip_threshold = round(calibrated_val - dead_zone, 4)
                 
-                if p_flip > current_flip_threshold:
-                    if not trade_only_favorite:
-                        # Модель ждет флип. Покупаем аутсайдера.
-                        decision = "NO" if market.current_yes_price > 0.5 else "YES"
-                    else:
-                        logger.info("trade_flip_signal_skipped_only_favorite", market_id=market.market_id, p_flip=p_flip)
-                        await save_or_update_skipped_trade(db_session, market, "Flip expected, but Only Favorite is enabled", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
-                        continue
-                elif p_flip < current_no_flip_threshold:
+                if p_flip < current_no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
                     decision = "YES" if market.current_yes_price > 0.5 else "NO"
                     
@@ -291,8 +278,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         continue
                         
                     # Шаг 4: Вычисляем размер ставки по критерию Келли
-                    is_flip_bet = (p_flip > current_flip_threshold)
-                    p_win = p_flip if is_flip_bet else (1.0 - p_flip)
+                    p_win = 1.0 - p_flip
                     
                     kelly_enabled = settings_db.get("KELLY_ENABLED", "true").lower() == "true"
                     if kelly_enabled:
@@ -349,7 +335,10 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     db_session.add(history)
                 else:
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
-                    reason = f"P(flip) {p_flip:.1%} is within [{current_no_flip_threshold:.1%} - {current_flip_threshold:.1%}] range"
+                    if p_flip >= calibrated_val:
+                        reason = f"Ожидается флип: P(flip)={p_flip:.1%} >= порог флипа {calibrated_val:.1%}"
+                    else:
+                        reason = f"Мёртвая зона: P(flip)={p_flip:.1%} в [{current_no_flip_threshold:.1%}–{calibrated_val:.1%}]"
                     await save_or_update_skipped_trade(
                         db_session, market, reason, p_flip, model_ver, start_time,
                         existing_skipped=existing_skipped,
