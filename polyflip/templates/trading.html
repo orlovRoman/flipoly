@@ -112,8 +112,61 @@
                     </div>
                 </div>
 
-                <!-- Trading Settings -->
+                <!-- LOGS SECTION -->
                 <div class="stat-card" style="margin-top: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3>Журнал событий торгового движка</h3>
+                        <button class="btn btn-outline" id="btn-refresh-logs">Обновить логи</button>
+                    </div>
+                    <div style="max-height: 400px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 1rem; border: 1px solid var(--border-color); font-family: monospace; font-size: 0.9rem;">
+                        <table style="width: 100%; border-collapse: collapse;" id="trade-logs-table">
+                            <thead>
+                                <tr style="text-align: left; border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
+                                    <th style="padding: 8px;">Мин. отрезка</th>
+                                    <th style="padding: 8px;">Время (UTC)</th>
+                                    <th style="padding: 8px; min-width: 150px;">Вопрос</th>
+                                    <th style="padding: 8px;">Актив</th>
+                                    <th style="padding: 8px;">Модель</th>
+                                    <th style="padding: 8px;">Статус</th>
+                                    <th style="padding: 8px;">Kelly f</th>
+                                    <th style="padding: 8px;">Mult</th>
+                                    <th style="padding: 8px;">Ставка</th>
+                                    <th style="padding: 8px;">Цена</th>
+                                    <th style="padding: 8px;">PnL</th>
+                                    <th style="padding: 8px;">Flip %</th>
+                                    <th style="padding: 8px;">Причина / Ошибка</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- JS will populate -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination-bar" style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding: 0.5rem 0;">
+                        <button class="btn outline-btn" id="btn-prev" style="padding: 0.5rem 1rem;">← Назад</button>
+                        <span id="page-info" style="color: var(--text-muted); font-size: 0.9rem;">Стр. 1 из 1 (0 записей)</span>
+                        <button class="btn outline-btn" id="btn-next" style="padding: 0.5rem 1rem;">Вперёд →</button>
+                    </div>
+                </div>
+                
+
+                <!-- Trading Settings -->
+                <div class="stat-card" style="margin-top: 1.5rem; max-width: 800px; margin-left: auto; margin-right: auto;">
+                    <style>
+                        #trading-settings-form .form-group label {
+                            font-size: 0.85rem !important;
+                            color: var(--text-muted) !important;
+                            font-weight: 500 !important;
+                            margin-bottom: 0.4rem !important;
+                        }
+                        #trading-settings-form .form-group input {
+                            font-size: 0.9rem !important;
+                            padding: 0.6rem 0.85rem !important;
+                        }
+                        #trading-settings-form .form-group small {
+                            font-size: 0.8rem !important;
+                        }
+                    </style>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                         <h3>Торговые настройки</h3>
                         <button id="btn-save-trading-settings" class="btn primary-btn">Сохранить настройки</button>
@@ -220,43 +273,6 @@
                             <label for="KELLY_ENABLED" style="margin: 0; cursor: pointer; font-weight: normal;">Размер ставки по Kelly (динамический ×1.0–2.0)</label>
                         </div>
                     </form>
-                </div>
-                
-                <!-- LOGS SECTION -->
-                <div class="stat-card" style="margin-top: 1.5rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                        <h3>Журнал событий торгового движка</h3>
-                        <button class="btn btn-outline" id="btn-refresh-logs">Обновить логи</button>
-                    </div>
-                    <div style="max-height: 400px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 1rem; border: 1px solid var(--border-color); font-family: monospace; font-size: 0.9rem;">
-                        <table style="width: 100%; border-collapse: collapse;" id="trade-logs-table">
-                            <thead>
-                                <tr style="text-align: left; border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
-                                    <th style="padding: 8px;">Мин. отрезка</th>
-                                    <th style="padding: 8px;">Время (UTC)</th>
-                                    <th style="padding: 8px; min-width: 150px;">Вопрос</th>
-                                    <th style="padding: 8px;">Актив</th>
-                                    <th style="padding: 8px;">Модель</th>
-                                    <th style="padding: 8px;">Статус</th>
-                                    <th style="padding: 8px;">Kelly f</th>
-                                    <th style="padding: 8px;">Mult</th>
-                                    <th style="padding: 8px;">Ставка</th>
-                                    <th style="padding: 8px;">Цена</th>
-                                    <th style="padding: 8px;">PnL</th>
-                                    <th style="padding: 8px;">Flip %</th>
-                                    <th style="padding: 8px;">Причина / Ошибка</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <!-- JS will populate -->
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="pagination-bar" style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding: 0.5rem 0;">
-                        <button class="btn outline-btn" id="btn-prev" style="padding: 0.5rem 1rem;">← Назад</button>
-                        <span id="page-info" style="color: var(--text-muted); font-size: 0.9rem;">Стр. 1 из 1 (0 записей)</span>
-                        <button class="btn outline-btn" id="btn-next" style="padding: 0.5rem 1rem;">Вперёд →</button>
-                    </div>
                 </div>
                 
             </section>
