@@ -220,6 +220,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Trading Settings Logic
   // ----------------------------------------------------
   const settingsElements = {
+    apiKeyInput: document.getElementById("API_KEY"),
     minTimeLeft: document.getElementById("TRADE_MIN_TIME_LEFT_SEC"),
     maxTimeLeft: document.getElementById("TRADE_MAX_TIME_LEFT_SEC"),
     betSize: document.getElementById("TRADE_BET_SIZE_USDC"),
@@ -236,6 +237,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function loadRecommendedThresholds() {
     try {
+      if (settingsElements.apiKeyInput) {
+        settingsElements.apiKeyInput.value = apiKey;
+      }
       const res = await fetch(`${window.API_BASE}/api/settings/recommended_thresholds`, {
         headers: { "X-API-Key": apiKey }
       });
@@ -375,6 +379,12 @@ document.addEventListener("DOMContentLoaded", () => {
       )
         .map((cb) => cb.value)
         .join(",");
+
+      if (settingsElements.apiKeyInput) {
+        const newKey = settingsElements.apiKeyInput.value.trim() || "test-key";
+        localStorage.setItem("polyflip_api_key", newKey);
+        apiKey = newKey; // update local scope variable
+      }
 
       const settingsToSave = {};
       if (settingsElements.minTimeLeft) settingsToSave.TRADE_MIN_TIME_LEFT_SEC = settingsElements.minTimeLeft.value;

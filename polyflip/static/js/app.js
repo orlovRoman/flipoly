@@ -354,7 +354,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Save Settings
-  const btnSaveSettings = document.getElementById("btn-save-settings");
+  const btnSaveSettings = document.getElementById("btn-save-ml-settings");
   if (btnSaveSettings) {
     btnSaveSettings.addEventListener("click", async (e) => {
       e.preventDefault();

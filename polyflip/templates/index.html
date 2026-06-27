@@ -32,7 +32,6 @@
                 <li class="nav-item active" data-tab="analytics">Аналитика</li>
                 <li class="nav-item" data-tab="models">Модели ML</li>
                 <li class="nav-item" data-tab="status">Статус Парсера</li>
-                <li class="nav-item" data-tab="settings">Настройки</li>
                 <li class="nav-item" data-href="/trading">Торговля (PnL)</li>
             </ul>
         </nav>
@@ -147,6 +146,22 @@
                         </table>
                     </div>
                 </div>
+
+                <div class="panel" style="margin-top: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h3 style="margin: 0;">Выбор параметров для ML-модели</h3>
+                        <button id="btn-save-ml-settings" class="btn primary-btn">Сохранить</button>
+                    </div>
+                    <div class="checkbox-group" id="ml-features">
+                        <label><input type="checkbox" value="time_left_min"> Время до конца (мин)</label>
+                        <label><input type="checkbox" value="mid_price"> Текущая цена (mid_price)</label>
+                        <label><input type="checkbox" value="spread"> Спред</label>
+                        <label><input type="checkbox" value="volume_5min"> Объем за 5 минут</label>
+                        <label><input type="checkbox" value="price_velocity"> Скорость изменения цены</label>
+                        <label><input type="checkbox" value="hour_of_day"> Час дня</label>
+                        <small>Включите только нужные параметры и нажмите "Сохранить", затем "Запустить переобучение" на вкладке Аналитика.</small>
+                    </div>
+                </div>
             </div>
 
             <!-- TAB: Status -->
@@ -212,32 +227,7 @@
                 </div>
             </section>
 
-            <!-- TAB: Settings -->
-            <section id="settings" class="tab-content">
-                <header class="tab-header">
-                    <h1>Настройки Системы</h1>
-                    <button id="btn-save-settings" class="btn primary-btn">Сохранить</button>
-                </header>
-                
-                <form class="settings-form" id="settings-form">
-                    <div class="form-group">
-                        <label for="api_key">API Key (для доступа к бекенду)</label>
-                        <input type="password" id="api_key" value="test-key" placeholder="Enter API key...">
-                    </div>
-                    
-                    <h3>Выбор параметров для ML-модели</h3>
-                    <div class="checkbox-group" id="ml-features">
-                        <label><input type="checkbox" value="time_left_min"> Время до конца (мин)</label>
-                        <label><input type="checkbox" value="mid_price"> Текущая цена (mid_price)</label>
-                        <label><input type="checkbox" value="spread"> Спред</label>
-                        <label><input type="checkbox" value="volume_5min"> Объем за 5 минут</label>
-                        <label><input type="checkbox" value="price_velocity"> Скорость изменения цены</label>
-                        <label><input type="checkbox" value="hour_of_day"> Час дня</label>
-                        <small>Включите только нужные параметры и нажмите "Сохранить", затем "Запустить переобучение" на вкладке Аналитика.</small>
-                    </div>
 
-                </form>
-            </section>
         </main>
     </div>
 
