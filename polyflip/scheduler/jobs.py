@@ -175,8 +175,39 @@ async def cleanup_job():
     except Exception as e:
         logger.exception("cleanup_job_error", error=str(e))
 
+async def check_settings_job(scheduler):
+    try:
+        async with async_session() as session:
+            stmt = select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_POLL_INTERVAL_SECONDS")
+            res = await session.execute(stmt)
+            setting = res.scalar_one_or_none()
+            if setting:
+                new_interval = int(setting.value)
+                job = scheduler.get_job("collector_job")
+                if job:
+                    current_interval = job.trigger.interval.total_seconds()
+                    if int(current_interval) != new_interval:
+                        logger.info("rescheduling_collector_job", old_interval=current_interval, new_interval=new_interval)
+                        scheduler.reschedule_job(
+                            "collector_job",
+                            trigger=IntervalTrigger(seconds=new_interval)
+                        )
+    except Exception as e:
+        logger.exception("check_settings_job_error", error=str(e))
+
 async def main():
-    logger.info("scheduler_starting", interval=settings.LIVE_POLL_INTERVAL_SECONDS)
+    poll_interval = settings.LIVE_POLL_INTERVAL_SECONDS
+    try:
+        async with async_session() as session:
+            stmt = select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_POLL_INTERVAL_SECONDS")
+            res = await session.execute(stmt)
+            setting = res.scalar_one_or_none()
+            if setting:
+                poll_interval = int(setting.value)
+    except Exception as e:
+        logger.warning("failed_to_load_initial_poll_interval", error=str(e))
+
+    logger.info("scheduler_starting", interval=poll_interval)
     
     # Инициализируем общие клиенты для переиспользования соединений
     trader = PolyTrader()
@@ -186,9 +217,18 @@ async def main():
     
     scheduler.add_job(
         collector_job,
-        trigger=IntervalTrigger(seconds=settings.LIVE_POLL_INTERVAL_SECONDS),
+        trigger=IntervalTrigger(seconds=poll_interval),
         id="collector_job",
         replace_existing=True
+    )
+    
+    # Проверяем настройки интервала каждые 10 секунд
+    scheduler.add_job(
+        check_settings_job,
+        trigger=IntervalTrigger(seconds=10),
+        id="check_settings_job",
+        replace_existing=True,
+        kwargs={"scheduler": scheduler}
     )
     
     # Запускаем резолвер каждые 2 минуты (120 сек)

@@ -129,3 +129,43 @@ async def test_update_setting_invalid_daily_limit(db_session):
         assert exc_info.value.status_code == 400
     finally:
         settings_module.async_session = original_session
+
+
+@pytest.mark.asyncio
+async def test_update_setting_valid_poll_interval(db_session):
+    import polyflip.api.settings as settings_module
+    original_session = settings_module.async_session
+    settings_module.async_session = patch_session(db_session)
+    
+    try:
+        await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="15"))
+        
+        stmt = select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_POLL_INTERVAL_SECONDS")
+        row = (await db_session.execute(stmt)).scalar_one()
+        assert int(row.value) == 15
+    finally:
+        settings_module.async_session = original_session
+
+@pytest.mark.asyncio
+async def test_update_setting_invalid_poll_interval(db_session):
+    import polyflip.api.settings as settings_module
+    original_session = settings_module.async_session
+    settings_module.async_session = patch_session(db_session)
+    
+    try:
+        # Слишком мало (меньше 2)
+        with pytest.raises(HTTPException) as exc_info:
+            await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="1"))
+        assert exc_info.value.status_code == 400
+        
+        # Слишком много (больше 300)
+        with pytest.raises(HTTPException) as exc_info:
+            await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="301"))
+        assert exc_info.value.status_code == 400
+        
+        # Не число
+        with pytest.raises(HTTPException) as exc_info:
+            await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="abc"))
+        assert exc_info.value.status_code == 400
+    finally:
+        settings_module.async_session = original_session

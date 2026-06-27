@@ -43,7 +43,8 @@ async def get_all_settings():
         "TRADE_ASSETS": db.get("TRADE_ASSETS", str(getattr(settings, 'TRADE_ASSETS', 'BTC,ETH'))),
         "KELLY_ENABLED": db.get("KELLY_ENABLED", "true" if getattr(settings, 'KELLY_ENABLED', True) else "false"),
         "TRADING_MODE": db.get("TRADING_MODE", settings.TRADING_MODE),
-        "FAVORITE_MODE_ENTRY_SEC": db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC))
+        "FAVORITE_MODE_ENTRY_SEC": db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)),
+        "LIVE_POLL_INTERVAL_SECONDS": db.get("LIVE_POLL_INTERVAL_SECONDS", str(settings.LIVE_POLL_INTERVAL_SECONDS))
     }
 
 @router.get("/recommended_thresholds")
@@ -108,7 +109,8 @@ async def update_setting(key: str, payload: SettingValue):
         "TRADE_ASSETS",
         "KELLY_ENABLED",
         "TRADING_MODE",
-        "FAVORITE_MODE_ENTRY_SEC"
+        "FAVORITE_MODE_ENTRY_SEC",
+        "LIVE_POLL_INTERVAL_SECONDS"
     ]
     
     if key not in valid_keys:
@@ -148,6 +150,15 @@ async def update_setting(key: str, payload: SettingValue):
             payload.value = str(val)
         except ValueError:
             raise HTTPException(status_code=400, detail="FAVORITE_MODE_ENTRY_SEC must be an integer")
+
+    if key == "LIVE_POLL_INTERVAL_SECONDS":
+        try:
+            val = int(payload.value)
+            if not (2 <= val <= 300):
+                raise HTTPException(status_code=400, detail="LIVE_POLL_INTERVAL_SECONDS must be between 2 and 300 seconds")
+            payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="LIVE_POLL_INTERVAL_SECONDS must be an integer")
 
     async with async_session() as session:
         result = await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))

@@ -237,6 +237,7 @@ document.addEventListener("DOMContentLoaded", () => {
     favoriteModeSettings: document.getElementById('favorite-mode-settings'),
     favoriteEntrySecInput: document.getElementById('FAVORITE_MODE_ENTRY_SEC'),
     tradingModeBadge: document.getElementById('trading-mode-badge'),
+    pollIntervalInput: document.getElementById("LIVE_POLL_INTERVAL_SECONDS"),
   };
 
   if (settingsElements.apiKeyInput) {
@@ -390,6 +391,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.favoriteEntrySecInput && data.FAVORITE_MODE_ENTRY_SEC) {
         settingsElements.favoriteEntrySecInput.value = data.FAVORITE_MODE_ENTRY_SEC;
       }
+      if (settingsElements.pollIntervalInput && data.LIVE_POLL_INTERVAL_SECONDS) {
+        settingsElements.pollIntervalInput.value = data.LIVE_POLL_INTERVAL_SECONDS;
+      }
 
       if (data.TRADE_ASSETS) {
         const assets = data.TRADE_ASSETS.split(",");
@@ -440,6 +444,9 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (settingsElements.favoriteEntrySecInput) {
         settingsToSave.FAVORITE_MODE_ENTRY_SEC = settingsElements.favoriteEntrySecInput.value;
+      }
+      if (settingsElements.pollIntervalInput) {
+        settingsToSave.LIVE_POLL_INTERVAL_SECONDS = settingsElements.pollIntervalInput.value;
       }
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
