@@ -213,7 +213,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     await save_or_update_skipped_trade(
                         db_session, market,
                         "Pure Favorite: no clear favorite (price == 0.5)",
-                        None, None, start_time,
+                        0.0, None, start_time,
                         existing_skipped=existing_skipped
                     )
                     continue
@@ -233,7 +233,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     await save_or_update_skipped_trade(
                         db_session, market,
                         "Pure Favorite: no fresh prices from API",
-                        None, None, start_time,
+                        0.0, None, start_time,
                         existing_skipped=existing_skipped
                     )
                     continue
@@ -246,7 +246,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     await save_or_update_skipped_trade(
                         db_session, market,
                         f"Pure Favorite: price {buy_price} out of range [{trade_min_price}, {trade_max_price}]",
-                        None, None, start_time,
+                        0.0, None, start_time,
                         existing_skipped=existing_skipped
                     )
                     continue
@@ -257,7 +257,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     await save_or_update_skipped_trade(
                         db_session, market,
                         f"Pure Favorite: fresh YES price {buy_price} below threshold {FAVORITE_THRESHOLD}",
-                        None, None, start_time,
+                        0.0, None, start_time,
                         existing_skipped=existing_skipped
                     )
                     continue
@@ -266,7 +266,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     await save_or_update_skipped_trade(
                         db_session, market,
                         f"Pure Favorite: fresh NO price {buy_price} below threshold (YES price {round(1.0 - buy_price, 4)} is now favorite)",
-                        None, None, start_time,
+                        0.0, None, start_time,
                         existing_skipped=existing_skipped
                     )
                     continue
@@ -302,7 +302,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     outcome_bought=decision,
                     amount_usdc=actual_bet_size,
                     executed_price=buy_price,
-                    predicted_flip_prob=None,       # ML не использовался
+                    predicted_flip_prob=0.0,       # ML не использовался
                     active_features="PURE_FAVORITE", # маркер режима
                     model_version=None,
                     status=trade_res.get("status", "FAILED"),

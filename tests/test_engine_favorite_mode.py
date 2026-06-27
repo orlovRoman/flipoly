@@ -110,7 +110,7 @@ async def test_pure_favorite_buys_yes_when_yes_is_favorite():
     )
     assert trade_record is not None
     assert trade_record.outcome_bought == "YES"
-    assert trade_record.predicted_flip_prob is None  # ML не использовался
+    assert trade_record.predicted_flip_prob == 0.0  # ML не использовался
     assert trade_record.active_features == "PURE_FAVORITE"
     assert trade_record.model_version is None
     assert trade_record.kelly_multiplier == 1.0
@@ -167,7 +167,7 @@ async def test_pure_favorite_buys_no_when_no_is_favorite():
     )
     assert trade_record is not None
     assert trade_record.outcome_bought == "NO"
-    assert trade_record.predicted_flip_prob is None
+    assert trade_record.predicted_flip_prob == 0.0
 
 
 @pytest.mark.asyncio
