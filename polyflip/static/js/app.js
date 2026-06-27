@@ -1,4 +1,15 @@
 document.addEventListener("DOMContentLoaded", () => {
+  const ASSET_COLORS = {
+    BTC: "#0072F5",
+    ETH: "#00D395",
+    SOL: "#9945FF",
+    XRP: "#346AA9",
+    DOGE: "#C2A633"
+  };
+  function getAssetColor(asset) {
+    return ASSET_COLORS[asset.toUpperCase()] || "#8F9BB3";
+  }
+
   // === Tab Switching Logic ===
   const navItems = document.querySelectorAll(".nav-item");
   const tabContents = document.querySelectorAll(".tab-content");
@@ -88,9 +99,11 @@ document.addEventListener("DOMContentLoaded", () => {
       // Заполняем карточки активных моделей для всех активов
       document.querySelectorAll("[id^='stat-model-']").forEach((el) => {
         const asset = el.id.replace("stat-model-", "").toUpperCase();
-        const model = data.active_models[asset];
+        const model = data.active_models[asset] || data.active_models[asset.toLowerCase()];
         if (model) {
-          el.innerText = `v${model.version} (Acc: ${(model.accuracy * 100).toFixed(1)}%)`;
+          const version = model.version !== undefined ? model.version : model;
+          const accuracy = model.accuracy !== undefined ? ` (Acc: ${(model.accuracy * 100).toFixed(1)}%)` : '';
+          el.innerText = `v${version}${accuracy}`;
         } else {
           el.innerText = "Нет модели";
         }
@@ -118,17 +131,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const labels = historyData.map((h) => `v${h.version}`);
     const data = historyData.map((h) => h.accuracy * 100);
-
-    function getAssetColor(asset) {
-      const colors = {
-        "BTC": "#0072F5",
-        "ETH": "#00D395",
-        "SOL": "#9945FF",
-        "XRP": "#23292F",
-        "DOGE": "#C2A633"
-      };
-      return colors[asset.toUpperCase()] || "#8F9BB3";
-    }
 
     const color = getAssetColor(asset);
     createChart(
@@ -160,17 +162,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!selectorEl) return;
     const selectedAsset = selectorEl.value;
     const assetData = chartDataStore[selectedAsset] || {};
-    function getAssetColor(asset) {
-      const colors = {
-        "BTC": "#0072F5",
-        "ETH": "#00D395",
-        "SOL": "#9945FF",
-        "XRP": "#23292F",
-        "DOGE": "#C2A633"
-      };
-      return colors[asset.toUpperCase()] || "#8F9BB3";
-    }
-
     const color = getAssetColor(selectedAsset);
 
     const chartConfigs = [

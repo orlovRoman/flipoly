@@ -191,9 +191,17 @@ async def get_train_status(asset: str, db: AsyncSession = Depends(get_db_session
 @router.get("/analytics/train_status")
 async def get_train_status_all(db: AsyncSession = Depends(get_db_session)):
     """Возвращает статус обучения для всех активов"""
-    results = {}
-    for asset in settings.asset_list:
-        results[asset] = await get_training_status(db, asset)
+    keys = [f"TRAINING_STATUS_{a.upper()}" for a in settings.asset_list]
+    stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(keys))
+    rows = (await db.execute(stmt)).scalars().all()
+    
+    results = {a: {"status": "idle", "message": "", "last_run": None} for a in settings.asset_list}
+    for row in rows:
+        asset = row.key.replace("TRAINING_STATUS_", "")
+        try:
+            results[asset] = json.loads(row.value)
+        except Exception:
+            pass
     return results
 
 @router.get("/analytics/probabilities")
