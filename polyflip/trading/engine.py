@@ -319,6 +319,10 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         size=num_shares
                     )
                     
+                    # Если была SKIPPED-запись, удаляем её перед записью реальной сделки
+                    if existing_skipped:
+                        await db_session.delete(existing_skipped)
+
                     # Сохраняем в БД
                     history = TradeHistory(
                         market_id=market.market_id,
