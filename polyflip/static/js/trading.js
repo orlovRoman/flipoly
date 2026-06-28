@@ -1,5 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
   let apiKey = "test-key";
+  let currentMinEdge = 0.05;
   try {
     apiKey = localStorage.getItem("polyflip_api_key") || "test-key";
   } catch (e) {
@@ -384,7 +385,8 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.kellyEnabled.checked = data.KELLY_ENABLED === "true";
       if (settingsElements.minEdge && data.MIN_EDGE !== undefined) {
         let val = parseFloat(data.MIN_EDGE);
-        settingsElements.minEdge.value = Math.round(val * 100);
+        currentMinEdge = val;
+        settingsElements.minEdge.value = (val * 100).toFixed(1);
       }
       if (data.TRADING_MODE) {
         const mode = data.TRADING_MODE;
@@ -586,7 +588,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px;">${
                           log.edge !== null && log.edge !== undefined
                             ? `<span style="color: ${
-                                parseFloat(log.edge) >= 0.05
+                                parseFloat(log.edge) >= currentMinEdge
                                   ? "#00ff88"
                                   : parseFloat(log.edge) >= 0.0
                                   ? "#ffb020"
