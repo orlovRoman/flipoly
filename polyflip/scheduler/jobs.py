@@ -149,14 +149,17 @@ async def resolve_trades_job():
             for t in trades:
                 outcome = market_outcomes.get(t.market_id)
                 if outcome:
-                    is_win = (t.outcome_bought == outcome)
-                    if is_win:
-                        if t.executed_price > 0:
-                            t.pnl = (t.amount_usdc / t.executed_price) - t.amount_usdc
-                        else:
-                            t.pnl = 0.0
+                    if outcome == "INVALID":
+                        t.pnl = 0.0
                     else:
-                        t.pnl = -t.amount_usdc
+                        is_win = (t.outcome_bought == outcome)
+                        if is_win:
+                            if t.executed_price > 0:
+                                t.pnl = (t.amount_usdc / t.executed_price) - t.amount_usdc
+                            else:
+                                t.pnl = 0.0
+                        else:
+                            t.pnl = -t.amount_usdc
                         
             await session.commit()
             logger.info("finished_resolve_trades_job", resolved=len(trades))
