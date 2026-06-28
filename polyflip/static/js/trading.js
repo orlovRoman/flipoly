@@ -568,7 +568,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const betText = log.amount_usdc > 0 ? `${outcomeBadge}$${parseFloat(log.amount_usdc).toFixed(2)}` : "-";
 
         const logDate = new Date(log.created_at);
-        const intervalOffsetStr = String(logDate.getUTCMinutes() % 15);
+        const intervalOffsetStr = `${String(logDate.getUTCMinutes() % 15).padStart(2, '0')}:00`;
 
         rows.push(`
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
