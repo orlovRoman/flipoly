@@ -24,6 +24,23 @@ from polyflip.constants import (
 
 logger = structlog.get_logger(__name__)
 
+DERIVED_FEATURES = [
+    "price_deviation",
+    "deviation_x_time",
+    "price_deviation_sq",
+    "spread_pct",
+    "log_time_left",
+]
+
+def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["price_deviation"]     = (df["mid_price"] - 0.5).abs()
+    df["deviation_x_time"]    = df["price_deviation"] * df["time_left_min"]
+    df["price_deviation_sq"]  = df["price_deviation"] ** 2
+    df["spread_pct"]          = df["spread"] / (df["mid_price"] + 1e-6)
+    df["log_time_left"]       = np.log1p(df["time_left_min"])
+    return df
+
 def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
     # 3. Обучаем модель с кросс-валидацией
@@ -57,6 +74,10 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
         ("model", LogisticRegression(class_weight="balanced", random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
     final_model.fit(X, y)
+    
+    coefs = final_model.named_steps["model"].coef_[0]
+    coef_info = dict(zip(list(X.columns), [round(float(c), 4) for c in coefs]))
+    logger.info("model_feature_weights", coefficients=coef_info)
     
     # Калибровка порога с использованием Out-Of-Fold предсказаний (исключаем Data Leakage)
     precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, oof_scores)
@@ -167,6 +188,18 @@ class ModelTrainer:
             })
             
         df = pd.DataFrame(data)
+        
+        # Добавляем инженерные признаки (не хранятся в БД, вычисляются на лету)
+        df = add_derived_features(df)
+
+        # Автоматически расширяем active_features производными признаками,
+        # если их базовые источники (mid_price, spread, time_left_min) присутствуют
+        base_for_derived = {"mid_price", "spread", "time_left_min"}
+        if base_for_derived.issubset(set(active_features)):
+            for feat in DERIVED_FEATURES:
+                if feat not in active_features:
+                    active_features.append(feat)
+            logger.info("derived_features_added", features=DERIVED_FEATURES, asset=asset)
         
         # Базовая проверка на разнообразие классов
         if len(df["target"].unique()) < 2:
