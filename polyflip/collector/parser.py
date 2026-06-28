@@ -33,9 +33,8 @@ async def run_collector_cycle(db_session: AsyncSession):
             market_id = m_data["market_id"]
             yes_token_id = m_data["yes_token_id"]
             
-            # 2. Получаем текущие цены
             prices = await client.get_market_prices(yes_token_id)
-            if not prices:
+            if not prices or "error" in prices:
                 continue
 
             mid_price = prices["current_yes_price"]
