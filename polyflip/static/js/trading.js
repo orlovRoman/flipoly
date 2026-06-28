@@ -532,7 +532,7 @@ document.addEventListener("DOMContentLoaded", () => {
           log.status === "SKIPPED"
             ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>`
             : escapeHtml(log.error_msg || "-");
-        const isPureFav = log.active_features === "PURE_FAVORITE" || (log.error_msg && log.error_msg.startsWith("Pure Favorite"));
+        const isPureFav = log.active_features === "PURE_FAVORITE";
         const modelStr = log.model_version 
           ? `v${log.model_version}` 
           : (isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-"));
