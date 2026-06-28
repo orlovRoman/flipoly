@@ -151,6 +151,7 @@ async def resolve_trades_job():
                 if outcome:
                     if outcome == "INVALID":
                         t.pnl = 0.0
+                        t.status = "INVALID"
                     else:
                         is_win = (t.outcome_bought == outcome)
                         if is_win:

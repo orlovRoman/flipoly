@@ -101,3 +101,4 @@ async def test_resolve_trades_job_invalid(db_session):
     res = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "test_m_inv"))
     updated_trade = res.scalar_one()
     assert updated_trade.pnl == 0.0
+    assert updated_trade.status == "INVALID"

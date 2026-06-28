@@ -266,6 +266,8 @@ async def test_engine_skips_when_clob_error(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.02", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
 
