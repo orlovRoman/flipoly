@@ -169,6 +169,7 @@ async def get_trade_logs(
             "executed_price": log.executed_price,
             "predicted_flip_prob": log.predicted_flip_prob,
             "model_version": getattr(log, 'model_version', None),
+            "active_features": getattr(log, 'active_features', None),
             "error_msg": log.error_msg,
             "mode": getattr(log, 'mode', 'LIVE'),
             "pnl": getattr(log, 'pnl', None),

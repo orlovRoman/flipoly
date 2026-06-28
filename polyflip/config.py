@@ -1,6 +1,9 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
-from polyflip.constants import DEAD_ZONE_WIDTH as _DEFAULT_DEAD_ZONE
+from polyflip.constants import (
+    DEAD_ZONE_WIDTH as _DEFAULT_DEAD_ZONE,
+    LIVE_POLL_INTERVAL_SECONDS as _DEFAULT_POLL_INTERVAL
+)
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://polyflip:secret@db/polyflip"
@@ -8,7 +11,7 @@ class Settings(BaseSettings):
     ASSETS: str = "BTC,ETH"
     
     # Дефолтные настройки, которые могут быть переопределены в БД
-    LIVE_POLL_INTERVAL_SECONDS: int = 60
+    LIVE_POLL_INTERVAL_SECONDS: int = _DEFAULT_POLL_INTERVAL
     RETRAIN_INTERVAL_HOURS: int = 24
     MIN_SAMPLES_FOR_MODEL: int = 50
     

@@ -185,7 +185,11 @@ async def check_settings_job(scheduler):
                 new_interval = int(setting.value)
                 job = scheduler.get_job("collector_job")
                 if job:
-                    current_interval = job.trigger.interval.total_seconds()
+                    try:
+                        current_interval = job.trigger.interval.total_seconds()
+                    except AttributeError:
+                        logger.warning("check_settings_job_trigger_has_no_interval", job_id="collector_job")
+                        return
                     if int(current_interval) != new_interval:
                         logger.info("rescheduling_collector_job", old_interval=current_interval, new_interval=new_interval)
                         scheduler.reschedule_job(
@@ -228,6 +232,7 @@ async def main():
         trigger=IntervalTrigger(seconds=10),
         id="check_settings_job",
         replace_existing=True,
+        max_instances=1,
         kwargs={"scheduler": scheduler}
     )
     

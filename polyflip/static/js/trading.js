@@ -391,7 +391,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.favoriteEntrySecInput && data.FAVORITE_MODE_ENTRY_SEC) {
         settingsElements.favoriteEntrySecInput.value = data.FAVORITE_MODE_ENTRY_SEC;
       }
-      if (settingsElements.pollIntervalInput && data.LIVE_POLL_INTERVAL_SECONDS) {
+      if (settingsElements.pollIntervalInput && data.LIVE_POLL_INTERVAL_SECONDS !== undefined) {
         settingsElements.pollIntervalInput.value = data.LIVE_POLL_INTERVAL_SECONDS;
       }
 
@@ -525,7 +525,10 @@ document.addEventListener("DOMContentLoaded", () => {
           log.status === "SKIPPED"
             ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>`
             : escapeHtml(log.error_msg || "-");
-        const modelStr = log.model_version ? `v${log.model_version}` : (log.status === "SUCCESS" ? "legacy" : "-");
+        const isPureFav = log.active_features === "PURE_FAVORITE" || (log.error_msg && log.error_msg.startsWith("Pure Favorite"));
+        const modelStr = log.model_version 
+          ? `v${log.model_version}` 
+          : (isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-"));
 
         let pnlText = "-";
         let pnlColor = "var(--text-main)";
