@@ -111,7 +111,7 @@ class PolymarketClient:
             response = await self.client.get(f"{self.CLOB_API}/book", params={"token_id": yes_token_id})
             if response.status_code != 200:
                 logger.warning("clob_api_error", token_id=yes_token_id, status=response.status_code)
-                return {}
+                return {"error": f"API HTTP Error {response.status_code}"}
                 
             book = response.json()
             
@@ -120,7 +120,7 @@ class PolymarketClient:
             asks = book.get("asks", [])
             
             if not bids or not asks:
-                return {}
+                return {"error": "Empty orderbook (no bids/asks)"}
                 
             # Polymarket API может возвращать стакан отсортированным от худших цен к лучшим.
             # Поэтому надежнее искать максимум для bid и минимум для ask.
@@ -129,7 +129,7 @@ class PolymarketClient:
             
             if best_ask <= best_bid:
                 logger.warning("crossed_book", token_id=yes_token_id, bid=best_bid, ask=best_ask)
-                return {}
+                return {"error": "Crossed book (bid >= ask)"}
             
             mid_price = (best_bid + best_ask) / 2.0
             spread = best_ask - best_bid
@@ -141,9 +141,15 @@ class PolymarketClient:
                 "best_bid": best_bid,
                 "best_ask": best_ask
             }
+        except httpx.TimeoutException:
+            logger.error("error_fetching_clob_book_timeout", token_id=yes_token_id)
+            return {"error": "API Timeout"}
+        except httpx.NetworkError:
+            logger.error("error_fetching_clob_book_network", token_id=yes_token_id)
+            return {"error": "API Network Error"}
         except Exception as e:
             logger.error("error_fetching_clob_book", market_id=yes_token_id, error=str(e))
-            return {}
+            return {"error": f"API Error: {str(e)}"}
 
     async def get_recent_trades_volume(self, yes_token_id: str, minutes: int = VOLUME_WINDOW_MIN) -> float:
         """

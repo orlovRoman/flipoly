@@ -390,10 +390,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
 
                 # Запрашиваем свежие цены стакана для YES-токена перед предсказанием модели
                 fresh_yes_prices = await api_client.get_market_prices(yes_token_id)
-                if not fresh_yes_prices:
-                    logger.warning("no_fresh_yes_prices", market_id=market.market_id)
+                if not fresh_yes_prices or "error" in fresh_yes_prices:
+                    error_msg = fresh_yes_prices.get("error", "No fresh YES prices from API") if fresh_yes_prices else "No fresh YES prices from API"
+                    logger.warning("no_fresh_yes_prices", market_id=market.market_id, error=error_msg)
                     await save_or_update_skipped_trade(
-                        db_session, market, "No fresh YES prices from API",
+                        db_session, market, error_msg,
                         0.0, model_ver, start_time,
                         existing_skipped=existing_skipped
                     )
@@ -462,10 +463,13 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     else:
                         # Для NO запрашиваем стакан NO-токена
                         fresh_no_prices = await api_client.get_market_prices(no_token_id)
-                        if not fresh_no_prices or fresh_no_prices.get("best_ask") is None:
-                            logger.warning("no_fresh_no_prices", market_id=market.market_id)
+                        if not fresh_no_prices or "error" in fresh_no_prices or fresh_no_prices.get("best_ask") is None:
+                            error_msg = "No fresh NO prices (best_ask) from API"
+                            if fresh_no_prices and "error" in fresh_no_prices:
+                                error_msg = f"NO price error: {fresh_no_prices['error']}"
+                            logger.warning("no_fresh_no_prices", market_id=market.market_id, error=error_msg)
                             await save_or_update_skipped_trade(
-                                db_session, market, "No fresh NO prices (best_ask) from API",
+                                db_session, market, error_msg,
                                 p_flip, model_ver, start_time,
                                 existing_skipped=existing_skipped
                             )
