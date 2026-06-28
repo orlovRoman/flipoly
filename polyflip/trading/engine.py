@@ -35,16 +35,20 @@ async def save_or_update_skipped_trade(
     start_time: datetime,
     existing_skipped: Optional[TradeHistory] = None,
     kelly_fraction: Optional[float] = None,
-    kelly_multiplier: Optional[float] = None
+    kelly_multiplier: Optional[float] = None,
+    edge: Optional[float] = None
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
     if existing_skipped:
-        if existing_skipped.error_msg != reason or existing_skipped.predicted_flip_prob != p_flip_val:
+        if (existing_skipped.error_msg != reason or 
+            existing_skipped.predicted_flip_prob != p_flip_val or 
+            existing_skipped.edge != edge):
             existing_skipped.error_msg = reason
             existing_skipped.predicted_flip_prob = p_flip_val
             existing_skipped.model_version = model_version
             existing_skipped.kelly_fraction = kelly_fraction
             existing_skipped.kelly_multiplier = kelly_multiplier
+            existing_skipped.edge = edge
             existing_skipped.updated_at = start_time
     else:
         history = TradeHistory(
@@ -61,6 +65,7 @@ async def save_or_update_skipped_trade(
             mode="LIVE" if bool(os.getenv("POLYGON_PRIVATE_KEY") and os.getenv("POLYGON_ADDRESS")) else "PAPER",
             kelly_fraction=kelly_fraction,
             kelly_multiplier=kelly_multiplier,
+            edge=edge,
             created_at=start_time
         )
         db_session.add(history)
@@ -489,7 +494,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                             db_session, market,
                             f"Edge too small: {edge:.3f} < {min_edge:.3f} (Model P(win): {p_win:.3f}, Implied: {implied_prob:.3f})",
                             p_flip, model_ver, start_time,
-                            existing_skipped=existing_skipped
+                            existing_skipped=existing_skipped,
+                            edge=edge
                         )
                         continue
                         
@@ -545,6 +551,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         mode=trade_res.get("mode", "PAPER"),
                         kelly_fraction=round(kelly_f, 4) if kelly_f is not None else None,
                         kelly_multiplier=round(kelly_multiplier, 2),
+                        edge=round(edge, 4) if edge is not None else None,
                         created_at=start_time
                     )
                     db_session.add(history)

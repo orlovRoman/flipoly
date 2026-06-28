@@ -29,6 +29,7 @@ async def test_trade_logs_pagination(db_session):
     assert res1["pages"] == 3
     assert res1["page"] == 1
     assert res1["page_size"] == 25
+    assert "edge" in res1["items"][0]
 
     # GET /api/dashboard/trade_logs?page=3&page_size=25 → items=10 (остаток)
     res3 = await get_trade_logs(db_session, page=3, page_size=25)

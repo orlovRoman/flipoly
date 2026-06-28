@@ -583,6 +583,17 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? "$" + parseFloat(log.executed_price).toFixed(3) : "-"}</td>
                         <td style="padding: 8px; color: ${pnlColor}; font-weight: 600;">${pnlText}</td>
                         <td style="padding: 8px; color: ${flipColor};">${(log.predicted_flip_prob * 100).toFixed(1)}%</td>
+                        <td style="padding: 8px;">${
+                          log.edge !== null && log.edge !== undefined
+                            ? `<span style="color: ${
+                                parseFloat(log.edge) >= 0.05
+                                  ? "#00ff88"
+                                  : parseFloat(log.edge) >= 0.0
+                                  ? "#ffb020"
+                                  : "#ff3366"
+                              }; font-weight: bold;">${(parseFloat(log.edge) * 100).toFixed(1)}%</span>`
+                            : "-"
+                        }</td>
                         <td style="padding: 8px;">${reasonHtml}</td>
                     </tr>
                 `);

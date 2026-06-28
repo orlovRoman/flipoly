@@ -175,6 +175,7 @@ async def get_trade_logs(
             "pnl": getattr(log, 'pnl', None),
             "kelly_fraction": getattr(log, 'kelly_fraction', None),
             "kelly_multiplier": getattr(log, 'kelly_multiplier', None),
+            "edge": getattr(log, 'edge', None),
             "created_at": log.created_at.isoformat()
         }
         for log, question in logs_with_questions
