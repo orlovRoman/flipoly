@@ -37,7 +37,7 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     df["price_deviation"]     = (df["mid_price"] - 0.5).abs()
     df["deviation_x_time"]    = df["price_deviation"] * df["time_left_min"]
     df["price_deviation_sq"]  = df["price_deviation"] ** 2
-    df["spread_pct"]          = df["spread"] / (df["mid_price"] + 1e-6)
+    df["spread_pct"]          = (df["spread"] / (df["mid_price"] + 1e-6)).clip(upper=10.0)
     df["log_time_left"]       = np.log1p(df["time_left_min"])
     return df
 
@@ -200,6 +200,14 @@ class ModelTrainer:
                 if feat not in active_features:
                     active_features.append(feat)
             logger.info("derived_features_added", features=DERIVED_FEATURES, asset=asset)
+            
+            # Синхронизируем расширенный список с БД RuntimeSettings
+            derived_setting = await self.db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == "ACTIVE_FEATURES")
+            )
+            derived_row = derived_setting.scalar_one_or_none()
+            if derived_row:
+                derived_row.value = ",".join(active_features)
         
         # Базовая проверка на разнообразие классов
         if len(df["target"].unique()) < 2:

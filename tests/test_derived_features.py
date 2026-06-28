@@ -29,3 +29,11 @@ def test_all_derived_columns_present():
     r = add_derived_features(df)
     for feat in DERIVED_FEATURES:
         assert feat in r.columns
+
+def test_spread_pct_near_zero_price():
+    df = pd.DataFrame([{"mid_price": 0.0, "time_left_min": 5.0, "spread": 0.01}])
+    r = add_derived_features(df)
+    # Не должно быть inf или NaN
+    assert np.isfinite(r.loc[0, "spread_pct"])
+    # При mid_price=0: 0.01 / 1e-6 = 10000 -> клиппинг до 10.0
+    assert r.loc[0, "spread_pct"] == pytest.approx(10.0)

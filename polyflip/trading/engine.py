@@ -418,12 +418,13 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 df_features = pd.DataFrame([feature_data])
                 df_features = add_derived_features(df_features)
                 
-                try:
-                    X_real = df_features[m_features]
-                except KeyError as e:
-                    logger.error("trade_engine_missing_features", error=str(e))
-                    await save_or_update_skipped_trade(db_session, market, f"Missing features: {str(e)}", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
+                missing = [f for f in m_features if f not in df_features.columns]
+                if missing:
+                    logger.error("inference_missing_features", asset=market.asset, missing=missing)
+                    await save_or_update_skipped_trade(db_session, market, f"Missing features: {missing}", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
                     continue
+                
+                X_real = df_features[m_features]
                 
                 # Предсказываем вероятность флипа (класс 1)
                 proba = model.predict_proba(X_real)[0]
