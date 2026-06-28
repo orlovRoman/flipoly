@@ -1,5 +1,6 @@
 import os
 import pickle
+import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from typing import Optional
@@ -12,6 +13,7 @@ from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, Trade
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.utils import compute_kelly_multiplier
+from polyflip.models.trainer import add_derived_features
 from polyflip.constants import (
     DEAD_ZONE_WIDTH,
     KELLY_MAX_FRACTION,
@@ -414,6 +416,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 }
                 
                 df_features = pd.DataFrame([feature_data])
+                df_features = add_derived_features(df_features)
                 
                 try:
                     X_real = df_features[m_features]
