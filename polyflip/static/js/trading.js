@@ -524,7 +524,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const rows = [];
 
       data.items.forEach((log) => {
-        const timeStr = new Date(log.created_at).toLocaleTimeString();
+        const displayTime = log.updated_at ? log.updated_at : log.created_at;
+        const timeStr = new Date(displayTime).toLocaleTimeString();
         const flipColor = log.predicted_flip_prob > 0.5 ? "#00ff88" : "#ff3366";
         let statusColor = "#8F9BB3"; // SKIPPED
         if (log.status === "SUCCESS") statusColor = "#00ff88";
@@ -567,8 +568,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const betText = log.amount_usdc > 0 ? `${outcomeBadge}$${parseFloat(log.amount_usdc).toFixed(2)}` : "-";
 
-        const logDate = new Date(log.created_at);
-        const intervalOffsetStr = `${String(logDate.getUTCMinutes() % 15).padStart(2, '0')}:00`;
+        const logDate = new Date(displayTime);
+        const minutes = (logDate.getUTCMinutes() % 15) + 1;
+        const intervalOffsetStr = `${String(minutes).padStart(2, '0')}:00`;
 
         rows.push(`
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
