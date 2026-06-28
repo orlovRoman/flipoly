@@ -444,21 +444,28 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     
                     token_to_buy = yes_token_id if decision == "YES" else no_token_id
                     
+                    # Проверяем наличие ask цены для YES-токена
+                    fresh_yes_ask = fresh_yes_prices.get("best_ask")
+                    if fresh_yes_ask is None:
+                        logger.warning("no_best_ask_in_yes_prices", market_id=market.market_id)
+                        await save_or_update_skipped_trade(db_session, market, "No best_ask in YES prices", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
+                        continue
+                    
                     # Цена = лучший Ask
                     if decision == "YES":
-                        buy_price = fresh_yes_prices.get("best_ask", 0)
+                        buy_price = fresh_yes_ask
                     else:
                         # Для NO запрашиваем стакан NO-токена
                         fresh_no_prices = await api_client.get_market_prices(no_token_id)
-                        if not fresh_no_prices:
+                        if not fresh_no_prices or fresh_no_prices.get("best_ask") is None:
                             logger.warning("no_fresh_no_prices", market_id=market.market_id)
                             await save_or_update_skipped_trade(
-                                db_session, market, "No fresh NO prices from API",
+                                db_session, market, "No fresh NO prices (best_ask) from API",
                                 p_flip, model_ver, start_time,
                                 existing_skipped=existing_skipped
                             )
                             continue
-                        buy_price = fresh_no_prices.get("best_ask", 0)
+                        buy_price = fresh_no_prices["best_ask"]
                     
                     if buy_price < trade_min_price or buy_price > trade_max_price:
                         logger.warning("trade_skipped_price_out_of_range", price=buy_price, min=trade_min_price, max=trade_max_price)

@@ -119,16 +119,27 @@ async def update_setting(key: str, payload: SettingValue):
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
     # Валидация и нормализация порогов вероятности флипа и мертвой зоны
-    if key in ["TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH", "KELLY_MAX_FRACTION", "MIN_EDGE"]:
+    if key in ["TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH", "KELLY_MAX_FRACTION"]:
         try:
             val = float(payload.value)
             if val < 0.0 or val > 100.0:
-                raise HTTPException(status_code=400, detail=f"Value for {key} must be between 0 and 100 (or 0.0 and 1.0)")
+                raise HTTPException(status_code=400, detail=f"Value for {key} must be between 0 and 100")
             # Если прислали проценты (больше 1.0), автоматически переводим в доли для хранения в БД
             if val > 1.0:
                 payload.value = str(val / 100.0)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
+
+    if key == "MIN_EDGE":
+        try:
+            val = float(payload.value)
+            # Разрешаем либо проценты [0.5, 50.0], либо доли [0.005, 0.50]
+            if not ((0.5 <= val <= 50.0) or (0.005 <= val <= 0.50)):
+                raise HTTPException(status_code=400, detail="MIN_EDGE must be between 0.5% and 50% (or 0.005 and 0.50)")
+            if val > 0.50:
+                payload.value = str(val / 100.0)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="MIN_EDGE must be a number")
 
     if key == "DAILY_LOSS_LIMIT_USDC":
         try:
