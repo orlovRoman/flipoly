@@ -374,12 +374,34 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     await save_or_update_skipped_trade(db_session, market, f"Model v{model_ver} has no features", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
                     continue
                     
-                # Формируем X
-                # Для правильного X нам нужны те же фичи, что и при обучении
+                # Извлекаем токены напрямую из БД (без дополнительных API запросов)
+                yes_token_id = market.yes_token_id
+                no_token_id = market.no_token_id
+                
+                if not yes_token_id or not no_token_id or yes_token_id == 'N/A' or no_token_id == 'N/A':
+                    logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
+                    await save_or_update_skipped_trade(db_session, market, "Token IDs missing in DB", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
+                    continue
+
+                # Запрашиваем свежие цены стакана для YES-токена перед предсказанием модели
+                fresh_yes_prices = await api_client.get_market_prices(yes_token_id)
+                if not fresh_yes_prices:
+                    logger.warning("no_fresh_yes_prices", market_id=market.market_id)
+                    await save_or_update_skipped_trade(
+                        db_session, market, "No fresh YES prices from API",
+                        0.0, model_ver, start_time,
+                        existing_skipped=existing_skipped
+                    )
+                    continue
+
+                fresh_yes_price = fresh_yes_prices["current_yes_price"]
+                fresh_spread = fresh_yes_prices["current_spread"]
+
+                # Формируем X с использованием свежих цен
                 feature_data = {
                     "time_left_min": time_left_sec / 60.0,
-                    "mid_price": market.current_yes_price,
-                    "spread": market.current_spread,
+                    "mid_price": fresh_yes_price,
+                    "spread": fresh_spread,
                     "price_velocity": market.price_velocity,
                     "volume_5min": market.volume_5min,
                     "hour_of_day": start_time.hour
@@ -415,34 +437,28 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 if p_flip < current_no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
-                    decision = "YES" if market.current_yes_price > FAVORITE_THRESHOLD else "NO"
+                    decision = "YES" if fresh_yes_price > FAVORITE_THRESHOLD else "NO"
                     
                 if decision:
                     logger.info("trade_decision_made", market_id=market.market_id, p_flip=p_flip, decision=decision)
                     
-                    # Извлекаем токены напрямую из БД (без дополнительных API запросов)
-                    yes_token_id = market.yes_token_id
-                    no_token_id = market.no_token_id
-                    
-                    if not yes_token_id or not no_token_id or yes_token_id == 'N/A' or no_token_id == 'N/A':
-                        logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
-                        await save_or_update_skipped_trade(db_session, market, "Token IDs missing in DB", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
-                        continue
-                        
                     token_to_buy = yes_token_id if decision == "YES" else no_token_id
                     
-                    # Цена = лучший Ask. Запрашиваем книгу именно для того токена, который покупаем
-                    fresh_prices = await api_client.get_market_prices(token_to_buy)
-                    if not fresh_prices:
-                        logger.warning("no_fresh_prices", market_id=market.market_id)
-                        await save_or_update_skipped_trade(
-                            db_session, market, "No fresh prices from API",
-                            p_flip, model_ver, start_time,
-                            existing_skipped=existing_skipped
-                        )
-                        continue
-                        
-                    buy_price = fresh_prices.get("best_ask", 0)
+                    # Цена = лучший Ask
+                    if decision == "YES":
+                        buy_price = fresh_yes_prices.get("best_ask", 0)
+                    else:
+                        # Для NO запрашиваем стакан NO-токена
+                        fresh_no_prices = await api_client.get_market_prices(no_token_id)
+                        if not fresh_no_prices:
+                            logger.warning("no_fresh_no_prices", market_id=market.market_id)
+                            await save_or_update_skipped_trade(
+                                db_session, market, "No fresh NO prices from API",
+                                p_flip, model_ver, start_time,
+                                existing_skipped=existing_skipped
+                            )
+                            continue
+                        buy_price = fresh_no_prices.get("best_ask", 0)
                     
                     if buy_price < trade_min_price or buy_price > trade_max_price:
                         logger.warning("trade_skipped_price_out_of_range", price=buy_price, min=trade_min_price, max=trade_max_price)

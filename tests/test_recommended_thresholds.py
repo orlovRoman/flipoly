@@ -62,7 +62,7 @@ async def test_engine_dynamic_no_flip_threshold(db_session):
          mock_trader = mock_trader_cls.return_value
          mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
          mock_api = mock_api_cls.return_value
-         mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.62})
+         mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.62})
          mock_api.close = AsyncMock()
 
          await trade_worker_cycle(db_session, mock_trader, mock_api)
@@ -161,7 +161,7 @@ async def test_only_favorite_skips_flip_signal(db_session):
     from unittest.mock import MagicMock, AsyncMock
     mock_trader = MagicMock()
     mock_api = MagicMock()
-    mock_api.get_market_prices = AsyncMock(return_value={"best_ask": 0.5})
+    mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.30, "current_spread": 0.01, "best_ask": 0.5})
     mock_api.close = AsyncMock()
 
     await trade_worker_cycle(db_session, mock_trader, mock_api)
