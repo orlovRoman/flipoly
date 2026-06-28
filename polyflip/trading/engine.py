@@ -90,7 +90,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADE_CAPITAL_USDC",  # Зарезервировано для будущего Kelly по % от капитала
         "KELLY_ENABLED",
         "TRADING_MODE",
-        "FAVORITE_MODE_ENTRY_SEC"
+        "FAVORITE_MODE_ENTRY_SEC",
+        "MIN_EDGE"
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
@@ -129,6 +130,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
     entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
+    min_edge = float(settings_db.get("MIN_EDGE", str(settings.MIN_EDGE)))
 
     # 2. Ищем рынки, которые подходят по времени для ставки (в пределах настраиваемого диапазона)
     # Чтобы не ставить дважды, проверяем TradeHistory.
@@ -453,8 +455,22 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         await save_or_update_skipped_trade(db_session, market, f"Price dropped to {buy_price}, no longer favorite", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
                         continue
                         
-                    # Шаг 4: Вычисляем размер ставки по критерию Келли
                     p_win = 1.0 - p_flip
+                    
+                    # Проверка минимального edge
+                    implied_prob = buy_price
+                    edge = p_win - implied_prob
+                    if edge < min_edge:
+                        logger.warning("trade_skipped_edge_too_small", edge=edge, min_edge=min_edge, p_win=p_win, implied_prob=implied_prob)
+                        await save_or_update_skipped_trade(
+                            db_session, market,
+                            f"Edge too small: {edge:.3f} < {min_edge:.3f} (Model P(win): {p_win:.3f}, Implied: {implied_prob:.3f})",
+                            p_flip, model_ver, start_time,
+                            existing_skipped=existing_skipped
+                        )
+                        continue
+                        
+                    # Шаг 4: Вычисляем размер ставки по критерию Келли
                     
                     kelly_enabled = settings_db.get("KELLY_ENABLED", "true").lower() == "true"
                     if kelly_enabled:

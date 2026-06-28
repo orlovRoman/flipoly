@@ -238,6 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
     favoriteEntrySecInput: document.getElementById('FAVORITE_MODE_ENTRY_SEC'),
     tradingModeBadge: document.getElementById('trading-mode-badge'),
     pollIntervalInput: document.getElementById("LIVE_POLL_INTERVAL_SECONDS"),
+    minEdge: document.getElementById("MIN_EDGE"),
   };
 
   if (settingsElements.apiKeyInput) {
@@ -381,7 +382,10 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.maxPrice.value = data.TRADE_MAX_PRICE;
       if (settingsElements.kellyEnabled && data.KELLY_ENABLED)
         settingsElements.kellyEnabled.checked = data.KELLY_ENABLED === "true";
-
+      if (settingsElements.minEdge && data.MIN_EDGE !== undefined) {
+        let val = parseFloat(data.MIN_EDGE);
+        settingsElements.minEdge.value = Math.round(val * 100);
+      }
       if (data.TRADING_MODE) {
         const mode = data.TRADING_MODE;
         const radio = document.querySelector(`input[name="trading_mode"][value="${mode}"]`);
@@ -447,6 +451,9 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (settingsElements.pollIntervalInput) {
         settingsToSave.LIVE_POLL_INTERVAL_SECONDS = settingsElements.pollIntervalInput.value;
+      }
+      if (settingsElements.minEdge) {
+        settingsToSave.MIN_EDGE = parseFloat(settingsElements.minEdge.value) / 100;
       }
       settingsToSave.TRADE_ASSETS = tradeAssets;
 

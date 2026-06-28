@@ -44,7 +44,8 @@ async def get_all_settings():
         "KELLY_ENABLED": db.get("KELLY_ENABLED", "true" if getattr(settings, 'KELLY_ENABLED', True) else "false"),
         "TRADING_MODE": db.get("TRADING_MODE", settings.TRADING_MODE),
         "FAVORITE_MODE_ENTRY_SEC": db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)),
-        "LIVE_POLL_INTERVAL_SECONDS": db.get("LIVE_POLL_INTERVAL_SECONDS", str(settings.LIVE_POLL_INTERVAL_SECONDS))
+        "LIVE_POLL_INTERVAL_SECONDS": db.get("LIVE_POLL_INTERVAL_SECONDS", str(settings.LIVE_POLL_INTERVAL_SECONDS)),
+        "MIN_EDGE": db.get("MIN_EDGE", str(settings.MIN_EDGE))
     }
 
 @router.get("/recommended_thresholds")
@@ -110,14 +111,15 @@ async def update_setting(key: str, payload: SettingValue):
         "KELLY_ENABLED",
         "TRADING_MODE",
         "FAVORITE_MODE_ENTRY_SEC",
-        "LIVE_POLL_INTERVAL_SECONDS"
+        "LIVE_POLL_INTERVAL_SECONDS",
+        "MIN_EDGE"
     ]
     
     if key not in valid_keys:
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
     # Валидация и нормализация порогов вероятности флипа и мертвой зоны
-    if key in ["TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH", "KELLY_MAX_FRACTION"]:
+    if key in ["TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH", "KELLY_MAX_FRACTION", "MIN_EDGE"]:
         try:
             val = float(payload.value)
             if val < 0.0 or val > 100.0:

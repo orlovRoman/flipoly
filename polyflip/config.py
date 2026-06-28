@@ -2,7 +2,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 from polyflip.constants import (
     DEAD_ZONE_WIDTH as _DEFAULT_DEAD_ZONE,
-    LIVE_POLL_INTERVAL_SECONDS as _DEFAULT_POLL_INTERVAL
+    LIVE_POLL_INTERVAL_SECONDS as _DEFAULT_POLL_INTERVAL,
+    MIN_EDGE as _DEFAULT_MIN_EDGE
 )
 
 class Settings(BaseSettings):
@@ -34,7 +35,7 @@ class Settings(BaseSettings):
     
     # Legacy параметры (оставил на всякий случай)
     DRIFT_THRESHOLD: float = 0.05
-    MIN_EDGE: float = 0.05
+    MIN_EDGE: float = _DEFAULT_MIN_EDGE
     BET_FRACTION: float = 0.02
     ALERT_WEBHOOK_URL: str = ""
     COLLECTOR_STALE_HOURS: int = 2

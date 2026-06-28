@@ -169,3 +169,44 @@ async def test_update_setting_invalid_poll_interval(db_session):
         assert exc_info.value.status_code == 400
     finally:
         settings_module.async_session = original_session
+
+
+@pytest.mark.asyncio
+async def test_update_setting_valid_min_edge(db_session):
+    import polyflip.api.settings as settings_module
+    original_session = settings_module.async_session
+    settings_module.async_session = patch_session(db_session)
+    
+    try:
+        # Проверяем сохранение процентов (8% -> 0.08)
+        await update_setting("MIN_EDGE", SettingValue(value="8"))
+        stmt = select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE")
+        row = (await db_session.execute(stmt)).scalar_one()
+        assert float(row.value) == 0.08
+        
+        # Проверяем сохранение доли (0.04 -> 0.04)
+        await update_setting("MIN_EDGE", SettingValue(value="0.04"))
+        row = (await db_session.execute(stmt)).scalar_one()
+        assert float(row.value) == 0.04
+    finally:
+        settings_module.async_session = original_session
+
+@pytest.mark.asyncio
+async def test_update_setting_invalid_min_edge(db_session):
+    import polyflip.api.settings as settings_module
+    original_session = settings_module.async_session
+    settings_module.async_session = patch_session(db_session)
+    
+    try:
+        # Слишком много (больше 100)
+        with pytest.raises(HTTPException) as exc_info:
+            await update_setting("MIN_EDGE", SettingValue(value="105"))
+        assert exc_info.value.status_code == 400
+        
+        # Слишком мало (меньше 0)
+        with pytest.raises(HTTPException) as exc_info:
+            await update_setting("MIN_EDGE", SettingValue(value="-1"))
+        assert exc_info.value.status_code == 400
+    finally:
+        settings_module.async_session = original_session
+
