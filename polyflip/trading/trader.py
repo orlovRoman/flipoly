@@ -77,7 +77,7 @@ class PolyTrader:
         
         if not client:
             logger.info("paper_trade_executed", market_id=market_id, side=side, price=price, size=size)
-            return {"status": "SUCCESS", "mode": "PAPER", "error_msg": None, "executed_usdc": size, "executed_price": price}
+            return {"status": "SUCCESS", "mode": "PAPER", "error_msg": None, "executed_usdc": round(size * price, 2), "executed_price": price}
             
         # BUG-T02 FIX: Retry logic с fallback на size/2
         max_retries = 3
@@ -96,7 +96,7 @@ class PolyTrader:
                 
                 if resp and resp.get("success"):
                     logger.info("trade_success", order_id=resp.get("orderID"), attempt=attempt, size=current_size)
-                    return {"status": "SUCCESS", "mode": "LIVE", "error_msg": None, "executed_usdc": current_size, "executed_price": price}
+                    return {"status": "SUCCESS", "mode": "LIVE", "error_msg": None, "executed_usdc": round(current_size * price, 2), "executed_price": price}
                 
                 err = resp.get("errorMsg") if resp else "Unknown error"
                 logger.warning("trade_failed_attempt", attempt=attempt, error=err, size=current_size)
