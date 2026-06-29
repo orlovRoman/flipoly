@@ -659,11 +659,11 @@ document.addEventListener("DOMContentLoaded", () => {
           ? `<span style="color: #8F9BB3;">${parseFloat(log.kelly_fraction).toFixed(3)}</span>`
           : "-";
 
-        let betTypeHtml = `<span style="color: #00ff88; font-weight: bold;">Тренд</span>`;
+        let betTypeHtml = `<span style="color: #00ff88; font-weight: 500;">Ставка по тренду</span>`;
         const isOutsider = (log.outcome_bought === "NO" && parseFloat(log.predicted_flip_prob) >= 0.5) ||
                            (log.error_msg && (log.error_msg.includes("TRADE_ON_FLIP") || log.error_msg.includes("Ожидается флип")));
         if (isOutsider) {
-          betTypeHtml = `<span style="color: #ffb020; font-weight: bold;">Аутсайдер</span>`;
+          betTypeHtml = `<span style="color: #ffb020; font-weight: 500;">Аутсайдер (NO при флипе)</span>`;
         }
 
         let outcomeBadge = "";
