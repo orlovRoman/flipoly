@@ -2,7 +2,15 @@
 FAVORITE_THRESHOLD = 0.55          # граница фаворит/аутсайдер
 KELLY_MAX_FRACTION = 0.10         # максимальная Kelly-доля от капитала
 DEAD_ZONE_WIDTH = 0.15            # ширина мёртвой зоны вокруг flip-порога
+AUTO_DEAD_ZONE = True        # по умолчанию включён
+AUTO_DEAD_ZONE_WIDTH = 0.10 # ширина нейтральной полосы (10 пп)
 DAILY_LOSS_LIMIT_USDC = -100.0    # стоп-лосс на день
+
+# Режим ставки на аутсайдера (NO при флипе)
+TRADE_ON_FLIP = False          # по умолчанию выключен
+FLIP_THRESHOLD = 0.70         # p_flip >= 0.70 → рассматриваем NO
+NO_MAX_PRICE = 0.60           # не покупать NO дороже 0.60
+NO_MIN_EDGE = 0.04            # минимальный edge для NO-ставки
 
 # --- Режимы торговли ---
 TRADING_MODE_ML = "ml"

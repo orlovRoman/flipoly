@@ -8,7 +8,11 @@ from polyflip.constants import (
     DEFAULT_TRADING_MODE,
     FAVORITE_MODE_ENTRY_SEC,
     LIVE_POLL_INTERVAL_SECONDS,
-    MIN_EDGE
+    MIN_EDGE,
+    TRADE_ON_FLIP,
+    FLIP_THRESHOLD,
+    NO_MAX_PRICE,
+    NO_MIN_EDGE
 )
 
 DEFAULTS = {
@@ -19,6 +23,10 @@ DEFAULTS = {
     "FAVORITE_MODE_ENTRY_SEC": str(FAVORITE_MODE_ENTRY_SEC),
     "LIVE_POLL_INTERVAL_SECONDS": str(LIVE_POLL_INTERVAL_SECONDS),
     "MIN_EDGE": str(MIN_EDGE),
+    "TRADE_ON_FLIP": "false",
+    "FLIP_THRESHOLD": str(FLIP_THRESHOLD),
+    "NO_MAX_PRICE": str(NO_MAX_PRICE),
+    "NO_MIN_EDGE": str(NO_MIN_EDGE),
 }
 
 from datetime import datetime, timezone

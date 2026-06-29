@@ -1,14 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from typing import Optional
 from pydantic import BaseModel
 from sqlalchemy import select
 from datetime import datetime, timezone
 import structlog
 
 from polyflip.db.connection import async_session
-from polyflip.db.models import RuntimeSettings
+from polyflip.db.models import RuntimeSettings, StrategyConfig
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
-from polyflip.constants import KELLY_MAX_FRACTION, DAILY_LOSS_LIMIT_USDC
+from polyflip.constants import KELLY_MAX_FRACTION, DAILY_LOSS_LIMIT_USDC, TRADE_ON_FLIP, FLIP_THRESHOLD, NO_MAX_PRICE, NO_MIN_EDGE, AUTO_DEAD_ZONE, AUTO_DEAD_ZONE_WIDTH
 
 logger = structlog.get_logger(__name__)
 
@@ -47,7 +48,13 @@ async def get_all_settings():
         "LIVE_POLL_INTERVAL_SECONDS": db.get("LIVE_POLL_INTERVAL_SECONDS", str(settings.LIVE_POLL_INTERVAL_SECONDS)),
         "FAVORITE_THRESHOLD": db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)),
         "MIN_EDGE": db.get("MIN_EDGE", str(settings.MIN_EDGE)),
-        "MAX_EDGE": db.get("MAX_EDGE", str(settings.MAX_EDGE))
+        "MAX_EDGE": db.get("MAX_EDGE", str(settings.MAX_EDGE)),
+        "TRADE_ON_FLIP": db.get("TRADE_ON_FLIP", "false"),
+        "FLIP_THRESHOLD": db.get("FLIP_THRESHOLD", str(FLIP_THRESHOLD)),
+        "NO_MAX_PRICE": db.get("NO_MAX_PRICE", str(NO_MAX_PRICE)),
+        "NO_MIN_EDGE": db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)),
+        "AUTO_DEAD_ZONE": db.get("AUTO_DEAD_ZONE", "true"),
+        "AUTO_DEAD_ZONE_WIDTH": db.get("AUTO_DEAD_ZONE_WIDTH", str(AUTO_DEAD_ZONE_WIDTH))
     }
 
 @router.get("/recommended_thresholds")
@@ -91,7 +98,7 @@ async def get_recommended_thresholds():
     }
 
 @router.api_route("/{key}", methods=["PUT", "POST"])
-async def update_setting(key: str, payload: SettingValue):
+async def update_setting(key: str, payload: SettingValue, request: Request = None):
     """
     Обновляет или создает настройку в БД.
     """
@@ -116,7 +123,13 @@ async def update_setting(key: str, payload: SettingValue):
         "LIVE_POLL_INTERVAL_SECONDS",
         "FAVORITE_THRESHOLD",
         "MIN_EDGE",
-        "MAX_EDGE"
+        "MAX_EDGE",
+        "TRADE_ON_FLIP",
+        "FLIP_THRESHOLD",
+        "NO_MAX_PRICE",
+        "NO_MIN_EDGE",
+        "AUTO_DEAD_ZONE",
+        "AUTO_DEAD_ZONE_WIDTH"
     ]
     
     if key not in valid_keys:
@@ -192,6 +205,57 @@ async def update_setting(key: str, payload: SettingValue):
         except ValueError:
             raise HTTPException(status_code=400, detail="FAVORITE_MODE_ENTRY_SEC must be an integer")
 
+    if key == "FLIP_THRESHOLD":
+        try:
+            val = float(payload.value)
+            if not (0.50 <= val <= 0.99):
+                raise HTTPException(status_code=400, detail="FLIP_THRESHOLD must be 0.50..0.99")
+            payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="FLIP_THRESHOLD must be a number")
+
+    if key == "NO_MAX_PRICE":
+        try:
+            val = float(payload.value)
+            if not (0.10 <= val <= 0.60):
+                raise HTTPException(status_code=400, detail="NO_MAX_PRICE must be 0.10..0.60")
+            if val > 0.60:
+                raise HTTPException(status_code=400, detail="NO_MAX_PRICE cannot exceed 0.60")
+            payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="NO_MAX_PRICE must be a number")
+
+    if key == "NO_MIN_EDGE":
+        try:
+            val = float(payload.value)
+            if not ((0.5 <= val <= 30.0) or (0.005 <= val <= 0.30)):
+                raise HTTPException(status_code=400, detail="NO_MIN_EDGE must be between 0.5% and 30% (or 0.005 and 0.30)")
+            if val > 0.30:
+                payload.value = str(val / 100.0)
+            else:
+                payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="NO_MIN_EDGE must be a number")
+
+    if key == "TRADE_ON_FLIP":
+        if payload.value.lower() not in ("true", "false"):
+            raise HTTPException(status_code=400, detail="TRADE_ON_FLIP must be 'true' or 'false'")
+        payload.value = payload.value.lower()
+
+    if key == "AUTO_DEAD_ZONE":
+        if payload.value.lower() not in ("true", "false"):
+            raise HTTPException(status_code=400, detail="AUTO_DEAD_ZONE must be 'true' or 'false'")
+        payload.value = payload.value.lower()
+
+    if key == "AUTO_DEAD_ZONE_WIDTH":
+        try:
+            val = float(payload.value)
+            if not (0.02 <= val <= 0.40):
+                raise HTTPException(status_code=400, detail="AUTO_DEAD_ZONE_WIDTH must be 0.02..0.40")
+            payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="AUTO_DEAD_ZONE_WIDTH must be a number")
+
     if key == "LIVE_POLL_INTERVAL_SECONDS":
         try:
             val = int(payload.value)
@@ -202,6 +266,12 @@ async def update_setting(key: str, payload: SettingValue):
             raise HTTPException(status_code=400, detail="LIVE_POLL_INTERVAL_SECONDS must be an integer")
 
     async with async_session() as session:
+        # Получить старое значение перед изменением
+        old_row = (await session.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == key)
+        )).scalar_one_or_none()
+        old_value = old_row.value if old_row else None
+
         result = await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))
         setting = result.scalar_one_or_none()
         
@@ -218,6 +288,18 @@ async def update_setting(key: str, payload: SettingValue):
                 updated_by="dashboard"
             )
             session.add(setting)
+            
+        # Записать историю
+        config_log = StrategyConfig(
+            key=key,
+            old_value=old_value,
+            new_value=payload.value,
+            changed_at=now,
+            changed_by="user",
+            source_ip=request.client.host if (request and request.client) else None,
+            note=None,
+        )
+        session.add(config_log)
             
         await session.commit()
         logger.info("setting_updated", key=key, value=payload.value)

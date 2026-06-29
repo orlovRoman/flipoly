@@ -107,3 +107,43 @@ class TradeHistory(Base):
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),
     )
+
+class SlippageLog(Base):
+    __tablename__ = "slippage_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trade_id = Column(Integer, nullable=False)          # FK → trade_history.id
+    market_id = Column(String(128), nullable=False)
+    asset = Column(String(32), nullable=False)
+    outcome_bought = Column(String(16), nullable=False)  # YES / NO
+    expected_price = Column(Float, nullable=False)       # buy_price в момент решения
+    executed_price = Column(Float, nullable=False)       # реально исполненная цена
+    slippage = Column(Float, nullable=False)             # executed - expected
+    slippage_pct = Column(Float, nullable=False)         # slippage / expected * 100
+    bet_size_usdc = Column(Float, nullable=False)
+    slippage_cost_usdc = Column(Float, nullable=False)   # slippage * (bet / executed_price)
+    mode = Column(String(16), nullable=False)             # LIVE / PAPER
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_slippage_log_asset", "asset"),
+        Index("idx_slippage_log_created_at", "created_at"),
+        Index("idx_slippage_log_trade_id", "trade_id"),
+    )
+
+class StrategyConfig(Base):
+    __tablename__ = "strategy_config"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(64), nullable=False)
+    old_value = Column(String, nullable=True)      # предыдущее значение (None при первом set)
+    new_value = Column(String, nullable=False)
+    changed_at = Column(DateTime(timezone=True), nullable=False)
+    changed_by = Column(String(64), nullable=False)  # "user", "trainer", "system"
+    source_ip = Column(String(64), nullable=True)    # IP дашборда при ручном изменении
+    note = Column(String, nullable=True)             # опциональный комментарий
+
+    __table_args__ = (
+        Index("idx_strategy_config_key", "key"),
+        Index("idx_strategy_config_changed_at", "changed_at"),
+    )

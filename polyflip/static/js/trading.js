@@ -242,7 +242,54 @@ document.addEventListener("DOMContentLoaded", () => {
     minEdge: document.getElementById("MIN_EDGE"),
     maxEdge: document.getElementById("MAX_EDGE"),
     favoriteThreshold: document.getElementById("FAVORITE_THRESHOLD"),
+    tradeOnFlip: document.getElementById("TRADE_ON_FLIP"),
+    flipThreshold: document.getElementById("FLIP_THRESHOLD"),
+    noMaxPrice: document.getElementById("NO_MAX_PRICE"),
+    noMinEdge: document.getElementById("NO_MIN_EDGE"),
+    autoDeadZone: document.getElementById("AUTO_DEAD_ZONE"),
+    autoDeadZoneWidth: document.getElementById("AUTO_DEAD_ZONE_WIDTH"),
   };
+
+  function updateDeadZoneInfo() {
+    if (!settingsElements.autoDeadZone) return;
+    const isAuto = settingsElements.autoDeadZone.checked;
+    const autoWidth = parseFloat(settingsElements.autoDeadZoneWidth.value) / 100 || 0.10;
+    const manualWidth = parseFloat(settingsElements.deadZoneWidth.value) / 100 || 0.15;
+    const noFlip = parseFloat(settingsElements.noFlipThreshold.value) / 100 || 0.45;
+    
+    // Toggle fields
+    if (isAuto) {
+      document.getElementById("auto-dead-zone-width-group").style.display = "block";
+      document.getElementById("manual-dead-zone-width-group").style.display = "none";
+      
+      const baseFlip = noFlip + manualWidth;
+      const lower = Math.max(0, baseFlip - autoWidth / 2);
+      const upper = Math.min(1, baseFlip + autoWidth / 2);
+      document.getElementById("dead-zone-range-text").textContent = 
+        `${Math.round(lower * 100)}% – ${Math.round(upper * 100)}% (Авто: YES < ${Math.round(lower * 100)}%, NO > ${Math.round(upper * 100)}%)`;
+    } else {
+      document.getElementById("auto-dead-zone-width-group").style.display = "none";
+      document.getElementById("manual-dead-zone-width-group").style.display = "block";
+      
+      const lower = noFlip;
+      const upper = noFlip + manualWidth;
+      document.getElementById("dead-zone-range-text").textContent = 
+        `${Math.round(lower * 100)}% – ${Math.round(upper * 100)}% (Ручной: YES < ${Math.round(lower * 100)}%, NO > ${Math.round(upper * 100)}%)`;
+    }
+  }
+
+  if (settingsElements.autoDeadZone) {
+    settingsElements.autoDeadZone.addEventListener("change", updateDeadZoneInfo);
+  }
+  if (settingsElements.autoDeadZoneWidth) {
+    settingsElements.autoDeadZoneWidth.addEventListener("input", updateDeadZoneInfo);
+  }
+  if (settingsElements.deadZoneWidth) {
+    settingsElements.deadZoneWidth.addEventListener("input", updateDeadZoneInfo);
+  }
+  if (settingsElements.noFlipThreshold) {
+    settingsElements.noFlipThreshold.addEventListener("input", updateDeadZoneInfo);
+  }
 
   if (settingsElements.apiKeyInput) {
     settingsElements.apiKeyInput.value = apiKey;
@@ -398,6 +445,28 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.FAVORITE_THRESHOLD);
         settingsElements.favoriteThreshold.value = val;
       }
+      if (settingsElements.tradeOnFlip && data.TRADE_ON_FLIP) {
+        settingsElements.tradeOnFlip.checked = data.TRADE_ON_FLIP === "true";
+      }
+      if (settingsElements.flipThreshold && data.FLIP_THRESHOLD !== undefined) {
+        let val = parseFloat(data.FLIP_THRESHOLD);
+        settingsElements.flipThreshold.value = Math.round(val * 100);
+      }
+      if (settingsElements.noMaxPrice && data.NO_MAX_PRICE !== undefined) {
+        settingsElements.noMaxPrice.value = data.NO_MAX_PRICE;
+      }
+      if (settingsElements.noMinEdge && data.NO_MIN_EDGE !== undefined) {
+        let val = parseFloat(data.NO_MIN_EDGE);
+        settingsElements.noMinEdge.value = (val * 100).toFixed(1);
+      }
+      if (settingsElements.autoDeadZone && data.AUTO_DEAD_ZONE) {
+        settingsElements.autoDeadZone.checked = data.AUTO_DEAD_ZONE === "true";
+      }
+      if (settingsElements.autoDeadZoneWidth && data.AUTO_DEAD_ZONE_WIDTH !== undefined) {
+        let val = parseFloat(data.AUTO_DEAD_ZONE_WIDTH);
+        settingsElements.autoDeadZoneWidth.value = Math.round(val * 100);
+      }
+      updateDeadZoneInfo();
       if (data.TRADING_MODE) {
         const mode = data.TRADING_MODE;
         const radio = document.querySelector(`input[name="trading_mode"][value="${mode}"]`);
@@ -465,6 +534,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.minEdge) settingsToSave.MIN_EDGE = parseFloat(settingsElements.minEdge.value) / 100;
       if (settingsElements.maxEdge) settingsToSave.MAX_EDGE = parseFloat(settingsElements.maxEdge.value) / 100;
       if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFloat(settingsElements.favoriteThreshold.value);
+      if (settingsElements.tradeOnFlip) settingsToSave.TRADE_ON_FLIP = settingsElements.tradeOnFlip.checked ? "true" : "false";
+      if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFloat(settingsElements.flipThreshold.value) / 100;
+      if (settingsElements.noMaxPrice) settingsToSave.NO_MAX_PRICE = parseFloat(settingsElements.noMaxPrice.value);
+      if (settingsElements.noMinEdge) settingsToSave.NO_MIN_EDGE = parseFloat(settingsElements.noMinEdge.value) / 100;
+      if (settingsElements.autoDeadZone) settingsToSave.AUTO_DEAD_ZONE = settingsElements.autoDeadZone.checked ? "true" : "false";
+      if (settingsElements.autoDeadZoneWidth) settingsToSave.AUTO_DEAD_ZONE_WIDTH = parseFloat(settingsElements.autoDeadZoneWidth.value) / 100;
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
       const failed = [];

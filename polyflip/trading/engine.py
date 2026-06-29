@@ -11,10 +11,10 @@ from sqlalchemy import select, and_, func
 logger = structlog.get_logger(__name__)
 
 from polyflip.config import settings
-from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory
+from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory, SlippageLog
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
-from polyflip.trading.utils import compute_kelly_fraction
+from polyflip.trading.utils import compute_kelly_fraction, compute_dead_zone
 from polyflip.models.trainer import add_derived_features
 from polyflip.api.trading_dashboard import invalidate_stats_cache
 from polyflip.api.dashboard import invalidate_dashboard_cache
@@ -27,7 +27,13 @@ from polyflip.constants import (
     TRADING_MODE_ML,
     TRADING_MODE_FAVORITE,
     FAVORITE_MODE_ENTRY_SEC,
-    FAVORITE_MODE_ENTRY_WINDOW_SEC
+    FAVORITE_MODE_ENTRY_WINDOW_SEC,
+    TRADE_ON_FLIP,
+    FLIP_THRESHOLD,
+    NO_MAX_PRICE,
+    NO_MIN_EDGE,
+    AUTO_DEAD_ZONE,
+    AUTO_DEAD_ZONE_WIDTH
 )
 
 logger = structlog.get_logger(__name__)
@@ -104,7 +110,13 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "FAVORITE_MODE_ENTRY_SEC",
         "MIN_EDGE",
         "MAX_EDGE",
-        "FAVORITE_THRESHOLD"
+        "FAVORITE_THRESHOLD",
+        "TRADE_ON_FLIP",
+        "FLIP_THRESHOLD",
+        "NO_MAX_PRICE",
+        "NO_MIN_EDGE",
+        "AUTO_DEAD_ZONE",
+        "AUTO_DEAD_ZONE_WIDTH"
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
@@ -143,6 +155,10 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     capital = float(settings_db.get("INITIAL_CAPITAL", getattr(settings, 'INITIAL_CAPITAL', 100.0)))
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
+    trade_on_flip = settings_db.get("TRADE_ON_FLIP", "false").lower() == "true"
+    flip_threshold = float(settings_db.get("FLIP_THRESHOLD", str(FLIP_THRESHOLD)))
+    no_max_price = float(settings_db.get("NO_MAX_PRICE", str(NO_MAX_PRICE)))
+    no_min_edge = float(settings_db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)))
     entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
     min_edge = float(settings_db.get("MIN_EDGE", str(settings.MIN_EDGE)))
     max_edge = float(settings_db.get("MAX_EDGE", str(settings.MAX_EDGE)))
@@ -449,14 +465,21 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 # Шаг 3: Калибровка порога. Считываем TRADE_FLIP_THRESHOLD_{asset}
                 flip_threshold_key = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
                 has_per_asset_threshold = flip_threshold_key in settings_db
-                
-                if has_per_asset_threshold:
-                    calibrated_val = float(settings_db[flip_threshold_key])
-                    current_no_flip_threshold = round(calibrated_val - dead_zone, 4)
-                else:
-                    # Нет per-asset калибровки — используем глобальные настройки напрямую
-                    current_no_flip_threshold = no_flip_threshold
-                    calibrated_val = no_flip_threshold + dead_zone  # только для reason в логах
+                auto_dead_zone = settings_db.get("AUTO_DEAD_ZONE", "true").lower() == "true"
+                auto_dead_zone_width = float(settings_db.get("AUTO_DEAD_ZONE_WIDTH", str(AUTO_DEAD_ZONE_WIDTH)))
+
+                base_flip_threshold = (
+                    float(settings_db[flip_threshold_key])
+                    if has_per_asset_threshold
+                    else no_flip_threshold + dead_zone  # legacy: no_flip + width = flip
+                )
+
+                current_no_flip_threshold, flip_upper = compute_dead_zone(
+                    flip_threshold=base_flip_threshold,
+                    dead_zone_width=auto_dead_zone_width if auto_dead_zone else dead_zone,
+                    auto_mode=auto_dead_zone,
+                )
+                calibrated_val = flip_upper  # верхняя граница зоны = порог флипа
                 
                 if p_flip < current_no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
@@ -579,6 +602,136 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         created_at=start_time
                     )
                     db_session.add(history)
+                    await db_session.flush()
+
+                    if trade_res.get("status") == "SUCCESS":
+                        exec_p = trade_res.get("executed_price", buy_price)
+                        slip = round(exec_p - buy_price, 6)
+                        slip_pct = round(slip / buy_price * 100, 4) if buy_price > 0 else 0.0
+                        slip_cost = round(slip * (actual_bet_size / exec_p), 4) if exec_p > 0 else 0.0
+
+                        slippage_record = SlippageLog(
+                            trade_id=history.id,
+                            market_id=market.market_id,
+                            asset=market.asset,
+                            outcome_bought=decision,
+                            expected_price=buy_price,
+                            executed_price=exec_p,
+                            slippage=slip,
+                            slippage_pct=slip_pct,
+                            bet_size_usdc=actual_bet_size,
+                            slippage_cost_usdc=slip_cost,
+                            mode=trade_res.get("mode", "PAPER"),
+                            created_at=start_time,
+                        )
+                        db_session.add(slippage_record)
+
+                    invalidate_stats_cache()
+                    invalidate_dashboard_cache()
+                elif trade_on_flip and p_flip >= flip_upper:
+                    # Покупаем NO-токен (ставка на аутсайдера)
+                    fresh_no_prices = await api_client.get_market_prices(no_token_id)
+                    if not fresh_no_prices or fresh_no_prices.get("best_ask") is None:
+                        await save_or_update_skipped_trade(
+                            db_session, market,
+                            f"TRADE_ON_FLIP: no NO prices, p_flip={p_flip:.2f}",
+                            p_flip, model_ver, start_time,
+                            existing_skipped=existing_skipped
+                        )
+                        continue
+
+                    no_buy_price = fresh_no_prices["best_ask"]
+
+                    # Жёсткий потолок цены NO ≤ NO_MAX_PRICE
+                    if no_buy_price > no_max_price:
+                        await save_or_update_skipped_trade(
+                            db_session, market,
+                            f"TRADE_ON_FLIP: NO price {no_buy_price:.3f} > max {no_max_price:.2f}",
+                            p_flip, model_ver, start_time,
+                            existing_skipped=existing_skipped
+                        )
+                        continue
+
+                    # Edge для NO: p_flip — вероятность нашей победы (NO wins if flip happens)
+                    no_implied_prob = 1.0 - fresh_yes_price  # рыночная оценка NO
+                    no_edge = round(p_flip - no_implied_prob, 4)
+
+                    if no_edge < no_min_edge:
+                        await save_or_update_skipped_trade(
+                            db_session, market,
+                            f"TRADE_ON_FLIP: NO edge {no_edge:.3f} < min {no_min_edge:.3f}",
+                            p_flip, model_ver, start_time,
+                            existing_skipped=existing_skipped,
+                            edge=no_edge
+                        )
+                        continue
+
+                    # Kelly для NO -> не надо по требованию пользователя
+                    actual_bet_size = bet_size
+                    num_shares = round(actual_bet_size / no_buy_price, 2)
+
+                    logger.info(
+                        "trade_on_flip_decision",
+                        market_id=market.market_id,
+                        p_flip=p_flip,
+                        no_buy_price=no_buy_price,
+                        no_edge=no_edge,
+                        actual_bet_size=actual_bet_size,
+                    )
+
+                    trade_res = await trader.execute_trade(
+                        market_id=market.market_id,
+                        token_id=no_token_id,
+                        side="BUY",
+                        price=no_buy_price,
+                        size=num_shares,
+                    )
+
+                    if existing_skipped:
+                        await db_session.delete(existing_skipped)
+
+                    history = TradeHistory(
+                        market_id=market.market_id,
+                        asset=market.asset,
+                        outcome_bought="NO",
+                        amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
+                        executed_price=trade_res.get("executed_price", no_buy_price),
+                        predicted_flip_prob=p_flip,
+                        active_features=active_features_str,
+                        model_version=model_ver,
+                        status=trade_res.get("status", "FAILED"),
+                        error_msg=trade_res.get("error_msg"),
+                        mode=trade_res.get("mode", "PAPER"),
+                        kelly_fraction=None,
+                        kelly_multiplier=1.0,
+                        edge=no_edge,
+                        created_at=start_time,
+                    )
+                    db_session.add(history)
+                    await db_session.flush()
+
+                    if trade_res.get("status") == "SUCCESS":
+                        exec_p = trade_res.get("executed_price", no_buy_price)
+                        slip = round(exec_p - no_buy_price, 6)
+                        slip_pct = round(slip / no_buy_price * 100, 4) if no_buy_price > 0 else 0.0
+                        slip_cost = round(slip * (actual_bet_size / exec_p), 4) if exec_p > 0 else 0.0
+
+                        slippage_record = SlippageLog(
+                            trade_id=history.id,
+                            market_id=market.market_id,
+                            asset=market.asset,
+                            outcome_bought="NO",
+                            expected_price=no_buy_price,
+                            executed_price=exec_p,
+                            slippage=slip,
+                            slippage_pct=slip_pct,
+                            bet_size_usdc=actual_bet_size,
+                            slippage_cost_usdc=slip_cost,
+                            mode=trade_res.get("mode", "PAPER"),
+                            created_at=start_time,
+                        )
+                        db_session.add(slippage_record)
+
                     invalidate_stats_cache()
                     invalidate_dashboard_cache()
                 else:
