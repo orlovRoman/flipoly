@@ -9,7 +9,7 @@ import math
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 from polyflip.db.connection import get_db_session
 from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, TradeHistory, ModelRegistry, RuntimeSettings
 from polyflip.api.auth import verify_api_key
@@ -77,7 +77,6 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
 
     async def fetch_rolling():
         async with async_session() as s:
-            from sqlalchemy import case
             seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
             stmt = select(
                 TradeHistory.asset,
