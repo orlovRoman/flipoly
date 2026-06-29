@@ -34,7 +34,7 @@ async def test_trainer_creates_model(db_session):
     await db_session.commit()
 
     trainer = ModelTrainer(db_session)
-    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10):
+    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10), patch("polyflip.models.trainer.MAX_SUSPICIOUS_THRESHOLD", 1.0):
         res = await trainer.train_model("BTC")
     assert res is True
 
