@@ -217,10 +217,8 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
     if key == "NO_MAX_PRICE":
         try:
             val = float(payload.value)
-            if not (0.10 <= val <= 0.60):
-                raise HTTPException(status_code=400, detail="NO_MAX_PRICE must be 0.10..0.60")
-            if val > 0.60:
-                raise HTTPException(status_code=400, detail="NO_MAX_PRICE cannot exceed 0.60")
+            if not (0.01 <= val <= 0.99):
+                raise HTTPException(status_code=400, detail="NO_MAX_PRICE must be between 0.01 and 0.99")
             payload.value = str(val)
         except ValueError:
             raise HTTPException(status_code=400, detail="NO_MAX_PRICE must be a number")
