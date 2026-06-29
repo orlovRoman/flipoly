@@ -644,11 +644,11 @@ document.addEventListener("DOMContentLoaded", () => {
           ? `<span style="color: #8F9BB3;">${parseFloat(log.kelly_fraction).toFixed(3)}</span>`
           : "-";
 
-        let multHtml = "-";
-        if (log.kelly_multiplier !== null && log.kelly_multiplier !== undefined) {
-          const mVal = parseFloat(log.kelly_multiplier);
-          const mColor = mVal >= 1.7 ? "#00ff88" : (mVal >= 1.3 ? "#ffb020" : "#8F9BB3");
-          multHtml = `<span style="color: ${mColor}; font-weight: bold; font-family: monospace;">${mVal.toFixed(1)}×</span>`;
+        let betTypeHtml = `<span style="color: #00ff88; font-weight: bold;">Тренд</span>`;
+        const isOutsider = (log.outcome_bought === "NO" && parseFloat(log.predicted_flip_prob) >= 0.5) ||
+                           (log.error_msg && (log.error_msg.includes("TRADE_ON_FLIP") || log.error_msg.includes("Ожидается флип")));
+        if (isOutsider) {
+          betTypeHtml = `<span style="color: #ffb020; font-weight: bold;">Аутсайдер</span>`;
         }
 
         let outcomeBadge = "";
@@ -673,7 +673,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
                         <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
                         <td style="padding: 8px; font-weight: 500;">${kellyFraction}</td>
-                        <td style="padding: 8px;">${multHtml}</td>
+                        <td style="padding: 8px;">${betTypeHtml}</td>
                         <td style="padding: 8px; font-weight: bold; color: var(--text-main);">${betText}</td>
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? "$" + parseFloat(log.executed_price).toFixed(3) : "-"}</td>
                         <td style="padding: 8px; color: ${pnlColor}; font-weight: 600;">${pnlText}</td>
