@@ -19,10 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_index('idx_trade_history_created_at', 'trade_history', ['created_at'], unique=False)
-    op.create_index('idx_trade_history_status', 'trade_history', ['status'], unique=False)
+    op.create_index('idx_trade_history_created_at', 'trade_history', ['created_at'], unique=False, postgresql_if_not_exists=True)
+    op.create_index('idx_trade_history_status', 'trade_history', ['status'], unique=False, postgresql_if_not_exists=True)
 
 
 def downgrade() -> None:
-    op.drop_index('idx_trade_history_status', table_name='trade_history')
-    op.drop_index('idx_trade_history_created_at', table_name='trade_history')
+    op.drop_index('idx_trade_history_status', table_name='trade_history', postgresql_if_exists=True)
+    op.drop_index('idx_trade_history_created_at', table_name='trade_history', postgresql_if_exists=True)
