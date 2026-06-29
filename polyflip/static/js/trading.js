@@ -299,6 +299,20 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function updateOutsiderStrategyStatus() {
+    const statusSpan = document.getElementById("outsider-strategy-status");
+    if (!statusSpan || !settingsElements.tradeOnFlip) return;
+    if (settingsElements.tradeOnFlip.checked) {
+      statusSpan.innerHTML = `<span style="background: rgba(0, 255, 136, 0.12); border: 1px solid #00ff88; color: #00ff88; padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: bold; margin-left: 8px;">Активна</span>`;
+    } else {
+      statusSpan.innerHTML = `<span style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: bold; margin-left: 8px;">Отключена</span>`;
+    }
+  }
+
+  if (settingsElements.tradeOnFlip) {
+    settingsElements.tradeOnFlip.addEventListener("change", updateOutsiderStrategyStatus);
+  }
+
   if (settingsElements.apiKeyInput) {
     settingsElements.apiKeyInput.value = apiKey;
   }
@@ -455,6 +469,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (settingsElements.tradeOnFlip && data.TRADE_ON_FLIP) {
         settingsElements.tradeOnFlip.checked = data.TRADE_ON_FLIP === "true";
+        updateOutsiderStrategyStatus();
       }
       if (settingsElements.flipThreshold && data.FLIP_THRESHOLD !== undefined) {
         let val = parseFloat(data.FLIP_THRESHOLD);
