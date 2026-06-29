@@ -493,9 +493,10 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         
                     p_win = 1.0 - p_flip
                     
-                    # Проверка минимального edge
-                    implied_prob = buy_price
-                    edge = p_win - implied_prob
+                    # Edge = преимущество модели над mid-ценой рынка (НЕ над ask)
+                    # mid_price = (best_bid + best_ask) / 2 — справедливая оценка рынка
+                    implied_prob = fresh_yes_price if decision == "YES" else (1.0 - fresh_yes_price)
+                    edge = round(p_win - implied_prob, 4)
                     if edge < min_edge:
                         logger.warning("trade_skipped_edge_too_small", edge=edge, min_edge=min_edge, p_win=p_win, implied_prob=implied_prob)
                         await save_or_update_skipped_trade(
