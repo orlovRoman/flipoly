@@ -3,12 +3,18 @@ import pickle
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone, timedelta
+from typing import Optional
+import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_, func
+
+logger = structlog.get_logger(__name__)
 
 from polyflip.config import settings
 from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
-from polyflip.trading.utils import compute_kelly_multiplier
+from polyflip.trading.utils import compute_kelly_fraction
 from polyflip.models.trainer import add_derived_features
 from polyflip.api.trading_dashboard import invalidate_stats_cache
 from polyflip.api.dashboard import invalidate_dashboard_cache
@@ -134,6 +140,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     daily_limit = float(settings_db.get("DAILY_LOSS_LIMIT_USDC", str(DAILY_LOSS_LIMIT_USDC)))
     trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
     trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
+    capital = float(settings_db.get("INITIAL_CAPITAL", getattr(settings, 'INITIAL_CAPITAL', 100.0)))
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
     entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
@@ -514,15 +521,17 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         )
                         continue
                         
-                    # Шаг 4: Вычисляем размер ставки по критерию Келли
+                    # Шаг 4: Вычисляем размер ставки по критерию Келли (как процент от капитала)
                     
                     kelly_enabled = settings_db.get("KELLY_ENABLED", "true").lower() == "true"
                     if kelly_enabled:
-                        kelly_f, kelly_multiplier = compute_kelly_multiplier(p_win, buy_price, max_fraction=kelly_max)
-                        actual_bet_size = round(bet_size * kelly_multiplier, 2)
+                        kelly_f = compute_kelly_fraction(p_win, buy_price, max_fraction=kelly_max)
+                        if kelly_f <= 0.0:
+                            logger.info("skip_trade", reason="kelly_fraction_zero", market_id=market.market_id, edge=edge)
+                            return
+                        actual_bet_size = max(1.0, round(capital * kelly_f, 2))
                     else:
                         kelly_f = None
-                        kelly_multiplier = 1.0
                         actual_bet_size = bet_size
                     
                     logger.info(
@@ -531,8 +540,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         p_win=round(p_win, 3),
                         buy_price=buy_price,
                         kelly_f=kelly_f,
-                        kelly_multiplier=kelly_multiplier,
                         actual_bet_size=actual_bet_size,
+                        capital=capital
                     )
                     
                     # Кол-во акций = size / price
@@ -565,7 +574,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         error_msg=trade_res.get("error_msg"),
                         mode=trade_res.get("mode", "PAPER"),
                         kelly_fraction=round(kelly_f, 4) if kelly_f is not None else None,
-                        kelly_multiplier=round(kelly_multiplier, 2),
+                        kelly_multiplier=1.0,
                         edge=round(edge, 4) if edge is not None else None,
                         created_at=start_time
                     )
