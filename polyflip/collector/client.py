@@ -120,6 +120,13 @@ class PolymarketClient:
             asks = book.get("asks", [])
             
             if not bids or not asks:
+                logger.warning(
+                    "empty_orderbook_raw",
+                    token_id=yes_token_id,
+                    bids_count=len(bids),
+                    asks_count=len(asks),
+                    raw_keys=list(book.keys()),
+                )
                 return {"error": "Empty orderbook (no bids/asks)"}
                 
             # Polymarket API может возвращать стакан отсортированным от худших цен к лучшим.
