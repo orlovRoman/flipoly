@@ -47,7 +47,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     gkf = GroupKFold(n_splits=CV_N_SPLITS)
     base_model = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight="balanced", random_state=CV_RANDOM_STATE, max_iter=1000))
+        ("model", LogisticRegression(class_weight=None, C=0.1, random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
     
     aucs = []
