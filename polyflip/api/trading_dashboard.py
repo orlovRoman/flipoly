@@ -1,12 +1,13 @@
 import os
 import time
+import asyncio
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Date, case
 from datetime import datetime, time as dt_time, timezone
 
-from polyflip.db.connection import get_db_session
+from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import TradeHistory, RuntimeSettings
 from polyflip.config import settings
 from polyflip.api.auth import verify_api_key
@@ -40,9 +41,6 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
     current_time = time.time()
     if "stats" in _stats_cache and current_time - _stats_cache["stats"]["time"] < _STATS_CACHE_TTL:
         return _stats_cache["stats"]["data"]
-
-    from polyflip.db.connection import async_session
-    import asyncio
 
     async def fetch_settings():
         async with async_session() as s:
