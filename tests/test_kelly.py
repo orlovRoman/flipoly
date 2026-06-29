@@ -124,12 +124,18 @@ async def test_kelly_enabled_scales_bet(db_session):
     await db_session.commit()
 
     mock_trader = MagicMock()
-    mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None, "executed_usdc": 100.0, "executed_price": 0.58})
+    mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None, "executed_price": 0.58})
     mock_api = MagicMock()
     mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.58})
     mock_api.close = AsyncMock()
 
     await trade_worker_cycle(db_session, mock_trader, mock_api)
+
+    # Проверяем аргументы вызова
+    args, kwargs = mock_trader.execute_trade.call_args
+    actual_size = kwargs.get("size") if kwargs else args[4]
+    # capital=1000, kelly_f=0.10 -> bet=100, shares = 100/0.58 ≈ 172.41
+    assert abs(actual_size - round(100.0 / 0.58, 2)) < 0.1
 
     # Проверяем запись в БД
     res = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "m_btc_kelly"))
