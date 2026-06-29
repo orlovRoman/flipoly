@@ -45,7 +45,9 @@ async def get_all_settings():
         "TRADING_MODE": db.get("TRADING_MODE", settings.TRADING_MODE),
         "FAVORITE_MODE_ENTRY_SEC": db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)),
         "LIVE_POLL_INTERVAL_SECONDS": db.get("LIVE_POLL_INTERVAL_SECONDS", str(settings.LIVE_POLL_INTERVAL_SECONDS)),
-        "MIN_EDGE": db.get("MIN_EDGE", str(settings.MIN_EDGE))
+        "FAVORITE_THRESHOLD": db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)),
+        "MIN_EDGE": db.get("MIN_EDGE", str(settings.MIN_EDGE)),
+        "MAX_EDGE": db.get("MAX_EDGE", str(settings.MAX_EDGE))
     }
 
 @router.get("/recommended_thresholds")
@@ -112,7 +114,9 @@ async def update_setting(key: str, payload: SettingValue):
         "TRADING_MODE",
         "FAVORITE_MODE_ENTRY_SEC",
         "LIVE_POLL_INTERVAL_SECONDS",
-        "MIN_EDGE"
+        "FAVORITE_THRESHOLD",
+        "MIN_EDGE",
+        "MAX_EDGE"
     ]
     
     if key not in valid_keys:
@@ -130,16 +134,25 @@ async def update_setting(key: str, payload: SettingValue):
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
 
-    if key == "MIN_EDGE":
+    if key in ["MIN_EDGE", "MAX_EDGE"]:
         try:
             val = float(payload.value)
             # Разрешаем либо проценты [0.5, 50.0], либо доли [0.005, 0.50]
             if not ((0.5 <= val <= 50.0) or (0.005 <= val <= 0.50)):
-                raise HTTPException(status_code=400, detail="MIN_EDGE must be between 0.5% and 50% (or 0.005 and 0.50)")
+                raise HTTPException(status_code=400, detail=f"{key} must be between 0.5% and 50% (or 0.005 and 0.50)")
             if val > 0.50:
                 payload.value = str(val / 100.0)
         except ValueError:
-            raise HTTPException(status_code=400, detail="MIN_EDGE must be a number")
+            raise HTTPException(status_code=400, detail=f"{key} must be a number")
+
+    if key == "FAVORITE_THRESHOLD":
+        try:
+            val = float(payload.value)
+            if not (0.5 <= val <= 0.99):
+                raise HTTPException(status_code=400, detail="FAVORITE_THRESHOLD must be between 0.50 and 0.99")
+            payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="FAVORITE_THRESHOLD must be a number")
 
     if key == "DAILY_LOSS_LIMIT_USDC":
         try:

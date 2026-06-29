@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case
-from polyflip.db.connection import get_db_session
+from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, TradeHistory, ModelRegistry, RuntimeSettings
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
@@ -47,9 +47,6 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     current_time = time.time()
     if "status" in _dashboard_cache and current_time - _dashboard_cache["status"]["time"] < _DASHBOARD_CACHE_TTL:
         return _dashboard_cache["status"]["data"]
-
-    from polyflip.db.connection import async_session
-    import asyncio
 
     async def fetch_collector():
         async with async_session() as s:

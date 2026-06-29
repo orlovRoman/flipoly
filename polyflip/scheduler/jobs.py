@@ -153,7 +153,10 @@ async def resolve_trades_job():
                         t.pnl = 0.0
                         t.status = "INVALID"
                     else:
-                        is_win = (t.outcome_bought == outcome)
+                        outcome_map = {"1": "YES", "0": "NO", "YES": "YES", "NO": "NO"}
+                        normalized_outcome = outcome_map.get(str(outcome).upper(), str(outcome).upper())
+                        is_win = (t.outcome_bought.upper() == normalized_outcome)
+                        
                         if is_win:
                             if t.executed_price > 0:
                                 t.pnl = (t.amount_usdc / t.executed_price) - t.amount_usdc

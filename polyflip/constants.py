@@ -1,5 +1,5 @@
 # --- Торговые константы ---
-FAVORITE_THRESHOLD = 0.5          # граница фаворит/аутсайдер
+FAVORITE_THRESHOLD = 0.55          # граница фаворит/аутсайдер
 KELLY_MAX_FRACTION = 0.10         # максимальная Kelly-доля от капитала
 DEAD_ZONE_WIDTH = 0.15            # ширина мёртвой зоны вокруг flip-порога
 DAILY_LOSS_LIMIT_USDC = -100.0    # стоп-лосс на день
@@ -23,5 +23,5 @@ VOLUME_WINDOW_MIN = 5               # окно для volume_5min
 TRADE_CHECK_LIMIT = 5               # кол-во последних записей для проверки дублей
 LIVE_POLL_INTERVAL_SECONDS = 10     # интервал опроса коллектора по умолчанию
 MIN_EDGE = 0.05                     # минимальный edge (разница вероятностей) по умолчанию
-
+MAX_EDGE = 0.10                     # максимальный edge по умолчанию
 

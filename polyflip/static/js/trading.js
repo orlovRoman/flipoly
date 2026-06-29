@@ -240,6 +240,8 @@ document.addEventListener("DOMContentLoaded", () => {
     tradingModeBadge: document.getElementById('trading-mode-badge'),
     pollIntervalInput: document.getElementById("LIVE_POLL_INTERVAL_SECONDS"),
     minEdge: document.getElementById("MIN_EDGE"),
+    maxEdge: document.getElementById("MAX_EDGE"),
+    favoriteThreshold: document.getElementById("FAVORITE_THRESHOLD"),
   };
 
   if (settingsElements.apiKeyInput) {
@@ -388,6 +390,14 @@ document.addEventListener("DOMContentLoaded", () => {
         currentMinEdge = val;
         settingsElements.minEdge.value = (val * 100).toFixed(1);
       }
+      if (settingsElements.maxEdge && data.MAX_EDGE !== undefined) {
+        let val = parseFloat(data.MAX_EDGE);
+        settingsElements.maxEdge.value = (val * 100).toFixed(1);
+      }
+      if (settingsElements.favoriteThreshold && data.FAVORITE_THRESHOLD !== undefined) {
+        let val = parseFloat(data.FAVORITE_THRESHOLD);
+        settingsElements.favoriteThreshold.value = val;
+      }
       if (data.TRADING_MODE) {
         const mode = data.TRADING_MODE;
         const radio = document.querySelector(`input[name="trading_mode"][value="${mode}"]`);
@@ -451,12 +461,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.favoriteEntrySecInput) {
         settingsToSave.FAVORITE_MODE_ENTRY_SEC = settingsElements.favoriteEntrySecInput.value;
       }
-      if (settingsElements.pollIntervalInput) {
-        settingsToSave.LIVE_POLL_INTERVAL_SECONDS = settingsElements.pollIntervalInput.value;
-      }
-      if (settingsElements.minEdge) {
-        settingsToSave.MIN_EDGE = parseFloat(settingsElements.minEdge.value) / 100;
-      }
+      if (settingsElements.pollIntervalInput) settingsToSave.LIVE_POLL_INTERVAL_SECONDS = settingsElements.pollIntervalInput.value;
+      if (settingsElements.minEdge) settingsToSave.MIN_EDGE = parseFloat(settingsElements.minEdge.value) / 100;
+      if (settingsElements.maxEdge) settingsToSave.MAX_EDGE = parseFloat(settingsElements.maxEdge.value) / 100;
+      if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFloat(settingsElements.favoriteThreshold.value);
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
       const failed = [];

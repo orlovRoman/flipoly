@@ -3,7 +3,9 @@ from typing import List
 from polyflip.constants import (
     DEAD_ZONE_WIDTH as _DEFAULT_DEAD_ZONE,
     LIVE_POLL_INTERVAL_SECONDS as _DEFAULT_POLL_INTERVAL,
-    MIN_EDGE as _DEFAULT_MIN_EDGE
+    MIN_EDGE as _DEFAULT_MIN_EDGE,
+    MAX_EDGE as _DEFAULT_MAX_EDGE,
+    FAVORITE_THRESHOLD as _DEFAULT_FAVORITE_THRESHOLD
 )
 
 class Settings(BaseSettings):
@@ -32,6 +34,8 @@ class Settings(BaseSettings):
     TRADE_MAX_PRICE: float = 0.95
     TRADING_MODE: str = "ml"
     FAVORITE_MODE_ENTRY_SEC: int = 180
+    FAVORITE_THRESHOLD: float = _DEFAULT_FAVORITE_THRESHOLD
+    MAX_EDGE: float = _DEFAULT_MAX_EDGE
     
     # Legacy параметры (оставил на всякий случай)
     DRIFT_THRESHOLD: float = 0.05

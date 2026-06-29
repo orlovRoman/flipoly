@@ -2,11 +2,7 @@ import os
 import pickle
 import numpy as np
 import pandas as pd
-from datetime import datetime, timezone
-from typing import Optional
-import structlog
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from datetime import datetime, timezone, timedelta
 
 from polyflip.config import settings
 from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory
@@ -14,6 +10,8 @@ from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.utils import compute_kelly_multiplier
 from polyflip.models.trainer import add_derived_features
+from polyflip.api.trading_dashboard import invalidate_stats_cache
+from polyflip.api.dashboard import invalidate_dashboard_cache
 from polyflip.constants import (
     DEAD_ZONE_WIDTH,
     KELLY_MAX_FRACTION,
@@ -98,7 +96,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "KELLY_ENABLED",
         "TRADING_MODE",
         "FAVORITE_MODE_ENTRY_SEC",
-        "MIN_EDGE"
+        "MIN_EDGE",
+        "MAX_EDGE",
+        "FAVORITE_THRESHOLD"
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
@@ -138,11 +138,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
     entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
     min_edge = float(settings_db.get("MIN_EDGE", str(settings.MIN_EDGE)))
+    max_edge = float(settings_db.get("MAX_EDGE", str(settings.MAX_EDGE)))
+    favorite_threshold = float(settings_db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)))
 
     # 2. Ищем рынки, которые подходят по времени для ставки (в пределах настраиваемого диапазона)
     # Чтобы не ставить дважды, проверяем TradeHistory.
     
-    from datetime import timedelta
     if trading_mode == TRADING_MODE_FAVORITE:
         min_td = timedelta(seconds=entry_sec)
         max_td = timedelta(seconds=entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC)
@@ -228,7 +229,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     continue
                 
                 # Определяем фаворита по цене из БД
-                decision = "YES" if market.current_yes_price > FAVORITE_THRESHOLD else "NO"
+                decision = "YES" if market.current_yes_price > favorite_threshold else "NO"
                 token_to_buy = market.yes_token_id if decision == "YES" else market.no_token_id
                 
                 if not token_to_buy or token_to_buy == "N/A":
@@ -261,16 +262,16 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     continue
                 
                 # Цена по API должна подтверждать фаворита
-                if decision == "YES" and buy_price < FAVORITE_THRESHOLD:
+                if decision == "YES" and buy_price < favorite_threshold:
                     logger.warning("favorite_mode_no_longer_favorite", price=buy_price, decision=decision)
                     await save_or_update_skipped_trade(
                         db_session, market,
-                        f"Pure Favorite: fresh YES price {buy_price} below threshold {FAVORITE_THRESHOLD}",
+                        f"Pure Favorite: fresh YES price {buy_price} below threshold {favorite_threshold}",
                         0.0, None, start_time,
                         existing_skipped=existing_skipped
                     )
                     continue
-                elif decision == "NO" and buy_price < FAVORITE_THRESHOLD:
+                elif decision == "NO" and buy_price < favorite_threshold:
                     logger.warning("favorite_mode_no_longer_favorite", price=buy_price, decision=decision)
                     await save_or_update_skipped_trade(
                         db_session, market,
@@ -309,8 +310,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     market_id=market.market_id,
                     asset=market.asset,
                     outcome_bought=decision,
-                    amount_usdc=actual_bet_size,
-                    executed_price=buy_price,
+                    amount_usdc=trade_res.get("executed_size", actual_bet_size) * (trade_res.get("executed_price", buy_price) if trade_res.get("executed_size") else 1.0),
+                    executed_price=trade_res.get("executed_price", buy_price),
                     predicted_flip_prob=0.0,       # ML не использовался
                     active_features="PURE_FAVORITE", # маркер режима
                     model_version=None,
@@ -322,8 +323,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     created_at=start_time,
                 )
                 db_session.add(history)
-                from polyflip.api.trading_dashboard import invalidate_stats_cache
-                from polyflip.api.dashboard import invalidate_dashboard_cache
                 invalidate_stats_cache()
                 invalidate_dashboard_cache()
             
@@ -408,13 +407,20 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
 
                 fresh_yes_price = fresh_yes_prices["current_yes_price"]
                 fresh_spread = fresh_yes_prices["current_spread"]
+                
+                # BUG-002 FIX: Расчет свежей velocity относительно последнего снэпшота БД
+                fresh_price_velocity = 0.0
+                if market.current_yes_price is not None:
+                    fresh_price_velocity = fresh_yes_price - market.current_yes_price
+                elif market.price_velocity is not None:
+                    fresh_price_velocity = market.price_velocity
 
                 # Формируем X с использованием свежих цен
                 feature_data = {
                     "time_left_min": time_left_sec / 60.0,
                     "mid_price": fresh_yes_price,
                     "spread": fresh_spread,
-                    "price_velocity": market.price_velocity,
+                    "price_velocity": fresh_price_velocity,
                     "volume_5min": market.volume_5min,
                     "hour_of_day": start_time.hour
                 }
@@ -451,7 +457,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 if p_flip < current_no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
-                    decision = "YES" if fresh_yes_price > FAVORITE_THRESHOLD else "NO"
+                    decision = "YES" if fresh_yes_price > favorite_threshold else "NO"
                     
                 if decision:
                     logger.info("trade_decision_made", market_id=market.market_id, p_flip=p_flip, decision=decision)
@@ -490,8 +496,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         continue
                         
                     # Защита от покупки аутсайдера при резком изменении цены между обновлением БД и вызовом API
-                    if buy_price < FAVORITE_THRESHOLD:
-                        logger.warning("trade_skipped_no_longer_favorite", price=buy_price, threshold=FAVORITE_THRESHOLD)
+                    if buy_price < favorite_threshold:
+                        logger.warning("trade_skipped_no_longer_favorite", price=buy_price, threshold=favorite_threshold)
                         await save_or_update_skipped_trade(db_session, market, f"Price dropped to {buy_price}, no longer favorite", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
                         continue
                         
@@ -501,11 +507,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     # mid_price = (best_bid + best_ask) / 2 — справедливая оценка рынка
                     implied_prob = fresh_yes_price if decision == "YES" else (1.0 - fresh_yes_price)
                     edge = round(p_win - implied_prob, 4)
-                    if edge < min_edge:
-                        logger.warning("trade_skipped_edge_too_small", edge=edge, min_edge=min_edge, p_win=p_win, implied_prob=implied_prob)
+                    if edge < min_edge or edge > max_edge:
+                        logger.warning("trade_skipped_edge_out_of_bounds", edge=edge, min_edge=min_edge, max_edge=max_edge, p_win=p_win, implied_prob=implied_prob)
                         await save_or_update_skipped_trade(
                             db_session, market,
-                            f"Edge too small: {edge:.3f} < {min_edge:.3f} (Model P(win): {p_win:.3f}, Implied: {implied_prob:.3f})",
+                            f"Edge out of bounds: {edge:.3f} not in [{min_edge:.3f}, {max_edge:.3f}]",
                             p_flip, model_ver, start_time,
                             existing_skipped=existing_skipped,
                             edge=edge
@@ -554,8 +560,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         market_id=market.market_id,
                         asset=market.asset,
                         outcome_bought=decision,
-                        amount_usdc=actual_bet_size,
-                        executed_price=buy_price,
+                        amount_usdc=trade_res.get("executed_size", actual_bet_size) * (trade_res.get("executed_price", buy_price) if trade_res.get("executed_size") else 1.0),
+                        executed_price=trade_res.get("executed_price", buy_price),
                         predicted_flip_prob=p_flip,
                         active_features=active_features_str,
                         model_version=model_ver,
@@ -568,8 +574,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         created_at=start_time
                     )
                     db_session.add(history)
-                    from polyflip.api.trading_dashboard import invalidate_stats_cache
-                    from polyflip.api.dashboard import invalidate_dashboard_cache
                     invalidate_stats_cache()
                     invalidate_dashboard_cache()
                 else:
