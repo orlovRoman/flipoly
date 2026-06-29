@@ -3,7 +3,7 @@ import time
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, cast, Date
+from sqlalchemy import select, func, cast, Date, case
 from datetime import datetime, time as dt_time, timezone
 
 from polyflip.db.connection import get_db_session
@@ -56,7 +56,7 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
                 TradeHistory.asset,
                 func.count(TradeHistory.id).label("total_trades"),
                 func.sum(TradeHistory.pnl).label("total_pnl"),
-                func.sum(func.case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
+                func.sum(case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
             ).where(
                 TradeHistory.status == "SUCCESS",
                 TradeHistory.pnl.is_not(None)
@@ -68,8 +68,8 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
             stmt = select(
                 cast(TradeHistory.created_at, Date).label("day"),
                 func.sum(TradeHistory.pnl).label("daily_pnl"),
-                func.sum(func.case((TradeHistory.pnl > 0, 1), else_=0)).label("wins"),
-                func.sum(func.case((TradeHistory.pnl <= 0, 1), else_=0)).label("losses")
+                func.sum(case((TradeHistory.pnl > 0, 1), else_=0)).label("wins"),
+                func.sum(case((TradeHistory.pnl <= 0, 1), else_=0)).label("losses")
             ).where(
                 TradeHistory.status == "SUCCESS",
                 TradeHistory.pnl.is_not(None)
@@ -79,10 +79,10 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
     async def fetch_params():
         async with async_session() as s:
             stmt = select(
-                func.avg(func.case((TradeHistory.pnl > 0, TradeHistory.executed_price), else_=None)).label("avg_win_price"),
-                func.avg(func.case((TradeHistory.pnl <= 0, TradeHistory.executed_price), else_=None)).label("avg_loss_price"),
-                func.avg(func.case((TradeHistory.pnl > 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_win_prob"),
-                func.avg(func.case((TradeHistory.pnl <= 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_loss_prob")
+                func.avg(case((TradeHistory.pnl > 0, TradeHistory.executed_price), else_=None)).label("avg_win_price"),
+                func.avg(case((TradeHistory.pnl <= 0, TradeHistory.executed_price), else_=None)).label("avg_loss_price"),
+                func.avg(case((TradeHistory.pnl > 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_win_prob"),
+                func.avg(case((TradeHistory.pnl <= 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_loss_prob")
             ).where(
                 TradeHistory.status == "SUCCESS",
                 TradeHistory.pnl.is_not(None)

@@ -77,11 +77,12 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
 
     async def fetch_rolling():
         async with async_session() as s:
+            from sqlalchemy import case
             seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
             stmt = select(
                 TradeHistory.asset,
                 func.count(TradeHistory.id).label("total"),
-                func.sum(func.case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
+                func.sum(case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
             ).where(
                 TradeHistory.created_at >= seven_days_ago,
                 TradeHistory.status == "SUCCESS",
