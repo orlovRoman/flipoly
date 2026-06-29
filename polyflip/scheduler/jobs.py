@@ -154,7 +154,14 @@ async def resolve_trades_job():
                         t.status = "INVALID"
                     else:
                         outcome_map = {"1": "YES", "0": "NO", "YES": "YES", "NO": "NO"}
-                        normalized_outcome = outcome_map.get(str(outcome).upper(), str(outcome).upper())
+                        normalized_outcome = outcome_map.get(str(outcome).upper())
+                        
+                        if normalized_outcome is None:
+                            logger.error("unknown_outcome_value", raw_outcome=outcome, trade_id=t.id)
+                            t.status = "INVALID"
+                            t.pnl = 0.0
+                            continue
+                            
                         is_win = (t.outcome_bought.upper() == normalized_outcome)
                         
                         if is_win:

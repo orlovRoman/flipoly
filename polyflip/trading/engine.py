@@ -310,7 +310,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     market_id=market.market_id,
                     asset=market.asset,
                     outcome_bought=decision,
-                    amount_usdc=trade_res.get("executed_size", actual_bet_size) * (trade_res.get("executed_price", buy_price) if trade_res.get("executed_size") else 1.0),
+                    amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
                     executed_price=trade_res.get("executed_price", buy_price),
                     predicted_flip_prob=0.0,       # ML не использовался
                     active_features="PURE_FAVORITE", # маркер режима
@@ -408,12 +408,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 fresh_yes_price = fresh_yes_prices["current_yes_price"]
                 fresh_spread = fresh_yes_prices["current_spread"]
                 
-                # BUG-002 FIX: Расчет свежей velocity относительно последнего снэпшота БД
-                fresh_price_velocity = 0.0
-                if market.current_yes_price is not None:
-                    fresh_price_velocity = fresh_yes_price - market.current_yes_price
-                elif market.price_velocity is not None:
-                    fresh_price_velocity = market.price_velocity
+                # Используем price_velocity из БД, так как дельта цен за секунды дает нестабильную скорость
+                fresh_price_velocity = market.price_velocity
 
                 # Формируем X с использованием свежих цен
                 feature_data = {
@@ -560,7 +556,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         market_id=market.market_id,
                         asset=market.asset,
                         outcome_bought=decision,
-                        amount_usdc=trade_res.get("executed_size", actual_bet_size) * (trade_res.get("executed_price", buy_price) if trade_res.get("executed_size") else 1.0),
+                        amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
                         executed_price=trade_res.get("executed_price", buy_price),
                         predicted_flip_prob=p_flip,
                         active_features=active_features_str,

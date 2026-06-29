@@ -142,6 +142,21 @@ async def update_setting(key: str, payload: SettingValue):
                 raise HTTPException(status_code=400, detail=f"{key} must be between 0.5% and 50% (or 0.005 and 0.50)")
             if val > 0.50:
                 payload.value = str(val / 100.0)
+                
+            # Cross-validation
+            norm_val = float(payload.value)
+            async with async_session() as session:
+                if key == "MAX_EDGE":
+                    min_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE"))).scalar_one_or_none()
+                    current_min = float(min_edge_row.value) if min_edge_row else settings.MIN_EDGE
+                    if norm_val <= current_min:
+                        raise HTTPException(status_code=400, detail=f"MAX_EDGE ({norm_val}) must be greater than MIN_EDGE ({current_min})")
+                elif key == "MIN_EDGE":
+                    max_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_EDGE"))).scalar_one_or_none()
+                    current_max = float(max_edge_row.value) if max_edge_row else getattr(settings, 'MAX_EDGE', 0.10)
+                    if norm_val >= current_max:
+                        raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be less than MAX_EDGE ({current_max})")
+                        
         except ValueError:
             raise HTTPException(status_code=400, detail=f"{key} must be a number")
 
