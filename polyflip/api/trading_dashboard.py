@@ -3,7 +3,7 @@ import time
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast, Date
 from datetime import datetime, time as dt_time, timezone
 
 from polyflip.db.connection import get_db_session
@@ -31,6 +31,9 @@ async def get_trading_dashboard(request: Request):
 
 _stats_cache = {}
 _STATS_CACHE_TTL = 30  # 30 секунд кэша
+
+def invalidate_stats_cache():
+    _stats_cache.clear()
 
 @router.get("/api/trading/stats", dependencies=[Depends(verify_api_key)])
 async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
@@ -89,14 +92,14 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
 
     # Daily PNL via SQL
     stmt_daily = select(
-        func.date(TradeHistory.created_at).label("day"),
+        cast(TradeHistory.created_at, Date).label("day"),
         func.sum(TradeHistory.pnl).label("daily_pnl"),
         func.sum(func.case((TradeHistory.pnl > 0, 1), else_=0)).label("wins"),
         func.sum(func.case((TradeHistory.pnl <= 0, 1), else_=0)).label("losses")
     ).where(
         TradeHistory.status == "SUCCESS",
         TradeHistory.pnl.is_not(None)
-    ).group_by(func.date(TradeHistory.created_at))
+    ).group_by(cast(TradeHistory.created_at, Date))
     
     res_daily = await db.execute(stmt_daily)
     daily_pnl_map = {}

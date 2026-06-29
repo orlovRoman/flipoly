@@ -38,6 +38,9 @@ async def get_dashboard(request: Request):
 _dashboard_cache = {}
 _DASHBOARD_CACHE_TTL = 30  # 30 секунд кэша
 
+def invalidate_dashboard_cache():
+    _dashboard_cache.clear()
+
 @router.get("/api/dashboard/status", dependencies=[Depends(verify_api_key)])
 async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     """Отдает данные для вкладки Статус Парсера"""
