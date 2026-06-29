@@ -30,6 +30,7 @@ async def test_no_trade_when_flip_threshold_met(db_session):
         RuntimeSettings(key="FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"),
         RuntimeSettings(key="NO_MAX_PRICE", value="0.60", updated_at=now, updated_by="test"),
         RuntimeSettings(key="NO_MIN_EDGE", value="0.04", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
     
@@ -90,6 +91,7 @@ async def test_no_trade_skipped_when_price_exceeds_max(db_session):
         RuntimeSettings(key="FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"),
         RuntimeSettings(key="NO_MAX_PRICE", value="0.60", updated_at=now, updated_by="test"),
         RuntimeSettings(key="NO_MIN_EDGE", value="0.04", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
     
@@ -146,6 +148,7 @@ async def test_no_trade_skipped_when_edge_too_small(db_session):
         RuntimeSettings(key="FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"),
         RuntimeSettings(key="NO_MAX_PRICE", value="0.75", updated_at=now, updated_by="test"),
         RuntimeSettings(key="NO_MIN_EDGE", value="0.04", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
     

@@ -220,6 +220,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // ----------------------------------------------------
   // Trading Settings Logic
   // ----------------------------------------------------
+  let currentFlipThreshold = 0.70;
+
   const settingsElements = {
     apiKeyInput: document.getElementById("API_KEY"),
     minTimeLeft: document.getElementById("TRADE_MIN_TIME_LEFT_SEC"),
@@ -262,7 +264,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("auto-dead-zone-width-group").style.display = "block";
       document.getElementById("manual-dead-zone-width-group").style.display = "none";
       
-      const baseFlip = noFlip + manualWidth;
+      const baseFlip = currentFlipThreshold;
       const lower = Math.max(0, baseFlip - autoWidth / 2);
       const upper = Math.min(1, baseFlip + autoWidth / 2);
       document.getElementById("dead-zone-range-text").textContent = 
@@ -289,6 +291,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   if (settingsElements.noFlipThreshold) {
     settingsElements.noFlipThreshold.addEventListener("input", updateDeadZoneInfo);
+  }
+  if (settingsElements.flipThreshold) {
+    settingsElements.flipThreshold.addEventListener("input", () => {
+      currentFlipThreshold = parseFloat(settingsElements.flipThreshold.value) / 100 || 0.70;
+      updateDeadZoneInfo();
+    });
   }
 
   if (settingsElements.apiKeyInput) {
@@ -451,6 +459,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.flipThreshold && data.FLIP_THRESHOLD !== undefined) {
         let val = parseFloat(data.FLIP_THRESHOLD);
         settingsElements.flipThreshold.value = Math.round(val * 100);
+        currentFlipThreshold = val;
       }
       if (settingsElements.noMaxPrice && data.NO_MAX_PRICE !== undefined) {
         settingsElements.noMaxPrice.value = data.NO_MAX_PRICE;

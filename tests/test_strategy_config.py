@@ -52,3 +52,24 @@ async def test_config_history_recorded(db_session):
             
     finally:
         settings_module.async_session = original_session
+
+
+@pytest.mark.asyncio
+async def test_config_history_with_ip(db_session):
+    from unittest.mock import MagicMock
+    import polyflip.api.settings as settings_module
+    original_session = settings_module.async_session
+    settings_module.async_session = patch_session(db_session)
+    
+    try:
+        mock_request = MagicMock()
+        mock_request.client.host = "192.168.1.1"
+        await update_setting("MIN_EDGE", SettingValue(value="0.03"), request=mock_request)
+        
+        result = await db_session.execute(select(StrategyConfig))
+        row = result.scalar_one()
+        assert row.source_ip == "192.168.1.1"
+        
+    finally:
+        settings_module.async_session = original_session
+

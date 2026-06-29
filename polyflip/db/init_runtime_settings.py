@@ -12,7 +12,9 @@ from polyflip.constants import (
     TRADE_ON_FLIP,
     FLIP_THRESHOLD,
     NO_MAX_PRICE,
-    NO_MIN_EDGE
+    NO_MIN_EDGE,
+    AUTO_DEAD_ZONE,
+    AUTO_DEAD_ZONE_WIDTH
 )
 
 DEFAULTS = {
@@ -27,6 +29,8 @@ DEFAULTS = {
     "FLIP_THRESHOLD": str(FLIP_THRESHOLD),
     "NO_MAX_PRICE": str(NO_MAX_PRICE),
     "NO_MIN_EDGE": str(NO_MIN_EDGE),
+    "AUTO_DEAD_ZONE": "true" if AUTO_DEAD_ZONE else "false",
+    "AUTO_DEAD_ZONE_WIDTH": str(AUTO_DEAD_ZONE_WIDTH),
 }
 
 from datetime import datetime, timezone

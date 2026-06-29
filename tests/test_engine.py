@@ -34,6 +34,8 @@ async def test_engine_enters_on_confident_favorite(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_EDGE", value="0.40", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
     
@@ -84,6 +86,8 @@ async def test_engine_skips_in_dead_zone(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_EDGE", value="0.40", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
     
@@ -349,7 +353,7 @@ async def test_engine_skips_when_edge_too_small(db_session):
                   
          assert len(trades) == 1
          assert trades[0].status == "SKIPPED"
-         assert "Edge too small" in trades[0].error_msg
+         assert "Edge out of bounds" in trades[0].error_msg
          assert abs(trades[0].edge - 0.0) < 1e-4
          assert mock_trader.execute_trade.call_count == 0
 
@@ -367,6 +371,8 @@ async def test_engine_skips_no_deal_when_edge_too_small(db_session):
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_EDGE", value="0.40", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
     
@@ -405,8 +411,6 @@ async def test_engine_skips_no_deal_when_edge_too_small(db_session):
          # Ищем сделку с market_id = "m_edge_no"
          target_trade = next(t for t in trades if t.market_id == "m_edge_no")
          assert target_trade.status == "SKIPPED"
-         assert "Edge too small" in target_trade.error_msg
+         assert "Edge out of bounds" in target_trade.error_msg
          assert abs(target_trade.edge - (-0.30)) < 1e-4
          assert mock_trader.execute_trade.call_count == 0
-
-
