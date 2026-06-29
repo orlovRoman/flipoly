@@ -48,11 +48,62 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     if "status" in _dashboard_cache and current_time - _dashboard_cache["status"]["time"] < _DASHBOARD_CACHE_TTL:
         return _dashboard_cache["status"]["data"]
 
-    # 1. Последний статус коллектора
-    collector_stmt = select(CollectorStatus).order_by(CollectorStatus.run_at.desc()).limit(1)
-    collector_res = await db.execute(collector_stmt)
-    collector_last = collector_res.scalar_one_or_none()
-    
+    from polyflip.db.connection import async_session
+    import asyncio
+
+    async def fetch_collector():
+        async with async_session() as s:
+            stmt = select(CollectorStatus).order_by(CollectorStatus.run_at.desc()).limit(1)
+            return (await s.execute(stmt)).scalar_one_or_none()
+
+    async def fetch_live():
+        async with async_session() as s:
+            stmt = select(LiveMarket).order_by(LiveMarket.asset, LiveMarket.end_time_est)
+            return (await s.execute(stmt)).scalars().all()
+
+    async def fetch_snaps():
+        async with async_session() as s:
+            stmt = select(
+                MarketSnapshot.asset, 
+                MarketSnapshot.final_outcome, 
+                func.count(MarketSnapshot.id).label("cnt")
+            ).group_by(MarketSnapshot.asset, MarketSnapshot.final_outcome)
+            return (await s.execute(stmt)).all()
+
+    async def fetch_models():
+        async with async_session() as s:
+            stmt = select(ModelRegistry).where(ModelRegistry.is_active)
+            return (await s.execute(stmt)).scalars().all()
+
+    async def fetch_rolling():
+        async with async_session() as s:
+            seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+            stmt = select(
+                TradeHistory.asset,
+                func.count(TradeHistory.id).label("total"),
+                func.sum(func.case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
+            ).where(
+                TradeHistory.created_at >= seven_days_ago,
+                TradeHistory.status == "SUCCESS",
+                TradeHistory.pnl.is_not(None),
+                TradeHistory.pnl != 0.0
+            ).group_by(TradeHistory.asset)
+            return (await s.execute(stmt)).all()
+
+    async def fetch_trade_assets():
+        async with async_session() as s:
+            stmt = select(RuntimeSettings.value).where(RuntimeSettings.key == "TRADE_ASSETS")
+            return (await s.execute(stmt)).scalar()
+
+    collector_last, live_markets, snap_rows, models_rows, rolling_rows, trade_assets_val = await asyncio.gather(
+        fetch_collector(),
+        fetch_live(),
+        fetch_snaps(),
+        fetch_models(),
+        fetch_rolling(),
+        fetch_trade_assets()
+    )
+
     collector_data = None
     if collector_last:
         collector_data = {
@@ -64,11 +115,6 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
             "error_message": collector_last.error_message
         }
         
-    # 2. Живые рынки
-    live_stmt = select(LiveMarket).order_by(LiveMarket.asset, LiveMarket.end_time_est)
-    live_res = await db.execute(live_stmt)
-    live_markets = live_res.scalars().all()
-    
     live_data = [
         {
             "asset": lm.asset,
@@ -81,58 +127,26 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
         for lm in live_markets
     ]
         
-    # 3. Сводка по снепшотам
-    # SELECT asset, final_outcome, count(*) FROM market_snapshots GROUP BY asset, final_outcome
-    snap_stmt = select(
-        MarketSnapshot.asset, 
-        MarketSnapshot.final_outcome, 
-        func.count(MarketSnapshot.id).label("cnt")
-    ).group_by(MarketSnapshot.asset, MarketSnapshot.final_outcome)
-    
-    snap_res = await db.execute(snap_stmt)
-    
     dataset_summary = {asset: {"PENDING": 0, "RESOLVED": 0} for asset in settings.asset_list}
-    for row in snap_res.all():
+    for row in snap_rows:
         if row.asset in dataset_summary:
             dataset_summary[row.asset]["PENDING" if row.final_outcome == "PENDING" else "RESOLVED"] += row.cnt
             
-    # 4. Активные модели
-    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
-    models_res = await db.execute(models_stmt)
     active_models = {}
-    for m in models_res.scalars().all():
+    for m in models_rows:
         active_models[m.asset] = m.version
         
-    # 5. Скользящая точность за 7 дней (rolling accuracy) по активам
-    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    trades_stmt = select(TradeHistory.asset, TradeHistory.pnl).where(
-        TradeHistory.created_at >= seven_days_ago,
-        TradeHistory.status == "SUCCESS",
-        TradeHistory.pnl.is_not(None)
-    )
-    trades_res = await db.execute(trades_stmt)
-    trades_list = trades_res.all()
-    
-    asset_trades = {}
-    for row in trades_list:
-        asset_trades.setdefault(row.asset, []).append(row.pnl)
-        
     rolling_accuracy = {}
-    for asset, pnls in asset_trades.items():
-        valid_pnls = [p for p in pnls if p != 0.0]
-        if not valid_pnls:
-            continue
-        wins = sum(1 for p in valid_pnls if p > 0.0)
-        acc = wins / len(valid_pnls)
-        rolling_accuracy[asset] = {
-            "accuracy": round(acc, 4),
-            "total_trades": len(valid_pnls)
-        }
+    for row in rolling_rows:
+        total = int(row.total or 0)
+        wins = int(row.wins or 0)
+        if total > 0:
+            rolling_accuracy[row.asset] = {
+                "accuracy": round(wins / total, 4),
+                "total_trades": total
+            }
             
-    # 6. Список торгуемых активов
-    trade_assets_stmt = select(RuntimeSettings.value).where(RuntimeSettings.key == "TRADE_ASSETS")
-    trade_assets_res = await db.execute(trade_assets_stmt)
-    trade_assets_val = trade_assets_res.scalar() or settings.TRADE_ASSETS
+    trade_assets_val = trade_assets_val or settings.TRADE_ASSETS
     trade_assets_list = [a.strip().upper() for a in trade_assets_val.split(",") if a.strip()]
 
     result = {
@@ -156,9 +170,16 @@ async def get_trade_logs(
     """Возвращает последние логи торговли (успешные, фейлы и пропущенные) с пагинацией"""
     offset = (page - 1) * page_size
 
-    # Общее кол-во записей (для кол-ва страниц)
-    count_stmt = select(func.count(TradeHistory.id))
-    total = (await db.execute(count_stmt)).scalar_one()
+    from sqlalchemy import text
+    try:
+        est_stmt = text("SELECT reltuples::bigint FROM pg_class WHERE relname = 'trade_history'")
+        total = (await db.execute(est_stmt)).scalar()
+        if total is None or total <= 0:
+            count_stmt = select(func.count(TradeHistory.id))
+            total = (await db.execute(count_stmt)).scalar_one()
+    except Exception:
+        count_stmt = select(func.count(TradeHistory.id))
+        total = (await db.execute(count_stmt)).scalar_one()
 
     stmt = (
         select(TradeHistory, LiveMarket.question)
