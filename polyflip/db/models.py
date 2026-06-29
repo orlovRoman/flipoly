@@ -107,4 +107,5 @@ class TradeHistory(Base):
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),
         Index("idx_trade_history_created_at", "created_at"),
+        Index("idx_trade_history_status", "status"),
     )

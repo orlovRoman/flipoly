@@ -35,9 +35,16 @@ async def get_dashboard(request: Request):
         }
     )
 
+_dashboard_cache = {}
+_DASHBOARD_CACHE_TTL = 30  # 30 секунд кэша
+
 @router.get("/api/dashboard/status", dependencies=[Depends(verify_api_key)])
 async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     """Отдает данные для вкладки Статус Парсера"""
+    current_time = time.time()
+    if "status" in _dashboard_cache and current_time - _dashboard_cache["status"]["time"] < _DASHBOARD_CACHE_TTL:
+        return _dashboard_cache["status"]["data"]
+
     # 1. Последний статус коллектора
     collector_stmt = select(CollectorStatus).order_by(CollectorStatus.run_at.desc()).limit(1)
     collector_res = await db.execute(collector_stmt)
@@ -125,7 +132,7 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     trade_assets_val = trade_assets_res.scalar() or settings.TRADE_ASSETS
     trade_assets_list = [a.strip().upper() for a in trade_assets_val.split(",") if a.strip()]
 
-    return {
+    result = {
         "collector": collector_data,
         "dataset_summary": dataset_summary,
         "live_markets": live_data,
@@ -133,6 +140,9 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
         "rolling_accuracy": rolling_accuracy,
         "trade_assets": trade_assets_list
     }
+    
+    _dashboard_cache["status"] = {"time": current_time, "data": result}
+    return result
 
 @router.get("/api/dashboard/trade_logs", dependencies=[Depends(verify_api_key)])
 async def get_trade_logs(

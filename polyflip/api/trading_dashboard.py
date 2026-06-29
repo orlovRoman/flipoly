@@ -29,8 +29,15 @@ async def get_trading_dashboard(request: Request):
         }
     )
 
+_stats_cache = {}
+_STATS_CACHE_TTL = 30  # 30 секунд кэша
+
 @router.get("/api/trading/stats", dependencies=[Depends(verify_api_key)])
 async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
+    current_time = time.time()
+    if "stats" in _stats_cache and current_time - _stats_cache["stats"]["time"] < _STATS_CACHE_TTL:
+        return _stats_cache["stats"]["data"]
+
     # Load initial capital setting
     stmt_settings = select(RuntimeSettings).where(RuntimeSettings.key == "INITIAL_CAPITAL")
     res_settings = await db.execute(stmt_settings)
@@ -43,94 +50,82 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
     kelly_enabled_row = res_kelly_enabled.scalar_one_or_none()
     kelly_enabled = (kelly_enabled_row.value.lower() == "true") if kelly_enabled_row else True
 
-    # Load all successful trades
-    stmt_trades = select(TradeHistory).where(TradeHistory.status == "SUCCESS").order_by(TradeHistory.created_at)
-    res_trades = await db.execute(stmt_trades)
-    trades = res_trades.scalars().all()
-
-    if not trades:
-        return {
-            "capital": initial_capital,
-            "overall_pnl": 0,
-            "daily_pnl": {},
-            "assets": {asset: {"pnl": 0.0, "trades": 0, "wins": 0} for asset in settings.asset_list},
-            "winrate": 0,
-            "wins_vs_losses": {"wins": 0, "losses": 0},
-            "parameters": {
-                "avg_win_price": 0,
-                "avg_loss_price": 0,
-                "avg_win_prob": 0,
-                "avg_loss_prob": 0
-            },
-            "kelly_stats": {
-                "avg_f": 0.0,
-                "avg_mult": 1.0,
-                "min_f": 0.0,
-                "max_f": 0.0
-            },
-            "kelly_enabled": kelly_enabled
-        }
-
-    total_pnl = 0
-    wins = 0
-    losses = 0
+    # SQL Agreggations for Assets
+    stmt_assets = select(
+        TradeHistory.asset,
+        func.count(TradeHistory.id).label("total_trades"),
+        func.sum(TradeHistory.pnl).label("total_pnl"),
+        func.sum(
+            func.case(
+                (TradeHistory.pnl > 0, 1),
+                else_=0
+            )
+        ).label("wins")
+    ).where(
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.pnl.is_not(None)
+    ).group_by(TradeHistory.asset)
     
-    daily_pnl_map = {}
+    res_assets = await db.execute(stmt_assets)
     asset_stats = {asset: {"pnl": 0.0, "trades": 0, "wins": 0} for asset in settings.asset_list}
     
-    win_prices = []
-    loss_prices = []
-    win_probs = []
-    loss_probs = []
+    total_pnl = 0.0
+    wins = 0
+    trades_count = 0
+    for row in res_assets.all():
+        if row.asset in asset_stats:
+            asset_stats[row.asset] = {
+                "pnl": float(row.total_pnl or 0),
+                "trades": int(row.total_trades or 0),
+                "wins": int(row.wins or 0)
+            }
+        total_pnl += float(row.total_pnl or 0)
+        wins += int(row.wins or 0)
+        trades_count += int(row.total_trades or 0)
 
-    for t in trades:
-        # R5 FIX: Используем pnl из TradeHistory напрямую. Сделки с pnl IS NULL считаем PENDING.
-        if t.pnl is None:
-            continue
-            
-        pnl = float(t.pnl)
-        is_win = (pnl > 0)
-        
-        if is_win:
-            wins += 1
-            if t.executed_price:
-                win_prices.append(float(t.executed_price))
-            if t.predicted_flip_prob:
-                win_probs.append(float(t.predicted_flip_prob))
-        else:
-            losses += 1
-            if t.executed_price:
-                loss_prices.append(float(t.executed_price))
-            if t.predicted_flip_prob:
-                loss_probs.append(float(t.predicted_flip_prob))
-
-        total_pnl += pnl
-        
-        # Aggregate by day
-        day_str = t.created_at.strftime("%Y-%m-%d")
-        daily_pnl_map.setdefault(day_str, {"pnl": 0, "wins": 0, "losses": 0})
-        daily_pnl_map[day_str]["pnl"] += pnl
-        if is_win:
-            daily_pnl_map[day_str]["wins"] += 1
-        else:
-            daily_pnl_map[day_str]["losses"] += 1
-            
-        # Aggregate by asset
-        if t.asset not in asset_stats:
-            asset_stats[t.asset] = {"pnl": 0, "trades": 0, "wins": 0}
-            
-        asset_stats[t.asset]["pnl"] += pnl
-        asset_stats[t.asset]["trades"] += 1
-        if is_win:
-            asset_stats[t.asset]["wins"] += 1
-
+    losses = trades_count - wins
     capital = initial_capital + total_pnl
-    winrate = (wins / (wins + losses)) * 100 if (wins + losses) > 0 else 0
+    winrate = (wins / trades_count) * 100 if trades_count > 0 else 0
+
+    # Daily PNL via SQL
+    stmt_daily = select(
+        func.date(TradeHistory.created_at).label("day"),
+        func.sum(TradeHistory.pnl).label("daily_pnl"),
+        func.sum(func.case((TradeHistory.pnl > 0, 1), else_=0)).label("wins"),
+        func.sum(func.case((TradeHistory.pnl <= 0, 1), else_=0)).label("losses")
+    ).where(
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.pnl.is_not(None)
+    ).group_by(func.date(TradeHistory.created_at))
     
-    avg_win_price = sum(win_prices) / len(win_prices) if win_prices else 0
-    avg_loss_price = sum(loss_prices) / len(loss_prices) if loss_prices else 0
-    avg_win_prob = sum(win_probs) / len(win_probs) if win_probs else 0
-    avg_loss_prob = sum(loss_probs) / len(loss_probs) if loss_probs else 0
+    res_daily = await db.execute(stmt_daily)
+    daily_pnl_map = {}
+    for row in res_daily.all():
+        if row.day:
+            day_str = str(row.day)
+            daily_pnl_map[day_str] = {
+                "pnl": float(row.daily_pnl or 0),
+                "wins": int(row.wins or 0),
+                "losses": int(row.losses or 0)
+            }
+
+    # Parameters averages via SQL
+    stmt_params = select(
+        func.avg(func.case((TradeHistory.pnl > 0, TradeHistory.executed_price), else_=None)).label("avg_win_price"),
+        func.avg(func.case((TradeHistory.pnl <= 0, TradeHistory.executed_price), else_=None)).label("avg_loss_price"),
+        func.avg(func.case((TradeHistory.pnl > 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_win_prob"),
+        func.avg(func.case((TradeHistory.pnl <= 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_loss_prob")
+    ).where(
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.pnl.is_not(None)
+    )
+    res_params = await db.execute(stmt_params)
+    params_row = res_params.first()
+    
+    avg_win_price = float(params_row.avg_win_price or 0) if params_row else 0
+    avg_loss_price = float(params_row.avg_loss_price or 0) if params_row else 0
+    avg_win_prob = float(params_row.avg_win_prob or 0) if params_row else 0
+    avg_loss_prob = float(params_row.avg_loss_prob or 0) if params_row else 0
 
     # Вычисляем Avg Kelly Today
     today_start = datetime.combine(datetime.now(timezone.utc).date(), dt_time.min).replace(tzinfo=timezone.utc)
@@ -154,7 +149,7 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
         "max_f": round(float(kelly_row.max_f), 4) if kelly_row and kelly_row.max_f is not None else 0.0,
     }
 
-    return {
+    result = {
         "capital": round(capital, 2),
         "overall_pnl": round(total_pnl, 2),
         "daily_pnl": daily_pnl_map,
@@ -170,3 +165,6 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
         "kelly_stats": kelly_stats,
         "kelly_enabled": kelly_enabled
     }
+    
+    _stats_cache["stats"] = {"time": current_time, "data": result}
+    return result
