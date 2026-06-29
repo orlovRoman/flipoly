@@ -304,7 +304,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 if existing_skipped:
                     await db_session.delete(existing_skipped)
-                
+
                 history = TradeHistory(
                     market_id=market.market_id,
                     asset=market.asset,
@@ -322,6 +322,10 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     created_at=start_time,
                 )
                 db_session.add(history)
+                from polyflip.api.trading_dashboard import invalidate_stats_cache
+                from polyflip.api.dashboard import invalidate_dashboard_cache
+                invalidate_stats_cache()
+                invalidate_dashboard_cache()
             
             return  # <- выходим, ML-блок не запускаем
 
@@ -564,6 +568,10 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         created_at=start_time
                     )
                     db_session.add(history)
+                    from polyflip.api.trading_dashboard import invalidate_stats_cache
+                    from polyflip.api.dashboard import invalidate_dashboard_cache
+                    invalidate_stats_cache()
+                    invalidate_dashboard_cache()
                 else:
                     logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
                     if p_flip >= calibrated_val:
