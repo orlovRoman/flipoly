@@ -3,7 +3,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.models import RuntimeSettings
 from polyflip.constants import (
     DEAD_ZONE_WIDTH,
-    KELLY_MAX_FRACTION,
     DAILY_LOSS_LIMIT_USDC,
     DEFAULT_TRADING_MODE,
     FAVORITE_MODE_ENTRY_SEC,
@@ -19,7 +18,6 @@ from polyflip.constants import (
 
 DEFAULTS = {
     "DEAD_ZONE_WIDTH": str(DEAD_ZONE_WIDTH),
-    "KELLY_MAX_FRACTION": str(KELLY_MAX_FRACTION),
     "DAILY_LOSS_LIMIT_USDC": str(DAILY_LOSS_LIMIT_USDC),
     "TRADING_MODE": DEFAULT_TRADING_MODE,
     "FAVORITE_MODE_ENTRY_SEC": str(FAVORITE_MODE_ENTRY_SEC),

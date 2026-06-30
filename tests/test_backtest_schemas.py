@@ -13,8 +13,7 @@ def test_to_runner_config_keys():
     d = cfg.to_runner_config()
     required_keys = [
         "MIN_TIME_LEFT_MIN", "MAX_TIME_LEFT_MIN", "STRATEGY_MODE",
-        "FAVORITE_THRESHOLD", "KELLY_ENABLED", "KELLY_MULTIPLIER",
-        "NO_FLIP_THRESHOLD", "FLIP_THRESHOLD"
+        "FAVORITE_THRESHOLD", "NO_FLIP_THRESHOLD", "FLIP_THRESHOLD"
     ]
     for key in required_keys:
         assert key in d, f"Missing key: {key}"
@@ -27,10 +26,8 @@ def test_custom_config_roundtrip():
     cfg = BacktestConfig(
         assets=["BTC"],
         favorite_threshold=0.70,
-        kelly_multiplier=0.5,
         initial_capital=5000.0
     )
     d = cfg.to_runner_config()
     assert d["FAVORITE_THRESHOLD"] == 0.70
-    assert d["KELLY_MULTIPLIER"] == 0.5
     assert d["INITIAL_CAPITAL"] == 5000.0

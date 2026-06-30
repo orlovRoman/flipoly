@@ -55,28 +55,6 @@ document.addEventListener("DOMContentLoaded", () => {
     elements.winrate.textContent = `${data.winrate}%`;
     elements.wl.textContent = `${data.wins_vs_losses.wins} / ${data.wins_vs_losses.losses}`;
 
-    // Update Avg Kelly Today
-    if (data.kelly_stats) {
-      const avgKellyDiv = document.getElementById("stat-avg-kelly");
-      const kellyRangeDiv = document.getElementById("stat-kelly-range");
-      if (avgKellyDiv) {
-        if (data.kelly_enabled === false) {
-          avgKellyDiv.textContent = "Отключен";
-        } else {
-          const k = data.kelly_stats;
-          avgKellyDiv.textContent = `f̄ = ${k.avg_f.toFixed(3)} (×${k.avg_mult.toFixed(1)})`;
-        }
-      }
-      if (kellyRangeDiv) {
-        if (data.kelly_enabled === false) {
-          kellyRangeDiv.textContent = "Фиксированная ставка";
-        } else {
-          const k = data.kelly_stats;
-          kellyRangeDiv.textContent = `Range: ${k.min_f.toFixed(2)} – ${k.max_f.toFixed(2)}`;
-        }
-      }
-    }
-
     // Update Asset Table
     elements.assetTable.innerHTML = "";
     for (const [asset, stat] of Object.entries(data.assets)) {
@@ -230,13 +208,11 @@ document.addEventListener("DOMContentLoaded", () => {
     betSize: document.getElementById("TRADE_BET_SIZE_USDC"),
     noFlipThreshold: document.getElementById("TRADE_NO_FLIP_THRESHOLD"),
     deadZoneWidth: document.getElementById("DEAD_ZONE_WIDTH"),
-    kellyMaxFraction: document.getElementById("KELLY_MAX_FRACTION"),
     dailyLossLimit: document.getElementById("DAILY_LOSS_LIMIT_USDC"),
     tradingEnabled: document.getElementById("TRADING_ENABLED"),
     initialCapital: document.getElementById("INITIAL_CAPITAL"),
     minPrice: document.getElementById("TRADE_MIN_PRICE"),
     maxPrice: document.getElementById("TRADE_MAX_PRICE"),
-    kellyEnabled: document.getElementById("KELLY_ENABLED"),
     tradingModeRadios: document.querySelectorAll('input[name="trading_mode"]'),
     favoriteModeSettings: document.getElementById('favorite-mode-settings'),
     favoriteEntrySecInput: document.getElementById('FAVORITE_MODE_ENTRY_SEC'),
@@ -430,10 +406,7 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.DEAD_ZONE_WIDTH);
         settingsElements.deadZoneWidth.value = Math.round(val * 100);
       }
-      if (settingsElements.kellyMaxFraction && data.KELLY_MAX_FRACTION) {
-        let val = parseFloat(data.KELLY_MAX_FRACTION);
-        settingsElements.kellyMaxFraction.value = Math.round(val * 100);
-      }
+
       if (settingsElements.dailyLossLimit && data.DAILY_LOSS_LIMIT_USDC !== undefined) {
         settingsElements.dailyLossLimit.value = data.DAILY_LOSS_LIMIT_USDC;
       }
@@ -454,8 +427,7 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.minPrice.value = data.TRADE_MIN_PRICE;
       if (settingsElements.maxPrice && data.TRADE_MAX_PRICE)
         settingsElements.maxPrice.value = data.TRADE_MAX_PRICE;
-      if (settingsElements.kellyEnabled && data.KELLY_ENABLED)
-        settingsElements.kellyEnabled.checked = data.KELLY_ENABLED === "true";
+
       if (settingsElements.minEdge && data.MIN_EDGE !== undefined) {
         let val = parseFloat(data.MIN_EDGE);
         currentMinEdge = val;
@@ -542,7 +514,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
       if (settingsElements.noFlipThreshold) settingsToSave.TRADE_NO_FLIP_THRESHOLD = parseFloat(settingsElements.noFlipThreshold.value) / 100;
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
-      if (settingsElements.kellyMaxFraction) settingsToSave.KELLY_MAX_FRACTION = parseFloat(settingsElements.kellyMaxFraction.value) / 100;
+
       if (settingsElements.dailyLossLimit) settingsToSave.DAILY_LOSS_LIMIT_USDC = settingsElements.dailyLossLimit.value;
       if (settingsElements.tradingEnabled) settingsToSave.TRADING_ENABLED = settingsElements.tradingEnabled.checked ? "true" : "false";
       if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
@@ -550,9 +522,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
       const activeMode = document.querySelector('input[name="trading_mode"]:checked')?.value || 'ml';
       settingsToSave.TRADING_MODE = activeMode;
-      if (settingsElements.kellyEnabled) {
-        settingsToSave.KELLY_ENABLED = settingsElements.kellyEnabled.checked ? "true" : "false";
-      }
+
       if (settingsElements.favoriteEntrySecInput) {
         settingsToSave.FAVORITE_MODE_ENTRY_SEC = settingsElements.favoriteEntrySecInput.value;
       }
@@ -658,9 +628,7 @@ document.addEventListener("DOMContentLoaded", () => {
           pnlColor = pnlVal >= 0 ? "#00ff88" : "#ff3366";
         }
 
-        const kellyFraction = log.kelly_fraction !== null && log.kelly_fraction !== undefined
-          ? `<span style="color: #8F9BB3;">${parseFloat(log.kelly_fraction).toFixed(3)}</span>`
-          : "-";
+
 
         let betTypeHtml = `<span style="color: #00ff88; font-weight: 500;">Ставка по тренду</span>`;
         const isOutsider = (log.outcome_bought === "NO" && log.active_features && log.active_features.includes("outsider")) ||
@@ -696,7 +664,6 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
                         <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
-                        <td style="padding: 8px; font-weight: 500;">${kellyFraction}</td>
                         <td style="padding: 8px;">${betTypeHtml}</td>
                         <td style="padding: 8px; font-weight: bold; color: var(--text-main);">${betText}</td>
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? "$" + parseFloat(log.executed_price).toFixed(3) : "-"}</td>

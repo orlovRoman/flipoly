@@ -44,7 +44,7 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
 
     async def fetch_settings():
         async with async_session() as s:
-            stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(["INITIAL_CAPITAL", "KELLY_ENABLED"]))
+            stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(["INITIAL_CAPITAL"]))
             res = await s.execute(stmt)
             return res.scalars().all()
 
@@ -87,36 +87,17 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
             )
             return (await s.execute(stmt)).first()
 
-    async def fetch_kelly():
-        async with async_session() as s:
-            today_start = datetime.combine(datetime.now(timezone.utc).date(), dt_time.min).replace(tzinfo=timezone.utc)
-            stmt = select(
-                func.avg(TradeHistory.kelly_fraction).label("avg_f"),
-                func.avg(TradeHistory.kelly_multiplier).label("avg_mult"),
-                func.min(TradeHistory.kelly_fraction).label("min_f"),
-                func.max(TradeHistory.kelly_fraction).label("max_f")
-            ).where(
-                TradeHistory.created_at >= today_start,
-                TradeHistory.status.in_(["SUCCESS", "SKIPPED"]),
-                TradeHistory.kelly_fraction.is_not(None)
-            )
-            return (await s.execute(stmt)).first()
-
-    settings_rows, assets_rows, daily_rows, params_row, kelly_row = await asyncio.gather(
+    settings_rows, assets_rows, daily_rows, params_row = await asyncio.gather(
         fetch_settings(),
         fetch_assets(),
         fetch_daily(),
-        fetch_params(),
-        fetch_kelly()
+        fetch_params()
     )
 
     initial_capital = settings.INITIAL_CAPITAL
-    kelly_enabled = True
     for row in settings_rows:
         if row.key == "INITIAL_CAPITAL":
             initial_capital = float(row.value)
-        elif row.key == "KELLY_ENABLED":
-            kelly_enabled = (row.value.lower() == "true")
 
     asset_stats = {asset: {"pnl": 0.0, "trades": 0, "wins": 0} for asset in settings.asset_list}
     total_pnl = 0.0
@@ -152,13 +133,6 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
     avg_win_prob = float(params_row.avg_win_prob or 0) if params_row else 0
     avg_loss_prob = float(params_row.avg_loss_prob or 0) if params_row else 0
 
-    kelly_stats = {
-        "avg_f": round(float(kelly_row.avg_f), 4) if kelly_row and kelly_row.avg_f is not None else 0.0,
-        "avg_mult": round(float(kelly_row.avg_mult), 2) if kelly_row and kelly_row.avg_mult is not None else 1.0,
-        "min_f": round(float(kelly_row.min_f), 4) if kelly_row and kelly_row.min_f is not None else 0.0,
-        "max_f": round(float(kelly_row.max_f), 4) if kelly_row and kelly_row.max_f is not None else 0.0,
-    }
-
     result = {
         "capital": round(capital, 2),
         "overall_pnl": round(total_pnl, 2),
@@ -171,9 +145,7 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
             "avg_loss_price": round(avg_loss_price, 3),
             "avg_win_prob": round(avg_win_prob, 3),
             "avg_loss_prob": round(avg_loss_prob, 3)
-        },
-        "kelly_stats": kelly_stats,
-        "kelly_enabled": kelly_enabled
+        }
     }
     
     _stats_cache["stats"] = {"time": current_time, "data": result}

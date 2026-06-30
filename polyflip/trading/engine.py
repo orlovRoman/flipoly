@@ -16,13 +16,13 @@ from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, de
 from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory, SlippageLog
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
-from polyflip.trading.utils import compute_kelly_fraction, compute_dead_zone
+from polyflip.trading.utils import compute_dead_zone
+from polyflip.trading.position_sizing import compute_edge, compute_bet_size_edge_scaled
 from polyflip.models.trainer import add_derived_features
 from polyflip.api.trading_dashboard import invalidate_stats_cache
 from polyflip.api.dashboard import invalidate_dashboard_cache
 from polyflip.constants import (
     DEAD_ZONE_WIDTH,
-    KELLY_MAX_FRACTION,
     DAILY_LOSS_LIMIT_USDC,
     FAVORITE_THRESHOLD,
     TRADE_CHECK_LIMIT,
@@ -48,8 +48,6 @@ async def save_or_update_skipped_trade(
     model_version: Optional[int],
     start_time: datetime,
     existing_skipped: Optional[TradeHistory] = None,
-    kelly_fraction: Optional[float] = None,
-    kelly_multiplier: Optional[float] = None,
     edge: Optional[float] = None
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
@@ -60,8 +58,6 @@ async def save_or_update_skipped_trade(
             existing_skipped.error_msg = reason
             existing_skipped.predicted_flip_prob = p_flip_val
             existing_skipped.model_version = model_version
-            existing_skipped.kelly_fraction = kelly_fraction
-            existing_skipped.kelly_multiplier = kelly_multiplier
             existing_skipped.edge = edge
             existing_skipped.updated_at = start_time
     else:
@@ -77,8 +73,6 @@ async def save_or_update_skipped_trade(
             status="SKIPPED",
             error_msg=reason,
             mode="LIVE" if bool(os.getenv("POLYGON_PRIVATE_KEY") and os.getenv("POLYGON_ADDRESS")) else "PAPER",
-            kelly_fraction=kelly_fraction,
-            kelly_multiplier=kelly_multiplier,
             edge=edge,
             created_at=start_time
         )
@@ -100,14 +94,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADE_BET_SIZE_USDC",
         "TRADE_NO_FLIP_THRESHOLD",
         "DEAD_ZONE_WIDTH",
-        "KELLY_MAX_FRACTION",
         "DAILY_LOSS_LIMIT_USDC",
         "ACTIVE_FEATURES",
         "TRADE_MIN_PRICE",
         "TRADE_MAX_PRICE",
         "TRADE_ASSETS",
-        "TRADE_CAPITAL_USDC",  # Зарезервировано для будущего Kelly по % от капитала
-        "KELLY_ENABLED",
         "TRADING_MODE",
         "FAVORITE_MODE_ENTRY_SEC",
         "MIN_EDGE",
@@ -118,7 +109,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "NO_MAX_PRICE",
         "NO_MIN_EDGE",
         "AUTO_DEAD_ZONE",
-        "AUTO_DEAD_ZONE_WIDTH"
+        "AUTO_DEAD_ZONE_WIDTH",
+        "MAX_PRICE_DRIFT"
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
@@ -150,7 +142,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     
     
     dead_zone = float(settings_db.get("DEAD_ZONE_WIDTH", str(DEAD_ZONE_WIDTH)))
-    kelly_max = float(settings_db.get("KELLY_MAX_FRACTION", str(KELLY_MAX_FRACTION)))
     daily_limit = float(settings_db.get("DAILY_LOSS_LIMIT_USDC", str(DAILY_LOSS_LIMIT_USDC)))
     trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
     trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
@@ -332,8 +323,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     status=trade_res.get("status", "FAILED"),
                     error_msg=trade_res.get("error_msg"),
                     mode=trade_res.get("mode", "PAPER"),
-                    kelly_fraction=None,
-                    kelly_multiplier=1.0,
                     created_at=start_time,
                 )
                 db_session.add(history)
@@ -484,6 +473,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 local_config["FLIP_THRESHOLD"] = upper
                 local_config["MIN_EDGE"] = -100.0
                 local_config["MAX_EDGE"] = 100.0
+                local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 
                 decision_obj = decide_ml_trend(signal, p_flip, local_config)
                 
@@ -497,12 +487,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     elif not trade_on_flip and p_flip >= upper:
                         reason = f"Ожидается флип (p_flip={p_flip:.2f} >= {upper:.2f})"
                     
-                    logger.info("trade_skipped", reason=reason, p_flip=p_flip)
                     await save_or_update_skipped_trade(
                         db_session, market, reason, p_flip, model_ver, start_time,
                         existing_skipped=existing_skipped,
-                        kelly_fraction=decision_obj.kelly_fraction,
-                        kelly_multiplier=1.0,
                         edge=decision_obj.edge
                     )
                     continue
@@ -531,9 +518,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
 
                 buy_price = fresh_ask
                 
-                # Пересчитываем edge с учётом свежей цены из API
-                p_win = 1.0 - p_flip if decision == "YES" else p_flip
-                edge = round(p_win - buy_price, 4)
+                # Пересчитываем edge с учётом свежей цены из API и правильного p_win для ML_TREND/OUTSIDER
+                p_win = 1.0 - p_flip if decision_obj.strategy_type == "ML_TREND" else p_flip
+                edge = compute_edge(p_win, buy_price)
                 
                 # Проверяем лимиты по edge ещё раз
                 min_edge = float(settings_db.get("MIN_EDGE", 0.05))
@@ -543,14 +530,28 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         db_session, market, f"Edge out of bounds (edge={edge:.4f})",
                         p_flip, model_ver, start_time,
                         existing_skipped=existing_skipped,
-                        kelly_fraction=decision_obj.kelly_fraction,
-                        kelly_multiplier=1.0,
+                        edge=edge
+                    )
+                    continue
+                
+                actual_bet_size = compute_bet_size_edge_scaled(
+                    edge=edge,
+                    min_bet_usdc=float(settings_db.get("TRADE_BET_SIZE_USDC", 5.0)),
+                    max_bet_usdc=float(settings_db.get("MAX_BET_SIZE_USDC", 50.0)),
+                    min_edge=float(settings_db.get("MIN_EDGE", 0.05)),
+                    max_edge=float(settings_db.get("MAX_EDGE", 0.40))
+                )
+
+                if actual_bet_size <= 0:
+                    await save_or_update_skipped_trade(
+                        db_session, market, "Bet size <= 0",
+                        p_flip, model_ver, start_time,
+                        existing_skipped=existing_skipped,
                         edge=edge
                     )
                     continue
                 
                 num_shares = round(actual_bet_size / buy_price, 2)
-                kelly_f = decision_obj.kelly_fraction
                 
                 trade_res = await trader.execute_trade(
                     market_id=market.market_id,
@@ -575,8 +576,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     status=trade_res.get("status", "FAILED"),
                     error_msg=trade_res.get("error_msg"),
                     mode=trade_res.get("mode", "PAPER"),
-                    kelly_fraction=round(kelly_f, 4) if kelly_f is not None else None,
-                    kelly_multiplier=1.0,
                     edge=round(edge, 4) if edge is not None else None,
                     created_at=start_time
                 )

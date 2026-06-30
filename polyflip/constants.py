@@ -1,6 +1,5 @@
 # --- Торговые константы ---
 FAVORITE_THRESHOLD = 0.55          # граница фаворит/аутсайдер
-KELLY_MAX_FRACTION = 0.10         # максимальная Kelly-доля от капитала
 DEAD_ZONE_WIDTH = 0.15            # ширина мёртвой зоны вокруг flip-порога
 AUTO_DEAD_ZONE = True        # по умолчанию включён
 AUTO_DEAD_ZONE_WIDTH = 0.10 # ширина нейтральной полосы (10 пп)

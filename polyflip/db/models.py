@@ -100,8 +100,6 @@ class TradeHistory(Base):
     error_msg = Column(String, nullable=True)
     mode = Column(String(16), nullable=False, default="LIVE")
     pnl = Column(Float, nullable=True)
-    kelly_fraction = Column(Float, nullable=True)       # 0.0 – 0.10
-    kelly_multiplier = Column(Float, nullable=True)     # 1.0 – 2.0
     edge = Column(Float, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)

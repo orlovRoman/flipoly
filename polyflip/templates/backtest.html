@@ -608,21 +608,7 @@
             <!-- Раздел: Управление капиталом -->
             <div class="config-section-title">📐 Мани-менеджмент</div>
             
-            <div class="toggle-row">
-              <div>
-                <div style="font-size:0.8rem; font-weight:600;">Критерий Келли <span class="tooltip-icon tooltip-icon--left" data-tooltip="Автоматический расчет размера ставки на основе математического перевеса модели.">❓</span></div>
-              </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="cfg-kelly" checked onchange="onKellyChange()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-
-            <div class="config-grid" id="kelly-section">
-              <div class="config-group">
-                <label>Множитель Келли <span class="tooltip-icon tooltip-icon--left" data-tooltip="Дробный Келли (сейф-фактор). Снижает риск просадки путем уменьшения рассчитанной Келли доли.">❓</span></label>
-                <input id="cfg-kelly-mult" type="number" value="0.25" step="0.01" min="0.01" max="1">
-              </div>
+            <div class="config-grid">
               <div class="config-group">
                 <label>Стартовый капитал <span class="tooltip-icon tooltip-icon--right" data-tooltip="Начальный виртуальный баланс бэктеста в USDC.">❓</span></label>
                 <input id="cfg-capital" type="number" value="1000" step="100" min="10">

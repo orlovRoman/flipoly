@@ -9,7 +9,7 @@ from polyflip.db.connection import async_session
 from polyflip.db.models import RuntimeSettings, StrategyConfig
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
-from polyflip.constants import KELLY_MAX_FRACTION, DAILY_LOSS_LIMIT_USDC, TRADE_ON_FLIP, FLIP_THRESHOLD, NO_MAX_PRICE, NO_MIN_EDGE, AUTO_DEAD_ZONE, AUTO_DEAD_ZONE_WIDTH
+from polyflip.constants import DAILY_LOSS_LIMIT_USDC, TRADE_ON_FLIP, FLIP_THRESHOLD, NO_MAX_PRICE, NO_MIN_EDGE, AUTO_DEAD_ZONE, AUTO_DEAD_ZONE_WIDTH
 
 logger = structlog.get_logger(__name__)
 
@@ -35,14 +35,12 @@ async def get_all_settings():
         "TRADE_BET_SIZE_USDC": db.get("TRADE_BET_SIZE_USDC", str(settings.TRADE_BET_SIZE_USDC)),
         "TRADE_NO_FLIP_THRESHOLD": db.get("TRADE_NO_FLIP_THRESHOLD", str(settings.TRADE_NO_FLIP_THRESHOLD)),
         "DEAD_ZONE_WIDTH": db.get("DEAD_ZONE_WIDTH", str(getattr(settings, 'DEAD_ZONE_WIDTH', 0.15))),
-        "KELLY_MAX_FRACTION": db.get("KELLY_MAX_FRACTION", str(getattr(settings, 'KELLY_MAX_FRACTION', KELLY_MAX_FRACTION))),
         "DAILY_LOSS_LIMIT_USDC": db.get("DAILY_LOSS_LIMIT_USDC", str(getattr(settings, 'DAILY_LOSS_LIMIT_USDC', DAILY_LOSS_LIMIT_USDC))),
         "TRADING_ENABLED": db.get("TRADING_ENABLED", "true" if settings.TRADING_ENABLED else "false"),
         "INITIAL_CAPITAL": db.get("INITIAL_CAPITAL", str(getattr(settings, 'INITIAL_CAPITAL', 100.0))),
         "TRADE_MIN_PRICE": db.get("TRADE_MIN_PRICE", str(getattr(settings, 'TRADE_MIN_PRICE', 0.05))),
         "TRADE_MAX_PRICE": db.get("TRADE_MAX_PRICE", str(getattr(settings, 'TRADE_MAX_PRICE', 0.95))),
         "TRADE_ASSETS": db.get("TRADE_ASSETS", str(getattr(settings, 'TRADE_ASSETS', 'BTC,ETH'))),
-        "KELLY_ENABLED": db.get("KELLY_ENABLED", "true" if getattr(settings, 'KELLY_ENABLED', True) else "false"),
         "TRADING_MODE": db.get("TRADING_MODE", settings.TRADING_MODE),
         "FAVORITE_MODE_ENTRY_SEC": db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)),
         "LIVE_POLL_INTERVAL_SECONDS": db.get("LIVE_POLL_INTERVAL_SECONDS", str(settings.LIVE_POLL_INTERVAL_SECONDS)),
@@ -142,14 +140,12 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "TRADE_BET_SIZE_USDC", 
         "TRADE_NO_FLIP_THRESHOLD", 
         "DEAD_ZONE_WIDTH", 
-        "KELLY_MAX_FRACTION",
         "DAILY_LOSS_LIMIT_USDC",
         "TRADING_ENABLED",
         "INITIAL_CAPITAL",
         "TRADE_MIN_PRICE",
         "TRADE_MAX_PRICE",
         "TRADE_ASSETS",
-        "KELLY_ENABLED",
         "TRADING_MODE",
         "FAVORITE_MODE_ENTRY_SEC",
         "LIVE_POLL_INTERVAL_SECONDS",
@@ -172,7 +168,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
     # Валидация и нормализация порогов вероятности флипа и мертвой зоны
-    if key in ["TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH", "KELLY_MAX_FRACTION"]:
+    if key in ["TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH"]:
         try:
             val = float(payload.value)
             if val < 0.0 or val > 100.0:

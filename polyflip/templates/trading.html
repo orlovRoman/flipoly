@@ -125,12 +125,7 @@
                         <h3>Победы / Поражения</h3>
                         <div class="stat-value" id="stat-wl">-- / --</div>
                     </div>
-                    <div class="stat-card">
-                        <h3>Avg Kelly Today</h3>
-                        <div class="stat-value" id="stat-avg-kelly" style="font-size: 1.3rem; font-weight: bold; color: var(--text-color);">f̄ = -- (×--)</div>
-                        <small style="color: var(--text-muted); display: block; margin-top: 0.25rem;" id="stat-kelly-range">Range: -- – --</small>
-                    </div>
-                </div>
+
 
                 <div class="charts-container" style="display: grid; grid-template-columns: 1fr; gap: 1.5rem; margin-top: 1.5rem;">
                     <div class="chart-box">
@@ -194,7 +189,6 @@
                                     <th style="padding: 8px;">Актив</th>
                                     <th style="padding: 8px;">Модель</th>
                                     <th style="padding: 8px;">Статус</th>
-                                    <th style="padding: 8px;">Kelly f</th>
                                     <th style="padding: 8px; min-width: 170px;">Тип ставки</th>
                                     <th style="padding: 8px;">Ставка</th>
                                     <th style="padding: 8px;">Цена</th>
@@ -304,12 +298,7 @@
                                 <input type="number" step="0.1" id="TRADE_BET_SIZE_USDC" value="10.0">
                             </div>
 
-                            <div class="form-group">
-                                <label for="KELLY_MAX_FRACTION">Макс. Kelly-доля от капитала (%)</label>
-                                <input type="number" step="1" max="100" min="1" id="KELLY_MAX_FRACTION" value="10">
-                            </div>
 
-                            <div class="form-group" style="display: none;">
                                 <label for="TRADE_FLIP_THRESHOLD">
                                     Порог ПРОТИВ ТОЛПЫ — flip (%, выше — ставим на аутсайдера)
                                 </label>
@@ -412,12 +401,6 @@
                             </div>
                         </div>
 
-
-
-                        <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem;">
-                            <input type="checkbox" id="KELLY_ENABLED" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                            <label for="KELLY_ENABLED" style="margin: 0; cursor: pointer; font-weight: normal;">Размер ставки по Kelly (динамический ×1.0–2.0)</label>
-                        </div>
                     </form>
                 </div>
                 

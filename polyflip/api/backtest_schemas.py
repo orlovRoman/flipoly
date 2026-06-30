@@ -41,8 +41,6 @@ class BacktestConfig(BaseModel):
     auto_dead_zone_width: float = Field(default=0.10, ge=0.0, le=0.5)
 
     # Размер ставки
-    kelly_enabled: bool = Field(default=True)
-    kelly_multiplier: float = Field(default=0.25, ge=0.01, le=1.0)
     initial_capital: float = Field(default=1000.0, ge=10.0, le=1_000_000.0)
     trade_bet_size_usdc: float = Field(default=5.0, ge=1.0)
     max_bet_size_usdc: float = Field(default=50.0, ge=1.0)
@@ -77,8 +75,6 @@ class BacktestConfig(BaseModel):
             "NO_MIN_PRICE": self.no_min_price,
             "NO_MAX_PRICE": self.no_max_price,
             "AUTO_DEAD_ZONE_WIDTH": self.auto_dead_zone_width,
-            "KELLY_ENABLED": str(self.kelly_enabled).lower(),
-            "KELLY_MULTIPLIER": self.kelly_multiplier,
             "INITIAL_CAPITAL": self.initial_capital,
             "TRADE_BET_SIZE_USDC": self.trade_bet_size_usdc,
             "MAX_BET_SIZE_USDC": self.max_bet_size_usdc,
@@ -98,7 +94,6 @@ class StrategyBreakdown(BaseModel):
     net_pnl: float
     win_rate_pct: float
     avg_edge: Optional[float]
-    avg_kelly: Optional[float]
 
 
 class AssetBreakdown(BaseModel):

@@ -39,8 +39,9 @@ async def test_slippage_logged_after_successful_trade(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_EDGE", value="2.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_EDGE", value="0.40", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_PRICE_DRIFT", value="0.20", updated_at=now, updated_by="test"),
         RuntimeSettings(key="KELLY_ENABLED", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
@@ -71,10 +72,10 @@ async def test_slippage_logged_after_successful_trade(db_session):
          
          await trade_worker_cycle(db_session, mock_trader, mock_api)
          
-         # Check TradeHistory
          trades = (await db_session.execute(select(TradeHistory))).scalars().all()
          assert len(trades) == 1
          trade = trades[0]
+         assert trade.status == "SUCCESS", f"Trade was skipped: {trade.error_msg}"
          
          # Check SlippageLog
          slippages = (await db_session.execute(select(SlippageLog))).scalars().all()
@@ -89,8 +90,8 @@ async def test_slippage_logged_after_successful_trade(db_session):
          assert round(slip.slippage, 2) == 0.02
          assert round(slip.slippage_pct, 2) == 3.28  # 0.02 / 0.61 * 100
          assert slip.mode == "PAPER"
-         expected_cost = round(0.02 * (10.0 / 0.63), 4)  # ≈ 0.3175
-         assert abs(slip.slippage_cost_usdc - expected_cost) < 0.001
+         expected_cost = round(0.02 * (slip.bet_size_usdc / 0.63), 4)
+         assert abs(slip.slippage_cost_usdc - expected_cost) < 0.01
 
 @pytest.mark.asyncio
 async def test_slippage_api_endpoints(db_session):

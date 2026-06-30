@@ -62,8 +62,7 @@ function readConfig() {
     yes_max_price:        parseFloat(document.getElementById('cfg-yes-max').value),
     no_min_price:         parseFloat(document.getElementById('cfg-no-min').value),
     no_max_price:         parseFloat(document.getElementById('cfg-no-max').value),
-    kelly_enabled:        document.getElementById('cfg-kelly').checked,
-    kelly_multiplier:     parseFloat(document.getElementById('cfg-kelly-mult').value),
+
     initial_capital:      parseFloat(document.getElementById('cfg-capital').value),
     trade_bet_size_usdc:  parseFloat(document.getElementById('cfg-min-bet').value),
     max_bet_size_usdc:    parseFloat(document.getElementById('cfg-max-bet').value),
@@ -385,8 +384,7 @@ async function loadHistoricRun(runId) {
         document.getElementById('cfg-yes-max').value    = cfg.yes_max_price || 0.95;
         document.getElementById('cfg-no-min').value     = cfg.no_min_price || 0.55;
         document.getElementById('cfg-no-max').value     = cfg.no_max_price || 0.95;
-        document.getElementById('cfg-kelly').checked    = cfg.kelly_enabled !== false;
-        document.getElementById('cfg-kelly-mult').value = cfg.kelly_multiplier || 0.25;
+
         document.getElementById('cfg-capital').value    = cfg.initial_capital || 1000;
         document.getElementById('cfg-min-bet').value    = cfg.trade_bet_size_usdc || 5;
         document.getElementById('cfg-max-bet').value    = cfg.max_bet_size_usdc || 50;
@@ -396,7 +394,7 @@ async function loadHistoricRun(runId) {
         document.getElementById('cfg-trade-on-flip').checked = cfg.trade_on_flip === true;
         
         onStrategyChange();
-        onKellyChange();
+
       }
       
       loadHistory(); // обновить подсветку активного
@@ -481,10 +479,7 @@ function onStrategyChange() {
   document.getElementById('ml-section').style.display = mode === 'ML' ? '' : 'none';
 }
 
-function onKellyChange() {
-  const enabled = document.getElementById('cfg-kelly').checked;
-  document.getElementById('kelly-section').style.display = enabled ? '' : 'none';
-}
+
 
 function resetConfig() {
   document.getElementById('cfg-assets').value     = 'BTC,ETH';
@@ -499,8 +494,7 @@ function resetConfig() {
   document.getElementById('cfg-yes-max').value    = '0.95';
   document.getElementById('cfg-no-min').value     = '0.55';
   document.getElementById('cfg-no-max').value     = '0.95';
-  document.getElementById('cfg-kelly').checked    = true;
-  document.getElementById('cfg-kelly-mult').value = '0.25';
+
   document.getElementById('cfg-capital').value    = '1000';
   document.getElementById('cfg-min-bet').value    = '5';
   document.getElementById('cfg-max-bet').value    = '50';
@@ -508,7 +502,7 @@ function resetConfig() {
   document.getElementById('cfg-max-edge').value   = '0.50';
   document.getElementById('cfg-slippage').value   = '0.5';
   onStrategyChange();
-  onKellyChange();
+
 }
 
 async function applyLiveSettings() {
@@ -528,12 +522,7 @@ async function applyLiveSettings() {
     document.getElementById('cfg-no-min').value     = s.NO_MIN_PRICE || s.TRADE_MIN_PRICE || '0.55';
     document.getElementById('cfg-no-max').value     = s.NO_MAX_PRICE || s.TRADE_MAX_PRICE || '0.95';
     
-    document.getElementById('cfg-kelly').checked    = s.KELLY_ENABLED === 'true';
-    
-    const rawKelly = s.KELLY_MAX_FRACTION ? parseFloat(s.KELLY_MAX_FRACTION) : null;
-    document.getElementById('cfg-kelly-mult').value = rawKelly !== null
-      ? (rawKelly > 1 ? (rawKelly / 100).toFixed(2) : rawKelly.toFixed(2))
-      : '0.25';
+
       
     document.getElementById('cfg-capital').value    = s.INITIAL_CAPITAL || '1000';
     document.getElementById('cfg-min-bet').value    = s.TRADE_BET_SIZE_USDC || '5';
@@ -547,7 +536,7 @@ async function applyLiveSettings() {
     document.getElementById('cfg-trade-on-flip').checked = s.TRADE_ON_FLIP === 'true';
     
     onStrategyChange();
-    onKellyChange();
+
     
     const minTime = parseFloat(document.getElementById('cfg-min-time').value) || 0;
     const maxTime = parseFloat(document.getElementById('cfg-max-time').value) || 0;
@@ -588,5 +577,5 @@ document.addEventListener('DOMContentLoaded', () => {
   loadDatasetStats();
   loadHistory();
   onStrategyChange();
-  onKellyChange();
+
 });

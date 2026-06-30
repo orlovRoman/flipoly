@@ -9,9 +9,22 @@ from typing import Literal, Optional
 
 from polyflip.trading.feature_builder import MarketSignal, build_feature_vector
 from polyflip.trading.position_sizing import (
-    compute_kelly_fraction, compute_bet_size,
+    compute_bet_size_edge_scaled,
     compute_edge, is_in_dead_zone
 )
+
+def _resolve_bet(edge: float, config: dict) -> float:
+    min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
+    max_bet = float(config.get("MAX_BET_SIZE_USDC", 50))
+    min_edge = float(config.get("MIN_EDGE", 0.05))
+    max_edge = float(config.get("MAX_EDGE", 0.40))
+    return compute_bet_size_edge_scaled(
+        edge=edge,
+        min_bet_usdc=min_bet,
+        max_bet_usdc=max_bet,
+        min_edge=min_edge,
+        max_edge=max_edge
+    )
 
 StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "SKIP"]
 ActionType = Literal["BUY_YES", "BUY_NO", "SKIP"]
@@ -26,7 +39,6 @@ class TradeDecision:
     strategy_type: StrategyType
     p_flip: Optional[float] = None
     edge: Optional[float] = None
-    kelly_fraction: Optional[float] = None
 
 
 def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
@@ -46,6 +58,13 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
       - MAX_BET_SIZE_USDC: float
     """
     threshold = float(config.get("FAVORITE_THRESHOLD", 0.55))
+    if "FAVORITE_THRESHOLD" not in config:
+        import structlog
+        structlog.get_logger().warning(
+            "favorite_threshold_default_used",
+            threshold=threshold,
+            note="Default changed from 0.65 to 0.55 in v1.x — set FAVORITE_THRESHOLD explicitly"
+        )
     min_edge  = float(config.get("MIN_EDGE", 0.05))
     dead_zone = float(config.get("AUTO_DEAD_ZONE_WIDTH", 0.10))
 
@@ -62,7 +81,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
         bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
         return TradeDecision("BUY_YES", signal.yes_ask, bet,
             f"favorite YES", "PURE_FAVORITE",
-            edge=0.0, kelly_fraction=0.0)
+            edge=0.0)
 
     # --- NO side ---
     if signal.mid_price <= (1.0 - threshold):
@@ -75,7 +94,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
         bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
         return TradeDecision("BUY_NO", signal.no_ask, bet,
             f"favorite NO", "PURE_FAVORITE",
-            edge=0.0, kelly_fraction=0.0)
+            edge=0.0)
 
     return TradeDecision("SKIP", 0, 0, "no clear favorite", "SKIP")
 
@@ -114,30 +133,16 @@ def decide_ml_trend(
     if edge < min_edge or edge > max_edge:
         return TradeDecision("SKIP", 0, 0, f"Edge out of bounds (edge={edge:.4f})", "SKIP", p_flip=p_flip, edge=edge)
 
-    kelly_enabled = config.get("KELLY_ENABLED", True)
-    if isinstance(kelly_enabled, str):
-        kelly_enabled = kelly_enabled.lower() == "true"
-
-    if kelly_enabled:
-        kf = compute_kelly_fraction(p_win, buy_price)
-        bet = compute_bet_size(
-            kf,
-            float(config.get("INITIAL_CAPITAL", 1000)),
-            float(config.get("KELLY_MULTIPLIER", 0.25)),
-            float(config.get("TRADE_BET_SIZE_USDC", 5)),
-            float(config.get("MAX_BET_SIZE_USDC", 50)),
-        )
-        if bet <= 0:
-            return TradeDecision("SKIP", 0, 0, "Kelly=0", "SKIP", p_flip=p_flip, edge=edge)
-    else:
-        kf = None
-        bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
+    bet = _resolve_bet(edge, config)
+    bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
+    if bet <= 0 and not bypass:
+        return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
     return TradeDecision(
         decision.action, buy_price, bet,
         f"ML_TREND p_flip={p_flip:.3f} < {no_flip_thresh:.3f}, {decision.reason}",
         "ML_TREND",
-        p_flip=p_flip, edge=edge, kelly_fraction=kf,
+        p_flip=p_flip, edge=edge
     )
 
 
@@ -171,7 +176,7 @@ def decide_outsider(
         # YES — фаворит, покупаем NO (аутсайдера)
         no_min = float(config.get("OUTSIDER_NO_MIN_PRICE", config.get("NO_MIN_PRICE", 0.10)))
         no_max = float(config.get("OUTSIDER_NO_MAX_PRICE", config.get("NO_MAX_PRICE", 0.50)))
-        no_prob = 1.0 - signal.mid_price
+        no_prob = p_flip
         if not (no_min <= signal.no_ask <= no_max):
             return TradeDecision("SKIP", 0, 0,
                 f"outsider NO price {signal.no_ask:.3f} out of [{no_min},{no_max}]", "SKIP",
@@ -179,32 +184,20 @@ def decide_outsider(
         edge = compute_edge(no_prob, signal.no_ask)
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
-        kelly_enabled = config.get("KELLY_ENABLED", True)
-        if isinstance(kelly_enabled, str):
-            kelly_enabled = kelly_enabled.lower() == "true"
-        if kelly_enabled:
-            kf = compute_kelly_fraction(no_prob, signal.no_ask)
-            bet = compute_bet_size(
-                kf,
-                float(config.get("INITIAL_CAPITAL", 1000)),
-                float(config.get("KELLY_MULTIPLIER", 0.25)),
-                float(config.get("TRADE_BET_SIZE_USDC", 5)),
-                float(config.get("MAX_BET_SIZE_USDC", 50)),
-            )
-            if bet <= 0:
-                return TradeDecision("SKIP", 0, 0, "Kelly=0", "SKIP", p_flip=p_flip)
-        else:
-            kf = None
-            bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
+        
+        bet = _resolve_bet(edge, config)
+        bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
+        if bet <= 0 and not bypass:
+            return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip)
 
         return TradeDecision("BUY_NO", signal.no_ask, bet,
             f"outsider NO, p_flip={p_flip:.3f}", "OUTSIDER",
-            p_flip=p_flip, edge=edge, kelly_fraction=kf)
+            p_flip=p_flip, edge=edge)
     else:
         # NO — фаворит, покупаем YES (аутсайдера)
         yes_min = float(config.get("OUTSIDER_YES_MIN_PRICE", config.get("YES_MIN_PRICE", 0.05)))
         yes_max = float(config.get("OUTSIDER_YES_MAX_PRICE", config.get("YES_MAX_PRICE", 0.45)))
-        yes_prob = signal.mid_price
+        yes_prob = p_flip
         if not (yes_min <= signal.yes_ask <= yes_max):
             return TradeDecision("SKIP", 0, 0,
                 f"outsider YES price {signal.yes_ask:.3f} out of [{yes_min},{yes_max}]", "SKIP",
@@ -212,24 +205,12 @@ def decide_outsider(
         edge = compute_edge(yes_prob, signal.yes_ask)
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
-        kelly_enabled = config.get("KELLY_ENABLED", True)
-        if isinstance(kelly_enabled, str):
-            kelly_enabled = kelly_enabled.lower() == "true"
-        if kelly_enabled:
-            kf = compute_kelly_fraction(yes_prob, signal.yes_ask)
-            bet = compute_bet_size(
-                kf,
-                float(config.get("INITIAL_CAPITAL", 1000)),
-                float(config.get("KELLY_MULTIPLIER", 0.25)),
-                float(config.get("TRADE_BET_SIZE_USDC", 5)),
-                float(config.get("MAX_BET_SIZE_USDC", 50)),
-            )
-            if bet <= 0:
-                return TradeDecision("SKIP", 0, 0, "Kelly=0", "SKIP", p_flip=p_flip)
-        else:
-            kf = None
-            bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
+        
+        bet = _resolve_bet(edge, config)
+        bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
+        if bet <= 0 and not bypass:
+            return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip)
 
         return TradeDecision("BUY_YES", signal.yes_ask, bet,
             f"outsider YES, p_flip={p_flip:.3f}", "OUTSIDER",
-            p_flip=p_flip, edge=edge, kelly_fraction=kf)
+            p_flip=p_flip, edge=edge)

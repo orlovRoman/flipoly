@@ -428,14 +428,12 @@ def _build_result(
     for strat, items in strat_map.items():
         s_wins = [x for x in items if x["won"]]
         edges = [x["trade"].decision.edge for x in items if x["trade"].decision.edge is not None]
-        kellys = [x["trade"].decision.kelly_fraction for x in items if x["trade"].decision.kelly_fraction is not None]
         strategies.append(StrategyBreakdown(
             strategy=strat,
             trades=len(items),
             net_pnl=round(sum(x["pnl"] for x in items), 4),
             win_rate_pct=round(len(s_wins) / len(items) * 100, 2),
             avg_edge=round(statistics.mean(edges), 4) if edges else None,
-            avg_kelly=round(statistics.mean(kellys), 4) if kellys else None,
         ))
 
     # По ассетам

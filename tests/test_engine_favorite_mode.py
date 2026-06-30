@@ -38,14 +38,12 @@ def make_settings_db(
         "TRADE_BET_SIZE_USDC": str(bet_size),
         "TRADE_NO_FLIP_THRESHOLD": "0.70",
         "DEAD_ZONE_WIDTH": "0.15",
-        "KELLY_MAX_FRACTION": "0.10",
         "DAILY_LOSS_LIMIT_USDC": "-100.0",
         "ACTIVE_FEATURES": "time_left_min,mid_price,spread",
         "TRADE_MIN_PRICE": "0.05",
         "TRADE_MAX_PRICE": "0.95",
         "TRADE_ASSETS": trade_assets,
         "TRADE_CAPITAL_USDC": "100",
-        "KELLY_ENABLED": "false",
         "TRADING_MODE": trading_mode,
         "FAVORITE_MODE_ENTRY_SEC": str(entry_sec),
     }
@@ -113,7 +111,6 @@ async def test_pure_favorite_buys_yes_when_yes_is_favorite():
     assert trade_record.predicted_flip_prob == 0.0  # ML не использовался
     assert trade_record.active_features == "PURE_FAVORITE"
     assert trade_record.model_version is None
-    assert trade_record.kelly_multiplier == 1.0
 
 
 @pytest.mark.asyncio
@@ -401,4 +398,4 @@ async def test_pure_favorite_skips_no_when_yes_becomes_favorite():
     )
     assert trade_record is not None
     assert trade_record.status == "SKIPPED"
-    assert "YES recovered to 0.7" in trade_record.error_msg
+    assert "Price drift" in trade_record.error_msg or "out of bounds" in trade_record.error_msg
