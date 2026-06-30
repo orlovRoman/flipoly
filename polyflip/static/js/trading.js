@@ -664,7 +664,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         let betTypeHtml = `<span style="color: #00ff88; font-weight: 500;">Ставка по тренду</span>`;
         const isOutsider = (log.outcome_bought === "NO" && log.active_features && log.active_features.includes("outsider")) ||
-                           (log.outcome_bought === "NO" && log.active_features && !log.active_features.includes("PURE_FAVORITE") && !log.active_features.includes("trend") && parseFloat(log.predicted_flip_prob) >= 0.5) ||
+                           (log.outcome_bought === "NO" && log.active_features &&
+                            !log.active_features.includes("PURE_FAVORITE") &&
+                            !log.active_features.includes("trend") &&
+                            log.predicted_flip_prob !== null &&
+                            log.predicted_flip_prob !== undefined &&
+                            parseFloat(log.predicted_flip_prob) >= 0.5) ||
                            (log.error_msg && (log.error_msg.includes("TRADE_ON_FLIP") || log.error_msg.includes("Ожидается флип")));
         if (isOutsider) {
           betTypeHtml = `<span style="color: #ffb020; font-weight: 500;">Аутсайдер (NO при флипе)</span>`;

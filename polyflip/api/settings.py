@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from typing import Optional, Any
+from typing import Optional, Any, Union
 from pydantic import BaseModel
 from sqlalchemy import select
 from datetime import datetime, timezone
@@ -98,7 +98,7 @@ async def get_recommended_thresholds():
     }
 
 class BulkSettings(BaseModel):
-    settings: dict[str, Any]
+    settings: dict[str, Union[str, int, float, bool]]
 
 @router.put("/bulk")
 async def update_settings_bulk(payload: BulkSettings, request: Request = None):
@@ -184,7 +184,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
                 # Введено как процент (напр. 5.0 → 0.05)
                 if val > 100.0:
                     raise HTTPException(status_code=400, detail=f"{key} must be ≤ 100%")
-                payload.value = str(round(val / 100.0, 6))
+                payload.value = f"{val / 100.0:.6f}".rstrip('0').rstrip('.')
             else:
                 # Введено как доля (напр. 0.05 = 5%)
                 if val < 0.005:
