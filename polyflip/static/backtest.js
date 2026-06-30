@@ -357,6 +357,48 @@ async function loadHistoricRun(runId) {
       allTrades = data.result.equity_curve || [];
       renderAll(data.result);
       switchTab('equity');
+      
+      // Заполняем форму параметрами из этого прогона
+      const cfg = data.result.config;
+      if (cfg) {
+        document.getElementById('cfg-assets').value     = (cfg.assets || []).join(', ');
+        if (cfg.date_from) {
+          document.getElementById('cfg-date-from').value = cfg.date_from.split('T')[0];
+        }
+        if (cfg.date_to) {
+          document.getElementById('cfg-date-to').value   = cfg.date_to.split('T')[0];
+        }
+        document.getElementById('cfg-min-snaps').value = cfg.min_snapshots_per_market || 3;
+        if (cfg.model_id) {
+          document.getElementById('cfg-model-id').value   = cfg.model_id;
+        } else {
+          document.getElementById('cfg-model-id').value   = "";
+        }
+        document.getElementById('cfg-strategy-mode').value = cfg.strategy_mode || 'ML';
+        document.getElementById('cfg-min-time').value   = cfg.min_time_left_min || 1;
+        document.getElementById('cfg-max-time').value   = cfg.max_time_left_min || 60;
+        document.getElementById('cfg-no-flip').value    = cfg.no_flip_threshold || 0.35;
+        document.getElementById('cfg-flip').value       = cfg.flip_threshold || 0.60;
+        document.getElementById('cfg-fav-thresh').value = cfg.favorite_threshold || 0.65;
+        document.getElementById('cfg-dead-zone').value  = cfg.auto_dead_zone_width || 0.10;
+        document.getElementById('cfg-yes-min').value    = cfg.yes_min_price || 0.55;
+        document.getElementById('cfg-yes-max').value    = cfg.yes_max_price || 0.95;
+        document.getElementById('cfg-no-min').value     = cfg.no_min_price || 0.55;
+        document.getElementById('cfg-no-max').value     = cfg.no_max_price || 0.95;
+        document.getElementById('cfg-kelly').checked    = cfg.kelly_enabled !== false;
+        document.getElementById('cfg-kelly-mult').value = cfg.kelly_multiplier || 0.25;
+        document.getElementById('cfg-capital').value    = cfg.initial_capital || 1000;
+        document.getElementById('cfg-min-bet').value    = cfg.trade_bet_size_usdc || 5;
+        document.getElementById('cfg-max-bet').value    = cfg.max_bet_size_usdc || 50;
+        document.getElementById('cfg-min-edge').value   = cfg.min_edge || -0.05;
+        document.getElementById('cfg-max-edge').value   = cfg.max_edge || 0.50;
+        document.getElementById('cfg-slippage').value   = (cfg.slippage_pct || 0.005) * 100;
+        document.getElementById('cfg-trade-on-flip').checked = cfg.trade_on_flip === true;
+        
+        onStrategyChange();
+        onKellyChange();
+      }
+      
       loadHistory(); // обновить подсветку активного
     }
   } catch (e) {
@@ -535,6 +577,13 @@ function hideAlert() {
 
 // ─── INIT ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // Устанавливаем дефолтные даты бэктеста на последние 5 дней
+  const today = new Date();
+  const dateTo = today.toISOString().split('T')[0];
+  const dateFrom = new Date(today.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  document.getElementById('cfg-date-from').value = dateFrom;
+  document.getElementById('cfg-date-to').value = dateTo;
+
   loadModels();
   loadDatasetStats();
   loadHistory();
