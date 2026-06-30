@@ -12,6 +12,9 @@ from polyflip.trading.position_sizing import (
     compute_bet_size_edge_scaled,
     compute_edge, is_in_dead_zone
 )
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 def _resolve_bet(edge: float, config: dict) -> float:
     min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
@@ -59,8 +62,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     """
     threshold = float(config.get("FAVORITE_THRESHOLD", 0.55))
     if "FAVORITE_THRESHOLD" not in config:
-        import structlog
-        structlog.get_logger().warning(
+        logger.warning(
             "favorite_threshold_default_used",
             threshold=threshold,
             note="Default changed from 0.65 to 0.55 in v1.x — set FAVORITE_THRESHOLD explicitly"

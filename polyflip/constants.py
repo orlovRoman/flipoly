@@ -29,6 +29,6 @@ HTTP_TIMEOUT_SEC = 10.0             # таймаут CLOB/Gamma API
 VOLUME_WINDOW_MIN = 5               # окно для volume_5min
 TRADE_CHECK_LIMIT = 5               # кол-во последних записей для проверки дублей
 LIVE_POLL_INTERVAL_SECONDS = 10     # интервал опроса коллектора по умолчанию
-MIN_EDGE = 0.05                     # минимальный edge (разница вероятностей) по умолчанию
-MAX_EDGE = 0.10                     # максимальный edge по умолчанию
+MIN_EDGE = 0.05                     # ROI-based: (win_prob/buy_price) - 1. 0.05 = 5% ROI
+MAX_EDGE = 0.50                     # максимальный edge по умолчанию (50% ROI)
 

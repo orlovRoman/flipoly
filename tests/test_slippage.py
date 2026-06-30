@@ -42,7 +42,6 @@ async def test_slippage_logged_after_successful_trade(db_session):
         RuntimeSettings(key="MAX_EDGE", value="2.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_PRICE_DRIFT", value="0.20", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="KELLY_ENABLED", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
     

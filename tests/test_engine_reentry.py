@@ -34,7 +34,6 @@ async def test_skipped_then_signal_appears(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="KELLY_ENABLED", value="true", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_EDGE", value="1.50", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
@@ -114,7 +113,6 @@ async def test_no_double_entry(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="KELLY_ENABLED", value="true", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_EDGE", value="1.50", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]

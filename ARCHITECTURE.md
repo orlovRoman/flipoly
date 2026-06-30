@@ -152,7 +152,7 @@ polyflip/
    * Если $P(flip) > threshold\_flip$ (модель ожидает разворот) — бот покупает недооцененный токен (NO, если текущая цена YES > 0.5; YES в противном случае).
    * Если $P(flip) < threshold\_no\_flip$ (модель считает, что рынок прав) — бот покупает текущего фаворита.
    * В ином случае сделка пропускается со статусом `SKIPPED` и записью подробной причины в историю.
-5. **Исполнение ордера**: Через [trader.py](file:///C:/Users/orlov/.gemini/antigravity/scratch/polyflip/polyflip/trading/trader.py) бот отправляет ордер в Polymarket CLOB. Размер сделки вычисляется динамически (линейное масштабирование от `TRADE_BET_SIZE_USDC` до `MAX_BET_SIZE_USDC` в зависимости от размера преимущества `edge` над линией).
+5. **Исполнение ордера**: Через [trader.py](file:///C:/Users/orlov/.gemini/antigravity/scratch/polyflip/polyflip/trading/trader.py) бот отправляет ордер в Polymarket CLOB. Размер сделки вычисляется динамически (линейное масштабирование от `TRADE_BET_SIZE_USDC` до `MAX_BET_SIZE_USDC` в зависимости от размера Expected ROI (`edge`)).
 
 ---
 
