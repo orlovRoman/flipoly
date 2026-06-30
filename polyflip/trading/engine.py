@@ -11,6 +11,8 @@ from sqlalchemy import select, and_, func
 logger = structlog.get_logger(__name__)
 
 from polyflip.config import settings
+from polyflip.trading.feature_builder import MarketSignal
+from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider
 from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory, SlippageLog
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
@@ -251,61 +253,32 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     )
                     continue
                 
-                # Определяем фаворита по цене из БД
-                decision = "YES" if market.current_yes_price > favorite_threshold else "NO"
+                # REFACTORED: was inline
+                signal = MarketSignal(
+                    asset=market.asset,
+                    mid_price=market.current_yes_price,
+                    spread=market.current_spread or 0.01,
+                    volume_5min=market.volume_5min or 0.0,
+                    price_velocity=market.price_velocity or 0.0,
+                    hour_of_day=start_time.hour,
+                    time_left_min=time_left_sec / 60.0
+                )
+                decision_obj = decide_favorite(signal, settings_db)
+                if decision_obj.action == "SKIP":
+                    logger.info("favorite_mode_skipped", reason=decision_obj.reason)
+                    await save_or_update_skipped_trade(
+                        db_session, market,
+                        decision_obj.reason,
+                        0.0, None, start_time,
+                        existing_skipped=existing_skipped
+                    )
+                    continue
+
+                decision = decision_obj.action.replace("BUY_", "")
+                buy_price = decision_obj.buy_price
+                actual_bet_size = decision_obj.bet_size_usdc
                 token_to_buy = market.yes_token_id if decision == "YES" else market.no_token_id
                 
-                if not token_to_buy or token_to_buy == "N/A":
-                    logger.error("favorite_mode_missing_token", market_id=market.market_id)
-                    continue
-                
-                # Запрашиваем свежую цену — исполнять только по актуальному ask
-                fresh_prices = await api_client.get_market_prices(token_to_buy)
-                if not fresh_prices:
-                    logger.warning("favorite_mode_no_fresh_prices", market_id=market.market_id)
-                    await save_or_update_skipped_trade(
-                        db_session, market,
-                        "Pure Favorite: no fresh prices from API",
-                        0.0, None, start_time,
-                        existing_skipped=existing_skipped
-                    )
-                    continue
-                
-                buy_price = fresh_prices.get("best_ask", 0)
-                
-                # Проверяем ценовые границы
-                if buy_price < trade_min_price or buy_price > trade_max_price:
-                    logger.warning("favorite_mode_price_out_of_range", price=buy_price)
-                    await save_or_update_skipped_trade(
-                        db_session, market,
-                        f"Pure Favorite: price {buy_price} out of range [{trade_min_price}, {trade_max_price}]",
-                        0.0, None, start_time,
-                        existing_skipped=existing_skipped
-                    )
-                    continue
-                
-                # Цена по API должна подтверждать фаворита
-                if decision == "YES" and buy_price < favorite_threshold:
-                    logger.warning("favorite_mode_no_longer_favorite", price=buy_price, decision=decision)
-                    await save_or_update_skipped_trade(
-                        db_session, market,
-                        f"Pure Favorite: fresh YES price {buy_price} below threshold {favorite_threshold}",
-                        0.0, None, start_time,
-                        existing_skipped=existing_skipped
-                    )
-                    continue
-                elif decision == "NO" and buy_price < favorite_threshold:
-                    logger.warning("favorite_mode_no_longer_favorite", price=buy_price, decision=decision)
-                    await save_or_update_skipped_trade(
-                        db_session, market,
-                        f"Pure Favorite: NO token price {buy_price} — YES recovered to {round(1.0 - buy_price, 4)}, no longer valid",
-                        0.0, None, start_time,
-                        existing_skipped=existing_skipped
-                    )
-                    continue
-                
-                # Фиксированная ставка, Kelly не применяется
-                actual_bet_size = bet_size
                 num_shares = round(actual_bet_size / buy_price, 2)
                 
                 logger.info(
@@ -460,301 +433,93 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 p_flip = proba[1] if len(proba) > 1 else 0.0
                 
                 # Логика принятия решения
-                decision = None
-                
-                # Шаг 3: Калибровка порога. Считываем TRADE_FLIP_THRESHOLD_{asset}
-                flip_threshold_key = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
-                has_per_asset_threshold = flip_threshold_key in settings_db
-                auto_dead_zone = settings_db.get("AUTO_DEAD_ZONE", "true").lower() == "true"
-                auto_dead_zone_width = float(settings_db.get("AUTO_DEAD_ZONE_WIDTH", str(AUTO_DEAD_ZONE_WIDTH)))
-
-                base_flip_threshold = (
-                    float(settings_db[flip_threshold_key])
-                    if has_per_asset_threshold
-                    else no_flip_threshold + dead_zone  # legacy: no_flip + width = flip
+                signal = MarketSignal(
+                    asset=market.asset,
+                    mid_price=fresh_yes_price,
+                    spread=fresh_spread,
+                    volume_5min=market.volume_5min,
+                    price_velocity=market.price_velocity,
+                    hour_of_day=start_time.hour,
+                    time_left_min=time_left_sec / 60.0
                 )
 
-                current_no_flip_threshold, flip_upper = compute_dead_zone(
-                    flip_threshold=base_flip_threshold,
-                    dead_zone_width=auto_dead_zone_width if auto_dead_zone else dead_zone,
-                    auto_mode=auto_dead_zone,
-                )
-                calibrated_val = flip_upper  # верхняя граница зоны = порог флипа
+                decision_obj = decide_ml_trend(signal, p_flip, settings_db)
                 
-                if p_flip < current_no_flip_threshold:
-                    # Модель считает, что рынок прав. Покупаем фаворита.
-                    decision = "YES" if fresh_yes_price >= 0.5 else "NO"
-                    
-                if decision:
-                    logger.info("trade_decision_made", market_id=market.market_id, p_flip=p_flip, decision=decision)
-                    
-                    token_to_buy = yes_token_id if decision == "YES" else no_token_id
-                    
-                    # Проверяем наличие ask цены для YES-токена
-                    fresh_yes_ask = fresh_yes_prices.get("best_ask")
-                    if fresh_yes_ask is None:
-                        logger.warning("no_best_ask_in_yes_prices", market_id=market.market_id)
-                        await save_or_update_skipped_trade(db_session, market, "No best_ask in YES prices", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
-                        continue
-                    
-                    # Цена = лучший Ask
-                    if decision == "YES":
-                        buy_price = fresh_yes_ask
-                    else:
-                        # Для NO запрашиваем стакан NO-токена
-                        fresh_no_prices = await api_client.get_market_prices(no_token_id)
-                        if not fresh_no_prices or "error" in fresh_no_prices or fresh_no_prices.get("best_ask") is None:
-                            error_msg = "No fresh NO prices (best_ask) from API"
-                            if fresh_no_prices and "error" in fresh_no_prices:
-                                error_msg = f"NO price error: {fresh_no_prices['error']}"
-                            logger.warning("no_fresh_no_prices", market_id=market.market_id, error=error_msg)
-                            await save_or_update_skipped_trade(
-                                db_session, market, error_msg,
-                                p_flip, model_ver, start_time,
-                                existing_skipped=existing_skipped
-                            )
-                            continue
-                        buy_price = fresh_no_prices["best_ask"]
-                    
-                    if buy_price < trade_min_price or buy_price > trade_max_price:
-                        logger.warning("trade_skipped_price_out_of_range", price=buy_price, min=trade_min_price, max=trade_max_price)
-                        await save_or_update_skipped_trade(db_session, market, f"Price out of range: {buy_price}", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
-                        continue
-                        
-                    # Защита от покупки аутсайдера при резком изменении цены между обновлением БД и вызовом API
-                    if buy_price < favorite_threshold:
-                        logger.warning("trade_skipped_no_longer_favorite", price=buy_price, threshold=favorite_threshold)
-                        await save_or_update_skipped_trade(db_session, market, f"Price dropped to {buy_price}, no longer favorite", p_flip, model_ver, start_time, existing_skipped=existing_skipped)
-                        continue
-                        
-                    p_win = 1.0 - p_flip
-                    
-                    # BUG-3: Edge считаем от цены покупки (ask), так как это реальная стоимость исполнения
-                    implied_prob = buy_price
-                    edge = round(p_win - implied_prob, 4)
-                    if edge < min_edge or edge > max_edge:
-                        logger.warning("trade_skipped_edge_out_of_bounds", edge=edge, min_edge=min_edge, max_edge=max_edge, p_win=p_win, implied_prob=implied_prob)
-                        await save_or_update_skipped_trade(
-                            db_session, market,
-                            f"Edge out of bounds: {edge:.3f} not in [{min_edge:.3f}, {max_edge:.3f}]",
-                            p_flip, model_ver, start_time,
-                            existing_skipped=existing_skipped,
-                            edge=edge
-                        )
-                        continue
-                        
-                    # Шаг 4: Вычисляем размер ставки по критерию Келли (как процент от капитала)
-                    
-                    kelly_enabled = settings_db.get("KELLY_ENABLED", "true").lower() == "true"
-                    if kelly_enabled:
-                        kelly_f = compute_kelly_fraction(p_win, buy_price, max_fraction=kelly_max)
-                        if kelly_f <= 0.0:
-                            logger.info("skip_trade", reason="kelly_fraction_zero", market_id=market.market_id, edge=edge)
-                            continue
-                        actual_bet_size = max(1.0, round(capital * kelly_f, 2))
-                    else:
-                        kelly_f = None
-                        actual_bet_size = bet_size
-                    
-                    logger.info(
-                        "kelly_calculated",
-                        kelly_enabled=kelly_enabled,
-                        p_win=round(p_win, 3),
-                        buy_price=buy_price,
-                        kelly_f=kelly_f,
-                        actual_bet_size=actual_bet_size,
-                        capital=capital
-                    )
-                    
-                    # Кол-во акций = size / price
-                    num_shares = round(actual_bet_size / buy_price, 2)
-                    
-                    # Исполняем
-                    trade_res = await trader.execute_trade(
-                        market_id=market.market_id,
-                        token_id=token_to_buy,
-                        side="BUY",
-                        price=buy_price,
-                        size=num_shares
-                    )
-                    
-                    # Если была SKIPPED-запись, удаляем её перед записью реальной сделки
-                    if existing_skipped:
-                        await db_session.delete(existing_skipped)
+                if decision_obj.action == "SKIP" and trade_on_flip:
+                    decision_obj = decide_outsider(signal, p_flip, settings_db)
 
-                    # Сохраняем в БД
-                    history = TradeHistory(
-                        market_id=market.market_id,
-                        asset=market.asset,
-                        outcome_bought=decision,
-                        amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
-                        executed_price=trade_res.get("executed_price", buy_price),
-                        predicted_flip_prob=p_flip,
-                        active_features=f"{active_features_str.strip().rstrip(',')},trend" if (active_features_str and active_features_str.strip().rstrip(',')) else "trend",
-                        model_version=model_ver,
-                        status=trade_res.get("status", "FAILED"),
-                        error_msg=trade_res.get("error_msg"),
-                        mode=trade_res.get("mode", "PAPER"),
-                        kelly_fraction=round(kelly_f, 4) if kelly_f is not None else None,
-                        kelly_multiplier=1.0,
-                        edge=round(edge, 4) if edge is not None else None,
-                        created_at=start_time
-                    )
-                    db_session.add(history)
-                    await db_session.flush()
-
-                    if trade_res.get("status") == "SUCCESS":
-                        exec_p = trade_res.get("executed_price", buy_price)
-                        slip = round(exec_p - buy_price, 6)
-                        slip_pct = round(slip / buy_price * 100, 4) if buy_price > 0 else 0.0
-                        slip_cost = round(slip * (actual_bet_size / exec_p), 4) if exec_p > 0 else 0.0
-
-                        slippage_record = SlippageLog(
-                            trade_id=history.id,
-                            market_id=market.market_id,
-                            asset=market.asset,
-                            outcome_bought=decision,
-                            expected_price=buy_price,
-                            executed_price=exec_p,
-                            slippage=slip,
-                            slippage_pct=slip_pct,
-                            bet_size_usdc=actual_bet_size,
-                            slippage_cost_usdc=slip_cost,
-                            mode=trade_res.get("mode", "PAPER"),
-                            created_at=start_time,
-                        )
-                        db_session.add(slippage_record)
-
-                    invalidate_stats_cache()
-                    invalidate_dashboard_cache()
-                elif trade_on_flip and p_flip >= flip_upper:
-                    # Покупаем NO-токен (ставка на аутсайдера)
-                    fresh_no_prices = await api_client.get_market_prices(no_token_id)
-                    if not fresh_no_prices or fresh_no_prices.get("best_ask") is None:
-                        await save_or_update_skipped_trade(
-                            db_session, market,
-                            f"TRADE_ON_FLIP: no NO prices, p_flip={p_flip:.2f}",
-                            p_flip, model_ver, start_time,
-                            existing_skipped=existing_skipped
-                        )
-                        continue
-
-                    no_buy_price = fresh_no_prices["best_ask"]
-
-                    # Жёсткий потолок цены NO ≤ NO_MAX_PRICE и общие лимиты
-                    if no_buy_price < trade_min_price or no_buy_price > trade_max_price or no_buy_price > no_max_price:
-                        await save_or_update_skipped_trade(
-                            db_session, market,
-                            f"TRADE_ON_FLIP: NO price {no_buy_price:.3f} out of bounds",
-                            p_flip, model_ver, start_time,
-                            existing_skipped=existing_skipped
-                        )
-                        continue
-
-                    # Edge для NO: p_flip — вероятность нашей победы (NO wins if flip happens)
-                    no_implied_prob = 1.0 - fresh_yes_price  # рыночная оценка NO
-                    no_edge = round(p_flip - no_implied_prob, 4)
-
-                    if no_edge < no_min_edge:
-                        await save_or_update_skipped_trade(
-                            db_session, market,
-                            f"TRADE_ON_FLIP: NO edge {no_edge:.3f} < min {no_min_edge:.3f}",
-                            p_flip, model_ver, start_time,
-                            existing_skipped=existing_skipped,
-                            edge=no_edge
-                        )
-                        continue
-
-                    # Вычисляем Kelly для NO
-                    kelly_enabled = settings_db.get("KELLY_ENABLED", "true").lower() == "true"
-                    if kelly_enabled:
-                        kelly_f = compute_kelly_fraction(p_flip, no_buy_price, max_fraction=kelly_max)
-                        if kelly_f <= 0.0:
-                            logger.info("skip_trade", reason="kelly_fraction_zero_on_flip", market_id=market.market_id, edge=no_edge)
-                            continue
-                        actual_bet_size = max(1.0, round(capital * kelly_f, 2))
-                    else:
-                        kelly_f = None
-                        actual_bet_size = bet_size
-
-                    num_shares = round(actual_bet_size / no_buy_price, 2)
-
-                    logger.info(
-                        "trade_on_flip_decision",
-                        market_id=market.market_id,
-                        p_flip=p_flip,
-                        no_buy_price=no_buy_price,
-                        no_edge=no_edge,
-                        kelly_f=kelly_f,
-                        actual_bet_size=actual_bet_size,
-                    )
-
-                    trade_res = await trader.execute_trade(
-                        market_id=market.market_id,
-                        token_id=no_token_id,
-                        side="BUY",
-                        price=no_buy_price,
-                        size=num_shares,
-                    )
-
-                    if existing_skipped:
-                        await db_session.delete(existing_skipped)
-
-                    history = TradeHistory(
-                        market_id=market.market_id,
-                        asset=market.asset,
-                        outcome_bought="NO",
-                        amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
-                        executed_price=trade_res.get("executed_price", no_buy_price),
-                        predicted_flip_prob=p_flip,
-                        active_features=f"{active_features_str.strip().rstrip(',')},outsider" if (active_features_str and active_features_str.strip().rstrip(',')) else "outsider",
-                        model_version=model_ver,
-                        status=trade_res.get("status", "FAILED"),
-                        error_msg=trade_res.get("error_msg"),
-                        mode=trade_res.get("mode", "PAPER"),
-                        kelly_fraction=round(kelly_f, 4) if kelly_f is not None else None,
-                        kelly_multiplier=1.0,
-                        edge=no_edge,
-                        created_at=start_time,
-                    )
-                    db_session.add(history)
-                    await db_session.flush()
-
-                    if trade_res.get("status") == "SUCCESS":
-                        exec_p = trade_res.get("executed_price", no_buy_price)
-                        slip = round(exec_p - no_buy_price, 6)
-                        slip_pct = round(slip / no_buy_price * 100, 4) if no_buy_price > 0 else 0.0
-                        slip_cost = round(slip * (actual_bet_size / exec_p), 4) if exec_p > 0 else 0.0
-
-                        slippage_record = SlippageLog(
-                            trade_id=history.id,
-                            market_id=market.market_id,
-                            asset=market.asset,
-                            outcome_bought="NO",
-                            expected_price=no_buy_price,
-                            executed_price=exec_p,
-                            slippage=slip,
-                            slippage_pct=slip_pct,
-                            bet_size_usdc=actual_bet_size,
-                            slippage_cost_usdc=slip_cost,
-                            mode=trade_res.get("mode", "PAPER"),
-                            created_at=start_time,
-                        )
-                        db_session.add(slippage_record)
-
-                    invalidate_stats_cache()
-                    invalidate_dashboard_cache()
-                else:
-                    logger.info("trade_skipped", market_id=market.market_id, p_flip=p_flip)
-                    if p_flip >= calibrated_val:
-                        reason = f"Ожидается флип: P(flip)={p_flip:.1%} >= порог флипа {calibrated_val:.1%}"
-                    else:
-                        reason = f"Мёртвая зона: P(flip)={p_flip:.1%} в [{current_no_flip_threshold:.1%}–{calibrated_val:.1%}]"
+                if decision_obj.action == "SKIP":
+                    logger.info("trade_skipped", reason=decision_obj.reason, p_flip=p_flip)
                     await save_or_update_skipped_trade(
-                        db_session, market, reason, p_flip, model_ver, start_time,
+                        db_session, market, decision_obj.reason, p_flip, model_ver, start_time,
                         existing_skipped=existing_skipped,
                         kelly_fraction=None, kelly_multiplier=None
                     )
+                    continue
+
+                decision = decision_obj.action.replace("BUY_", "")
+                buy_price = decision_obj.buy_price
+                actual_bet_size = decision_obj.bet_size_usdc
+                token_to_buy = yes_token_id if decision == "YES" else no_token_id
+                num_shares = round(actual_bet_size / buy_price, 2)
+                edge = decision_obj.edge
+                kelly_f = decision_obj.kelly_fraction
+                
+                trade_res = await trader.execute_trade(
+                    market_id=market.market_id,
+                    token_id=token_to_buy,
+                    side="BUY",
+                    price=buy_price,
+                    size=num_shares
+                )
+                
+                if existing_skipped:
+                    await db_session.delete(existing_skipped)
+
+                history = TradeHistory(
+                    market_id=market.market_id,
+                    asset=market.asset,
+                    outcome_bought=decision,
+                    amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
+                    executed_price=trade_res.get("executed_price", buy_price),
+                    predicted_flip_prob=p_flip,
+                    active_features=f"{active_features_str.strip().rstrip(',')},{decision_obj.strategy_type.lower()}" if (active_features_str and active_features_str.strip().rstrip(',')) else decision_obj.strategy_type.lower(),
+                    model_version=model_ver,
+                    status=trade_res.get("status", "FAILED"),
+                    error_msg=trade_res.get("error_msg"),
+                    mode=trade_res.get("mode", "PAPER"),
+                    kelly_fraction=round(kelly_f, 4) if kelly_f is not None else None,
+                    kelly_multiplier=1.0,
+                    edge=round(edge, 4) if edge is not None else None,
+                    created_at=start_time
+                )
+                db_session.add(history)
+                await db_session.flush()
+
+                if trade_res.get("status") == "SUCCESS":
+                    exec_p = trade_res.get("executed_price", buy_price)
+                    slip = round(exec_p - buy_price, 6)
+                    slip_pct = round(slip / buy_price * 100, 4) if buy_price > 0 else 0.0
+                    slip_cost = round(slip * (actual_bet_size / exec_p), 4) if exec_p > 0 else 0.0
+
+                    slippage_record = SlippageLog(
+                        trade_id=history.id,
+                        market_id=market.market_id,
+                        asset=market.asset,
+                        outcome_bought=decision,
+                        expected_price=buy_price,
+                        executed_price=exec_p,
+                        slippage=slip,
+                        slippage_pct=slip_pct,
+                        bet_size_usdc=actual_bet_size,
+                        slippage_cost_usdc=slip_cost,
+                        mode=trade_res.get("mode", "PAPER"),
+                        created_at=start_time,
+                    )
+                    db_session.add(slippage_record)
+
+                invalidate_stats_cache()
+                invalidate_dashboard_cache()
                     
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))
