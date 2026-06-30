@@ -294,8 +294,21 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="TRADE_BET_SIZE_USDC">Размер ставки (USDC)</label>
+                                <label for="BET_SIZING_MODE">Режим размера ставки</label>
+                                <select id="BET_SIZING_MODE" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 0.75rem 1rem; border-radius: 8px; outline: none;">
+                                    <option value="fixed">Фиксированная ставка (без разгона)</option>
+                                    <option value="scaled">Масштабирование по ROI (Скейлинг)</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="TRADE_BET_SIZE_USDC">Размер ставки (Базовый) (USDC)</label>
                                 <input type="number" step="0.1" id="TRADE_BET_SIZE_USDC" value="10.0">
+                            </div>
+                            
+                            <div class="form-group" id="max-bet-size-group">
+                                <label for="MAX_BET_SIZE_USDC">Макс. размер ставки (Скейлинг) (USDC)</label>
+                                <input type="number" step="0.1" id="MAX_BET_SIZE_USDC" value="50.0">
                             </div>
 
 

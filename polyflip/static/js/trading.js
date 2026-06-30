@@ -205,6 +205,9 @@ document.addEventListener("DOMContentLoaded", () => {
     apiKeyInput: document.getElementById("API_KEY"),
     minTimeLeft: document.getElementById("TRADE_MIN_TIME_LEFT_SEC"),
     maxTimeLeft: document.getElementById("TRADE_MAX_TIME_LEFT_SEC"),
+    betSizingMode: document.getElementById("BET_SIZING_MODE"),
+    maxBetSizeGroup: document.getElementById("max-bet-size-group"),
+    maxBetSize: document.getElementById("MAX_BET_SIZE_USDC"),
     betSize: document.getElementById("TRADE_BET_SIZE_USDC"),
     noFlipThreshold: document.getElementById("TRADE_NO_FLIP_THRESHOLD"),
     deadZoneWidth: document.getElementById("DEAD_ZONE_WIDTH"),
@@ -275,6 +278,22 @@ document.addEventListener("DOMContentLoaded", () => {
       updateDeadZoneInfo();
     });
   }
+  
+  function updateSizingModeUI() {
+    if (settingsElements.betSizingMode && settingsElements.maxBetSizeGroup) {
+      if (settingsElements.betSizingMode.value === "fixed") {
+        settingsElements.maxBetSizeGroup.style.display = "none";
+      } else {
+        settingsElements.maxBetSizeGroup.style.display = "block";
+      }
+    }
+  }
+
+  if (settingsElements.betSizingMode) {
+    settingsElements.betSizingMode.addEventListener("change", updateSizingModeUI);
+    updateSizingModeUI();
+  }
+
 
   function updateOutsiderStrategyStatus() {
     const statusSpan = document.getElementById("outsider-strategy-status");
@@ -395,8 +414,16 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.minTimeLeft.value = data.TRADE_MIN_TIME_LEFT_SEC;
       if (settingsElements.maxTimeLeft && data.TRADE_MAX_TIME_LEFT_SEC)
         settingsElements.maxTimeLeft.value = data.TRADE_MAX_TIME_LEFT_SEC;
+      if (settingsElements.betSizingMode && data.BET_SIZING_MODE)
+        settingsElements.betSizingMode.value = data.BET_SIZING_MODE;
+      if (settingsElements.maxBetSize && data.MAX_BET_SIZE_USDC)
+        settingsElements.maxBetSize.value = data.MAX_BET_SIZE_USDC;
       if (settingsElements.betSize && data.TRADE_BET_SIZE_USDC)
         settingsElements.betSize.value = data.TRADE_BET_SIZE_USDC;
+      
+      if (settingsElements.betSizingMode) {
+        settingsElements.betSizingMode.dispatchEvent(new Event("change"));
+      }
       if (settingsElements.noFlipThreshold && data.TRADE_NO_FLIP_THRESHOLD) {
         let val = parseFloat(data.TRADE_NO_FLIP_THRESHOLD);
         if (val > 1) val /= 100;
@@ -511,6 +538,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const settingsToSave = {};
       if (settingsElements.minTimeLeft) settingsToSave.TRADE_MIN_TIME_LEFT_SEC = settingsElements.minTimeLeft.value;
       if (settingsElements.maxTimeLeft) settingsToSave.TRADE_MAX_TIME_LEFT_SEC = settingsElements.maxTimeLeft.value;
+      if (settingsElements.betSizingMode) settingsToSave.BET_SIZING_MODE = settingsElements.betSizingMode.value;
+      if (settingsElements.maxBetSize) settingsToSave.MAX_BET_SIZE_USDC = settingsElements.maxBetSize.value;
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
       if (settingsElements.noFlipThreshold) settingsToSave.TRADE_NO_FLIP_THRESHOLD = parseFloat(settingsElements.noFlipThreshold.value) / 100;
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;

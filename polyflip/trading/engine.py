@@ -110,7 +110,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "NO_MIN_EDGE",
         "AUTO_DEAD_ZONE",
         "AUTO_DEAD_ZONE_WIDTH",
-        "MAX_PRICE_DRIFT"
+        "MAX_PRICE_DRIFT",
+        "BET_SIZING_MODE",
+        "MAX_BET_SIZE_USDC"
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
@@ -534,13 +536,17 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     )
                     continue
                 
-                actual_bet_size = compute_bet_size_edge_scaled(
-                    edge=edge,
-                    min_bet_usdc=float(settings_db.get("TRADE_BET_SIZE_USDC", 5.0)),
-                    max_bet_usdc=float(settings_db.get("MAX_BET_SIZE_USDC", 50.0)),
-                    min_edge=float(settings_db.get("MIN_EDGE", 0.05)),
-                    max_edge=float(settings_db.get("MAX_EDGE", 0.40))
-                )
+                sizing_mode = settings_db.get("BET_SIZING_MODE", "scaled")
+                if sizing_mode == "fixed":
+                    actual_bet_size = float(settings_db.get("TRADE_BET_SIZE_USDC", 10.0))
+                else:
+                    actual_bet_size = compute_bet_size_edge_scaled(
+                        edge=edge,
+                        min_bet_usdc=float(settings_db.get("TRADE_BET_SIZE_USDC", 5.0)),
+                        max_bet_usdc=float(settings_db.get("MAX_BET_SIZE_USDC", 50.0)),
+                        min_edge=float(settings_db.get("MIN_EDGE", 0.05)),
+                        max_edge=float(settings_db.get("MAX_EDGE", 0.40))
+                    )
 
                 if actual_bet_size <= 0:
                     await save_or_update_skipped_trade(
