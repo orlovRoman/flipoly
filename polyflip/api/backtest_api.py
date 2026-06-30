@@ -158,7 +158,10 @@ async def run_backtest(
             model_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
             if config.model_id:
                 model_stmt = select(ModelRegistry).where(ModelRegistry.id == config.model_id)
-            model_row = (await db.execute(model_stmt)).scalar_one_or_none()
+            elif config.assets:
+                model_stmt = model_stmt.where(ModelRegistry.asset == config.assets[0])
+            
+            model_row = (await db.execute(model_stmt)).scalars().first()
             if model_row:
                 model_blob = model_row.model_blob
                 features_str = model_row.features or ""
