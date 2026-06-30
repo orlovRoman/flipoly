@@ -15,6 +15,7 @@ from polyflip.api.dashboard import router as dashboard_router
 from polyflip.api.trading_dashboard import router as trading_dashboard_router
 from polyflip.api.settings import router as settings_router
 from polyflip.api.slippage import router as slippage_router
+from polyflip.api.backtest_api import router as backtest_router
 from polyflip.config import settings
 
 structlog.configure(
@@ -90,6 +91,7 @@ app.include_router(dashboard_router)
 app.include_router(trading_dashboard_router)
 app.include_router(settings_router)
 app.include_router(slippage_router)
+app.include_router(backtest_router)
 
 # Подключение статических файлов
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PolyFlip — Backtest Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- Chart.js для equity curve и bar charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* ──── Backtest-специфичные стили ──── */
+    .bt-layout { display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; }
+    .bt-panel   { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+    .bt-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+    .metric-card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1.2rem; text-align: center;
+    }
+    .metric-card .value { font-size: 1.8rem; font-weight: 700; }
+    .metric-card .label { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.3rem; }
+    .metric-card.positive .value { color: #00d084; }
+    .metric-card.negative .value { color: #ff4d4d; }
+    .metric-card.neutral  .value { color: var(--text-primary); }
+
+    .bt-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .bt-tab  {
+      padding: 0.5rem 1.2rem; border-radius: 8px; cursor: pointer;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--text-muted); font-size: 0.88rem;
+      transition: all 0.15s;
+    }
+    .bt-tab.active  { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .bt-tab-content { display: none; }
+    .bt-tab-content.active { display: block; }
+
+    .strategy-row   { display: flex; align-items: center; gap: 1rem; padding: 0.7rem 0; border-bottom: 1px solid var(--border); }
+    .strategy-badge { padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
+    .badge-ml       { background: rgba(102,126,234,0.2); color: #667eea; }
+    .badge-fav      { background: rgba(0,208,132,0.2);   color: #00d084; }
+    .badge-out      { background: rgba(255,165,0,0.2);   color: #ffa500; }
+
+    .trades-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .trades-table th { text-align: left; padding: 0.6rem 0.5rem; color: var(--text-muted); font-weight: 500; border-bottom: 1px solid var(--border); }
+    .trades-table td { padding: 0.55rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .trades-table tr:hover td { background: rgba(255,255,255,0.03); }
+    .win-badge  { color: #00d084; font-weight: 600; }
+    .loss-badge { color: #ff4d4d; font-weight: 600; }
+
+    .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+    .config-group { display: flex; flex-direction: column; gap: 0.3rem; }
+    .config-group label { font-size: 0.78rem; color: var(--text-muted); }
+    .config-group input, .config-group select {
+      background: var(--input-bg, #1a1a2e); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.5rem 0.7rem; color: var(--text-primary);
+      font-size: 0.85rem; width: 100%;
+    }
+    .config-group input:focus, .config-group select:focus {
+      outline: none; border-color: var(--accent);
+    }
+    .config-section-title {
+      font-size: 0.7rem; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin: 1rem 0 0.5rem;
+    }
+    .run-btn {
+      width: 100%; padding: 0.9rem; border-radius: 10px;
+      background: var(--accent); color: #fff; border: none;
+      font-size: 1rem; font-weight: 600; cursor: pointer;
+      margin-top: 1.2rem; transition: opacity 0.15s;
+    }
+    .run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .run-btn.loading::after { content: " ⏳"; }
+
+    .history-item {
+      padding: 0.8rem; border: 1px solid var(--border); border-radius: 8px;
+      margin-bottom: 0.5rem; cursor: pointer; transition: border-color 0.15s;
+    }
+    .history-item:hover   { border-color: var(--accent); }
+    .history-item.active  { border-color: var(--accent); background: rgba(102,126,234,0.08); }
+    .history-meta { font-size: 0.75rem; color: var(--text-muted); }
+
+    .dataset-stat { display: flex; justify-content: space-between; padding: 0.4rem 0; font-size: 0.82rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .no-data { text-align: center; color: var(--text-muted); padding: 3rem; font-size: 0.9rem; }
+
+    #equity-chart-container { position: relative; height: 280px; }
+    #strategy-chart-container { position: relative; height: 200px; }
+    #asset-chart-container { position: relative; height: 200px; }
+
+    .progress-bar-wrap { background: var(--border); border-radius: 4px; height: 6px; margin-top: 0.3rem; }
+    .progress-bar { background: var(--accent); height: 6px; border-radius: 4px; transition: width 0.4s; }
+
+    .alert { padding: 0.8rem 1rem; border-radius: 8px; font-size: 0.85rem; margin-bottom: 1rem; }
+    .alert-error   { background: rgba(255,77,77,0.15);  border: 1px solid rgba(255,77,77,0.3);  color: #ff6b6b; }
+    .alert-success { background: rgba(0,208,132,0.12); border: 1px solid rgba(0,208,132,0.3); color: #00d084; }
+    .alert-info    { background: rgba(102,126,234,0.12); border: 1px solid rgba(102,126,234,0.3); color: #a0aeff; }
+
+    .toggle-switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0; background: var(--border);
+      border-radius: 22px; cursor: pointer; transition: .3s;
+    }
+    .toggle-slider::before {
+      content: ""; position: absolute;
+      width: 16px; height: 16px; left: 3px; top: 3px;
+      background: white; border-radius: 50%; transition: .3s;
+    }
+    input:checked + .toggle-slider { background: var(--accent); }
+    input:checked + .toggle-slider::before { transform: translateX(18px); }
+    .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; }
+    .toggle-row label { font-size: 0.82rem; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <!-- Навигация (копируем из trading.html) -->
+  <nav class="navbar">
+    <div class="nav-brand">⚡ PolyFlip</div>
+    <div class="nav-links">
+      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="/trading"   class="nav-link">Trading</a>
+      <a href="/backtest"  class="nav-link active">Backtest</a>
+    </div>
+  </nav>
+
+  <main class="container" style="padding: 1.5rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+      <div>
+        <h1 style="font-size:1.6rem; margin:0;">Backtest Dashboard</h1>
+        <p style="color:var(--text-muted); font-size:0.85rem; margin:0.3rem 0 0;">
+          Simulate trading strategies on historical market data
+        </p>
+      </div>
+      <div id="dataset-info" style="text-align:right; font-size:0.8rem; color:var(--text-muted);">
+        Loading dataset stats...
+      </div>
+    </div>
+
+    <!-- Alert area -->
+    <div id="bt-alert" style="display:none;"></div>
+
+    <div class="bt-layout">
+
+      <!-- ══════════════════════ LEFT PANEL: CONFIG ══════════════════════ -->
+      <div>
+        <div class="bt-panel">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <strong style="font-size:0.95rem;">⚙️ Config</strong>
+            <button onclick="resetConfig()" style="font-size:0.75rem; color:var(--text-muted); background:none; border:none; cursor:pointer;">Reset defaults</button>
+          </div>
+
+          <!-- Assets -->
+          <div class="config-section-title">📊 Dataset</div>
+          <div class="config-grid">
+            <div class="config-group" style="grid-column: span 2;">
+              <label>Assets (comma-separated)</label>
+              <input id="cfg-assets" type="text" value="BTC,ETH" placeholder="BTC,ETH,TRUMP">
+            </div>
+            <div class="config-group">
+              <label>Date From</label>
+              <input id="cfg-date-from" type="datetime-local">
+            </div>
+            <div class="config-group">
+              <label>Date To</label>
+              <input id="cfg-date-to" type="datetime-local">
+            </div>
+            <div class="config-group">
+              <label>Min snapshots / market</label>
+              <input id="cfg-min-snaps" type="number" value="3" min="1" max="50">
+            </div>
+            <div class="config-group">
+              <label>Model</label>
+              <select id="cfg-model-id">
+                <option value="">Auto (active model)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Strategy -->
+          <div class="config-section-title">🎯 Strategy</div>
+          <div class="config-grid">
+            <div class="config-group" style="grid-column: span 2;">
+              <label>Strategy Mode</label>
+              <select id="cfg-strategy-mode" onchange="onStrategyChange()">
+                <option value="ML">ML (Trend + Outsider)</option>
+                <option value="PURE_FAVORITE">Pure Favorite</option>
+              </select>
+            </div>
+            <div class="config-group">
+              <label>Min time left (min)</label>
+              <input id="cfg-min-time" type="number" value="1" step="0.5" min="0.1">
+            </div>
+            <div class="config-group">
+              <label>Max time left (min)</label>
+              <input id="cfg-max-time" type="number" value="60" step="1" min="1">
+            </div>
+          </div>
+
+          <!-- ML Thresholds (показывается только в ML режиме) -->
+          <div id="ml-section">
+            <div class="config-section-title">🤖 ML Thresholds</div>
+            <div class="config-grid">
+              <div class="config-group">
+                <label>No-flip threshold</label>
+                <input id="cfg-no-flip" type="number" value="0.35" step="0.01" min="0" max="1">
+              </div>
+              <div class="config-group">
+                <label>Flip threshold</label>
+                <input id="cfg-flip" type="number" value="0.60" step="0.01" min="0" max="1">
+              </div>
+            </div>
+            <div class="toggle-row">
+              <label>Enable OUTSIDER strategy</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg-trade-on-flip">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Price Bounds -->
+          <div class="config-section-title">💰 Price Bounds</div>
+          <div class="config-grid">
+            <div class="config-group">
+              <label>Favorite threshold</label>
+              <input id="cfg-fav-thresh" type="number" value="0.65" step="0.01" min="0.5" max="0.99">
+            </div>
+            <div class="config-group">
+              <label>Dead zone width</label>
+              <input id="cfg-dead-zone" type="number" value="0.10" step="0.01" min="0" max="0.5">
+            </div>
+            <div class="config-group">
+              <label>YES min price</label>
+              <input id="cfg-yes-min" type="number" value="0.55" step="0.01" min="0.01">
+            </div>
+            <div class="config-group">
+              <label>YES max price</label>
+              <input id="cfg-yes-max" type="number" value="0.95" step="0.01" max="0.99">
+            </div>
+            <div class="config-group">
+              <label>NO min price</label>
+              <input id="cfg-no-min" type="number" value="0.55" step="0.01" min="0.01">
+            </div>
+            <div class="config-group">
+              <label>NO max price</label>
+              <input id="cfg-no-max" type="number" value="0.95" step="0.01" max="0.99">
+            </div>
+          </div>
+
+          <!-- Position Sizing -->
+          <div class="config-section-title">📐 Position Sizing</div>
+          <div class="toggle-row">
+            <label>Kelly Criterion</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="cfg-kelly" checked onchange="onKellyChange()">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="config-grid" id="kelly-section">
+            <div class="config-group">
+              <label>Kelly multiplier</label>
+              <input id="cfg-kelly-mult" type="number" value="0.25" step="0.01" min="0.01" max="1">
+            </div>
+            <div class="config-group">
+              <label>Initial capital ($)</label>
+              <input id="cfg-capital" type="number" value="1000" step="100" min="10">
+            </div>
+          </div>
+          <div class="config-grid">
+            <div class="config-group">
+              <label>Min bet ($)</label>
+              <input id="cfg-min-bet" type="number" value="5" step="1" min="1">
+            </div>
+            <div class="config-group">
+              <label>Max bet ($)</label>
+              <input id="cfg-max-bet" type="number" value="50" step="5" min="1">
+            </div>
+            <div class="config-group">
+              <label>Min edge</label>
+              <input id="cfg-min-edge" type="number" value="-0.05" step="0.01">
+            </div>
+            <div class="config-group">
+              <label>Max edge</label>
+              <input id="cfg-max-edge" type="number" value="0.50" step="0.01">
+            </div>
+            <div class="config-group" style="grid-column: span 2;">
+              <label>Slippage (%)</label>
+              <input id="cfg-slippage" type="number" value="0.5" step="0.1" min="0" max="10">
+            </div>
+          </div>
+
+          <button class="run-btn" id="run-btn" onclick="runBacktest()">
+            ▶ Run Backtest
+          </button>
+        </div>
+
+        <!-- History Panel -->
+        <div class="bt-panel" style="margin-top:1rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
+            <strong style="font-size:0.9rem;">🕓 Recent Runs</strong>
+            <button onclick="loadHistory()" style="font-size:0.75rem; color:var(--text-muted); background:none; border:none; cursor:pointer;">↻ Refresh</button>
+          </div>
+          <div id="history-list">
+            <div class="no-data">No runs yet</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════ RIGHT PANEL: RESULTS ══════════════════════ -->
+      <div>
+
+        <!-- KPI Cards -->
+        <div class="bt-metrics" id="kpi-cards">
+          <div class="metric-card neutral">
+            <div class="value" id="kpi-trades">—</div>
+            <div class="label">Total Trades</div>
+          </div>
+          <div class="metric-card neutral" id="kpi-pnl-card">
+            <div class="value" id="kpi-pnl">—</div>
+            <div class="label">Net P&L ($)</div>
+          </div>
+          <div class="metric-card neutral" id="kpi-roi-card">
+            <div class="value" id="kpi-roi">—</div>
+            <div class="label">ROI (%)</div>
+          </div>
+          <div class="metric-card neutral" id="kpi-winrate-card">
+            <div class="value" id="kpi-winrate">—</div>
+            <div class="label">Win Rate (%)</div>
+          </div>
+          <div class="metric-card neutral">
+            <div class="value" id="kpi-sharpe">—</div>
+            <div class="label">Sharpe Ratio</div>
+          </div>
+          <div class="metric-card neutral">
+            <div class="value" id="kpi-pf">—</div>
+            <div class="label">Profit Factor</div>
+          </div>
+          <div class="metric-card neutral" id="kpi-dd-card">
+            <div class="value" id="kpi-dd">—</div>
+            <div class="label">Max Drawdown (%)</div>
+          </div>
+          <div class="metric-card neutral">
+            <div class="value" id="kpi-duration">—</div>
+            <div class="label">Run Duration (s)</div>
+          </div>
+        </div>
+
+        <!-- Result Tabs -->
+        <div class="bt-panel">
+          <div class="bt-tabs">
+            <button class="bt-tab active" onclick="switchTab('equity')">📈 Equity Curve</button>
+            <button class="bt-tab" onclick="switchTab('strategies')">🎯 Strategies</button>
+            <button class="bt-tab" onclick="switchTab('assets')">🏷️ By Asset</button>
+            <button class="bt-tab" onclick="switchTab('trades')">📋 Trade Log</button>
+            <button class="bt-tab" onclick="switchTab('dataset')">🗄️ Dataset</button>
+          </div>
+
+          <!-- Equity Curve Tab -->
+          <div class="bt-tab-content active" id="tab-equity">
+            <div id="equity-chart-container">
+              <canvas id="equity-chart"></canvas>
+            </div>
+            <div style="margin-top:0.8rem; font-size:0.78rem; color:var(--text-muted);">
+              Cumulative P&L over time. Green = WIN, Red = LOSS trade.
+            </div>
+          </div>
+
+          <!-- Strategies Tab -->
+          <div class="bt-tab-content" id="tab-strategies">
+            <div id="strategy-chart-container">
+              <canvas id="strategy-chart"></canvas>
+            </div>
+            <div id="strategy-breakdown" style="margin-top:1rem;">
+              <div class="no-data">Run a backtest to see strategy breakdown</div>
+            </div>
+          </div>
+
+          <!-- By Asset Tab -->
+          <div class="bt-tab-content" id="tab-assets">
+            <div id="asset-chart-container">
+              <canvas id="asset-chart"></canvas>
+            </div>
+            <div id="asset-breakdown" style="margin-top:1rem;">
+              <div class="no-data">Run a backtest to see asset breakdown</div>
+            </div>
+          </div>
+
+          <!-- Trade Log Tab -->
+          <div class="bt-tab-content" id="tab-trades">
+            <div style="display:flex; gap:0.5rem; margin-bottom:0.8rem; flex-wrap:wrap;">
+              <select id="trades-filter-outcome" onchange="renderTradesTable()" style="font-size:0.8rem; padding:0.3rem 0.5rem; background:var(--input-bg,#1a1a2e); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
+                <option value="ALL">All outcomes</option>
+                <option value="WIN">Wins only</option>
+                <option value="LOSS">Losses only</option>
+              </select>
+              <select id="trades-filter-strategy" onchange="renderTradesTable()" style="font-size:0.8rem; padding:0.3rem 0.5rem; background:var(--input-bg,#1a1a2e); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
+                <option value="ALL">All strategies</option>
+                <option value="ML_TREND">ML_TREND</option>
+                <option value="PURE_FAVORITE">PURE_FAVORITE</option>
+                <option value="OUTSIDER">OUTSIDER</option>
+              </select>
+              <select id="trades-sort" onchange="renderTradesTable()" style="font-size:0.8rem; padding:0.3rem 0.5rem; background:var(--input-bg,#1a1a2e); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
+                <option value="index">By trade index</option>
+                <option value="pnl_desc">Best P&L first</option>
+                <option value="pnl_asc">Worst P&L first</option>
+              </select>
+              <span id="trades-count" style="font-size:0.78rem; color:var(--text-muted); align-self:center;"></span>
+            </div>
+            <div style="overflow-x:auto;">
+              <table class="trades-table">
+                <thead>
+                  <tr>
+                    <th>#</th><th>Market</th><th>Asset</th>
+                    <th>Strategy</th><th>Action</th><th>Price</th>
+                    <th>Bet $</th><th>P(flip)</th><th>Edge</th><th>P&L $</th><th>Result</th>
+                  </tr>
+                </thead>
+                <tbody id="trades-tbody">
+                  <tr><td colspan="11" class="no-data">Run a backtest first</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Dataset Tab -->
+          <div class="bt-tab-content" id="tab-dataset">
+            <div id="dataset-breakdown">
+              <div class="no-data">Loading dataset statistics...</div>
+            </div>
+          </div>
+
+        </div><!-- /bt-panel results -->
+      </div><!-- /right panel -->
+    </div><!-- /bt-layout -->
+  </main>
+
+  <script src="/static/backtest.js"></script>
+</body>
+</html>
