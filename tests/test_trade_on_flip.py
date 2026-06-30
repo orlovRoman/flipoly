@@ -130,7 +130,7 @@ async def test_no_trade_skipped_when_price_exceeds_max(db_session):
          trades = res.scalars().all()
          assert len(trades) == 1
          assert trades[0].status == "SKIPPED"
-         assert "NO price 0.650 > max 0.60" in trades[0].error_msg
+         assert "NO price 0.650 out of bounds" in trades[0].error_msg
 
 @pytest.mark.asyncio
 async def test_no_trade_skipped_when_edge_too_small(db_session):

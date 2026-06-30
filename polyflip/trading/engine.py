@@ -483,7 +483,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 if p_flip < current_no_flip_threshold:
                     # Модель считает, что рынок прав. Покупаем фаворита.
-                    decision = "YES" if fresh_yes_price > favorite_threshold else "NO"
+                    decision = "YES" if fresh_yes_price >= 0.5 else "NO"
                     
                 if decision:
                     logger.info("trade_decision_made", market_id=market.market_id, p_flip=p_flip, decision=decision)
@@ -529,9 +529,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         
                     p_win = 1.0 - p_flip
                     
-                    # Edge = преимущество модели над mid-ценой рынка (НЕ над ask)
-                    # mid_price = (best_bid + best_ask) / 2 — справедливая оценка рынка
-                    implied_prob = fresh_yes_price if decision == "YES" else (1.0 - fresh_yes_price)
+                    # BUG-3: Edge считаем от цены покупки (ask), так как это реальная стоимость исполнения
+                    implied_prob = buy_price
                     edge = round(p_win - implied_prob, 4)
                     if edge < min_edge or edge > max_edge:
                         logger.warning("trade_skipped_edge_out_of_bounds", edge=edge, min_edge=min_edge, max_edge=max_edge, p_win=p_win, implied_prob=implied_prob)
@@ -551,7 +550,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         kelly_f = compute_kelly_fraction(p_win, buy_price, max_fraction=kelly_max)
                         if kelly_f <= 0.0:
                             logger.info("skip_trade", reason="kelly_fraction_zero", market_id=market.market_id, edge=edge)
-                            return
+                            continue
                         actual_bet_size = max(1.0, round(capital * kelly_f, 2))
                     else:
                         kelly_f = None
@@ -642,11 +641,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
 
                     no_buy_price = fresh_no_prices["best_ask"]
 
-                    # Жёсткий потолок цены NO ≤ NO_MAX_PRICE
-                    if no_buy_price > no_max_price:
+                    # Жёсткий потолок цены NO ≤ NO_MAX_PRICE и общие лимиты
+                    if no_buy_price < trade_min_price or no_buy_price > trade_max_price or no_buy_price > no_max_price:
                         await save_or_update_skipped_trade(
                             db_session, market,
-                            f"TRADE_ON_FLIP: NO price {no_buy_price:.3f} > max {no_max_price:.2f}",
+                            f"TRADE_ON_FLIP: NO price {no_buy_price:.3f} out of bounds",
                             p_flip, model_ver, start_time,
                             existing_skipped=existing_skipped
                         )
@@ -666,8 +665,18 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         )
                         continue
 
-                    # Kelly для NO -> не надо по требованию пользователя
-                    actual_bet_size = bet_size
+                    # Вычисляем Kelly для NO
+                    kelly_enabled = settings_db.get("KELLY_ENABLED", "true").lower() == "true"
+                    if kelly_enabled:
+                        kelly_f = compute_kelly_fraction(p_flip, no_buy_price, max_fraction=kelly_max)
+                        if kelly_f <= 0.0:
+                            logger.info("skip_trade", reason="kelly_fraction_zero_on_flip", market_id=market.market_id, edge=no_edge)
+                            continue
+                        actual_bet_size = max(1.0, round(capital * kelly_f, 2))
+                    else:
+                        kelly_f = None
+                        actual_bet_size = bet_size
+
                     num_shares = round(actual_bet_size / no_buy_price, 2)
 
                     logger.info(
@@ -676,6 +685,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         p_flip=p_flip,
                         no_buy_price=no_buy_price,
                         no_edge=no_edge,
+                        kelly_f=kelly_f,
                         actual_bet_size=actual_bet_size,
                     )
 
@@ -702,7 +712,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         status=trade_res.get("status", "FAILED"),
                         error_msg=trade_res.get("error_msg"),
                         mode=trade_res.get("mode", "PAPER"),
-                        kelly_fraction=None,
+                        kelly_fraction=round(kelly_f, 4) if kelly_f is not None else None,
                         kelly_multiplier=1.0,
                         edge=no_edge,
                         created_at=start_time,
