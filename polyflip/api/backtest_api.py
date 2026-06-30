@@ -75,15 +75,55 @@ async def run_backtest(
     started_at = datetime.now(timezone.utc)
 
     try:
-        # 1. Загружаем снепшоты из БД
-        stmt = select(MarketSnapshot).where(
-            MarketSnapshot.asset.in_(config.assets),
-            MarketSnapshot.final_outcome.in_(["YES", "NO"]),  # только разрешённые
+        # 1. Загружаем только стартовые тики для каждого рынка в торговом окне
+        # Сначала считаем общее количество снимков для каждого рынка за этот период
+        from sqlalchemy import func
+        from sqlalchemy.orm import aliased
+
+        count_stmt = (
+            select(
+                MarketSnapshot.market_id,
+                func.count().label("total_snaps")
+            )
+            .where(MarketSnapshot.asset.in_(config.assets))
+            .group_by(MarketSnapshot.market_id)
         )
         if config.date_from:
-            stmt = stmt.where(MarketSnapshot.recorded_at >= config.date_from)
+            count_stmt = count_stmt.where(MarketSnapshot.recorded_at >= config.date_from)
         if config.date_to:
-            stmt = stmt.where(MarketSnapshot.recorded_at <= config.date_to)
+            count_stmt = count_stmt.where(MarketSnapshot.recorded_at <= config.date_to)
+        count_cte = count_stmt.cte("market_counts")
+
+        # Ранжируем снимки в окне [min_time, max_time] по убыванию time_left_min
+        rank_stmt = (
+            select(
+                MarketSnapshot,
+                func.row_number().over(
+                    partition_by=MarketSnapshot.market_id,
+                    order_by=MarketSnapshot.time_left_min.desc()
+                ).label("rn"),
+                count_cte.c.total_snaps
+            )
+            .join(count_cte, MarketSnapshot.market_id == count_cte.c.market_id)
+            .where(
+                MarketSnapshot.asset.in_(config.assets),
+                MarketSnapshot.final_outcome.in_(["YES", "NO"]),
+                MarketSnapshot.time_left_min >= config.min_time_left_min,
+                MarketSnapshot.time_left_min <= config.max_time_left_min,
+            )
+        )
+        if config.date_from:
+            rank_stmt = rank_stmt.where(MarketSnapshot.recorded_at >= config.date_from)
+        if config.date_to:
+            rank_stmt = rank_stmt.where(MarketSnapshot.recorded_at <= config.date_to)
+
+        rank_sub = rank_stmt.subquery("ranked_snaps")
+        snapshot_alias = aliased(MarketSnapshot, rank_sub)
+
+        stmt = select(snapshot_alias).where(
+            rank_sub.c.rn == 1,
+            rank_sub.c.total_snaps >= config.min_snapshots_per_market
+        )
 
         result = await db.execute(stmt)
         snapshots = result.scalars().all()
@@ -96,13 +136,13 @@ async def run_backtest(
                        "Check assets and date range."
             )
 
-        # 2. Группируем в реплеи
+        # 2. Группируем в реплеи (так как мы уже применили фильтры в БД, группируем с min_snapshots=1)
         replays = group_snapshots_into_replays(
             snapshots,
-            min_snapshots=config.min_snapshots_per_market
+            min_snapshots=1
         )
         tradeable = len(replays)
-        skipped = len(set(s.market_id for s in snapshots)) - tradeable
+        skipped = 0  # Считаем 0, так как предфильтрация была в базе
 
         # 3. Загружаем модель
         model_blob: Optional[bytes] = None
