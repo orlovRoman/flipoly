@@ -2,8 +2,9 @@
 'use strict';
 
 // ─── CONFIG ─────────────────────────────────────────────────────────────
-const API_KEY = window.API_KEY || 'test-key'; // injected from meta tag or fallback
-const HEADERS  = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY };
+const API_KEY = window.API_KEY ?? null;
+if (!API_KEY) console.warn('[backtest.js] window.API_KEY not set — requests will fail auth');
+const HEADERS  = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY ?? '' };
 
 // ─── STATE ────────────────────────────────────────────────────────────────
 let currentResult   = null;   // BacktestResult

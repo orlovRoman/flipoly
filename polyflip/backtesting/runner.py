@@ -18,7 +18,7 @@ class BacktestRunner:
         self.model = pickle.loads(model_blob) if model_blob and len(model_blob) > 0 else None
         self.features = [f.strip() for f in features.split(',')] if features else []
         self.trader = SimulatedTrader(slippage_pct=float(config.get("SLIPPAGE_PCT", 0.005)))
-        self.trade_on_flip = config.get("TRADE_ON_FLIP", "true").lower() == "true"
+        self.trade_on_flip = config.get("TRADE_ON_FLIP", "false").lower() == "true"
         self.strategy_mode = config.get("STRATEGY_MODE", "ML")  # ML or PURE_FAVORITE
 
     def _predict_flip(self, signal) -> float:

@@ -15,3 +15,10 @@ def test_runner_none_model_blob():
     from polyflip.backtesting.runner import BacktestRunner
     r = BacktestRunner(config={}, model_blob=None, features="")
     assert r.model is None
+
+def test_runner_default_trade_on_flip_is_false():
+    """По умолчанию trade_on_flip должен быть False (соответствует BacktestConfig)."""
+    from polyflip.backtesting.runner import BacktestRunner
+    r = BacktestRunner(config={}, model_blob=None, features="")
+    assert r.trade_on_flip is False, \
+        "Дефолт runner.trade_on_flip не соответствует BacktestConfig.trade_on_flip=False"

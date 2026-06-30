@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import MarketSnapshot, ModelRegistry
 from polyflip.api.auth import verify_api_key
+from polyflip.config import settings
 from polyflip.api.backtest_schemas import (
     BacktestConfig, BacktestResult, BacktestRunResponse,
     StrategyBreakdown, AssetBreakdown, EquityCurvePoint
@@ -46,7 +47,13 @@ _MAX_CACHE_SIZE = 20  # храним последние 20 прогонов
 @router.get("/backtest")
 async def backtest_page(request: Request):
     """Страница дашборда бэктестов."""
-    return templates.TemplateResponse("backtest.html", {"request": request})
+    return templates.TemplateResponse(
+        "backtest.html",
+        {
+            "request": request,
+            "api_key": settings.API_KEY
+        }
+    )
 
 
 # ─── Run Backtest ───────────────────────────────────────────────────────────
@@ -399,7 +406,8 @@ def _build_result(
         ))
 
     # Топ/Худшие
-    sorted_by_pnl = sorted(equity_curve, key=lambda x: x.trade_pnl, reverse=True)
+    sorted_desc = sorted(equity_curve, key=lambda x: x.trade_pnl, reverse=True)
+    sorted_asc  = sorted(equity_curve, key=lambda x: x.trade_pnl)
 
     return BacktestResult(
         run_id=run_id, config=config,
@@ -419,8 +427,8 @@ def _build_result(
         strategies=strategies,
         assets=assets_breakdown,
         equity_curve=equity_curve,
-        top_trades=sorted_by_pnl[:10],
-        worst_trades=sorted_by_pnl[-10:],
+        top_trades=sorted_desc[:10],
+        worst_trades=sorted_asc[:10],
     )
 
 
@@ -428,13 +436,16 @@ def _compute_max_drawdown(equity_curve: list[EquityCurvePoint]) -> float:
     """Максимальная просадка от пика к впадине в %."""
     if not equity_curve:
         return 0.0
-    peak = 0.0
+    values = [p.cumulative_pnl for p in equity_curve]
+    peak = values[0]   # FIX: инициализируем первым реальным значением, не нулём
     max_dd = 0.0
-    for point in equity_curve:
-        val = point.cumulative_pnl
+    for val in values:
         if val > peak:
             peak = val
-        dd = (peak - val) / (abs(peak) + 1e-9) * 100
+        if abs(peak) > 1e-9:
+            dd = (peak - val) / abs(peak) * 100
+        else:
+            dd = 0.0
         if dd > max_dd:
             max_dd = dd
     return max_dd
