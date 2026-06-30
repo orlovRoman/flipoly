@@ -210,3 +210,29 @@ async def test_update_setting_invalid_min_edge(db_session):
     finally:
         settings_module.async_session = original_session
 
+
+@pytest.mark.asyncio
+async def test_update_settings_bulk(db_session):
+    from polyflip.api.settings import update_settings_bulk, BulkSettings
+    import polyflip.api.settings as settings_module
+    original_session = settings_module.async_session
+    settings_module.async_session = patch_session(db_session)
+    
+    try:
+        payload = BulkSettings(settings={
+            "TRADE_BET_SIZE_USDC": "25.0",
+            "INITIAL_CAPITAL": "1500.0",
+            "TRADING_ENABLED": "true"
+        })
+        res = await update_settings_bulk(payload)
+        assert res["status"] == "ok"
+        
+        # Verify they are written in DB
+        rows = (await db_session.execute(select(RuntimeSettings))).scalars().all()
+        db_settings = {r.key: r.value for r in rows}
+        assert db_settings["TRADE_BET_SIZE_USDC"] == "25.0"
+        assert db_settings["INITIAL_CAPITAL"] == "1500.0"
+        assert db_settings["TRADING_ENABLED"] == "true"
+    finally:
+        settings_module.async_session = original_session
+

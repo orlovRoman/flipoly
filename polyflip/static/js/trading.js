@@ -567,29 +567,30 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.autoDeadZoneWidth) settingsToSave.AUTO_DEAD_ZONE_WIDTH = parseFloat(settingsElements.autoDeadZoneWidth.value) / 100;
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
-      const failed = [];
-      for (const [key, val] of Object.entries(settingsToSave)) {
-        try {
-          const res = await fetch(window.API_BASE + `/api/settings/${key}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-Key": apiKey,
-            },
-            body: JSON.stringify({ value: String(val) }),
-          });
-          if (!res.ok) failed.push(key);
-        } catch (err) {
-          failed.push(key);
+      try {
+        const res = await fetch(window.API_BASE + "/api/settings/bulk", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "X-API-Key": apiKey,
+          },
+          body: JSON.stringify({ settings: settingsToSave }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          const detail = data.detail;
+          if (detail && detail.errors) {
+            alert(`Не удалось сохранить настройки: ${Object.keys(detail.errors).join(", ")}\nПричина: ${Object.values(detail.errors).join("; ")}`);
+          } else {
+            alert("Не удалось сохранить настройки (ошибка сервера).");
+          }
+          return;
         }
-      }
-
-      if (failed.length === 0) {
         alert("Настройки торговли успешно сохранены!");
         await loadSettings();
         fetchStats(); // Update capital based on new initial_capital
-      } else {
-        alert(`Не удалось сохранить следующие настройки: ${failed.join(", ")}`);
+      } catch (err) {
+        alert("Ошибка при сохранении настроек: " + err.message);
       }
     });
   }
