@@ -87,10 +87,21 @@
     /* Модификатор для позиционирования влево (для левой колонки) */
     .tooltip-icon--left::after {
       left: 0;
-      transform: none;
+      right: auto;
+      transform: none !important;
     }
     .tooltip-icon--left:hover::after {
-      transform: translateY(-2px);
+      transform: translateY(-2px) !important;
+    }
+
+    /* Модификатор для позиционирования вправо (для правой колонки) */
+    .tooltip-icon--right::after {
+      left: auto;
+      right: 0;
+      transform: none !important;
+    }
+    .tooltip-icon--right:hover::after {
+      transform: translateY(-2px) !important;
     }
 
     /* Модификатор для позиционирования вниз */
@@ -107,10 +118,23 @@
       bottom: auto;
       top: 130%;
       left: 0;
-      transform: none;
+      right: auto;
+      transform: none !important;
     }
     .tooltip-icon--left[data-pos="down"]:hover::after {
-      transform: translateY(2px);
+      transform: translateY(2px) !important;
+    }
+
+    /* Совмещенный модификатор для правых колонок и направления вниз */
+    .tooltip-icon--right[data-pos="down"]::after {
+      bottom: auto;
+      top: 130%;
+      left: auto;
+      right: 0;
+      transform: none !important;
+    }
+    .tooltip-icon--right[data-pos="down"]:hover::after {
+      transform: translateY(2px) !important;
     }
 
     .config-grid {
@@ -473,12 +497,12 @@
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Начало периода <span class="tooltip-icon tooltip-icon--left" data-tooltip="Левая временная граница исторического теста." data-pos="down">❓</span></label>
-                <input id="cfg-date-from" type="datetime-local">
+                <label>Начало периода <span class="tooltip-icon tooltip-icon--left" data-tooltip="Левая временная граница исторического теста (только дата)." data-pos="down">❓</span></label>
+                <input id="cfg-date-from" type="date">
               </div>
               <div class="config-group">
-                <label>Конец периода <span class="tooltip-icon" data-tooltip="Правая временная граница исторического теста." data-pos="down">❓</span></label>
-                <input id="cfg-date-to" type="datetime-local">
+                <label>Конец периода <span class="tooltip-icon tooltip-icon--right" data-tooltip="Правая временная граница исторического теста (только дата)." data-pos="down">❓</span></label>
+                <input id="cfg-date-to" type="date">
               </div>
             </div>
 
@@ -488,7 +512,7 @@
                 <input id="cfg-min-snaps" type="number" value="3" min="1" max="50">
               </div>
               <div class="config-group">
-                <label>Выбор модели <span class="tooltip-icon" data-tooltip="ML-модель прогнозирования. Авто — использовать активную модель для каждого ассета." data-pos="down">❓</span></label>
+                <label>Выбор модели <span class="tooltip-icon tooltip-icon--right" data-tooltip="ML-модель прогнозирования. Авто — использовать активную модель для каждого ассета." data-pos="down">❓</span></label>
                 <select id="cfg-model-id">
                   <option value="">Авто (активная модель)</option>
                 </select>
@@ -512,7 +536,7 @@
                 <input id="cfg-min-time" type="number" value="1" step="0.5" min="0.1">
               </div>
               <div class="config-group">
-                <label>Макс. время (мин) <span class="tooltip-icon" data-tooltip="Максимальное оставшееся время рынка для входа в сделку.">❓</span></label>
+                <label>Макс. время (мин) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Максимальное оставшееся время рынка для входа в сделку.">❓</span></label>
                 <input id="cfg-max-time" type="number" value="60" step="1" min="1">
               </div>
             </div>
@@ -526,7 +550,7 @@
                   <input id="cfg-no-flip" type="number" value="0.35" step="0.01" min="0" max="1">
                 </div>
                 <div class="config-group">
-                  <label>Порог Flip <span class="tooltip-icon" data-tooltip="Вероятность флипа выше этого значения расценивается как сигнал для торговли ПРОТИВ толпы (покупка аутсайдера).">❓</span></label>
+                  <label>Порог Flip <span class="tooltip-icon tooltip-icon--right" data-tooltip="Вероятность флипа выше этого значения расценивается как сигнал для торговли ПРОТИВ толпы (покупка аутсайдера).">❓</span></label>
                   <input id="cfg-flip" type="number" value="0.60" step="0.01" min="0" max="1">
                 </div>
               </div>
@@ -551,7 +575,7 @@
                 <input id="cfg-fav-thresh" type="number" value="0.65" step="0.01" min="0.5" max="0.99">
               </div>
               <div class="config-group">
-                <label>Мертвая зона <span class="tooltip-icon" data-tooltip="Ширина зоны вокруг порога фаворита, где сделки блокируются для фильтрации шума.">❓</span></label>
+                <label>Мертвая зона <span class="tooltip-icon tooltip-icon--right" data-tooltip="Ширина зоны вокруг порога фаворита, где сделки блокируются для фильтрации шума.">❓</span></label>
                 <input id="cfg-dead-zone" type="number" value="0.10" step="0.01" min="0" max="0.5">
               </div>
             </div>
@@ -562,7 +586,7 @@
                 <input id="cfg-yes-min" type="number" value="0.55" step="0.01" min="0.01">
               </div>
               <div class="config-group">
-                <label>YES макс. цена <span class="tooltip-icon" data-tooltip="Максимальная допустимая цена покупки акций YES.">❓</span></label>
+                <label>YES макс. цена <span class="tooltip-icon tooltip-icon--right" data-tooltip="Максимальная допустимая цена покупки акций YES.">❓</span></label>
                 <input id="cfg-yes-max" type="number" value="0.95" step="0.01" max="0.99">
               </div>
             </div>
@@ -573,7 +597,7 @@
                 <input id="cfg-no-min" type="number" value="0.55" step="0.01" min="0.01">
               </div>
               <div class="config-group">
-                <label>NO макс. цена <span class="tooltip-icon" data-tooltip="Максимальная допустимая цена покупки акций NO.">❓</span></label>
+                <label>NO макс. цена <span class="tooltip-icon tooltip-icon--right" data-tooltip="Максимальная допустимая цена покупки акций NO.">❓</span></label>
                 <input id="cfg-no-max" type="number" value="0.95" step="0.01" max="0.99">
               </div>
             </div>
@@ -597,7 +621,7 @@
                 <input id="cfg-kelly-mult" type="number" value="0.25" step="0.01" min="0.01" max="1">
               </div>
               <div class="config-group">
-                <label>Стартовый капитал <span class="tooltip-icon" data-tooltip="Начальный виртуальный баланс бэктеста в USDC.">❓</span></label>
+                <label>Стартовый капитал <span class="tooltip-icon tooltip-icon--right" data-tooltip="Начальный виртуальный баланс бэктеста в USDC.">❓</span></label>
                 <input id="cfg-capital" type="number" value="1000" step="100" min="10">
               </div>
             </div>
@@ -608,7 +632,7 @@
                 <input id="cfg-min-bet" type="number" value="5" step="1" min="1">
               </div>
               <div class="config-group">
-                <label>Макс. ставка ($) <span class="tooltip-icon" data-tooltip="Максимальный жесткий лимит на размер одной сделки.">❓</span></label>
+                <label>Макс. ставка ($) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Максимальный жесткий лимит на размер одной сделки.">❓</span></label>
                 <input id="cfg-max-bet" type="number" value="50" step="5" min="1">
               </div>
             </div>
@@ -619,7 +643,7 @@
                 <input id="cfg-min-edge" type="number" value="-0.05" step="0.01">
               </div>
               <div class="config-group">
-                <label>Макс. Edge <span class="tooltip-icon" data-tooltip="Максимальный перевес. Все, что выше, приравнивается к этому значению (защита от выбросов).">❓</span></label>
+                <label>Макс. Edge <span class="tooltip-icon tooltip-icon--right" data-tooltip="Максимальный перевес. Все, что выше, приравнивается к этому значению (защита от выбросов).">❓</span></label>
                 <input id="cfg-max-edge" type="number" value="0.50" step="0.01">
               </div>
             </div>
