@@ -169,7 +169,7 @@ async def test_no_trade_skipped_when_edge_too_small(db_session):
     
     # Model predicts flip prob = 0.25 (NO wins)
     # YES is favorite (0.70), NO is outsider (0.30)
-    # edge = 0.25 / 0.245 - 1 = 0.02 < 0.05
+    # edge = 0.25 / 0.31 - 1 = -0.19 < 0.05
     model = MockModel([0.75, 0.25])
     db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
@@ -186,8 +186,8 @@ async def test_no_trade_skipped_when_edge_too_small(db_session):
              "best_ask": 0.71,
              "best_bid": 0.69
          } if token_id == "t_yes" else {
-             "best_ask": 0.245,
-             "best_bid": 0.23
+             "best_ask": 0.31,
+             "best_bid": 0.29
          })
          
          await trade_worker_cycle(db_session, mock_trader, mock_api)
