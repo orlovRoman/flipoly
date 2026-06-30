@@ -663,7 +663,7 @@ document.addEventListener("DOMContentLoaded", () => {
           : "-";
 
         let betTypeHtml = `<span style="color: #00ff88; font-weight: 500;">Ставка по тренду</span>`;
-        const isOutsider = (log.outcome_bought === "NO" && log.predicted_flip_prob !== null && parseFloat(log.predicted_flip_prob) >= 0.5) ||
+        const isOutsider = (log.outcome_bought === "NO" && log.active_features !== "PURE_FAVORITE" && (log.kelly_fraction === null || log.kelly_fraction === undefined)) ||
                            (log.error_msg && (log.error_msg.includes("TRADE_ON_FLIP") || log.error_msg.includes("Ожидается флип")));
         if (isOutsider) {
           betTypeHtml = `<span style="color: #ffb020; font-weight: 500;">Аутсайдер (NO при флипе)</span>`;
