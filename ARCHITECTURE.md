@@ -152,7 +152,7 @@ polyflip/
    * Если $P(flip) > threshold\_flip$ (модель ожидает разворот) — бот покупает недооцененный токен (NO, если текущая цена YES > 0.5; YES в противном случае).
    * Если $P(flip) < threshold\_no\_flip$ (модель считает, что рынок прав) — бот покупает текущего фаворита.
    * В ином случае сделка пропускается со статусом `SKIPPED` и записью подробной причины в историю.
-5. **Исполнение ордера**: Через [trader.py](file:///C:/Users/orlov/.gemini/antigravity/scratch/polyflip/polyflip/trading/trader.py) бот отправляет ордер в Polymarket CLOB. Размер сделки определяется как фиксированная доля банкролла.
+5. **Исполнение ордера**: Через [trader.py](file:///C:/Users/orlov/.gemini/antigravity/scratch/polyflip/polyflip/trading/trader.py) бот отправляет ордер в Polymarket CLOB. Размер сделки вычисляется динамически (линейное масштабирование от `TRADE_BET_SIZE_USDC` до `MAX_BET_SIZE_USDC` в зависимости от размера преимущества `edge` над линией).
 
 ---
 
@@ -222,6 +222,22 @@ polyflip/
 * `key` (VARCHAR, PK) — имя параметра (например, `TRADING_ENABLED`, `MIN_EDGE`).
 * `value` (TEXT) — строковое представление значения.
 * `updated_at` (TIMESTAMPTZ) — время обновления.
+
+### 6.6 Таблица `slippage_log`
+Журнал проскальзываний, фиксирующий разницу между ожидаемой ценой сделки и фактической ценой исполнения.
+* `id` (SERIAL, PK)
+* `trade_id` (INTEGER, FK) — ссылка на `trade_history`.
+* `market_id` (VARCHAR) — ID рынка.
+* `asset` (VARCHAR) — базовый актив.
+* `outcome_bought` (VARCHAR) — `YES` или `NO`.
+* `expected_price` (FLOAT) — цена, по которой бот собирался купить.
+* `executed_price` (FLOAT) — реальная средняя цена исполнения ордера.
+* `slippage` (FLOAT) — разница цен.
+* `slippage_pct` (FLOAT) — проскальзывание в процентах.
+* `bet_size_usdc` (FLOAT) — размер ставки.
+* `slippage_cost_usdc` (FLOAT) — финансовая стоимость проскальзывания.
+* `mode` (VARCHAR) — режим (`LIVE` или `PAPER`).
+* `created_at` (TIMESTAMPTZ) — дата записи.
 
 ---
 
