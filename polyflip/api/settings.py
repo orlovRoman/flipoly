@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from typing import Optional
+from typing import Optional, Any
 from pydantic import BaseModel
 from sqlalchemy import select
 from datetime import datetime, timezone
@@ -98,7 +98,7 @@ async def get_recommended_thresholds():
     }
 
 class BulkSettings(BaseModel):
-    settings: dict[str, str]
+    settings: dict[str, Any]
 
 @router.put("/bulk")
 async def update_settings_bulk(payload: BulkSettings, request: Request = None):
@@ -109,7 +109,8 @@ async def update_settings_bulk(payload: BulkSettings, request: Request = None):
     saved = []
     for key, val in payload.settings.items():
         try:
-            await update_setting(key, SettingValue(value=val), request=request)
+            val_str = "" if val is None else str(val)
+            await update_setting(key, SettingValue(value=val_str), request=request)
             saved.append(key)
         except HTTPException as e:
             errors[key] = e.detail
@@ -171,10 +172,10 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
     if key in ["MIN_EDGE", "MAX_EDGE"]:
         try:
             val = float(payload.value)
-            # Разрешаем либо проценты [0.5, 50.0], либо доли [0.005, 0.50]
-            if not ((0.5 <= val <= 50.0) or (0.005 <= val <= 0.50)):
-                raise HTTPException(status_code=400, detail=f"{key} must be between 0.5% and 50% (or 0.005 and 0.50)")
-            if val > 0.50:
+            # Разрешаем либо проценты [0.5, 100.0], либо доли [0.005, 1.0]
+            if not ((0.5 <= val <= 100.0) or (0.005 <= val <= 1.0)):
+                raise HTTPException(status_code=400, detail=f"{key} must be between 0.5% and 100% (or 0.005 and 1.0)")
+            if val > 1.0:
                 payload.value = str(val / 100.0)
                 
             # Cross-validation
