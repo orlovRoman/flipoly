@@ -40,6 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const data = await response.json();
       updateUI(data);
+      loadActiveModels();
     } catch (error) {
       console.error("Ошибка при загрузке данных:", error);
     }
@@ -857,13 +858,17 @@ document.addEventListener("DOMContentLoaded", () => {
   loadLogs();
   loadActiveModels();
 
-  // Auto refresh every 5 min for stats, every 10 sec for logs
+  // Auto refresh every 5 min for stats, every 30 sec for logs (only if tab is active)
   if (window.statsIntervalId) clearInterval(window.statsIntervalId);
   if (window.logsIntervalId) clearInterval(window.logsIntervalId);
 
-  window.statsIntervalId = setInterval(fetchStats, 5 * 60 * 1000);
+  window.statsIntervalId = setInterval(() => {
+    if (document.hidden) return;
+    fetchStats();
+  }, 5 * 60 * 1000);
+  
   window.logsIntervalId = setInterval(() => {
+    if (document.hidden) return;
     loadLogs(currentPage);
-    loadActiveModels();
-  }, 10000);
+  }, 30000);
 });

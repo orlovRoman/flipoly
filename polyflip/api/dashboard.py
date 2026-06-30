@@ -41,6 +41,9 @@ _DASHBOARD_CACHE_TTL = 30  # 30 секунд кэша
 def invalidate_dashboard_cache():
     _dashboard_cache.clear()
 
+_logs_cache = {}
+_LOGS_CACHE_TTL = 10  # 10 секунд кэша для логов торговли
+
 @router.get("/api/dashboard/status", dependencies=[Depends(verify_api_key)])
 async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     """Отдает данные для вкладки Статус Парсера"""
@@ -171,6 +174,11 @@ async def get_trade_logs(
     page_size: int = Query(default=25, ge=1, le=100)
 ):
     """Возвращает последние логи торговли (успешные, фейлы и пропущенные) с пагинацией"""
+    current_time = time.time()
+    cache_key = (page, page_size)
+    if cache_key in _logs_cache and current_time - _logs_cache[cache_key]["time"] < _LOGS_CACHE_TTL:
+        return _logs_cache[cache_key]["data"]
+
     offset = (page - 1) * page_size
 
     from sqlalchemy import text
@@ -219,13 +227,15 @@ async def get_trade_logs(
         for log, question in logs_with_questions
     ]
 
-    return {
+    out_data = {
         "total": total,
         "page": page,
         "page_size": page_size,
         "pages": math.ceil(total / page_size) if page_size > 0 else 0,
         "items": items
     }
+    _logs_cache[cache_key] = {"time": current_time, "data": out_data}
+    return out_data
 
 @router.post("/api/dashboard/verify_resolves", dependencies=[Depends(verify_api_key)])
 async def verify_resolves(db: AsyncSession = Depends(get_db_session)):

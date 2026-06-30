@@ -521,7 +521,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td>${lm.current_yes_price}</td>
                         <td>${lm.current_spread}</td>
                         <td>${lm.volume_5min}</td>
-                        <td style="font-size: 0.8rem">${new Date(lm.end_time_est).toLocaleTimeString()}</td>
+                        <td style="font-size: 0.8rem">${lm.end_time_est ? new Date(lm.end_time_est).toLocaleTimeString() : "N/A"}</td>
                     </tr>
                 `);
       }
@@ -709,6 +709,9 @@ document.addEventListener("DOMContentLoaded", () => {
   loadParserStatus();
   loadModelsHistory();
   
-  // Auto-refresh parser status every 30 seconds
-  setInterval(loadParserStatus, 30000);
+  // Auto-refresh parser status every 30 seconds (only if tab is active)
+  setInterval(() => {
+    if (document.hidden) return;
+    loadParserStatus();
+  }, 30000);
 });
