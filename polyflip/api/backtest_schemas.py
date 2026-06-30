@@ -42,7 +42,7 @@ class BacktestConfig(BaseModel):
 
     # Размер ставки
     initial_capital: float = Field(default=1000.0, ge=10.0, le=1_000_000.0)
-    bet_sizing_mode: str = Field(default="scaled")
+    bet_sizing_mode: Literal["fixed", "scaled"] = Field(default="scaled")
     trade_bet_size_usdc: float = Field(default=5.0, ge=1.0)
     max_bet_size_usdc: float = Field(default=50.0, ge=1.0)
     min_edge: float = Field(default=-0.05, ge=-1.0, le=1.0)

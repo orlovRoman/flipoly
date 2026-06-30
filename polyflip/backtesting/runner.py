@@ -18,8 +18,17 @@ class BacktestRunner:
         self.model = pickle.loads(model_blob) if model_blob and len(model_blob) > 0 else None
         self.features = [f.strip() for f in features.split(',')] if features else []
         self.trader = SimulatedTrader(slippage_pct=float(config.get("SLIPPAGE_PCT", 0.005)))
-        self.trade_on_flip = config.get("TRADE_ON_FLIP", "false").lower() == "true"
+        
+        _tof = config.get("TRADE_ON_FLIP", False)
+        self.trade_on_flip = _tof if isinstance(_tof, bool) else str(_tof).lower() == "true"
+        
         self.strategy_mode = config.get("STRATEGY_MODE", "ML")  # ML or PURE_FAVORITE
+        
+        self.bet_sizing_mode = config.get("BET_SIZING_MODE", "fixed")
+        self.base_bet = float(config.get("TRADE_BET_SIZE_USDC", 5.0))
+        self.max_bet = float(config.get("MAX_BET_SIZE_USDC", 50.0))
+        self.min_edge = float(config.get("MIN_EDGE", -0.05))
+        self.max_edge = float(config.get("MAX_EDGE", 0.50))
 
     def _predict_flip(self, signal) -> float:
         """Получает P(flip) от модели для данного тика."""
@@ -44,6 +53,18 @@ class BacktestRunner:
         X = X_df[self.features]
         proba = self.model.predict_proba(X)[0]
         return proba[1] if len(proba) > 1 else 0.0
+
+    def _calc_bet_size(self, decision) -> float:
+        """Скейлинг ставки по edge в диапазоне [base_bet, max_bet]."""
+        if self.bet_sizing_mode != "scaled":
+            return self.base_bet
+        edge = getattr(decision, "edge", None)
+        if edge is None or self.max_edge <= self.min_edge:
+            return self.base_bet
+        # Линейный скейлинг: edge → [0, 1] → [base, max]
+        t = (edge - self.min_edge) / (self.max_edge - self.min_edge)
+        t = max(0.0, min(1.0, t))  # clip
+        return self.base_bet + t * (self.max_bet - self.base_bet)
 
     def run_market(self, replay: MarketReplay) -> None:
         """
@@ -74,6 +95,18 @@ class BacktestRunner:
                 decision = decide_outsider(signal, p_flip, self.config)
 
         if decision.action != "SKIP":
+            bet = self._calc_bet_size(decision)
+            # Переопределяем ставку в decision перед передачей трейдеру
+            from polyflip.trading.decision_logic import TradeDecision
+            decision = TradeDecision(
+                action=decision.action,
+                buy_price=decision.buy_price,
+                bet_size_usdc=bet,
+                reason=decision.reason,
+                strategy_type=decision.strategy_type,
+                p_flip=decision.p_flip,
+                edge=decision.edge,
+            )
             self.trader.execute_trade(
                 market_id=replay.market_id,
                 asset=replay.asset,
