@@ -146,16 +146,69 @@ document.addEventListener("DOMContentLoaded", () => {
   // 2. Fetch Probabilities and Render Charts
   let chartInstances = {};
   let chartDataStore = {};
+  let chartsLoaded = false;
 
-  async function loadCharts() {
+  async function loadCharts(force = false) {
+    if (!force && !chartsLoaded) {
+      return;
+    }
+    const btnPlaceholder = document.getElementById("btn-load-charts-placeholder");
+    const btnLoad = document.getElementById("btn-load-charts");
+    
+    if (btnPlaceholder) {
+      btnPlaceholder.innerText = "Загрузка...";
+      btnPlaceholder.disabled = true;
+    }
+    if (btnLoad) {
+      btnLoad.innerText = "Загрузка...";
+      btnLoad.disabled = true;
+    }
+
     try {
       const res = await fetch(window.API_BASE + "/api/analytics/probabilities");
       chartDataStore = await res.json();
+      chartsLoaded = true;
+      
+      const placeholderEl = document.getElementById("charts-placeholder");
+      if (placeholderEl) placeholderEl.style.display = "none";
+      
+      const selectorEl = document.getElementById("asset-selector");
+      if (selectorEl) selectorEl.style.display = "block";
+      
+      if (btnLoad) {
+        btnLoad.style.display = "block";
+        btnLoad.innerText = "Обновить графики";
+        btnLoad.disabled = false;
+      }
+      
+      const wrapperEl = document.getElementById("flip-charts-wrapper");
+      if (wrapperEl) wrapperEl.style.display = "grid";
+
       renderSelectedChart();
     } catch (e) {
       console.error("Failed to load charts", e);
+      if (btnPlaceholder) {
+        btnPlaceholder.innerText = "Ошибка. Повторить?";
+        btnPlaceholder.disabled = false;
+      }
+      if (btnLoad) {
+        btnLoad.innerText = "Ошибка. Повторить?";
+        btnLoad.disabled = false;
+      }
     }
   }
+
+  // Hook up event listeners for chart loading
+  document.addEventListener("DOMContentLoaded", () => {
+    const btnPlaceholder = document.getElementById("btn-load-charts-placeholder");
+    if (btnPlaceholder) {
+      btnPlaceholder.addEventListener("click", () => loadCharts(true));
+    }
+    const btnLoad = document.getElementById("btn-load-charts");
+    if (btnLoad) {
+      btnLoad.addEventListener("click", () => loadCharts(true));
+    }
+  });
 
   function renderSelectedChart() {
     const selectorEl = document.getElementById("asset-selector");
@@ -585,7 +638,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (btnRefreshStatus) {
     btnRefreshStatus.addEventListener("click", () => {
       loadSummary();
-      loadCharts();
+      if (chartsLoaded) {
+        loadCharts(true);
+      }
       loadParserStatus();
     });
   }
