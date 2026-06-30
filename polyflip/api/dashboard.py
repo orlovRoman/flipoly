@@ -9,7 +9,7 @@ import math
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, or_
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, TradeHistory, ModelRegistry, RuntimeSettings
 from polyflip.api.auth import verify_api_key
@@ -56,7 +56,12 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     async def fetch_live():
         async with async_session() as s:
             now = datetime.now(timezone.utc)
-            stmt = select(LiveMarket).where(LiveMarket.end_time_est >= now).order_by(LiveMarket.asset, LiveMarket.end_time_est)
+            stmt = select(LiveMarket).where(
+                or_(
+                    LiveMarket.end_time_est >= now,
+                    LiveMarket.end_time_est.is_(None)
+                )
+            ).order_by(LiveMarket.asset, LiveMarket.end_time_est)
             return (await s.execute(stmt)).scalars().all()
 
     async def fetch_snaps():
