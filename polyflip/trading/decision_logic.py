@@ -176,8 +176,8 @@ def decide_outsider(
     # Аутсайдер: если YES дорогой — покупаем NO, и наоборот
     if signal.mid_price >= 0.5:
         # YES — фаворит, покупаем NO (аутсайдера)
-        no_min = float(config.get("OUTSIDER_NO_MIN_PRICE", config.get("NO_MIN_PRICE", config.get("TRADE_MIN_PRICE", 0.10))))
-        no_max = float(config.get("OUTSIDER_NO_MAX_PRICE", config.get("NO_MAX_PRICE", config.get("TRADE_MAX_PRICE", 0.50))))
+        no_min = float(config.get("OUTSIDER_NO_MIN_PRICE", config.get("NO_MIN_PRICE", 0.10)))
+        no_max = float(config.get("OUTSIDER_NO_MAX_PRICE", config.get("NO_MAX_PRICE", 0.50)))
         no_prob = p_flip
         if not (no_min <= signal.no_ask <= no_max):
             return TradeDecision("SKIP", 0, 0,
@@ -197,8 +197,8 @@ def decide_outsider(
             p_flip=p_flip, edge=edge)
     else:
         # NO — фаворит, покупаем YES (аутсайдера)
-        yes_min = float(config.get("OUTSIDER_YES_MIN_PRICE", config.get("YES_MIN_PRICE", config.get("TRADE_MIN_PRICE", 0.05))))
-        yes_max = float(config.get("OUTSIDER_YES_MAX_PRICE", config.get("YES_MAX_PRICE", config.get("TRADE_MAX_PRICE", 0.45))))
+        yes_min = float(config.get("OUTSIDER_YES_MIN_PRICE", config.get("YES_MIN_PRICE", 0.05)))
+        yes_max = float(config.get("OUTSIDER_YES_MAX_PRICE", config.get("YES_MAX_PRICE", 0.45)))
         yes_prob = p_flip
         if not (yes_min <= signal.yes_ask <= yes_max):
             return TradeDecision("SKIP", 0, 0,

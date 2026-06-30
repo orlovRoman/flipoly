@@ -96,3 +96,24 @@ def test_outsider_yes_rejects_overpriced():
     d = decide_outsider(make_signal(mid_price=0.25, spread=0.02), p_flip=0.80, config=cfg)
     assert d.action == "SKIP"
 
+def test_outsider_no_max_does_not_use_trade_max_price():
+    """
+    TRADE_MAX_PRICE=0.95 не должен влиять на аутсайдерный no_max.
+    Если OUTSIDER_NO_MAX_PRICE и NO_MAX_PRICE не заданы — дефолт 0.50.
+    """
+    signal = make_signal(
+        mid_price=0.70,       # YES фаворит
+        spread=0.60           # 1 - 0.70 + 0.60/2 = 0.60 -> no_ask = 0.60
+    )
+    config = {
+        "TRADE_MAX_PRICE": "0.95",  # высокий общий потолок
+        # OUTSIDER_NO_MAX_PRICE и NO_MAX_PRICE НЕ заданы → должен использоваться 0.50
+        "MIN_EDGE": "0.05", "MAX_EDGE": "0.50",
+        "TRADE_BET_SIZE_USDC": "10", "MAX_BET_SIZE_USDC": "50",
+        "FLIP_THRESHOLD": "0.55"
+    }
+    decision = decide_outsider(signal, p_flip=0.60, config=config)
+    # no_ask=0.60 > no_max=0.50 → SKIP
+    assert decision.action == "SKIP", \
+        "NO price 0.60 > дефолтный outsider_no_max 0.50 — должен быть SKIP"
+
