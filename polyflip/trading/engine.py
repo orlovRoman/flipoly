@@ -275,9 +275,27 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     continue
 
                 decision = decision_obj.action.replace("BUY_", "")
-                buy_price = decision_obj.buy_price
-                actual_bet_size = decision_obj.bet_size_usdc
                 token_to_buy = market.yes_token_id if decision == "YES" else market.no_token_id
+                
+                fresh_prices = await api_client.get_market_prices(token_to_buy)
+                if not fresh_prices or fresh_prices.get("best_ask") is None:
+                    await save_or_update_skipped_trade(
+                        db_session, market, "No fresh prices from API for Favorite",
+                        0.0, None, start_time, existing_skipped=existing_skipped
+                    )
+                    continue
+
+                fresh_ask = fresh_prices["best_ask"]
+                price_drift = abs(fresh_ask - decision_obj.buy_price)
+                if price_drift > float(settings_db.get("MAX_PRICE_DRIFT", 0.03)):
+                    await save_or_update_skipped_trade(
+                        db_session, market, f"Price drift too large: {price_drift:.3f}",
+                        0.0, None, start_time, existing_skipped=existing_skipped
+                    )
+                    continue
+
+                buy_price = fresh_ask
+                actual_bet_size = decision_obj.bet_size_usdc
                 
                 num_shares = round(actual_bet_size / buy_price, 2)
                 

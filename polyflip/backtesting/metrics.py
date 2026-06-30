@@ -20,14 +20,9 @@ def compute_trade_pnl(trade: SimulatedTrade, replay: MarketReplay) -> float:
           (trade.decision.action == "BUY_NO" and replay.final_outcome == "NO")
 
     if won:
-        # PnL = (1.0 - executed_price) * shares
         revenue = 1.0 * trade.shares
-        profit = revenue - trade.bet_size
-        
-        # Комиссия Polymarket (например 2% с профита, если в плюсе)
-        # Упрощенно: если profit > 0, вычитаем 2%
-        if profit > 0:
-            profit *= 0.98
+        fee = revenue * 0.02
+        profit = revenue - trade.bet_size - fee
             
         return profit
     else:

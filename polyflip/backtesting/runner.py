@@ -26,21 +26,15 @@ class BacktestRunner:
         if not self.model or not self.features:
             return 0.0
             
-        df = pd.DataFrame([{
-            "time_left_min": signal.time_left_min,
-            "mid_price": signal.mid_price,
-            "spread": signal.spread,
-            "price_velocity": signal.price_velocity,
-            "volume_5min": signal.volume_5min,
-            "hour_of_day": signal.hour_of_day,
-        }])
+        from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUMNS
+        X_df = pd.DataFrame(build_feature_vector(signal), columns=FEATURE_COLUMNS)
         
         # Проверяем наличие всех фичей
-        missing = [f for f in self.features if f not in df.columns]
+        missing = [f for f in self.features if f not in X_df.columns]
         if missing:
             return 0.0
             
-        X = df[self.features]
+        X = X_df[self.features]
         proba = self.model.predict_proba(X)[0]
         return proba[1] if len(proba) > 1 else 0.0
 

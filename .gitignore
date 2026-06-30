@@ -4,3 +4,5 @@ __pycache__/
 polyflip.db
 polyflip/*.sqlite
 *.sqlite
+scratch/
+swap.py

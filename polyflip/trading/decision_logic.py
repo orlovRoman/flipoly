@@ -170,8 +170,8 @@ def decide_outsider(
             p_flip=p_flip, edge=edge, kelly_fraction=kf)
     else:
         # NO — фаворит, покупаем YES (аутсайдера)
-        yes_min = float(config.get("YES_MIN_PRICE", 0.10))
-        yes_max = float(config.get("YES_MAX_PRICE", 0.50))
+        yes_min = float(config.get("OUTSIDER_YES_MIN_PRICE", config.get("YES_MIN_PRICE", 0.05)))
+        yes_max = float(config.get("OUTSIDER_YES_MAX_PRICE", config.get("YES_MAX_PRICE", 0.45)))
         yes_prob = signal.mid_price
         if not (yes_min <= signal.yes_ask <= yes_max):
             return TradeDecision("SKIP", 0, 0,

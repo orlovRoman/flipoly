@@ -86,3 +86,15 @@ def test_all_decisions_have_reason():
             decide_outsider(sig, 0.5, BASE_CONFIG),
         ]:
             assert isinstance(decision.reason, str) and len(decision.reason) > 0
+
+def test_outsider_buys_yes_when_no_is_favorite():
+    cfg = {**BASE_CONFIG, "OUTSIDER_YES_MIN_PRICE": 0.05, "OUTSIDER_YES_MAX_PRICE": 0.45}
+    d = decide_outsider(make_signal(mid_price=0.25), p_flip=0.80, config=cfg)
+    assert d.action == "BUY_YES"
+    assert d.strategy_type == "OUTSIDER"
+
+def test_outsider_yes_rejects_overpriced():
+    cfg = {**BASE_CONFIG, "OUTSIDER_YES_MIN_PRICE": 0.05, "OUTSIDER_YES_MAX_PRICE": 0.20}
+    d = decide_outsider(make_signal(mid_price=0.25, spread=0.02), p_flip=0.80, config=cfg)
+    assert d.action == "SKIP"
+
