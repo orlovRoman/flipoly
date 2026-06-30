@@ -99,6 +99,8 @@ async def run_collector_cycle(db_session: AsyncSession):
                 time_left_min=time_left_min,
                 mid_price=mid_price,
                 spread=spread,
+                best_bid=prices.get("best_bid"),
+                best_ask=prices.get("best_ask"),
                 volume_5min=volume_5min,
                 price_velocity=price_velocity,
                 hour_of_day=current_time.hour,

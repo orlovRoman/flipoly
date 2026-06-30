@@ -12,6 +12,8 @@ class MarketSnapshot(Base):
     time_left_min = Column(Float, nullable=False)
     mid_price = Column(Float, nullable=False)
     spread = Column(Float, nullable=False)
+    best_bid = Column(Float, nullable=True)
+    best_ask = Column(Float, nullable=True)
     volume_5min = Column(Float, nullable=False)
     price_velocity = Column(Float, nullable=False)
     hour_of_day = Column(Integer, nullable=False)
