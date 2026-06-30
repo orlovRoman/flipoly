@@ -133,7 +133,7 @@ async def test_kelly_enabled_scales_bet(db_session):
 
     # Проверяем аргументы вызова
     args, kwargs = mock_trader.execute_trade.call_args
-    actual_size = kwargs.get("size") if kwargs else args[4]
+    actual_size = kwargs["size"] if "size" in kwargs else args[4]
     # capital=1000, kelly_f=0.10 -> bet=100, shares = 100/0.58 ≈ 172.41
     assert abs(actual_size - round(100.0 / 0.58, 2)) < 0.1
 
