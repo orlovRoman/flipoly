@@ -108,8 +108,14 @@ async def update_settings_bulk(payload: BulkSettings, request: Request = None):
     errors = {}
     saved = []
     for key, val in payload.settings.items():
+        if val is None:
+            errors[key] = "Value cannot be null"
+            continue
+        if not isinstance(val, (str, int, float, bool)):
+            errors[key] = f"Invalid type: {type(val).__name__}"
+            continue
         try:
-            val_str = "" if val is None else str(val)
+            val_str = str(val).lower() if isinstance(val, bool) else str(val)
             await update_setting(key, SettingValue(value=val_str), request=request)
             saved.append(key)
         except HTTPException as e:
@@ -172,11 +178,17 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
     if key in ["MIN_EDGE", "MAX_EDGE"]:
         try:
             val = float(payload.value)
-            # Разрешаем либо проценты [0.5, 100.0], либо доли [0.005, 1.0]
-            if not ((0.5 <= val <= 100.0) or (0.005 <= val <= 1.0)):
-                raise HTTPException(status_code=400, detail=f"{key} must be between 0.5% and 100% (or 0.005 and 1.0)")
+            if val <= 0:
+                raise HTTPException(status_code=400, detail=f"{key} must be positive")
             if val > 1.0:
-                payload.value = str(val / 100.0)
+                # Введено как процент (напр. 5.0 → 0.05)
+                if val > 100.0:
+                    raise HTTPException(status_code=400, detail=f"{key} must be ≤ 100%")
+                payload.value = str(round(val / 100.0, 6))
+            else:
+                # Введено как доля (напр. 0.05 = 5%)
+                if val < 0.005:
+                    raise HTTPException(status_code=400, detail=f"{key} as fraction must be ≥ 0.005 (0.5%)")
                 
             # Cross-validation
             norm_val = float(payload.value)
