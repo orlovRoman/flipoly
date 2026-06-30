@@ -28,6 +28,14 @@ class BacktestRunner:
             
         X_df = pd.DataFrame(build_feature_vector(signal), columns=FEATURE_COLUMNS)
         
+        # Добавляем производные признаки, если они требуются модели
+        import numpy as np
+        X_df["price_deviation"]     = (X_df["mid_price"] - 0.5).abs()
+        X_df["deviation_x_time"]    = X_df["price_deviation"] * X_df["time_left_min"]
+        X_df["price_deviation_sq"]  = X_df["price_deviation"] ** 2
+        X_df["spread_pct"]          = (X_df["spread"] / (X_df["mid_price"] + 1e-6)).clip(upper=10.0)
+        X_df["log_time_left"]       = np.log1p(X_df["time_left_min"])
+        
         # Проверяем наличие всех фичей
         missing = [f for f in self.features if f not in X_df.columns]
         if missing:

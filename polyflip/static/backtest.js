@@ -89,6 +89,7 @@ async function runBacktest() {
       currentResult = response.result;
       allTrades = response.result.equity_curve || [];
       renderAll(response.result);
+      switchTab('equity');
       showAlert(`✅ Completed: ${response.message}`, 'success');
       loadHistory();
     } else {
@@ -355,6 +356,7 @@ async function loadHistoricRun(runId) {
       currentResult = data.result;
       allTrades = data.result.equity_curve || [];
       renderAll(data.result);
+      switchTab('equity');
       loadHistory(); // обновить подсветку активного
     }
   } catch (e) {
@@ -415,7 +417,7 @@ async function loadModels() {
     data.models.forEach(m => {
       const opt = document.createElement('option');
       opt.value = m.id;
-      opt.textContent = `${m.asset} v${m.version}${m.is_active ? ' ✅' : ''}`;
+      opt.textContent = `${m.asset} v${m.version}${m.is_active ? ' (активная)' : ''}`;
       sel.appendChild(opt);
     });
   } catch (e) { /* silent */ }
