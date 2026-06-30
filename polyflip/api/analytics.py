@@ -18,10 +18,29 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["Analytics & Settings"])
 
 # --- Analytics ---
+import time
+import asyncio
+
+_probabilities_cache = None
+_probabilities_cache_time = 0.0
+
+_summary_cache = None
+_summary_cache_time = 0.0
+
+def invalidate_analytics_cache():
+    global _summary_cache, _probabilities_cache
+    _summary_cache = None
+    _probabilities_cache = None
+
 
 @router.get("/analytics/summary")
 async def get_summary(db: AsyncSession = Depends(get_db_session)):
     """Общая статистика для дашборда"""
+    global _summary_cache, _summary_cache_time
+    now = time.time()
+    if _summary_cache is not None and (now - _summary_cache_time) < 60:
+        return _summary_cache
+
     # 1. Считаем количество рынков и флипов
     total_markets_stmt = select(func.count(MarketSnapshot.id)).where(MarketSnapshot.final_outcome != "PENDING")
     total_markets = (await db.execute(total_markets_stmt)).scalar() or 0
@@ -59,13 +78,16 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
             "trained_at": r.trained_at.isoformat() if r.trained_at else None
         })
 
-    return {
+    out = {
         "total_resolved_markets": total_markets,
         "total_flips": total_flips,
         "flip_percentage": round((total_flips / total_markets * 100) if total_markets > 0 else 0, 2),
         "active_models": active_models,
         "model_history": model_history
     }
+    _summary_cache = out
+    _summary_cache_time = now
+    return out
 
 @router.get("/analytics/models")
 async def list_models(db: AsyncSession = Depends(get_db_session)):
@@ -106,6 +128,7 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
         raise HTTPException(status_code=404, detail="Model not found")
         
     await db.commit()
+    invalidate_analytics_cache()
     return {"status": "success", "active_version": version}
 
 async def set_training_status(session: AsyncSession, asset: str, status: str, message: str, last_run: str = None):
@@ -175,10 +198,12 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks, db: As
                 
                 logger.info("train_single_asset_completed", asset=asset, status=msg)
                 await set_training_status(bg_session, asset, "success", f"{asset}: {msg}", datetime.now(timezone.utc).isoformat())
+                invalidate_analytics_cache()
         except Exception as e:
             logger.exception("train_single_asset_failed", asset=asset, error=str(e))
             async with async_session() as bg_session:
                 await set_training_status(bg_session, asset, "error", f"Ошибка: {str(e)}", datetime.now(timezone.utc).isoformat())
+                invalidate_analytics_cache()
             
     background_tasks.add_task(train_single_asset)
     return {"status": "running", "asset": asset}
@@ -209,6 +234,11 @@ async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):
     """
     Возвращает вероятности изменения цены (флипа) в зависимости от всех параметров.
     """
+    global _probabilities_cache, _probabilities_cache_time
+    now = time.time()
+    if _probabilities_cache is not None and (now - _probabilities_cache_time) < 300:
+        return _probabilities_cache
+
     stmt = select(
         MarketSnapshot.asset,
         cast(MarketSnapshot.flip_vs_final, Integer).label("flip"),
@@ -226,42 +256,48 @@ async def get_flip_probabilities(db: AsyncSession = Depends(get_db_session)):
     if not rows:
         return {}
         
-    df = pd.DataFrame([dict(r._mapping) for r in rows])
-    
-    # Define bins: (edges, labels, right_closed)
-    bins_config = {
-        "time_left_min": (list(range(17)), [str(i) for i in range(16)], False),
-        "mid_price": ([-0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01], 
-                      ["0-0.1", "0.1-0.2", "0.2-0.3", "0.3-0.4", "0.4-0.5", "0.5-0.6", "0.6-0.7", "0.7-0.8", "0.8-0.9", "0.9-1.0"], True),
-        "spread": ([-0.01, 0.01, 0.02, 0.03, 0.05, 0.1, 100.0], 
-                   ["0-0.01", "0.01-0.02", "0.02-0.03", "0.03-0.05", "0.05-0.10", ">0.10"], True),
-        "volume_5min": ([-1, 100, 1000, 5000, 10000, 50000, 1e9], 
-                        ["0-100", "100-1k", "1k-5k", "5k-10k", "10k-50k", ">50k"], True),
-        "price_velocity": ([-100, -0.05, -0.01, -0.001, 0.001, 0.01, 0.05, 100], 
-                           ["<-5%", "-5% to -1%", "-1% to 0%", "0", "0% to 1%", "1% to 5%", ">5%"], True),
-        "hour_of_day": (list(range(25)), [str(i) for i in range(24)], False)
-    }
-    
-    out = {}
-    
-    for asset in df["asset"].unique():
-        out[asset] = {}
-        df_asset = df[df["asset"] == asset]
+    def process_data(rows_data):
+        df = pd.DataFrame([dict(r._mapping) for r in rows_data])
         
-        for feature, (b, labels, right) in bins_config.items():
-            try:
-                binned = pd.cut(df_asset[feature], bins=b, labels=labels, right=right)
-                grouped = df_asset.groupby(binned, observed=False)["flip"].agg(['mean', 'count']).fillna(0)
-                
-                out[asset][feature] = {
-                    "labels": labels,
-                    "probabilities": [round(grouped.loc[lbl, 'mean'], 3) if lbl in grouped.index else 0 for lbl in labels],
-                    "counts": [int(grouped.loc[lbl, 'count']) if lbl in grouped.index else 0 for lbl in labels]
-                }
-            except Exception as e:
-                structlog.get_logger(__name__).error("binning_error", feature=feature, error=str(e))
-                out[asset][feature] = {"labels": [], "probabilities": [], "counts": []}
-                
+        # Define bins: (edges, labels, right_closed)
+        bins_config = {
+            "time_left_min": (list(range(17)), [str(i) for i in range(16)], False),
+            "mid_price": ([-0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01], 
+                          ["0-0.1", "0.1-0.2", "0.2-0.3", "0.3-0.4", "0.4-0.5", "0.5-0.6", "0.6-0.7", "0.7-0.8", "0.8-0.9", "0.9-1.0"], True),
+            "spread": ([-0.01, 0.01, 0.02, 0.03, 0.05, 0.1, 100.0], 
+                       ["0-0.01", "0.01-0.02", "0.02-0.03", "0.03-0.05", "0.05-0.10", ">0.10"], True),
+            "volume_5min": ([-1, 100, 1000, 5000, 10000, 50000, 1e9], 
+                            ["0-100", "100-1k", "1k-5k", "5k-10k", "10k-50k", ">50k"], True),
+            "price_velocity": ([-100, -0.05, -0.01, -0.001, 0.001, 0.01, 0.05, 100], 
+                               ["<-5%", "-5% to -1%", "-1% to 0%", "0", "0% to 1%", "1% to 5%", ">5%"], True),
+            "hour_of_day": (list(range(25)), [str(i) for i in range(24)], False)
+        }
+        
+        out_data = {}
+        
+        for asset in df["asset"].unique():
+            out_data[asset] = {}
+            df_asset = df[df["asset"] == asset]
+            
+            for feature, (b, labels, right) in bins_config.items():
+                try:
+                    binned = pd.cut(df_asset[feature], bins=b, labels=labels, right=right)
+                    grouped = df_asset.groupby(binned, observed=False)["flip"].agg(['mean', 'count']).fillna(0)
+                    
+                    out_data[asset][feature] = {
+                        "labels": labels,
+                        "probabilities": [round(grouped.loc[lbl, 'mean'], 3) if lbl in grouped.index else 0 for lbl in labels],
+                        "counts": [int(grouped.loc[lbl, 'count']) if lbl in grouped.index else 0 for lbl in labels]
+                    }
+                except Exception as e:
+                    structlog.get_logger(__name__).error("binning_error", feature=feature, error=str(e))
+                    out_data[asset][feature] = {"labels": [], "probabilities": [], "counts": []}
+        return out_data
+
+    out = await asyncio.to_thread(process_data, rows)
+    
+    _probabilities_cache = out
+    _probabilities_cache_time = now
     return out
 
 # --- End Analytics ---
