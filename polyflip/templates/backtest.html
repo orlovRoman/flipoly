@@ -616,12 +616,22 @@
             </div>
 
             <div class="config-grid">
-              <div class="config-group">
-                <label>Мин. ставка ($) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальный разрешенный размер одной сделки.">❓</span></label>
-                <input id="cfg-min-bet" type="number" value="5" step="1" min="1">
+              <div class="config-group" style="grid-column: span 2;">
+                <label>Режим размера ставки <span class="tooltip-icon tooltip-icon--right" data-tooltip="Масштабировать ставку от базовой до максимальной в зависимости от ROI, либо использовать строго фиксированную">❓</span></label>
+                <select id="cfg-bet-sizing-mode" style="width: 100%; background: var(--bg-color); border: 1px solid var(--border-color); color: white; padding: 0.75rem 1rem; border-radius: 8px; outline: none;">
+                    <option value="fixed">Фиксированная ставка (без разгона)</option>
+                    <option value="scaled" selected>Масштабирование по ROI (Скейлинг)</option>
+                </select>
               </div>
+            </div>
+
+            <div class="config-grid">
               <div class="config-group">
-                <label>Макс. ставка ($) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Максимальный жесткий лимит на размер одной сделки.">❓</span></label>
+                <label>Размер ставки (Базовый) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Размер базовой (или фиксированной) ставки в USDC.">❓</span></label>
+                <input id="cfg-min-bet" type="number" value="10" step="1" min="1">
+              </div>
+              <div class="config-group" id="cfg-max-bet-group">
+                <label>Макс. ставка (Скейлинг) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Максимальный размер ставки при скейлинге.">❓</span></label>
                 <input id="cfg-max-bet" type="number" value="50" step="5" min="1">
               </div>
             </div>

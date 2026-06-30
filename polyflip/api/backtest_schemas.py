@@ -42,6 +42,7 @@ class BacktestConfig(BaseModel):
 
     # Размер ставки
     initial_capital: float = Field(default=1000.0, ge=10.0, le=1_000_000.0)
+    bet_sizing_mode: str = Field(default="scaled")
     trade_bet_size_usdc: float = Field(default=5.0, ge=1.0)
     max_bet_size_usdc: float = Field(default=50.0, ge=1.0)
     min_edge: float = Field(default=-0.05, ge=-1.0, le=1.0)
@@ -76,6 +77,7 @@ class BacktestConfig(BaseModel):
             "NO_MAX_PRICE": self.no_max_price,
             "AUTO_DEAD_ZONE_WIDTH": self.auto_dead_zone_width,
             "INITIAL_CAPITAL": self.initial_capital,
+            "BET_SIZING_MODE": self.bet_sizing_mode,
             "TRADE_BET_SIZE_USDC": self.trade_bet_size_usdc,
             "MAX_BET_SIZE_USDC": self.max_bet_size_usdc,
             "MIN_EDGE": self.min_edge,

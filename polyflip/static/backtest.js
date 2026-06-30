@@ -64,6 +64,7 @@ function readConfig() {
     no_max_price:         parseFloat(document.getElementById('cfg-no-max').value),
 
     initial_capital:      parseFloat(document.getElementById('cfg-capital').value),
+    bet_sizing_mode:      document.getElementById('cfg-bet-sizing-mode').value,
     trade_bet_size_usdc:  parseFloat(document.getElementById('cfg-min-bet').value),
     max_bet_size_usdc:    parseFloat(document.getElementById('cfg-max-bet').value),
     min_edge:             parseFloat(document.getElementById('cfg-min-edge').value),
@@ -386,6 +387,7 @@ async function loadHistoricRun(runId) {
         document.getElementById('cfg-no-max').value     = cfg.no_max_price || 0.95;
 
         document.getElementById('cfg-capital').value    = cfg.initial_capital || 1000;
+        document.getElementById('cfg-bet-sizing-mode').value = cfg.bet_sizing_mode || 'scaled';
         document.getElementById('cfg-min-bet').value    = cfg.trade_bet_size_usdc || 5;
         document.getElementById('cfg-max-bet').value    = cfg.max_bet_size_usdc || 50;
         document.getElementById('cfg-min-edge').value   = cfg.min_edge || -0.05;
@@ -496,6 +498,7 @@ function resetConfig() {
   document.getElementById('cfg-no-max').value     = '0.95';
 
   document.getElementById('cfg-capital').value    = '1000';
+  document.getElementById('cfg-bet-sizing-mode').value = 'scaled';
   document.getElementById('cfg-min-bet').value    = '5';
   document.getElementById('cfg-max-bet').value    = '50';
   document.getElementById('cfg-min-edge').value   = '-0.05';
@@ -525,6 +528,7 @@ async function applyLiveSettings() {
 
       
     document.getElementById('cfg-capital').value    = s.INITIAL_CAPITAL || '1000';
+    document.getElementById('cfg-bet-sizing-mode').value = s.BET_SIZING_MODE || 'scaled';
     document.getElementById('cfg-min-bet').value    = s.TRADE_BET_SIZE_USDC || '5';
     
     document.getElementById('cfg-max-bet').value    = s.MAX_BET_SIZE_USDC
@@ -577,5 +581,13 @@ document.addEventListener('DOMContentLoaded', () => {
   loadDatasetStats();
   loadHistory();
   onStrategyChange();
-
+  function updateBetSizingUI() {
+    const mode = document.getElementById('cfg-bet-sizing-mode').value;
+    const group = document.getElementById('cfg-max-bet-group');
+    if (group) {
+      group.style.display = (mode === 'fixed') ? 'none' : 'block';
+    }
+  }
+  document.getElementById('cfg-bet-sizing-mode').addEventListener('change', updateBetSizingUI);
+  updateBetSizingUI();
 });
