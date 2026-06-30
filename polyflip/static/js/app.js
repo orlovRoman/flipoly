@@ -199,16 +199,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Hook up event listeners for chart loading
-  document.addEventListener("DOMContentLoaded", () => {
-    const btnPlaceholder = document.getElementById("btn-load-charts-placeholder");
-    if (btnPlaceholder) {
-      btnPlaceholder.addEventListener("click", () => loadCharts(true));
-    }
-    const btnLoad = document.getElementById("btn-load-charts");
-    if (btnLoad) {
-      btnLoad.addEventListener("click", () => loadCharts(true));
-    }
-  });
+  const btnPlaceholder = document.getElementById("btn-load-charts-placeholder");
+  if (btnPlaceholder) {
+    btnPlaceholder.addEventListener("click", () => loadCharts(true));
+  }
+  const btnLoad = document.getElementById("btn-load-charts");
+  if (btnLoad) {
+    btnLoad.addEventListener("click", () => loadCharts(true));
+  }
 
   function renderSelectedChart() {
     const selectorEl = document.getElementById("asset-selector");

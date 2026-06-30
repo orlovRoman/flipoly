@@ -247,7 +247,7 @@ async def test_update_settings_bulk_partial_error(db_session):
     try:
         payload = BulkSettings(settings={
             "TRADE_BET_SIZE_USDC": "30.0",  # valid
-            "NO_MAX_PRICE": "0.99",          # invalid (> 0.60, see validation rules where valid is 0.01..0.99, wait! Let's check validation range of NO_MAX_PRICE. Ah, in settings.py line 220: NO_MAX_PRICE must be between 0.01 and 0.99. Wait! In settings.py, what other keys can fail? What about DAILY_LOSS_LIMIT_USDC which must be strictly negative? Let's use DAILY_LOSS_LIMIT_USDC: '100' which is invalid because it must be strictly negative!)
+            "NO_MAX_PRICE": "0.99",          # valid
             "DAILY_LOSS_LIMIT_USDC": "100.0" # invalid (must be strictly negative)
         })
         res = await update_settings_bulk(payload)
