@@ -577,16 +577,16 @@ document.addEventListener("DOMContentLoaded", () => {
           body: JSON.stringify({ settings: settingsToSave }),
         });
         if (!res.ok) {
-          const data = await res.json();
-          const detail = data.detail;
-          if (detail && detail.errors) {
-            alert(`Не удалось сохранить настройки: ${Object.keys(detail.errors).join(", ")}\nПричина: ${Object.values(detail.errors).join("; ")}`);
-          } else {
-            alert("Не удалось сохранить настройки (ошибка сервера).");
-          }
+          alert("Не удалось сохранить настройки (ошибка сервера).");
           return;
         }
-        alert("Настройки торговли успешно сохранены!");
+        const data = await res.json();
+        if (data.errors && Object.keys(data.errors).length > 0) {
+          alert(`Сохранено частично. Ошибки в следующих полях:\n` + 
+                Object.entries(data.errors).map(([k, v]) => `- ${k}: ${v}`).join("\n"));
+        } else {
+          alert("Настройки торговли успешно сохранены!");
+        }
         await loadSettings();
         fetchStats(); // Update capital based on new initial_capital
       } catch (err) {

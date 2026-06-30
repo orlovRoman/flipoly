@@ -106,18 +106,17 @@ async def update_settings_bulk(payload: BulkSettings, request: Request = None):
     Массовое обновление настроек за один запрос для обхода лимитов rate limiter.
     """
     errors = {}
+    saved = []
     for key, val in payload.settings.items():
         try:
             await update_setting(key, SettingValue(value=val), request=request)
+            saved.append(key)
         except HTTPException as e:
             errors[key] = e.detail
         except Exception as e:
             errors[key] = str(e)
     
-    if errors:
-        raise HTTPException(status_code=400, detail={"message": "Some settings failed to save", "errors": errors})
-    
-    return {"status": "ok"}
+    return {"status": "partial" if errors else "ok", "saved": saved, "errors": errors}
 
 @router.api_route("/{key}", methods=["PUT", "POST"])
 async def update_setting(key: str, payload: SettingValue, request: Request = None):

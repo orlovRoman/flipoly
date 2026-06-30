@@ -236,3 +236,31 @@ async def test_update_settings_bulk(db_session):
     finally:
         settings_module.async_session = original_session
 
+
+@pytest.mark.asyncio
+async def test_update_settings_bulk_partial_error(db_session):
+    from polyflip.api.settings import update_settings_bulk, BulkSettings
+    import polyflip.api.settings as settings_module
+    original_session = settings_module.async_session
+    settings_module.async_session = patch_session(db_session)
+    
+    try:
+        payload = BulkSettings(settings={
+            "TRADE_BET_SIZE_USDC": "30.0",  # valid
+            "NO_MAX_PRICE": "0.99",          # invalid (> 0.60, see validation rules where valid is 0.01..0.99, wait! Let's check validation range of NO_MAX_PRICE. Ah, in settings.py line 220: NO_MAX_PRICE must be between 0.01 and 0.99. Wait! In settings.py, what other keys can fail? What about DAILY_LOSS_LIMIT_USDC which must be strictly negative? Let's use DAILY_LOSS_LIMIT_USDC: '100' which is invalid because it must be strictly negative!)
+            "DAILY_LOSS_LIMIT_USDC": "100.0" # invalid (must be strictly negative)
+        })
+        res = await update_settings_bulk(payload)
+        assert res["status"] == "partial"
+        assert "TRADE_BET_SIZE_USDC" in res["saved"]
+        assert "DAILY_LOSS_LIMIT_USDC" in res["errors"]
+        
+        # Verify valid key is written in DB
+        rows = (await db_session.execute(select(RuntimeSettings))).scalars().all()
+        db_settings = {r.key: r.value for r in rows}
+        assert db_settings["TRADE_BET_SIZE_USDC"] == "30.0"
+        # Verify invalid key is NOT updated in DB
+        assert "DAILY_LOSS_LIMIT_USDC" not in db_settings
+    finally:
+        settings_module.async_session = original_session
+
