@@ -354,7 +354,7 @@ async def test_engine_skips_when_edge_too_small(db_session):
          assert len(trades) == 1
          assert trades[0].status == "SKIPPED"
          assert "Edge out of bounds" in trades[0].error_msg
-         assert abs(trades[0].edge - 0.0) < 1e-4
+         assert abs(trades[0].edge - 0.02) < 1e-4
          assert mock_trader.execute_trade.call_count == 0
 
 

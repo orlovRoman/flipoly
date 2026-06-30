@@ -45,8 +45,8 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
       - TRADE_BET_SIZE_USDC: float (min bet)
       - MAX_BET_SIZE_USDC: float
     """
-    threshold = float(config.get("FAVORITE_THRESHOLD", 0.65))
-    min_edge  = float(config.get("MIN_EDGE", 0.02))
+    threshold = float(config.get("FAVORITE_THRESHOLD", 0.55))
+    min_edge  = float(config.get("MIN_EDGE", 0.05))
     dead_zone = float(config.get("AUTO_DEAD_ZONE_WIDTH", 0.10))
 
     if is_in_dead_zone(signal.mid_price, dead_zone):
@@ -104,11 +104,40 @@ def decide_ml_trend(
     if decision.action == "SKIP":
         return TradeDecision("SKIP", 0, 0, decision.reason, "SKIP", p_flip=p_flip)
 
+    p_win = 1.0 - p_flip
+    buy_price = decision.buy_price
+
+    edge = compute_edge(p_win, buy_price)
+    
+    min_edge = float(config.get("MIN_EDGE", 0.05))
+    max_edge = float(config.get("MAX_EDGE", 0.40))
+    if edge < min_edge or edge > max_edge:
+        return TradeDecision("SKIP", 0, 0, f"Edge out of bounds (edge={edge:.4f})", "SKIP", p_flip=p_flip, edge=edge)
+
+    kelly_enabled = config.get("KELLY_ENABLED", True)
+    if isinstance(kelly_enabled, str):
+        kelly_enabled = kelly_enabled.lower() == "true"
+
+    if kelly_enabled:
+        kf = compute_kelly_fraction(p_win, buy_price)
+        bet = compute_bet_size(
+            kf,
+            float(config.get("INITIAL_CAPITAL", 1000)),
+            float(config.get("KELLY_MULTIPLIER", 0.25)),
+            float(config.get("TRADE_BET_SIZE_USDC", 5)),
+            float(config.get("MAX_BET_SIZE_USDC", 50)),
+        )
+        if bet <= 0:
+            return TradeDecision("SKIP", 0, 0, "Kelly=0", "SKIP", p_flip=p_flip, edge=edge)
+    else:
+        kf = None
+        bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
+
     return TradeDecision(
-        decision.action, decision.buy_price, decision.bet_size_usdc,
+        decision.action, buy_price, bet,
         f"ML_TREND p_flip={p_flip:.3f} < {no_flip_thresh:.3f}, {decision.reason}",
         "ML_TREND",
-        p_flip=p_flip, edge=decision.edge, kelly_fraction=decision.kelly_fraction,
+        p_flip=p_flip, edge=edge, kelly_fraction=kf,
     )
 
 
@@ -150,7 +179,10 @@ def decide_outsider(
         edge = compute_edge(no_prob, signal.no_ask)
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
-        if config.get("KELLY_ENABLED", True):
+        kelly_enabled = config.get("KELLY_ENABLED", True)
+        if isinstance(kelly_enabled, str):
+            kelly_enabled = kelly_enabled.lower() == "true"
+        if kelly_enabled:
             kf = compute_kelly_fraction(no_prob, signal.no_ask)
             bet = compute_bet_size(
                 kf,
@@ -180,7 +212,10 @@ def decide_outsider(
         edge = compute_edge(yes_prob, signal.yes_ask)
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
-        if config.get("KELLY_ENABLED", True):
+        kelly_enabled = config.get("KELLY_ENABLED", True)
+        if isinstance(kelly_enabled, str):
+            kelly_enabled = kelly_enabled.lower() == "true"
+        if kelly_enabled:
             kf = compute_kelly_fraction(yes_prob, signal.yes_ask)
             bet = compute_bet_size(
                 kf,

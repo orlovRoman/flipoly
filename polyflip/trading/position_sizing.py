@@ -46,11 +46,10 @@ def compute_edge(win_prob: float, buy_price: float) -> float:
     """
     Математическое преимущество: EV/bet - 1.
     edge > 0 → положительное ожидание.
-    edge = win_prob/price - 1
     """
     if buy_price <= 0:
         return -1.0
-    return (win_prob / buy_price) - 1.0
+    return round(win_prob - buy_price, 4)
 
 
 def is_in_dead_zone(mid_price: float, dead_zone_width: float) -> bool:

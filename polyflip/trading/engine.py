@@ -461,17 +461,49 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     time_left_min=time_left_sec / 60.0
                 )
 
-                decision_obj = decide_ml_trend(signal, p_flip, settings_db)
+                flip_threshold_key = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
+                has_per_asset_threshold = flip_threshold_key in settings_db
+                
+                base_flip_threshold = (
+                    float(settings_db[flip_threshold_key])
+                    if has_per_asset_threshold
+                    else no_flip_threshold + dead_zone
+                )
+
+                auto_dead_zone = settings_db.get("AUTO_DEAD_ZONE", "true").lower() == "true"
+                auto_dead_zone_width = float(settings_db.get("AUTO_DEAD_ZONE_WIDTH", 0.10))
+                
+                lower, upper = compute_dead_zone(
+                    flip_threshold=base_flip_threshold,
+                    dead_zone_width=auto_dead_zone_width if auto_dead_zone else dead_zone,
+                    auto_mode=auto_dead_zone,
+                )
+
+                local_config = {**settings_db}
+                local_config["NO_FLIP_THRESHOLD"] = lower
+                local_config["FLIP_THRESHOLD"] = upper
+                local_config["MIN_EDGE"] = -100.0
+                local_config["MAX_EDGE"] = 100.0
+
+                decision_obj = decide_ml_trend(signal, p_flip, local_config)
                 
                 if decision_obj.action == "SKIP" and trade_on_flip:
-                    decision_obj = decide_outsider(signal, p_flip, settings_db)
+                    decision_obj = decide_outsider(signal, p_flip, local_config)
 
                 if decision_obj.action == "SKIP":
-                    logger.info("trade_skipped", reason=decision_obj.reason, p_flip=p_flip)
+                    reason = decision_obj.reason
+                    if lower <= p_flip < upper:
+                        reason = f"Мёртвая зона (p_flip={p_flip:.2f} в [{lower:.2f}, {upper:.2f}])"
+                    elif not trade_on_flip and p_flip >= upper:
+                        reason = f"Ожидается флип (p_flip={p_flip:.2f} >= {upper:.2f})"
+                    
+                    logger.info("trade_skipped", reason=reason, p_flip=p_flip)
                     await save_or_update_skipped_trade(
-                        db_session, market, decision_obj.reason, p_flip, model_ver, start_time,
+                        db_session, market, reason, p_flip, model_ver, start_time,
                         existing_skipped=existing_skipped,
-                        kelly_fraction=None, kelly_multiplier=None
+                        kelly_fraction=decision_obj.kelly_fraction,
+                        kelly_multiplier=1.0,
+                        edge=decision_obj.edge
                     )
                     continue
 
@@ -479,8 +511,45 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 buy_price = decision_obj.buy_price
                 actual_bet_size = decision_obj.bet_size_usdc
                 token_to_buy = yes_token_id if decision == "YES" else no_token_id
+                
+                fresh_prices = await api_client.get_market_prices(token_to_buy)
+                if not fresh_prices or fresh_prices.get("best_ask") is None:
+                    await save_or_update_skipped_trade(
+                        db_session, market, f"No fresh prices from API for ML ({decision})",
+                        0.0, None, start_time, existing_skipped=existing_skipped
+                    )
+                    continue
+
+                fresh_ask = fresh_prices["best_ask"]
+                price_drift = abs(fresh_ask - buy_price)
+                if price_drift > float(settings_db.get("MAX_PRICE_DRIFT", 0.03)):
+                    await save_or_update_skipped_trade(
+                        db_session, market, f"Price drift too large: {price_drift:.3f}",
+                        0.0, None, start_time, existing_skipped=existing_skipped
+                    )
+                    continue
+
+                buy_price = fresh_ask
+                
+                # Пересчитываем edge с учётом свежей цены из API
+                p_win = 1.0 - p_flip if decision == "YES" else p_flip
+                edge = round(p_win - buy_price, 4)
+                
+                # Проверяем лимиты по edge ещё раз
+                min_edge = float(settings_db.get("MIN_EDGE", 0.05))
+                max_edge = float(settings_db.get("MAX_EDGE", 0.40))
+                if edge < min_edge or edge > max_edge:
+                    await save_or_update_skipped_trade(
+                        db_session, market, f"Edge out of bounds (edge={edge:.4f})",
+                        p_flip, model_ver, start_time,
+                        existing_skipped=existing_skipped,
+                        kelly_fraction=decision_obj.kelly_fraction,
+                        kelly_multiplier=1.0,
+                        edge=edge
+                    )
+                    continue
+                
                 num_shares = round(actual_bet_size / buy_price, 2)
-                edge = decision_obj.edge
                 kelly_f = decision_obj.kelly_fraction
                 
                 trade_res = await trader.execute_trade(
