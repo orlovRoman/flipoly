@@ -18,7 +18,8 @@ class MockSnapshot:
         self.hour_of_day = 12
         self.recorded_at = datetime.now()
 
-def test_pnl_fee_on_payout_not_profit():
+def test_fee_only_on_profit():
+    """Fee = 2% от прибыли, не от revenue."""
     trader = SimulatedTrader(slippage_pct=0.0)
     decision = TradeDecision("BUY_YES", 0.50, 10.0, "test", "ML_TREND")
     trade = trader.execute_trade("m1", "BTC", decision, datetime.now(), 0.2)
@@ -26,4 +27,14 @@ def test_pnl_fee_on_payout_not_profit():
     snaps = [MockSnapshot("m1", "BTC", 5.0, 0.7, "YES")]
     replay = MarketReplay(snaps)
     pnl = compute_trade_pnl(trade, replay)
-    assert pnl == pytest.approx(9.6)
+    assert pnl == pytest.approx(9.8)
+
+def test_fee_is_zero_on_loss():
+    """На убыточной сделке fee = 0."""
+    trader = SimulatedTrader(slippage_pct=0.0)
+    decision = TradeDecision("BUY_YES", 0.50, 10.0, "test", "ML_TREND")
+    trade = trader.execute_trade("m1", "BTC", decision, datetime.now(), 0.2)
+    snaps = [MockSnapshot("m1", "BTC", 5.0, 0.7, "NO")]
+    replay = MarketReplay(snaps)
+    pnl = compute_trade_pnl(trade, replay)
+    assert pnl == pytest.approx(-10.0)

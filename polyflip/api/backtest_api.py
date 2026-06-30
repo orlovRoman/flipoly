@@ -90,7 +90,10 @@ async def run_backtest(
             )
 
         # 2. Группируем в реплеи
-        replays = group_snapshots_into_replays(snapshots)
+        replays = group_snapshots_into_replays(
+            snapshots,
+            min_snapshots=config.min_snapshots_per_market
+        )
         tradeable = len(replays)
         skipped = len(set(s.market_id for s in snapshots)) - tradeable
 
@@ -203,9 +206,9 @@ async def list_available_models(db: AsyncSession = Depends(get_db_session)):
         ModelRegistry.asset,
         ModelRegistry.version,
         ModelRegistry.is_active,
-        ModelRegistry.created_at,
+        ModelRegistry.trained_at,
         ModelRegistry.features,
-    ).order_by(ModelRegistry.created_at.desc())
+    ).order_by(ModelRegistry.trained_at.desc())
     rows = (await db.execute(stmt)).all()
     return {
         "models": [
@@ -214,7 +217,7 @@ async def list_available_models(db: AsyncSession = Depends(get_db_session)):
                 "asset": r.asset,
                 "version": r.version,
                 "is_active": r.is_active,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "trained_at": r.trained_at.isoformat() if r.trained_at else None,
                 "features": r.features,
             }
             for r in rows

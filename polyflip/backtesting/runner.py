@@ -9,13 +9,13 @@ from typing import Any
 from polyflip.backtesting.market_replay import MarketReplay
 from polyflip.backtesting.simulated_trader import SimulatedTrader
 from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider
-from polyflip.trading.feature_builder import build_feature_vector
+from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUMNS
 
 
 class BacktestRunner:
     def __init__(self, config: dict, model_blob: bytes, features: str):
         self.config = config
-        self.model = pickle.loads(model_blob) if model_blob else None
+        self.model = pickle.loads(model_blob) if model_blob and len(model_blob) > 0 else None
         self.features = [f.strip() for f in features.split(',')] if features else []
         self.trader = SimulatedTrader(slippage_pct=float(config.get("SLIPPAGE_PCT", 0.005)))
         self.trade_on_flip = config.get("TRADE_ON_FLIP", "true").lower() == "true"
@@ -26,7 +26,6 @@ class BacktestRunner:
         if not self.model or not self.features:
             return 0.0
             
-        from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUMNS
         X_df = pd.DataFrame(build_feature_vector(signal), columns=FEATURE_COLUMNS)
         
         # Проверяем наличие всех фичей

@@ -21,8 +21,9 @@ def compute_trade_pnl(trade: SimulatedTrade, replay: MarketReplay) -> float:
 
     if won:
         revenue = 1.0 * trade.shares
-        fee = revenue * 0.02
-        profit = revenue - trade.bet_size - fee
+        gross_profit = revenue - trade.bet_size
+        fee = max(gross_profit, 0) * 0.02
+        profit = gross_profit - fee
             
         return profit
     else:

@@ -103,7 +103,7 @@ class MarketReplay:
         return len(self.ticks)
 
 
-def group_snapshots_into_replays(snapshots: list) -> dict[str, MarketReplay]:
+def group_snapshots_into_replays(snapshots: list, min_snapshots: int = 3) -> dict[str, MarketReplay]:
     """
     Группирует список MarketSnapshot по market_id.
     Возвращает dict: market_id → MarketReplay.
@@ -115,7 +115,7 @@ def group_snapshots_into_replays(snapshots: list) -> dict[str, MarketReplay]:
 
     replays = {}
     for market_id, group in groups.items():
-        if len(group) < 3:
+        if len(group) < min_snapshots:
             continue
         try:
             replay = MarketReplay(group)
