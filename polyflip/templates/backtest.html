@@ -38,12 +38,50 @@
       border-color: rgba(255, 255, 255, 0.08);
     }
 
-    /* Вспомогательный текст для полей ввода */
-    .help-text {
-      font-size: 0.75rem;
+    /* CSS Tooltips */
+    .tooltip-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 6px;
+      cursor: help;
       color: var(--text-muted);
-      margin-top: 0.2rem;
-      line-height: 1.3;
+      font-size: 0.68rem;
+      border: 1px solid var(--border-color);
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.03);
+      position: relative;
+    }
+    
+    .tooltip-icon::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: 130%;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #141a26;
+      color: var(--text-main);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      white-space: normal;
+      width: 240px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.08);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      z-index: 9999;
+      font-weight: normal;
+      line-height: 1.35;
+      text-align: left;
+    }
+
+    .tooltip-icon:hover::after {
+      opacity: 1;
+      transform: translateX(-50%) translateY(-2px);
     }
 
     .config-grid {
@@ -400,36 +438,31 @@
             <div class="config-section-title">📊 Исторические данные</div>
             
             <div class="config-group">
-              <label>Активы (через запятую)</label>
+              <label>Активы <span class="tooltip-icon" data-tooltip="Коды токенов для тестирования через запятую. Пример: BTC, ETH, TRUMP.">❓</span></label>
               <input id="cfg-assets" type="text" value="BTC,ETH">
-              <div class="help-text">Коды токенов для тестирования. Пример: BTC, ETH, TRUMP.</div>
             </div>
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Начало периода</label>
+                <label>Начало периода <span class="tooltip-icon" data-tooltip="Левая временная граница исторического теста.">❓</span></label>
                 <input id="cfg-date-from" type="datetime-local">
-                <div class="help-text">Левая граница теста</div>
               </div>
               <div class="config-group">
-                <label>Конец периода</label>
+                <label>Конец периода <span class="tooltip-icon" data-tooltip="Правая временная граница исторического теста.">❓</span></label>
                 <input id="cfg-date-to" type="datetime-local">
-                <div class="help-text">Правая граница теста</div>
               </div>
             </div>
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Мин. снимков</label>
+                <label>Мин. снимков <span class="tooltip-icon" data-tooltip="Исключать малоактивные рынки, где записано меньше N снимков.">❓</span></label>
                 <input id="cfg-min-snaps" type="number" value="3" min="1" max="50">
-                <div class="help-text">Исключать малоактивные рынки</div>
               </div>
               <div class="config-group">
-                <label>Выбор модели</label>
+                <label>Выбор модели <span class="tooltip-icon" data-tooltip="ML-модель прогнозирования. Авто — использовать активную модель для каждого ассета.">❓</span></label>
                 <select id="cfg-model-id">
                   <option value="">Авто (активная модель)</option>
                 </select>
-                <div class="help-text">ML-модель прогнозирования</div>
               </div>
             </div>
 
@@ -437,24 +470,21 @@
             <div class="config-section-title">🎯 Логика торговли</div>
             
             <div class="config-group">
-              <label>Режим стратегии</label>
+              <label>Режим стратегии <span class="tooltip-icon" data-tooltip="ML — торговля по сигналам модели. Pure Favorite — покупка только фаворита.">❓</span></label>
               <select id="cfg-strategy-mode" onchange="onStrategyChange()">
                 <option value="ML">ML (Trend + Outsider)</option>
                 <option value="PURE_FAVORITE">Pure Favorite (Только фавориты)</option>
               </select>
-              <div class="help-text">Базовый алгоритм принятия решений для бэктеста.</div>
             </div>
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Мин. время (мин)</label>
+                <label>Мин. время (мин) <span class="tooltip-icon" data-tooltip="Минимальное оставшееся время рынка для входа в сделку.">❓</span></label>
                 <input id="cfg-min-time" type="number" value="1" step="0.5" min="0.1">
-                <div class="help-text">Минимум до закрытия</div>
               </div>
               <div class="config-group">
-                <label>Макс. время (мин)</label>
+                <label>Макс. время (мин) <span class="tooltip-icon" data-tooltip="Максимальное оставшееся время рынка для входа в сделку.">❓</span></label>
                 <input id="cfg-max-time" type="number" value="60" step="1" min="1">
-                <div class="help-text">Максимум до закрытия</div>
               </div>
             </div>
 
@@ -463,21 +493,18 @@
               <div class="config-section-title">🤖 Пороги ML-модели</div>
               <div class="config-grid">
                 <div class="config-group">
-                  <label>Порог No-flip</label>
+                  <label>Порог No-flip <span class="tooltip-icon" data-tooltip="Вероятность флипа ниже этого значения расценивается как сигнал для торговли ПО тренду (покупка фаворита).">❓</span></label>
                   <input id="cfg-no-flip" type="number" value="0.35" step="0.01" min="0" max="1">
-                  <div class="help-text">Ниже этого: ставим по тренду</div>
                 </div>
                 <div class="config-group">
-                  <label>Порог Flip</label>
+                  <label>Порог Flip <span class="tooltip-icon" data-tooltip="Вероятность флипа выше этого значения расценивается как сигнал для торговли ПРОТИВ толпы (покупка аутсайдера).">❓</span></label>
                   <input id="cfg-flip" type="number" value="0.60" step="0.01" min="0" max="1">
-                  <div class="help-text">Выше этого: ставим на аутсайдера</div>
                 </div>
               </div>
               
               <div class="toggle-row">
                 <div>
-                  <div style="font-size:0.8rem; font-weight:600;">Включить OUTSIDER</div>
-                  <div class="help-text">Разрешить торговлю против толпы</div>
+                  <div style="font-size:0.8rem; font-weight:600;">Включить OUTSIDER <span class="tooltip-icon" data-tooltip="Разрешить сделки против толпы на аутсайдерах при достижении порога Flip.">❓</span></div>
                 </div>
                 <label class="toggle-switch">
                   <input type="checkbox" id="cfg-trade-on-flip">
@@ -491,40 +518,34 @@
             
             <div class="config-grid">
               <div class="config-group">
-                <label>Порог фаворита</label>
+                <label>Порог фаворита <span class="tooltip-icon" data-tooltip="Цена отсечки фаворита (например, >0.65). Выше этого значения исход считается фаворитом.">❓</span></label>
                 <input id="cfg-fav-thresh" type="number" value="0.65" step="0.01" min="0.5" max="0.99">
-                <div class="help-text">Цена отсечки фаворита</div>
               </div>
               <div class="config-group">
-                <label>Мертвая зона</label>
+                <label>Мертвая зона <span class="tooltip-icon" data-tooltip="Ширина зоны вокруг порога фаворита, где сделки блокируются для фильтрации шума.">❓</span></label>
                 <input id="cfg-dead-zone" type="number" value="0.10" step="0.01" min="0" max="0.5">
-                <div class="help-text">Ширина зоны вокруг порога</div>
               </div>
             </div>
 
             <div class="config-grid">
               <div class="config-group">
-                <label>YES мин. цена</label>
+                <label>YES мин. цена <span class="tooltip-icon" data-tooltip="Минимальная допустимая цена покупки акций YES.">❓</span></label>
                 <input id="cfg-yes-min" type="number" value="0.55" step="0.01" min="0.01">
-                <div class="help-text">Мин. цена входа YES</div>
               </div>
               <div class="config-group">
-                <label>YES макс. цена</label>
+                <label>YES макс. цена <span class="tooltip-icon" data-tooltip="Максимальная допустимая цена покупки акций YES.">❓</span></label>
                 <input id="cfg-yes-max" type="number" value="0.95" step="0.01" max="0.99">
-                <div class="help-text">Макс. цена входа YES</div>
               </div>
             </div>
 
             <div class="config-grid">
               <div class="config-group">
-                <label>NO мин. цена</label>
+                <label>NO мин. цена <span class="tooltip-icon" data-tooltip="Минимальная допустимая цена покупки акций NO.">❓</span></label>
                 <input id="cfg-no-min" type="number" value="0.55" step="0.01" min="0.01">
-                <div class="help-text">Мин. цена входа NO</div>
               </div>
               <div class="config-group">
-                <label>NO макс. цена</label>
+                <label>NO макс. цена <span class="tooltip-icon" data-tooltip="Максимальная допустимая цена покупки акций NO.">❓</span></label>
                 <input id="cfg-no-max" type="number" value="0.95" step="0.01" max="0.99">
-                <div class="help-text">Макс. цена входа NO</div>
               </div>
             </div>
 
@@ -533,8 +554,7 @@
             
             <div class="toggle-row">
               <div>
-                <div style="font-size:0.8rem; font-weight:600;">Критерий Келли</div>
-                <div class="help-text">Расчет ставок на основе перевеса</div>
+                <div style="font-size:0.8rem; font-weight:600;">Критерий Келли <span class="tooltip-icon" data-tooltip="Автоматический расчет размера ставки на основе математического перевеса модели.">❓</span></div>
               </div>
               <label class="toggle-switch">
                 <input type="checkbox" id="cfg-kelly" checked onchange="onKellyChange()">
@@ -544,47 +564,40 @@
 
             <div class="config-grid" id="kelly-section">
               <div class="config-group">
-                <label>Множитель Келли</label>
+                <label>Множитель Келли <span class="tooltip-icon" data-tooltip="Дробный Келли (сейф-фактор). Снижает риск просадки путем уменьшения рассчитанной Келли доли.">❓</span></label>
                 <input id="cfg-kelly-mult" type="number" value="0.25" step="0.01" min="0.01" max="1">
-                <div class="help-text">Сейф-множитель доли (дробный Келли)</div>
               </div>
               <div class="config-group">
-                <label>Стартовый капитал</label>
+                <label>Стартовый капитал <span class="tooltip-icon" data-tooltip="Начальный виртуальный баланс бэктеста в USDC.">❓</span></label>
                 <input id="cfg-capital" type="number" value="1000" step="100" min="10">
-                <div class="help-text">Начальный баланс, USDC</div>
               </div>
             </div>
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Мин. ставка ($)</label>
+                <label>Мин. ставка ($) <span class="tooltip-icon" data-tooltip="Минимальный разрешенный размер одной сделки.">❓</span></label>
                 <input id="cfg-min-bet" type="number" value="5" step="1" min="1">
-                <div class="help-text">Мин. размер сделки</div>
               </div>
               <div class="config-group">
-                <label>Макс. ставка ($)</label>
+                <label>Макс. ставка ($) <span class="tooltip-icon" data-tooltip="Максимальный жесткий лимит на размер одной сделки.">❓</span></label>
                 <input id="cfg-max-bet" type="number" value="50" step="5" min="1">
-                <div class="help-text">Лимит на одну сделку</div>
               </div>
             </div>
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Мин. Edge (перевес)</label>
+                <label>Мин. Edge (перевес) <span class="tooltip-icon" data-tooltip="Порог перевеса над ценой для совершения сделки.">❓</span></label>
                 <input id="cfg-min-edge" type="number" value="-0.05" step="0.01">
-                <div class="help-text">Порог перевеса для входа</div>
               </div>
               <div class="config-group">
-                <label>Макс. Edge</label>
+                <label>Макс. Edge <span class="tooltip-icon" data-tooltip="Максимальный перевес. Все, что выше, приравнивается к этому значению (защита от выбросов).">❓</span></label>
                 <input id="cfg-max-edge" type="number" value="0.50" step="0.01">
-                <div class="help-text">Срез аномально высокого перевеса</div>
               </div>
             </div>
 
             <div class="config-group">
-              <label>Проскальзывание (Slippage, %)</label>
+              <label>Проскальзывание (Slippage, %) <span class="tooltip-icon" data-tooltip="Имитирует ухудшение цены исполнения ордера на бирже (проскальзывание).">❓</span></label>
               <input id="cfg-slippage" type="number" value="0.5" step="0.1" min="0" max="10">
-              <div class="help-text">Имитация ухудшения цены покупки на бирже</div>
             </div>
 
             <button class="run-btn" id="run-btn" onclick="runBacktest()">
