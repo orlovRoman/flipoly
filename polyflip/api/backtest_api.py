@@ -76,53 +76,53 @@ async def run_backtest(
 
     try:
         # 1. Загружаем только стартовые тики для каждого рынка в торговом окне
-        # Сначала считаем общее количество снимков для каждого рынка за этот период
         from sqlalchemy import func
-        from sqlalchemy.orm import aliased
 
-        count_stmt = (
+        base_filters = [
+            MarketSnapshot.asset.in_(config.assets),
+            MarketSnapshot.final_outcome.in_(["YES", "NO"]),
+            MarketSnapshot.time_left_min >= config.min_time_left_min,
+            MarketSnapshot.time_left_min <= config.max_time_left_min,
+        ]
+        if config.date_from:
+            base_filters.append(MarketSnapshot.recorded_at >= config.date_from)
+        if config.date_to:
+            base_filters.append(MarketSnapshot.recorded_at <= config.date_to)
+
+        # CTE для подсчета количества снимков только в торговом окне
+        count_cte = (
             select(
                 MarketSnapshot.market_id,
                 func.count().label("total_snaps")
             )
-            .where(MarketSnapshot.asset.in_(config.assets))
+            .where(*base_filters)
             .group_by(MarketSnapshot.market_id)
+            .cte("market_counts")
         )
-        if config.date_from:
-            count_stmt = count_stmt.where(MarketSnapshot.recorded_at >= config.date_from)
-        if config.date_to:
-            count_stmt = count_stmt.where(MarketSnapshot.recorded_at <= config.date_to)
-        count_cte = count_stmt.cte("market_counts")
 
-        # Ранжируем снимки в окне [min_time, max_time] по убыванию time_left_min
-        rank_stmt = (
+        # Подзапрос для ранжирования тиков
+        rank_sub = (
             select(
-                MarketSnapshot,
+                MarketSnapshot.id.label("snap_id"),
                 func.row_number().over(
                     partition_by=MarketSnapshot.market_id,
                     order_by=MarketSnapshot.time_left_min.desc()
                 ).label("rn"),
-                count_cte.c.total_snaps
+                count_cte.c.total_snaps,
             )
             .join(count_cte, MarketSnapshot.market_id == count_cte.c.market_id)
-            .where(
-                MarketSnapshot.asset.in_(config.assets),
-                MarketSnapshot.final_outcome.in_(["YES", "NO"]),
-                MarketSnapshot.time_left_min >= config.min_time_left_min,
-                MarketSnapshot.time_left_min <= config.max_time_left_min,
-            )
+            .where(*base_filters)
+            .subquery("ranked_snaps")
         )
-        if config.date_from:
-            rank_stmt = rank_stmt.where(MarketSnapshot.recorded_at >= config.date_from)
-        if config.date_to:
-            rank_stmt = rank_stmt.where(MarketSnapshot.recorded_at <= config.date_to)
 
-        rank_sub = rank_stmt.subquery("ranked_snaps")
-        snapshot_alias = aliased(MarketSnapshot, rank_sub)
-
-        stmt = select(snapshot_alias).where(
-            rank_sub.c.rn == 1,
-            rank_sub.c.total_snaps >= config.min_snapshots_per_market
+        # Финальный запрос: выбираем MarketSnapshot по id из subquery
+        stmt = select(MarketSnapshot).where(
+            MarketSnapshot.id.in_(
+                select(rank_sub.c.snap_id).where(
+                    rank_sub.c.rn == 1,
+                    rank_sub.c.total_snaps >= config.min_snapshots_per_market,
+                )
+            )
         )
 
         result = await db.execute(stmt)
@@ -142,7 +142,13 @@ async def run_backtest(
             min_snapshots=1
         )
         tradeable = len(replays)
-        skipped = 0  # Считаем 0, так как предфильтрация была в базе
+
+        # Вычисляем skipped как разницу между общим числом уникальных рынков в окне и прошедшими в бэктест
+        total_markets_in_window = await db.scalar(
+            select(func.count(func.distinct(MarketSnapshot.market_id)))
+            .where(*base_filters)
+        )
+        skipped = max(0, (total_markets_in_window or 0) - tradeable)
 
         # 3. Загружаем модель
         model_blob: Optional[bytes] = None
