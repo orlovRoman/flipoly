@@ -484,7 +484,10 @@
           <div class="bt-panel">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.2rem;">
               <strong style="font-size:0.95rem; color:var(--text-main);">⚙️ Конфигурация</strong>
-              <button onclick="resetConfig()" style="font-size:0.75rem; color:var(--poly-blue); background:none; border:none; cursor:pointer; font-weight:600;">Сбросить</button>
+              <div style="display:flex; gap:0.8rem;">
+                <button onclick="applyLiveSettings()" style="font-size:0.75rem; color:var(--poly-green); background:none; border:none; cursor:pointer; font-weight:600;">Заполнить из Live</button>
+                <button onclick="resetConfig()" style="font-size:0.75rem; color:var(--poly-blue); background:none; border:none; cursor:pointer; font-weight:600;">Сбросить</button>
+              </div>
             </div>
 
             <!-- Раздел: Данные -->
