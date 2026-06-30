@@ -32,6 +32,11 @@ async function fetchJSON(url, method = 'GET', body = null) {
   return data;
 }
 
+function toUTCDateISO(dateStr, endOfDay = false) {
+  const [y, m, d] = dateStr.split('-');
+  return new Date(Date.UTC(+y, +m - 1, +d, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0)).toISOString();
+}
+
 // ─── READ CONFIG FROM FORM ────────────────────────────────────────────────
 function readConfig() {
   const assets = document.getElementById('cfg-assets').value
@@ -41,8 +46,8 @@ function readConfig() {
 
   return {
     assets,
-    date_from:  dateFrom  ? new Date(dateFrom).toISOString()  : null,
-    date_to:    dateTo    ? new Date(dateTo).toISOString()    : null,
+    date_from:  dateFrom  ? toUTCDateISO(dateFrom, false) : null,
+    date_to:    dateTo    ? toUTCDateISO(dateTo, true)    : null,
     min_snapshots_per_market: parseInt(document.getElementById('cfg-min-snaps').value) || 3,
     model_id: parseInt(document.getElementById('cfg-model-id').value) || null,
     strategy_mode:        document.getElementById('cfg-strategy-mode').value,
@@ -473,20 +478,41 @@ async function applyLiveSettings() {
     document.getElementById('cfg-flip').value       = s.FLIP_THRESHOLD || '0.60';
     document.getElementById('cfg-fav-thresh').value = s.FAVORITE_THRESHOLD || '0.65';
     document.getElementById('cfg-dead-zone').value  = s.DEAD_ZONE_WIDTH || '0.10';
-    document.getElementById('cfg-yes-min').value    = s.TRADE_MIN_PRICE || '0.55';
-    document.getElementById('cfg-yes-max').value    = s.TRADE_MAX_PRICE || '0.95';
-    document.getElementById('cfg-no-min').value     = s.TRADE_MIN_PRICE || '0.55';
-    document.getElementById('cfg-no-max').value     = s.TRADE_MAX_PRICE || '0.95';
+    
+    document.getElementById('cfg-yes-min').value    = s.YES_MIN_PRICE || s.TRADE_MIN_PRICE || '0.55';
+    document.getElementById('cfg-yes-max').value    = s.YES_MAX_PRICE || s.TRADE_MAX_PRICE || '0.95';
+    document.getElementById('cfg-no-min').value     = s.NO_MIN_PRICE || s.TRADE_MIN_PRICE || '0.55';
+    document.getElementById('cfg-no-max').value     = s.NO_MAX_PRICE || s.TRADE_MAX_PRICE || '0.95';
+    
     document.getElementById('cfg-kelly').checked    = s.KELLY_ENABLED === 'true';
-    document.getElementById('cfg-kelly-mult').value = s.KELLY_MAX_FRACTION ? (parseFloat(s.KELLY_MAX_FRACTION) / 100).toFixed(2) : '0.25';
+    
+    const rawKelly = s.KELLY_MAX_FRACTION ? parseFloat(s.KELLY_MAX_FRACTION) : null;
+    document.getElementById('cfg-kelly-mult').value = rawKelly !== null
+      ? (rawKelly > 1 ? (rawKelly / 100).toFixed(2) : rawKelly.toFixed(2))
+      : '0.25';
+      
     document.getElementById('cfg-capital').value    = s.INITIAL_CAPITAL || '1000';
     document.getElementById('cfg-min-bet').value    = s.TRADE_BET_SIZE_USDC || '5';
-    document.getElementById('cfg-max-bet').value    = s.TRADE_BET_SIZE_USDC ? (parseFloat(s.TRADE_BET_SIZE_USDC) * 5).toFixed(0) : '50';
+    
+    document.getElementById('cfg-max-bet').value    = s.MAX_BET_SIZE_USDC
+      ? s.MAX_BET_SIZE_USDC
+      : (s.TRADE_BET_SIZE_USDC ? (parseFloat(s.TRADE_BET_SIZE_USDC) * 5).toFixed(0) : '50');
+      
     document.getElementById('cfg-min-edge').value   = s.MIN_EDGE || '-0.05';
     document.getElementById('cfg-max-edge').value   = s.MAX_EDGE || '0.50';
     document.getElementById('cfg-trade-on-flip').checked = s.TRADE_ON_FLIP === 'true';
+    
     onStrategyChange();
     onKellyChange();
+    
+    const minTime = parseFloat(document.getElementById('cfg-min-time').value) || 0;
+    const maxTime = parseFloat(document.getElementById('cfg-max-time').value) || 0;
+    if (minTime >= maxTime) {
+      document.getElementById('cfg-max-time').value = String(Math.ceil(minTime) + 1);
+      showAlert('Настройки загружены. max_time скорректирован (конфликт с min_time)', 'warning');
+      return;
+    }
+    
     showAlert('Загружены текущие настройки торгового бота', 'success');
   } catch (e) {
     showAlert(`Не удалось загрузить настройки бота: ${e.message}`, 'error');

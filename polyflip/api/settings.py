@@ -54,7 +54,11 @@ async def get_all_settings():
         "NO_MAX_PRICE": db.get("NO_MAX_PRICE", str(NO_MAX_PRICE)),
         "NO_MIN_EDGE": db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)),
         "AUTO_DEAD_ZONE": db.get("AUTO_DEAD_ZONE", "true"),
-        "AUTO_DEAD_ZONE_WIDTH": db.get("AUTO_DEAD_ZONE_WIDTH", str(AUTO_DEAD_ZONE_WIDTH))
+        "AUTO_DEAD_ZONE_WIDTH": db.get("AUTO_DEAD_ZONE_WIDTH", str(AUTO_DEAD_ZONE_WIDTH)),
+        "YES_MIN_PRICE": db.get("YES_MIN_PRICE", "0.55"),
+        "YES_MAX_PRICE": db.get("YES_MAX_PRICE", "0.95"),
+        "NO_MIN_PRICE": db.get("NO_MIN_PRICE", "0.55"),
+        "MAX_BET_SIZE_USDC": db.get("MAX_BET_SIZE_USDC", "50.0")
     }
 
 @router.get("/recommended_thresholds")
@@ -157,7 +161,11 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "NO_MAX_PRICE",
         "NO_MIN_EDGE",
         "AUTO_DEAD_ZONE",
-        "AUTO_DEAD_ZONE_WIDTH"
+        "AUTO_DEAD_ZONE_WIDTH",
+        "YES_MIN_PRICE",
+        "YES_MAX_PRICE",
+        "NO_MIN_PRICE",
+        "MAX_BET_SIZE_USDC"
     ]
     
     if key not in valid_keys:
@@ -247,6 +255,24 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
             payload.value = str(val)
         except ValueError:
             raise HTTPException(status_code=400, detail="FLIP_THRESHOLD must be a number")
+
+    if key in ["YES_MIN_PRICE", "YES_MAX_PRICE", "NO_MIN_PRICE"]:
+        try:
+            val = float(payload.value)
+            if not (0.01 <= val <= 0.99):
+                raise HTTPException(status_code=400, detail=f"{key} must be between 0.01 and 0.99")
+            payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"{key} must be a number")
+
+    if key == "MAX_BET_SIZE_USDC":
+        try:
+            val = float(payload.value)
+            if val < 1.0:
+                raise HTTPException(status_code=400, detail="MAX_BET_SIZE_USDC must be >= 1.0")
+            payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="MAX_BET_SIZE_USDC must be a number")
 
     if key == "NO_MAX_PRICE":
         try:
