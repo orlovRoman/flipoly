@@ -484,6 +484,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // 4.2 Dataset Table
       const dtBody = document.querySelector("#dataset-table tbody");
       dtBody.innerHTML = "";
+      const dtRows = [];
       for (const [asset, counts] of Object.entries(data.dataset_summary)) {
         const hasModel = data.active_models && data.active_models[asset];
         const isTrading = data.trade_assets && data.trade_assets.includes(asset.toUpperCase());
@@ -497,24 +498,23 @@ document.addEventListener("DOMContentLoaded", () => {
           statusBadge = `<span style="font-size: 0.8rem; background: rgba(255, 176, 32, 0.1); border: 1px solid rgba(255, 176, 32, 0.3); color: #FFB020; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600;">📊 Сбор данных</span>`;
         }
 
-        dtBody.innerHTML += `
+        dtRows.push(`
                     <tr>
                         <td><strong>${escapeHtml(asset)}</strong></td>
                         <td>${statusBadge}</td>
                         <td style="color: var(--poly-green)">${counts.RESOLVED}</td>
                         <td style="color: #FFB020">${counts.PENDING}</td>
                     </tr>
-                `;
+                `);
       }
-      if (Object.keys(data.dataset_summary).length === 0) {
-        dtBody.innerHTML = `<tr><td colspan="3">Нет собранных данных</td></tr>`;
-      }
+      dtBody.innerHTML = dtRows.length > 0 ? dtRows.join("") : `<tr><td colspan="4">Нет собранных данных</td></tr>`;
 
       // 4.3 Live Markets Table
       const ltBody = document.querySelector("#live-table tbody");
       ltBody.innerHTML = "";
+      const ltRows = [];
       for (const lm of data.live_markets) {
-        ltBody.innerHTML += `
+        ltRows.push(`
                     <tr>
                         <td><strong>${escapeHtml(lm.asset)}</strong></td>
                         <td style="font-size: 0.8rem">${escapeHtml(lm.question)}</td>
@@ -523,11 +523,9 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td>${lm.volume_5min}</td>
                         <td style="font-size: 0.8rem">${new Date(lm.end_time_est).toLocaleTimeString()}</td>
                     </tr>
-                `;
+                `);
       }
-      if (data.live_markets.length === 0) {
-        ltBody.innerHTML = `<tr><td colspan="6">Нет активных рынков</td></tr>`;
-      }
+      ltBody.innerHTML = ltRows.length > 0 ? ltRows.join("") : `<tr><td colspan="6">Нет активных рынков</td></tr>`;
     } catch (e) {
       console.error("Failed to load parser status", e);
     }
@@ -559,6 +557,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
 
+      const rows = [];
       data.forEach((m) => {
         const isActive = m.is_active;
         const isBest = m.accuracy === bestAccuracy[m.asset];
@@ -578,7 +577,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const baselineText = m.baseline != null ? (m.baseline * 100).toFixed(1) + "%" : "-";
         const accuracyText = m.accuracy != null ? (m.accuracy * 100).toFixed(1) + "%" : "-";
 
-        tbody.innerHTML += `
+        rows.push(`
                     <tr>
                         <td><strong>${escapeHtml(m.asset)}</strong></td>
                         <td>v${m.version}</td>
@@ -589,8 +588,9 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td>${statusHtml}</td>
                         <td>${actionHtml}</td>
                     </tr>
-                `;
+                `);
       });
+      tbody.innerHTML = rows.join("");
 
       // Attach event listeners to activate buttons
       document.querySelectorAll(".btn-activate-model").forEach((btn) => {

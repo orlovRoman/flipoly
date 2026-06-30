@@ -138,9 +138,11 @@ h1 {
     box-shadow: 0 4px 15px rgba(0, 114, 245, 0.3);
 }
 
-.primary-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(0, 114, 245, 0.4);
+.primary-btn:hover:not(:disabled) {
+    transform: translateY(-2.5px);
+    box-shadow: 0 6px 22px rgba(0, 114, 245, 0.55);
+    background: linear-gradient(135deg, #0080ff, #0066d6);
+    filter: brightness(1.1);
 }
 
 .outline-btn {
@@ -149,8 +151,23 @@ h1 {
     border: 1px solid var(--poly-blue);
 }
 
-.outline-btn:hover {
-    background: rgba(0, 114, 245, 0.1);
+.outline-btn:hover:not(:disabled) {
+    background: rgba(0, 114, 245, 0.15);
+    border-color: #0080ff;
+    color: #0080ff;
+    box-shadow: 0 0 12px rgba(0, 114, 245, 0.2);
+}
+
+.btn:active:not(:disabled) {
+    transform: translateY(1px);
+    filter: brightness(0.9);
+}
+
+.btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    box-shadow: none !important;
+    transform: none !important;
 }
 
 /* Stats Grid */

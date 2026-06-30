@@ -55,7 +55,8 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
 
     async def fetch_live():
         async with async_session() as s:
-            stmt = select(LiveMarket).order_by(LiveMarket.asset, LiveMarket.end_time_est)
+            now = datetime.now(timezone.utc)
+            stmt = select(LiveMarket).where(LiveMarket.end_time_est >= now).order_by(LiveMarket.asset, LiveMarket.end_time_est)
             return (await s.execute(stmt)).scalars().all()
 
     async def fetch_snaps():
