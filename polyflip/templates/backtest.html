@@ -46,10 +46,10 @@
       margin-left: 6px;
       cursor: help;
       color: var(--text-muted);
-      font-size: 0.68rem;
+      font-size: 0.75rem; /* FIX: мин. 12px */
       border: 1px solid var(--border-color);
-      width: 14px;
-      height: 14px;
+      width: 16px;       /* FIX: мин. 12px */
+      height: 16px;      /* FIX: мин. 12px */
       border-radius: 50%;
       background: rgba(255, 255, 255, 0.03);
       position: relative;
@@ -82,6 +82,35 @@
     .tooltip-icon:hover::after {
       opacity: 1;
       transform: translateX(-50%) translateY(-2px);
+    }
+
+    /* Модификатор для позиционирования влево (для левой колонки) */
+    .tooltip-icon--left::after {
+      left: 0;
+      transform: none;
+    }
+    .tooltip-icon--left:hover::after {
+      transform: translateY(-2px);
+    }
+
+    /* Модификатор для позиционирования вниз */
+    .tooltip-icon[data-pos="down"]::after {
+      bottom: auto;
+      top: 130%;
+    }
+    .tooltip-icon[data-pos="down"]:hover::after {
+      transform: translateX(-50%) translateY(2px);
+    }
+
+    /* Совмещенный модификатор для левых колонок и направления вниз */
+    .tooltip-icon--left[data-pos="down"]::after {
+      bottom: auto;
+      top: 130%;
+      left: 0;
+      transform: none;
+    }
+    .tooltip-icon--left[data-pos="down"]:hover::after {
+      transform: translateY(2px);
     }
 
     .config-grid {
@@ -438,28 +467,28 @@
             <div class="config-section-title">📊 Исторические данные</div>
             
             <div class="config-group">
-              <label>Активы <span class="tooltip-icon" data-tooltip="Коды токенов для тестирования через запятую. Пример: BTC, ETH, TRUMP.">❓</span></label>
+              <label>Активы <span class="tooltip-icon tooltip-icon--left" data-tooltip="Коды токенов для тестирования через запятую. Пример: BTC, ETH, TRUMP." data-pos="down">❓</span></label>
               <input id="cfg-assets" type="text" value="BTC,ETH">
             </div>
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Начало периода <span class="tooltip-icon" data-tooltip="Левая временная граница исторического теста.">❓</span></label>
+                <label>Начало периода <span class="tooltip-icon tooltip-icon--left" data-tooltip="Левая временная граница исторического теста." data-pos="down">❓</span></label>
                 <input id="cfg-date-from" type="datetime-local">
               </div>
               <div class="config-group">
-                <label>Конец периода <span class="tooltip-icon" data-tooltip="Правая временная граница исторического теста.">❓</span></label>
+                <label>Конец периода <span class="tooltip-icon" data-tooltip="Правая временная граница исторического теста." data-pos="down">❓</span></label>
                 <input id="cfg-date-to" type="datetime-local">
               </div>
             </div>
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Мин. снимков <span class="tooltip-icon" data-tooltip="Исключать малоактивные рынки, где записано меньше N снимков.">❓</span></label>
+                <label>Мин. снимков <span class="tooltip-icon tooltip-icon--left" data-tooltip="Исключать малоактивные рынки, где записано меньше N снимков." data-pos="down">❓</span></label>
                 <input id="cfg-min-snaps" type="number" value="3" min="1" max="50">
               </div>
               <div class="config-group">
-                <label>Выбор модели <span class="tooltip-icon" data-tooltip="ML-модель прогнозирования. Авто — использовать активную модель для каждого ассета.">❓</span></label>
+                <label>Выбор модели <span class="tooltip-icon" data-tooltip="ML-модель прогнозирования. Авто — использовать активную модель для каждого ассета." data-pos="down">❓</span></label>
                 <select id="cfg-model-id">
                   <option value="">Авто (активная модель)</option>
                 </select>
@@ -470,7 +499,7 @@
             <div class="config-section-title">🎯 Логика торговли</div>
             
             <div class="config-group">
-              <label>Режим стратегии <span class="tooltip-icon" data-tooltip="ML — торговля по сигналам модели. Pure Favorite — покупка только фаворита.">❓</span></label>
+              <label>Режим стратегии <span class="tooltip-icon tooltip-icon--left" data-tooltip="ML — торговля по сигналам модели. Pure Favorite — покупка только фаворита." data-pos="down">❓</span></label>
               <select id="cfg-strategy-mode" onchange="onStrategyChange()">
                 <option value="ML">ML (Trend + Outsider)</option>
                 <option value="PURE_FAVORITE">Pure Favorite (Только фавориты)</option>
@@ -479,7 +508,7 @@
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Мин. время (мин) <span class="tooltip-icon" data-tooltip="Минимальное оставшееся время рынка для входа в сделку.">❓</span></label>
+                <label>Мин. время (мин) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальное оставшееся время рынка для входа в сделку.">❓</span></label>
                 <input id="cfg-min-time" type="number" value="1" step="0.5" min="0.1">
               </div>
               <div class="config-group">
@@ -493,7 +522,7 @@
               <div class="config-section-title">🤖 Пороги ML-модели</div>
               <div class="config-grid">
                 <div class="config-group">
-                  <label>Порог No-flip <span class="tooltip-icon" data-tooltip="Вероятность флипа ниже этого значения расценивается как сигнал для торговли ПО тренду (покупка фаворита).">❓</span></label>
+                  <label>Порог No-flip <span class="tooltip-icon tooltip-icon--left" data-tooltip="Вероятность флипа ниже этого значения расценивается как сигнал для торговли ПО тренду (покупка фаворита).">❓</span></label>
                   <input id="cfg-no-flip" type="number" value="0.35" step="0.01" min="0" max="1">
                 </div>
                 <div class="config-group">
@@ -504,7 +533,7 @@
               
               <div class="toggle-row">
                 <div>
-                  <div style="font-size:0.8rem; font-weight:600;">Включить OUTSIDER <span class="tooltip-icon" data-tooltip="Разрешить сделки против толпы на аутсайдерах при достижении порога Flip.">❓</span></div>
+                  <div style="font-size:0.8rem; font-weight:600;">Включить OUTSIDER <span class="tooltip-icon tooltip-icon--left" data-tooltip="Разрешить сделки против толпы на аутсайдерах при достижении порога Flip.">❓</span></div>
                 </div>
                 <label class="toggle-switch">
                   <input type="checkbox" id="cfg-trade-on-flip">
@@ -518,7 +547,7 @@
             
             <div class="config-grid">
               <div class="config-group">
-                <label>Порог фаворита <span class="tooltip-icon" data-tooltip="Цена отсечки фаворита (например, >0.65). Выше этого значения исход считается фаворитом.">❓</span></label>
+                <label>Порог фаворита <span class="tooltip-icon tooltip-icon--left" data-tooltip="Цена отсечки фаворита (например, >0.65). Выше этого значения исход считается фаворитом.">❓</span></label>
                 <input id="cfg-fav-thresh" type="number" value="0.65" step="0.01" min="0.5" max="0.99">
               </div>
               <div class="config-group">
@@ -529,7 +558,7 @@
 
             <div class="config-grid">
               <div class="config-group">
-                <label>YES мин. цена <span class="tooltip-icon" data-tooltip="Минимальная допустимая цена покупки акций YES.">❓</span></label>
+                <label>YES мин. цена <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальная допустимая цена покупки акций YES.">❓</span></label>
                 <input id="cfg-yes-min" type="number" value="0.55" step="0.01" min="0.01">
               </div>
               <div class="config-group">
@@ -540,7 +569,7 @@
 
             <div class="config-grid">
               <div class="config-group">
-                <label>NO мин. цена <span class="tooltip-icon" data-tooltip="Минимальная допустимая цена покупки акций NO.">❓</span></label>
+                <label>NO мин. цена <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальная допустимая цена покупки акций NO.">❓</span></label>
                 <input id="cfg-no-min" type="number" value="0.55" step="0.01" min="0.01">
               </div>
               <div class="config-group">
@@ -554,7 +583,7 @@
             
             <div class="toggle-row">
               <div>
-                <div style="font-size:0.8rem; font-weight:600;">Критерий Келли <span class="tooltip-icon" data-tooltip="Автоматический расчет размера ставки на основе математического перевеса модели.">❓</span></div>
+                <div style="font-size:0.8rem; font-weight:600;">Критерий Келли <span class="tooltip-icon tooltip-icon--left" data-tooltip="Автоматический расчет размера ставки на основе математического перевеса модели.">❓</span></div>
               </div>
               <label class="toggle-switch">
                 <input type="checkbox" id="cfg-kelly" checked onchange="onKellyChange()">
@@ -564,7 +593,7 @@
 
             <div class="config-grid" id="kelly-section">
               <div class="config-group">
-                <label>Множитель Келли <span class="tooltip-icon" data-tooltip="Дробный Келли (сейф-фактор). Снижает риск просадки путем уменьшения рассчитанной Келли доли.">❓</span></label>
+                <label>Множитель Келли <span class="tooltip-icon tooltip-icon--left" data-tooltip="Дробный Келли (сейф-фактор). Снижает риск просадки путем уменьшения рассчитанной Келли доли.">❓</span></label>
                 <input id="cfg-kelly-mult" type="number" value="0.25" step="0.01" min="0.01" max="1">
               </div>
               <div class="config-group">
@@ -575,7 +604,7 @@
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Мин. ставка ($) <span class="tooltip-icon" data-tooltip="Минимальный разрешенный размер одной сделки.">❓</span></label>
+                <label>Мин. ставка ($) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальный разрешенный размер одной сделки.">❓</span></label>
                 <input id="cfg-min-bet" type="number" value="5" step="1" min="1">
               </div>
               <div class="config-group">
@@ -586,7 +615,7 @@
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Мин. Edge (перевес) <span class="tooltip-icon" data-tooltip="Порог перевеса над ценой для совершения сделки.">❓</span></label>
+                <label>Мин. Edge (перевес) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Порог перевеса над ценой для совершения сделки.">❓</span></label>
                 <input id="cfg-min-edge" type="number" value="-0.05" step="0.01">
               </div>
               <div class="config-group">
@@ -596,7 +625,7 @@
             </div>
 
             <div class="config-group">
-              <label>Проскальзывание (Slippage, %) <span class="tooltip-icon" data-tooltip="Имитирует ухудшение цены исполнения ордера на бирже (проскальзывание).">❓</span></label>
+              <label>Проскальзывание (Slippage, %) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Имитирует ухудшение цены исполнения ордера на бирже (проскальзывание).">❓</span></label>
               <input id="cfg-slippage" type="number" value="0.5" step="0.1" min="0" max="10">
             </div>
 
