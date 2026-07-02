@@ -21,7 +21,7 @@ async def test_trainer_skips_insufficient_data(db_session):
 async def test_trainer_creates_model(db_session):
     # Insert 20 dummy snapshots (resolved)
     snaps = []
-    for i in range(20):
+    for i in range(100):
         snaps.append(MarketSnapshot(
             market_id=f"test_m_{i}", asset="BTC", time_left_min=2.0,
             mid_price=0.8 if i % 2 == 0 else 0.2, spread=0.01,
@@ -48,7 +48,7 @@ async def test_trainer_creates_model(db_session):
 async def test_trainer_saves_model_even_if_accuracy_is_low(db_session):
     # Создаем 20 снимков, где классы перемешаны случайно, чтобы модель получилась "глупой"
     snaps = []
-    for i in range(20):
+    for i in range(100):
         snaps.append(MarketSnapshot(
             market_id=f"test_low_m_{i}", asset="BTC", time_left_min=2.0,
             mid_price=0.5, spread=0.01,

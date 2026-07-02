@@ -54,65 +54,97 @@ class BacktestRunner:
         proba = self.model.predict_proba(X)[0]
         return proba[1] if len(proba) > 1 else 0.0
 
-    def _calc_bet_size(self, decision) -> float:
-        """Скейлинг ставки по edge в диапазоне [base_bet, max_bet]."""
+    def _calc_bet_size(self, decision, signal=None) -> float:
+        """Скейлинг ставки по edge с учётом ликвидности."""
         if self.bet_sizing_mode != "scaled":
-            return self.base_bet
-        edge = getattr(decision, "edge", None)
-        if edge is None or self.max_edge <= self.min_edge:
-            return self.base_bet
-        # Линейный скейлинг: edge → [0, 1] → [base, max]
-        t = (edge - self.min_edge) / (self.max_edge - self.min_edge)
-        t = max(0.0, min(1.0, t))  # clip
-        return self.base_bet + t * (self.max_bet - self.base_bet)
+            bet = self.base_bet
+        else:
+            edge = getattr(decision, "edge", None)
+            if edge is None or self.max_edge <= self.min_edge:
+                bet = self.base_bet
+            else:
+                t = (edge - self.min_edge) / (self.max_edge - self.min_edge)
+                t = max(0.0, min(1.0, t))
+                bet = self.base_bet + t * (self.max_bet - self.base_bet)
+        
+        # Применяем liquidity cap если есть signal
+        if signal is not None and signal.volume_5min > 0:
+            liquidity_fraction = float(self.config.get("LIQUIDITY_FRACTION", 0.05))
+            cap = max(signal.volume_5min * liquidity_fraction, self.base_bet)
+            bet = min(bet, cap)
+        
+        return round(bet, 2)
+
+    def _evaluate_tick(self, tick):
+        signal = tick.to_signal()
+        if self.strategy_mode == "PURE_FAVORITE":
+            from polyflip.trading.decision_logic import decide_favorite
+            decision = decide_favorite(signal, self.config)
+            p_flip = 0.0
+        else:
+            p_flip = self._predict_flip(signal)
+            from polyflip.trading.decision_logic import decide_ml_trend, decide_outsider
+            decision = decide_ml_trend(signal, p_flip, self.config)
+            if decision.action == "SKIP" and self.trade_on_flip:
+                decision = decide_outsider(signal, p_flip, self.config)
+        return decision, p_flip, signal
 
     def run_market(self, replay: MarketReplay) -> None:
-        """
-        Прогоняет один рынок через симуляцию.
-        Ищет первую возможность для входа.
-        """
         if not replay.is_tradeable:
             return
 
         min_time = float(self.config.get("MIN_TIME_LEFT_MIN", 1.0))
         max_time = float(self.config.get("MAX_TIME_LEFT_MIN", 60.0))
         
-        # Берем самый ранний тик в торговом окне
-        tick = replay.get_entry_tick(min_time, max_time)
-        if not tick:
+        ticks = replay.get_ticks_in_window(min_time, max_time)
+        if not ticks:
             return
 
-        signal = tick.to_signal()
-
-        if self.strategy_mode == "PURE_FAVORITE":
-            decision = decide_favorite(signal, self.config)
-            p_flip = 0.0
-        else:
-            p_flip = self._predict_flip(signal)
-            decision = decide_ml_trend(signal, p_flip, self.config)
+        entry_strategy = self.config.get("ENTRY_STRATEGY", "first")
+        
+        best_decision = None
+        best_tick = None
+        best_p_flip = 0.0
+        best_signal = None
+        consecutive_edges = 0
+        
+        for tick in ticks:
+            decision, p_flip, signal = self._evaluate_tick(tick)
             
-            if decision.action == "SKIP" and self.trade_on_flip:
-                decision = decide_outsider(signal, p_flip, self.config)
+            if decision.action == "SKIP":
+                consecutive_edges = 0
+                continue
+                
+            if entry_strategy == "first":
+                best_decision, best_tick, best_p_flip, best_signal = decision, tick, p_flip, signal
+                break
+            elif entry_strategy == "best_edge":
+                if not best_decision or (decision.edge or 0) > (best_decision.edge or 0):
+                    best_decision, best_tick, best_p_flip, best_signal = decision, tick, p_flip, signal
+            elif entry_strategy == "confirmed":
+                consecutive_edges += 1
+                if consecutive_edges >= 2:
+                    best_decision, best_tick, best_p_flip, best_signal = decision, tick, p_flip, signal
+                    break
 
-        if decision.action != "SKIP":
-            bet = self._calc_bet_size(decision)
-            # Переопределяем ставку в decision перед передачей трейдеру
+        if best_decision and best_decision.action != "SKIP":
             from polyflip.trading.decision_logic import TradeDecision
+            bet = self._calc_bet_size(best_decision, signal=best_signal)
             decision = TradeDecision(
-                action=decision.action,
-                buy_price=decision.buy_price,
+                action=best_decision.action,
+                buy_price=best_decision.buy_price,
                 bet_size_usdc=bet,
-                reason=decision.reason,
-                strategy_type=decision.strategy_type,
-                p_flip=decision.p_flip,
-                edge=decision.edge,
+                reason=best_decision.reason,
+                strategy_type=best_decision.strategy_type,
+                p_flip=best_p_flip,
+                edge=best_decision.edge,
             )
             self.trader.execute_trade(
                 market_id=replay.market_id,
                 asset=replay.asset,
                 decision=decision,
-                timestamp=tick.recorded_at,
-                p_flip=p_flip
+                timestamp=best_tick.recorded_at,
+                p_flip=best_p_flip
             )
 
     def run_all(self, replays: dict[str, MarketReplay]) -> list:

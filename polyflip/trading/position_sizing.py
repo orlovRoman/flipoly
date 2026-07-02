@@ -24,6 +24,34 @@ def compute_bet_size_edge_scaled(
     return round(raw, 2)
 
 
+def compute_bet_size_with_liquidity(
+    edge: float,
+    volume_5min: float,
+    min_bet_usdc: float,
+    max_bet_usdc: float,
+    min_edge: float = 0.05,
+    max_edge: float = 0.20,
+    liquidity_fraction: float = 0.05,
+) -> float:
+    """
+    Масштабирует ставку по edge И ограничивает её по ликвидности рынка.
+    
+    liquidity_fraction: максимальная доля от volume_5min.
+    Например 0.05 = не более 5% от объёма за последние 5 минут.
+    
+    Гарантирует: min_bet_usdc <= result <= min(max_bet_usdc, liquidity_cap).
+    """
+    raw_bet = compute_bet_size_edge_scaled(
+        edge=edge,
+        min_bet_usdc=min_bet_usdc,
+        max_bet_usdc=max_bet_usdc,
+        min_edge=min_edge,
+        max_edge=max_edge,
+    )
+    # liquidity_cap: не менее min_bet чтобы не заблокировать торговлю на тихих рынках
+    liquidity_cap = max(volume_5min * liquidity_fraction, min_bet_usdc)
+    return round(min(raw_bet, liquidity_cap), 2)
+
 def compute_edge(win_prob: float, buy_price: float) -> float:
     """
     Математическое преимущество: EV/bet - 1.

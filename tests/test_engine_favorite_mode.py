@@ -46,6 +46,7 @@ def make_settings_db(
         "TRADE_CAPITAL_USDC": "100",
         "TRADING_MODE": trading_mode,
         "FAVORITE_MODE_ENTRY_SEC": str(entry_sec),
+        "FAVORITE_MIN_EDGE": "-0.05",
     }
     result = []
     for k, v in pairs.items():

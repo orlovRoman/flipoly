@@ -33,3 +33,14 @@ def test_max_edge_is_higher_than_realistic_signals():
     assert MIN_EDGE < MAX_EDGE
     assert MAX_EDGE <= 1.0, "MAX_EDGE > 100% ROI нереалистичен для Polymarket"
     assert MAX_EDGE >= 0.10, "MAX_EDGE слишком мал — будет срезать хорошие сигналы"
+
+def test_max_edge_default_is_conservative():
+    """MAX_EDGE по умолчанию должен быть <= 0.25 (консервативный)"""
+    from polyflip.db.init_runtime_settings import DEFAULTS
+    assert float(DEFAULTS["MAX_EDGE"]) <= 0.25, (
+        f"MAX_EDGE={DEFAULTS['MAX_EDGE']} слишком широкий — рискуем входить на неликвидных рынках"
+    )
+
+def test_max_edge_from_constants():
+    from polyflip.constants import MAX_EDGE
+    assert MAX_EDGE <= 0.25

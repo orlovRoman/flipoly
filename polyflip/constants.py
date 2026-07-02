@@ -30,7 +30,7 @@ VOLUME_WINDOW_MIN = 5               # окно для volume_5min
 TRADE_CHECK_LIMIT = 5               # кол-во последних записей для проверки дублей
 LIVE_POLL_INTERVAL_SECONDS = 10     # интервал опроса коллектора по умолчанию
 MIN_EDGE = 0.05                     # ROI-based: (win_prob/buy_price) - 1. 0.05 = 5% ROI
-MAX_EDGE = 0.50                     # ROI-based: (win_prob/buy_price) - 1.
+MAX_EDGE = 0.20                     # ROI-based: (win_prob/buy_price) - 1.
                                     # 0.50 = 50% ROI. Сигналы выше этого порога
                                     # считаются аномальными (ошибка модели или
                                     # арбитражная ситуация) и пропускаются.

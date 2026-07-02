@@ -82,10 +82,17 @@ def compute_metrics(trades: list[SimulatedTrade], replays: dict[str, MarketRepla
     # Мы используем переданный initial_capital для расчета max_drawdown_pct
     max_drawdown_pct = float(abs(drawdown.min()) / initial_capital * 100) if initial_capital > 0 else 0.0
 
-    # Sharpe Ratio (упрощённый, без risk-free rate)
+    # Sharpe Ratio proxy
     pnl_std = df["pnl"].std()
     avg_pnl = df["pnl"].mean()
-    sharpe = float(avg_pnl / pnl_std) if pd.notna(pnl_std) and pnl_std > 0 else None
+    n_trades = len(df)
+
+    import math
+    information_ratio = float(avg_pnl / pnl_std) if pd.notna(pnl_std) and pnl_std > 0 else None
+    sharpe_annualized_proxy = (
+        float(information_ratio * math.sqrt(n_trades))
+        if information_ratio is not None else None
+    )
 
     # Profit Factor
     gross_profit = df.loc[df["pnl"] > 0, "pnl"].sum()
@@ -100,6 +107,8 @@ def compute_metrics(trades: list[SimulatedTrade], replays: dict[str, MarketRepla
         "win_rate_pct": float(win_rate),
         "strategies": strat_stats,
         "max_drawdown_pct": max_drawdown_pct,
-        "sharpe_ratio": sharpe,
+        "information_ratio": information_ratio,
+        "sharpe_ratio": sharpe_annualized_proxy,
+        "sharpe_note": "proxy: IR * sqrt(N), не истинный annualized Sharpe",
         "profit_factor": profit_factor
     }
