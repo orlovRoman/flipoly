@@ -34,6 +34,7 @@ async def main():
         rank_sub = (
             select(
                 MarketSnapshot.id.label("snap_id"),
+                MarketSnapshot.market_id.label("market_id"),
                 func.row_number().over(
                     partition_by=MarketSnapshot.market_id,
                     order_by=MarketSnapshot.time_left_min.desc()
