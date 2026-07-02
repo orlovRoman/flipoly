@@ -37,6 +37,28 @@ def test_max_drawdown_with_loss():
     assert _compute_max_drawdown(curve) == pytest.approx(50.0, abs=1.0)
 
 
+def test_max_drawdown_first_trade_is_loss():
+    """Баг #4: если первая сделка убыточная, peak=values[0] был отрицательным
+    → просадка считалась неверно (отрицательной или заниженной).
+    После фикса peak=max(0, values[0])=0, первая же убыточная сделка
+    даёт правильную просадку."""
+    pnls = [-5.0, 3.0]   # первая сделка: убыток -5, потом прибыль +3
+    cumulative = 0.0
+    curve = []
+    for i, pnl in enumerate(pnls):
+        cumulative += pnl
+        curve.append(EquityCurvePoint(
+            trade_index=i, cumulative_pnl=cumulative,
+            trade_pnl=pnl, market_id="m1", asset="BTC",
+            strategy="ML_TREND", outcome="LOSS" if pnl < 0 else "WIN",
+            p_flip=0.2, edge=0.1, bet_size=10, executed_price=0.7
+        ))
+    dd = _compute_max_drawdown(curve, initial_capital=1000.0)
+    # peak=0, val=-5, denominator=1000 → dd=(0-(-5))/1000*100=0.5%
+    # при старом баге: peak=-5, abs(peak)>1e-9, dd=(peak-val)/|peak|=(0)/5*100=0 → не фиксировалось
+    assert dd == pytest.approx(0.5, abs=0.01), f"Ожидали 0.5%, получили {dd}"
+
+
 @pytest.mark.asyncio
 async def test_run_backtest_no_data_returns_422():
     """Если нет данных в БД — должен вернуть статус failed"""

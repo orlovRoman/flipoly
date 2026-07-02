@@ -29,7 +29,8 @@ class MarketSignal:
     spread: float             # best_ask - best_bid
     volume_5min: float        # объём за последние 5 минут
     price_velocity: float     # скорость изменения mid_price
-    hour_of_day: int          # UTC час (0-23)
+    hour_of_day: int          # час дня в UTC (0–23); намеренно UTC — зафиксировано как стандарт.
+                              # Переход на ET (UTC-5/UTC-4) отложен до v2.x: потребует переобучения моделей.
     time_left_min: float      # минут до закрытия рынка
 
     # Симулированные цены (вычисляются из mid_price и spread)

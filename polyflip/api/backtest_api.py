@@ -482,7 +482,7 @@ def _build_result(
         ))
 
     # Max Drawdown
-    max_dd = _compute_max_drawdown(equity_curve)
+    max_dd = _compute_max_drawdown(equity_curve, initial_capital=config.initial_capital)
 
     # Sharpe (если > 1 сделка)
     sharpe = None
@@ -561,18 +561,22 @@ def _build_result(
     )
 
 
-def _compute_max_drawdown(equity_curve: list[EquityCurvePoint]) -> float:
-    """Максимальная просадка от пика к впадине в %."""
+def _compute_max_drawdown(equity_curve: list[EquityCurvePoint], initial_capital: float = 1000.0) -> float:
+    """Максимальная просадка от пика к впадине в %.
+    Если peak=0 (первые сделки убыточны), знаменатель = initial_capital.
+    """
     if not equity_curve:
         return 0.0
     values = [p.cumulative_pnl for p in equity_curve]
-    peak = values[0]   # FIX: инициализируем первым реальным значением, не нулём
+    peak = max(0.0, values[0])  # пик не ниже нуля: капитал не может быть отрицательным в начале
     max_dd = 0.0
     for val in values:
         if val > peak:
             peak = val
-        if abs(peak) > 1e-9:
-            dd = (peak - val) / abs(peak) * 100
+        # Знаменатель: peak если есть прибыль, иначе initial_capital (чтобы избежать деления на 0)
+        denominator = peak if peak > 1e-9 else initial_capital
+        if denominator > 1e-9:
+            dd = max(0.0, (peak - val) / denominator * 100)
         else:
             dd = 0.0
         if dd > max_dd:

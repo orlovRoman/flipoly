@@ -133,7 +133,7 @@ class BacktestRunner:
                     best_decision, best_tick, best_p_flip, best_signal = decision, tick, p_flip, signal
             elif entry_strategy == "confirmed":
                 if best_decision and decision.action != best_decision.action:
-                    consecutive_edges = 1
+                    consecutive_edges = 0  # смена направления: нужно 2 подтверждения с нуля
                     best_decision = decision
                 else:
                     consecutive_edges += 1
