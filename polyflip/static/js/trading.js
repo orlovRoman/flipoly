@@ -641,6 +641,13 @@ document.addEventListener("DOMContentLoaded", () => {
         apiKey = newKey; // update local scope variable
       }
 
+      // ВАЖНО: нормализация значений перед сохранением в Redis:
+      // FAVORITE_MIN_EDGE   → / 100  (хранится как float, напр. -0.01)
+      // LIQUIDITY_FRACTION  → as-is  (хранится как float, напр. 0.05)
+      // MAX_PRICE_DRIFT     → as-is  (хранится как float, напр. 0.03)
+      // NO_MIN_PRICE        → as-is  (хранится как float, напр. 0.55)
+      // OUTSIDER_*          → as-is  (хранятся как float)
+      // Если меняешь формат хранения — обнови loadSettings() симметрично.
       const settingsToSave = {};
       if (settingsElements.minTimeLeft) settingsToSave.TRADE_MIN_TIME_LEFT_SEC = settingsElements.minTimeLeft.value;
       if (settingsElements.maxTimeLeft) settingsToSave.TRADE_MAX_TIME_LEFT_SEC = settingsElements.maxTimeLeft.value;

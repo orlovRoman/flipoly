@@ -69,6 +69,36 @@ class TestFavoriteThreshold:
         assert cfg.favorite_threshold == pytest.approx(0.99)
 
 
+class TestFavoriteThresholdBoundaries:
+    def test_exactly_010_allowed(self):
+        """Граница ge=0.10 должна быть допустима."""
+        cfg = BacktestConfig(favorite_threshold=0.10)
+        assert cfg.favorite_threshold == pytest.approx(0.10)
+
+    def test_below_010_rejected(self):
+        """0.09 < ge=0.10 → ValidationError."""
+        with pytest.raises(ValidationError, match="greater than or equal to"):
+            BacktestConfig(favorite_threshold=0.09)
+
+    def test_exactly_050_no_warning(self):
+        """Ровно 0.5 — НЕ должен давать warning (условие строгое <)."""
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            BacktestConfig(favorite_threshold=0.50)
+            user_warnings = [x for x in w if issubclass(x.category, UserWarning)]
+            assert len(user_warnings) == 0, "No warning expected at exactly 0.5"
+
+    def test_just_below_050_gives_warning(self):
+        """0.499 < 0.5 → должен дать UserWarning."""
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            BacktestConfig(favorite_threshold=0.499)
+            user_warnings = [x for x in w if issubclass(x.category, UserWarning)]
+            assert len(user_warnings) > 0, "Expected UserWarning for threshold < 0.5"
+
+
 # ─── to_runner_config round-trip ─────────────────────────────────────────────
 
 class TestRunnerConfigConversion:
