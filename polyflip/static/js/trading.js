@@ -230,6 +230,15 @@ document.addEventListener("DOMContentLoaded", () => {
     noMinEdge: document.getElementById("NO_MIN_EDGE"),
     autoDeadZone: document.getElementById("AUTO_DEAD_ZONE"),
     autoDeadZoneWidth: document.getElementById("AUTO_DEAD_ZONE_WIDTH"),
+    favoriteMinEdge: document.getElementById("FAVORITE_MIN_EDGE"),
+    noMinPrice: document.getElementById("NO_MIN_PRICE"),
+    outsiderNoMinPrice: document.getElementById("OUTSIDER_NO_MIN_PRICE"),
+    outsiderNoMaxPrice: document.getElementById("OUTSIDER_NO_MAX_PRICE"),
+    outsiderYesMinPrice: document.getElementById("OUTSIDER_YES_MIN_PRICE"),
+    outsiderYesMaxPrice: document.getElementById("OUTSIDER_YES_MAX_PRICE"),
+    bypassBetSizeCheck: document.getElementById("BYPASS_BET_SIZE_CHECK"),
+    liquidityFraction: document.getElementById("LIQUIDITY_FRACTION"),
+    maxPriceDrift: document.getElementById("MAX_PRICE_DRIFT"),
   };
 
   function updateDeadZoneInfo() {
@@ -531,6 +540,34 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.AUTO_DEAD_ZONE_WIDTH);
         settingsElements.autoDeadZoneWidth.value = Math.round(val * 100);
       }
+      if (settingsElements.favoriteMinEdge && data.FAVORITE_MIN_EDGE !== undefined) {
+        let val = parseFloat(data.FAVORITE_MIN_EDGE);
+        settingsElements.favoriteMinEdge.value = (val * 100).toFixed(1);
+      }
+      if (settingsElements.noMinPrice && data.NO_MIN_PRICE !== undefined) {
+        settingsElements.noMinPrice.value = data.NO_MIN_PRICE;
+      }
+      if (settingsElements.outsiderNoMinPrice && data.OUTSIDER_NO_MIN_PRICE !== undefined) {
+        settingsElements.outsiderNoMinPrice.value = data.OUTSIDER_NO_MIN_PRICE;
+      }
+      if (settingsElements.outsiderNoMaxPrice && data.OUTSIDER_NO_MAX_PRICE !== undefined) {
+        settingsElements.outsiderNoMaxPrice.value = data.OUTSIDER_NO_MAX_PRICE;
+      }
+      if (settingsElements.outsiderYesMinPrice && data.OUTSIDER_YES_MIN_PRICE !== undefined) {
+        settingsElements.outsiderYesMinPrice.value = data.OUTSIDER_YES_MIN_PRICE;
+      }
+      if (settingsElements.outsiderYesMaxPrice && data.OUTSIDER_YES_MAX_PRICE !== undefined) {
+        settingsElements.outsiderYesMaxPrice.value = data.OUTSIDER_YES_MAX_PRICE;
+      }
+      if (settingsElements.bypassBetSizeCheck && data.BYPASS_BET_SIZE_CHECK) {
+        settingsElements.bypassBetSizeCheck.checked = data.BYPASS_BET_SIZE_CHECK === "true";
+      }
+      if (settingsElements.liquidityFraction && data.LIQUIDITY_FRACTION !== undefined) {
+        settingsElements.liquidityFraction.value = data.LIQUIDITY_FRACTION;
+      }
+      if (settingsElements.maxPriceDrift && data.MAX_PRICE_DRIFT !== undefined) {
+        settingsElements.maxPriceDrift.value = data.MAX_PRICE_DRIFT;
+      }
       updateDeadZoneInfo();
       if (data.TRADING_MODE) {
         const mode = data.TRADING_MODE;
@@ -634,6 +671,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.noMinEdge) settingsToSave.NO_MIN_EDGE = parseFloat(settingsElements.noMinEdge.value) / 100;
       if (settingsElements.autoDeadZone) settingsToSave.AUTO_DEAD_ZONE = settingsElements.autoDeadZone.checked ? "true" : "false";
       if (settingsElements.autoDeadZoneWidth) settingsToSave.AUTO_DEAD_ZONE_WIDTH = parseFloat(settingsElements.autoDeadZoneWidth.value) / 100;
+      if (settingsElements.favoriteMinEdge) settingsToSave.FAVORITE_MIN_EDGE = parseFloat(settingsElements.favoriteMinEdge.value) / 100;
+      if (settingsElements.noMinPrice) settingsToSave.NO_MIN_PRICE = parseFloat(settingsElements.noMinPrice.value);
+      if (settingsElements.outsiderNoMinPrice) settingsToSave.OUTSIDER_NO_MIN_PRICE = parseFloat(settingsElements.outsiderNoMinPrice.value);
+      if (settingsElements.outsiderNoMaxPrice) settingsToSave.OUTSIDER_NO_MAX_PRICE = parseFloat(settingsElements.outsiderNoMaxPrice.value);
+      if (settingsElements.outsiderYesMinPrice) settingsToSave.OUTSIDER_YES_MIN_PRICE = parseFloat(settingsElements.outsiderYesMinPrice.value);
+      if (settingsElements.outsiderYesMaxPrice) settingsToSave.OUTSIDER_YES_MAX_PRICE = parseFloat(settingsElements.outsiderYesMaxPrice.value);
+      if (settingsElements.bypassBetSizeCheck) settingsToSave.BYPASS_BET_SIZE_CHECK = settingsElements.bypassBetSizeCheck.checked ? "true" : "false";
+      if (settingsElements.liquidityFraction) settingsToSave.LIQUIDITY_FRACTION = parseFloat(settingsElements.liquidityFraction.value);
+      if (settingsElements.maxPriceDrift) settingsToSave.MAX_PRICE_DRIFT = parseFloat(settingsElements.maxPriceDrift.value);
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
       // Считываем индивидуальные настройки по активам
