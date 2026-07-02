@@ -20,6 +20,8 @@ async def test_update_per_asset_trading_mode(db_session):
     import polyflip.api.settings as settings_module
     original_session = settings_module.async_session
     settings_module.async_session = patch_session(db_session)
+    original_assets = settings_module.settings.ASSETS
+    settings_module.settings.ASSETS = "BTC,ETH,SOL,XRP,DOGE"
     
     try:
         # Valid values
@@ -49,6 +51,7 @@ async def test_update_per_asset_trading_mode(db_session):
         assert exc_info.value.status_code == 400
     finally:
         settings_module.async_session = original_session
+        settings_module.settings.ASSETS = original_assets
 
 @pytest.mark.asyncio
 async def test_update_per_asset_min_edge(db_session):

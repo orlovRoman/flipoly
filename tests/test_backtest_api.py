@@ -39,19 +39,30 @@ def test_max_drawdown_with_loss():
 
 @pytest.mark.asyncio
 async def test_run_backtest_no_data_returns_422():
-    """Если нет данных в БД — должен вернуть 422"""
+    """Если нет данных в БД — должен вернуть статус failed"""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         headers = {"X-API-Key": "test-key"}
-        payload = {"assets": ["NONEXISTENT_ASSET_XYZ"]}
-        # Мокируем db.execute чтобы вернуть пустой список
-        with patch("polyflip.api.backtest_api.get_db_session") as mock_db:
+        payload = {
+            "assets": ["NONEXISTENT_ASSET_XYZ"],
+            "strategy_mode": "PURE_FAVORITE"
+        }
+        # Мокируем async_session чтобы вернуть пустой список
+        with patch("polyflip.api.backtest_api.async_session") as mock_session_maker:
             mock_session = AsyncMock()
-            mock_session.execute.return_value.scalars.return_value.all.return_value = []
-            mock_db.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-            resp = await client.post("/api/backtest/run", json=payload, headers=headers)
-        # Либо 422 (нет данных), либо 500 (mock не полный)
-        assert resp.status_code in (422, 500)
+            mock_session.execute.return_value.all = MagicMock(return_value=[])
+            mock_session_maker.return_value = MagicMock()
+            mock_session_maker.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            
+            resp = await client.post("/api/backtest/submit", json=payload, headers=headers)
+            assert resp.status_code == 200
+            run_id = resp.json()["run_id"]
+            
+            status_resp = await client.get(f"/api/backtest/status/{run_id}", headers=headers)
+            assert status_resp.status_code == 200
+            status_data = status_resp.json()
+            assert status_data["status"] == "failed"
+            assert "No resolved snapshots" in status_data["error"]
 
 
 @pytest.mark.asyncio

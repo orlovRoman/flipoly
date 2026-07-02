@@ -172,7 +172,14 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "AUTO_DEAD_ZONE_WIDTH",
         "YES_MIN_PRICE",
         "YES_MAX_PRICE",
-        "NO_MIN_PRICE"
+        "NO_MIN_PRICE",
+        "FAVORITE_MIN_EDGE",
+        "OUTSIDER_NO_MIN_PRICE",
+        "OUTSIDER_NO_MAX_PRICE",
+        "OUTSIDER_YES_MIN_PRICE",
+        "OUTSIDER_YES_MAX_PRICE",
+        "LIQUIDITY_FRACTION",
+        "BYPASS_BET_SIZE_CHECK"
     ]
     
     is_per_asset_key = False

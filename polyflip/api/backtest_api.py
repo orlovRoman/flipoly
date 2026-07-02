@@ -228,6 +228,7 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
         MarketSnapshot.volume_5min,
         MarketSnapshot.spread,
         MarketSnapshot.hour_of_day,
+        MarketSnapshot.flip_vs_final,
     ]
 
     stmt = select(*SNAPSHOT_COLS).where(MarketSnapshot.market_id.in_(market_ids))
@@ -246,7 +247,7 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
     job.progress = 40
     total_loaded = len(rows)
 
-    replays = await _run_cpu_task(rows_to_replays, rows, 1, timeout_sec=60)
+    replays = await _run_cpu_task(rows_to_replays, rows, 1, timeout_sec=180)
     tradeable = len(replays)
     job.progress = 60
 
@@ -281,7 +282,7 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
         _build_result,
         run_id, config, started_at, finished_at,
         total_loaded, tradeable, skipped, trades, replays,
-        timeout_sec=60
+        timeout_sec=180
     )
     return backtest_result
 

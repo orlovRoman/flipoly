@@ -112,7 +112,17 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "AUTO_DEAD_ZONE_WIDTH",
         "MAX_PRICE_DRIFT",
         "BET_SIZING_MODE",
-        "MAX_BET_SIZE_USDC"
+        "MAX_BET_SIZE_USDC",
+        "YES_MIN_PRICE",
+        "YES_MAX_PRICE",
+        "NO_MIN_PRICE",
+        "FAVORITE_MIN_EDGE",
+        "OUTSIDER_NO_MIN_PRICE",
+        "OUTSIDER_NO_MAX_PRICE",
+        "OUTSIDER_YES_MIN_PRICE",
+        "OUTSIDER_YES_MAX_PRICE",
+        "LIQUIDITY_FRACTION",
+        "BYPASS_BET_SIZE_CHECK"
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
@@ -199,26 +209,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             logger.warning("daily_loss_limit_reached", pnl=daily_pnl, limit=daily_limit)
             return
             
-    # Загружаем активные модели
-    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
-    active_models = (await db_session.execute(models_stmt)).scalars().all()
-    
-    models_by_asset = {}
+    models_by_asset = None
     model_versions = {}
     model_features = {}
-    for m in active_models:
-        try:
-            model_obj = pickle.loads(m.model_blob)
-            models_by_asset[m.asset] = model_obj
-            model_versions[m.asset] = m.version
-            
-            m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
-            if not m_feats and hasattr(model_obj, "feature_names_in_"):
-                m_feats = list(model_obj.feature_names_in_)
-                
-            model_features[m.asset] = m_feats
-        except Exception as e:
-            logger.error("failed_to_load_model", asset=m.asset, error=str(e))
 
     try:
         # ══════════════════════════════════════════════════
@@ -324,6 +317,26 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 edge = decision_obj.edge
             else:
                 # --- ML MODE ---
+                if models_by_asset is None:
+                    # Загружаем active models
+                    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
+                    active_models = (await db_session.execute(models_stmt)).scalars().all()
+                    
+                    models_by_asset = {}
+                    for m in active_models:
+                        try:
+                            model_obj = pickle.loads(m.model_blob)
+                            models_by_asset[m.asset] = model_obj
+                            model_versions[m.asset] = m.version
+                            
+                            m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
+                            if not m_feats and hasattr(model_obj, "feature_names_in_"):
+                                m_feats = list(model_obj.feature_names_in_)
+                                
+                            model_features[m.asset] = m_feats
+                        except Exception as e:
+                            logger.error("failed_to_load_model", asset=m.asset, error=str(e))
+
                 model = models_by_asset.get(market.asset)
                 model_ver = model_versions.get(market.asset)
                 m_features = model_features.get(market.asset, [])
@@ -472,12 +485,16 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             # Пересчитываем edge
             if asset_mode == TRADING_MODE_ML:
                 p_win = 1.0 - p_flip if decision_obj.strategy_type == "ML_TREND" else p_flip
+                current_min_edge = asset_min_edge
             else:
                 p_win = market.current_yes_price if decision == "YES" else (1.0 - market.current_yes_price)
+                if asset_min_edge_val is not None and asset_min_edge_val != "":
+                    current_min_edge = asset_min_edge
+                else:
+                    current_min_edge = float(settings_db.get("FAVORITE_MIN_EDGE", "-0.01"))
             edge = compute_edge(p_win, buy_price)
-            
             # Проверяем лимиты по edge и цене
-            if edge < asset_min_edge or edge > max_edge:
+            if edge < current_min_edge or edge > max_edge:
                 await save_or_update_skipped_trade(
                     db_session, market, f"Edge out of bounds (edge={edge:.4f})",
                     p_flip, model_ver, start_time,
@@ -504,9 +521,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     edge=edge,
                     min_bet_usdc=bet_size,
                     max_bet_usdc=max_bet_usdc,
-                    min_edge=asset_min_edge,
+                    min_edge=current_min_edge,
                     max_edge=max_edge
                 )
+                if asset_mode == TRADING_MODE_FAVORITE and actual_bet_size < bet_size:
+                    actual_bet_size = bet_size
 
             if actual_bet_size <= 0:
                 await save_or_update_skipped_trade(
@@ -549,7 +568,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
                 executed_price=trade_res.get("executed_price", buy_price),
                 predicted_flip_prob=p_flip,
-                active_features=f"{active_features_str.strip().rstrip(',')},{decision_obj.strategy_type.lower()}" if (active_features_str and active_features_str.strip().rstrip(',')) else decision_obj.strategy_type.lower() if asset_mode == TRADING_MODE_ML else "PURE_FAVORITE",
+                active_features=(f"{active_features_str.strip().rstrip(',')},{decision_obj.strategy_type.lower()}" if (active_features_str and active_features_str.strip().rstrip(',')) else decision_obj.strategy_type.lower()) if asset_mode == TRADING_MODE_ML else "PURE_FAVORITE",
                 model_version=model_ver,
                 status=trade_res.get("status", "FAILED"),
                 error_msg=trade_res.get("error_msg"),

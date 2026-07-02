@@ -80,8 +80,8 @@ class TestThresholdDefaults:
         config = {**BASE_CONFIG, "NO_FLIP_THRESHOLD": 0.50}
         sig = _signal(mid=0.70)
 
-        # p_flip=0.45 < 0.50 → торгуем
-        result_trade = decide_ml_trend(sig, p_flip=0.45, config=config)
+        # p_flip=0.30 < 0.50 → торгуем (edge будет выше -0.05)
+        result_trade = decide_ml_trend(sig, p_flip=0.30, config=config)
         assert result_trade.action != "SKIP"
 
         # p_flip=0.55 >= 0.50 → пропускаем
@@ -188,7 +188,7 @@ class TestConfirmedEntryStrategy:
                 consecutive_edges = 0
                 continue
             if best_decision and decision.action != best_decision.action:
-                consecutive_edges = 0   # ← ИСПРАВЛЕННОЕ поведение
+                consecutive_edges = 1   # ← ИСПРАВЛЕННОЕ поведение
                 best_decision = decision
             else:
                 consecutive_edges += 1

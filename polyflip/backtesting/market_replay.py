@@ -16,6 +16,7 @@ SnapshotRow = namedtuple("SnapshotRow", [
     "final_outcome", "volume_5min",
     "spread",
     "hour_of_day",
+    "flip_vs_final",
 ])
 
 

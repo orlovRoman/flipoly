@@ -88,7 +88,12 @@ class BacktestRunner:
             decision = decide_favorite(signal, self.config)
             p_flip = 0.0
         else:
-            p_flip = self._predict_flip(signal)
+            # Сначала проверяем предсказанное значение из кэша батч-предикшна
+            key = (tick.market_id, tick.time_left_min)
+            if hasattr(self, "p_flips") and key in self.p_flips:
+                p_flip = self.p_flips[key]
+            else:
+                p_flip = self._predict_flip(signal)
             decision = decide_ml_trend(signal, p_flip, self.config)
             if decision.action == "SKIP" and self.trade_on_flip:
                 decision = decide_outsider(signal, p_flip, self.config)
@@ -128,7 +133,7 @@ class BacktestRunner:
                     best_decision, best_tick, best_p_flip, best_signal = decision, tick, p_flip, signal
             elif entry_strategy == "confirmed":
                 if best_decision and decision.action != best_decision.action:
-                    consecutive_edges = 0
+                    consecutive_edges = 1
                     best_decision = decision
                 else:
                     consecutive_edges += 1
@@ -161,6 +166,47 @@ class BacktestRunner:
             )
 
     def run_all(self, replays: dict[str, MarketReplay]) -> list:
+        # Батч-предикшн вероятностей флипа для всех тиков, чтобы избежать оверхеда на единичные вызовы scikit-learn
+        if self.strategy_mode == "ML" and self.model and self.features:
+            all_ticks = []
+            min_time = float(self.config.get("MIN_TIME_LEFT_MIN", 1.0))
+            max_time = float(self.config.get("MAX_TIME_LEFT_MIN", 60.0))
+            
+            for replay in replays.values():
+                if replay.is_tradeable:
+                    ticks = replay.get_ticks_in_window(min_time, max_time)
+                    all_ticks.extend(ticks)
+            
+            if all_ticks:
+                import math
+                X = []
+                for tick in all_ticks:
+                    signal = tick.to_signal()
+                    price_dev = abs(signal.mid_price - 0.5)
+                    row_dict = {
+                        "time_left_min": signal.time_left_min,
+                        "mid_price": signal.mid_price,
+                        "spread": signal.spread,
+                        "volume_5min": signal.volume_5min,
+                        "price_velocity": signal.price_velocity,
+                        "hour_of_day": signal.hour_of_day,
+                        "price_deviation": price_dev,
+                        "deviation_x_time": price_dev * signal.time_left_min,
+                        "price_deviation_sq": price_dev ** 2,
+                        "spread_pct": min(signal.spread / (signal.mid_price + 1e-6), 10.0),
+                        "log_time_left": math.log1p(signal.time_left_min),
+                    }
+                    X.append([row_dict[f] for f in self.features])
+                
+                try:
+                    probas = self.model.predict_proba(X)
+                    self.p_flips = {
+                        (tick.market_id, tick.time_left_min): float(proba[1] if len(proba) > 1 else 0.0)
+                        for tick, proba in zip(all_ticks, probas)
+                    }
+                except Exception:
+                    self.p_flips = {}
+
         for market_id, replay in replays.items():
             self.run_market(replay)
         return self.trader.trades

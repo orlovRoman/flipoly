@@ -75,6 +75,8 @@ async def test_backtest_sql_correctness(db_session):
     db_session.add_all(snaps)
     await db_session.commit()
 
+    from unittest.mock import patch
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         headers = {"X-API-Key": "test-key"}
@@ -94,20 +96,31 @@ async def test_backtest_sql_correctness(db_session):
             "max_bet": 50,
             "strategy_mode": "PURE_FAVORITE",
         }
-        resp = await client.post("/api/backtest/run", json=payload, headers=headers)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["result"]["tradeable_markets"] == 1
-        assert data["result"]["skipped_markets"] == 2
+        with patch("polyflip.api.backtest_api.async_session", return_value=DummyAsyncContextManager(db_session)):
+            resp = await client.post("/api/backtest/submit", json=payload, headers=headers)
+            assert resp.status_code == 200
+            run_id = resp.json()["run_id"]
+            
+            status_resp = await client.get(f"/api/backtest/status/{run_id}", headers=headers)
+            assert status_resp.status_code == 200
+            data = status_resp.json()
+            assert data["status"] == "completed", f"Job failed: {data.get('error')}"
+            assert data["result"]["tradeable_markets"] == 1
+            assert data["result"]["skipped_markets"] == 2
 
-        # Run 2: min_snapshots_per_market = 1.
-        # All 3 markets (m1, m2, m3) should pass.
-        # Skipped should be 0.
-        payload["min_snapshots_per_market"] = 1
-        resp = await client.post("/api/backtest/run", json=payload, headers=headers)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["result"]["tradeable_markets"] == 3
-        assert data["result"]["skipped_markets"] == 0
+            # Run 2: min_snapshots_per_market = 1.
+            # All 3 markets (m1, m2, m3) should pass.
+            # Skipped should be 0.
+            payload["min_snapshots_per_market"] = 1
+            resp = await client.post("/api/backtest/submit", json=payload, headers=headers)
+            assert resp.status_code == 200
+            run_id = resp.json()["run_id"]
+            
+            status_resp = await client.get(f"/api/backtest/status/{run_id}", headers=headers)
+            assert status_resp.status_code == 200
+            data = status_resp.json()
+            assert data["status"] == "completed", f"Job failed: {data.get('error')}"
+            assert data["result"]["tradeable_markets"] == 3
+            assert data["result"]["skipped_markets"] == 0
 
     app.dependency_overrides.clear()
