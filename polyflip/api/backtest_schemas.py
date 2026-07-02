@@ -20,7 +20,7 @@ class BacktestConfig(BaseModel):
     max_markets: int = Field(default=500, ge=10, le=2000, description="Максимум рынков в одном прогоне")
 
     # Торговое окно
-    min_time_left_min: float = Field(default=1.0, ge=0.1, le=1440.0)
+    min_time_left_min: float = Field(default=1.0, ge=0.0, le=1440.0)
     max_time_left_min: float = Field(default=60.0, ge=1.0, le=1440.0)
 
     # Стратегия
