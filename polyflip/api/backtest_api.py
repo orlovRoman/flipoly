@@ -13,10 +13,12 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from enum import Enum
+import concurrent.futures
 
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import MarketSnapshot, ModelRegistry
@@ -26,7 +28,7 @@ from polyflip.api.backtest_schemas import (
     BacktestConfig, BacktestResult, BacktestRunResponse,
     StrategyBreakdown, AssetBreakdown, EquityCurvePoint
 )
-from polyflip.backtesting.market_replay import group_snapshots_into_replays
+from polyflip.backtesting.market_replay import group_snapshots_into_replays, rows_to_replays
 from polyflip.backtesting.runner import BacktestRunner
 from polyflip.backtesting.metrics import compute_trade_pnl
 
@@ -58,164 +60,226 @@ async def backtest_page(request: Request):
 
 # ─── Run Backtest ───────────────────────────────────────────────────────────
 
-@router.post(
-    "/api/backtest/run",
-    response_model=BacktestRunResponse,
-    dependencies=[Depends(verify_api_key)]
+class JobStatus(str, Enum):
+    PENDING   = "pending"
+    RUNNING   = "running"
+    COMPLETED = "completed"
+    FAILED    = "failed"
+
+class Job:
+    def __init__(self, run_id: str):
+        self.run_id    = run_id
+        self.status    = JobStatus.PENDING
+        self.progress  = 0
+        self.result    = None
+        self.error     = None
+        self.started   = datetime.now(timezone.utc)
+        self.finished  = None
+
+_jobs: dict[str, Job] = {}
+_MAX_JOBS = 10
+_semaphore = asyncio.Semaphore(1)
+
+_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="backtest"
 )
-async def run_backtest(
+
+async def _run_cpu_task(fn, *args, timeout_sec=120):
+    loop = asyncio.get_event_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(_executor, fn, *args),
+            timeout=timeout_sec
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=f"Backtest exceeded {timeout_sec}s time limit. Reduce dataset size."
+        )
+
+@router.post("/api/backtest/submit", dependencies=[Depends(verify_api_key)])
+async def submit_backtest(
     config: BacktestConfig,
-    db: AsyncSession = Depends(get_db_session)
+    background_tasks: BackgroundTasks,
 ):
-    """
-    Запускает бэктест с заданной конфигурацией.
-    Загружает MarketSnapshot из БД, прогоняет BacktestRunner, возвращает результат.
-    """
+    """Принимает задачу, отвечает мгновенно, запускает в фоне."""
+    if any(j.status == JobStatus.RUNNING for j in _jobs.values()):
+        raise HTTPException(status_code=429, detail="Another backtest is already running. Please wait.")
+
     run_id = str(uuid.uuid4())
+    job    = Job(run_id)
+    _jobs[run_id] = job
+
+    if len(_jobs) > _MAX_JOBS:
+        oldest = min(
+            (j for j in _jobs.values() if j.status != JobStatus.RUNNING),
+            key=lambda j: j.started, default=None
+        )
+        if oldest:
+            del _jobs[oldest.run_id]
+
+    background_tasks.add_task(_run_backtest_bg, run_id, config)
+    return {"run_id": run_id, "status": "pending", "poll_url": f"/api/backtest/status/{run_id}"}
+
+
+@router.get("/api/backtest/status/{run_id}", dependencies=[Depends(verify_api_key)])
+async def get_job_status(run_id: str):
+    job = _jobs.get(run_id)
+    if not job:
+        raise HTTPException(404, detail="Job not found")
+    return {
+        "run_id":   run_id,
+        "status":   job.status,
+        "progress": job.progress,
+        "error":    job.error,
+        "result":   job.result if job.status == JobStatus.COMPLETED else None,
+        "elapsed_sec": ((job.finished or datetime.now(timezone.utc)) - job.started).total_seconds(),
+    }
+
+
+async def _run_backtest_bg(run_id: str, config: BacktestConfig):
+    job = _jobs[run_id]
+    job.status = JobStatus.RUNNING
+
+    async with _semaphore:
+        try:
+            async with async_session() as db:
+                job.progress = 10
+                result = await _execute_backtest_logic(db, config, run_id, job)
+                job.result   = result
+                job.status   = JobStatus.COMPLETED
+                job.progress = 100
+                
+                # Кэшируем для совместимости с get_backtest_result
+                if len(_results_cache) >= _MAX_CACHE_SIZE:
+                    oldest_key = next(iter(_results_cache))
+                    del _results_cache[oldest_key]
+                _results_cache[run_id] = result
+        except Exception as e:
+            logger.exception("backtest_bg_failed", run_id=run_id, error=str(e))
+            job.status = JobStatus.FAILED
+            job.error  = str(e)
+        finally:
+            job.finished = datetime.now(timezone.utc)
+
+
+async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_id: str, job: Job):
     started_at = datetime.now(timezone.utc)
 
-    try:
-        # 1. Загружаем только стартовые тики для каждого рынка в торговом окне
-        from sqlalchemy import func
+    # 1. Загружаем стартовые тики для каждого рынка в торговом окне
+    base_filters = [
+        MarketSnapshot.asset.in_(config.assets),
+        MarketSnapshot.final_outcome.in_(["YES", "NO"]),
+        MarketSnapshot.time_left_min >= config.min_time_left_min,
+        MarketSnapshot.time_left_min <= config.max_time_left_min,
+    ]
+    if config.date_from:
+        base_filters.append(MarketSnapshot.recorded_at >= config.date_from)
+    if config.date_to:
+        base_filters.append(MarketSnapshot.recorded_at <= config.date_to)
 
-        base_filters = [
-            MarketSnapshot.asset.in_(config.assets),
-            MarketSnapshot.final_outcome.in_(["YES", "NO"]),
-            MarketSnapshot.time_left_min >= config.min_time_left_min,
-            MarketSnapshot.time_left_min <= config.max_time_left_min,
-        ]
-        if config.date_from:
-            base_filters.append(MarketSnapshot.recorded_at >= config.date_from)
-        if config.date_to:
-            base_filters.append(MarketSnapshot.recorded_at <= config.date_to)
+    count_cte = (
+        select(MarketSnapshot.market_id, func.count().label("total_snaps"))
+        .where(*base_filters)
+        .group_by(MarketSnapshot.market_id)
+        .cte("market_counts")
+    )
 
-        # CTE для подсчета количества снимков только в торговом окне
-        count_cte = (
-            select(
-                MarketSnapshot.market_id,
-                func.count().label("total_snaps")
-            )
-            .where(*base_filters)
-            .group_by(MarketSnapshot.market_id)
-            .cte("market_counts")
+    rank_sub = (
+        select(
+            MarketSnapshot.id.label("snap_id"),
+            MarketSnapshot.market_id.label("market_id"),
+            func.row_number().over(
+                partition_by=MarketSnapshot.market_id,
+                order_by=MarketSnapshot.time_left_min.desc()
+            ).label("rn"),
+            count_cte.c.total_snaps,
         )
+        .join(count_cte, MarketSnapshot.market_id == count_cte.c.market_id)
+        .where(*base_filters)
+        .subquery("ranked_snaps")
+    )
 
-        # Подзапрос для ранжирования тиков
-        rank_sub = (
-            select(
-                MarketSnapshot.id.label("snap_id"),
-                MarketSnapshot.market_id.label("market_id"),
-                func.row_number().over(
-                    partition_by=MarketSnapshot.market_id,
-                    order_by=MarketSnapshot.time_left_min.desc()
-                ).label("rn"),
-                count_cte.c.total_snaps,
-            )
-            .join(count_cte, MarketSnapshot.market_id == count_cte.c.market_id)
-            .where(*base_filters)
-            .subquery("ranked_snaps")
-        )
+    qualified_stmt = select(rank_sub.c.market_id).where(
+        rank_sub.c.rn == 1,
+        rank_sub.c.total_snaps >= config.min_snapshots_per_market,
+    ).limit(config.max_markets)
+    
+    qualified_res = await db.execute(qualified_stmt)
+    market_ids = [row[0] for row in qualified_res.all()]
+    job.progress = 20
 
-        # Выбираем список квалифицированных market_ids (Запрос 1)
-        qualified_stmt = select(rank_sub.c.market_id).where(
-            rank_sub.c.rn == 1,
-            rank_sub.c.total_snaps >= config.min_snapshots_per_market,
-        )
-        qualified_res = await db.execute(qualified_stmt)
-        market_ids = [row[0] for row in qualified_res.all()]
+    if not market_ids:
+        raise HTTPException(status_code=422, detail="No resolved snapshots found for given filters.")
 
-        # Выбираем все тики для найденных рынков (Запрос 2)
-        if not market_ids:
-            snapshots = []
-        else:
-            stmt = select(MarketSnapshot).where(
-                MarketSnapshot.market_id.in_(market_ids)
-            )
-            if config.date_from:
-                stmt = stmt.where(MarketSnapshot.recorded_at >= config.date_from)
-            if config.date_to:
-                stmt = stmt.where(MarketSnapshot.recorded_at <= config.date_to)
+    SNAPSHOT_COLS = [
+        MarketSnapshot.id,
+        MarketSnapshot.market_id,
+        MarketSnapshot.asset,
+        MarketSnapshot.recorded_at,
+        MarketSnapshot.mid_price,
+        MarketSnapshot.price_velocity,
+        MarketSnapshot.time_left_min,
+        MarketSnapshot.final_outcome,
+        MarketSnapshot.p_flip,
+        MarketSnapshot.volume_5min,
+    ]
 
-            result = await db.execute(stmt)
-            snapshots = result.scalars().all()
+    stmt = select(*SNAPSHOT_COLS).where(MarketSnapshot.market_id.in_(market_ids))
+    if config.date_from:
+        stmt = stmt.where(MarketSnapshot.recorded_at >= config.date_from)
+    if config.date_to:
+        stmt = stmt.where(MarketSnapshot.recorded_at <= config.date_to)
+    stmt = stmt.order_by(MarketSnapshot.market_id, MarketSnapshot.recorded_at)
 
-        total_loaded = len(snapshots)
-        if total_loaded == 0:
-            raise HTTPException(
-                status_code=422,
-                detail="No resolved snapshots found for given filters. "
-                       "Check assets and date range."
-            )
+    result = await db.stream(stmt.execution_options(yield_per=1000))
+    rows = []
+    async for partition in result.partitions(1000):
+        rows.extend(partition)
+        await asyncio.sleep(0)
+    
+    job.progress = 40
+    total_loaded = len(rows)
 
-        # 2. Группируем в реплеи (так как мы уже применили фильтры в БД, группируем с min_snapshots=1)
-        replays = await asyncio.to_thread(
-            group_snapshots_into_replays,
-            snapshots,
-            min_snapshots=1
-        )
-        tradeable = len(replays)
+    replays = await _run_cpu_task(rows_to_replays, rows, 1, timeout_sec=60)
+    tradeable = len(replays)
+    job.progress = 60
 
-        # Вычисляем skipped как разницу между общим числом уникальных рынков в окне и прошедшими в бэктест
-        total_markets_in_window = await db.scalar(
-            select(func.count(func.distinct(MarketSnapshot.market_id)))
-            .where(*base_filters)
-        )
-        skipped = max(0, (total_markets_in_window or 0) - tradeable)
+    total_markets_in_window = await db.scalar(
+        select(func.count(func.distinct(MarketSnapshot.market_id))).where(*base_filters)
+    )
+    skipped = max(0, (total_markets_in_window or 0) - tradeable)
 
-        # 3. Загружаем модель
-        model_blob: Optional[bytes] = None
-        features_str: str = ""
+    model_blob: Optional[bytes] = None
+    features_str: str = ""
+    if config.strategy_mode == "ML":
+        model_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
+        if config.model_id:
+            model_stmt = select(ModelRegistry).where(ModelRegistry.id == config.model_id)
+        elif config.assets:
+            model_stmt = model_stmt.where(ModelRegistry.asset == config.assets[0])
+        
+        model_row = (await db.execute(model_stmt)).scalars().first()
+        if model_row:
+            model_blob = model_row.model_blob
+            features_str = model_row.features or ""
 
-        if config.strategy_mode == "ML":
-            model_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
-            if config.model_id:
-                model_stmt = select(ModelRegistry).where(ModelRegistry.id == config.model_id)
-            elif config.assets:
-                model_stmt = model_stmt.where(ModelRegistry.asset == config.assets[0])
-            
-            model_row = (await db.execute(model_stmt)).scalars().first()
-            if model_row:
-                model_blob = model_row.model_blob
-                features_str = model_row.features or ""
+    runner_config = config.to_runner_config()
+    runner = BacktestRunner(runner_config, model_blob, features_str)
+    
+    job.progress = 70
+    trades = await _run_cpu_task(runner.run_all, replays, timeout_sec=180)
+    job.progress = 90
 
-        # 4. Прогоняем BacktestRunner
-        runner_config = config.to_runner_config()
-        runner = BacktestRunner(runner_config, model_blob, features_str)
-        trades = await asyncio.to_thread(runner.run_all, replays)
-
-        # 5. Считаем метрики
-        finished_at = datetime.now(timezone.utc)
-        backtest_result = await asyncio.to_thread(
-            _build_result,
-            run_id=run_id,
-            config=config,
-            started_at=started_at,
-            finished_at=finished_at,
-            total_loaded=total_loaded,
-            tradeable=tradeable,
-            skipped=skipped,
-            trades=trades,
-            replays=replays,
-        )
-
-        # Кэшируем
-        if len(_results_cache) >= _MAX_CACHE_SIZE:
-            oldest_key = next(iter(_results_cache))
-            del _results_cache[oldest_key]
-        _results_cache[run_id] = backtest_result
-
-        return BacktestRunResponse(
-            run_id=run_id,
-            status="completed",
-            message=f"Backtest completed: {len(trades)} trades on {tradeable} markets",
-            result=backtest_result
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("backtest_run_error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Backtest failed: {str(e)}")
+    finished_at = datetime.now(timezone.utc)
+    backtest_result = await _run_cpu_task(
+        _build_result,
+        run_id, config, started_at, finished_at,
+        total_loaded, tradeable, skipped, trades, replays,
+        timeout_sec=60
+    )
+    return backtest_result
 
 
 # ─── Get Result ─────────────────────────────────────────────────────────────

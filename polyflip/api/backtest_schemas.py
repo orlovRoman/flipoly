@@ -17,6 +17,7 @@ class BacktestConfig(BaseModel):
     date_from: Optional[datetime] = Field(default=None, description="Начало периода (UTC)")
     date_to: Optional[datetime] = Field(default=None, description="Конец периода (UTC)")
     min_snapshots_per_market: int = Field(default=3, ge=1, le=50)
+    max_markets: int = Field(default=500, ge=10, le=2000, description="Максимум рынков в одном прогоне")
 
     # Торговое окно
     min_time_left_min: float = Field(default=1.0, ge=0.1, le=1440.0)

@@ -78,30 +78,76 @@ async function runBacktest() {
   const btn = document.getElementById('run-btn');
   btn.disabled = true;
   btn.classList.add('loading');
-  btn.textContent = '⏳ Running...';
+  btn.textContent = '⏳ Submitting...';
   hideAlert();
 
   try {
     const config = readConfig();
-    const response = await API.run(config);
-
-    if (response.status === 'completed' && response.result) {
-      currentResult = response.result;
-      allTrades = response.result.equity_curve || [];
-      renderAll(response.result);
-      switchTab('equity');
-      showAlert(`✅ Completed: ${response.message}`, 'success');
-      loadHistory();
-    } else {
-      showAlert(`⚠️ ${response.message}`, 'info');
+    const res = await fetch('/api/backtest/submit', {
+        method: "POST",
+        headers: HEADERS,
+        body: JSON.stringify(config)
+    });
+    
+    if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || `HTTP ${res.status}`);
     }
+    const data = await res.json();
+    
+    await pollJobStatus(data.run_id, btn);
   } catch (err) {
     showAlert(`❌ Error: ${err.message}`, 'error');
-  } finally {
     btn.disabled = false;
     btn.classList.remove('loading');
     btn.textContent = '▶ Run Backtest';
   }
+}
+
+async function pollJobStatus(runId, btn) {
+    const INTERVAL_MS = 2000;
+    const MAX_WAIT_SEC = 300;   // 5 минут максимум
+    const started = Date.now();
+
+    return new Promise((resolve, reject) => {
+        const timer = setInterval(async () => {
+            if (Date.now() - started > MAX_WAIT_SEC * 1000) {
+                clearInterval(timer);
+                reject(new Error("Timeout after 5 minutes"));
+                return;
+            }
+
+            try {
+                const r = await fetch(`/api/backtest/status/${runId}`, {
+                    headers: HEADERS
+                });
+                if (!r.ok) return;
+                const data = await r.json();
+
+                btn.textContent = `⏳ Running... ${data.progress}% (${Math.round(data.elapsed_sec)}s)`;
+
+                if (data.status === "completed") {
+                    clearInterval(timer);
+                    currentResult = data.result;
+                    allTrades = data.result.equity_curve || [];
+                    renderAll(data.result);
+                    switchTab('equity');
+                    showAlert(`✅ Completed: ${data.result.total_trades} trades`, 'success');
+                    loadHistory();
+                    
+                    btn.disabled = false;
+                    btn.classList.remove('loading');
+                    btn.textContent = '▶ Run Backtest';
+                    resolve(data.result);
+                } else if (data.status === "failed") {
+                    clearInterval(timer);
+                    reject(new Error(data.error || "Unknown error"));
+                }
+            } catch (e) {
+                console.warn("poll error:", e);
+            }
+        }, INTERVAL_MS);
+    });
 }
 
 // ─── RENDER ALL ───────────────────────────────────────────────────────────

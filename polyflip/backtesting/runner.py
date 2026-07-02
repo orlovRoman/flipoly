@@ -31,28 +31,35 @@ class BacktestRunner:
         self.max_edge = float(config.get("MAX_EDGE", 0.50))
 
     def _predict_flip(self, signal) -> float:
-        """Получает P(flip) от модели для данного тика."""
+        """Получает P(flip) от модели для данного тика (оптимизировано без Pandas)."""
         if not self.model or not self.features:
             return 0.0
             
-        X_df = pd.DataFrame(build_feature_vector(signal), columns=FEATURE_COLUMNS)
+        import math
         
-        # Добавляем производные признаки, если они требуются модели
-        import numpy as np
-        X_df["price_deviation"]     = (X_df["mid_price"] - 0.5).abs()
-        X_df["deviation_x_time"]    = X_df["price_deviation"] * X_df["time_left_min"]
-        X_df["price_deviation_sq"]  = X_df["price_deviation"] ** 2
-        X_df["spread_pct"]          = (X_df["spread"] / (X_df["mid_price"] + 1e-6)).clip(upper=10.0)
-        X_df["log_time_left"]       = np.log1p(X_df["time_left_min"])
+        price_dev = abs(signal.mid_price - 0.5)
+        row_dict = {
+            "time_left_min": signal.time_left_min,
+            "mid_price": signal.mid_price,
+            "spread": signal.spread,
+            "volume_5min": signal.volume_5min,
+            "price_velocity": signal.price_velocity,
+            "hour_of_day": signal.hour_of_day,
+            "price_deviation": price_dev,
+            "deviation_x_time": price_dev * signal.time_left_min,
+            "price_deviation_sq": price_dev ** 2,
+            "spread_pct": min(signal.spread / (signal.mid_price + 1e-6), 10.0),
+            "log_time_left": math.log1p(signal.time_left_min),
+        }
         
         # Проверяем наличие всех фичей
-        missing = [f for f in self.features if f not in X_df.columns]
+        missing = [f for f in self.features if f not in row_dict]
         if missing:
             return 0.0
             
-        X = X_df[self.features]
+        X = [[row_dict[f] for f in self.features]]
         proba = self.model.predict_proba(X)[0]
-        return proba[1] if len(proba) > 1 else 0.0
+        return float(proba[1] if len(proba) > 1 else 0.0)
 
     def _calc_bet_size(self, decision, signal=None) -> float:
         """Скейлинг ставки по edge с учётом ликвидности."""
