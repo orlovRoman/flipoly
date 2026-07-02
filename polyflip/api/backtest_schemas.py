@@ -28,11 +28,11 @@ class BacktestConfig(BaseModel):
     trade_on_flip: bool = Field(default=False, description="Включить OUTSIDER стратегию")
 
     # Пороги ML
-    no_flip_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
+    no_flip_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
     flip_threshold: float = Field(default=0.60, ge=0.0, le=1.0)
 
     # Пороги PURE_FAVORITE
-    favorite_threshold: float = Field(default=0.65, ge=0.5, le=0.99)
+    favorite_threshold: float = Field(default=0.55, ge=0.5, le=0.99)
     yes_min_price: float = Field(default=0.55, ge=0.01, le=0.99)
     yes_max_price: float = Field(default=0.95, ge=0.01, le=0.99)
     no_min_price: float = Field(default=0.55, ge=0.01, le=0.99)
