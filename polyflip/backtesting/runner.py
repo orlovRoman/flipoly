@@ -24,7 +24,7 @@ class BacktestRunner:
         
         self.strategy_mode = config.get("STRATEGY_MODE", "ML")  # ML or PURE_FAVORITE
         
-        self.bet_sizing_mode = config.get("BET_SIZING_MODE", "fixed")
+        self.bet_sizing_mode = config.get("BET_SIZING_MODE", "scaled")
         self.base_bet = float(config.get("TRADE_BET_SIZE_USDC", 5.0))
         self.max_bet = float(config.get("MAX_BET_SIZE_USDC", 50.0))
         self.min_edge = float(config.get("MIN_EDGE", -0.05))

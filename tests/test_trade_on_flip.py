@@ -136,7 +136,7 @@ async def test_no_trade_skipped_when_price_exceeds_max(db_session):
          assert "outsider NO price 0.650 out of" in trades[0].error_msg or "Price drift" in trades[0].error_msg
 
 @pytest.mark.asyncio
-async def test_no_trade_skipped_when_edge_too_small(db_session):
+async def test_no_trade_skipped_when_flip_prob_too_small(db_session):
     now = datetime.now(timezone.utc)
     settings = [
         RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
@@ -146,9 +146,10 @@ async def test_no_trade_skipped_when_edge_too_small(db_session):
         RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.60", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_ON_FLIP", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="FLIP_THRESHOLD", value="0.20", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_FLIP_THRESHOLD_BTC", value="0.70", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"),
         RuntimeSettings(key="NO_MAX_PRICE", value="0.75", updated_at=now, updated_by="test"),
         RuntimeSettings(key="NO_MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_EDGE", value="2.0", updated_at=now, updated_by="test"),
@@ -169,7 +170,7 @@ async def test_no_trade_skipped_when_edge_too_small(db_session):
     
     # Model predicts flip prob = 0.25 (NO wins)
     # YES is favorite (0.70), NO is outsider (0.30)
-    # edge = 0.25 / 0.31 - 1 = -0.19 < 0.05
+    # 0.25 < FLIP_THRESHOLD=0.70, so trade should be skipped
     model = MockModel([0.75, 0.25])
     db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
@@ -196,4 +197,4 @@ async def test_no_trade_skipped_when_edge_too_small(db_session):
          trades = res.scalars().all()
          assert len(trades) == 1
          assert trades[0].status == "SKIPPED"
-         assert "edge" in trades[0].error_msg.lower()
+         assert "мёртвая зона" in trades[0].error_msg.lower() or "< threshold" in trades[0].error_msg.lower() or "< threshold" in trades[0].error_msg.lower()

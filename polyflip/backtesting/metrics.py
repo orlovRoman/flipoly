@@ -31,7 +31,7 @@ def compute_trade_pnl(trade: SimulatedTrade, replay: MarketReplay) -> float:
         return -trade.bet_size
 
 
-def compute_metrics(trades: list[SimulatedTrade], replays: dict[str, MarketReplay]) -> dict:
+def compute_metrics(trades: list[SimulatedTrade], replays: dict[str, MarketReplay], initial_capital: float = 1000.0) -> dict:
     """Считает общую статистику по бэктесту."""
     if not trades:
         return {"total_trades": 0, "net_profit": 0.0, "roi_pct": 0.0}
@@ -79,10 +79,7 @@ def compute_metrics(trades: list[SimulatedTrade], replays: dict[str, MarketRepla
     rolling_max = cumulative.cummax()
     drawdown = cumulative - rolling_max
     
-    # Мы не передаем initial_capital в функцию, но мы можем его аппроксимировать или просто считать относительно
-    # В Python для тестов и MVP можно передавать capital_init = 1000 по дефолту,
-    # Но раз мы не меняли сигнатуру compute_metrics, пусть будет 1000 как в дефолте конфига
-    initial_capital = 1000.0 
+    # Мы используем переданный initial_capital для расчета max_drawdown_pct
     max_drawdown_pct = float(abs(drawdown.min()) / initial_capital * 100) if initial_capital > 0 else 0.0
 
     # Sharpe Ratio (упрощённый, без risk-free rate)
@@ -93,7 +90,7 @@ def compute_metrics(trades: list[SimulatedTrade], replays: dict[str, MarketRepla
     # Profit Factor
     gross_profit = df.loc[df["pnl"] > 0, "pnl"].sum()
     gross_loss = abs(df.loc[df["pnl"] < 0, "pnl"].sum())
-    profit_factor = float(gross_profit / gross_loss) if gross_loss > 0 else float("inf")
+    profit_factor = float(gross_profit / gross_loss) if gross_loss > 0 else None
 
     return {
         "total_trades": total_trades,

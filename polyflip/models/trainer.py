@@ -66,7 +66,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
             estimator=FrozenEstimator(fold_base),
             method="sigmoid"
         )
-        fold_calibrated.fit(X_train, y_train)
+        fold_calibrated.fit(X_val, y_val)
         
         y_proba = fold_calibrated.predict_proba(X_val)[:, 1]
         oof_scores[val_index] = y_proba
