@@ -56,7 +56,10 @@ settings = Settings()
 
 if settings.SENTRY_DSN:
     import sentry_sdk
+    import os
     sentry_sdk.init(
         dsn=settings.SENTRY_DSN,
-        send_default_pii=True,
+        send_default_pii=False,
+        traces_sample_rate=0.1,
+        environment=os.getenv("APP_ENV", "production"),
     )

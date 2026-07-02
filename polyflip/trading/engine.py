@@ -488,10 +488,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 current_min_edge = asset_min_edge
             else:
                 p_win = market.current_yes_price if decision == "YES" else (1.0 - market.current_yes_price)
-                if asset_min_edge_val is not None and asset_min_edge_val != "":
-                    current_min_edge = asset_min_edge
+                favorite_min_edge = settings_db.get("FAVORITE_MIN_EDGE")
+                if favorite_min_edge is not None and favorite_min_edge != "":
+                    current_min_edge = float(favorite_min_edge)
                 else:
-                    current_min_edge = float(settings_db.get("FAVORITE_MIN_EDGE", "-0.01"))
+                    current_min_edge = asset_min_edge  # fallback на общий min_edge
             edge = compute_edge(p_win, buy_price)
             # Проверяем лимиты по edge и цене
             if edge < current_min_edge or edge > max_edge:

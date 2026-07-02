@@ -80,6 +80,8 @@ class TestSettingsConsistency:
     def test_trading_js_normalization_comment_present(self):
         """Комментарий нормализации должен быть в trading.js."""
         text = TRADING_JS.read_text(encoding="utf-8")
-        assert "FAVORITE_MIN_EDGE" in text and "/ 100" in text, (
-            "Normalization comment for FAVORITE_MIN_EDGE not found in trading.js"
+        lines_with_field = [l for l in text.splitlines() if "FAVORITE_MIN_EDGE" in l]
+        assert any("/ 100" in l for l in lines_with_field), (
+            "FAVORITE_MIN_EDGE normalization (/ 100) not found in trading.js. "
+            f"Lines with field: {lines_with_field}"
         )

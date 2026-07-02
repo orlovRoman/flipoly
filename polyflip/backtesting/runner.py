@@ -166,6 +166,7 @@ class BacktestRunner:
             )
 
     def run_all(self, replays: dict[str, MarketReplay]) -> list:
+        self.p_flips = {}  # Сбрасываем кэш предсказаний перед новым запуском
         # Батч-предикшн вероятностей флипа для всех тиков, чтобы избежать оверхеда на единичные вызовы scikit-learn
         if self.strategy_mode == "ML" and self.model and self.features:
             all_ticks = []

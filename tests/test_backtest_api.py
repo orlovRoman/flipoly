@@ -58,9 +58,16 @@ async def test_run_backtest_no_data_returns_422():
             assert resp.status_code == 200
             run_id = resp.json()["run_id"]
             
-            status_resp = await client.get(f"/api/backtest/status/{run_id}", headers=headers)
-            assert status_resp.status_code == 200
-            status_data = status_resp.json()
+            import asyncio
+            status_data = {}
+            for _ in range(20):
+                await asyncio.sleep(0.1)
+                status_resp = await client.get(f"/api/backtest/status/{run_id}", headers=headers)
+                assert status_resp.status_code == 200
+                status_data = status_resp.json()
+                if status_data["status"] in ("completed", "failed"):
+                    break
+            
             assert status_data["status"] == "failed"
             assert "No resolved snapshots" in status_data["error"]
 
