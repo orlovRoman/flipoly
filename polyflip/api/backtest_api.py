@@ -19,6 +19,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from enum import Enum
 import concurrent.futures
+import functools
 
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import MarketSnapshot, ModelRegistry
@@ -85,8 +86,10 @@ _executor = concurrent.futures.ThreadPoolExecutor(
     thread_name_prefix="backtest"
 )
 
-async def _run_cpu_task(fn, *args, timeout_sec=120):
-    loop = asyncio.get_event_loop()
+async def _run_cpu_task(fn, *args, timeout_sec=120, **kwargs):
+    loop = asyncio.get_running_loop()
+    if kwargs:
+        fn = functools.partial(fn, **kwargs)
     try:
         return await asyncio.wait_for(
             loop.run_in_executor(_executor, fn, *args),
@@ -104,7 +107,7 @@ async def submit_backtest(
     background_tasks: BackgroundTasks,
 ):
     """Принимает задачу, отвечает мгновенно, запускает в фоне."""
-    if any(j.status == JobStatus.RUNNING for j in _jobs.values()):
+    if any(j.status == JobStatus.RUNNING for j in list(_jobs.values())):
         raise HTTPException(status_code=429, detail="Another backtest is already running. Please wait.")
 
     run_id = str(uuid.uuid4())
@@ -113,7 +116,7 @@ async def submit_backtest(
 
     if len(_jobs) > _MAX_JOBS:
         oldest = min(
-            (j for j in _jobs.values() if j.status != JobStatus.RUNNING),
+            (j for j in list(_jobs.values()) if j.status != JobStatus.RUNNING),
             key=lambda j: j.started, default=None
         )
         if oldest:
@@ -211,7 +214,7 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
     job.progress = 20
 
     if not market_ids:
-        raise HTTPException(status_code=422, detail="No resolved snapshots found for given filters.")
+        raise ValueError("No resolved snapshots found for given filters. Check assets and date range.")
 
     SNAPSHOT_COLS = [
         MarketSnapshot.id,
@@ -224,6 +227,8 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
         MarketSnapshot.final_outcome,
         MarketSnapshot.p_flip,
         MarketSnapshot.volume_5min,
+        MarketSnapshot.spread,
+        MarketSnapshot.hour_of_day,
     ]
 
     stmt = select(*SNAPSHOT_COLS).where(MarketSnapshot.market_id.in_(market_ids))

@@ -13,7 +13,9 @@ from collections import namedtuple
 SnapshotRow = namedtuple("SnapshotRow", [
     "id", "market_id", "asset", "recorded_at",
     "mid_price", "price_velocity", "time_left_min",
-    "final_outcome", "p_flip", "volume_5min" # changed from volume_24h to match MarketTick usage
+    "final_outcome", "p_flip", "volume_5min",
+    "spread",
+    "hour_of_day",
 ])
 
 
@@ -146,8 +148,12 @@ def rows_to_replays(rows: list, min_snapshots: int = 1) -> dict[str, MarketRepla
 
     replays = {}
     for market_id, snaps in groups.items():
-        snaps.sort(key=lambda s: s.recorded_at)
         if len(snaps) < min_snapshots:
             continue
-        replays[market_id] = MarketReplay(snaps)
+        try:
+            replay = MarketReplay(snaps)
+            if replay.is_tradeable:
+                replays[market_id] = replay
+        except Exception:
+            pass
     return replays
