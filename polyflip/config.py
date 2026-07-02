@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     ALERT_WEBHOOK_URL: str = ""
     COLLECTOR_STALE_HOURS: int = 2
     RATE_LIMIT: str = "60/minute"
+    SENTRY_DSN: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -52,3 +53,10 @@ class Settings(BaseSettings):
         return [a.strip() for a in self.ASSETS.split(",") if a.strip()]
 
 settings = Settings()
+
+if settings.SENTRY_DSN:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        send_default_pii=True,
+    )
