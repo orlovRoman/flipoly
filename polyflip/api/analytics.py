@@ -61,6 +61,7 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
         m.asset: {
             "version": m.version,
             "accuracy": round(m.accuracy, 4),
+            "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
             "trained_at": m.trained_at
         }
         for m in models
@@ -77,6 +78,7 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
         model_history[r.asset].append({
             "version": r.version,
             "accuracy": round(r.accuracy, 4),
+            "ece": round(getattr(r, 'ece', 0.0), 4) if getattr(r, 'ece', None) is not None else None,
             "trained_at": r.trained_at.isoformat() if r.trained_at else None
         })
 
@@ -106,6 +108,7 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
             "version": m.version,
             "accuracy": round(m.accuracy, 4),
             "baseline": round(m.baseline, 4) if m.baseline is not None else None,
+            "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
             "features": m.features or "",
             "is_active": m.is_active,
             "trained_at": m.trained_at.isoformat() if m.trained_at else None

@@ -50,16 +50,25 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
         ("model", LogisticRegression(class_weight=None, C=5.0, random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
     
+    from sklearn.calibration import CalibratedClassifierCV
+    
     aucs = []
     oof_scores = np.zeros(len(y))
     for train_index, val_index in gkf.split(X, y, groups=groups):
         X_train, X_val = X.iloc[train_index], X.iloc[val_index]
         y_train, y_val = y.iloc[train_index], y.iloc[val_index]
         
-        model_clone = clone(base_model)
-        model_clone.fit(X_train, y_train)
+        fold_base = clone(base_model)
+        fold_base.fit(X_train, y_train)
         
-        y_proba = model_clone.predict_proba(X_val)[:, 1]
+        from sklearn.frozen import FrozenEstimator
+        fold_calibrated = CalibratedClassifierCV(
+            estimator=FrozenEstimator(fold_base),
+            method="sigmoid"
+        )
+        fold_calibrated.fit(X_train, y_train)
+        
+        y_proba = fold_calibrated.predict_proba(X_val)[:, 1]
         oof_scores[val_index] = y_proba
         aucs.append(roc_auc_score(y_val, y_proba))
         
@@ -68,14 +77,27 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     # Baseline ROC-AUC/Accuracy (доля мажоритарного класса)
     baseline_acc = float(max(y.mean(), 1.0 - y.mean()))
     
+    # ECE Diagnostic
+    from sklearn.calibration import calibration_curve
+    frac_pos, mean_pred = calibration_curve(y, oof_scores, n_bins=10, strategy="uniform")
+    ece = float(np.mean(np.abs(frac_pos - mean_pred)))
+    logger.info("calibration_check", ece=round(ece, 4))
+    
     # Обучаем финальную модель на всех данных
-    final_model = Pipeline([
+    final_base = Pipeline([
         ("scaler", StandardScaler()),
         ("model", LogisticRegression(class_weight=None, C=5.0, random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
+    final_base.fit(X, y)
+    
+    from sklearn.frozen import FrozenEstimator
+    final_model = CalibratedClassifierCV(
+        estimator=FrozenEstimator(final_base),
+        method="sigmoid"
+    )
     final_model.fit(X, y)
     
-    coefs = final_model.named_steps["model"].coef_[0]
+    coefs = final_base.named_steps["model"].coef_[0]
     coef_info = dict(zip(list(X.columns), [round(float(c), 4) for c in coefs]))
     logger.info("model_feature_weights", coefficients=coef_info)
     
@@ -104,7 +126,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
 
     # Сериализуем модель (Pipeline сохраняет скейлер внутри)
     model_bytes = pickle.dumps(final_model)
-    return model_bytes, val_acc, baseline_acc, optimal_threshold
+    return model_bytes, val_acc, baseline_acc, optimal_threshold, ece
 
 class ModelTrainer:
     def __init__(self, db_session: AsyncSession):
@@ -228,9 +250,9 @@ class ModelTrainer:
 
         # Выполняем CPU-bound обучение в отдельном потоке (BUG-A2 FIX)
         fit_res = await asyncio.to_thread(_fit_and_serialize, X, y, groups)
-        model_bytes, val_acc, baseline_acc, optimal_threshold = fit_res
+        model_bytes, val_acc, baseline_acc, optimal_threshold, ece = fit_res
 
-        logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc)
+        logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc, ece=ece)
 
         # Деактивируем предыдущие модели
         await self.db.execute(
@@ -269,6 +291,7 @@ class ModelTrainer:
             accuracy=val_acc,
             baseline=baseline_acc,
             features=",".join(active_features),
+            ece=ece,
             is_active=True,
             trained_at=datetime.now(timezone.utc)
         )

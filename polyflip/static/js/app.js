@@ -576,6 +576,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const baselineText = m.baseline != null ? (m.baseline * 100).toFixed(1) + "%" : "-";
         const accuracyText = m.accuracy != null ? (m.accuracy * 100).toFixed(1) + "%" : "-";
+        
+        let eceHtml = "-";
+        if (m.ece != null) {
+          if (m.ece < 0.03) {
+            eceHtml = `<span style="color: var(--poly-green);">${m.ece.toFixed(4)} (Отлично)</span>`;
+          } else if (m.ece < 0.07) {
+            eceHtml = `<span style="color: #ff9f43;">${m.ece.toFixed(4)} (Нормально)</span>`;
+          } else {
+            eceHtml = `<span style="color: #ff3366;">${m.ece.toFixed(4)} (Плохо)</span>`;
+          }
+        }
 
         rows.push(`
                     <tr>
@@ -583,6 +594,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td>v${m.version}</td>
                         <td>${accuracyText}</td>
                         <td>${baselineText}</td>
+                        <td>${eceHtml}</td>
                         <td style="font-size: 0.85rem; max-width: 220px; word-break: break-word; white-space: normal;">${escapeHtml(translateFeatures(m.features))}</td>
                         <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>
                         <td>${statusHtml}</td>
