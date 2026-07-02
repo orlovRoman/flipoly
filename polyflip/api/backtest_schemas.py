@@ -1,6 +1,6 @@
 # polyflip/api/backtest_schemas.py
 from __future__ import annotations
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Literal, Optional
 from datetime import datetime
 
@@ -36,7 +36,15 @@ class BacktestConfig(BaseModel):
     flip_threshold: float = Field(default=0.60, ge=0.0, le=1.0)
 
     # Пороги PURE_FAVORITE
-    favorite_threshold: float = Field(default=0.65, ge=0.01, le=0.99)
+    favorite_threshold: float = Field(
+        default=0.65, 
+        ge=0.10, 
+        le=0.99,
+        description=(
+            "Порог PURE_FAVORITE. Значения < 0.5 означают торговлю "
+            "против фаворита — убедитесь что это намеренно."
+        )
+    )
     yes_min_price: float = Field(default=0.55, ge=0.01, le=0.99)
     yes_max_price: float = Field(default=0.95, ge=0.01, le=0.99)
     no_min_price: float = Field(default=0.55, ge=0.01, le=0.99)
@@ -59,12 +67,27 @@ class BacktestConfig(BaseModel):
     # Модель (None = брать активную из ModelRegistry)
     model_id: Optional[int] = Field(default=None)
 
-    @field_validator("max_time_left_min")
-    @classmethod
-    def max_gt_min(cls, v, info):
-        if "min_time_left_min" in info.data and v <= info.data["min_time_left_min"]:
-            raise ValueError("max_time_left_min must be > min_time_left_min")
-        return v
+    @model_validator(mode="after")
+    def check_time_window(self) -> "BacktestConfig":
+        if self.min_time_left_min >= self.max_time_left_min:
+            raise ValueError(
+                f"min_time_left_min ({self.min_time_left_min}) "
+                f"must be < max_time_left_min ({self.max_time_left_min})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def warn_favorite_below_half(self) -> "BacktestConfig":
+        import warnings
+        if self.favorite_threshold < 0.5:
+            warnings.warn(
+                f"favorite_threshold={self.favorite_threshold} < 0.5. "
+                "PURE_FAVORITE стратегия будет торговать аутсайдеров. "
+                "Используйте OUTSIDER стратегию вместо этого.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return self
 
     def to_runner_config(self) -> dict:
         """Конвертирует в dict для BacktestRunner (ключи = SCREAMING_SNAKE)."""
