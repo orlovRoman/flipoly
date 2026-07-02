@@ -18,7 +18,7 @@ def _make_row(market_id="mkt-1", asset="BTC", minutes_left=30.0,
         price_velocity=0.01,
         time_left_min=minutes_left,
         final_outcome=outcome,
-        p_flip=0.3,
+        flip_vs_final=True,
         volume_5min=1000.0,
         spread=0.02,        # ← баг #1: должно быть в namedtuple
         hour_of_day=12,     # ← баг #1: должно быть в namedtuple

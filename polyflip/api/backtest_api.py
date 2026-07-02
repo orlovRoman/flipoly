@@ -225,7 +225,7 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
         MarketSnapshot.price_velocity,
         MarketSnapshot.time_left_min,
         MarketSnapshot.final_outcome,
-        MarketSnapshot.p_flip,
+        MarketSnapshot.flip_vs_final,
         MarketSnapshot.volume_5min,
         MarketSnapshot.spread,
         MarketSnapshot.hour_of_day,
