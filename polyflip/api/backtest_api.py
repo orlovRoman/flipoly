@@ -116,22 +116,28 @@ async def run_backtest(
             .subquery("ranked_snaps")
         )
 
-        # Выбираем все тики для квалифицированных рынков
-        qualified_markets = select(rank_sub.c.market_id).where(
+        # Выбираем список квалифицированных market_ids (Запрос 1)
+        qualified_stmt = select(rank_sub.c.market_id).where(
             rank_sub.c.rn == 1,
             rank_sub.c.total_snaps >= config.min_snapshots_per_market,
         )
+        qualified_res = await db.execute(qualified_stmt)
+        market_ids = [row[0] for row in qualified_res.all()]
 
-        stmt = select(MarketSnapshot).where(
-            MarketSnapshot.market_id.in_(qualified_markets)
-        )
-        if config.date_from:
-            stmt = stmt.where(MarketSnapshot.recorded_at >= config.date_from)
-        if config.date_to:
-            stmt = stmt.where(MarketSnapshot.recorded_at <= config.date_to)
+        # Выбираем все тики для найденных рынков (Запрос 2)
+        if not market_ids:
+            snapshots = []
+        else:
+            stmt = select(MarketSnapshot).where(
+                MarketSnapshot.market_id.in_(market_ids)
+            )
+            if config.date_from:
+                stmt = stmt.where(MarketSnapshot.recorded_at >= config.date_from)
+            if config.date_to:
+                stmt = stmt.where(MarketSnapshot.recorded_at <= config.date_to)
 
-        result = await db.execute(stmt)
-        snapshots = result.scalars().all()
+            result = await db.execute(stmt)
+            snapshots = result.scalars().all()
 
         total_loaded = len(snapshots)
         if total_loaded == 0:
