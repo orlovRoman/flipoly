@@ -566,15 +566,15 @@ async function applyLiveSettings() {
     document.getElementById('cfg-min-time').value   = s.TRADE_MIN_TIME_LEFT_SEC ? (parseInt(s.TRADE_MIN_TIME_LEFT_SEC) / 60).toFixed(1) : '1';
     document.getElementById('cfg-max-time').value   = s.TRADE_MAX_TIME_LEFT_SEC ? (parseInt(s.TRADE_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
     document.getElementById('cfg-strategy-mode').value = s.TRADING_MODE === 'ml' ? 'ML' : 'PURE_FAVORITE';
-    document.getElementById('cfg-no-flip').value    = s.TRADE_NO_FLIP_THRESHOLD ? (parseFloat(s.TRADE_NO_FLIP_THRESHOLD) / 100).toFixed(2) : '0.35';
-    document.getElementById('cfg-flip').value       = s.FLIP_THRESHOLD ? (parseFloat(s.FLIP_THRESHOLD) / 100).toFixed(2) : '0.60';
+    document.getElementById('cfg-no-flip').value    = s.TRADE_NO_FLIP_THRESHOLD !== undefined ? parseFloat(s.TRADE_NO_FLIP_THRESHOLD).toFixed(2) : '0.35';
+    document.getElementById('cfg-flip').value       = s.FLIP_THRESHOLD !== undefined ? parseFloat(s.FLIP_THRESHOLD).toFixed(2) : '0.60';
     document.getElementById('cfg-fav-thresh').value = s.FAVORITE_THRESHOLD || '0.65';
     document.getElementById('cfg-dead-zone').value  = s.DEAD_ZONE_WIDTH || '0.10';
     
-    document.getElementById('cfg-yes-min').value    = s.YES_MIN_PRICE || s.TRADE_MIN_PRICE || '0.55';
-    document.getElementById('cfg-yes-max').value    = s.YES_MAX_PRICE || s.TRADE_MAX_PRICE || '0.95';
-    document.getElementById('cfg-no-min').value     = s.NO_MIN_PRICE || s.TRADE_MIN_PRICE || '0.55';
-    document.getElementById('cfg-no-max').value     = s.NO_MAX_PRICE || s.TRADE_MAX_PRICE || '0.95';
+    document.getElementById('cfg-yes-min').value    = s.YES_MIN_PRICE  != null ? s.YES_MIN_PRICE  : (s.TRADE_MIN_PRICE != null ? s.TRADE_MIN_PRICE : '0.55');
+    document.getElementById('cfg-yes-max').value    = s.YES_MAX_PRICE  != null ? s.YES_MAX_PRICE  : (s.TRADE_MAX_PRICE != null ? s.TRADE_MAX_PRICE : '0.95');
+    document.getElementById('cfg-no-min').value     = s.NO_MIN_PRICE   != null ? s.NO_MIN_PRICE   : (s.TRADE_MIN_PRICE != null ? s.TRADE_MIN_PRICE : '0.55');
+    document.getElementById('cfg-no-max').value     = s.NO_MAX_PRICE   != null ? s.NO_MAX_PRICE   : (s.TRADE_MAX_PRICE != null ? s.TRADE_MAX_PRICE : '0.95');
     
 
       
@@ -586,8 +586,8 @@ async function applyLiveSettings() {
       ? s.MAX_BET_SIZE_USDC
       : (s.TRADE_BET_SIZE_USDC ? (parseFloat(s.TRADE_BET_SIZE_USDC) * 5).toFixed(0) : '50');
       
-    document.getElementById('cfg-min-edge').value   = s.MIN_EDGE ? (parseFloat(s.MIN_EDGE) / 100).toFixed(3) : '-0.05';
-    document.getElementById('cfg-max-edge').value   = s.MAX_EDGE ? (parseFloat(s.MAX_EDGE) / 100).toFixed(3) : '0.50';
+    document.getElementById('cfg-min-edge').value   = s.MIN_EDGE !== undefined ? parseFloat(s.MIN_EDGE).toFixed(3) : '-0.05';
+    document.getElementById('cfg-max-edge').value   = s.MAX_EDGE !== undefined ? parseFloat(s.MAX_EDGE).toFixed(3) : '0.50';
     document.getElementById('cfg-trade-on-flip').checked = s.TRADE_ON_FLIP === 'true';
     
     onStrategyChange();
