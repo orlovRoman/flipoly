@@ -91,7 +91,12 @@ async function runBacktest() {
     
     if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.detail || `HTTP ${res.status}`);
+        console.error("Backtest API error:", errorData);
+        let msg = errorData.detail;
+        if (Array.isArray(msg) || typeof msg === 'object') {
+            msg = JSON.stringify(msg);
+        }
+        throw new Error(msg || `HTTP ${res.status}`);
     }
     const data = await res.json();
     
