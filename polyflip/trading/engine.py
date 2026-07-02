@@ -122,8 +122,15 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     trade_assets_str = settings_db.get("TRADE_ASSETS", settings.TRADE_ASSETS)
     trade_assets = [a.strip() for a in trade_assets_str.split(",") if a.strip()]
     
-    # 2. Загружаем per-asset пороги для найденных активов
-    threshold_keys = [f"TRADE_FLIP_THRESHOLD_{asset.upper()}" for asset in trade_assets]
+    # 2. Загружаем per-asset пороги и настройки для найденных активов
+    threshold_keys = []
+    for asset in trade_assets:
+        asset_upper = asset.upper()
+        threshold_keys.append(f"TRADE_FLIP_THRESHOLD_{asset_upper}")
+        threshold_keys.append(f"TRADING_MODE_{asset_upper}")
+        threshold_keys.append(f"MIN_EDGE_{asset_upper}")
+        threshold_keys.append(f"TRADE_MAX_PRICE_{asset_upper}")
+        
     if threshold_keys:
         t_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(threshold_keys))
         t_result = await db_session.execute(t_stmt)
@@ -142,7 +149,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     bet_size = float(settings_db.get("TRADE_BET_SIZE_USDC", settings.TRADE_BET_SIZE_USDC))
     no_flip_threshold = float(settings_db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD))
     
-    
     dead_zone = float(settings_db.get("DEAD_ZONE_WIDTH", str(DEAD_ZONE_WIDTH)))
     daily_limit = float(settings_db.get("DAILY_LOSS_LIMIT_USDC", str(DAILY_LOSS_LIMIT_USDC)))
     trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
@@ -159,15 +165,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     max_edge = float(settings_db.get("MAX_EDGE", str(settings.MAX_EDGE)))
     favorite_threshold = float(settings_db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)))
 
-    # 2. Ищем рынки, которые подходят по времени для ставки (в пределах настраиваемого диапазона)
-    # Чтобы не ставить дважды, проверяем TradeHistory.
+    # Вычисляем объединенный временной интервал для запроса рынков
+    union_min_sec = min(min_time_left, entry_sec)
+    union_max_sec = max(max_time_left, entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC)
     
-    if trading_mode == TRADING_MODE_FAVORITE:
-        min_td = timedelta(seconds=entry_sec)
-        max_td = timedelta(seconds=entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC)
-    else:
-        min_td = timedelta(seconds=min_time_left)
-        max_td = timedelta(seconds=max_time_left)
+    min_td = timedelta(seconds=union_min_sec)
+    max_td = timedelta(seconds=union_max_sec)
     
     live_markets_stmt = select(LiveMarket).where(
         and_(
@@ -179,7 +182,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     
     if markets:
         # Проверяем дневной PnL перед тем как торговать (лимит $100 убытка в день)
-        # BUG-005 FIX: Явно фильтруем по диапазону UTC времени для надежного подсчета
         start_of_today = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_today = start_of_today + timedelta(days=1)
         
@@ -197,45 +199,96 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             logger.warning("daily_loss_limit_reached", pnl=daily_pnl, limit=daily_limit)
             return
             
+    # Загружаем активные модели
+    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
+    active_models = (await db_session.execute(models_stmt)).scalars().all()
+    
+    models_by_asset = {}
+    model_versions = {}
+    model_features = {}
+    for m in active_models:
+        try:
+            model_obj = pickle.loads(m.model_blob)
+            models_by_asset[m.asset] = model_obj
+            model_versions[m.asset] = m.version
+            
+            m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
+            if not m_feats and hasattr(model_obj, "feature_names_in_"):
+                m_feats = list(model_obj.feature_names_in_)
+                
+            model_features[m.asset] = m_feats
+        except Exception as e:
+            logger.error("failed_to_load_model", asset=m.asset, error=str(e))
+
     try:
         # ══════════════════════════════════════════════════
-        # PURE FAVORITE MODE — без ML, без Kelly
+        # ЕДИИЫЙ ЦИКЛ ТОРГОВЛИ (ML и FAVORITE для каждого актива отдельно)
         # ══════════════════════════════════════════════════
-        if trading_mode == TRADING_MODE_FAVORITE:
-            logger.info("pure_favorite_mode_active", entry_sec=entry_sec, markets_count=len(markets))
+        for market in markets:
+            end_time = market.end_time_est
+            if end_time.tzinfo is None:
+                end_time = end_time.replace(tzinfo=timezone.utc)
+            time_left_sec = (end_time - start_time).total_seconds()
             
-            for market in markets:
-                end_time = market.end_time_est
-                if end_time.tzinfo is None:
-                    end_time = end_time.replace(tzinfo=timezone.utc)
-                time_left_sec = (end_time - start_time).total_seconds()
-                
-                if time_left_sec <= 0:
-                    continue
+            if time_left_sec <= 0:
+                continue
 
-                # Проверка временного окна входа (двойная защита)
+            asset_upper = market.asset.upper()
+            
+            # Определяем индивидуальный режим актива
+            asset_mode = settings_db.get(f"TRADING_MODE_{asset_upper}", trading_mode)
+            if not asset_mode:
+                asset_mode = trading_mode
+
+            # Проверяем временное окно входа для выбранного режима
+            if asset_mode == TRADING_MODE_FAVORITE:
                 window_min = entry_sec
                 window_max = entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC
                 if not (window_min <= time_left_sec <= window_max):
                     continue
+            else:
+                if not (min_time_left <= time_left_sec <= max_time_left):
+                    continue
 
-                # Проверка дублей — не торговать дважды на одном рынке
-                trade_check = select(TradeHistory).where(
-                    TradeHistory.market_id == market.market_id
-                ).limit(TRADE_CHECK_LIMIT)
-                existing_trades = (await db_session.execute(trade_check)).scalars().all()
-                
-                existing_statuses = [t.status for t in existing_trades]
-                if any(s in ("SUCCESS", "LIVE", "FAILED") for s in existing_statuses):
-                    continue
-                
-                existing_skipped = next((t for t in existing_trades if t.status == "SKIPPED"), None)
-                
-                # Актив разрешён?
-                if market.asset not in trade_assets:
-                    continue
-                
-                # Нет явного фаворита — пропускаем
+            # Проверка дублей — не торговать дважды на одном рынке
+            trade_check = select(TradeHistory).where(
+                TradeHistory.market_id == market.market_id
+            ).limit(TRADE_CHECK_LIMIT)
+            existing_trades = (await db_session.execute(trade_check)).scalars().all()
+            
+            existing_statuses = [t.status for t in existing_trades]
+            if any(s in ("SUCCESS", "LIVE", "FAILED") for s in existing_statuses):
+                continue
+            
+            existing_skipped = next((t for t in existing_trades if t.status == "SKIPPED"), None)
+            
+            # Актив разрешён?
+            if market.asset not in trade_assets:
+                continue
+
+            # Разрешаем индивидуальные настройки
+            asset_min_edge_val = settings_db.get(f"MIN_EDGE_{asset_upper}")
+            if asset_min_edge_val is not None and asset_min_edge_val != "":
+                asset_min_edge = float(asset_min_edge_val)
+            else:
+                asset_min_edge = min_edge
+
+            asset_max_price_val = settings_db.get(f"TRADE_MAX_PRICE_{asset_upper}")
+            if asset_max_price_val is not None and asset_max_price_val != "":
+                asset_max_price = float(asset_max_price_val)
+            else:
+                asset_max_price = trade_max_price
+
+            yes_token_id = market.yes_token_id
+            no_token_id = market.no_token_id
+            
+            if not yes_token_id or not no_token_id or yes_token_id == 'N/A' or no_token_id == 'N/A':
+                logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
+                await save_or_update_skipped_trade(db_session, market, "Token IDs missing in DB", 0.0, None, start_time, existing_skipped=existing_skipped)
+                continue
+
+            if asset_mode == TRADING_MODE_FAVORITE:
+                # --- FAVORITE MODE ---
                 if market.current_yes_price == 0.5:
                     logger.info("favorite_mode_skip_no_favorite", market_id=market.market_id)
                     await save_or_update_skipped_trade(
@@ -245,8 +298,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         existing_skipped=existing_skipped
                     )
                     continue
-                
-                # REFACTORED: was inline
+
                 signal = MarketSignal(
                     asset=market.asset,
                     mid_price=market.current_yes_price,
@@ -256,125 +308,22 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     hour_of_day=start_time.hour,
                     time_left_min=time_left_sec / 60.0
                 )
-                decision_obj = decide_favorite(signal, settings_db)
-                if decision_obj.action == "SKIP":
-                    logger.info("favorite_mode_skipped", reason=decision_obj.reason)
-                    await save_or_update_skipped_trade(
-                        db_session, market,
-                        decision_obj.reason,
-                        0.0, None, start_time,
-                        existing_skipped=existing_skipped
-                    )
-                    continue
-
-                decision = decision_obj.action.replace("BUY_", "")
-                token_to_buy = market.yes_token_id if decision == "YES" else market.no_token_id
                 
-                fresh_prices = await api_client.get_market_prices(token_to_buy)
-                if not fresh_prices or fresh_prices.get("best_ask") is None:
-                    await save_or_update_skipped_trade(
-                        db_session, market, "No fresh prices from API for Favorite",
-                        0.0, None, start_time, existing_skipped=existing_skipped
-                    )
-                    continue
-
-                fresh_ask = fresh_prices["best_ask"]
-                price_drift = abs(fresh_ask - decision_obj.buy_price)
-                if price_drift > float(settings_db.get("MAX_PRICE_DRIFT", 0.03)):
-                    await save_or_update_skipped_trade(
-                        db_session, market, f"Price drift too large: {price_drift:.3f}",
-                        0.0, None, start_time, existing_skipped=existing_skipped
-                    )
-                    continue
-
-                buy_price = fresh_ask
-                actual_bet_size = decision_obj.bet_size_usdc
+                local_fav_config = {**settings_db}
+                local_fav_config["MIN_EDGE"] = asset_min_edge
+                local_fav_config["TRADE_MAX_PRICE"] = asset_max_price
+                if asset_min_edge_val is not None and asset_min_edge_val != "":
+                    local_fav_config["FAVORITE_MIN_EDGE"] = asset_min_edge
+                else:
+                    local_fav_config["FAVORITE_MIN_EDGE"] = float(settings_db.get("FAVORITE_MIN_EDGE", "-0.01"))
                 
-                num_shares = round(actual_bet_size / buy_price, 2)
+                decision_obj = decide_favorite(signal, local_fav_config)
                 
-                logger.info(
-                    "favorite_mode_trade",
-                    market_id=market.market_id,
-                    asset=market.asset,
-                    decision=decision,
-                    buy_price=buy_price,
-                    bet_size=actual_bet_size,
-                    time_left_sec=round(time_left_sec),
-                )
-                
-                trade_res = await trader.execute_trade(
-                    market_id=market.market_id,
-                    token_id=token_to_buy,
-                    side="BUY",
-                    price=buy_price,
-                    size=num_shares,
-                )
-                
-                if existing_skipped:
-                    await db_session.delete(existing_skipped)
-
-                history = TradeHistory(
-                    market_id=market.market_id,
-                    asset=market.asset,
-                    outcome_bought=decision,
-                    amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
-                    executed_price=trade_res.get("executed_price", buy_price),
-                    predicted_flip_prob=0.0,       # ML не использовался
-                    active_features="PURE_FAVORITE", # маркер режима
-                    model_version=None,
-                    status=trade_res.get("status", "FAILED"),
-                    error_msg=trade_res.get("error_msg"),
-                    mode=trade_res.get("mode", "PAPER"),
-                    created_at=start_time,
-                )
-                db_session.add(history)
-                invalidate_stats_cache()
-                invalidate_dashboard_cache()
-            
-            return  # <- выходим, ML-блок не запускаем
-
-        # Загружаем активные модели
-        models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
-        active_models = (await db_session.execute(models_stmt)).scalars().all()
-        
-        models_by_asset = {}
-        model_versions = {}
-        model_features = {}
-        for m in active_models:
-            try:
-                model_obj = pickle.loads(m.model_blob)
-                models_by_asset[m.asset] = model_obj
-                model_versions[m.asset] = m.version
-                
-                m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
-                if not m_feats and hasattr(model_obj, "feature_names_in_"):
-                    m_feats = list(model_obj.feature_names_in_)
-                    
-                model_features[m.asset] = m_feats
-            except Exception as e:
-                logger.error("failed_to_load_model", asset=m.asset, error=str(e))
-
-        for market in markets:
-            end_time = market.end_time_est
-            if end_time.tzinfo is None:
-                end_time = end_time.replace(tzinfo=timezone.utc)
-            time_left_sec = (end_time - start_time).total_seconds()
-            
-            if time_left_sec > 0:
-                # Проверяем, делали ли мы уже ставку на этот рынок (или логировали пропуск)
-                trade_check = select(TradeHistory).where(TradeHistory.market_id == market.market_id).limit(TRADE_CHECK_LIMIT)
-                existing_trades = (await db_session.execute(trade_check)).scalars().all()
-                
-                existing_statuses = [t.status for t in existing_trades]
-                if any(s in ("SUCCESS", "LIVE", "FAILED") for s in existing_statuses):
-                    continue
-                    
-                existing_skipped = next((t for t in existing_trades if t.status == "SKIPPED"), None)
-                    
-                if market.asset not in trade_assets:
-                    logger.info("trade_skipped_asset_not_enabled", asset=market.asset)
-                    continue
-
+                p_flip = 0.0
+                model_ver = None
+                edge = decision_obj.edge
+            else:
+                # --- ML MODE ---
                 model = models_by_asset.get(market.asset)
                 model_ver = model_versions.get(market.asset)
                 m_features = model_features.get(market.asset, [])
@@ -388,17 +337,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     logger.warning("model_has_no_features", asset=market.asset, version=model_ver)
                     await save_or_update_skipped_trade(db_session, market, f"Model v{model_ver} has no features", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
                     continue
-                    
-                # Извлекаем токены напрямую из БД (без дополнительных API запросов)
-                yes_token_id = market.yes_token_id
-                no_token_id = market.no_token_id
-                
-                if not yes_token_id or not no_token_id or yes_token_id == 'N/A' or no_token_id == 'N/A':
-                    logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
-                    await save_or_update_skipped_trade(db_session, market, "Token IDs missing in DB", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
-                    continue
 
-                # Запрашиваем свежие цены стакана для YES-токена перед предсказанием модели
                 fresh_yes_prices = await api_client.get_market_prices(yes_token_id)
                 if not fresh_yes_prices or "error" in fresh_yes_prices:
                     error_msg = fresh_yes_prices.get("error", "No fresh YES prices from API") if fresh_yes_prices else "No fresh YES prices from API"
@@ -412,11 +351,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
 
                 fresh_yes_price = fresh_yes_prices["current_yes_price"]
                 fresh_spread = fresh_yes_prices["current_spread"]
-                
-                # Используем price_velocity из БД, так как дельта цен за секунды дает нестабильную скорость
                 fresh_price_velocity = market.price_velocity
 
-                # Формируем X с использованием свежих цен
                 feature_data = {
                     "time_left_min": time_left_sec / 60.0,
                     "mid_price": fresh_yes_price,
@@ -437,11 +373,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 X_real = df_features[m_features]
                 
-                # Предсказываем вероятность флипа (класс 1)
                 proba = model.predict_proba(X_real)[0]
                 p_flip = proba[1] if len(proba) > 1 else 0.0
                 
-                # Логика принятия решения
                 signal = MarketSignal(
                     asset=market.asset,
                     mid_price=fresh_yes_price,
@@ -482,136 +416,174 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 if decision_obj.action == "SKIP" and trade_on_flip:
                     decision_obj = decide_outsider(signal, p_flip, local_config)
 
-                if decision_obj.action == "SKIP":
-                    reason = decision_obj.reason
+                edge = decision_obj.edge
+
+            # Единая логика SKIP
+            if decision_obj.action == "SKIP":
+                reason = decision_obj.reason
+                if asset_mode == TRADING_MODE_ML:
                     if lower <= p_flip < upper:
                         reason = f"Мёртвая зона (p_flip={p_flip:.2f} в [{lower:.2f}, {upper:.2f}])"
                     elif not trade_on_flip and p_flip >= upper:
                         reason = f"Ожидается флип (p_flip={p_flip:.2f} >= {upper:.2f})"
-                    
-                    await save_or_update_skipped_trade(
-                        db_session, market, reason, p_flip, model_ver, start_time,
-                        existing_skipped=existing_skipped,
-                        edge=decision_obj.edge
-                    )
-                    continue
-
-                decision = decision_obj.action.replace("BUY_", "")
-                buy_price = decision_obj.buy_price
-                actual_bet_size = decision_obj.bet_size_usdc
-                token_to_buy = yes_token_id if decision == "YES" else no_token_id
                 
-                fresh_prices = await api_client.get_market_prices(token_to_buy)
-                if not fresh_prices or fresh_prices.get("best_ask") is None:
-                    await save_or_update_skipped_trade(
-                        db_session, market, f"No fresh prices from API for ML ({decision})",
-                        0.0, None, start_time, existing_skipped=existing_skipped
-                    )
-                    continue
-
-                fresh_ask = fresh_prices["best_ask"]
-                price_drift = abs(fresh_ask - buy_price)
-                if price_drift > float(settings_db.get("MAX_PRICE_DRIFT", 0.03)):
-                    await save_or_update_skipped_trade(
-                        db_session, market, f"Price drift too large: {price_drift:.3f}",
-                        0.0, None, start_time, existing_skipped=existing_skipped
-                    )
-                    continue
-
-                buy_price = fresh_ask
-                
-                # Пересчитываем edge с учётом свежей цены из API и правильного p_win для ML_TREND/OUTSIDER
-                p_win = 1.0 - p_flip if decision_obj.strategy_type == "ML_TREND" else p_flip
-                edge = compute_edge(p_win, buy_price)
-                
-                # Проверяем лимиты по edge ещё раз
-                min_edge = float(settings_db.get("MIN_EDGE", 0.05))
-                max_edge = float(settings_db.get("MAX_EDGE", 0.40))
-                if edge < min_edge or edge > max_edge:
-                    await save_or_update_skipped_trade(
-                        db_session, market, f"Edge out of bounds (edge={edge:.4f})",
-                        p_flip, model_ver, start_time,
-                        existing_skipped=existing_skipped,
-                        edge=edge
-                    )
-                    continue
-                
-                sizing_mode = settings_db.get("BET_SIZING_MODE", "scaled")
-                if sizing_mode == "fixed":
-                    actual_bet_size = float(settings_db.get("TRADE_BET_SIZE_USDC", 10.0))
-                else:
-                    actual_bet_size = compute_bet_size_edge_scaled(
-                        edge=edge,
-                        min_bet_usdc=float(settings_db.get("TRADE_BET_SIZE_USDC", 5.0)),
-                        max_bet_usdc=float(settings_db.get("MAX_BET_SIZE_USDC", 50.0)),
-                        min_edge=float(settings_db.get("MIN_EDGE", 0.05)),
-                        max_edge=float(settings_db.get("MAX_EDGE", 0.40))
-                    )
-
-                if actual_bet_size <= 0:
-                    await save_or_update_skipped_trade(
-                        db_session, market, "Bet size <= 0",
-                        p_flip, model_ver, start_time,
-                        existing_skipped=existing_skipped,
-                        edge=edge
-                    )
-                    continue
-                
-                num_shares = round(actual_bet_size / buy_price, 2)
-                
-                trade_res = await trader.execute_trade(
+                logger.info(
+                    "trade_decision",
+                    asset=market.asset,
                     market_id=market.market_id,
-                    token_id=token_to_buy,
-                    side="BUY",
-                    price=buy_price,
-                    size=num_shares
+                    action="SKIP",
+                    p_flip=round(p_flip, 4),
+                    edge=round(edge, 4) if edge is not None else None,
+                    buy_price=0.0,
+                    strategy=decision_obj.strategy_type,
+                    reason=reason
                 )
-                
-                if existing_skipped:
-                    await db_session.delete(existing_skipped)
+                await save_or_update_skipped_trade(
+                    db_session, market, reason, p_flip, model_ver, start_time,
+                    existing_skipped=existing_skipped,
+                    edge=edge
+                )
+                continue
 
-                history = TradeHistory(
+            decision = decision_obj.action.replace("BUY_", "")
+            buy_price = decision_obj.buy_price
+            actual_bet_size = decision_obj.bet_size_usdc
+            token_to_buy = yes_token_id if decision == "YES" else no_token_id
+            
+            fresh_prices = await api_client.get_market_prices(token_to_buy)
+            if not fresh_prices or fresh_prices.get("best_ask") is None:
+                await save_or_update_skipped_trade(
+                    db_session, market, f"No fresh prices from API for {asset_mode} ({decision})",
+                    0.0, model_ver, start_time, existing_skipped=existing_skipped
+                )
+                continue
+
+            fresh_ask = fresh_prices["best_ask"]
+            price_drift = abs(fresh_ask - buy_price)
+            if price_drift > float(settings_db.get("MAX_PRICE_DRIFT", 0.03)):
+                await save_or_update_skipped_trade(
+                    db_session, market, f"Price drift too large: {price_drift:.3f}",
+                    0.0, model_ver, start_time, existing_skipped=existing_skipped
+                )
+                continue
+
+            buy_price = fresh_ask
+            
+            # Пересчитываем edge
+            if asset_mode == TRADING_MODE_ML:
+                p_win = 1.0 - p_flip if decision_obj.strategy_type == "ML_TREND" else p_flip
+            else:
+                p_win = market.current_yes_price if decision == "YES" else (1.0 - market.current_yes_price)
+            edge = compute_edge(p_win, buy_price)
+            
+            # Проверяем лимиты по edge и цене
+            if edge < asset_min_edge or edge > max_edge:
+                await save_or_update_skipped_trade(
+                    db_session, market, f"Edge out of bounds (edge={edge:.4f})",
+                    p_flip, model_ver, start_time,
+                    existing_skipped=existing_skipped,
+                    edge=edge
+                )
+                continue
+
+            if not (trade_min_price <= buy_price <= asset_max_price):
+                await save_or_update_skipped_trade(
+                    db_session, market, f"Price out of bounds: {buy_price:.3f} [{trade_min_price}, {asset_max_price}]",
+                    p_flip, model_ver, start_time,
+                    existing_skipped=existing_skipped,
+                    edge=edge
+                )
+                continue
+            
+            sizing_mode = settings_db.get("BET_SIZING_MODE", "scaled")
+            if sizing_mode == "fixed":
+                actual_bet_size = bet_size
+            else:
+                max_bet_usdc = float(settings_db.get("MAX_BET_SIZE_USDC", 50.0))
+                actual_bet_size = compute_bet_size_edge_scaled(
+                    edge=edge,
+                    min_bet_usdc=bet_size,
+                    max_bet_usdc=max_bet_usdc,
+                    min_edge=asset_min_edge,
+                    max_edge=max_edge
+                )
+
+            if actual_bet_size <= 0:
+                await save_or_update_skipped_trade(
+                    db_session, market, "Bet size <= 0",
+                    p_flip, model_ver, start_time,
+                    existing_skipped=existing_skipped,
+                    edge=edge
+                )
+                continue
+            
+            num_shares = round(actual_bet_size / buy_price, 2)
+            
+            logger.info(
+                "trade_decision",
+                asset=market.asset,
+                market_id=market.market_id,
+                action=decision_obj.action,
+                p_flip=round(p_flip, 4),
+                edge=round(edge, 4),
+                buy_price=buy_price,
+                strategy=decision_obj.strategy_type,
+                bet_size=actual_bet_size
+            )
+            
+            trade_res = await trader.execute_trade(
+                market_id=market.market_id,
+                token_id=token_to_buy,
+                side="BUY",
+                price=buy_price,
+                size=num_shares
+            )
+            
+            if existing_skipped:
+                await db_session.delete(existing_skipped)
+
+            history = TradeHistory(
+                market_id=market.market_id,
+                asset=market.asset,
+                outcome_bought=decision,
+                amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
+                executed_price=trade_res.get("executed_price", buy_price),
+                predicted_flip_prob=p_flip,
+                active_features=f"{active_features_str.strip().rstrip(',')},{decision_obj.strategy_type.lower()}" if (active_features_str and active_features_str.strip().rstrip(',')) else decision_obj.strategy_type.lower() if asset_mode == TRADING_MODE_ML else "PURE_FAVORITE",
+                model_version=model_ver,
+                status=trade_res.get("status", "FAILED"),
+                error_msg=trade_res.get("error_msg"),
+                mode=trade_res.get("mode", "PAPER"),
+                edge=round(edge, 4) if edge is not None else None,
+                created_at=start_time
+            )
+            db_session.add(history)
+            await db_session.flush()
+
+            if trade_res.get("status") == "SUCCESS":
+                exec_p = trade_res.get("executed_price", buy_price)
+                slip = round(exec_p - buy_price, 6)
+                slip_pct = round(slip / buy_price * 100, 4) if buy_price > 0 else 0.0
+                slip_cost = round(slip * (actual_bet_size / exec_p), 4) if exec_p > 0 else 0.0
+
+                slippage_record = SlippageLog(
+                    trade_id=history.id,
                     market_id=market.market_id,
                     asset=market.asset,
                     outcome_bought=decision,
-                    amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
-                    executed_price=trade_res.get("executed_price", buy_price),
-                    predicted_flip_prob=p_flip,
-                    active_features=f"{active_features_str.strip().rstrip(',')},{decision_obj.strategy_type.lower()}" if (active_features_str and active_features_str.strip().rstrip(',')) else decision_obj.strategy_type.lower(),
-                    model_version=model_ver,
-                    status=trade_res.get("status", "FAILED"),
-                    error_msg=trade_res.get("error_msg"),
+                    expected_price=buy_price,
+                    executed_price=exec_p,
+                    slippage=slip,
+                    slippage_pct=slip_pct,
+                    bet_size_usdc=actual_bet_size,
+                    slippage_cost_usdc=slip_cost,
                     mode=trade_res.get("mode", "PAPER"),
-                    edge=round(edge, 4) if edge is not None else None,
-                    created_at=start_time
+                    created_at=start_time,
                 )
-                db_session.add(history)
-                await db_session.flush()
+                db_session.add(slippage_record)
 
-                if trade_res.get("status") == "SUCCESS":
-                    exec_p = trade_res.get("executed_price", buy_price)
-                    slip = round(exec_p - buy_price, 6)
-                    slip_pct = round(slip / buy_price * 100, 4) if buy_price > 0 else 0.0
-                    slip_cost = round(slip * (actual_bet_size / exec_p), 4) if exec_p > 0 else 0.0
-
-                    slippage_record = SlippageLog(
-                        trade_id=history.id,
-                        market_id=market.market_id,
-                        asset=market.asset,
-                        outcome_bought=decision,
-                        expected_price=buy_price,
-                        executed_price=exec_p,
-                        slippage=slip,
-                        slippage_pct=slip_pct,
-                        bet_size_usdc=actual_bet_size,
-                        slippage_cost_usdc=slip_cost,
-                        mode=trade_res.get("mode", "PAPER"),
-                        created_at=start_time,
-                    )
-                    db_session.add(slippage_record)
-
-                invalidate_stats_cache()
-                invalidate_dashboard_cache()
+            invalidate_stats_cache()
+            invalidate_dashboard_cache()
                     
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))

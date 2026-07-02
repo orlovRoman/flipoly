@@ -27,7 +27,7 @@ async def get_all_settings():
         result = await session.execute(select(RuntimeSettings))
         db = {s.key: s.value for s in result.scalars().all()}
 
-    return {
+    settings_dict = {
         "ACTIVE_FEATURES": db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES),
         "TRADE_EXECUTION_TIME_SEC": db.get("TRADE_EXECUTION_TIME_SEC", str(settings.TRADE_EXECUTION_TIME_SEC)),
         "TRADE_MIN_TIME_LEFT_SEC": db.get("TRADE_MIN_TIME_LEFT_SEC", str(getattr(settings, 'TRADE_MIN_TIME_LEFT_SEC', 10))),
@@ -60,6 +60,14 @@ async def get_all_settings():
         "NO_MIN_PRICE": db.get("NO_MIN_PRICE", "0.55"),
         "MAX_BET_SIZE_USDC": db.get("MAX_BET_SIZE_USDC", "50.0")
     }
+
+    for asset in settings.asset_list:
+        asset_upper = asset.upper()
+        settings_dict[f"TRADING_MODE_{asset_upper}"] = db.get(f"TRADING_MODE_{asset_upper}", "")
+        settings_dict[f"MIN_EDGE_{asset_upper}"] = db.get(f"MIN_EDGE_{asset_upper}", "")
+        settings_dict[f"TRADE_MAX_PRICE_{asset_upper}"] = db.get(f"TRADE_MAX_PRICE_{asset_upper}", "")
+
+    return settings_dict
 
 @router.get("/recommended_thresholds")
 async def get_recommended_thresholds():
@@ -164,11 +172,17 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "AUTO_DEAD_ZONE_WIDTH",
         "YES_MIN_PRICE",
         "YES_MAX_PRICE",
-        "NO_MIN_PRICE",
-        "MAX_BET_SIZE_USDC"
+        "NO_MIN_PRICE"
     ]
     
-    if key not in valid_keys:
+    is_per_asset_key = False
+    for asset in settings.asset_list:
+        asset_upper = asset.upper()
+        if key in [f"TRADING_MODE_{asset_upper}", f"MIN_EDGE_{asset_upper}", f"TRADE_MAX_PRICE_{asset_upper}"]:
+            is_per_asset_key = True
+            break
+            
+    if key not in valid_keys and not is_per_asset_key:
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
     # Валидация и нормализация порогов вероятности флипа и мертвой зоны
@@ -183,37 +197,40 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
 
-    if key in ["MIN_EDGE", "MAX_EDGE"]:
-        try:
-            val = float(payload.value)
-            if val <= 0:
-                raise HTTPException(status_code=400, detail=f"{key} must be positive")
-            if val > 1.0:
-                # Введено как процент (напр. 5.0 → 0.05)
-                if val > 100.0:
-                    raise HTTPException(status_code=400, detail=f"{key} must be ≤ 100%")
-                payload.value = f"{val / 100.0:.6f}".rstrip('0').rstrip('.')
-            else:
-                # Введено как доля (напр. 0.05 = 5%)
-                if val < 0.005:
-                    raise HTTPException(status_code=400, detail=f"{key} as fraction must be ≥ 0.005 (0.5%)")
-                
-            # Cross-validation
-            norm_val = float(payload.value)
-            async with async_session() as session:
-                if key == "MAX_EDGE":
-                    min_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE"))).scalar_one_or_none()
-                    current_min = float(min_edge_row.value) if min_edge_row else settings.MIN_EDGE
-                    if norm_val <= current_min:
-                        raise HTTPException(status_code=400, detail=f"MAX_EDGE ({norm_val}) must be greater than MIN_EDGE ({current_min})")
-                elif key == "MIN_EDGE":
-                    max_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_EDGE"))).scalar_one_or_none()
-                    current_max = float(max_edge_row.value) if max_edge_row else getattr(settings, 'MAX_EDGE', 0.10)
-                    if norm_val >= current_max:
-                        raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be less than MAX_EDGE ({current_max})")
-                        
-        except ValueError:
-            raise HTTPException(status_code=400, detail=f"{key} must be a number")
+    if key in ["MIN_EDGE", "MAX_EDGE"] or key.startswith("MIN_EDGE_"):
+        if key.startswith("MIN_EDGE_") and payload.value == "":
+            pass
+        else:
+            try:
+                val = float(payload.value)
+                if val <= 0:
+                    raise HTTPException(status_code=400, detail=f"{key} must be positive")
+                if val > 1.0:
+                    # Введено как процент (напр. 5.0 → 0.05)
+                    if val > 100.0:
+                        raise HTTPException(status_code=400, detail=f"{key} must be ≤ 100%")
+                    payload.value = f"{val / 100.0:.6f}".rstrip('0').rstrip('.')
+                else:
+                    # Введено как доля (напр. 0.05 = 5%)
+                    if val < 0.005:
+                        raise HTTPException(status_code=400, detail=f"{key} as fraction must be ≥ 0.005 (0.5%)")
+                    
+                if key in ["MIN_EDGE", "MAX_EDGE"]:
+                    # Cross-validation
+                    norm_val = float(payload.value)
+                    async with async_session() as session:
+                        if key == "MAX_EDGE":
+                            min_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE"))).scalar_one_or_none()
+                            current_min = float(min_edge_row.value) if min_edge_row else settings.MIN_EDGE
+                            if norm_val <= current_min:
+                                raise HTTPException(status_code=400, detail=f"MAX_EDGE ({norm_val}) must be greater than MIN_EDGE ({current_min})")
+                        elif key == "MIN_EDGE":
+                            max_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_EDGE"))).scalar_one_or_none()
+                            current_max = float(max_edge_row.value) if max_edge_row else getattr(settings, 'MAX_EDGE', 0.10)
+                            if norm_val >= current_max:
+                                raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be less than MAX_EDGE ({current_max})")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"{key} must be a number")
 
     if key == "FAVORITE_THRESHOLD":
         try:
@@ -234,9 +251,22 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         except ValueError:
             raise HTTPException(status_code=400, detail="Value for DAILY_LOSS_LIMIT_USDC must be a number")
 
-    if key == "TRADING_MODE":
-        if payload.value not in ("ml", "favorite"):
-            raise HTTPException(status_code=400, detail="TRADING_MODE must be 'ml' or 'favorite'")
+    if key == "TRADING_MODE" or key.startswith("TRADING_MODE_"):
+        allowed = ("ml", "favorite", "") if key.startswith("TRADING_MODE_") else ("ml", "favorite")
+        if payload.value not in allowed:
+            raise HTTPException(status_code=400, detail=f"{key} must be 'ml', 'favorite' or empty")
+
+    if key == "TRADE_MAX_PRICE" or key.startswith("TRADE_MAX_PRICE_"):
+        if key.startswith("TRADE_MAX_PRICE_") and payload.value == "":
+            pass
+        else:
+            try:
+                val = float(payload.value)
+                if not (0.01 <= val <= 0.99):
+                    raise HTTPException(status_code=400, detail=f"{key} must be between 0.01 and 0.99")
+                payload.value = str(val)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"{key} must be a number")
 
     if key == "FAVORITE_MODE_ENTRY_SEC":
         try:

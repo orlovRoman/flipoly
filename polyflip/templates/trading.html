@@ -281,6 +281,48 @@
                             </div>
                             <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">Бот будет анализировать рынки только для выбранных активов.</small>
                         </div>
+                        
+                        <!-- Настройки по активам (Per-Asset Settings) -->
+                        <div class="settings-group" style="margin-top: 1.5rem; margin-bottom: 1.5rem;">
+                            <label class="settings-label" style="font-weight: 600; color: #fff; font-size: 0.95rem;">Настройки по активам (Per-Asset Settings)</label>
+                            <span style="color: var(--text-muted); font-size: 0.8rem; font-weight: normal; display: block; margin-bottom: 12px;">Индивидуальные параметры для каждого актива. Если параметр пустой — используется глобальная настройка.</span>
+                            
+                            <div style="overflow-x: auto;">
+                                <table class="data-table" style="width: 100%; text-align: left; font-size: 0.85rem; border-collapse: collapse;">
+                                    <thead>
+                                        <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
+                                            <th style="padding: 8px;">Актив</th>
+                                            <th style="padding: 8px;">Режим торговли</th>
+                                            <th style="padding: 8px;">Мин. Edge (%)</th>
+                                            <th style="padding: 8px;">Макс. цена входа (USD)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for asset in assets %}
+                                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                            <td style="padding: 8px; vertical-align: middle;">
+                                                <strong id="asset-label-{{ asset }}">{{ asset }}</strong>
+                                                <span id="calibration-warning-{{ asset }}" style="color: #ff3366; font-size: 0.75rem; font-weight: bold; margin-left: 6px; display: none;"></span>
+                                            </td>
+                                            <td style="padding: 8px; vertical-align: middle;">
+                                                <select id="TRADING_MODE_{{ asset }}" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem; width: 100%; max-width: 150px; cursor: pointer;">
+                                                    <option value="">Глобальный</option>
+                                                    <option value="ml">🤖 ML (Model)</option>
+                                                    <option value="favorite">⚡ Pure Favorite</option>
+                                                </select>
+                                            </td>
+                                            <td style="padding: 8px; vertical-align: middle;">
+                                                <input type="number" step="0.1" min="0.5" max="50" id="MIN_EDGE_{{ asset }}" placeholder="Глобальный" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem; width: 100px;">
+                                            </td>
+                                            <td style="padding: 8px; vertical-align: middle;">
+                                                <input type="number" step="0.01" min="0.01" max="0.99" id="TRADE_MAX_PRICE_{{ asset }}" placeholder="Глобальный" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem; width: 100px;">
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
 
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
                             <div class="form-group">

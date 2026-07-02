@@ -403,6 +403,46 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function getPerAssetFields() {
+    const assets = [];
+    document.querySelectorAll("[id^='TRADING_MODE_']").forEach((selectEl) => {
+      const asset = selectEl.id.replace("TRADING_MODE_", "");
+      assets.push(asset);
+    });
+    return assets;
+  }
+
+  async function checkCalibrationWarnings() {
+    try {
+      const res = await fetch(window.API_BASE + "/api/analytics/models", {
+        headers: { "X-API-Key": apiKey },
+      });
+      if (!res.ok) return;
+      const models = await res.json();
+      
+      const perAssetNames = getPerAssetFields();
+      perAssetNames.forEach((asset) => {
+        const warnSpan = document.getElementById(`calibration-warning-${asset}`);
+        if (warnSpan) {
+          warnSpan.style.display = "none";
+          warnSpan.textContent = "";
+        }
+      });
+
+      models.forEach((m) => {
+        if (m.is_active && m.ece !== null && m.ece > 0.10) {
+          const warnSpan = document.getElementById(`calibration-warning-${m.asset.toUpperCase()}`);
+          if (warnSpan) {
+            warnSpan.textContent = `⚠️ Калибровка: Плохая (ECE: ${m.ece.toFixed(4)})`;
+            warnSpan.style.display = "inline-block";
+          }
+        }
+      });
+    } catch (e) {
+      console.warn("Failed to check calibration warnings", e);
+    }
+  }
+
   async function loadSettings() {
     try {
       const res = await fetch(window.API_BASE + "/api/settings", {
@@ -512,7 +552,36 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
 
+      // Заполняем индивидуальные настройки по активам
+      const perAssetNames = getPerAssetFields();
+      perAssetNames.forEach((asset) => {
+        const modeSelect = document.getElementById(`TRADING_MODE_${asset}`);
+        const minEdgeInput = document.getElementById(`MIN_EDGE_${asset}`);
+        const maxPriceInput = document.getElementById(`TRADE_MAX_PRICE_${asset}`);
+        
+        if (modeSelect && data[`TRADING_MODE_${asset}`] !== undefined) {
+          modeSelect.value = data[`TRADING_MODE_${asset}`];
+        }
+        if (minEdgeInput) {
+          const val = data[`MIN_EDGE_${asset}`];
+          if (val !== undefined && val !== "") {
+            minEdgeInput.value = (parseFloat(val) * 100).toFixed(1);
+          } else {
+            minEdgeInput.value = "";
+          }
+        }
+        if (maxPriceInput) {
+          const val = data[`TRADE_MAX_PRICE_${asset}`];
+          if (val !== undefined && val !== "") {
+            maxPriceInput.value = val;
+          } else {
+            maxPriceInput.value = "";
+          }
+        }
+      });
+
       await loadRecommendedThresholds();
+      await checkCalibrationWarnings();
     } catch (e) {
       console.error("Failed to load settings", e);
     }
@@ -566,6 +635,26 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.autoDeadZone) settingsToSave.AUTO_DEAD_ZONE = settingsElements.autoDeadZone.checked ? "true" : "false";
       if (settingsElements.autoDeadZoneWidth) settingsToSave.AUTO_DEAD_ZONE_WIDTH = parseFloat(settingsElements.autoDeadZoneWidth.value) / 100;
       settingsToSave.TRADE_ASSETS = tradeAssets;
+
+      // Считываем индивидуальные настройки по активам
+      const perAssetNames = getPerAssetFields();
+      perAssetNames.forEach((asset) => {
+        const modeSelect = document.getElementById(`TRADING_MODE_${asset}`);
+        const minEdgeInput = document.getElementById(`MIN_EDGE_${asset}`);
+        const maxPriceInput = document.getElementById(`TRADE_MAX_PRICE_${asset}`);
+        
+        if (modeSelect) {
+          settingsToSave[`TRADING_MODE_${asset}`] = modeSelect.value;
+        }
+        if (minEdgeInput) {
+          const val = minEdgeInput.value.trim();
+          settingsToSave[`MIN_EDGE_${asset}`] = val !== "" ? parseFloat(val) / 100 : "";
+        }
+        if (maxPriceInput) {
+          const val = maxPriceInput.value.trim();
+          settingsToSave[`TRADE_MAX_PRICE_${asset}`] = val !== "" ? parseFloat(val) : "";
+        }
+      });
 
       try {
         const res = await fetch(window.API_BASE + "/api/settings/bulk", {
