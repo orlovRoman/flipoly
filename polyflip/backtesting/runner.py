@@ -8,7 +8,7 @@ from typing import Any
 
 from polyflip.backtesting.market_replay import MarketReplay
 from polyflip.backtesting.simulated_trader import SimulatedTrader
-from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider
+from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider, TradeDecision
 from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUMNS
 
 
@@ -78,12 +78,10 @@ class BacktestRunner:
     def _evaluate_tick(self, tick):
         signal = tick.to_signal()
         if self.strategy_mode == "PURE_FAVORITE":
-            from polyflip.trading.decision_logic import decide_favorite
             decision = decide_favorite(signal, self.config)
             p_flip = 0.0
         else:
             p_flip = self._predict_flip(signal)
-            from polyflip.trading.decision_logic import decide_ml_trend, decide_outsider
             decision = decide_ml_trend(signal, p_flip, self.config)
             if decision.action == "SKIP" and self.trade_on_flip:
                 decision = decide_outsider(signal, p_flip, self.config)
@@ -122,13 +120,21 @@ class BacktestRunner:
                 if not best_decision or (decision.edge or 0) > (best_decision.edge or 0):
                     best_decision, best_tick, best_p_flip, best_signal = decision, tick, p_flip, signal
             elif entry_strategy == "confirmed":
-                consecutive_edges += 1
+                if best_decision and decision.action != best_decision.action:
+                    consecutive_edges = 1
+                    best_decision = decision
+                else:
+                    consecutive_edges += 1
+                    if not best_decision:
+                        best_decision = decision
+                best_tick, best_p_flip, best_signal = tick, p_flip, signal
                 if consecutive_edges >= 2:
-                    best_decision, best_tick, best_p_flip, best_signal = decision, tick, p_flip, signal
                     break
 
+        if entry_strategy == "confirmed" and consecutive_edges < 2:
+            best_decision = None
+
         if best_decision and best_decision.action != "SKIP":
-            from polyflip.trading.decision_logic import TradeDecision
             bet = self._calc_bet_size(best_decision, signal=best_signal)
             decision = TradeDecision(
                 action=best_decision.action,

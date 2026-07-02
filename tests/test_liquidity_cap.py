@@ -1,6 +1,6 @@
 import pytest
 from polyflip.trading.position_sizing import compute_bet_size_with_liquidity, compute_bet_size_edge_scaled
-from polyflip.trading.decision_logic import decide_ml_trend, _apply_liquidity_cap
+from polyflip.trading.decision_logic import decide_ml_trend
 from polyflip.trading.feature_builder import MarketSignal
 
 
@@ -32,14 +32,24 @@ def test_liquidity_cap_inactive_on_deep_market():
 def test_apply_liquidity_cap_never_below_min_bet():
     """Liquidity cap не должен опускать ставку ниже min_bet."""
     # volume_5min=1.0, fraction=0.05 → cap=0.05 < min_bet=5.0 → результат 5.0
-    result = _apply_liquidity_cap(bet=20.0, volume_5min=1.0, min_bet=5.0, liquidity_fraction=0.05)
+    result = compute_bet_size_with_liquidity(
+        edge=0.4, volume_5min=1.0,
+        min_bet_usdc=5.0, max_bet_usdc=50.0,
+        min_edge=0.0, max_edge=0.2,
+        liquidity_fraction=0.05
+    )
     assert result == 5.0
 
 
 def test_apply_liquidity_cap_proportional():
     """Проверка пропорций: cap = max(vol * fraction, min_bet)."""
-    # volume=200, fraction=0.05 → cap=10.0; bet=30 → результат 10.0
-    result = _apply_liquidity_cap(bet=30.0, volume_5min=200.0, min_bet=5.0, liquidity_fraction=0.05)
+    # volume=200, fraction=0.05 → cap=10.0; bet > 10 → результат 10.0
+    result = compute_bet_size_with_liquidity(
+        edge=0.4, volume_5min=200.0,
+        min_bet_usdc=5.0, max_bet_usdc=50.0,
+        min_edge=0.0, max_edge=0.2,
+        liquidity_fraction=0.05
+    )
     assert result == 10.0
 
 

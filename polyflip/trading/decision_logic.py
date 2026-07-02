@@ -16,34 +16,26 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-def _resolve_bet(edge: float, config: dict) -> float:
+def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
+    from polyflip.trading.position_sizing import compute_bet_size_with_liquidity
     min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
-    max_bet = float(config.get("MAX_BET_SIZE_USDC", 50))
-    min_edge = float(config.get("MIN_EDGE", 0.05))
-    max_edge = float(config.get("MAX_EDGE", 0.40))
-    bet = compute_bet_size_edge_scaled(
+    bet = compute_bet_size_with_liquidity(
         edge=edge,
+        volume_5min=volume_5min,
         min_bet_usdc=min_bet,
-        max_bet_usdc=max_bet,
-        min_edge=min_edge,
-        max_edge=max_edge
+        max_bet_usdc=float(config.get("MAX_BET_SIZE_USDC", 50)),
+        min_edge=float(config.get("MIN_EDGE", 0.05)),
+        max_edge=float(config.get("MAX_EDGE", 0.40)),
+        liquidity_fraction=float(config.get("LIQUIDITY_FRACTION", 0.05)),
     )
-    # Стратегии со своим min_edge < 0 (например, PURE_FAVORITE)
-    # могут получить bet=0 от compute_bet_size_edge_scaled.
-    # В этом случае назначаем минимальную ставку.
+    # При edge < min_edge_scaled, compute_bet_size_edge_scaled возвращает 0.
+    # Это ожидаемо для PURE_FAVORITE где FAVORITE_MIN_EDGE может быть отрицательным:
+    # edge уже прошёл фильтр decide_favorite, значит он > FAVORITE_MIN_EDGE,
+    # но может быть < MIN_EDGE (который используется при масштабировании).
+    # В этом случае ставим min_bet — минимально допустимый размер позиции.
     if bet < min_bet:
         bet = min_bet
     return bet
-
-def _apply_liquidity_cap(
-    bet: float,
-    volume_5min: float,
-    min_bet: float,
-    liquidity_fraction: float = 0.05,
-) -> float:
-    """Ограничивает ставку по ликвидности рынка."""
-    cap = max(volume_5min * liquidity_fraction, min_bet)
-    return round(min(bet, cap), 2)
 
 StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "SKIP"]
 ActionType = Literal["BUY_YES", "BUY_NO", "SKIP"]
@@ -103,10 +95,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             return TradeDecision("SKIP", 0, 0,
                 f"favorite YES edge={edge:.4f} < min_edge={min_edge:.4f}", "SKIP",
                 edge=edge)
-        bet = _resolve_bet(edge, config)
-        min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
-        liquidity_fraction = float(config.get("LIQUIDITY_FRACTION", 0.05))
-        bet = _apply_liquidity_cap(bet, signal.volume_5min, min_bet, liquidity_fraction)
+        bet = _resolve_final_bet(edge, signal.volume_5min, config)
         return TradeDecision("BUY_YES", signal.yes_ask, bet,
             f"favorite YES edge={edge:.4f}", "PURE_FAVORITE",
             edge=edge)
@@ -125,10 +114,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             return TradeDecision("SKIP", 0, 0,
                 f"favorite NO edge={edge:.4f} < min_edge={min_edge:.4f}", "SKIP",
                 edge=edge)
-        bet = _resolve_bet(edge, config)
-        min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
-        liquidity_fraction = float(config.get("LIQUIDITY_FRACTION", 0.05))
-        bet = _apply_liquidity_cap(bet, signal.volume_5min, min_bet, liquidity_fraction)
+        bet = _resolve_final_bet(edge, signal.volume_5min, config)
         return TradeDecision("BUY_NO", signal.no_ask, bet,
             f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
             edge=edge)
@@ -170,9 +156,7 @@ def decide_ml_trend(
     if edge < min_edge or edge > max_edge:
         return TradeDecision("SKIP", 0, 0, f"Edge out of bounds (edge={edge:.4f})", "SKIP", p_flip=p_flip, edge=edge)
 
-    bet = _resolve_bet(edge, config)
-    min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
-    bet = _apply_liquidity_cap(bet, signal.volume_5min, min_bet, float(config.get("LIQUIDITY_FRACTION", 0.05)))
+    bet = _resolve_final_bet(edge, signal.volume_5min, config)
     bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
     if bet <= 0 and not bypass:
         return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
@@ -224,9 +208,7 @@ def decide_outsider(
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
         
-        bet = _resolve_bet(edge, config)
-        min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
-        bet = _apply_liquidity_cap(bet, signal.volume_5min, min_bet, float(config.get("LIQUIDITY_FRACTION", 0.05)))
+        bet = _resolve_final_bet(edge, signal.volume_5min, config)
         bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
         if bet <= 0 and not bypass:
             return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip)
@@ -247,9 +229,7 @@ def decide_outsider(
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
         
-        bet = _resolve_bet(edge, config)
-        min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
-        bet = _apply_liquidity_cap(bet, signal.volume_5min, min_bet, float(config.get("LIQUIDITY_FRACTION", 0.05)))
+        bet = _resolve_final_bet(edge, signal.volume_5min, config)
         bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
         if bet <= 0 and not bypass:
             return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip)
