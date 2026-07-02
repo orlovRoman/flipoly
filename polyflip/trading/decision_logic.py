@@ -134,6 +134,8 @@ def decide_ml_trend(
       - NO_FLIP_THRESHOLD: float (напр. 0.35)
     """
     no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", 0.35))
+    # NOTE: default должен совпадать с BacktestConfig.no_flip_threshold (0.35)
+    # Если меняешь дефолт — меняй в обоих местах.
 
     if p_flip >= no_flip_thresh:
         return TradeDecision("SKIP", 0, 0,

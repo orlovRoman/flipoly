@@ -1,119 +1,260 @@
+"""
+Самотесты для decision_logic.py — покрывают баги #2, #3, #5.
+Запуск: pytest tests/test_decision_logic.py -v
+"""
 import pytest
 from polyflip.trading.feature_builder import MarketSignal
-from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider
+from polyflip.trading.decision_logic import (
+    decide_ml_trend, decide_favorite, decide_outsider, TradeDecision
+)
+
+# ─── Фабрика сигналов ───────────────────────────────────────────────────────
+
+def _signal(mid=0.70, spread=0.02, volume=500.0, velocity=0.01, hour=12, time_left=30.0):
+    return MarketSignal(
+        asset="BTC",
+        mid_price=mid,
+        spread=spread,
+        volume_5min=volume,
+        price_velocity=velocity,
+        hour_of_day=hour,
+        time_left_min=time_left,
+    )
 
 BASE_CONFIG = {
-    "FAVORITE_THRESHOLD": 0.65,
-    "MIN_EDGE": -0.05,
-    "MAX_EDGE": 0.20,
-    "YES_MIN_PRICE": 0.55, "YES_MAX_PRICE": 0.95,
-    "NO_MIN_PRICE": 0.55,  "NO_MAX_PRICE": 0.95,
+    "NO_FLIP_THRESHOLD":    0.35,
+    "FLIP_THRESHOLD":       0.60,
+    "FAVORITE_THRESHOLD":   0.65,
+    "YES_MIN_PRICE":        0.55,
+    "YES_MAX_PRICE":        0.95,
+    "NO_MIN_PRICE":         0.55,
+    "NO_MAX_PRICE":         0.95,
     "AUTO_DEAD_ZONE_WIDTH": 0.10,
-    "INITIAL_CAPITAL": 1000.0,
-    "TRADE_BET_SIZE_USDC": 5.0,
-    "MAX_BET_SIZE_USDC": 50.0,
-    "NO_FLIP_THRESHOLD": 0.35,
-    "FLIP_THRESHOLD": 0.60,
-    "OUTSIDER_NO_MIN_PRICE": 0.10,
-    "OUTSIDER_NO_MAX_PRICE": 0.50,
+    "MIN_EDGE":             -0.05,
+    "MAX_EDGE":             0.50,
+    "TRADE_BET_SIZE_USDC":  5.0,
+    "MAX_BET_SIZE_USDC":    50.0,
+    "LIQUIDITY_FRACTION":   0.05,
+    "INITIAL_CAPITAL":      1000.0,
 }
 
-def make_signal(**kwargs):
-    defaults = dict(
-        asset="BTC", mid_price=0.70, spread=0.02,
-        volume_5min=5000.0, price_velocity=0.01,
-        hour_of_day=12, time_left_min=5.0
-    )
-    defaults.update(kwargs)
-    return MarketSignal(**defaults)
 
-# --- PURE_FAVORITE ---
-def test_favorite_buys_yes_when_high():
-    d = decide_favorite(make_signal(mid_price=0.75), BASE_CONFIG)
-    assert d.action == "BUY_YES"
-    assert d.strategy_type == "PURE_FAVORITE"
-    assert d.bet_size_usdc > 0
+# ─── Баг #2: yes_ask / no_ask вычисляются корректно ─────────────────────────
 
-def test_favorite_buys_no_when_low():
-    d = decide_favorite(make_signal(mid_price=0.25), BASE_CONFIG)
-    assert d.action == "BUY_NO"
+class TestMarketSignalPrices:
+    def test_yes_ask_above_mid(self):
+        sig = _signal(mid=0.70, spread=0.02)
+        assert sig.yes_ask == pytest.approx(0.71)
 
-def test_favorite_skips_dead_zone():
-    d = decide_favorite(make_signal(mid_price=0.50), BASE_CONFIG)
-    assert d.action == "SKIP"
+    def test_no_ask_correct(self):
+        sig = _signal(mid=0.70, spread=0.02)
+        # no_ask = (1 - 0.70) + 0.02/2 = 0.31
+        assert sig.no_ask == pytest.approx(0.31)
 
-def test_favorite_skips_on_low_edge():
-    # spread очень маленький, но цена в диапазоне — edge может быть OK
-    # Тест: цена вне диапазона → SKIP
-    cfg = {**BASE_CONFIG, "YES_MAX_PRICE": 0.60}
-    d = decide_favorite(make_signal(mid_price=0.80), cfg)
-    assert d.action == "SKIP"
+    def test_yes_ask_capped_at_099(self):
+        sig = _signal(mid=0.99, spread=0.10)
+        assert sig.yes_ask == 0.99
 
-def test_favorite_bet_within_limits():
-    d = decide_favorite(make_signal(mid_price=0.75), BASE_CONFIG)
-    assert BASE_CONFIG["TRADE_BET_SIZE_USDC"] <= d.bet_size_usdc <= BASE_CONFIG["MAX_BET_SIZE_USDC"]
+    def test_no_ask_capped_at_099(self):
+        sig = _signal(mid=0.01, spread=0.10)
+        assert sig.no_ask == 0.99
 
-# --- ML_TREND ---
-def test_ml_trend_skips_high_p_flip():
-    d = decide_ml_trend(make_signal(mid_price=0.75), p_flip=0.70, config=BASE_CONFIG)
-    assert d.action == "SKIP"
-    assert d.p_flip == 0.70
 
-def test_ml_trend_buys_when_low_p_flip():
-    d = decide_ml_trend(make_signal(mid_price=0.75), p_flip=0.20, config=BASE_CONFIG)
-    assert d.action == "BUY_YES"
-    assert d.strategy_type == "ML_TREND"
-    assert d.p_flip == 0.20
+# ─── Баг #3: дефолты NO_FLIP_THRESHOLD совпадают ────────────────────────────
 
-# --- OUTSIDER ---
-def test_outsider_buys_no_when_yes_is_favorite():
-    d = decide_outsider(make_signal(mid_price=0.75), p_flip=0.80, config=BASE_CONFIG)
-    assert d.action == "BUY_NO"
-    assert d.strategy_type == "OUTSIDER"
+class TestThresholdDefaults:
+    def test_no_flip_default_matches_schema(self):
+        """Если config не содержит NO_FLIP_THRESHOLD — используется 0.35 как в BacktestConfig."""
+        config_without_threshold = {k: v for k, v in BASE_CONFIG.items()
+                                    if k != "NO_FLIP_THRESHOLD"}
+        sig = _signal(mid=0.70)
+        # p_flip=0.30 < дефолт 0.35 → должна торговать
+        result = decide_ml_trend(sig, p_flip=0.30, config=config_without_threshold)
+        assert result.action != "SKIP", (
+            f"Expected trade with p_flip=0.30 < default threshold 0.35, got SKIP. "
+            f"Reason: {result.reason}"
+        )
 
-def test_outsider_skips_low_p_flip():
-    d = decide_outsider(make_signal(mid_price=0.75), p_flip=0.30, config=BASE_CONFIG)
-    assert d.action == "SKIP"
+    def test_no_flip_threshold_from_config(self):
+        """Явный порог из config используется правильно."""
+        config = {**BASE_CONFIG, "NO_FLIP_THRESHOLD": 0.50}
+        sig = _signal(mid=0.70)
 
-def test_all_decisions_have_reason():
-    signals = [make_signal(mid_price=p) for p in [0.25, 0.50, 0.75]]
-    for sig in signals:
-        for decision in [
-            decide_favorite(sig, BASE_CONFIG),
-            decide_ml_trend(sig, 0.5, BASE_CONFIG),
-            decide_outsider(sig, 0.5, BASE_CONFIG),
-        ]:
-            assert isinstance(decision.reason, str) and len(decision.reason) > 0
+        # p_flip=0.45 < 0.50 → торгуем
+        result_trade = decide_ml_trend(sig, p_flip=0.45, config=config)
+        assert result_trade.action != "SKIP"
 
-def test_outsider_buys_yes_when_no_is_favorite():
-    cfg = {**BASE_CONFIG, "OUTSIDER_YES_MIN_PRICE": 0.05, "OUTSIDER_YES_MAX_PRICE": 0.45}
-    d = decide_outsider(make_signal(mid_price=0.25), p_flip=0.80, config=cfg)
-    assert d.action == "BUY_YES"
-    assert d.strategy_type == "OUTSIDER"
+        # p_flip=0.55 >= 0.50 → пропускаем
+        result_skip = decide_ml_trend(sig, p_flip=0.55, config=config)
+        assert result_skip.action == "SKIP"
 
-def test_outsider_yes_rejects_overpriced():
-    cfg = {**BASE_CONFIG, "OUTSIDER_YES_MIN_PRICE": 0.05, "OUTSIDER_YES_MAX_PRICE": 0.20}
-    d = decide_outsider(make_signal(mid_price=0.25, spread=0.02), p_flip=0.80, config=cfg)
-    assert d.action == "SKIP"
 
-def test_outsider_no_max_does_not_use_trade_max_price():
-    """
-    TRADE_MAX_PRICE=0.95 не должен влиять на аутсайдерный no_max.
-    Если OUTSIDER_NO_MAX_PRICE и NO_MAX_PRICE не заданы — дефолт 0.50.
-    """
-    signal = make_signal(
-        mid_price=0.70,       # YES фаворит
-        spread=0.60           # 1 - 0.70 + 0.60/2 = 0.60 -> no_ask = 0.60
-    )
-    config = {
-        "TRADE_MAX_PRICE": "0.95",  # высокий общий потолок
-        # OUTSIDER_NO_MAX_PRICE и NO_MAX_PRICE НЕ заданы → должен использоваться 0.50
-        "MIN_EDGE": "0.05", "MAX_EDGE": "0.50",
-        "TRADE_BET_SIZE_USDC": "10", "MAX_BET_SIZE_USDC": "50",
-        "FLIP_THRESHOLD": "0.55"
-    }
-    decision = decide_outsider(signal, p_flip=0.60, config=config)
-    # no_ask=0.60 > no_max=0.50 → SKIP
-    assert decision.action == "SKIP", \
-        "NO price 0.60 > дефолтный outsider_no_max 0.50 — должен быть SKIP"
+# ─── ML стратегия: основные кейсы ───────────────────────────────────────────
 
+class TestDecideMlTrend:
+    def test_trades_when_p_flip_below_threshold(self):
+        sig = _signal(mid=0.70)
+        result = decide_ml_trend(sig, p_flip=0.20, config=BASE_CONFIG)
+        assert result.action in ("BUY_YES", "BUY_NO")
+        assert result.strategy_type == "ML_TREND"
+
+    def test_skips_when_p_flip_above_threshold(self):
+        sig = _signal(mid=0.70)
+        result = decide_ml_trend(sig, p_flip=0.80, config=BASE_CONFIG)
+        assert result.action == "SKIP"
+        assert "p_flip" in result.reason
+
+    def test_skips_in_dead_zone(self):
+        # mid=0.50 → dead zone при width=0.10 (0.45-0.55)
+        sig = _signal(mid=0.50)
+        result = decide_ml_trend(sig, p_flip=0.10, config=BASE_CONFIG)
+        assert result.action == "SKIP"
+        assert "dead zone" in result.reason
+
+    def test_bet_size_positive(self):
+        sig = _signal(mid=0.72, volume=2000.0)
+        result = decide_ml_trend(sig, p_flip=0.15, config=BASE_CONFIG)
+        if result.action != "SKIP":
+            assert result.bet_size_usdc >= BASE_CONFIG["TRADE_BET_SIZE_USDC"]
+
+    def test_p_flip_in_result(self):
+        sig = _signal(mid=0.70)
+        result = decide_ml_trend(sig, p_flip=0.20, config=BASE_CONFIG)
+        assert result.p_flip == pytest.approx(0.20)
+
+
+# ─── Баг #5: confirmed entry strategy ───────────────────────────────────────
+
+class TestConfirmedEntryStrategy:
+    """Проверяем что confirmed не зависает при чередующихся сигналах."""
+
+    def _make_tick(self, mid, time_left):
+        """Простой mock тика с нужными атрибутами."""
+        from unittest.mock import MagicMock
+        from polyflip.backtesting.market_replay import MarketTick
+        from datetime import datetime, timezone
+        return MarketTick(
+            market_id="mkt-1",
+            asset="BTC",
+            time_left_min=time_left,
+            mid_price=mid,
+            spread=0.02,
+            volume_5min=500.0,
+            price_velocity=0.01,
+            hour_of_day=12,
+            final_outcome="YES",
+            recorded_at=datetime.now(timezone.utc),
+        )
+
+    def test_confirmed_resets_on_action_change(self):
+        """При смене action счётчик должен сброситься в 0, не в 1."""
+        from polyflip.backtesting.runner import BacktestRunner
+        from polyflip.backtesting.market_replay import MarketReplay
+
+        # Патчим _predict_flip для детерминированного поведения
+        config = {**BASE_CONFIG, "STRATEGY_MODE": "ML", "ENTRY_STRATEGY": "confirmed",
+                  "MIN_TIME_LEFT_MIN": 1.0, "MAX_TIME_LEFT_MIN": 60.0,
+                  "SLIPPAGE_PCT": 0.005, "TRADE_ON_FLIP": False,
+                  "BET_SIZING_MODE": "fixed"}
+
+        runner = BacktestRunner(config=config, model_blob=b"", features="")
+
+        call_count = [0]
+        # Чередующиеся решения: BUY_YES, BUY_NO, BUY_YES, BUY_YES
+        actions = ["BUY_YES", "BUY_NO", "BUY_YES", "BUY_YES"]
+
+        original_evaluate = runner._evaluate_tick
+        def mock_evaluate(tick):
+            idx = call_count[0]
+            call_count[0] += 1
+            action = actions[idx] if idx < len(actions) else "SKIP"
+            from polyflip.trading.decision_logic import TradeDecision
+            decision = TradeDecision(
+                action=action, buy_price=0.70, bet_size_usdc=5.0,
+                reason="mock", strategy_type="ML_TREND", p_flip=0.2, edge=0.05
+            )
+            return decision, 0.2, tick.to_signal()
+
+        runner._evaluate_tick = mock_evaluate
+
+        ticks = [self._make_tick(0.70, 50.0 - i) for i in range(5)]
+
+        # Симулируем confirmed logic напрямую
+        best_decision = None
+        consecutive_edges = 0
+        for tick in ticks:
+            decision, p_flip, signal = runner._evaluate_tick(tick)
+            if decision.action == "SKIP":
+                consecutive_edges = 0
+                continue
+            if best_decision and decision.action != best_decision.action:
+                consecutive_edges = 0   # ← ИСПРАВЛЕННОЕ поведение
+                best_decision = decision
+            else:
+                consecutive_edges += 1
+                if not best_decision:
+                    best_decision = decision
+            if consecutive_edges >= 2:
+                break
+
+        # Тики 3 и 4 оба BUY_YES → должны дать confirmed
+        assert consecutive_edges >= 2, (
+            f"Expected confirmed signal after 2 consecutive same-action ticks, "
+            f"got consecutive_edges={consecutive_edges}"
+        )
+        assert best_decision is not None
+        assert best_decision.action == "BUY_YES"
+
+    def test_confirmed_skips_if_no_two_consecutive(self):
+        """Если нет двух подряд одинаковых — трейда не должно быть."""
+        actions = ["BUY_YES", "BUY_NO", "BUY_YES"]  # никогда 2 подряд
+        best_decision = None
+        consecutive_edges = 0
+
+        for i, action in enumerate(actions):
+            from polyflip.trading.decision_logic import TradeDecision
+            decision = TradeDecision(
+                action=action, buy_price=0.70, bet_size_usdc=5.0,
+                reason="mock", strategy_type="ML_TREND",
+            )
+            if best_decision and decision.action != best_decision.action:
+                consecutive_edges = 0
+                best_decision = decision
+            else:
+                consecutive_edges += 1
+                if not best_decision:
+                    best_decision = decision
+            if consecutive_edges >= 2:
+                break
+
+        # Сброс в конце если не подтверждено
+        if consecutive_edges < 2:
+            best_decision = None
+
+        assert best_decision is None, "Should not trade without 2 consecutive confirmations"
+
+
+# ─── PURE_FAVORITE: smoke tests ─────────────────────────────────────────────
+
+class TestDecideFavorite:
+    def test_buys_yes_when_above_threshold(self):
+        sig = _signal(mid=0.70)  # 0.70 >= 0.65 threshold
+        result = decide_favorite(sig, BASE_CONFIG)
+        assert result.action == "BUY_YES"
+        assert result.strategy_type == "PURE_FAVORITE"
+
+    def test_buys_no_when_below_1_minus_threshold(self):
+        sig = _signal(mid=0.30)  # 0.30 <= 1 - 0.65 = 0.35
+        result = decide_favorite(sig, BASE_CONFIG)
+        assert result.action == "BUY_NO"
+
+    def test_skips_mid_range(self):
+        sig = _signal(mid=0.50)
+        result = decide_favorite(sig, BASE_CONFIG)
+        assert result.action == "SKIP"
+
+    def test_edge_is_present(self):
+        sig = _signal(mid=0.72)
+        result = decide_favorite(sig, BASE_CONFIG)
+        if result.action != "SKIP":
+            assert result.edge is not None

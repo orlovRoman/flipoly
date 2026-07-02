@@ -25,6 +25,10 @@ class BacktestConfig(BaseModel):
 
     # Стратегия
     strategy_mode: Literal["ML", "PURE_FAVORITE"] = Field(default="ML")
+    entry_strategy: Literal["first", "best_edge", "confirmed"] = Field(
+        default="first",
+        description="Стратегия выбора точки входа: first=первый сигнал, best_edge=лучший edge, confirmed=2 подтверждения"
+    )
     trade_on_flip: bool = Field(default=False, description="Включить OUTSIDER стратегию")
 
     # Пороги ML
@@ -68,7 +72,8 @@ class BacktestConfig(BaseModel):
             "MIN_TIME_LEFT_MIN": self.min_time_left_min,
             "MAX_TIME_LEFT_MIN": self.max_time_left_min,
             "STRATEGY_MODE": self.strategy_mode,
-            "TRADE_ON_FLIP": str(self.trade_on_flip).lower(),
+            "ENTRY_STRATEGY": self.entry_strategy,
+            "TRADE_ON_FLIP": self.trade_on_flip,
             "NO_FLIP_THRESHOLD": self.no_flip_threshold,
             "FLIP_THRESHOLD": self.flip_threshold,
             "FAVORITE_THRESHOLD": self.favorite_threshold,

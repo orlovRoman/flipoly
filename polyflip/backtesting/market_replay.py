@@ -13,7 +13,7 @@ from collections import namedtuple
 SnapshotRow = namedtuple("SnapshotRow", [
     "id", "market_id", "asset", "recorded_at",
     "mid_price", "price_velocity", "time_left_min",
-    "final_outcome", "flip_vs_final", "volume_5min",
+    "final_outcome", "volume_5min",
     "spread",
     "hour_of_day",
 ])
