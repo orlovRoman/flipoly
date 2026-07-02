@@ -45,14 +45,18 @@ async def main():
             .subquery("ranked_snaps")
         )
 
-        stmt = select(MarketSnapshot).where(
-            MarketSnapshot.id.in_(
-                select(rank_sub.c.snap_id).where(
-                    rank_sub.c.rn == 1,
-                    rank_sub.c.total_snaps >= config.min_snapshots_per_market,
-                )
-            )
+        qualified_markets = select(rank_sub.c.market_id).where(
+            rank_sub.c.rn == 1,
+            rank_sub.c.total_snaps >= config.min_snapshots_per_market,
         )
+
+        stmt = select(MarketSnapshot).where(
+            MarketSnapshot.market_id.in_(qualified_markets)
+        )
+        if config.date_from:
+            stmt = stmt.where(MarketSnapshot.recorded_at >= config.date_from)
+        if config.date_to:
+            stmt = stmt.where(MarketSnapshot.recorded_at <= config.date_to)
 
         result = await db.execute(stmt)
         snapshots = result.scalars().all()
