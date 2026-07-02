@@ -148,7 +148,8 @@ async def run_backtest(
             )
 
         # 2. Группируем в реплеи (так как мы уже применили фильтры в БД, группируем с min_snapshots=1)
-        replays = group_snapshots_into_replays(
+        replays = await asyncio.to_thread(
+            group_snapshots_into_replays,
             snapshots,
             min_snapshots=1
         )
@@ -180,11 +181,12 @@ async def run_backtest(
         # 4. Прогоняем BacktestRunner
         runner_config = config.to_runner_config()
         runner = BacktestRunner(runner_config, model_blob, features_str)
-        trades = runner.run_all(replays)
+        trades = await asyncio.to_thread(runner.run_all, replays)
 
         # 5. Считаем метрики
         finished_at = datetime.now(timezone.utc)
-        backtest_result = _build_result(
+        backtest_result = await asyncio.to_thread(
+            _build_result,
             run_id=run_id,
             config=config,
             started_at=started_at,
