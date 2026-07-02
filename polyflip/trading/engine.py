@@ -117,10 +117,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "YES_MAX_PRICE",
         "NO_MIN_PRICE",
         "FAVORITE_MIN_EDGE",
-        "OUTSIDER_NO_MIN_PRICE",
-        "OUTSIDER_NO_MAX_PRICE",
-        "OUTSIDER_YES_MIN_PRICE",
-        "OUTSIDER_YES_MAX_PRICE",
+        "OUTSIDER_MAX_PRICE",
         "LIQUIDITY_FRACTION",
         "BYPASS_BET_SIZE_CHECK"
     ]

@@ -232,10 +232,7 @@ document.addEventListener("DOMContentLoaded", () => {
     autoDeadZoneWidth: document.getElementById("AUTO_DEAD_ZONE_WIDTH"),
     favoriteMinEdge: document.getElementById("FAVORITE_MIN_EDGE"),
     noMinPrice: document.getElementById("NO_MIN_PRICE"),
-    outsiderNoMinPrice: document.getElementById("OUTSIDER_NO_MIN_PRICE"),
-    outsiderNoMaxPrice: document.getElementById("OUTSIDER_NO_MAX_PRICE"),
-    outsiderYesMinPrice: document.getElementById("OUTSIDER_YES_MIN_PRICE"),
-    outsiderYesMaxPrice: document.getElementById("OUTSIDER_YES_MAX_PRICE"),
+    outsiderMaxPrice: document.getElementById("OUTSIDER_MAX_PRICE"),
     bypassBetSizeCheck: document.getElementById("BYPASS_BET_SIZE_CHECK"),
     liquidityFraction: document.getElementById("LIQUIDITY_FRACTION"),
     maxPriceDrift: document.getElementById("MAX_PRICE_DRIFT"),
@@ -547,17 +544,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.noMinPrice && data.NO_MIN_PRICE !== undefined) {
         settingsElements.noMinPrice.value = data.NO_MIN_PRICE;
       }
-      if (settingsElements.outsiderNoMinPrice && data.OUTSIDER_NO_MIN_PRICE !== undefined) {
-        settingsElements.outsiderNoMinPrice.value = data.OUTSIDER_NO_MIN_PRICE;
-      }
-      if (settingsElements.outsiderNoMaxPrice && data.OUTSIDER_NO_MAX_PRICE !== undefined) {
-        settingsElements.outsiderNoMaxPrice.value = data.OUTSIDER_NO_MAX_PRICE;
-      }
-      if (settingsElements.outsiderYesMinPrice && data.OUTSIDER_YES_MIN_PRICE !== undefined) {
-        settingsElements.outsiderYesMinPrice.value = data.OUTSIDER_YES_MIN_PRICE;
-      }
-      if (settingsElements.outsiderYesMaxPrice && data.OUTSIDER_YES_MAX_PRICE !== undefined) {
-        settingsElements.outsiderYesMaxPrice.value = data.OUTSIDER_YES_MAX_PRICE;
+      if (settingsElements.outsiderMaxPrice && data.OUTSIDER_MAX_PRICE !== undefined) {
+        settingsElements.outsiderMaxPrice.value = data.OUTSIDER_MAX_PRICE;
       }
       if (settingsElements.bypassBetSizeCheck && data.BYPASS_BET_SIZE_CHECK) {
         settingsElements.bypassBetSizeCheck.checked = data.BYPASS_BET_SIZE_CHECK === "true";
@@ -646,7 +634,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // LIQUIDITY_FRACTION  → as-is  (хранится как float, напр. 0.05)
       // MAX_PRICE_DRIFT     → as-is  (хранится как float, напр. 0.03)
       // NO_MIN_PRICE        → as-is  (хранится как float, напр. 0.55)
-      // OUTSIDER_*          → as-is  (хранятся как float)
+      // OUTSIDER_MAX_PRICE   → as-is  (хранится как float)
       // Если меняешь формат хранения — обнови loadSettings() симметрично.
       const settingsToSave = {};
       if (settingsElements.minTimeLeft) settingsToSave.TRADE_MIN_TIME_LEFT_SEC = settingsElements.minTimeLeft.value;
@@ -680,10 +668,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.autoDeadZoneWidth) settingsToSave.AUTO_DEAD_ZONE_WIDTH = parseFloat(settingsElements.autoDeadZoneWidth.value) / 100;
       if (settingsElements.favoriteMinEdge) settingsToSave.FAVORITE_MIN_EDGE = parseFloat(settingsElements.favoriteMinEdge.value) / 100;
       if (settingsElements.noMinPrice) settingsToSave.NO_MIN_PRICE = parseFloat(settingsElements.noMinPrice.value);
-      if (settingsElements.outsiderNoMinPrice) settingsToSave.OUTSIDER_NO_MIN_PRICE = parseFloat(settingsElements.outsiderNoMinPrice.value);
-      if (settingsElements.outsiderNoMaxPrice) settingsToSave.OUTSIDER_NO_MAX_PRICE = parseFloat(settingsElements.outsiderNoMaxPrice.value);
-      if (settingsElements.outsiderYesMinPrice) settingsToSave.OUTSIDER_YES_MIN_PRICE = parseFloat(settingsElements.outsiderYesMinPrice.value);
-      if (settingsElements.outsiderYesMaxPrice) settingsToSave.OUTSIDER_YES_MAX_PRICE = parseFloat(settingsElements.outsiderYesMaxPrice.value);
+      if (settingsElements.outsiderMaxPrice) settingsToSave.OUTSIDER_MAX_PRICE = parseFloat(settingsElements.outsiderMaxPrice.value);
       if (settingsElements.bypassBetSizeCheck) settingsToSave.BYPASS_BET_SIZE_CHECK = settingsElements.bypassBetSizeCheck.checked ? "true" : "false";
       if (settingsElements.liquidityFraction) settingsToSave.LIQUIDITY_FRACTION = parseFloat(settingsElements.liquidityFraction.value);
       if (settingsElements.maxPriceDrift) settingsToSave.MAX_PRICE_DRIFT = parseFloat(settingsElements.maxPriceDrift.value);

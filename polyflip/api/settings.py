@@ -59,7 +59,8 @@ async def get_all_settings():
         "YES_MAX_PRICE": db.get("YES_MAX_PRICE", "0.95"),
         "NO_MIN_PRICE": db.get("NO_MIN_PRICE", "0.55"),
         "MAX_BET_SIZE_USDC": db.get("MAX_BET_SIZE_USDC", "50.0"),
-        "MAX_PRICE_DRIFT": db.get("MAX_PRICE_DRIFT", "0.10")
+        "MAX_PRICE_DRIFT": db.get("MAX_PRICE_DRIFT", "0.10"),
+        "OUTSIDER_MAX_PRICE": db.get("OUTSIDER_MAX_PRICE", "0.45")
     }
 
     for asset in settings.asset_list:
@@ -175,13 +176,10 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "YES_MAX_PRICE",
         "NO_MIN_PRICE",
         "FAVORITE_MIN_EDGE",
-        "OUTSIDER_NO_MIN_PRICE",
-        "OUTSIDER_NO_MAX_PRICE",
-        "OUTSIDER_YES_MIN_PRICE",
-        "OUTSIDER_YES_MAX_PRICE",
         "LIQUIDITY_FRACTION",
         "BYPASS_BET_SIZE_CHECK",
-        "MAX_PRICE_DRIFT"
+        "MAX_PRICE_DRIFT",
+        "OUTSIDER_MAX_PRICE"
     ]
     
     is_per_asset_key = False

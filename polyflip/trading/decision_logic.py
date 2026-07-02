@@ -181,7 +181,7 @@ def decide_outsider(
     Если P(flip) >= flip_threshold → рынок флипнет → покупаем аутсайдера.
     config дополнительно ожидает:
       - FLIP_THRESHOLD: float (напр. 0.60)
-      - OUTSIDER_NO_MIN_PRICE / OUTSIDER_NO_MAX_PRICE
+      - OUTSIDER_MAX_PRICE: float (напр. 0.45) — не брать аутсайдера дороже этой цены
     """
     flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
 
@@ -190,6 +190,7 @@ def decide_outsider(
             f"p_flip={p_flip:.3f} < threshold={flip_thresh:.3f}", "SKIP",
             p_flip=p_flip)
 
+    max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", 0.45))
     min_edge = float(config.get("MIN_EDGE", 0.02))
     dead_zone = float(config.get("AUTO_DEAD_ZONE_WIDTH", 0.10))
 
@@ -199,17 +200,14 @@ def decide_outsider(
     # Аутсайдер: если YES дорогой — покупаем NO, и наоборот
     if signal.mid_price >= 0.5:
         # YES — фаворит, покупаем NO (аутсайдера)
-        no_min = float(config.get("OUTSIDER_NO_MIN_PRICE", config.get("NO_MIN_PRICE", 0.10)))
-        no_max = float(config.get("OUTSIDER_NO_MAX_PRICE", config.get("NO_MAX_PRICE", 0.50)))
-        no_prob = p_flip
-        if not (no_min <= signal.no_ask <= no_max):
+        if signal.no_ask > max_outsider_price:
             return TradeDecision("SKIP", 0, 0,
-                f"outsider NO price {signal.no_ask:.3f} out of [{no_min},{no_max}]", "SKIP",
+                f"NO ask {signal.no_ask:.3f} > max_outsider_price {max_outsider_price}", "SKIP",
                 p_flip=p_flip)
-        edge = compute_edge(no_prob, signal.no_ask)
+        edge = compute_edge(p_flip, signal.no_ask)
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
-        
+
         bet = _resolve_final_bet(edge, signal.volume_5min, config)
         bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
         if bet <= 0 and not bypass:
@@ -220,17 +218,14 @@ def decide_outsider(
             p_flip=p_flip, edge=edge)
     else:
         # NO — фаворит, покупаем YES (аутсайдера)
-        yes_min = float(config.get("OUTSIDER_YES_MIN_PRICE", config.get("YES_MIN_PRICE", 0.05)))
-        yes_max = float(config.get("OUTSIDER_YES_MAX_PRICE", config.get("YES_MAX_PRICE", 0.45)))
-        yes_prob = p_flip
-        if not (yes_min <= signal.yes_ask <= yes_max):
+        if signal.yes_ask > max_outsider_price:
             return TradeDecision("SKIP", 0, 0,
-                f"outsider YES price {signal.yes_ask:.3f} out of [{yes_min},{yes_max}]", "SKIP",
+                f"YES ask {signal.yes_ask:.3f} > max_outsider_price {max_outsider_price}", "SKIP",
                 p_flip=p_flip)
-        edge = compute_edge(yes_prob, signal.yes_ask)
+        edge = compute_edge(p_flip, signal.yes_ask)
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
-        
+
         bet = _resolve_final_bet(edge, signal.volume_5min, config)
         bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
         if bet <= 0 and not bypass:
@@ -239,3 +234,4 @@ def decide_outsider(
         return TradeDecision("BUY_YES", signal.yes_ask, bet,
             f"outsider YES, p_flip={p_flip:.3f}", "OUTSIDER",
             p_flip=p_flip, edge=edge)
+

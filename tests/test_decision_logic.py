@@ -258,3 +258,67 @@ class TestDecideFavorite:
         result = decide_favorite(sig, BASE_CONFIG)
         if result.action != "SKIP":
             assert result.edge is not None
+
+
+# ─── OUTSIDER: тесты нового параметра OUTSIDER_MAX_PRICE ─────────────────────
+
+class TestDecideOutsider:
+    OUTSIDER_CONFIG = {
+        **BASE_CONFIG,
+        "FLIP_THRESHOLD":    0.60,
+        "OUTSIDER_MAX_PRICE": 0.40,
+        "MIN_EDGE":          -0.10,  # расширен, чтобы edge-фильтр не мешал
+    }
+
+    def test_buys_no_when_yes_is_favorite_and_price_ok(self):
+        """YES — фаворит (mid=0.70), NO ask = 0.35 ≤ 0.40 → BUY_NO"""
+        sig = _signal(mid=0.70, spread=0.02)
+        # no_ask = 1 - mid + spread/2 = 0.30 + 0.01 = 0.31
+        result = decide_outsider(sig, p_flip=0.65, config=self.OUTSIDER_CONFIG)
+        assert result.action == "BUY_NO", f"Expected BUY_NO, got {result.action}: {result.reason}"
+
+    def test_skips_no_when_price_exceeds_max(self):
+        """YES — фаворит, NO ask = 0.45 > OUTSIDER_MAX_PRICE=0.40 → SKIP"""
+        # Создаём сигнал с малым спредом, чтобы no_ask > 0.40
+        # mid=0.55, spread=0.10 → no_ask = 0.45 + 0.05 = 0.50 > 0.40
+        sig = MarketSignal(
+            asset="BTC", mid_price=0.55, spread=0.10,
+            volume_5min=500.0, price_velocity=0.0,
+            hour_of_day=12, time_left_min=30.0
+        )
+        result = decide_outsider(sig, p_flip=0.65, config=self.OUTSIDER_CONFIG)
+        assert result.action == "SKIP"
+        assert "max_outsider_price" in result.reason
+
+    def test_buys_yes_when_no_is_favorite_and_price_ok(self):
+        """NO — фаворит (mid=0.30), YES ask = ~0.31 ≤ 0.40 → BUY_YES"""
+        sig = _signal(mid=0.30, spread=0.02)
+        # yes_ask = mid + spread/2 = 0.30 + 0.01 = 0.31
+        result = decide_outsider(sig, p_flip=0.65, config=self.OUTSIDER_CONFIG)
+        assert result.action == "BUY_YES", f"Expected BUY_YES, got {result.action}: {result.reason}"
+
+    def test_skips_yes_when_price_exceeds_max(self):
+        """NO — фаворит, YES ask > OUTSIDER_MAX_PRICE → SKIP"""
+        # mid=0.30 (вне мёртвой зоны), spread=0.24 → yes_ask = 0.30 + 0.12 = 0.42 > 0.40
+        sig = MarketSignal(
+            asset="BTC", mid_price=0.30, spread=0.24,
+            volume_5min=500.0, price_velocity=0.0,
+            hour_of_day=12, time_left_min=30.0
+        )
+        result = decide_outsider(sig, p_flip=0.65, config=self.OUTSIDER_CONFIG)
+        assert result.action == "SKIP"
+        assert "max_outsider_price" in result.reason
+
+    def test_skips_when_p_flip_below_threshold(self):
+        """p_flip=0.50 < FLIP_THRESHOLD=0.60 → SKIP"""
+        sig = _signal(mid=0.70)
+        result = decide_outsider(sig, p_flip=0.50, config=self.OUTSIDER_CONFIG)
+        assert result.action == "SKIP"
+        assert "threshold" in result.reason
+
+    def test_respects_custom_outsider_max_price(self):
+        """OUTSIDER_MAX_PRICE=0.30 более строгий: no_ask=0.31 → SKIP"""
+        config = {**self.OUTSIDER_CONFIG, "OUTSIDER_MAX_PRICE": 0.30}
+        sig = _signal(mid=0.70, spread=0.02)  # no_ask ≈ 0.31
+        result = decide_outsider(sig, p_flip=0.65, config=config)
+        assert result.action == "SKIP"

@@ -49,6 +49,7 @@ class BacktestConfig(BaseModel):
     yes_max_price: float = Field(default=0.95, ge=0.01, le=0.99)
     no_min_price: float = Field(default=0.55, ge=0.01, le=0.99)
     no_max_price: float = Field(default=0.95, ge=0.01, le=0.99)
+    outsider_max_price: float = Field(default=0.45, ge=0.01, le=0.99, description="Максимальная цена входа для аутсайдера")
 
     # Dead zone
     auto_dead_zone_width: float = Field(default=0.10, ge=0.0, le=0.5)
@@ -104,6 +105,7 @@ class BacktestConfig(BaseModel):
             "YES_MAX_PRICE": self.yes_max_price,
             "NO_MIN_PRICE": self.no_min_price,
             "NO_MAX_PRICE": self.no_max_price,
+            "OUTSIDER_MAX_PRICE": self.outsider_max_price,
             "AUTO_DEAD_ZONE_WIDTH": self.auto_dead_zone_width,
             "INITIAL_CAPITAL": self.initial_capital,
             "BET_SIZING_MODE": self.bet_sizing_mode,
