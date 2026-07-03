@@ -32,7 +32,7 @@ from polyflip.constants import (
     FAVORITE_MODE_ENTRY_WINDOW_SEC,
     TRADE_ON_FLIP,
     FLIP_THRESHOLD,
-    NO_MAX_PRICE,
+    OUTSIDER_MAX_PRICE,
     NO_MIN_EDGE,
     AUTO_DEAD_ZONE,
     AUTO_DEAD_ZONE_WIDTH
@@ -163,7 +163,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
     trade_on_flip = settings_db.get("TRADE_ON_FLIP", "false").lower() == "true"
     flip_threshold = float(settings_db.get("FLIP_THRESHOLD", str(FLIP_THRESHOLD)))
-    no_max_price = float(settings_db.get("NO_MAX_PRICE", str(NO_MAX_PRICE)))
+    no_max_price = float(settings_db.get("OUTSIDER_MAX_PRICE", str(OUTSIDER_MAX_PRICE)))
     no_min_edge = float(settings_db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)))
     entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
     min_edge = float(settings_db.get("MIN_EDGE", str(settings.MIN_EDGE)))

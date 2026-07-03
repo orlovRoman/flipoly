@@ -10,11 +10,11 @@ from polyflip.constants import (
     MIN_EDGE,
     TRADE_ON_FLIP,
     FLIP_THRESHOLD,
-    NO_MAX_PRICE,
+    OUTSIDER_MAX_PRICE,
     NO_MIN_EDGE,
     AUTO_DEAD_ZONE,
     AUTO_DEAD_ZONE_WIDTH,
-    MAX_EDGE
+    MAX_EDGE_SCALING as MAX_BET_EDGE
 )
 
 DEFAULTS = {
@@ -30,10 +30,10 @@ DEFAULTS = {
     "FAVORITE_MIN_EDGE": "-0.01",
     "LIQUIDITY_FRACTION": "0.05",
     "MIN_EDGE": "0.05",
-    "MAX_EDGE": "0.20",
+    "MAX_BET_EDGE": "0.20",
     "TRADE_ON_FLIP": "false",
     "FLIP_THRESHOLD": str(FLIP_THRESHOLD),
-    "NO_MAX_PRICE": str(NO_MAX_PRICE),
+    "OUTSIDER_MAX_PRICE": str(OUTSIDER_MAX_PRICE),
     "NO_MIN_EDGE": "0.05",
     "MAX_PRICE_DRIFT": "0.10",
     "AUTO_DEAD_ZONE": "true",
