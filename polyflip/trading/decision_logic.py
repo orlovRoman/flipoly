@@ -161,7 +161,7 @@ def decide_ml_trend(
     edge = compute_edge(p_win, buy_price)
     
     min_edge = float(config.get("MIN_EDGE", MIN_EDGE))
-    max_edge = float(config.get("MAX_EDGE", MAX_EDGE_SCALING))
+    max_edge = float(config.get("MAX_EDGE", MAX_EDGE_FILTER))
     if edge < min_edge or edge > max_edge:
         return TradeDecision("SKIP", 0, 0, f"Edge out of bounds (edge={edge:.4f})", "SKIP", p_flip=p_flip, edge=edge)
 
