@@ -12,21 +12,28 @@ from polyflip.trading.position_sizing import (
     compute_bet_size_edge_scaled,
     compute_edge, is_in_dead_zone
 )
+from polyflip.constants import (
+    FAVORITE_THRESHOLD, AUTO_DEAD_ZONE_WIDTH, MIN_EDGE, MAX_EDGE_SCALING, MAX_EDGE_FILTER,
+    FAVORITE_MIN_PRICE, FAVORITE_MAX_PRICE, FAVORITE_MIN_EDGE,
+    OUTSIDER_MAX_PRICE, FLIP_THRESHOLD, NO_FLIP_THRESHOLD,
+    TRADE_BET_SIZE_USDC, MAX_BET_SIZE_USDC, LIQUIDITY_FRACTION,
+    FLIP_MIDPOINT,
+)
 import structlog
 
 logger = structlog.get_logger(__name__)
 
 def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
     from polyflip.trading.position_sizing import compute_bet_size_with_liquidity
-    min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5))
+    min_bet = float(config.get("TRADE_BET_SIZE_USDC", TRADE_BET_SIZE_USDC))
     bet = compute_bet_size_with_liquidity(
         edge=edge,
         volume_5min=volume_5min,
         min_bet_usdc=min_bet,
-        max_bet_usdc=float(config.get("MAX_BET_SIZE_USDC", 50)),
-        min_edge=float(config.get("MIN_EDGE", 0.05)),
-        max_edge=float(config.get("MAX_EDGE", 0.40)),
-        liquidity_fraction=float(config.get("LIQUIDITY_FRACTION", 0.05)),
+        max_bet_usdc=float(config.get("MAX_BET_SIZE_USDC", MAX_BET_SIZE_USDC)),
+        min_edge=float(config.get("MIN_EDGE", MIN_EDGE)),
+        max_edge=float(config.get("MAX_EDGE", MAX_EDGE_SCALING)),
+        liquidity_fraction=float(config.get("LIQUIDITY_FRACTION", LIQUIDITY_FRACTION)),
     )
     # При edge < min_edge_scaled, compute_bet_size_edge_scaled возвращает 0.
     # Это ожидаемо для PURE_FAVORITE где FAVORITE_MIN_EDGE может быть отрицательным:
@@ -67,20 +74,20 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
       - TRADE_BET_SIZE_USDC: float (min bet)
       - MAX_BET_SIZE_USDC: float
     """
-    threshold = float(config.get("FAVORITE_THRESHOLD", 0.55))
+    threshold = float(config.get("FAVORITE_THRESHOLD", FAVORITE_THRESHOLD))
     if "FAVORITE_THRESHOLD" not in config:
         logger.warning(
             "favorite_threshold_default_used",
             threshold=threshold,
             note="Default changed from 0.65 to 0.55 in v1.x — set FAVORITE_THRESHOLD explicitly"
         )
-    dead_zone = float(config.get("AUTO_DEAD_ZONE_WIDTH", 0.10))
+    dead_zone = float(config.get("AUTO_DEAD_ZONE_WIDTH", AUTO_DEAD_ZONE_WIDTH))
 
     if is_in_dead_zone(signal.mid_price, dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP")
 
-    fav_min = float(config.get("FAVORITE_MIN_PRICE", 0.55))
-    fav_max = float(config.get("FAVORITE_MAX_PRICE", 0.95))
+    fav_min = float(config.get("FAVORITE_MIN_PRICE", FAVORITE_MIN_PRICE))
+    fav_max = float(config.get("FAVORITE_MAX_PRICE", FAVORITE_MAX_PRICE))
 
     # --- YES side ---
     if signal.mid_price >= threshold:
@@ -89,7 +96,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
                 f"YES price {signal.yes_ask:.3f} out of bounds [{fav_min},{fav_max}]", "SKIP")
         p_win_yes = signal.mid_price
         edge = compute_edge(p_win_yes, signal.yes_ask)
-        min_edge = float(config.get("FAVORITE_MIN_EDGE", config.get("MIN_EDGE", -0.01)))
+        min_edge = float(config.get("FAVORITE_MIN_EDGE", config.get("MIN_EDGE", FAVORITE_MIN_EDGE)))
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0,
                 f"favorite YES edge={edge:.4f} < min_edge={min_edge:.4f}", "SKIP",
@@ -106,7 +113,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             return TradeDecision("SKIP", 0, 0,
                 f"NO price {signal.no_ask:.3f} out of bounds [{fav_min},{fav_max}]", "SKIP")
         edge = compute_edge(no_prob, signal.no_ask)
-        min_edge = float(config.get("FAVORITE_MIN_EDGE", config.get("MIN_EDGE", -0.01)))
+        min_edge = float(config.get("FAVORITE_MIN_EDGE", config.get("MIN_EDGE", FAVORITE_MIN_EDGE)))
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0,
                 f"favorite NO edge={edge:.4f} < min_edge={min_edge:.4f}", "SKIP",
@@ -133,7 +140,7 @@ def decide_ml_trend(
         (применяются через вызов decide_favorite)
       - MIN_EDGE / MAX_EDGE: float  ← ML-edge фильтр, отдельный от FAVORITE_MIN_EDGE
     """
-    no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", 0.35))
+    no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", NO_FLIP_THRESHOLD))
     # NOTE: default должен совпадать с BacktestConfig.no_flip_threshold (0.35)
     # Если меняешь дефолт — меняй в обоих местах.
 
@@ -153,8 +160,8 @@ def decide_ml_trend(
 
     edge = compute_edge(p_win, buy_price)
     
-    min_edge = float(config.get("MIN_EDGE", 0.05))
-    max_edge = float(config.get("MAX_EDGE", 0.40))
+    min_edge = float(config.get("MIN_EDGE", MIN_EDGE))
+    max_edge = float(config.get("MAX_EDGE", MAX_EDGE_SCALING))
     if edge < min_edge or edge > max_edge:
         return TradeDecision("SKIP", 0, 0, f"Edge out of bounds (edge={edge:.4f})", "SKIP", p_flip=p_flip, edge=edge)
 
@@ -183,22 +190,22 @@ def decide_outsider(
       - FLIP_THRESHOLD: float (напр. 0.60)
       - OUTSIDER_MAX_PRICE: float (напр. 0.45) — не брать аутсайдера дороже этой цены
     """
-    flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
+    flip_thresh = float(config.get("FLIP_THRESHOLD", FLIP_THRESHOLD))
 
     if p_flip < flip_thresh:
         return TradeDecision("SKIP", 0, 0,
             f"p_flip={p_flip:.3f} < threshold={flip_thresh:.3f}", "SKIP",
             p_flip=p_flip)
 
-    max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", 0.45))
-    min_edge = float(config.get("MIN_EDGE", 0.02))
-    dead_zone = float(config.get("AUTO_DEAD_ZONE_WIDTH", 0.10))
+    max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", OUTSIDER_MAX_PRICE))
+    min_edge = float(config.get("MIN_EDGE", MIN_EDGE))
+    dead_zone = float(config.get("AUTO_DEAD_ZONE_WIDTH", AUTO_DEAD_ZONE_WIDTH))
 
     if is_in_dead_zone(signal.mid_price, dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip)
 
     # Аутсайдер: если YES дорогой — покупаем NO, и наоборот
-    if signal.mid_price >= 0.5:
+    if signal.mid_price >= FLIP_MIDPOINT:
         # YES — фаворит, покупаем NO (аутсайдера)
         if signal.no_ask > max_outsider_price:
             return TradeDecision("SKIP", 0, 0,

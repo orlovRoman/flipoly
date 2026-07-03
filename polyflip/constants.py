@@ -7,9 +7,34 @@ DAILY_LOSS_LIMIT_USDC = -100.0    # стоп-лосс на день
 
 # Режим ставки на аутсайдера (NO при флипе)
 TRADE_ON_FLIP = False          # по умолчанию выключен
-FLIP_THRESHOLD = 0.70         # p_flip >= 0.70 → рассматриваем NO
-NO_MAX_PRICE = 0.60           # не покупать NO дороже 0.60
+FLIP_THRESHOLD = 0.60         # p_flip >= 0.60 → рассматриваем аутсайдера
+OUTSIDER_MAX_PRICE = 0.45     # не покупать аутсайдера дороже (замена NO_MAX_PRICE)
 NO_MIN_EDGE = 0.04            # минимальный edge для NO-ставки
+
+# --- Размер ставок ---
+TRADE_BET_SIZE_USDC   = 5.0    # минимальная ставка
+MAX_BET_SIZE_USDC     = 50.0   # максимальная ставка
+LIQUIDITY_FRACTION    = 0.05   # не более 5% от volume_5min
+
+# --- Границы цены входа ---
+FAVORITE_MIN_PRICE    = 0.55   # не покупать фаворита дешевле
+FAVORITE_MAX_PRICE    = 0.95   # не покупать фаворита дороже
+FAVORITE_MIN_EDGE     = -0.01  # мин. edge для pure-favorite (мягче чем ML)
+
+# --- ML пороги ---
+NO_FLIP_THRESHOLD     = 0.35   # p_flip < этого → ML_TREND покупает фаворита
+
+# --- Комиссии ---
+POLYMARKET_FEE_RATE   = 0.002  # 0.2% от выплаты
+
+# --- Математические sentinels ---
+FLIP_MIDPOINT         = 0.5    # нейтральная вероятность
+INVALID_EDGE_SENTINEL = -1.0   # возврат compute_edge при buy_price <= 0
+
+# --- Edge ---
+MIN_EDGE = 0.05                     # ROI-based: (win_prob/buy_price) - 1. 0.05 = 5% ROI
+MAX_EDGE_SCALING      = 0.40   # верхняя граница масштабирования ставки
+MAX_EDGE_FILTER       = 0.20   # выше этого edge считается аномальным (торговый фильтр)
 
 # --- Режимы торговли ---
 TRADING_MODE_ML = "ml"
@@ -29,9 +54,3 @@ HTTP_TIMEOUT_SEC = 10.0             # таймаут CLOB/Gamma API
 VOLUME_WINDOW_MIN = 5               # окно для volume_5min
 TRADE_CHECK_LIMIT = 5               # кол-во последних записей для проверки дублей
 LIVE_POLL_INTERVAL_SECONDS = 10     # интервал опроса коллектора по умолчанию
-MIN_EDGE = 0.05                     # ROI-based: (win_prob/buy_price) - 1. 0.05 = 5% ROI
-MAX_EDGE = 0.20                     # ROI-based: (win_prob/buy_price) - 1.
-                                    # 0.50 = 50% ROI. Сигналы выше этого порога
-                                    # считаются аномальными (ошибка модели или
-                                    # арбитражная ситуация) и пропускаются.
-                                    # При mid=0.70, win_prob=1.05 — явная аномалия.

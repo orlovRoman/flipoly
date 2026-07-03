@@ -4,13 +4,17 @@
 """
 from __future__ import annotations
 
-
+from polyflip.constants import (
+    MIN_EDGE, MAX_EDGE_SCALING, MAX_EDGE_FILTER,
+    LIQUIDITY_FRACTION, POLYMARKET_FEE_RATE,
+    INVALID_EDGE_SENTINEL, FLIP_MIDPOINT
+)
 def compute_bet_size_edge_scaled(
     edge: float,
     min_bet_usdc: float,
     max_bet_usdc: float,
-    min_edge: float = 0.05,
-    max_edge: float = 0.40,
+    min_edge: float = MIN_EDGE,
+    max_edge: float = MAX_EDGE_SCALING,
 ) -> float:
     """
     Линейное масштабирование ставки по силе edge.
@@ -29,9 +33,9 @@ def compute_bet_size_with_liquidity(
     volume_5min: float,
     min_bet_usdc: float,
     max_bet_usdc: float,
-    min_edge: float = 0.05,
-    max_edge: float = 0.20,
-    liquidity_fraction: float = 0.05,
+    min_edge: float = MIN_EDGE,
+    max_edge: float = MAX_EDGE_FILTER,
+    liquidity_fraction: float = LIQUIDITY_FRACTION,
 ) -> float:
     """
     Масштабирует ставку по edge И ограничивает её по ликвидности рынка.
@@ -58,7 +62,7 @@ def compute_edge(win_prob: float, buy_price: float) -> float:
     edge > 0 → положительное ожидание.
     """
     if buy_price <= 0:
-        return -1.0
+        return INVALID_EDGE_SENTINEL
     return round((win_prob / buy_price) - 1.0, 4)
 
 
@@ -67,10 +71,10 @@ def is_in_dead_zone(mid_price: float, dead_zone_width: float) -> bool:
     True если рынок слишком близко к 0.5 — нет явного фаворита.
     dead_zone_width=0.1 означает [0.45, 0.55] — мёртвая зона.
     """
-    return abs(mid_price - 0.5) < dead_zone_width / 2
+    return abs(mid_price - FLIP_MIDPOINT) < dead_zone_width / 2
 
 
-def apply_polymarket_fee(gross_pnl: float, fee_rate: float = 0.002) -> float:
+def apply_polymarket_fee(gross_pnl: float, fee_rate: float = POLYMARKET_FEE_RATE) -> float:
     """
     Применяет комиссию Polymarket (0.2% от выплаты).
     Используется только для расчёта PnL в бэктесте.
