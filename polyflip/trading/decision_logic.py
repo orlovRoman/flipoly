@@ -74,7 +74,6 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             threshold=threshold,
             note="Default changed from 0.65 to 0.55 in v1.x — set FAVORITE_THRESHOLD explicitly"
         )
-    min_edge  = float(config.get("MIN_EDGE", 0.05))
     dead_zone = float(config.get("AUTO_DEAD_ZONE_WIDTH", 0.10))
 
     if is_in_dead_zone(signal.mid_price, dead_zone):
@@ -130,6 +129,9 @@ def decide_ml_trend(
     Если P(flip) < no_flip_threshold → рынок не флипнет → покупаем фаворита.
     config дополнительно ожидает:
       - NO_FLIP_THRESHOLD: float (напр. 0.35)
+      - FAVORITE_MIN_PRICE / FAVORITE_MAX_PRICE: float
+        (применяются через вызов decide_favorite)
+      - MIN_EDGE / MAX_EDGE: float  ← ML-edge фильтр, отдельный от FAVORITE_MIN_EDGE
     """
     no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", 0.35))
     # NOTE: default должен совпадать с BacktestConfig.no_flip_threshold (0.35)
