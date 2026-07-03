@@ -32,7 +32,7 @@ def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
         min_bet_usdc=min_bet,
         max_bet_usdc=float(config.get("MAX_BET_SIZE_USDC", MAX_BET_SIZE_USDC)),
         min_edge=float(config.get("MIN_EDGE", MIN_EDGE)),
-        max_edge=float(config.get("MAX_EDGE", MAX_EDGE_SCALING)),
+        max_edge=float(config.get("MAX_BET_EDGE", MAX_EDGE_FILTER)),
         liquidity_fraction=float(config.get("LIQUIDITY_FRACTION", LIQUIDITY_FRACTION)),
     )
     # При edge < min_edge_scaled, compute_bet_size_edge_scaled возвращает 0.
