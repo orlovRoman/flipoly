@@ -32,7 +32,7 @@ class TestSettingsConsistency:
     def test_no_division_by_100_for_threshold_fields(self):
         """
         После фикса c71ae984: TRADE_NO_FLIP_THRESHOLD, FLIP_THRESHOLD,
-        MIN_EDGE, MAX_EDGE должны читаться as-is (без / 100).
+        MIN_EDGE, MAX_BET_EDGE должны читаться as-is (без / 100).
         """
         text = BACKTEST_JS.read_text(encoding="utf-8")
 
@@ -41,7 +41,7 @@ class TestSettingsConsistency:
             "TRADE_NO_FLIP_THRESHOLD",
             "FLIP_THRESHOLD",
             "MIN_EDGE",
-            "MAX_EDGE",
+            "MAX_BET_EDGE",
         ]
         for field in threshold_fields:
             # Находим строки где используется это поле
@@ -58,7 +58,7 @@ class TestSettingsConsistency:
         или != null, а не ||, чтобы не терять значение 0.
         """
         text = BACKTEST_JS.read_text(encoding="utf-8")
-        risky_fields = ["TRADE_NO_FLIP_THRESHOLD", "MIN_EDGE", "MAX_EDGE"]
+        risky_fields = ["TRADE_NO_FLIP_THRESHOLD", "MIN_EDGE", "MAX_BET_EDGE"]
 
         for field in risky_fields:
             lines = [l for l in text.splitlines() if field in l and "||" in l]

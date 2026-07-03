@@ -34,7 +34,7 @@ async def test_engine_enters_on_confident_favorite(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_EDGE", value="0.50", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_BET_EDGE", value="0.50", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
@@ -86,7 +86,7 @@ async def test_engine_skips_in_dead_zone(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_EDGE", value="0.40", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_BET_EDGE", value="0.40", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
@@ -371,7 +371,7 @@ async def test_engine_skips_no_deal_when_edge_too_small(db_session):
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_EDGE", value="0.40", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_BET_EDGE", value="0.40", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
@@ -431,7 +431,7 @@ async def test_outsider_respects_edge_limits(db_session):
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_EDGE", value="0.10", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_BET_EDGE", value="0.10", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
 
@@ -457,7 +457,7 @@ async def test_outsider_respects_edge_limits(db_session):
          mock_api = mock_api_cls.return_value
 
          # buy_price for NO = 0.41.
-         # edge = (0.50 / 0.41) - 1.0 = 0.2195 > MAX_EDGE (0.10)
+         # edge = (0.50 / 0.41) - 1.0 = 0.2195 > MAX_BET_EDGE (0.10)
          mock_api.get_market_prices = AsyncMock(side_effect=[
              {"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.61}, # YES
              {"current_yes_price": 0.40, "current_spread": 0.01, "best_ask": 0.41}  # NO

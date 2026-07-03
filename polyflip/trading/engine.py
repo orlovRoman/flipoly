@@ -102,7 +102,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADING_MODE",
         "FAVORITE_MODE_ENTRY_SEC",
         "MIN_EDGE",
-        "MAX_EDGE",
+        "MAX_BET_EDGE",
         "FAVORITE_THRESHOLD",
         "TRADE_ON_FLIP",
         "FLIP_THRESHOLD",
@@ -167,7 +167,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     no_min_edge = float(settings_db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)))
     entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
     min_edge = float(settings_db.get("MIN_EDGE", str(settings.MIN_EDGE)))
-    max_edge = float(settings_db.get("MAX_EDGE", str(settings.MAX_EDGE)))
+    max_bet_edge = float(settings_db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)))
     favorite_threshold = float(settings_db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)))
 
     # Вычисляем объединенный временной интервал для запроса рынков
@@ -416,7 +416,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 local_config["NO_FLIP_THRESHOLD"] = lower
                 local_config["FLIP_THRESHOLD"] = upper
                 local_config["MIN_EDGE"] = -100.0
-                local_config["MAX_EDGE"] = 100.0
+                local_config["MAX_BET_EDGE"] = 100.0
                 local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 
                 decision_obj = decide_ml_trend(signal, p_flip, local_config)
@@ -490,7 +490,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     current_min_edge = asset_min_edge  # fallback на общий min_edge
             edge = compute_edge(p_win, buy_price)
             # Проверяем лимиты по edge и цене
-            if edge < current_min_edge or edge > max_edge:
+            if edge < current_min_edge or edge > max_bet_edge:
                 await save_or_update_skipped_trade(
                     db_session, market, f"Edge out of bounds (edge={edge:.4f})",
                     p_flip, model_ver, start_time,
@@ -518,7 +518,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     min_bet_usdc=bet_size,
                     max_bet_usdc=max_bet_usdc,
                     min_edge=current_min_edge,
-                    max_edge=max_edge
+                    max_edge=max_bet_edge
                 )
                 if asset_mode == TRADING_MODE_FAVORITE and actual_bet_size < bet_size:
                     actual_bet_size = bet_size

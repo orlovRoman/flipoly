@@ -48,7 +48,7 @@ async def get_all_settings():
         "LIVE_POLL_INTERVAL_SECONDS": db.get("LIVE_POLL_INTERVAL_SECONDS", str(settings.LIVE_POLL_INTERVAL_SECONDS)),
         "FAVORITE_THRESHOLD": db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)),
         "MIN_EDGE": db.get("MIN_EDGE", str(settings.MIN_EDGE)),
-        "MAX_EDGE": db.get("MAX_EDGE", str(settings.MAX_EDGE)),
+        "MAX_BET_EDGE": db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)),
         "TRADE_ON_FLIP": db.get("TRADE_ON_FLIP", "false"),
         "FLIP_THRESHOLD": db.get("FLIP_THRESHOLD", str(FLIP_THRESHOLD)),
         "NO_MIN_EDGE": db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)),
@@ -163,7 +163,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "LIVE_POLL_INTERVAL_SECONDS",
         "FAVORITE_THRESHOLD",
         "MIN_EDGE",
-        "MAX_EDGE",
+        "MAX_BET_EDGE",
         "TRADE_ON_FLIP",
         "FLIP_THRESHOLD",
         "NO_MIN_EDGE",
@@ -200,7 +200,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
 
-    if key in ["MIN_EDGE", "MAX_EDGE"] or key.startswith("MIN_EDGE_"):
+    if key in ["MIN_EDGE", "MAX_BET_EDGE"] or key.startswith("MIN_EDGE_"):
         if key.startswith("MIN_EDGE_") and payload.value == "":
             pass
         else:
@@ -218,20 +218,20 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
                     if val < 0.005:
                         raise HTTPException(status_code=400, detail=f"{key} as fraction must be ≥ 0.005 (0.5%)")
                     
-                if key in ["MIN_EDGE", "MAX_EDGE"]:
+                if key in ["MIN_EDGE", "MAX_BET_EDGE"]:
                     # Cross-validation
                     norm_val = float(payload.value)
                     async with async_session() as session:
-                        if key == "MAX_EDGE":
+                        if key == "MAX_BET_EDGE":
                             min_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE"))).scalar_one_or_none()
                             current_min = float(min_edge_row.value) if min_edge_row else settings.MIN_EDGE
                             if norm_val <= current_min:
-                                raise HTTPException(status_code=400, detail=f"MAX_EDGE ({norm_val}) must be greater than MIN_EDGE ({current_min})")
+                                raise HTTPException(status_code=400, detail=f"MAX_BET_EDGE ({norm_val}) must be greater than MIN_EDGE ({current_min})")
                         elif key == "MIN_EDGE":
-                            max_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_EDGE"))).scalar_one_or_none()
-                            current_max = float(max_edge_row.value) if max_edge_row else getattr(settings, 'MAX_EDGE', 0.10)
+                            max_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE"))).scalar_one_or_none()
+                            current_max = float(max_edge_row.value) if max_edge_row else getattr(settings, 'MAX_BET_EDGE', 0.10)
                             if norm_val >= current_max:
-                                raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be less than MAX_EDGE ({current_max})")
+                                raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be less than MAX_BET_EDGE ({current_max})")
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"{key} must be a number")
 

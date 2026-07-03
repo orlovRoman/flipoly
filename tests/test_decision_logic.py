@@ -6,7 +6,7 @@ from polyflip.trading.feature_builder import MarketSignal
 from polyflip.constants import (
     FAVORITE_THRESHOLD, FLIP_THRESHOLD, NO_FLIP_THRESHOLD,
     FAVORITE_MIN_PRICE, FAVORITE_MAX_PRICE, FAVORITE_MIN_EDGE,
-    MIN_EDGE, MAX_EDGE_FILTER, OUTSIDER_MAX_PRICE, AUTO_DEAD_ZONE_WIDTH,
+    MIN_EDGE, MAX_BET_EDGE_FILTER, OUTSIDER_MAX_PRICE, AUTO_DEAD_ZONE_WIDTH,
 )
 
 
@@ -27,7 +27,7 @@ BASE_CONFIG = {
     "FAVORITE_MAX_PRICE": FAVORITE_MAX_PRICE,
     "FAVORITE_MIN_EDGE": FAVORITE_MIN_EDGE,
     "MIN_EDGE": MIN_EDGE,
-    "MAX_EDGE": MAX_EDGE_FILTER,
+    "MAX_BET_EDGE": MAX_BET_EDGE_FILTER,
     "FLIP_THRESHOLD": FLIP_THRESHOLD,
     "NO_FLIP_THRESHOLD": NO_FLIP_THRESHOLD,
     "OUTSIDER_MAX_PRICE": OUTSIDER_MAX_PRICE,
@@ -125,7 +125,7 @@ class TestDecideMlTrend:
         assert d.edge == pytest.approx(expected_edge, abs=1e-3)
 
     def test_skip_when_edge_exceeds_max(self):
-        # p_flip=0.01 → p_win=0.99, yes_ask=0.60 → edge≈0.65 > MAX_EDGE_FILTER=0.20
+        # p_flip=0.01 → p_win=0.99, yes_ask=0.60 → edge≈0.65 > MAX_BET_EDGE_FILTER=0.20
         sig = _signal(mid=0.72, yes_ask=0.60, vol=1000.0)
         d = decide_ml_trend(sig, p_flip=0.01, config=BASE_CONFIG)
         assert d.action == "SKIP"

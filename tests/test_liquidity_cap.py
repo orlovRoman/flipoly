@@ -64,7 +64,7 @@ def test_decide_ml_trend_respects_liquidity():
         "NO_FLIP_THRESHOLD": "0.40",
         "FAVORITE_THRESHOLD": "0.60",
         "MIN_EDGE": "-0.05",
-        "MAX_EDGE": "0.20",
+        "MAX_BET_EDGE": "0.20",
         "TRADE_BET_SIZE_USDC": "5",
         "MAX_BET_SIZE_USDC": "50",
         "AUTO_DEAD_ZONE_WIDTH": "0.05",

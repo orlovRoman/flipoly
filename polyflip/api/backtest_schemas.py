@@ -58,7 +58,7 @@ class BacktestConfig(BaseModel):
     trade_bet_size_usdc: float = Field(default=5.0, ge=1.0)
     max_bet_size_usdc: float = Field(default=50.0, ge=1.0)
     min_edge: float = Field(default=-0.05, ge=-1.0, le=1.0)
-    max_edge: float = Field(default=0.50, ge=-1.0, le=1.0)
+    max_bet_edge: float = Field(default=0.50, ge=-1.0, le=1.0)
 
     # Исполнение
     slippage_pct: float = Field(default=0.005, ge=0.0, le=0.10)
@@ -108,7 +108,7 @@ class BacktestConfig(BaseModel):
             "TRADE_BET_SIZE_USDC": self.trade_bet_size_usdc,
             "MAX_BET_SIZE_USDC": self.max_bet_size_usdc,
             "MIN_EDGE": self.min_edge,
-            "MAX_EDGE": self.max_edge,
+            "MAX_BET_EDGE": self.max_bet_edge,
             "SLIPPAGE_PCT": self.slippage_pct,
         }
 

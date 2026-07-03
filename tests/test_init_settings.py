@@ -1,9 +1,9 @@
 def test_defaults_include_edge_bounds():
     from polyflip.db.init_runtime_settings import DEFAULTS
     assert "MIN_EDGE" in DEFAULTS, "MIN_EDGE должен быть в дефолтах"
-    assert "MAX_EDGE" in DEFAULTS, "MAX_EDGE должен быть в дефолтах"
+    assert "MAX_BET_EDGE" in DEFAULTS, "MAX_BET_EDGE должен быть в дефолтах"
     assert float(DEFAULTS["MIN_EDGE"]) > 0
-    assert float(DEFAULTS["MAX_EDGE"]) > float(DEFAULTS["MIN_EDGE"])
+    assert float(DEFAULTS["MAX_BET_EDGE"]) > float(DEFAULTS["MIN_EDGE"])
 
 def test_edge_formula_is_roi_based():
     """Убедиться что новая формула edge это ROI, не разница вероятностей."""
@@ -14,12 +14,12 @@ def test_edge_formula_is_roi_based():
     assert abs(edge - 0.05) > 1e-3, "edge не должен быть старым линейным значением 0.05"
 
 def test_defaults_max_edge_matches_constant():
-    """DEFAULTS["MAX_EDGE"] должен совпадать с constants.MAX_EDGE."""
+    """DEFAULTS["MAX_BET_EDGE"] должен совпадать с constants.MAX_BET_EDGE_SCALING."""
     from polyflip.db.init_runtime_settings import DEFAULTS
-    from polyflip.constants import MAX_EDGE
-    assert float(DEFAULTS["MAX_EDGE"]) == MAX_EDGE, (
-        f"DEFAULTS['MAX_EDGE']={DEFAULTS['MAX_EDGE']} "
-        f"не совпадает с constants.MAX_EDGE={MAX_EDGE}"
+    from polyflip.constants import MAX_BET_EDGE_SCALING as MAX_BET_EDGE
+    assert float(DEFAULTS["MAX_BET_EDGE"]) == MAX_BET_EDGE, (
+        f"DEFAULTS['MAX_BET_EDGE']={DEFAULTS['MAX_BET_EDGE']} "
+        f"не совпадает с constants.MAX_BET_EDGE_SCALING={MAX_BET_EDGE}"
     )
 
 def test_defaults_min_edge_matches_constant():
@@ -28,19 +28,19 @@ def test_defaults_min_edge_matches_constant():
     assert float(DEFAULTS["MIN_EDGE"]) == MIN_EDGE
 
 def test_max_edge_is_higher_than_realistic_signals():
-    """MAX_EDGE должен быть > 0 и <= 1.0 (100% ROI = абсолютный максимум)."""
-    from polyflip.constants import MAX_EDGE, MIN_EDGE
-    assert MIN_EDGE < MAX_EDGE
-    assert MAX_EDGE <= 1.0, "MAX_EDGE > 100% ROI нереалистичен для Polymarket"
-    assert MAX_EDGE >= 0.10, "MAX_EDGE слишком мал — будет срезать хорошие сигналы"
+    """MAX_BET_EDGE должен быть > 0 и <= 1.0 (100% ROI = абсолютный максимум)."""
+    from polyflip.constants import MAX_BET_EDGE_SCALING as MAX_BET_EDGE, MIN_EDGE
+    assert MIN_EDGE < MAX_BET_EDGE
+    assert MAX_BET_EDGE <= 1.0, "MAX_BET_EDGE > 100% ROI нереалистичен для Polymarket"
+    assert MAX_BET_EDGE >= 0.10, "MAX_BET_EDGE слишком мал — будет срезать хорошие сигналы"
 
 def test_max_edge_default_is_conservative():
-    """MAX_EDGE по умолчанию должен быть <= 0.25 (консервативный)"""
+    """MAX_BET_EDGE по умолчанию должен быть <= 0.25 (консервативный)"""
     from polyflip.db.init_runtime_settings import DEFAULTS
-    assert float(DEFAULTS["MAX_EDGE"]) <= 0.25, (
-        f"MAX_EDGE={DEFAULTS['MAX_EDGE']} слишком широкий — рискуем входить на неликвидных рынках"
+    assert float(DEFAULTS["MAX_BET_EDGE"]) <= 0.25, (
+        f"MAX_BET_EDGE={DEFAULTS['MAX_BET_EDGE']} слишком широкий — рискуем входить на неликвидных рынках"
     )
 
 def test_max_edge_from_constants():
-    from polyflip.constants import MAX_EDGE
-    assert MAX_EDGE <= 0.25
+    from polyflip.constants import MAX_BET_EDGE_SCALING as MAX_BET_EDGE
+    assert MAX_BET_EDGE <= 0.25

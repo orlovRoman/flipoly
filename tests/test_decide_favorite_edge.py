@@ -14,7 +14,7 @@ def make_signal(mid: float, spread: float = 0.02) -> MarketSignal:
 BASE_CONFIG = {
     "FAVORITE_THRESHOLD": "0.60",
     "MIN_EDGE": "0.02",
-    "MAX_EDGE": "0.25",
+    "MAX_BET_EDGE": "0.25",
     "TRADE_BET_SIZE_USDC": "5",
     "MAX_BET_SIZE_USDC": "50",
     "AUTO_DEAD_ZONE_WIDTH": "0.05",
@@ -50,7 +50,7 @@ def test_favorite_no_has_real_edge():
 def test_favorite_edge_wires_to_bet_sizing():
     """Размер ставки должен зависеть от edge (scaled режим)"""
     config_low_edge = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "-0.05", "TRADE_BET_SIZE_USDC": "5", "MAX_BET_SIZE_USDC": "50"}
-    config_high_min_edge = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "-0.05", "MAX_EDGE": "0.01",
+    config_high_min_edge = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "-0.05", "MAX_BET_EDGE": "0.01",
                             "TRADE_BET_SIZE_USDC": "5", "MAX_BET_SIZE_USDC": "50"}
     d1 = decide_favorite(make_signal(mid=0.75, spread=0.001), config_low_edge)
     d2 = decide_favorite(make_signal(mid=0.75, spread=0.001), config_high_min_edge)
