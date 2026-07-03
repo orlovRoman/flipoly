@@ -6,3 +6,8 @@ polyflip/*.sqlite
 *.sqlite
 scratch/
 swap.py
+check_postgres.py
+query_remote_stats.py
+test_remote.py
+test_schema.py
+

@@ -1,6 +1,6 @@
 """
-Самотесты для decision_logic.py — покрывают баги #2, #3, #5.
-Запуск: pytest tests/test_decision_logic.py -v
+РЎР°РјРѕС‚РµСЃС‚С‹ РґР»СЏ decision_logic.py вЂ” РїРѕРєСЂС‹РІР°СЋС‚ Р±Р°РіРё #2, #3, #5.
+Р—Р°РїСѓСЃРє: pytest tests/test_decision_logic.py -v
 """
 import pytest
 from polyflip.trading.feature_builder import MarketSignal
@@ -8,7 +8,7 @@ from polyflip.trading.decision_logic import (
     decide_ml_trend, decide_favorite, decide_outsider, TradeDecision
 )
 
-# ─── Фабрика сигналов ───────────────────────────────────────────────────────
+# в”Ђв”Ђв”Ђ Р¤Р°Р±СЂРёРєР° СЃРёРіРЅР°Р»РѕРІ в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
 def _signal(mid=0.70, spread=0.02, volume=500.0, velocity=0.01, hour=12, time_left=30.0):
     return MarketSignal(
@@ -37,7 +37,7 @@ BASE_CONFIG = {
 }
 
 
-# ─── Баг #2: yes_ask / no_ask вычисляются корректно ─────────────────────────
+# в”Ђв”Ђв”Ђ Р‘Р°Рі #2: yes_ask / no_ask РІС‹С‡РёСЃР»СЏСЋС‚СЃСЏ РєРѕСЂСЂРµРєС‚РЅРѕ в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
 class TestMarketSignalPrices:
     def test_yes_ask_above_mid(self):
@@ -58,15 +58,15 @@ class TestMarketSignalPrices:
         assert sig.no_ask == 0.99
 
 
-# ─── Баг #3: дефолты NO_FLIP_THRESHOLD совпадают ────────────────────────────
+# в”Ђв”Ђв”Ђ Р‘Р°Рі #3: РґРµС„РѕР»С‚С‹ NO_FLIP_THRESHOLD СЃРѕРІРїР°РґР°СЋС‚ в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
 class TestThresholdDefaults:
     def test_no_flip_default_matches_schema(self):
-        """Если config не содержит NO_FLIP_THRESHOLD — используется 0.35 как в BacktestConfig."""
+        """Р•СЃР»Рё config РЅРµ СЃРѕРґРµСЂР¶РёС‚ NO_FLIP_THRESHOLD вЂ” РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ 0.35 РєР°Рє РІ BacktestConfig."""
         config_without_threshold = {k: v for k, v in BASE_CONFIG.items()
                                     if k != "NO_FLIP_THRESHOLD"}
         sig = _signal(mid=0.70)
-        # p_flip=0.30 < дефолт 0.35 → должна торговать
+        # p_flip=0.30 < РґРµС„РѕР»С‚ 0.35 в†’ РґРѕР»Р¶РЅР° С‚РѕСЂРіРѕРІР°С‚СЊ
         result = decide_ml_trend(sig, p_flip=0.30, config=config_without_threshold)
         assert result.action != "SKIP", (
             f"Expected trade with p_flip=0.30 < default threshold 0.35, got SKIP. "
@@ -74,20 +74,20 @@ class TestThresholdDefaults:
         )
 
     def test_no_flip_threshold_from_config(self):
-        """Явный порог из config используется правильно."""
+        """РЇРІРЅС‹Р№ РїРѕСЂРѕРі РёР· config РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РїСЂР°РІРёР»СЊРЅРѕ."""
         config = {**BASE_CONFIG, "NO_FLIP_THRESHOLD": 0.50}
         sig = _signal(mid=0.70)
 
-        # p_flip=0.30 < 0.50 → торгуем (edge будет выше -0.05)
+        # p_flip=0.30 < 0.50 в†’ С‚РѕСЂРіСѓРµРј (edge Р±СѓРґРµС‚ РІС‹С€Рµ -0.05)
         result_trade = decide_ml_trend(sig, p_flip=0.30, config=config)
         assert result_trade.action != "SKIP"
 
-        # p_flip=0.55 >= 0.50 → пропускаем
+        # p_flip=0.55 >= 0.50 в†’ РїСЂРѕРїСѓСЃРєР°РµРј
         result_skip = decide_ml_trend(sig, p_flip=0.55, config=config)
         assert result_skip.action == "SKIP"
 
 
-# ─── ML стратегия: основные кейсы ───────────────────────────────────────────
+# в”Ђв”Ђв”Ђ ML СЃС‚СЂР°С‚РµРіРёСЏ: РѕСЃРЅРѕРІРЅС‹Рµ РєРµР№СЃС‹ в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
 class TestDecideMlTrend:
     def test_trades_when_p_flip_below_threshold(self):
@@ -103,7 +103,7 @@ class TestDecideMlTrend:
         assert "p_flip" in result.reason
 
     def test_skips_in_dead_zone(self):
-        # mid=0.50 → dead zone при width=0.10 (0.45-0.55)
+        # mid=0.50 в†’ dead zone РїСЂРё width=0.10 (0.45-0.55)
         sig = _signal(mid=0.50)
         result = decide_ml_trend(sig, p_flip=0.10, config=BASE_CONFIG)
         assert result.action == "SKIP"
@@ -121,13 +121,13 @@ class TestDecideMlTrend:
         assert result.p_flip == pytest.approx(0.20)
 
 
-# ─── Баг #5: confirmed entry strategy ───────────────────────────────────────
+# в”Ђв”Ђв”Ђ Р‘Р°Рі #5: confirmed entry strategy в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
 class TestConfirmedEntryStrategy:
-    """Проверяем что confirmed не зависает при чередующихся сигналах."""
+    """РџСЂРѕРІРµСЂСЏРµРј С‡С‚Рѕ confirmed РЅРµ Р·Р°РІРёСЃР°РµС‚ РїСЂРё С‡РµСЂРµРґСѓСЋС‰РёС…СЃСЏ СЃРёРіРЅР°Р»Р°С…."""
 
     def _make_tick(self, mid, time_left):
-        """Простой mock тика с нужными атрибутами."""
+        """РџСЂРѕСЃС‚РѕР№ mock С‚РёРєР° СЃ РЅСѓР¶РЅС‹РјРё Р°С‚СЂРёР±СѓС‚Р°РјРё."""
         from unittest.mock import MagicMock
         from polyflip.backtesting.market_replay import MarketTick
         from datetime import datetime, timezone
@@ -145,11 +145,11 @@ class TestConfirmedEntryStrategy:
         )
 
     def test_confirmed_resets_on_action_change(self):
-        """При смене action счётчик должен сброситься в 0, не в 1."""
+        """РџСЂРё СЃРјРµРЅРµ action СЃС‡С‘С‚С‡РёРє РґРѕР»Р¶РµРЅ СЃР±СЂРѕСЃРёС‚СЊСЃСЏ РІ 0, РЅРµ РІ 1."""
         from polyflip.backtesting.runner import BacktestRunner
         from polyflip.backtesting.market_replay import MarketReplay
 
-        # Патчим _predict_flip для детерминированного поведения
+        # РџР°С‚С‡РёРј _predict_flip РґР»СЏ РґРµС‚РµСЂРјРёРЅРёСЂРѕРІР°РЅРЅРѕРіРѕ РїРѕРІРµРґРµРЅРёСЏ
         config = {**BASE_CONFIG, "STRATEGY_MODE": "ML", "ENTRY_STRATEGY": "confirmed",
                   "MIN_TIME_LEFT_MIN": 1.0, "MAX_TIME_LEFT_MIN": 60.0,
                   "SLIPPAGE_PCT": 0.005, "TRADE_ON_FLIP": False,
@@ -158,7 +158,7 @@ class TestConfirmedEntryStrategy:
         runner = BacktestRunner(config=config, model_blob=b"", features="")
 
         call_count = [0]
-        # Чередующиеся решения: BUY_YES, BUY_NO, BUY_YES, BUY_YES
+        # Р§РµСЂРµРґСѓСЋС‰РёРµСЃСЏ СЂРµС€РµРЅРёСЏ: BUY_YES, BUY_NO, BUY_YES, BUY_YES
         actions = ["BUY_YES", "BUY_NO", "BUY_YES", "BUY_YES"]
 
         original_evaluate = runner._evaluate_tick
@@ -177,7 +177,7 @@ class TestConfirmedEntryStrategy:
 
         ticks = [self._make_tick(0.70, 50.0 - i) for i in range(5)]
 
-        # Симулируем confirmed logic напрямую
+        # РЎРёРјСѓР»РёСЂСѓРµРј confirmed logic РЅР°РїСЂСЏРјСѓСЋ
         best_decision = None
         consecutive_edges = 0
         for tick in ticks:
@@ -186,7 +186,7 @@ class TestConfirmedEntryStrategy:
                 consecutive_edges = 0
                 continue
             if best_decision and decision.action != best_decision.action:
-                consecutive_edges = 1   # ← ИСПРАВЛЕННОЕ поведение
+                consecutive_edges = 1   # в†ђ Р�РЎРџР РђР’Р›Р•РќРќРћР• РїРѕРІРµРґРµРЅРёРµ
                 best_decision = decision
             else:
                 consecutive_edges += 1
@@ -195,7 +195,7 @@ class TestConfirmedEntryStrategy:
             if consecutive_edges >= 2:
                 break
 
-        # Тики 3 и 4 оба BUY_YES → должны дать confirmed
+        # РўРёРєРё 3 Рё 4 РѕР±Р° BUY_YES в†’ РґРѕР»Р¶РЅС‹ РґР°С‚СЊ confirmed
         assert consecutive_edges >= 2, (
             f"Expected confirmed signal after 2 consecutive same-action ticks, "
             f"got consecutive_edges={consecutive_edges}"
@@ -204,8 +204,8 @@ class TestConfirmedEntryStrategy:
         assert best_decision.action == "BUY_YES"
 
     def test_confirmed_skips_if_no_two_consecutive(self):
-        """Если нет двух подряд одинаковых — трейда не должно быть."""
-        actions = ["BUY_YES", "BUY_NO", "BUY_YES"]  # никогда 2 подряд
+        """Р•СЃР»Рё РЅРµС‚ РґРІСѓС… РїРѕРґСЂСЏРґ РѕРґРёРЅР°РєРѕРІС‹С… вЂ” С‚СЂРµР№РґР° РЅРµ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ."""
+        actions = ["BUY_YES", "BUY_NO", "BUY_YES"]  # РЅРёРєРѕРіРґР° 2 РїРѕРґСЂСЏРґ
         best_decision = None
         consecutive_edges = 0
 
@@ -225,14 +225,14 @@ class TestConfirmedEntryStrategy:
             if consecutive_edges >= 2:
                 break
 
-        # Сброс в конце если не подтверждено
+        # РЎР±СЂРѕСЃ РІ РєРѕРЅС†Рµ РµСЃР»Рё РЅРµ РїРѕРґС‚РІРµСЂР¶РґРµРЅРѕ
         if consecutive_edges < 2:
             best_decision = None
 
         assert best_decision is None, "Should not trade without 2 consecutive confirmations"
 
 
-# ─── PURE_FAVORITE: smoke tests ─────────────────────────────────────────────
+# в”Ђв”Ђв”Ђ PURE_FAVORITE: smoke tests в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
 class TestDecideFavorite:
     def test_buys_yes_when_above_threshold(self):
@@ -258,27 +258,27 @@ class TestDecideFavorite:
             assert result.edge is not None
 
 
-# ─── OUTSIDER: тесты нового параметра OUTSIDER_MAX_PRICE ─────────────────────
+# в”Ђв”Ђв”Ђ OUTSIDER: С‚РµСЃС‚С‹ РЅРѕРІРѕРіРѕ РїР°СЂР°РјРµС‚СЂР° OUTSIDER_MAX_PRICE в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
 class TestDecideOutsider:
     OUTSIDER_CONFIG = {
         **BASE_CONFIG,
         "FLIP_THRESHOLD":    0.60,
         "OUTSIDER_MAX_PRICE": 0.40,
-        "MIN_EDGE":          -0.10,  # расширен, чтобы edge-фильтр не мешал
+        "MIN_EDGE":          -0.10,  # СЂР°СЃС€РёСЂРµРЅ, С‡С‚РѕР±С‹ edge-С„РёР»СЊС‚СЂ РЅРµ РјРµС€Р°Р»
     }
 
     def test_buys_no_when_yes_is_favorite_and_price_ok(self):
-        """YES — фаворит (mid=0.70), NO ask = 0.35 ≤ 0.40 → BUY_NO"""
+        """YES вЂ” С„Р°РІРѕСЂРёС‚ (mid=0.70), NO ask = 0.35 в‰¤ 0.40 в†’ BUY_NO"""
         sig = _signal(mid=0.70, spread=0.02)
         # no_ask = 1 - mid + spread/2 = 0.30 + 0.01 = 0.31
         result = decide_outsider(sig, p_flip=0.65, config=self.OUTSIDER_CONFIG)
         assert result.action == "BUY_NO", f"Expected BUY_NO, got {result.action}: {result.reason}"
 
     def test_skips_no_when_price_exceeds_max(self):
-        """YES — фаворит, NO ask = 0.45 > OUTSIDER_MAX_PRICE=0.40 → SKIP"""
-        # Создаём сигнал с малым спредом, чтобы no_ask > 0.40
-        # mid=0.55, spread=0.10 → no_ask = 0.45 + 0.05 = 0.50 > 0.40
+        """YES вЂ” С„Р°РІРѕСЂРёС‚, NO ask = 0.45 > OUTSIDER_MAX_PRICE=0.40 в†’ SKIP"""
+        # РЎРѕР·РґР°С‘Рј СЃРёРіРЅР°Р» СЃ РјР°Р»С‹Рј СЃРїСЂРµРґРѕРј, С‡С‚РѕР±С‹ no_ask > 0.40
+        # mid=0.55, spread=0.10 в†’ no_ask = 0.45 + 0.05 = 0.50 > 0.40
         sig = MarketSignal(
             asset="BTC", mid_price=0.55, spread=0.10,
             volume_5min=500.0, price_velocity=0.0,
@@ -289,15 +289,15 @@ class TestDecideOutsider:
         assert "max_outsider_price" in result.reason
 
     def test_buys_yes_when_no_is_favorite_and_price_ok(self):
-        """NO — фаворит (mid=0.30), YES ask = ~0.31 ≤ 0.40 → BUY_YES"""
+        """NO вЂ” С„Р°РІРѕСЂРёС‚ (mid=0.30), YES ask = ~0.31 в‰¤ 0.40 в†’ BUY_YES"""
         sig = _signal(mid=0.30, spread=0.02)
         # yes_ask = mid + spread/2 = 0.30 + 0.01 = 0.31
         result = decide_outsider(sig, p_flip=0.65, config=self.OUTSIDER_CONFIG)
         assert result.action == "BUY_YES", f"Expected BUY_YES, got {result.action}: {result.reason}"
 
     def test_skips_yes_when_price_exceeds_max(self):
-        """NO — фаворит, YES ask > OUTSIDER_MAX_PRICE → SKIP"""
-        # mid=0.30 (вне мёртвой зоны), spread=0.24 → yes_ask = 0.30 + 0.12 = 0.42 > 0.40
+        """NO вЂ” С„Р°РІРѕСЂРёС‚, YES ask > OUTSIDER_MAX_PRICE в†’ SKIP"""
+        # mid=0.30 (РІРЅРµ РјС‘СЂС‚РІРѕР№ Р·РѕРЅС‹), spread=0.24 в†’ yes_ask = 0.30 + 0.12 = 0.42 > 0.40
         sig = MarketSignal(
             asset="BTC", mid_price=0.30, spread=0.24,
             volume_5min=500.0, price_velocity=0.0,
@@ -308,15 +308,76 @@ class TestDecideOutsider:
         assert "max_outsider_price" in result.reason
 
     def test_skips_when_p_flip_below_threshold(self):
-        """p_flip=0.50 < FLIP_THRESHOLD=0.60 → SKIP"""
+        """p_flip=0.50 < FLIP_THRESHOLD=0.60 в†’ SKIP"""
         sig = _signal(mid=0.70)
         result = decide_outsider(sig, p_flip=0.50, config=self.OUTSIDER_CONFIG)
         assert result.action == "SKIP"
         assert "threshold" in result.reason
 
     def test_respects_custom_outsider_max_price(self):
-        """OUTSIDER_MAX_PRICE=0.30 более строгий: no_ask=0.31 → SKIP"""
+        """OUTSIDER_MAX_PRICE=0.30 Р±РѕР»РµРµ СЃС‚СЂРѕРіРёР№: no_ask=0.31 в†’ SKIP"""
         config = {**self.OUTSIDER_CONFIG, "OUTSIDER_MAX_PRICE": 0.30}
-        sig = _signal(mid=0.70, spread=0.02)  # no_ask ≈ 0.31
+        sig = _signal(mid=0.70, spread=0.02)  # no_ask в‰€ 0.31
         result = decide_outsider(sig, p_flip=0.65, config=config)
         assert result.action == "SKIP"
+
+
+def test_favorite_price_bounds_unified():
+    """YES и NO используют одни и те же fav_min/fav_max."""
+    cfg = {**BASE_CONFIG, "FAVORITE_MIN_PRICE": 0.60, "FAVORITE_MAX_PRICE": 0.90}
+
+    # YES side — цена ниже min → SKIP
+    sig_yes_low = _signal(mid=0.72, yes_ask=0.58, no_ask=0.42)
+    assert decide_favorite(sig_yes_low, cfg).action == "SKIP"
+
+    # YES side — цена выше max → SKIP
+    sig_yes_high = _signal(mid=0.72, yes_ask=0.92, no_ask=0.08)
+    assert decide_favorite(sig_yes_high, cfg).action == "SKIP"
+
+    # YES side — цена в диапазоне → не SKIP по bounds
+    sig_yes_ok = _signal(mid=0.72, yes_ask=0.72, no_ask=0.28)
+    result = decide_favorite(sig_yes_ok, cfg)
+    assert result.reason != "YES price out of bounds"
+
+    # NO side — цена ниже min → SKIP
+    sig_no_low = _signal(mid=0.28, yes_ask=0.72, no_ask=0.58)
+    assert decide_favorite(sig_no_low, cfg).action == "SKIP"
+
+    # NO side — цена в диапазоне → не SKIP по bounds
+    sig_no_ok = _signal(mid=0.28, yes_ask=0.72, no_ask=0.72)
+    result = decide_favorite(sig_no_ok, cfg)
+    assert result.reason != "NO price out of bounds"
+
+
+def test_favorite_price_fallback_defaults():
+    """Если FAVORITE_MIN/MAX_PRICE нет в конфиге — используются дефолты 0.55/0.95."""
+    cfg_no_bounds = {k: v for k, v in BASE_CONFIG.items()
+                     if k not in ("FAVORITE_MIN_PRICE", "FAVORITE_MAX_PRICE")}
+
+    # Цена 0.54 — ниже дефолтного min 0.55 → должен быть SKIP
+    sig = _signal(mid=0.72, yes_ask=0.54, no_ask=0.46)
+    assert decide_favorite(sig, cfg_no_bounds).action == "SKIP"
+
+
+def test_backtest_schema_no_old_keys():
+    """BacktestConfig не должна принимать старые ключи yes/no_min/max_price."""
+    from pydantic import ValidationError
+    from polyflip.api.backtest_schemas import BacktestConfig
+    import pytest
+    with pytest.raises((ValidationError, TypeError)):
+        BacktestConfig(
+            yes_min_price=0.55,  # старый ключ
+            yes_max_price=0.95,
+        )
+
+
+def test_backtest_schema_new_keys():
+    """BacktestConfig принимает favorite_min/max_price."""
+    from polyflip.api.backtest_schemas import BacktestConfig
+    cfg = BacktestConfig(favorite_min_price=0.60, favorite_max_price=0.90)
+    runner = cfg.to_runner_config()
+    assert runner["FAVORITE_MIN_PRICE"] == 0.60
+    assert runner["FAVORITE_MAX_PRICE"] == 0.90
+    assert "YES_MIN_PRICE" not in runner
+    assert "NO_MIN_PRICE" not in runner
+
