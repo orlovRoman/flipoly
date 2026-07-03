@@ -58,10 +58,8 @@ function readConfig() {
     trade_on_flip:        document.getElementById('cfg-trade-on-flip').checked,
     favorite_threshold:   parseFloat(document.getElementById('cfg-fav-thresh').value),
     auto_dead_zone_width: parseFloat(document.getElementById('cfg-dead-zone').value),
-    yes_min_price:        parseFloat(document.getElementById('cfg-yes-min').value),
-    yes_max_price:        parseFloat(document.getElementById('cfg-yes-max').value),
-    no_min_price:         parseFloat(document.getElementById('cfg-no-min').value),
-    no_max_price:         parseFloat(document.getElementById('cfg-no-max').value),
+    favorite_min_price:   parseFloat(document.getElementById('cfg-fav-min').value),
+    favorite_max_price:   parseFloat(document.getElementById('cfg-fav-max').value),
 
     initial_capital:      parseFloat(document.getElementById('cfg-capital').value),
     bet_sizing_mode:      document.getElementById('cfg-bet-sizing-mode').value,
@@ -432,10 +430,8 @@ async function loadHistoricRun(runId) {
         document.getElementById('cfg-flip').value       = cfg.flip_threshold || 0.60;
         document.getElementById('cfg-fav-thresh').value = cfg.favorite_threshold != null ? cfg.favorite_threshold : 0.65;
         document.getElementById('cfg-dead-zone').value  = cfg.auto_dead_zone_width != null ? cfg.auto_dead_zone_width : 0.10;
-        document.getElementById('cfg-yes-min').value    = cfg.yes_min_price != null ? cfg.yes_min_price : 0.55;
-        document.getElementById('cfg-yes-max').value    = cfg.yes_max_price != null ? cfg.yes_max_price : 0.95;
-        document.getElementById('cfg-no-min').value     = cfg.no_min_price != null ? cfg.no_min_price : 0.55;
-        document.getElementById('cfg-no-max').value     = cfg.no_max_price != null ? cfg.no_max_price : 0.95;
+        document.getElementById('cfg-fav-min').value    = cfg.favorite_min_price != null ? cfg.favorite_min_price : 0.55;
+        document.getElementById('cfg-fav-max').value    = cfg.favorite_max_price != null ? cfg.favorite_max_price : 0.95;
 
         document.getElementById('cfg-capital').value    = cfg.initial_capital != null ? cfg.initial_capital : 1000;
         document.getElementById('cfg-bet-sizing-mode').value = cfg.bet_sizing_mode || 'scaled';
@@ -571,10 +567,8 @@ async function applyLiveSettings() {
     document.getElementById('cfg-fav-thresh').value = s.FAVORITE_THRESHOLD != null ? parseFloat(s.FAVORITE_THRESHOLD).toFixed(2) : '0.65';
     document.getElementById('cfg-dead-zone').value  = s.DEAD_ZONE_WIDTH != null ? parseFloat(s.DEAD_ZONE_WIDTH).toFixed(2) : '0.10';
     
-    document.getElementById('cfg-yes-min').value    = s.YES_MIN_PRICE  != null ? s.YES_MIN_PRICE  : (s.TRADE_MIN_PRICE != null ? s.TRADE_MIN_PRICE : '0.55');
-    document.getElementById('cfg-yes-max').value    = s.YES_MAX_PRICE  != null ? s.YES_MAX_PRICE  : (s.TRADE_MAX_PRICE != null ? s.TRADE_MAX_PRICE : '0.95');
-    document.getElementById('cfg-no-min').value     = s.NO_MIN_PRICE   != null ? s.NO_MIN_PRICE   : (s.TRADE_MIN_PRICE != null ? s.TRADE_MIN_PRICE : '0.55');
-    document.getElementById('cfg-no-max').value     = s.NO_MAX_PRICE   != null ? s.NO_MAX_PRICE   : (s.TRADE_MAX_PRICE != null ? s.TRADE_MAX_PRICE : '0.95');
+    document.getElementById('cfg-fav-min').value    = s.FAVORITE_MIN_PRICE  != null ? s.FAVORITE_MIN_PRICE  : '0.55';
+    document.getElementById('cfg-fav-max').value    = s.FAVORITE_MAX_PRICE  != null ? s.FAVORITE_MAX_PRICE  : '0.95';
     
 
       

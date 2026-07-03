@@ -226,12 +226,12 @@ document.addEventListener("DOMContentLoaded", () => {
     favoriteThreshold: document.getElementById("FAVORITE_THRESHOLD"),
     tradeOnFlip: document.getElementById("TRADE_ON_FLIP"),
     flipThreshold: document.getElementById("FLIP_THRESHOLD"),
-    noMaxPrice: document.getElementById("NO_MAX_PRICE"),
     noMinEdge: document.getElementById("NO_MIN_EDGE"),
     autoDeadZone: document.getElementById("AUTO_DEAD_ZONE"),
     autoDeadZoneWidth: document.getElementById("AUTO_DEAD_ZONE_WIDTH"),
     favoriteMinEdge: document.getElementById("FAVORITE_MIN_EDGE"),
-    noMinPrice: document.getElementById("NO_MIN_PRICE"),
+    favoriteMinPrice: document.getElementById("FAVORITE_MIN_PRICE"),
+    favoriteMaxPrice: document.getElementById("FAVORITE_MAX_PRICE"),
     outsiderMaxPrice: document.getElementById("OUTSIDER_MAX_PRICE"),
     bypassBetSizeCheck: document.getElementById("BYPASS_BET_SIZE_CHECK"),
     liquidityFraction: document.getElementById("LIQUIDITY_FRACTION"),
@@ -523,8 +523,8 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.flipThreshold.value = Math.round(val * 100);
         currentFlipThreshold = val;
       }
-      if (settingsElements.noMaxPrice && data.NO_MAX_PRICE !== undefined) {
-        settingsElements.noMaxPrice.value = data.NO_MAX_PRICE;
+      if (settingsElements.favoriteMaxPrice && data.FAVORITE_MAX_PRICE !== undefined) {
+        settingsElements.favoriteMaxPrice.value = data.FAVORITE_MAX_PRICE;
       }
       if (settingsElements.noMinEdge && data.NO_MIN_EDGE !== undefined) {
         let val = parseFloat(data.NO_MIN_EDGE);
@@ -541,8 +541,8 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.FAVORITE_MIN_EDGE);
         settingsElements.favoriteMinEdge.value = (val * 100).toFixed(1);
       }
-      if (settingsElements.noMinPrice && data.NO_MIN_PRICE !== undefined) {
-        settingsElements.noMinPrice.value = data.NO_MIN_PRICE;
+      if (settingsElements.favoriteMinPrice && data.FAVORITE_MIN_PRICE !== undefined) {
+        settingsElements.favoriteMinPrice.value = data.FAVORITE_MIN_PRICE;
       }
       if (settingsElements.outsiderMaxPrice && data.OUTSIDER_MAX_PRICE !== undefined) {
         settingsElements.outsiderMaxPrice.value = data.OUTSIDER_MAX_PRICE;
@@ -662,12 +662,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFloat(settingsElements.favoriteThreshold.value);
       if (settingsElements.tradeOnFlip) settingsToSave.TRADE_ON_FLIP = settingsElements.tradeOnFlip.checked ? "true" : "false";
       if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFloat(settingsElements.flipThreshold.value) / 100;
-      if (settingsElements.noMaxPrice) settingsToSave.NO_MAX_PRICE = parseFloat(settingsElements.noMaxPrice.value);
       if (settingsElements.noMinEdge) settingsToSave.NO_MIN_EDGE = parseFloat(settingsElements.noMinEdge.value) / 100;
       if (settingsElements.autoDeadZone) settingsToSave.AUTO_DEAD_ZONE = settingsElements.autoDeadZone.checked ? "true" : "false";
       if (settingsElements.autoDeadZoneWidth) settingsToSave.AUTO_DEAD_ZONE_WIDTH = parseFloat(settingsElements.autoDeadZoneWidth.value) / 100;
       if (settingsElements.favoriteMinEdge) settingsToSave.FAVORITE_MIN_EDGE = parseFloat(settingsElements.favoriteMinEdge.value) / 100;
-      if (settingsElements.noMinPrice) settingsToSave.NO_MIN_PRICE = parseFloat(settingsElements.noMinPrice.value);
+      if (settingsElements.favoriteMinPrice) settingsToSave.FAVORITE_MIN_PRICE = parseFloat(settingsElements.favoriteMinPrice.value);
+      if (settingsElements.favoriteMaxPrice) settingsToSave.FAVORITE_MAX_PRICE = parseFloat(settingsElements.favoriteMaxPrice.value);
       if (settingsElements.outsiderMaxPrice) settingsToSave.OUTSIDER_MAX_PRICE = parseFloat(settingsElements.outsiderMaxPrice.value);
       if (settingsElements.bypassBetSizeCheck) settingsToSave.BYPASS_BET_SIZE_CHECK = settingsElements.bypassBetSizeCheck.checked ? "true" : "false";
       if (settingsElements.liquidityFraction) settingsToSave.LIQUIDITY_FRACTION = parseFloat(settingsElements.liquidityFraction.value);

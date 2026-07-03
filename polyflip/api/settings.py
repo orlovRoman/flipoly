@@ -9,7 +9,7 @@ from polyflip.db.connection import async_session
 from polyflip.db.models import RuntimeSettings, StrategyConfig
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
-from polyflip.constants import DAILY_LOSS_LIMIT_USDC, TRADE_ON_FLIP, FLIP_THRESHOLD, NO_MAX_PRICE, NO_MIN_EDGE, AUTO_DEAD_ZONE, AUTO_DEAD_ZONE_WIDTH
+from polyflip.constants import DAILY_LOSS_LIMIT_USDC, TRADE_ON_FLIP, FLIP_THRESHOLD, NO_MIN_EDGE, AUTO_DEAD_ZONE, AUTO_DEAD_ZONE_WIDTH
 
 logger = structlog.get_logger(__name__)
 
@@ -51,13 +51,11 @@ async def get_all_settings():
         "MAX_EDGE": db.get("MAX_EDGE", str(settings.MAX_EDGE)),
         "TRADE_ON_FLIP": db.get("TRADE_ON_FLIP", "false"),
         "FLIP_THRESHOLD": db.get("FLIP_THRESHOLD", str(FLIP_THRESHOLD)),
-        "NO_MAX_PRICE": db.get("NO_MAX_PRICE", str(NO_MAX_PRICE)),
         "NO_MIN_EDGE": db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)),
         "AUTO_DEAD_ZONE": db.get("AUTO_DEAD_ZONE", "true"),
         "AUTO_DEAD_ZONE_WIDTH": db.get("AUTO_DEAD_ZONE_WIDTH", str(AUTO_DEAD_ZONE_WIDTH)),
-        "YES_MIN_PRICE": db.get("YES_MIN_PRICE", "0.55"),
-        "YES_MAX_PRICE": db.get("YES_MAX_PRICE", "0.95"),
-        "NO_MIN_PRICE": db.get("NO_MIN_PRICE", "0.55"),
+        "FAVORITE_MIN_PRICE": db.get("FAVORITE_MIN_PRICE", "0.55"),
+        "FAVORITE_MAX_PRICE": db.get("FAVORITE_MAX_PRICE", "0.95"),
         "MAX_BET_SIZE_USDC": db.get("MAX_BET_SIZE_USDC", "50.0"),
         "MAX_PRICE_DRIFT": db.get("MAX_PRICE_DRIFT", "0.10"),
         "OUTSIDER_MAX_PRICE": db.get("OUTSIDER_MAX_PRICE", "0.45")
@@ -168,13 +166,11 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "MAX_EDGE",
         "TRADE_ON_FLIP",
         "FLIP_THRESHOLD",
-        "NO_MAX_PRICE",
         "NO_MIN_EDGE",
         "AUTO_DEAD_ZONE",
         "AUTO_DEAD_ZONE_WIDTH",
-        "YES_MIN_PRICE",
-        "YES_MAX_PRICE",
-        "NO_MIN_PRICE",
+        "FAVORITE_MIN_PRICE",
+        "FAVORITE_MAX_PRICE",
         "FAVORITE_MIN_EDGE",
         "LIQUIDITY_FRACTION",
         "BYPASS_BET_SIZE_CHECK",
@@ -293,11 +289,25 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         except ValueError:
             raise HTTPException(status_code=400, detail="FLIP_THRESHOLD must be a number")
 
-    if key in ["YES_MIN_PRICE", "YES_MAX_PRICE", "NO_MIN_PRICE"]:
+    if key in ["FAVORITE_MIN_PRICE", "FAVORITE_MAX_PRICE"]:
         try:
             val = float(payload.value)
             if not (0.01 <= val <= 0.99):
                 raise HTTPException(status_code=400, detail=f"{key} must be between 0.01 and 0.99")
+            
+            # Cross-validation: MIN < MAX
+            async with async_session() as session:
+                if key == "FAVORITE_MAX_PRICE":
+                    current_min_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "FAVORITE_MIN_PRICE"))).scalar_one_or_none()
+                    current_min = float(current_min_row.value) if current_min_row else 0.55
+                    if val <= current_min:
+                        raise HTTPException(status_code=400, detail=f"FAVORITE_MAX_PRICE ({val}) must be > FAVORITE_MIN_PRICE ({current_min})")
+                elif key == "FAVORITE_MIN_PRICE":
+                    current_max_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "FAVORITE_MAX_PRICE"))).scalar_one_or_none()
+                    current_max = float(current_max_row.value) if current_max_row else 0.95
+                    if val >= current_max:
+                        raise HTTPException(status_code=400, detail=f"FAVORITE_MIN_PRICE ({val}) must be < FAVORITE_MAX_PRICE ({current_max})")
+            
             payload.value = str(val)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"{key} must be a number")
@@ -310,15 +320,6 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
             payload.value = str(val)
         except ValueError:
             raise HTTPException(status_code=400, detail="MAX_BET_SIZE_USDC must be a number")
-
-    if key == "NO_MAX_PRICE":
-        try:
-            val = float(payload.value)
-            if not (0.01 <= val <= 0.99):
-                raise HTTPException(status_code=400, detail="NO_MAX_PRICE must be between 0.01 and 0.99")
-            payload.value = str(val)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="NO_MAX_PRICE must be a number")
 
     if key == "NO_MIN_EDGE":
         try:

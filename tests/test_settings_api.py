@@ -206,7 +206,7 @@ async def test_update_settings_bulk_partial_error(db_session):
     try:
         payload = BulkSettings(settings={
             "TRADE_BET_SIZE_USDC": "30.0",  # valid
-            "NO_MAX_PRICE": "0.99",          # valid
+            "FAVORITE_MAX_PRICE": "0.99",          # valid
             "DAILY_LOSS_LIMIT_USDC": "100.0" # invalid (must be strictly negative)
         })
         res = await update_settings_bulk(payload)

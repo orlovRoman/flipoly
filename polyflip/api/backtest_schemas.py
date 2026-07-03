@@ -45,10 +45,8 @@ class BacktestConfig(BaseModel):
             "против фаворита — убедитесь что это намеренно."
         )
     )
-    yes_min_price: float = Field(default=0.55, ge=0.01, le=0.99)
-    yes_max_price: float = Field(default=0.95, ge=0.01, le=0.99)
-    no_min_price: float = Field(default=0.55, ge=0.01, le=0.99)
-    no_max_price: float = Field(default=0.95, ge=0.01, le=0.99)
+    favorite_min_price: float = Field(default=0.55, ge=0.01, le=0.99)
+    favorite_max_price: float = Field(default=0.95, ge=0.01, le=0.99)
     outsider_max_price: float = Field(default=0.45, ge=0.01, le=0.99, description="Максимальная цена входа для аутсайдера")
 
     # Dead zone
@@ -101,10 +99,8 @@ class BacktestConfig(BaseModel):
             "NO_FLIP_THRESHOLD": self.no_flip_threshold,
             "FLIP_THRESHOLD": self.flip_threshold,
             "FAVORITE_THRESHOLD": self.favorite_threshold,
-            "YES_MIN_PRICE": self.yes_min_price,
-            "YES_MAX_PRICE": self.yes_max_price,
-            "NO_MIN_PRICE": self.no_min_price,
-            "NO_MAX_PRICE": self.no_max_price,
+            "FAVORITE_MIN_PRICE": self.favorite_min_price,
+            "FAVORITE_MAX_PRICE": self.favorite_max_price,
             "OUTSIDER_MAX_PRICE": self.outsider_max_price,
             "AUTO_DEAD_ZONE_WIDTH": self.auto_dead_zone_width,
             "INITIAL_CAPITAL": self.initial_capital,

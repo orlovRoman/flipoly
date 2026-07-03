@@ -60,8 +60,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
       - FAVORITE_THRESHOLD: float (напр. 0.65)
       - MIN_EDGE: float (напр. 0.02)
       - MAX_EDGE: float (напр. 0.15)
-      - YES_MIN_PRICE / YES_MAX_PRICE: float
-      - NO_MIN_PRICE / NO_MAX_PRICE: float
+      - FAVORITE_MIN_PRICE / FAVORITE_MAX_PRICE: float
       - AUTO_DEAD_ZONE_WIDTH: float
       - INITIAL_CAPITAL: float
       - KELLY_MULTIPLIER: float
@@ -81,13 +80,14 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     if is_in_dead_zone(signal.mid_price, dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP")
 
+    fav_min = float(config.get("FAVORITE_MIN_PRICE", 0.55))
+    fav_max = float(config.get("FAVORITE_MAX_PRICE", 0.95))
+
     # --- YES side ---
     if signal.mid_price >= threshold:
-        yes_min = float(config.get("YES_MIN_PRICE", config.get("TRADE_MIN_PRICE", 0.55)))
-        yes_max = float(config.get("YES_MAX_PRICE", config.get("TRADE_MAX_PRICE", 0.95)))
-        if not (yes_min <= signal.yes_ask <= yes_max):
+        if not (fav_min <= signal.yes_ask <= fav_max):
             return TradeDecision("SKIP", 0, 0,
-                f"YES price {signal.yes_ask:.3f} out of bounds [{yes_min},{yes_max}]", "SKIP")
+                f"YES price {signal.yes_ask:.3f} out of bounds [{fav_min},{fav_max}]", "SKIP")
         p_win_yes = signal.mid_price
         edge = compute_edge(p_win_yes, signal.yes_ask)
         min_edge = float(config.get("FAVORITE_MIN_EDGE", config.get("MIN_EDGE", -0.01)))
@@ -102,12 +102,10 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
 
     # --- NO side ---
     if signal.mid_price <= (1.0 - threshold):
-        no_min = float(config.get("NO_MIN_PRICE", config.get("TRADE_MIN_PRICE", 0.55)))
-        no_max = float(config.get("NO_MAX_PRICE", config.get("TRADE_MAX_PRICE", 0.95)))
         no_prob = 1.0 - signal.mid_price
-        if not (no_min <= signal.no_ask <= no_max):
+        if not (fav_min <= signal.no_ask <= fav_max):
             return TradeDecision("SKIP", 0, 0,
-                f"NO price {signal.no_ask:.3f} out of bounds [{no_min},{no_max}]", "SKIP")
+                f"NO price {signal.no_ask:.3f} out of bounds [{fav_min},{fav_max}]", "SKIP")
         edge = compute_edge(no_prob, signal.no_ask)
         min_edge = float(config.get("FAVORITE_MIN_EDGE", config.get("MIN_EDGE", -0.01)))
         if edge < min_edge:

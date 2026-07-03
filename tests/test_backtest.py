@@ -89,7 +89,7 @@ def test_backtest_runner_integration():
         "TRADE_ON_FLIP": "false",
         "NO_FLIP_THRESHOLD": 0.35,
         "FAVORITE_THRESHOLD": 0.65,
-        "YES_MIN_PRICE": 0.55, "YES_MAX_PRICE": 0.95,
+        "FAVORITE_MIN_PRICE": 0.55, "FAVORITE_MAX_PRICE": 0.95,
         "MIN_EDGE": -0.10, # Разрешаем любой эдж для теста
         "KELLY_ENABLED": "false",
         "TRADE_BET_SIZE_USDC": 10.0,

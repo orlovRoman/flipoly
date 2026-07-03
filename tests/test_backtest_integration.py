@@ -55,10 +55,8 @@ def test_full_backtest_integration():
         assets=["BTC", "ETH"],
         strategy_mode="PURE_FAVORITE",
         favorite_threshold=0.65,
-        yes_min_price=0.5,
-        yes_max_price=0.9,
-        no_min_price=0.5,
-        no_max_price=0.9,
+        favorite_min_price=0.5,
+        favorite_max_price=0.9,
         kelly_enabled=False,
         trade_bet_size_usdc=10.0,
         slippage_pct=0.01
