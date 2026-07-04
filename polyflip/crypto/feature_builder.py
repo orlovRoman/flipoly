@@ -32,7 +32,12 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "vol_ratio",    # vol_6 / vol_48 — высокая/низкая волатильность
     # --- Volume anomaly ---
     "vol_z_6",      # z-score объёма текущей свечи относительно 24-свечного окна
-    "tbv_ratio",    # taker_buy_volume / volume — давление покупателей (0..1)
+    "taker_buy_ratio",  # taker_buy_volume / volume — давление покупателей (0..1)
+    # --- Technical Indicators ---
+    "rsi_14",
+    "ema_ratio_9_21",
+    "bb_width",
+    "bb_position",
     # --- Position relative to extremes ---
     "dist_to_high_24",   # (close - max_high_24) / close  ≤ 0
     "dist_to_low_24",    # (close - min_low_24)  / close  ≥ 0
@@ -43,7 +48,7 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "range_avg_24",      # средний range за 24 свечи
     # --- Consecutive candles ---
     "consec_up",         # число подряд идущих up-свечей перед текущей
-    "consec_dn",         # число подряд идущих down-свечей перед текущей
+    "consec_down",       # число подряд идущих down-свечей перед текущей
     # --- Time ---
     "hour_utc",          # час открытия (0–23)
     "dow",               # день недели (0=Mon, 6=Sun)
@@ -124,7 +129,25 @@ def build_crypto_features(
 
     last_vol = float(volume.iloc[-1])
     last_tbv = float(tbv.iloc[-1])
-    tbv_ratio = (last_tbv / last_vol) if last_vol > 1e-10 else 0.5
+    taker_buy_ratio = (last_tbv / last_vol) if last_vol > 1e-10 else 0.5
+
+    # ── 4a. Technical Indicators ─────────────────────────────────
+    delta = close.diff()
+    gain  = delta.clip(lower=0).rolling(14, min_periods=1).mean()
+    loss  = (-delta.clip(upper=0)).rolling(14, min_periods=1).mean()
+    rs    = gain / (loss + 1e-10)
+    rsi_14 = float((100 - (100 / (1 + rs))).iloc[-1])
+
+    ema9  = close.ewm(span=9,  adjust=False).mean()
+    ema21 = close.ewm(span=21, adjust=False).mean()
+    ema_ratio_9_21 = float((ema9 / (ema21 + 1e-10)).iloc[-1])
+
+    bb_mean  = close.rolling(20, min_periods=10).mean()
+    bb_std   = close.rolling(20, min_periods=10).std()
+    bb_upper = bb_mean + 2 * bb_std
+    bb_lower = bb_mean - 2 * bb_std
+    bb_width = float(((bb_upper - bb_lower) / (bb_mean + 1e-10)).iloc[-1])
+    bb_position = float(((close - bb_lower) / (bb_upper - bb_lower + 1e-10)).iloc[-1])
 
     # ── 5. Position relative to extremes ────────────────────────
     c_last = float(close.iloc[-1])
@@ -171,7 +194,8 @@ def build_crypto_features(
     vec = np.array([[
         ret_1, ret_3, ret_6, ret_12, ret_24, ret_48,
         vol_6, vol_24, vol_48, vol_ratio,
-        vol_z_6, tbv_ratio,
+        vol_z_6, taker_buy_ratio,
+        rsi_14, ema_ratio_9_21, bb_width, bb_position,
         dist_h24, dist_l24, dist_h96, dist_l96,
         range_1, range_avg,
         float(consec_up), float(consec_dn),
@@ -230,6 +254,7 @@ def build_features(candles: Sequence) -> pd.DataFrame:
     out["ret_6"]  = np.log(close / close.shift(6))
     out["ret_12"] = np.log(close / close.shift(12))
     out["ret_24"] = np.log(close / close.shift(24))
+    out["ret_48"] = np.log(close / close.shift(48))
 
     # ── Volatility ───────────────────────────────────────────────
     out["vol_6"]   = log_ret.rolling(6,  min_periods=2).std()
