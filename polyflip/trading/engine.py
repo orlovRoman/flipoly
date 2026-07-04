@@ -12,7 +12,8 @@ logger = structlog.get_logger(__name__)
 
 from polyflip.config import settings
 from polyflip.trading.feature_builder import MarketSignal
-from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider
+from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider, decide_crypto_trend
+from polyflip.crypto.predictor import CryptoPredictor
 from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory, SlippageLog
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
@@ -28,6 +29,7 @@ from polyflip.constants import (
     TRADE_CHECK_LIMIT,
     TRADING_MODE_ML,
     TRADING_MODE_FAVORITE,
+    TRADING_MODE_CRYPTO,
     FAVORITE_MODE_ENTRY_SEC,
     FAVORITE_MODE_ENTRY_WINDOW_SEC,
     TRADE_ON_FLIP,
@@ -37,6 +39,7 @@ from polyflip.constants import (
     AUTO_DEAD_ZONE,
     AUTO_DEAD_ZONE_WIDTH
 )
+
 
 logger = structlog.get_logger(__name__)
 
@@ -117,7 +120,14 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "FAVORITE_MIN_EDGE",
         "OUTSIDER_MAX_PRICE",
         "LIQUIDITY_FRACTION",
-        "BYPASS_BET_SIZE_CHECK"
+        "BYPASS_BET_SIZE_CHECK",
+        "USE_CRYPTO_CONFIRM",
+        "CRYPTO_STANDALONE",
+        "CRYPTO_MIN_EDGE",
+        "CRYPTO_THRESHOLD_UP_BTC",
+        "CRYPTO_THRESHOLD_DOWN_BTC",
+        "CRYPTO_THRESHOLD_UP_ETH",
+        "CRYPTO_THRESHOLD_DOWN_ETH",
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
@@ -207,6 +217,10 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     models_by_asset = None
     model_versions = {}
     model_features = {}
+    crypto_predictor = CryptoPredictor()
+    use_crypto_confirm = settings_db.get("USE_CRYPTO_CONFIRM", "false").lower() == "true"
+    crypto_standalone = settings_db.get("CRYPTO_STANDALONE", "false").lower() == "true"
+
 
     try:
         # ══════════════════════════════════════════════════
@@ -275,7 +289,40 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 await save_or_update_skipped_trade(db_session, market, "Token IDs missing in DB", 0.0, None, start_time, existing_skipped=existing_skipped)
                 continue
 
-            if asset_mode == TRADING_MODE_FAVORITE:
+            if asset_mode == TRADING_MODE_CRYPTO:
+                # --- CRYPTO STANDALONE MODE ---
+                binance_symbol = "BTCUSDT" if market.asset.upper() == "BTC" else "ETHUSDT"
+                
+                # Загружаем модель и пороги (запросы к БД произойдут только при первом вызове для символа)
+                await crypto_predictor.load(db_session, binance_symbol)
+                
+                from polyflip.crypto.candle_repository import get_recent_candles
+                candles = await get_recent_candles(db_session, binance_symbol, limit=100)
+                crypto_sig = crypto_predictor.predict(candles, binance_symbol)
+                
+                if not crypto_sig.features_ok:
+                    await save_or_update_skipped_trade(
+                        db_session, market, "Invalid crypto features", 
+                        0.0, crypto_sig.model_version, start_time, existing_skipped=existing_skipped
+                    )
+                    continue
+
+                # Запрашиваем свежие цены Polymarket YES-токена
+                fresh_yes_prices = await api_client.get_market_prices(yes_token_id)
+                if not fresh_yes_prices or "current_yes_price" not in fresh_yes_prices:
+                    await save_or_update_skipped_trade(
+                        db_session, market, "No fresh yes price for crypto standalone",
+                        0.0, crypto_sig.model_version, start_time, existing_skipped=existing_skipped
+                    )
+                    continue
+                fresh_yes_price = fresh_yes_prices["current_yes_price"]
+
+                decision_obj = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, settings_db)
+                p_flip = 0.0  # Для крипто-стратегии p_flip семантически не имеет значения
+                model_ver = crypto_sig.model_version
+                edge = decision_obj.edge
+
+            elif asset_mode == TRADING_MODE_FAVORITE:
                 # --- FAVORITE MODE ---
                 if market.current_yes_price == 0.5:
                     logger.info("favorite_mode_skip_no_favorite", market_id=market.market_id)
@@ -424,7 +471,30 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 if decision_obj.action == "SKIP" and trade_on_flip:
                     decision_obj = decide_outsider(signal, p_flip, local_config)
 
+                # Проверка подтверждения криптой (Confirm Gate)
+                if decision_obj.action != "SKIP" and use_crypto_confirm:
+                    binance_symbol = "BTCUSDT" if market.asset.upper() == "BTC" else "ETHUSDT"
+                    await crypto_predictor.load(db_session, binance_symbol)
+                    
+                    from polyflip.crypto.candle_repository import get_recent_candles
+                    candles = await get_recent_candles(db_session, binance_symbol, limit=100)
+                    crypto_sig = crypto_predictor.predict(candles, binance_symbol)
+                    
+                    import dataclasses
+                    if not crypto_sig.features_ok:
+                        decision_obj = dataclasses.replace(
+                            decision_obj, action="SKIP", reason="Crypto confirm: features invalid"
+                        )
+                    else:
+                        market_direction = "UP" if decision_obj.action == "BUY_YES" else "DOWN"
+                        if crypto_sig.direction != market_direction:
+                            decision_obj = dataclasses.replace(
+                                decision_obj, action="SKIP", 
+                                reason=f"Crypto confirm veto: direction is {crypto_sig.direction} vs market {market_direction}"
+                            )
+
                 edge = decision_obj.edge
+
 
             # Единая логика SKIP
             if decision_obj.action == "SKIP":
@@ -478,26 +548,31 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             buy_price = fresh_ask
             
             # Пересчитываем edge
-            if asset_mode == TRADING_MODE_ML:
-                p_win = 1.0 - p_flip if decision_obj.strategy_type == "ML_TREND" else p_flip
-                current_min_edge = asset_min_edge
+            if asset_mode == TRADING_MODE_CRYPTO:
+                # В крипто-режиме edge берется из предсказания, а не из цен Polymarket
+                edge = decision_obj.edge
+                actual_bet_size = decision_obj.bet_size_usdc
             else:
-                p_win = market.current_yes_price if decision == "YES" else (1.0 - market.current_yes_price)
-                favorite_min_edge = settings_db.get("FAVORITE_MIN_EDGE")
-                if favorite_min_edge is not None and favorite_min_edge != "":
-                    current_min_edge = float(favorite_min_edge)
+                if asset_mode == TRADING_MODE_ML:
+                    p_win = 1.0 - p_flip if decision_obj.strategy_type == "ML_TREND" else p_flip
+                    current_min_edge = asset_min_edge
                 else:
-                    current_min_edge = asset_min_edge  # fallback на общий min_edge
-            edge = compute_edge(p_win, buy_price)
-            # Проверяем лимиты по edge и цене
-            if edge < current_min_edge or edge > max_bet_edge:
-                await save_or_update_skipped_trade(
-                    db_session, market, f"Edge out of bounds (edge={edge:.4f})",
-                    p_flip, model_ver, start_time,
-                    existing_skipped=existing_skipped,
-                    edge=edge
-                )
-                continue
+                    p_win = market.current_yes_price if decision == "YES" else (1.0 - market.current_yes_price)
+                    favorite_min_edge = settings_db.get("FAVORITE_MIN_EDGE")
+                    if favorite_min_edge is not None and favorite_min_edge != "":
+                        current_min_edge = float(favorite_min_edge)
+                    else:
+                        current_min_edge = asset_min_edge  # fallback на общий min_edge
+                edge = compute_edge(p_win, buy_price)
+                # Проверяем лимиты по edge
+                if edge < current_min_edge or edge > max_bet_edge:
+                    await save_or_update_skipped_trade(
+                        db_session, market, f"Edge out of bounds (edge={edge:.4f})",
+                        p_flip, model_ver, start_time,
+                        existing_skipped=existing_skipped,
+                        edge=edge
+                    )
+                    continue
 
             if not (trade_min_price <= buy_price <= asset_max_price):
                 await save_or_update_skipped_trade(
@@ -508,11 +583,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 )
                 continue
             
-            sizing_mode = settings_db.get("BET_SIZING_MODE", "scaled")
-            if sizing_mode == "fixed":
-                actual_bet_size = bet_size
-            else:
-                max_bet_usdc = float(settings_db.get("MAX_BET_SIZE_USDC", 50.0))
+            if asset_mode != TRADING_MODE_CRYPTO:
+                sizing_mode = settings_db.get("BET_SIZING_MODE", "scaled")
+                if sizing_mode == "fixed":
+                    actual_bet_size = bet_size
+                else:
+                    max_bet_usdc = float(settings_db.get("MAX_BET_SIZE_USDC", 50.0))
                 actual_bet_size = compute_bet_size_edge_scaled(
                     edge=edge,
                     min_bet_usdc=bet_size,
@@ -539,8 +615,10 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 asset=market.asset,
                 market_id=market.market_id,
                 action=decision_obj.action,
-                p_flip=round(p_flip, 4),
-                edge=round(edge, 4),
+                p_flip=round(p_flip, 4) if p_flip is not None else None,
+                p_up=round(decision_obj.p_up, 4) if decision_obj.p_up is not None else None,
+                strike=decision_obj.strike,
+                edge=round(edge, 4) if edge is not None else None,
                 buy_price=buy_price,
                 strategy=decision_obj.strategy_type,
                 bet_size=actual_bet_size
@@ -564,7 +642,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
                 executed_price=trade_res.get("executed_price", buy_price),
                 predicted_flip_prob=p_flip,
-                active_features=(f"{active_features_str.strip().rstrip(',')},{decision_obj.strategy_type.lower()}" if (active_features_str and active_features_str.strip().rstrip(',')) else decision_obj.strategy_type.lower()) if asset_mode == TRADING_MODE_ML else "PURE_FAVORITE",
+                p_up=decision_obj.p_up,
+                strike=decision_obj.strike,
+                active_features="CRYPTO_TREND" if asset_mode == TRADING_MODE_CRYPTO else (
+                    (f"{active_features_str.strip().rstrip(',')},{decision_obj.strategy_type.lower()}" if (active_features_str and active_features_str.strip().rstrip(',')) else decision_obj.strategy_type.lower()) if asset_mode == TRADING_MODE_ML else "PURE_FAVORITE"
+                ),
                 model_version=model_ver,
                 status=trade_res.get("status", "FAILED"),
                 error_msg=trade_res.get("error_msg"),
