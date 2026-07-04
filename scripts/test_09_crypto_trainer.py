@@ -35,12 +35,13 @@ assert len(df_filtered) > 100, f"После epsilon-фильтра слишко�
 
 X = df_filtered[[f for f in CRYPTO_FEATURES if f in df_filtered.columns]]
 y = df_filtered["target"]
-model_bytes, auc, baseline, thr, ece = _fit_lgbm_and_serialize(X, y, n_splits=3)
+model_bytes, auc, baseline, thr, ece, fi = _fit_lgbm_and_serialize(X, y, n_splits=3)
 
 assert len(model_bytes) > 1000,     f"pickle пустой: {len(model_bytes)}"
 assert 0.4 < auc < 1.0,             f"Странный AUC: {auc}"
 assert 0.0 < thr < 1.0,             f"Странный порог: {thr}"
 assert ece < 0.4,                   f"ECE слишком большой: {ece}"
+assert isinstance(fi, dict) and len(fi) > 0, "Feature importance должна быть непустым словарем"
 
 print(f"CryptoTrainer OK: AUC={auc:.3f}, thr={thr:.3f}, ECE={ece:.4f}")
-print(f"  baseline={baseline:.3f}, model_bytes={len(model_bytes)}")
+print(f"  baseline={baseline:.3f}, model_bytes={len(model_bytes)}, features_in_fi={len(fi)}")

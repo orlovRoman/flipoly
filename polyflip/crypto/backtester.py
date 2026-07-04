@@ -114,7 +114,7 @@ def run_backtest(df_features: pd.DataFrame, symbol: str) -> BacktestResult:
 
     # Обучаем модель (синхронно — backtest запускается из скрипта или теста)
     n_splits = min(CV_N_SPLITS, 3)
-    model_bytes, train_auc, _, _, _ = _fit_lgbm_and_serialize(
+    model_bytes, train_auc, _, _, _, _ = _fit_lgbm_and_serialize(
         X_train, y_train, n_splits=n_splits
     )
     model = pickle.loads(model_bytes)

@@ -96,10 +96,11 @@ def _fit_lgbm_and_serialize(
     X: pd.DataFrame,
     y: pd.Series,
     n_splits: int = CV_N_SPLITS,
-) -> tuple[bytes, float, float, float, float]:
+    **lgbm_params,
+) -> tuple[bytes, float, float, float, float, dict[str, int]]:
     """
     CPU-bound. Обучает LightGBM с TimeSeriesSplit.
-    Возвращает: (model_bytes, val_auc, baseline_auc, optimal_threshold, ece)
+    Возвращает: (model_bytes, val_auc, baseline_auc, optimal_threshold, ece, feature_importance)
     """
     tscv = TimeSeriesSplit(n_splits=n_splits)
 
@@ -110,7 +111,7 @@ def _fit_lgbm_and_serialize(
         X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
         y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
-        fold_lgbm = _make_lgbm()
+        fold_lgbm = _make_lgbm(**lgbm_params)
         fold_lgbm.fit(X_train, y_train)
 
         # Platt-scaling поверх уже обученной модели
@@ -140,7 +141,7 @@ def _fit_lgbm_and_serialize(
     logger.info("crypto_calibration", ece=round(ece, 4))
 
     # Финальная модель на всех данных
-    final_lgbm = _make_lgbm()
+    final_lgbm = _make_lgbm(**lgbm_params)
     final_lgbm.fit(X, y)
     final_cal = CalibratedClassifierCV(
         estimator=FrozenEstimator(final_lgbm),
@@ -170,14 +171,14 @@ def _fit_lgbm_and_serialize(
         )
         optimal_threshold = 0.80
 
-    # Feature importance для логирования
-    fi = dict(sorted(
-        zip(X.columns, final_lgbm.feature_importances_),
-        key=lambda x: -x[1],
-    ))
-    logger.info("crypto_feature_importance", top5=dict(list(fi.items())[:5]))
+    # Feature importance для логирования и дашборда
+    fi = {
+        col: int(imp)
+        for col, imp in zip(X.columns, final_lgbm.feature_importances_)
+    }
+    logger.info("crypto_feature_importance", top5=dict(sorted(fi.items(), key=lambda x: -x[1])[:5]))
 
-    return pickle.dumps(final_cal), val_auc, baseline_auc, optimal_threshold, ece
+    return pickle.dumps(final_cal), val_auc, baseline_auc, optimal_threshold, ece, fi
 
 
 class CryptoModelTrainer:
@@ -195,12 +196,44 @@ class CryptoModelTrainer:
             logger.warning("not_enough_candles", symbol=symbol, count=len(candles))
             return False
 
+        # Считываем динамические гиперпараметры из RuntimeSettings
+        async def _get_float_setting(key: str, default: float) -> float:
+            row = (await self.db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+            return float(row.value) if row else default
+
+        async def _get_int_setting(key: str, default: int) -> int:
+            row = (await self.db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+            return int(row.value) if row else default
+
+        n_estimators = await _get_int_setting("CRYPTO_LGBM_N_ESTIMATORS", LGBM_N_ESTIMATORS)
+        learning_rate = await _get_float_setting("CRYPTO_LGBM_LEARNING_RATE", LGBM_LEARNING_RATE)
+        num_leaves = await _get_int_setting("CRYPTO_LGBM_NUM_LEAVES", LGBM_NUM_LEAVES)
+        max_depth = await _get_int_setting("CRYPTO_LGBM_MAX_DEPTH", LGBM_MAX_DEPTH)
+        min_child_samples = await _get_int_setting("CRYPTO_LGBM_MIN_CHILD_SAMPLES", LGBM_MIN_CHILD_SAMPLES)
+        subsample = await _get_float_setting("CRYPTO_LGBM_SUBSAMPLE", LGBM_SUBSAMPLE)
+        colsample_bytree = await _get_float_setting("CRYPTO_LGBM_COLSAMPLE_BYTREE", LGBM_COLSAMPLE_BYTREE)
+        reg_alpha = await _get_float_setting("CRYPTO_LGBM_REG_ALPHA", LGBM_REG_ALPHA)
+        reg_lambda = await _get_float_setting("CRYPTO_LGBM_REG_LAMBDA", LGBM_REG_LAMBDA)
+        eps_quantile = await _get_float_setting("CRYPTO_CANDLE_EPSILON_QUANTILE", CANDLE_EPSILON_QUANTILE)
+
+        lgbm_params = {
+            "n_estimators": n_estimators,
+            "learning_rate": learning_rate,
+            "num_leaves": num_leaves,
+            "max_depth": max_depth,
+            "min_child_samples": min_child_samples,
+            "subsample": subsample,
+            "colsample_bytree": colsample_bytree,
+            "reg_alpha": reg_alpha,
+            "reg_lambda": reg_lambda,
+        }
+
         # Строим фичи
         df = build_features(candles)
 
         # Фильтруем по ε
-        epsilon = float(df["ret_1"].abs().quantile(CANDLE_EPSILON_QUANTILE))
-        logger.info("epsilon_filter", symbol=symbol, epsilon=round(epsilon, 5))
+        epsilon = float(df["ret_1"].abs().quantile(eps_quantile))
+        logger.info("epsilon_filter", symbol=symbol, epsilon=round(epsilon, 5), quantile=eps_quantile)
         df_filtered = _build_target(df, epsilon)
 
         if len(df_filtered) < 300:
@@ -218,9 +251,9 @@ class CryptoModelTrainer:
 
         # CPU-bound в thread
         result = await asyncio.to_thread(
-            _fit_lgbm_and_serialize, X, y, CV_N_SPLITS
+            _fit_lgbm_and_serialize, X, y, CV_N_SPLITS, **lgbm_params
         )
-        model_bytes, val_auc, baseline_auc, threshold, ece = result
+        model_bytes, val_auc, baseline_auc, threshold, ece, fi = result
 
         logger.info(
             "crypto_model_trained",
@@ -262,6 +295,24 @@ class CryptoModelTrainer:
             self.db.add(RuntimeSettings(
                 key=thr_key,
                 value=str(round(threshold, 4)),
+                updated_at=now,
+                updated_by="crypto_train_job",
+            ))
+
+        # Сохраняем feature importance в RuntimeSettings
+        import json
+        fi_key = f"CRYPTO_FI_{symbol}"
+        fi_row = (await self.db.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == fi_key)
+        )).scalar_one_or_none()
+        if fi_row:
+            fi_row.value = json.dumps(fi)
+            fi_row.updated_at = now
+            fi_row.updated_by = "crypto_train_job"
+        else:
+            self.db.add(RuntimeSettings(
+                key=fi_key,
+                value=json.dumps(fi),
                 updated_at=now,
                 updated_by="crypto_train_job",
             ))

@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyFlip — Crypto LightGBM Dashboard</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js для графиков -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ timestamp }}">
+    
+    <style>
+        /* Дополнительные стили для настроек и графиков */
+        .crypto-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        @media (min-width: 992px) {
+            .crypto-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .settings-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+        .settings-group label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .settings-group input {
+            padding: 0.6rem;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            color: white;
+            border-radius: 8px;
+            outline: none;
+            font-size: 0.95rem;
+            transition: border-color 0.2s;
+        }
+        .settings-group input:focus {
+            border-color: var(--primary-color, #ffc107);
+        }
+        .nav-links .nav-item {
+            cursor: pointer;
+        }
+    </style>
+    <script>
+        window.API_BASE = "{{ url_for('crypto_page') }}";
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar / Navigation -->
+        <nav class="sidebar">
+            <div class="logo">
+                <span class="poly">Poly</span><span class="flip">Flip</span>
+            </div>
+            <ul class="nav-links">
+                <li class="nav-item" onclick="window.location.href='/dashboard'">Аналитика</li>
+                <li class="nav-item" onclick="window.location.href='/dashboard?tab=models'">Модели ML</li>
+                <li class="nav-item" onclick="window.location.href='/dashboard?tab=status'">Статус Парсера</li>
+                <li class="nav-item" onclick="window.location.href='/trading'">Торговля (PnL)</li>
+                <li class="nav-item" onclick="window.location.href='/backtest'">Бэктест</li>
+                <li class="nav-item active" onclick="window.location.href='/crypto'">Крипто ML 🪙</li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="tab-header">
+                <h1>🪙 Управление Crypto LightGBM (15m)</h1>
+                <div style="display: flex; gap: 10px;">
+                    {% for sym in symbols %}
+                    <button class="btn primary-btn" onclick="retrain('{{ sym }}')">🔄 Обучить {{ sym }}</button>
+                    {% endfor %}
+                </div>
+            </header>
+
+            <!-- Grid 1: Статус моделей и Настройки обучения -->
+            <div class="crypto-grid">
+                <!-- Панель статуса моделей -->
+                <div class="panel">
+                    <h2>Активные модели LightGBM</h2>
+                    <p class="panel-desc" style="margin-bottom: 1.5rem;">Состояние моделей из `model_registry`, используемых для прогнозирования криптовалют.</p>
+                    <div id="models-status">Загрузка данных...</div>
+                </div>
+
+                <!-- Панель feature importance -->
+                <div class="panel">
+                    <h2>Важность признаков (Feature Importance)</h2>
+                    <p class="panel-desc">Относительное влияние признаков при разделении деревьев решений.</p>
+                    <div style="margin-bottom: 1rem;">
+                        <select id="fi-symbol-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 150px;" onchange="updateFeatureImportanceChart()">
+                            {% for sym in symbols %}<option value="{{ sym }}">{{ sym }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div style="position: relative; height: 300px; width: 100%;">
+                        <canvas id="fi-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Раздел: Настройки и параметры обучения -->
+            <div class="panel" style="margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 10px;">
+                    <div>
+                        <h2>Настройки обучения и Бэктестера</h2>
+                        <p class="panel-desc" style="margin: 0;">Измените гиперпараметры модели LightGBM и настройки фильтрации.</p>
+                    </div>
+                    <button class="btn primary-btn" onclick="saveSettings()">Сохранить настройки</button>
+                </div>
+                
+                <div class="settings-grid">
+                    <div class="settings-group">
+                        <label for="p-n-estimators">Кол-во деревьев (n_estimators)</label>
+                        <input type="number" id="p-n-estimators" value="{{ defaults.n_estimators }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-learning-rate">Скорость обучения (learning_rate)</label>
+                        <input type="number" id="p-learning-rate" step="0.01" value="{{ defaults.learning_rate }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-num-leaves">Листьев в дереве (num_leaves)</label>
+                        <input type="number" id="p-num-leaves" value="{{ defaults.num_leaves }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-max-depth">Глубина дерева (max_depth)</label>
+                        <input type="number" id="p-max-depth" value="{{ defaults.max_depth }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-min-child-samples">Минимум в листе (min_child)</label>
+                        <input type="number" id="p-min-child-samples" value="{{ defaults.min_child_samples }}">
+                    </div>
+                </div>
+                
+                <div class="settings-grid">
+                    <div class="settings-group">
+                        <label for="p-subsample">Размер подвыборки (subsample)</label>
+                        <input type="number" id="p-subsample" step="0.1" value="{{ defaults.subsample }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-colsample-bytree">Колонок по деревьям (colsample)</label>
+                        <input type="number" id="p-colsample-bytree" step="0.1" value="{{ defaults.colsample_bytree }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-epsilon-quantile">Квантиль фильтра epsilon</label>
+                        <input type="number" id="p-epsilon-quantile" step="0.05" value="{{ defaults.epsilon_quantile }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-min-edge">Порог сигнала (min_edge)</label>
+                        <input type="number" id="p-min-edge" step="0.01" value="{{ defaults.min_edge }}">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Раздел: Бэктестинг -->
+            <div class="panel" style="margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 15px;">
+                    <div>
+                        <h2> Walk-Forward Backtester</h2>
+                        <p class="panel-desc" style="margin: 0;">Обучение модели на 70% данных, тестирование на остальных 30% с расчетом комиссий.</p>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <select id="bt-symbol" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 130px;">
+                            {% for sym in symbols %}<option>{{ sym }}</option>{% endfor %}
+                        </select>
+                        <button class="btn primary-btn" onclick="runBacktester()">▶ Запустить бэктест</button>
+                    </div>
+                </div>
+
+                <div id="backtest-loading" style="display: none; text-align: center; padding: 2rem; color: var(--text-muted);">
+                    ⏳ Запущен расчет бэктеста на сервере, пожалуйста подождите...
+                </div>
+
+                <div id="backtest-container" style="display: none;">
+                    <div class="stats-grid" style="margin-bottom: 1.5rem;">
+                        <div class="stat-card">
+                            <h3>Статус Edge</h3>
+                            <div class="stat-value highlight" id="bt-edge-status">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Сделок</h3>
+                            <div class="stat-value" id="bt-trades">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Win Rate</h3>
+                            <div class="stat-value" id="bt-win-rate">--%</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Доход (нетто)</h3>
+                            <div class="stat-value" id="bt-return">--%</div>
+                        </div>
+                    </div>
+                    <div class="stats-grid" style="margin-bottom: 1.5rem;">
+                        <div class="stat-card">
+                            <h3>Коэф. Шарпа</h3>
+                            <div class="stat-value" id="bt-sharpe">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Макс. Просадка</h3>
+                            <div class="stat-value" id="bt-max-dd">--%</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Доля Сигналов</h3>
+                            <div class="stat-value" id="bt-edge-rate">--%</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>AUC (train)</h3>
+                            <div class="stat-value" id="bt-auc">--</div>
+                        </div>
+                    </div>
+
+                    <!-- График кумулятивного PnL -->
+                    <div style="margin-top: 2rem;">
+                        <h3>Кривая доходности бэктеста (Кумулятивный Net PnL, %)</h3>
+                        <div style="position: relative; height: 350px; width: 100%; margin-top: 1rem;">
+                            <canvas id="pnl-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const API_KEY = "{{ api_key }}";
+        const H = { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' };
+
+        let statusData = null;
+        let fiChart = null;
+        let pnlChart = null;
+
+        async function loadStatus() {
+            try {
+                const r = await fetch('/crypto/api/crypto/status', { headers: H });
+                const d = await r.json();
+                statusData = d;
+                
+                // Заполняем настройки гиперпараметров
+                if (d.settings) {
+                    document.getElementById('p-n-estimators').value = d.settings.n_estimators;
+                    document.getElementById('p-learning-rate').value = d.settings.learning_rate;
+                    document.getElementById('p-num-leaves').value = d.settings.num_leaves;
+                    document.getElementById('p-max-depth').value = d.settings.max_depth;
+                    document.getElementById('p-min-child-samples').value = d.settings.min_child_samples;
+                    document.getElementById('p-subsample').value = d.settings.subsample;
+                    document.getElementById('p-colsample-bytree').value = d.settings.colsample_bytree;
+                    document.getElementById('p-epsilon-quantile').value = d.settings.epsilon_quantile;
+                    document.getElementById('p-min-edge').value = d.settings.min_edge;
+                }
+
+                // Заполняем статус моделей
+                const el = document.getElementById('models-status');
+                if (!d.models || !Object.keys(d.models).length) {
+                    el.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 2rem;"><em>Моделей в реестре нет — нажмите Обучить для создания</em></div>';
+                    return;
+                }
+
+                el.innerHTML = Object.entries(d.models).map(([sym, m]) => `
+                    <div class="stat-card" style="margin-bottom: 1rem; background: rgba(255,255,255,0.01); border: 1px solid var(--border-color);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <h3 style="margin: 0; font-size: 1.1rem; color: white;">${sym} <span style="font-size: 0.8rem; color: var(--text-muted);">v${m.version}</span></h3>
+                            <span style="font-size: 0.8rem; background: rgba(40, 167, 69, 0.15); color: #28a745; padding: 0.2rem 0.6rem; border-radius: 20px;">Активна</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.9rem;">
+                            <div>AUC (Val): <b>${m.auc}</b> (baseline: ${m.baseline})</div>
+                            <div>ECE (Калибровка): <b>${m.ece ?? '—'}</b></div>
+                            <div>Порог модели: <b>${m.threshold ?? '—'}</b></div>
+                            <div>Обучена: <b>${m.trained_at ? m.trained_at.slice(0, 19).replace('T', ' ') : '—'}</b></div>
+                        </div>
+                        <div style="margin-top: 0.6rem; font-size: 0.75rem; color: var(--text-muted); line-height: 1.3;">
+                            <b>Фичи:</b> ${m.features.join(', ')}
+                        </div>
+                    </div>
+                `).join('');
+
+                updateFeatureImportanceChart();
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function updateFeatureImportanceChart() {
+            const sym = document.getElementById('fi-symbol-selector').value;
+            const ctx = document.getElementById('fi-chart').getContext('2d');
+            
+            if (fiChart) {
+                fiChart.destroy();
+            }
+
+            if (!statusData || !statusData.models || !statusData.models[sym] || !statusData.models[sym].feature_importance) {
+                ctx.clearRect(0, 0, 300, 300);
+                return;
+            }
+
+            const fi = statusData.models[sym].feature_importance;
+            const sorted = Object.entries(fi).sort((a, b) => b[1] - a[1]).slice(0, 10);
+            
+            fiChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(x => x[0]),
+                    datasets: [{
+                        label: 'Важность фичи',
+                        data: sorted.map(x => x[1]),
+                        backgroundColor: '#ffc107',
+                        borderWidth: 0,
+                        borderRadius: 5
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#888' } },
+                        y: { grid: { display: false }, ticks: { color: '#FFF' } }
+                    }
+                }
+            });
+        }
+
+        async function saveSettings() {
+            const settings = {
+                n_estimators: parseInt(document.getElementById('p-n-estimators').value),
+                learning_rate: parseFloat(document.getElementById('p-learning-rate').value),
+                num_leaves: parseInt(document.getElementById('p-num-leaves').value),
+                max_depth: parseInt(document.getElementById('p-max-depth').value),
+                min_child_samples: parseInt(document.getElementById('p-min-child-samples').value),
+                subsample: parseFloat(document.getElementById('p-subsample').value),
+                colsample_bytree: parseFloat(document.getElementById('p-colsample-bytree').value),
+                epsilon_quantile: parseFloat(document.getElementById('p-epsilon-quantile').value),
+                min_edge: parseFloat(document.getElementById('p-min-edge').value),
+            };
+
+            const r = await fetch('/crypto/api/crypto/settings', {
+                method: 'POST',
+                headers: H,
+                body: JSON.stringify(settings)
+            });
+            const d = await r.json();
+            alert(d.message);
+            loadStatus();
+        }
+
+        async function retrain(symbol) {
+            const r = await fetch(`/crypto/api/crypto/train?symbol=${symbol}`, { method: 'POST', headers: H });
+            const d = await r.json();
+            alert(d.message);
+            
+            // Запускаем опрос статуса каждые 3 секунды, пока версия не обновится
+            const oldVersion = statusData?.models?.[symbol]?.version || 0;
+            const intervalId = setInterval(async () => {
+                await loadStatus();
+                const newVersion = statusData?.models?.[symbol]?.version || 0;
+                if (newVersion > oldVersion) {
+                    clearInterval(intervalId);
+                    alert(`✅ Модель для ${symbol} успешно обновлена до версии v${newVersion}!`);
+                }
+            }, 3000);
+        }
+
+        async function runBacktester() {
+            const sym = document.getElementById('bt-symbol').value;
+            const minEdge = parseFloat(document.getElementById('p-min-edge').value);
+            
+            document.getElementById('backtest-loading').style.display = 'block';
+            document.getElementById('backtest-container').style.display = 'none';
+
+            try {
+                const r = await fetch(`/crypto/api/crypto/backtest?symbol=${sym}&min_edge=${minEdge}`, { headers: H });
+                const d = await r.json();
+                
+                document.getElementById('backtest-loading').style.display = 'none';
+                
+                if (d.error) {
+                    alert(`❌ Ошибка бэктеста: ${d.error}`);
+                    return;
+                }
+
+                document.getElementById('backtest-container').style.display = 'block';
+                
+                const okEl = document.getElementById('bt-edge-status');
+                if (d.is_profitable) {
+                    okEl.innerHTML = '✅ EDGE ЕСТЬ';
+                    okEl.className = 'stat-value highlight';
+                } else {
+                    okEl.innerHTML = '❌ НЕТ EDGE';
+                    okEl.className = 'stat-value';
+                }
+
+                document.getElementById('bt-trades').innerText = d.n_trades;
+                document.getElementById('bt-win-rate').innerText = `${(d.win_rate * 100).toFixed(1)}%`;
+                document.getElementById('bt-return').innerText = `${(d.total_return_net * 100).toFixed(2)}%`;
+                document.getElementById('bt-sharpe').innerText = d.sharpe_ratio.toFixed(2);
+                document.getElementById('bt-max-dd').innerText = `${(d.max_drawdown * 100).toFixed(2)}%`;
+                document.getElementById('bt-edge-rate').innerText = `${(d.edge_rate * 100).toFixed(1)}%`;
+                document.getElementById('bt-auc').innerText = d.train_auc.toFixed(3);
+
+                // Рендерим график PnL
+                renderPnLChart(d.pnl_curve);
+            } catch (err) {
+                document.getElementById('backtest-loading').style.display = 'none';
+                alert('Не удалось рассчитать бэктест. Проверьте логи.');
+            }
+        }
+
+        function renderPnLChart(curve) {
+            const ctx = document.getElementById('pnl-chart').getContext('2d');
+            if (pnlChart) {
+                pnlChart.destroy();
+            }
+
+            if (!curve || curve.length === 0) {
+                return;
+            }
+
+            pnlChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: curve.map(x => x.time.slice(0, 16).replace('T', ' ')),
+                    datasets: [{
+                        label: 'Net PnL (%)',
+                        data: curve.map(x => x.pnl),
+                        borderColor: '#ffc107',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#888' } },
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#FFF' } }
+                    }
+                }
+            });
+        }
+
+        loadStatus();
+    </script>
+</body>
+</html>
