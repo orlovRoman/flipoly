@@ -1,7 +1,10 @@
 import pytest
 from polyflip.trading.decision_logic import (
-    decide_favorite, decide_ml_trend, decide_outsider,
+    decide_favorite, decide_ml_trend, decide_outsider, decide_crypto_trend
 )
+from polyflip.crypto.edge import compute_crypto_edge
+from polyflip.crypto.predictor import CryptoSignal
+
 from polyflip.trading.feature_builder import MarketSignal
 from polyflip.constants import (
     FAVORITE_THRESHOLD, FLIP_THRESHOLD, NO_FLIP_THRESHOLD,
@@ -278,3 +281,59 @@ def test_backtest_schema_new_keys():
     assert runner["FAVORITE_MAX_PRICE"] == 0.90
     assert "YES_MIN_PRICE" not in runner
     assert "NO_MIN_PRICE" not in runner
+
+
+# ─────────────────────────────────────────
+# Crypto Trend / Edge Tests
+# ─────────────────────────────────────────
+
+def test_crypto_edge_up():
+    edge, direction = compute_crypto_edge(p_up=0.75, threshold_up=0.65, threshold_down=0.35)
+    assert direction == "UP"
+    assert edge == pytest.approx(0.10)
+
+def test_crypto_edge_down():
+    edge, direction = compute_crypto_edge(p_up=0.25, threshold_up=0.65, threshold_down=0.35)
+    assert direction == "DOWN"
+    assert edge == pytest.approx(0.10)
+
+def test_crypto_edge_dead_zone():
+    edge, direction = compute_crypto_edge(p_up=0.50, threshold_up=0.65, threshold_down=0.35)
+    assert direction == "NONE"
+    assert edge == 0.0
+
+def test_decide_crypto_trend_buy_yes():
+    # p_up = 0.75 -> UP, edge = 0.15 > CRYPTO_MIN_EDGE (0.05)
+    crypto = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.75, p_down=0.25, direction="UP", edge=0.15,
+        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+    )
+    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG)
+    assert d.action == "BUY_YES"
+    assert d.strategy_type == "CRYPTO_TREND"
+    assert d.p_up == 0.75
+    assert d.strike == 60000.0
+    assert d.edge == 0.15
+
+def test_decide_crypto_trend_buy_no():
+    # p_up = 0.25 -> DOWN, edge = 0.15 > CRYPTO_MIN_EDGE (0.05)
+    crypto = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", edge=0.15,
+        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+    )
+    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG)
+    assert d.action == "BUY_NO"
+    assert d.strategy_type == "CRYPTO_TREND"
+    assert d.p_up == 0.25
+
+def test_decide_crypto_trend_skip_dead_zone():
+    # direction = NONE
+    crypto = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.50, p_down=0.50, direction="NONE", edge=0.0,
+        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+    )
+    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG)
+    assert d.action == "SKIP"
+    assert d.strategy_type == "CRYPTO_TREND"
+    assert "edge" in d.reason
+
