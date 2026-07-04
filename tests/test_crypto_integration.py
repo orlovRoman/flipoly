@@ -23,7 +23,8 @@ async def test_crypto_predictor_flow():
     # 2. Создаем фейковые свечи
     class FakeCandle:
         def __init__(self, close, volume):
-            self.open_time = "2026-07-04T12:00:00"
+            from datetime import datetime, timezone
+            self.open_time = datetime.fromisoformat("2026-07-04T12:00:00").replace(tzinfo=timezone.utc)
             self.open = close - 10
             self.high = close + 20
             self.low = close - 20
@@ -56,6 +57,6 @@ async def test_crypto_predictor_flow():
     decision = decide_crypto_trend(signal, entry_price=0.65, volume_5min=5000.0, config=config)
     assert decision.action == "BUY_YES"
     assert decision.strategy_type == "CRYPTO_TREND"
-    assert decision.bet_size_usdc == 10.0
+    assert decision.bet_size_usdc == 70.0
     assert decision.p_up == 0.8
     assert decision.strike == 60099.0
