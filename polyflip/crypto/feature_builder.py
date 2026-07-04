@@ -189,3 +189,122 @@ def build_crypto_features(
         features=vec,
         valid=True,
     )
+
+
+def build_features(candles: Sequence) -> pd.DataFrame:
+    """
+    Строит DataFrame с фичами для ВСЕХ свечей (используется при обучении модели).
+    Порядок строк: ASC по open_time.
+    Колонки: все поля из CRYPTO_FEATURES (тренер) + ret_1 (для таргета/ε-фильтра).
+
+    В отличие от build_crypto_features(), здесь vectorized-вычисления по всему ряду.
+    """
+    if isinstance(candles, pd.DataFrame):
+        df = candles.copy()
+    else:
+        df = pd.DataFrame([{
+            "open_time":        c.open_time,
+            "open":             c.open,
+            "high":             c.high,
+            "low":              c.low,
+            "close":            c.close,
+            "volume":           c.volume,
+            "taker_buy_volume": c.taker_buy_volume if c.taker_buy_volume is not None else 0.0,
+        } for c in candles])
+
+    df = df.sort_values("open_time").reset_index(drop=True)
+
+    close  = df["close"]
+    high   = df["high"]
+    low    = df["low"]
+    volume = df["volume"].fillna(0.0)
+    tbv    = df["taker_buy_volume"].fillna(0.0)
+
+    log_ret = np.log(close / close.shift(1))
+
+    # ── Returns ──────────────────────────────────────────────────
+    out = pd.DataFrame(index=df.index)
+    out["open_time"] = df["open_time"]
+    out["ret_1"]  = log_ret
+    out["ret_3"]  = np.log(close / close.shift(3))
+    out["ret_6"]  = np.log(close / close.shift(6))
+    out["ret_12"] = np.log(close / close.shift(12))
+    out["ret_24"] = np.log(close / close.shift(24))
+
+    # ── Volatility ───────────────────────────────────────────────
+    out["vol_6"]   = log_ret.rolling(6,  min_periods=2).std()
+    out["vol_24"]  = log_ret.rolling(24, min_periods=6).std()
+    out["vol_48"]  = log_ret.rolling(48, min_periods=12).std()
+    out["vol_ratio"] = out["vol_6"] / (out["vol_48"] + 1e-10)
+
+    # ── Volume anomaly ───────────────────────────────────────────
+    vol_mean = volume.rolling(24, min_periods=6).mean()
+    vol_std  = volume.rolling(24, min_periods=6).std()
+    out["vol_z_6"]       = (volume - vol_mean) / (vol_std + 1e-10)
+    out["tbv_ratio"]     = tbv / (volume + 1e-10)
+
+    # alias для совместимости с тренером
+    out["taker_buy_ratio"] = out["tbv_ratio"]
+
+    # ── RSI(14) ──────────────────────────────────────────────────
+    delta = close.diff()
+    gain  = delta.clip(lower=0).rolling(14, min_periods=1).mean()
+    loss  = (-delta.clip(upper=0)).rolling(14, min_periods=1).mean()
+    rs    = gain / (loss + 1e-10)
+    out["rsi_14"] = 100 - (100 / (1 + rs))
+
+    # ── EMA ratio 9/21 ───────────────────────────────────────────
+    ema9  = close.ewm(span=9,  adjust=False).mean()
+    ema21 = close.ewm(span=21, adjust=False).mean()
+    out["ema_ratio_9_21"] = ema9 / (ema21 + 1e-10)
+
+    # ── Bollinger Bands (20, 2σ) ─────────────────────────────────
+    bb_mean  = close.rolling(20, min_periods=10).mean()
+    bb_std   = close.rolling(20, min_periods=10).std()
+    bb_upper = bb_mean + 2 * bb_std
+    bb_lower = bb_mean - 2 * bb_std
+    bb_width = (bb_upper - bb_lower) / (bb_mean + 1e-10)
+    bb_pos   = (close - bb_lower) / (bb_upper - bb_lower + 1e-10)
+    out["bb_width"]    = bb_width
+    out["bb_position"] = bb_pos
+
+    # ── Distance to extremes ─────────────────────────────────────
+    c = close
+    out["dist_to_high_24"] = (c - high.rolling(24, min_periods=1).max()) / (c + 1e-10)
+    out["dist_to_low_24"]  = (c - low.rolling(24,  min_periods=1).min()) / (c + 1e-10)
+    out["dist_to_high_96"] = (c - high.rolling(96, min_periods=1).max()) / (c + 1e-10)
+    out["dist_to_low_96"]  = (c - low.rolling(96,  min_periods=1).min()) / (c + 1e-10)
+
+    # ── Range ────────────────────────────────────────────────────
+    out["range_1"]       = (high - low) / (close + 1e-10)
+    out["range_avg_24"]  = out["range_1"].rolling(24, min_periods=6).mean()
+
+    # ── Consecutive candles ──────────────────────────────────────
+    direction = (close >= df["open"]).astype(int)  # 1=up, 0=down
+    consec_up = []
+    consec_dn = []
+    cu = 0
+    cd = 0
+    for i, d in enumerate(direction):
+        if d == 1:
+            cu += 1
+            cd = 0
+        else:
+            cd += 1
+            cu = 0
+        consec_up.append(cu)
+        consec_dn.append(cd)
+    out["consec_up"]   = consec_up
+    out["consec_down"] = consec_dn
+
+    # ── Time ─────────────────────────────────────────────────────
+    dt = pd.to_datetime(df["open_time"])
+    out["hour_utc"] = dt.dt.hour.astype(float)
+    out["dow"]      = dt.dt.weekday.astype(float)
+
+    # ── NaN → 0 (safety net) ────────────────────────────────────
+    out = out.fillna(0.0)
+    # Inf → 0
+    out = out.replace([np.inf, -np.inf], 0.0)
+
+    return out
