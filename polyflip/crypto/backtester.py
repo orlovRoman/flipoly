@@ -156,16 +156,23 @@ def run_backtest(df_features: pd.DataFrame, symbol: str) -> BacktestResult:
     trades["pnl"]       = trades["direction"] * trades["ret_next"]           # брутто
     trades["pnl_net"]   = trades["pnl"] - BACKTEST_COMMISSION * 2            # комиссия туда+обратно
 
-    win_rate     = float((trades["pnl"] > 0).mean())
+    significant_trades = trades[trades["ret_next"].abs() >= epsilon]
+    if len(significant_trades) > 0:
+        win_rate = float((significant_trades["pnl"] > 0).mean())
+    else:
+        win_rate = float((trades["pnl"] > 0).mean())
+
     total_return = float(trades["pnl"].sum())
     total_net    = float(trades["pnl_net"].sum())
 
-    # Sharpe: аннуализируем через количество 15m-периодов в году
+    # Sharpe: аннуализируем через фактическую частоту сделок в году
     pnl_std = trades["pnl_net"].std()
     if pnl_std > 0:
+        trade_fraction = len(trades) / len(df_test)
+        annualization_factor = trade_fraction * BACKTEST_SHARPE_ANNUALIZE
         sharpe = float(
             trades["pnl_net"].mean() / pnl_std
-            * np.sqrt(BACKTEST_SHARPE_ANNUALIZE)
+            * np.sqrt(annualization_factor)
         )
     else:
         sharpe = 0.0
