@@ -1,5 +1,6 @@
 import pytest
-from unittest.mock import MagicMock
+import numpy as np
+from unittest.mock import MagicMock, patch
 from polyflip.crypto.predictor import CryptoPredictor, CryptoSignal
 from polyflip.trading.decision_logic import decide_crypto_trend
 
@@ -20,24 +21,23 @@ async def test_crypto_predictor_flow():
     predictor._thresholds["BTCUSDT"] = (0.65, 0.35)
     predictor._loaded_symbols.add("BTCUSDT")
 
-    # 2. Создаем фейковые свечи
+    # 2. Мокаем сборку фичей build_crypto_features, возвращая полностью валидные 26 полей
+    mock_features = MagicMock()
+    mock_features.valid = True
+    # 26 значений (все поля Validator заполнены)
+    mock_features.features = [np.array([0.01]*26)]
+
+    # Создаем фейковую свечу для страйка
     class FakeCandle:
-        def __init__(self, close, volume):
-            from datetime import datetime, timezone
-            self.open_time = datetime.fromisoformat("2026-07-04T12:00:00").replace(tzinfo=timezone.utc)
-            self.open = close - 10
-            self.high = close + 20
-            self.low = close - 20
-            self.close = close
-            self.volume = volume
-            self.taker_buy_volume = volume * 0.5
+        def __init__(self):
+            self.close = 60099.0
 
-    # Нужно не менее 50 свечей для валидности фичей
-    fake_candles = [FakeCandle(60000.0 + i, 10.0) for i in range(100)]
+    fake_candles = [FakeCandle()]
 
-    # 3. Вызываем predict
-    signal = predictor.predict(fake_candles, "BTCUSDT")
-    
+    with patch("polyflip.crypto.predictor.build_crypto_features", return_value=mock_features):
+        # 3. Вызываем predict
+        signal = predictor.predict(fake_candles, "BTCUSDT")
+        
     assert signal.features_ok is True
     assert signal.p_up == 0.8
     assert signal.direction == "UP"

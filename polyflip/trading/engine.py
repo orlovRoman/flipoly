@@ -1,5 +1,6 @@
 import os
 import pickle
+import dataclasses
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone, timedelta
@@ -14,6 +15,8 @@ from polyflip.config import settings
 from polyflip.trading.feature_builder import MarketSignal
 from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider, decide_crypto_trend
 from polyflip.crypto.predictor import CryptoPredictor
+from polyflip.crypto.candle_repository import get_recent_candles
+
 from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory, SlippageLog
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
@@ -41,7 +44,17 @@ from polyflip.constants import (
 )
 
 
+_crypto_predictor: Optional[CryptoPredictor] = None
+
+def _get_crypto_predictor() -> CryptoPredictor:
+    global _crypto_predictor
+    if _crypto_predictor is None:
+        _crypto_predictor = CryptoPredictor()
+    return _crypto_predictor
+
+
 logger = structlog.get_logger(__name__)
+
 
 async def save_or_update_skipped_trade(
     db_session: AsyncSession,
@@ -217,7 +230,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     models_by_asset = None
     model_versions = {}
     model_features = {}
-    crypto_predictor = CryptoPredictor()
+    crypto_predictor = _get_crypto_predictor()
     use_crypto_confirm = settings_db.get("USE_CRYPTO_CONFIRM", "false").lower() == "true"
     crypto_standalone = settings_db.get("CRYPTO_STANDALONE", "false").lower() == "true"
 
@@ -296,8 +309,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 # Загружаем модель и пороги (запросы к БД произойдут только при первом вызове для символа)
                 await crypto_predictor.load(db_session, binance_symbol)
                 
-                from polyflip.crypto.candle_repository import get_recent_candles
-                candles = await get_recent_candles(db_session, binance_symbol, limit=100)
+                candles = await get_recent_candles(db_session, binance_symbol, interval="5m", limit=100)
                 crypto_sig = crypto_predictor.predict(candles, binance_symbol)
                 
                 if not crypto_sig.features_ok:
@@ -476,11 +488,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     binance_symbol = "BTCUSDT" if market.asset.upper() == "BTC" else "ETHUSDT"
                     await crypto_predictor.load(db_session, binance_symbol)
                     
-                    from polyflip.crypto.candle_repository import get_recent_candles
-                    candles = await get_recent_candles(db_session, binance_symbol, limit=100)
+                    candles = await get_recent_candles(db_session, binance_symbol, interval="5m", limit=100)
                     crypto_sig = crypto_predictor.predict(candles, binance_symbol)
                     
-                    import dataclasses
                     if not crypto_sig.features_ok:
                         decision_obj = dataclasses.replace(
                             decision_obj, action="SKIP", reason="Crypto confirm: features invalid"
@@ -589,13 +599,13 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     actual_bet_size = bet_size
                 else:
                     max_bet_usdc = float(settings_db.get("MAX_BET_SIZE_USDC", 50.0))
-                actual_bet_size = compute_bet_size_edge_scaled(
-                    edge=edge,
-                    min_bet_usdc=bet_size,
-                    max_bet_usdc=max_bet_usdc,
-                    min_edge=current_min_edge,
-                    max_edge=max_bet_edge
-                )
+                    actual_bet_size = compute_bet_size_edge_scaled(
+                        edge=edge,
+                        min_bet_usdc=bet_size,
+                        max_bet_usdc=max_bet_usdc,
+                        min_edge=current_min_edge,
+                        max_edge=max_bet_edge
+                    )
                 if asset_mode == TRADING_MODE_FAVORITE and actual_bet_size < bet_size:
                     actual_bet_size = bet_size
 

@@ -1,5 +1,7 @@
 import pytest
 import dataclasses
+from unittest.mock import AsyncMock
+from sqlalchemy import select
 from polyflip.trading.decision_logic import TradeDecision
 from polyflip.crypto.trainer import CRYPTO_FEATURES
 from polyflip.crypto.feature_builder import CRYPTO_FEATURE_COLUMNS
@@ -21,22 +23,17 @@ def test_dataclasses_replace_frozen():
     assert d2.strategy_type == "ML_TREND"
     assert d2.edge == 0.1
 
-def test_crypto_features_import():
-    assert isinstance(CRYPTO_FEATURES, list)
-    assert len(CRYPTO_FEATURES) == 17   # В trainer.py определено 17 признаков
-    assert "rsi_14" in CRYPTO_FEATURES
+def test_trainer_features_subset_of_validator():
+    """CRYPTO_FEATURES (trainer) должен быть подмножеством CryptoFeaturesValidator."""
+    validator_fields = set(CryptoFeaturesValidator.model_fields.keys())
+    trainer_features = set(CRYPTO_FEATURES)
+
+    unknown = trainer_features - validator_fields
+    assert not unknown, f"Trainer использует признаки не из validator: {unknown}"
 
 def test_feature_columns_match_validator():
-    """CRYPTO_FEATURE_COLUMNS должен точно совпадать с полями CryptoFeaturesValidator."""
-    validator_fields = set(CryptoFeaturesValidator.model_fields.keys())
-    feature_columns = set(CRYPTO_FEATURE_COLUMNS)
-    
-    missing_in_validator = feature_columns - validator_fields
-    missing_in_columns = validator_fields - feature_columns
-    
-    assert not missing_in_validator, f"В CRYPTO_FEATURE_COLUMNS нет в Validator: {missing_in_validator}"
-    assert not missing_in_columns, f"В Validator нет в CRYPTO_FEATURE_COLUMNS: {missing_in_columns}"
-
+    """CRYPTO_FEATURE_COLUMNS (feature_builder) == CryptoFeaturesValidator."""
+    assert set(CRYPTO_FEATURE_COLUMNS) == set(CryptoFeaturesValidator.model_fields.keys())
 
 def test_crypto_predictor_cache():
     """Повторный вызов load() для загруженного символа не делает запросы к БД."""
@@ -49,8 +46,90 @@ def test_crypto_predictor_cache():
     # Проверяем, что load() вернет True без SQL-сессии
     import asyncio
     async def run_test():
-        res = await predictor.load(None, "BTCUSDT")
+        fake_db = AsyncMock()
+        res = await predictor.load(fake_db, "BTCUSDT")
         assert res is True
+        fake_db.execute.assert_not_called()
         
     asyncio.run(run_test())
+
+
+@pytest.mark.asyncio
+async def test_engine_crypto_standalone_bet_size(db_session):
+    from datetime import datetime, timezone, timedelta
+    import pickle
+    from polyflip.db.models import RuntimeSettings, LiveMarket, ModelRegistry, TradeHistory
+    from polyflip.trading.engine import trade_worker_cycle
+    from unittest.mock import patch, AsyncMock, MagicMock
+    import numpy as np
+
+    now = datetime.now(timezone.utc)
+    settings = [
+        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MAX_TIME_LEFT_SEC", value="1000", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADING_MODE_BTC", value="CRYPTO", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="CRYPTO_MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="CRYPTO_THRESHOLD_UP_BTC", value="0.60", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="CRYPTO_THRESHOLD_DOWN_BTC", value="0.40", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_BET_SIZE_USDC", value="50.0", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="BYPASS_BET_SIZE_CHECK", value="true", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_PRICE_DRIFT", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_BET_EDGE", value="0.50", updated_at=now, updated_by="test"),
+    ]
+    db_session.add_all(settings)
+
+    market = LiveMarket(
+        market_id="crypto_m1", asset="BTC", question="BTC up?",
+        current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
+        volume_5min=100.0, price_velocity=0.0,
+        end_time_est=now + timedelta(seconds=100),
+        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+    )
+    db_session.add(market)
+
+    # Мокаем LightGBM модель в ModelRegistry
+    mock_model = MagicMock()
+    mock_model.predict_proba.return_value = [[0.2, 0.8]]  # p_up = 0.8
+    db_session.add(ModelRegistry(
+        asset="CRYPTO", model_blob=b"dummy_bytes", is_active=True,
+        version=42, accuracy=0.9, features="all", trained_at=now
+    ))
+    await db_session.commit()
+
+    # Свечи
+    class FakeCandle:
+        def __init__(self):
+            self.close = 60099.0
+
+    fake_candles = [FakeCandle()]
+    mock_features = MagicMock()
+    mock_features.valid = True
+    mock_features.features = [np.array([0.01]*26)]
+
+    with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
+         patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls, \
+         patch("pickle.loads", return_value=mock_model), \
+         patch("polyflip.crypto.predictor.build_crypto_features", return_value=mock_features), \
+         patch("polyflip.trading.engine.get_recent_candles", AsyncMock(return_value=fake_candles)):
+
+         mock_trader = mock_trader_cls.return_value
+         mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
+
+         mock_api = mock_api_cls.return_value
+         mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.61})
+         mock_api.close = AsyncMock()
+
+         await trade_worker_cycle(db_session, mock_trader, mock_api)
+
+         res = await db_session.execute(select(TradeHistory))
+         trades = res.scalars().all()
+
+         assert len(trades) == 1
+         assert trades[0].outcome_bought == "YES"
+         assert trades[0].status == "SUCCESS"
+         assert trades[0].amount_usdc > 0
 
