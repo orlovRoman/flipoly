@@ -70,12 +70,29 @@ class CryptoSignal:
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
+    _instances: list[CryptoPredictor] = []
+
     def __init__(self) -> None:
         self._models: dict[str, dict[str, Any]] = {}  # symbol -> {regime: model}
         self._model_versions: dict[str, dict[str, int]] = {}  # symbol -> {regime: version}
         self._thresholds: dict[str, dict[str, tuple[float, float]]] = {}  # symbol -> {regime: (up, down)}
         self._vol_medians: dict[str, float] = {}  # symbol -> vol_median
         self._loaded_symbols: set[str] = set()
+        CryptoPredictor._instances.append(self)
+
+    @classmethod
+    def invalidate_all(cls, symbol: str) -> None:
+        """Инвалидирует кэш для указанного символа во всех активных инстансах."""
+        for inst in cls._instances:
+            inst.invalidate(symbol)
+
+    def invalidate(self, symbol: str) -> None:
+        """Инвалидирует локальный кэш для указанного символа."""
+        self._loaded_symbols.discard(symbol)
+        self._models.pop(symbol, None)
+        self._model_versions.pop(symbol, None)
+        self._thresholds.pop(symbol, None)
+        self._vol_medians.pop(symbol, None)
 
     async def load(self, db: AsyncSession, symbol: str) -> bool:
         """Ленивая загрузка моделей и порогов для low_vol и high_vol."""
@@ -114,6 +131,8 @@ class CryptoPredictor:
                     
                 if not row:
                     logger.error("no_fallback_model_found", symbol=symbol)
+                    # ВАЖНО: при неудаче не добавляем в loaded_symbols и очищаем частично загруженное
+                    self.invalidate(symbol)
                     return False
 
                 self._models[symbol][regime] = pickle.loads(row.model_blob)
@@ -151,6 +170,7 @@ class CryptoPredictor:
             return True
         except Exception as e:
             logger.exception("failed_to_load_crypto_models", error=str(e))
+            self.invalidate(symbol)
             return False
 
     def predict(self, candles: list[Any], symbol: str) -> CryptoSignal:
@@ -177,9 +197,19 @@ class CryptoPredictor:
             # Порядок фичей для LightGBM
             fv_array = np.array([getattr(validated, f) for f in CRYPTO_FEATURES], dtype=np.float64)
 
-            model = self._models[symbol][regime]
-            version = self._model_versions[symbol][regime]
-            th_up, th_down = self._thresholds[symbol][regime]
+            # Выбор модели с защитой от отсутствия конкретного режима (fallback)
+            symbol_models = self._models.get(symbol, {})
+            model = symbol_models.get(regime) or next(iter(symbol_models.values()), None)
+            
+            version = (self._model_versions.get(symbol, {}).get(regime)
+                       or next(iter(self._model_versions.get(symbol, {}).values()), -1))
+                       
+            th_up, th_down = (self._thresholds.get(symbol, {}).get(regime)
+                              or next(iter(self._thresholds.get(symbol, {}).values()), (0.55, 0.45)))
+
+            if model is None:
+                logger.warning("no_model_available_for_predict", symbol=symbol, regime=regime)
+                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False)
 
             # 3. Инференс
             p_up = float(model.predict_proba([fv_array])[0][1])
