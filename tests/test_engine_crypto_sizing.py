@@ -40,8 +40,11 @@ def test_crypto_predictor_cache():
     from polyflip.crypto.predictor import CryptoPredictor
     predictor = CryptoPredictor()
     predictor._loaded_symbols.add("BTCUSDT")
-    predictor._model = object()  # mock
-    predictor._thresholds["BTCUSDT"] = (0.55, 0.45)
+    mock = object()
+    predictor._models["BTCUSDT"] = {"low_vol": mock, "high_vol": mock}
+    predictor._model_versions["BTCUSDT"] = {"low_vol": 42, "high_vol": 42}
+    predictor._thresholds["BTCUSDT"] = {"low_vol": (0.55, 0.45), "high_vol": (0.55, 0.45)}
+    predictor._vol_medians["BTCUSDT"] = 1.0
     
     # Проверяем, что load() вернет True без SQL-сессии
     import asyncio
