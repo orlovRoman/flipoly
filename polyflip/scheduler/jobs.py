@@ -19,6 +19,7 @@ from pathlib import Path
 
 from polyflip.db.models import RuntimeSettings, TradeHistory, MarketSnapshot, CollectorStatus
 from polyflip.models.trainer import ModelTrainer
+from polyflip.crypto.candle_collector import collect_new_candles
 
 logger = structlog.get_logger(__name__)
 
@@ -189,6 +190,15 @@ async def cleanup_job():
     except Exception as e:
         logger.exception("cleanup_job_error", error=str(e))
 
+async def candle_collector_job():
+    logger.info("starting_candle_collector_job")
+    try:
+        async with async_session() as session:
+            results = await collect_new_candles(session)
+        logger.info("finished_candle_collector_job", results=results)
+    except Exception as e:
+        logger.exception("candle_collector_job_error", error=str(e))
+
 async def check_settings_job(scheduler):
     try:
         async with async_session() as session:
@@ -257,6 +267,15 @@ async def main():
         trigger=IntervalTrigger(seconds=120),
         id="resolver_job",
         replace_existing=True
+    )
+    
+    # Сбор новых криптосвечей каждые 15 минут
+    scheduler.add_job(
+        candle_collector_job,
+        trigger=IntervalTrigger(minutes=15),
+        id="candle_collector_job",
+        replace_existing=True,
+        max_instances=1,
     )
     
     # Ежедневно переобучаем модели (раз в 24 часа) - ОТКЛЮЧЕНО в пользу ручного обучения
