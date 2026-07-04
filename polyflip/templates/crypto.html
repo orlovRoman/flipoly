@@ -250,7 +250,7 @@
 
         async function loadStatus() {
             try {
-                const r = await fetch('/crypto/api/crypto/status', { headers: H });
+                const r = await fetch('/crypto/api/status', { headers: H });
                 const d = await r.json();
                 statusData = d;
                 
@@ -354,7 +354,7 @@
                 min_edge: parseFloat(document.getElementById('p-min-edge').value),
             };
 
-            const r = await fetch('/crypto/api/crypto/settings', {
+            const r = await fetch('/crypto/api/settings', {
                 method: 'POST',
                 headers: H,
                 body: JSON.stringify(settings)
@@ -365,7 +365,7 @@
         }
 
         async function retrain(symbol) {
-            const r = await fetch(`/crypto/api/crypto/train?symbol=${symbol}`, { method: 'POST', headers: H });
+            const r = await fetch(`/crypto/api/train?symbol=${symbol}`, { method: 'POST', headers: H });
             const d = await r.json();
             alert(d.message);
             
@@ -389,7 +389,7 @@
             document.getElementById('backtest-container').style.display = 'none';
 
             try {
-                const r = await fetch(`/crypto/api/crypto/backtest?symbol=${sym}&min_edge=${minEdge}`, { headers: H });
+                const r = await fetch(`/crypto/api/backtest?symbol=${sym}&min_edge=${minEdge}`, { headers: H });
                 const d = await r.json();
                 
                 document.getElementById('backtest-loading').style.display = 'none';

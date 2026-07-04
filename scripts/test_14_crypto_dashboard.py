@@ -22,39 +22,39 @@ async def test_endpoints():
         resp = await client.get("/crypto")
         assert resp.status_code == 200, f"Dashboard page: {resp.status_code}"
         assert "Crypto LightGBM Dashboard" in resp.text
-        print("✅ GET /crypto OK")
+        print("[OK] GET /crypto")
 
         # Тест статуса модели (без ключа должен вернуть 401)
-        resp = await client.get("/crypto/api/crypto/status")
+        resp = await client.get("/crypto/api/status")
         assert resp.status_code == 401, f"Status without auth: {resp.status_code}"
-        print("✅ Auth protection OK")
+        print("[OK] Auth protection")
 
         # Тест статуса модели с авторизацией
-        resp = await client.get("/crypto/api/crypto/status", headers=headers)
+        resp = await client.get("/crypto/api/status", headers=headers)
         assert resp.status_code == 200, f"Status with auth: {resp.status_code}"
         data = resp.json()
         assert "models" in data
         assert "symbols" in data
         assert "settings" in data
-        print("✅ GET /crypto/api/crypto/status OK")
+        print("[OK] GET /crypto/api/status")
 
         # Тест сохранения настроек
         payload = {
             "n_estimators": 150,
             "learning_rate": 0.08
         }
-        resp = await client.post("/crypto/api/crypto/settings", json=payload, headers=headers)
+        resp = await client.post("/crypto/api/settings", json=payload, headers=headers)
         assert resp.status_code == 200, f"Save settings: {resp.status_code}"
-        print("✅ POST /crypto/api/crypto/settings OK")
+        print("[OK] POST /crypto/api/settings")
 
         # Тест бэктеста
-        resp = await client.get("/crypto/api/crypto/backtest?symbol=BTCUSDT", headers=headers)
+        resp = await client.get("/crypto/api/backtest?symbol=BTCUSDT", headers=headers)
         # Бэктест может вернуть ошибку, если нет свечей в БД, но сам эндпоинт должен обработать это корректно (код 200)
         assert resp.status_code == 200, f"Backtest status: {resp.status_code}"
         bt_data = resp.json()
         assert "error" in bt_data or "n_trades" in bt_data
-        print("✅ GET /crypto/api/crypto/backtest OK")
+        print("[OK] GET /crypto/api/backtest")
 
-    print("🎉 Все новые эндпоинты дашборда работают и авторизованы корректно!")
+    print("[SUCCESS] Все новые эндпоинты дашборда работают и авторизованы корректно!")
 
 asyncio.run(test_endpoints())

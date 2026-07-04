@@ -15,7 +15,7 @@ Walk-forward: обучение на первых BACKTEST_TRAIN_RATIO данны
 from __future__ import annotations
 
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -49,6 +49,7 @@ class BacktestResult:
     edge_rate:        float        # доля свечей с сигналом
     epsilon:          float
     train_auc:        float
+    pnl_curve:        list[dict] = field(default_factory=list)
 
     def is_profitable(self, min_sharpe: float = 0.5) -> bool:
         return self.sharpe_ratio >= min_sharpe and self.win_rate >= 0.52
@@ -67,7 +68,12 @@ class BacktestResult:
         )
 
 
-def run_backtest(df_features: pd.DataFrame, symbol: str) -> BacktestResult:
+def run_backtest(
+    df_features: pd.DataFrame,
+    symbol: str,
+    min_edge: float | None = None,
+    commission: float | None = None,
+) -> BacktestResult:
     """
     Принимает DataFrame с фичами (выход build_features()).
     Сам разбивает train/test по времени, обучает модель на train,
@@ -107,6 +113,7 @@ def run_backtest(df_features: pd.DataFrame, symbol: str) -> BacktestResult:
             edge_rate=0.0,
             epsilon=epsilon,
             train_auc=0.0,
+            pnl_curve=[],
         )
 
     X_train = df_train[available]
@@ -123,10 +130,13 @@ def run_backtest(df_features: pd.DataFrame, symbol: str) -> BacktestResult:
     X_test = df_test[available]
     probas = model.predict_proba(X_test)[:, 1]
 
+    _min_edge   = min_edge if min_edge is not None else BACKTEST_MIN_EDGE
+    _commission = commission if commission is not None else BACKTEST_COMMISSION
+
     df_test = df_test.copy()
     df_test["prob_up"] = probas
     df_test["edge"]    = probas - 0.5                    # edge > 0 → лонг, < 0 → шорт
-    df_test["signal"]  = df_test["edge"].abs() >= BACKTEST_MIN_EDGE
+    df_test["signal"]  = df_test["edge"].abs() >= _min_edge
 
     # Доходность следующей свечи (log-return)
     df_test["ret_next"] = df_test["ret_1"].shift(-1)
@@ -148,13 +158,14 @@ def run_backtest(df_features: pd.DataFrame, symbol: str) -> BacktestResult:
             edge_rate=float(df_test["signal"].mean()),
             epsilon=epsilon,
             train_auc=train_auc,
+            pnl_curve=[],
         )
 
     # Направление: лонг если edge > 0, шорт если edge < 0
     trades = trades.copy()
     trades["direction"] = np.where(trades["edge"] > 0, 1, -1)
     trades["pnl"]       = trades["direction"] * trades["ret_next"]           # брутто
-    trades["pnl_net"]   = trades["pnl"] - BACKTEST_COMMISSION * 2            # комиссия туда+обратно
+    trades["pnl_net"]   = trades["pnl"] - _commission * 2                    # комиссия туда+обратно
 
     significant_trades = trades[trades["ret_next"].abs() >= epsilon]
     if len(significant_trades) > 0:
@@ -185,6 +196,31 @@ def run_backtest(df_features: pd.DataFrame, symbol: str) -> BacktestResult:
 
     edge_rate = float(df_test["signal"].mean())
 
+    # Строим кривую PnL для графика
+    pnl_curve = []
+    if len(trades) > 0:
+        step = max(1, len(trades) // 100)
+        for i in range(0, len(trades), step):
+            if "open_time" in trades.columns:
+                t_val = trades["open_time"].iloc[i]
+                t_str = t_val.isoformat() if hasattr(t_val, "isoformat") else str(t_val)
+            else:
+                t_str = str(trades.index[i])
+            pnl_curve.append({
+                "time": t_str,
+                "pnl": round(float(cum_pnl.iloc[i]) * 100, 2)
+            })
+        if len(trades) % step != 0:
+            if "open_time" in trades.columns:
+                t_val = trades["open_time"].iloc[-1]
+                t_str = t_val.isoformat() if hasattr(t_val, "isoformat") else str(t_val)
+            else:
+                t_str = str(trades.index[-1])
+            pnl_curve.append({
+                "time": t_str,
+                "pnl": round(float(cum_pnl.iloc[-1]) * 100, 2)
+            })
+
     return BacktestResult(
         symbol=symbol,
         n_candles_total=n_total,
@@ -198,4 +234,5 @@ def run_backtest(df_features: pd.DataFrame, symbol: str) -> BacktestResult:
         edge_rate=edge_rate,
         epsilon=epsilon,
         train_auc=train_auc,
+        pnl_curve=pnl_curve,
     )

@@ -11,6 +11,7 @@ import os
 import json
 import time
 from datetime import datetime, timezone
+import numpy as np
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Query
@@ -68,7 +69,7 @@ async def crypto_page(request: Request):
     )
 
 
-@router.get("/api/crypto/status", dependencies=[Depends(verify_api_key)])
+@router.get("/api/status", dependencies=[Depends(verify_api_key)])
 async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     """
     Возвращает текущее состояние крипто-моделей:
@@ -149,7 +150,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     return result
 
 
-@router.post("/api/crypto/settings", dependencies=[Depends(verify_api_key)])
+@router.post("/api/settings", dependencies=[Depends(verify_api_key)])
 async def save_crypto_settings(
     settings: dict,
     db: AsyncSession = Depends(get_db_session)
@@ -191,7 +192,7 @@ async def save_crypto_settings(
     return {"status": "success", "message": "Настройки успешно сохранены!"}
 
 
-@router.get("/api/crypto/backtest", dependencies=[Depends(verify_api_key)])
+@router.get("/api/backtest", dependencies=[Depends(verify_api_key)])
 async def crypto_backtest(
     symbol: str = "BTCUSDT",
     interval: str = "15m",
@@ -202,21 +203,9 @@ async def crypto_backtest(
     Запускает walk-forward backtest и возвращает детальные метрики и PnL-кривую.
     Результат кэшируется на 5 минут для предотвращения перегрузки CPU.
     """
-    # Если параметры переданы явно, переопределяем их в константах
-    old_min_edge = C.BACKTEST_MIN_EDGE
-    old_commission = C.BACKTEST_COMMISSION
-
-    if min_edge is not None:
-        C.BACKTEST_MIN_EDGE = min_edge
-    if commission is not None:
-        C.BACKTEST_COMMISSION = commission
-
     cache_key = f"backtest_{symbol}_{interval}_{min_edge}_{commission}"
     now = time.time()
     if cache_key in _cache and now - _cache[cache_key]["ts"] < 300:
-        # Восстанавливаем старые настройки перед выходом
-        C.BACKTEST_MIN_EDGE = old_min_edge
-        C.BACKTEST_COMMISSION = old_commission
         return _cache[cache_key]["data"]
 
     async with async_session() as session:
@@ -226,87 +215,18 @@ async def crypto_backtest(
                 select(RuntimeSettings).where(RuntimeSettings.key == "CRYPTO_BACKTEST_MIN_EDGE")
             )).scalar_one_or_none()
             if thr_row:
-                C.BACKTEST_MIN_EDGE = float(thr_row.value)
+                min_edge = float(thr_row.value)
 
         candles = await get_recent_candles(session, symbol, interval, limit=10_000)
 
     if len(candles) < 600:
-        C.BACKTEST_MIN_EDGE = old_min_edge
-        C.BACKTEST_COMMISSION = old_commission
         return {"error": f"Недостаточно свечей: {len(candles)} < 600. Пожалуйста, сделайте backfill.", "symbol": symbol}
 
     df = build_features(candles)
     
     # Запускаем backtest в пуле потоков (CPU-bound)
-    result = await asyncio.to_thread(run_backtest, df, symbol)
+    result = await asyncio.to_thread(run_backtest, df, symbol, min_edge, commission)
 
-    # Дополнительно сгенерируем кривую доходности по сделкам для графика
-    # Для этого воспроизведем логику симуляции, чтобы получить временной ряд PnL
-    n_train = int(len(df) * C.BACKTEST_TRAIN_RATIO)
-    df_test_raw = df.iloc[n_train:].copy()
-    
-    # Epsilon из train части
-    df_train_raw = df.iloc[:n_train]
-    epsilon = float(df_train_raw["ret_1"].abs().quantile(C.CANDLE_EPSILON_QUANTILE))
-
-    # Для построения графика восстановим модель
-    try:
-        from polyflip.crypto.trainer import _fit_lgbm_and_serialize
-        from sklearn.calibration import CalibratedClassifierCV
-        import pickle
-        
-        available = [f for f in C.CRYPTO_FEATURES if f in df.columns]
-        df_train = df_train_raw.copy()
-        df_train["target"] = (df_train["ret_1"].shift(-1) > 0).astype(int)
-        df_train = df_train.dropna(subset=["target", "ret_1"])
-        # Применяем фильтр по epsilon к train
-        df_train["abs_ret_next"] = df_train["ret_1"].shift(-1).abs()
-        df_train = df_train[df_train["abs_ret_next"] >= epsilon]
-        
-        X_train = df_train[available]
-        y_train = df_train["target"]
-        
-        model_bytes, _, _, _, _, _ = _fit_lgbm_and_serialize(X_train, y_train, n_splits=3)
-        model = pickle.loads(model_bytes)
-        
-        df_test = df_test_raw.copy()
-        X_test = df_test[available]
-        probas = model.predict_proba(X_test)[:, 1]
-        
-        df_test["prob_up"] = probas
-        df_test["edge"] = probas - 0.5
-        df_test["signal"] = df_test["edge"].abs() >= C.BACKTEST_MIN_EDGE
-        df_test["ret_next"] = df_test["ret_1"].shift(-1)
-        df_test = df_test.dropna(subset=["ret_next"])
-        
-        trades = df_test[df_test["signal"]].copy()
-        if len(trades) > 0:
-            trades["direction"] = np.where(trades["edge"] > 0, 1, -1)
-            trades["pnl_net"] = (trades["direction"] * trades["ret_next"]) - C.BACKTEST_COMMISSION * 2
-            cum_pnl = trades["pnl_net"].cumsum()
-            
-            # Сократим количество точек до 100 для быстроты рендеринга
-            step = max(1, len(trades) // 100)
-            pnl_curve = [
-                {
-                    "time": trades["open_time"].iloc[i].isoformat() if hasattr(trades["open_time"].iloc[i], "isoformat") else str(trades["open_time"].iloc[i]),
-                    "pnl": round(float(cum_pnl.iloc[i]) * 100, 2)  # в процентах
-                }
-                for i in range(0, len(trades), step)
-            ]
-            # Добавим последнюю точку обязательно
-            if len(trades) % step != 0:
-                pnl_curve.append({
-                    "time": trades["open_time"].iloc[-1].isoformat() if hasattr(trades["open_time"].iloc[-1], "isoformat") else str(trades["open_time"].iloc[-1]),
-                    "pnl": round(float(cum_pnl.iloc[-1]) * 100, 2)
-                })
-        else:
-            pnl_curve = []
-    except Exception as ex:
-        logger.exception("pnl_curve_generation_failed", error=str(ex))
-        pnl_curve = []
-
-    import numpy as np
     data = {
         "symbol":           result.symbol,
         "n_candles_total":  result.n_candles_total,
@@ -321,18 +241,14 @@ async def crypto_backtest(
         "train_auc":        round(result.train_auc, 4),
         "is_profitable":    result.is_profitable(),
         "summary":          result.summary(),
-        "pnl_curve":        pnl_curve
+        "pnl_curve":        result.pnl_curve
     }
     
-    # Восстанавливаем старые настройки
-    C.BACKTEST_MIN_EDGE = old_min_edge
-    C.BACKTEST_COMMISSION = old_commission
-
     _cache[cache_key] = {"ts": now, "data": data}
     return data
 
 
-@router.post("/api/crypto/train", dependencies=[Depends(verify_api_key)])
+@router.post("/api/train", dependencies=[Depends(verify_api_key)])
 async def crypto_train(
     background_tasks: BackgroundTasks,
     symbol: str = "BTCUSDT",
