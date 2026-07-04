@@ -25,8 +25,8 @@ X-API-Key: <значение из переменной окружения API_KE
 | Эндпоинт | Лимит | Окно |
 |---|---|---|
 | `POST /predict` | 60 | минута |
-| `POST /retrain` | 1 | час |
-| `GET /stats/*`, `/backtest/*` | 30 | минута |
+| `POST /api/analytics/train/*` | 1 | час |
+| `GET /stats/*`, `/api/backtest/*` | 30 | минута |
 
 При превышении — `429 Too Many Requests` с заголовком `Retry-After`.
 
@@ -186,21 +186,15 @@ X-API-Key: <значение из переменной окружения API_KE
 
 ---
 
-### POST /retrain
+### POST /api/analytics/train/{asset}
 
 Ручное переобучение модели — не нужно ждать 24-часовой цикл.
 
-**Запрос:**
+**Параметры:**
 
-```json
-{
-  "asset": "BTC"
-}
-```
-
-| Поле | Тип | Обязательно | Описание |
-|---|---|---|---|
-| `asset` | string \| null | ❌ | Актив для переобучения. Если null — переобучить все |
+| Параметр | Тип | Описание |
+|---|---|---|
+| `asset` (path) | string | Актив для переобучения |
 
 **Ответ (202 Accepted):**
 
@@ -223,43 +217,44 @@ X-API-Key: <значение из переменной окружения API_KE
 
 ---
 
-### GET /backtest/{asset}
+### GET /api/analytics/summary
 
-Backtesting — насколько точны были предсказания исторически.
+Сводка по аналитике моделей.
 
-**Параметры:**
+### GET /api/analytics/models
 
-| Параметр | Тип | Описание |
-|---|---|---|
-| `asset` (path) | string | Код актива |
-| `days` (query) | int | Глубина анализа в днях (по умолчанию 7, макс 90) |
+Список моделей и их статус.
 
-**Ответ (200):**
+---
 
-```json
-{
-  "asset": "BTC",
-  "period_days": 7,
-  "total_predictions": 342,
-  "matched_with_outcome": 298,
-  "accuracy": 0.71,
-  "brier_score": 0.18,
-  "calibration": [
-    {"predicted_range": "0.0-0.1", "actual_flip_rate": 0.05, "count": 89},
-    {"predicted_range": "0.1-0.2", "actual_flip_rate": 0.14, "count": 67},
-    {"predicted_range": "0.2-0.3", "actual_flip_rate": 0.26, "count": 52},
-    ...
-    {"predicted_range": "0.9-1.0", "actual_flip_rate": 0.92, "count": 12}
-  ]
-}
-```
+### GET /api/slippage
 
-| Поле | Тип | Описание |
-|---|---|---|
-| `accuracy` | float | Доля правильных предсказаний (flip_prob > 0.5 и flip случился, или < 0.5 и не случился) |
-| `brier_score` | float | Brier score (0 = идеально, 0.25 = случайная модель) |
-| `calibration` | array | Калибровка: насколько предсказанные вероятности соответствуют реальным |
+История проскальзываний торгов.
 
+---
+
+## Backtesting API
+
+### GET /backtest
+Отдает HTML UI страницу для бэктестинга.
+
+### POST /api/backtest/submit
+Запуск нового бэктест-прогона.
+
+### GET /api/backtest/status/{run_id}
+Статус текущего прогона бэктеста.
+
+### GET /api/backtest/result/{run_id}
+Результаты и метрики завершенного бэктеста.
+
+### GET /api/backtest/history
+История запусков бэктестов.
+
+### GET /api/backtest/models
+Доступные модели для бэктеста.
+
+### GET /api/backtest/dataset_stats
+Статистика по датасету.
 ---
 
 ### GET /health
@@ -349,6 +344,12 @@ JSON-данные для графика дашборда — доступен б
     "MAX_EDGE": {"value": "2.0", "source": "db", "type": "float"},
     "TRADE_BET_SIZE_USDC": {"value": "10.0", "source": "db", "type": "float"},
     "MAX_BET_SIZE_USDC": {"value": "50.0", "source": "db", "type": "float"},
+    "LIQUIDITY_FRACTION": {"value": "0.1", "source": "db", "type": "float"},
+    "BYPASS_BET_SIZE_CHECK": {"value": "false", "source": "db", "type": "bool"},
+    "BET_SIZING_MODE": {"value": "linear", "source": "db", "type": "string"},
+    "AUTO_DEAD_ZONE": {"value": "true", "source": "db", "type": "bool"},
+    "TRADING_MODE": {"value": "PAPER", "source": "db", "type": "string"},
+    "MAX_PRICE_DRIFT": {"value": "0.05", "source": "db", "type": "float"},
     "TRADING_ENABLED": {"value": "false", "source": "default", "type": "bool"},
     "ALERT_WEBHOOK_URL": {"value": "", "source": "default", "type": "string"},
     "COLLECTOR_STALE_HOURS": {"value": "2", "source": "default", "type": "int"},
@@ -463,15 +464,13 @@ curl http://localhost:8001/assets
 curl http://localhost:8001/stats/BTC \
   -H "X-API-Key: your-secret-key"
 
-# Backtesting за 7 дней
-curl "http://localhost:8001/backtest/BTC?days=7" \
+# Список истории бэктестов
+curl http://localhost:8001/api/backtest/history \
   -H "X-API-Key: your-secret-key"
 
 # Ручное переобучение
-curl -X POST http://localhost:8001/retrain \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: your-secret-key" \
-  -d '{"asset": "BTC"}'
+curl -X POST http://localhost:8001/api/analytics/train/BTC \
+  -H "X-API-Key: your-secret-key"
 
 # Health
 curl http://localhost:8001/health

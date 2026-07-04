@@ -91,6 +91,27 @@ def test_retrain_versioning(mock_db_with_data):
     """•Повторный retrain → version=2, старая модель is_active=False."""
 ```
 
+### 2.4 `tests/unit/test_decision_logic.py`
+
+Тестирование `trading/decision_logic.py` — чистые функции стратегий (без побочных эффектов).
+
+```python
+# Что тестируем:
+# 1. decide_favorite() корректно вычисляет edge и предлагает токен YES или NO.
+# 2. decide_ml_trend() работает с P(flip) и порогами threshold_flip.
+# 3. Граничные случаи: вероятности около порогов, отсутствие edge.
+```
+
+### 2.5 `tests/unit/test_backtesting.py`
+
+Тестирование логики бэктестинга (Market Replay и метрики).
+
+```python
+# Что тестируем:
+# 1. runner.py корректно проходит по снапшотам и вызывает стратегии.
+# 2. Расчет PnL с учетом slippage и комиссий.
+```
+
 ---
 
 ## 3. Integration-тесты
@@ -158,6 +179,18 @@ def test_put_settings_invalid_value(test_client):
 
 def test_settings_priority(test_client, monkeypatch):
     """Значение в runtime_settings имеет приоритет над env var."""
+```
+
+### 3.3 `tests/integration/test_backtest_api.py`
+
+Тестирование эндпоинтов `/api/backtest/*`.
+
+```python
+def test_submit_backtest(test_client, seeded_db):
+    """POST /api/backtest/submit → 200, run_id возвращается."""
+
+def test_backtest_history(test_client):
+    """GET /api/backtest/history → 200, массив запусков."""
 ```
 
 ---
