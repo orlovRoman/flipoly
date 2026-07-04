@@ -88,22 +88,23 @@ def _build_target(df: pd.DataFrame, epsilon: float) -> pd.DataFrame:
 
 
 def _make_lgbm(**kwargs) -> LGBMClassifier:
-    return LGBMClassifier(
-        n_estimators=LGBM_N_ESTIMATORS,
-        learning_rate=LGBM_LEARNING_RATE,
-        num_leaves=LGBM_NUM_LEAVES,
-        max_depth=LGBM_MAX_DEPTH,
-        min_child_samples=LGBM_MIN_CHILD_SAMPLES,
-        subsample=LGBM_SUBSAMPLE,
-        colsample_bytree=LGBM_COLSAMPLE_BYTREE,
-        reg_alpha=LGBM_REG_ALPHA,
-        reg_lambda=LGBM_REG_LAMBDA,
-        class_weight="balanced",
-        random_state=CV_RANDOM_STATE,
-        verbosity=-1,
-        n_jobs=-1,
-        **kwargs,
-    )
+    params = {
+        "n_estimators": LGBM_N_ESTIMATORS,
+        "learning_rate": LGBM_LEARNING_RATE,
+        "num_leaves": LGBM_NUM_LEAVES,
+        "max_depth": LGBM_MAX_DEPTH,
+        "min_child_samples": LGBM_MIN_CHILD_SAMPLES,
+        "subsample": LGBM_SUBSAMPLE,
+        "colsample_bytree": LGBM_COLSAMPLE_BYTREE,
+        "reg_alpha": LGBM_REG_ALPHA,
+        "reg_lambda": LGBM_REG_LAMBDA,
+        "class_weight": "balanced",
+        "random_state": CV_RANDOM_STATE,
+        "verbosity": -1,
+        "n_jobs": -1,
+    }
+    params.update(kwargs)
+    return LGBMClassifier(**params)
 
 
 def _fit_lgbm_and_serialize(
