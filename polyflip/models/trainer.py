@@ -293,6 +293,7 @@ class ModelTrainer:
             features=",".join(active_features),
             ece=ece,
             is_active=True,
+            interval="5m",
             trained_at=datetime.now(timezone.utc)
         )
         self.db.add(new_model_record)

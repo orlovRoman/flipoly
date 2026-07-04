@@ -1,103 +1,102 @@
+#!/usr/bin/env python3
 """
-Запускает backtest на реальных данных из БД.
-Выводит PnL / Sharpe / win-rate / edge-rate в stdout и сохраняет CSV.
+CLI для крипто-бэктеста на локальных данных из БД.
 
-Usage:
-    python scripts/run_backtest.py
-    python scripts/run_backtest.py --symbols BTCUSDT --interval 15m
-    python scripts/run_backtest.py --min-edge 0.03
+Использование:
+    python scripts/run_backtest.py --symbol BTCUSDT --interval 15m --days 60
+    python scripts/run_backtest.py --symbol ETHUSDT --interval 5m  --days 30 --min-edge 0.08
+    python scripts/run_backtest.py --symbol BTCUSDT --interval 15m --days 90 \
+        --features ret_1 ret_3 vol_6 vol_24 rsi_14   # эксперимент с подмножеством фич
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import sys
 from pathlib import Path
 
-import pandas as pd
-
-# Добавляем корень проекта в путь (нужно когда запускаем напрямую, не через -m)
+# Добавляем корень проекта в путь (запуск из корня репозитория)
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-import polyflip.constants as C
-from polyflip.crypto.backtester import run_backtest
+from polyflip.db.connection import async_session
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.feature_builder import build_features
+from polyflip.crypto.backtester import run_backtest
+from polyflip.crypto.trainer import CRYPTO_FEATURES
 
-SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Крипто-бэктест из командной строки")
+    p.add_argument("--symbol",   default="BTCUSDT",   choices=["BTCUSDT", "ETHUSDT"])
+    p.add_argument("--interval", default="15m",       choices=["5m", "15m"])
+    p.add_argument("--days",     default=60,  type=int, help="Глубина истории (дней)")
+    p.add_argument("--min-edge", default=None, type=float, help="Мин. edge для сигнала (0.01–0.49)")
+    p.add_argument(
+        "--features", nargs="+", default=None,
+        help=f"Список фич. По умолчанию: {CRYPTO_FEATURES}"
+    )
+    p.add_argument("--no-pnl-curve", action="store_true", help="Не печатать кривую PnL")
+    return p.parse_args()
 
 
-async def main(symbols: list[str], interval: str, min_edge: float) -> None:
-    # Переопределяем из CLI (константа используется в backtester при импорте)
-    C.BACKTEST_MIN_EDGE = min_edge
+async def main(args: argparse.Namespace) -> None:
+    candles_per_day = {"5m": 288, "15m": 96}
+    limit = args.days * candles_per_day[args.interval]
 
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        print("ERROR: DATABASE_URL не задан. Задайте переменную окружения.")
+    print(f"\n📊 Запуск бэктеста: {args.symbol} / {args.interval} / {args.days} дней")
+    print(f"   Загружаем до {limit} свечей из БД...")
+
+    async with async_session() as db:
+        candles = await get_recent_candles(db, args.symbol, args.interval, limit=limit)
+
+    if len(candles) < 500:
+        print(f"❌ Недостаточно свечей: {len(candles)} < 500")
+        print("   Запустите: python scripts/load_history.py")
         sys.exit(1)
 
-    engine = create_async_engine(db_url)
-    Session = async_sessionmaker(engine, expire_on_commit=False)
+    print(f"   Загружено: {len(candles)} свечей")
 
-    results = []
-    async with Session() as session:
-        for symbol in symbols:
-            print(f"\nBacktesting {symbol} {interval}...")
-            candles = await get_recent_candles(session, symbol, interval, limit=10_000)
-            if len(candles) < 600:
-                print(f"  WARN: Мало свечей: {len(candles)} < 600. Пропускаем.")
-                print(f"  Подсказка: запустите python scripts/backfill_candles.py --days 90")
-                continue
+    df = build_features(candles)
 
-            df = build_features(candles)
-            result = run_backtest(df, symbol)
-            print(f"  {result.summary()}")
-            results.append({
-                "symbol":           result.symbol,
-                "n_candles_total":  result.n_candles_total,
-                "n_candles_test":   result.n_candles_test,
-                "n_trades":         result.n_trades,
-                "win_rate":         round(result.win_rate, 4),
-                "total_return":     round(result.total_return, 5),
-                "total_return_net": round(result.total_return_net, 5),
-                "sharpe_ratio":     round(result.sharpe_ratio, 3),
-                "max_drawdown":     round(result.max_drawdown, 5),
-                "edge_rate":        round(result.edge_rate, 4),
-                "epsilon":          round(result.epsilon, 6),
-                "train_auc":        round(result.train_auc, 4),
-            })
+    # Переопределяем фичи для эксперимента
+    features_to_use = args.features or CRYPTO_FEATURES
+    if args.features:
+        unknown = set(args.features) - set(df.columns)
+        if unknown:
+            print(f"❌ Неизвестные фичи: {unknown}")
+            print(f"   Доступные: {sorted(df.columns.tolist())}")
+            sys.exit(1)
+        print(f"   🧪 Эксперимент: используем {len(features_to_use)} фич вместо {len(CRYPTO_FEATURES)}")
+        # Ограничиваем df только нужными фичами + служебные колонки
+        service_cols = [c for c in df.columns if c not in CRYPTO_FEATURES]
+        df = df[service_cols + features_to_use]
 
-    if results:
-        df_out = pd.DataFrame(results)
-        out_path = Path(__file__).parent / "backtest_results.csv"
-        df_out.to_csv(out_path, index=False)
-        print(f"\nРезультаты сохранены в {out_path}")
-        print(df_out.to_string(index=False))
+    print("   Обучаем модель и считаем метрики...\n")
 
-        # Интерпретация
-        print("\n--- Интерпретация ---")
-        for r in results:
-            sharpe = r["sharpe_ratio"]
-            win    = r["win_rate"]
-            ret    = r["total_return_net"]
-            sym    = r["symbol"]
-            if sharpe > 0.7 and win > 0.54:
-                print(f"  {sym}: РАБОЧИЙ EDGE (Sharpe={sharpe}, WinRate={win:.1%})")
-            elif sharpe > 0.3 or win > 0.51:
-                print(f"  {sym}: СЛАБЫЙ EDGE (Sharpe={sharpe}, WinRate={win:.1%}) — требует дотюнинга")
-            else:
-                print(f"  {sym}: НЕТ EDGE (Sharpe={sharpe}, WinRate={win:.1%}) — модель не даёт преимущества")
-    else:
-        print("\nНет данных для бэктеста")
+    result = run_backtest(df, args.symbol, min_edge=args.min_edge, features=args.features)
+
+    # Вывод результата
+    print("=" * 60)
+    print(result.summary())
+    print("=" * 60)
+    print(f"  Всего свечей:     {result.n_candles_total}")
+    print(f"  Тест-период:      {result.n_candles_test} свечей")
+    print(f"  Сделок:           {result.n_trades}")
+    print(f"  Win Rate:         {result.win_rate:.1%}")
+    print(f"  Return (брутто):  {result.total_return:.2%}")
+    print(f"  Return (нетто):   {result.total_return_net:.2%}")
+    print(f"  Sharpe:           {result.sharpe_ratio:.3f}")
+    print(f"  Max Drawdown:     {result.max_drawdown:.2%}")
+    print(f"  Edge Rate:        {result.edge_rate:.1%}")
+    print(f"  Epsilon:          {result.epsilon:.5f}")
+    print(f"  Train AUC:        {result.train_auc:.4f}")
+    print(f"  Profitable:       {'✅ ДА' if result.is_profitable() else '❌ НЕТ'}")
+
+    if not args.no_pnl_curve and result.pnl_curve:
+        print(f"\n  PnL curve ({len(result.pnl_curve)} точек):")
+        for pt in result.pnl_curve[-5:]:   # последние 5 точек
+            print(f"    {pt['time']}  →  {pt['pnl']:+.2f}%")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Backtest LightGBM crypto model")
-    parser.add_argument("--symbols",   nargs="+", default=SYMBOLS)
-    parser.add_argument("--interval",  default="15m")
-    parser.add_argument("--min-edge",  type=float, default=0.04, dest="min_edge")
-    args = parser.parse_args()
-    asyncio.run(main(args.symbols, args.interval, args.min_edge))
+    asyncio.run(main(parse_args()))

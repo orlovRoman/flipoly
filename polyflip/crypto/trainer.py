@@ -273,101 +273,109 @@ class CryptoModelTrainer:
 
         trained_any = False
         import json
+        from polyflip.crypto.predictor import CryptoPredictor
 
         for regime, df_regime in [("low_vol", df_low), ("high_vol", df_high)]:
             if len(df_regime) < 150:
                 logger.warning("regime_too_small", regime=regime, rows=len(df_regime))
                 continue
 
-            X_r = df_regime[available].reset_index(drop=True)
-            y_r = df_regime["target"].reset_index(drop=True)
+            try:
+                X_r = df_regime[available].reset_index(drop=True)
+                y_r = df_regime["target"].reset_index(drop=True)
 
-            # CPU-bound в thread
-            result = await asyncio.to_thread(
-                _fit_lgbm_and_serialize, X_r, y_r, CV_N_SPLITS, **lgbm_params
-            )
-            model_bytes, val_auc, baseline_auc, threshold, ece, fi = result
+                # CPU-bound в thread
+                result = await asyncio.to_thread(
+                    _fit_lgbm_and_serialize, X_r, y_r, CV_N_SPLITS, **lgbm_params
+                )
+                model_bytes, val_auc, baseline_auc, threshold, ece, fi = result
 
-            logger.info(
-                "crypto_regime_model_trained",
-                symbol=symbol,
-                regime=regime,
-                val_auc=round(val_auc, 4),
-                baseline=round(baseline_auc, 4),
-                threshold=round(threshold, 4),
-                ece=round(ece, 4),
-            )
+                logger.info(
+                    "crypto_regime_model_trained",
+                    symbol=symbol,
+                    regime=regime,
+                    val_auc=round(val_auc, 4),
+                    baseline=round(baseline_auc, 4),
+                    threshold=round(threshold, 4),
+                    ece=round(ece, 4),
+                )
 
-            regime_asset = f"{symbol}_{regime}"
+                regime_asset = f"{symbol}_{regime}"
 
-            # Деактивируем старые записи
-            await self.db.execute(
-                update(ModelRegistry)
-                .where(ModelRegistry.asset == regime_asset)
-                .values(is_active=False)
-            )
+                # Деактивируем старые записи
+                await self.db.execute(
+                    update(ModelRegistry)
+                    .where(ModelRegistry.asset == regime_asset)
+                    .values(is_active=False)
+                )
 
-            # Версионирование
-            v_res = await self.db.execute(
-                select(ModelRegistry.version)
-                .where(ModelRegistry.asset == regime_asset)
-                .order_by(ModelRegistry.version.desc())
-                .limit(1)
-            )
-            next_version = (v_res.scalar_one_or_none() or 0) + 1
+                # Версионирование
+                v_res = await self.db.execute(
+                    select(ModelRegistry.version)
+                    .where(ModelRegistry.asset == regime_asset)
+                    .order_by(ModelRegistry.version.desc())
+                    .limit(1)
+                )
+                next_version = (v_res.scalar_one_or_none() or 0) + 1
 
-            # Сохраняем порог в RuntimeSettings
-            thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
-            thr_row = (await self.db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
-            )).scalar_one_or_none()
+                # Сохраняем порог в RuntimeSettings
+                thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
+                thr_row = (await self.db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+                )).scalar_one_or_none()
 
-            if thr_row:
-                thr_row.value = str(round(threshold, 4))
-                thr_row.updated_at = now
-                thr_row.updated_by = "crypto_train_job"
-            else:
-                self.db.add(RuntimeSettings(
-                    key=thr_key,
-                    value=str(round(threshold, 4)),
-                    updated_at=now,
-                    updated_by="crypto_train_job",
+                if thr_row:
+                    thr_row.value = str(round(threshold, 4))
+                    thr_row.updated_at = now
+                    thr_row.updated_by = "crypto_train_job"
+                else:
+                    self.db.add(RuntimeSettings(
+                        key=thr_key,
+                        value=str(round(threshold, 4)),
+                        updated_at=now,
+                        updated_by="crypto_train_job",
+                    ))
+
+                # Сохраняем feature importance в RuntimeSettings
+                fi_key = f"CRYPTO_FI_{regime_asset}"
+                fi_row = (await self.db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == fi_key)
+                )).scalar_one_or_none()
+                if fi_row:
+                    fi_row.value = json.dumps(fi)
+                    fi_row.updated_at = now
+                    fi_row.updated_by = "crypto_train_job"
+                else:
+                    self.db.add(RuntimeSettings(
+                        key=fi_key,
+                        value=json.dumps(fi),
+                        updated_at=now,
+                        updated_by="crypto_train_job",
+                    ))
+
+                # Сохраняем модель
+                self.db.add(ModelRegistry(
+                    asset=regime_asset,
+                    version=next_version,
+                    model_blob=model_bytes,
+                    accuracy=val_auc,
+                    baseline=baseline_auc,
+                    features=",".join(available),
+                    ece=ece,
+                    is_active=True,
+                    interval=interval,
+                    trained_at=now,
                 ))
-
-            # Сохраняем feature importance в RuntimeSettings
-            fi_key = f"CRYPTO_FI_{regime_asset}"
-            fi_row = (await self.db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == fi_key)
-            )).scalar_one_or_none()
-            if fi_row:
-                fi_row.value = json.dumps(fi)
-                fi_row.updated_at = now
-                fi_row.updated_by = "crypto_train_job"
-            else:
-                self.db.add(RuntimeSettings(
-                    key=fi_key,
-                    value=json.dumps(fi),
-                    updated_at=now,
-                    updated_by="crypto_train_job",
-                ))
-
-            # Сохраняем модель
-            self.db.add(ModelRegistry(
-                asset=regime_asset,
-                version=next_version,
-                model_blob=model_bytes,
-                accuracy=val_auc,
-                baseline=baseline_auc,
-                features=",".join(available),
-                ece=ece,
-                is_active=True,
-                trained_at=now,
-            ))
-            trained_any = True
-            logger.info("crypto_model_saved", asset=regime_asset, version=next_version)
+                await self.db.commit()
+                trained_any = True
+                logger.info("crypto_model_saved", asset=regime_asset, version=next_version)
+            except Exception as e:
+                await self.db.rollback()
+                logger.exception("regime_train_failed", symbol=symbol, regime=regime, error=str(e))
 
         if trained_any:
-            await self.db.commit()
+            # Инвалидируем кэш у инстансов предсказателя после коммита в базу
+            CryptoPredictor.invalidate_all(symbol)
             return True
         return False
 

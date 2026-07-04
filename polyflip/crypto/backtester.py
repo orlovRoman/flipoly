@@ -73,6 +73,7 @@ def run_backtest(
     symbol: str,
     min_edge: float | None = None,
     commission: float | None = None,
+    features: list[str] | None = None,
 ) -> BacktestResult:
     """
     Принимает DataFrame с фичами (выход build_features()).
@@ -97,7 +98,8 @@ def run_backtest(
     df_test["target"] = (df_test["ret_1"].shift(-1) > 0).astype(int)
     df_test = df_test.dropna(subset=["target"])
 
-    available = [f for f in CRYPTO_FEATURES if f in df_train.columns]
+    feature_list = features if features is not None else CRYPTO_FEATURES
+    available = [f for f in feature_list if f in df_train.columns]
 
     if len(df_train) < 200 or len(available) == 0:
         return BacktestResult(
