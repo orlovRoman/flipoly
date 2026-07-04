@@ -20,6 +20,9 @@ from pathlib import Path
 from polyflip.db.models import RuntimeSettings, TradeHistory, MarketSnapshot, CollectorStatus
 from polyflip.models.trainer import ModelTrainer
 from polyflip.crypto.candle_collector import collect_new_candles
+from polyflip.crypto.candle_pruner import prune_old_candles
+from polyflip.crypto.historical_loader import load_history_all
+
 
 logger = structlog.get_logger(__name__)
 
@@ -199,6 +202,39 @@ async def candle_collector_job():
     except Exception as e:
         logger.exception("candle_collector_job_error", error=str(e))
 
+
+async def candle_backfill_job(session: AsyncSession) -> None:
+    """
+    Запускается ОДИН РАЗ при старте.
+    Проверяет наличие истории — если < 500 свечей для BTCUSDT/15m, загружает.
+    """
+    from polyflip.crypto.candle_repository import get_latest_open_time
+    
+    latest = await get_latest_open_time(session, "BTCUSDT", "15m")
+    needs_backfill = (
+        latest is None or
+        (datetime.now(timezone.utc) - latest) > timedelta(days=7)
+    )
+    if needs_backfill:
+        logger.info("backfill_triggered")
+        await load_history_all(session)
+    else:
+        logger.info("backfill_skipped", latest=latest.isoformat())
+
+
+async def candle_pruning_job():
+    """
+    Запускается раз в 24 часа. Удаляет свечи старше retention_days.
+    """
+    logger.info("starting_candle_pruning_job")
+    try:
+        async with async_session() as session:
+            deleted = await prune_old_candles(session, retention_days=90)
+            logger.info("finished_candle_pruning_job", deleted_rows=deleted)
+    except Exception as e:
+        logger.exception("candle_pruning_job_error", error=str(e))
+
+
 async def check_settings_job(scheduler):
     try:
         async with async_session() as session:
@@ -241,7 +277,13 @@ async def main():
     # Инициализируем общие клиенты для переиспользования соединений
     trader = PolyTrader()
     api_client = PolymarketClient()
-    
+    # Вызов одноразового backfill свечей при старте
+    try:
+        async with async_session() as session:
+            await candle_backfill_job(session)
+    except Exception as e:
+        logger.exception("initial_candle_backfill_failed", error=str(e))
+
     scheduler = AsyncIOScheduler()
     
     scheduler.add_job(
@@ -300,6 +342,16 @@ async def main():
         trigger=IntervalTrigger(hours=24),
         id="cleanup_job",
         replace_existing=True
+    )
+    
+    # Очистка старых свечей по retention-периоду (раз в 24 часа)
+    scheduler.add_job(
+        candle_pruning_job,
+        trigger=IntervalTrigger(hours=24),
+        id="candle_pruning",
+        replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=3600,
     )
     
     # Запускаем торговый движок каждые 5 секунд с передачей общих клиентов
