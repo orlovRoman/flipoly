@@ -148,3 +148,30 @@ class StrategyConfig(Base):
         Index("idx_strategy_config_key", "key"),
         Index("idx_strategy_config_changed_at", "changed_at"),
     )
+
+class CryptoCandle(Base):
+    """
+    OHLCV-свеча из Binance /api/v3/klines.
+    interval: '1m' | '5m' | '15m' | '1h' | '4h'
+    symbol:   'BTCUSDT' | 'ETHUSDT'
+    """
+    __tablename__ = "crypto_candles"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    symbol     = Column(String(32), nullable=False)   # 'BTCUSDT', 'ETHUSDT'
+    interval   = Column(String(8),  nullable=False)   # '15m', '1h', etc.
+    open_time  = Column(DateTime(timezone=True), nullable=False)
+    open       = Column(Float, nullable=False)
+    high       = Column(Float, nullable=False)
+    low        = Column(Float, nullable=False)
+    close      = Column(Float, nullable=False)
+    volume     = Column(Float, nullable=False)          # base asset volume
+    taker_buy_volume = Column(Float, nullable=True)    # агрессивные покупки
+    source     = Column(String(16), nullable=False, default="binance")
+
+    __table_args__ = (
+        UniqueConstraint("symbol", "interval", "open_time",
+                         name="uix_crypto_candle"),
+        Index("idx_crypto_candles_symbol_interval", "symbol", "interval"),
+        Index("idx_crypto_candles_open_time", "open_time"),
+    )
