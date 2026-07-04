@@ -102,6 +102,8 @@ class TradeHistory(Base):
     mode = Column(String(16), nullable=False, default="LIVE")
     pnl = Column(Float, nullable=True)
     edge = Column(Float, nullable=True)
+    p_up = Column(Float, nullable=True)
+    strike = Column(Float, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
     
