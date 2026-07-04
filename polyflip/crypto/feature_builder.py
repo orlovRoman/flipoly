@@ -171,19 +171,20 @@ def build_crypto_features(
                 if len(df) >= 24 else range_1
 
     # ── 7. Consecutive candles ───────────────────────────────────
-    direction = (df["close"] >= df["open"]).values  # True = up
-    consec_up, consec_dn = 0, 0
-    for i in range(len(direction) - 2, -1, -1):     # идём назад от предпоследней
-        if direction[i]:
+    dirs = (df["close"] >= df["open"]).values[:-1]  # исключаем текущую (последнюю) свечу
+    consec_up = 0
+    for d in reversed(dirs):
+        if d:
             consec_up += 1
         else:
             break
-    if consec_up == 0:
-        for i in range(len(direction) - 2, -1, -1):
-            if not direction[i]:
-                consec_dn += 1
-            else:
-                break
+
+    consec_down = 0
+    for d in reversed(dirs):
+        if not d:
+            consec_down += 1
+        else:
+            break
 
     # ── 8. Time ──────────────────────────────────────────────────
     last_dt  = df["open_time"].iloc[-1]
@@ -198,7 +199,7 @@ def build_crypto_features(
         rsi_14, ema_ratio_9_21, bb_width, bb_position,
         dist_h24, dist_l24, dist_h96, dist_l96,
         range_1, range_avg,
-        float(consec_up), float(consec_dn),
+        float(consec_up), float(consec_down),
         float(hour_utc), float(dow),
     ]], dtype=np.float64)
 
@@ -265,11 +266,8 @@ def build_features(candles: Sequence) -> pd.DataFrame:
     # ── Volume anomaly ───────────────────────────────────────────
     vol_mean = volume.rolling(24, min_periods=6).mean()
     vol_std  = volume.rolling(24, min_periods=6).std()
-    out["vol_z_6"]       = (volume - vol_mean) / (vol_std + 1e-10)
-    out["tbv_ratio"]     = tbv / (volume + 1e-10)
-
-    # alias для совместимости с тренером
-    out["taker_buy_ratio"] = out["tbv_ratio"]
+    out["vol_z_6"]         = (volume - vol_mean) / (vol_std + 1e-10)
+    out["taker_buy_ratio"] = tbv / (volume + 1e-10)
 
     # ── RSI(14) ──────────────────────────────────────────────────
     delta = close.diff()
