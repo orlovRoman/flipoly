@@ -44,20 +44,34 @@ from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
 
 logger = structlog.get_logger(__name__)
 
-# Фичи, которые подаём в модель (должны совпадать с колонками из build_features())
+# СТАЛО (26 фич — совпадают с CRYPTO_FEATURE_COLUMNS в feature_builder.py)
 CRYPTO_FEATURES = [
-    "ret_1", "ret_3", "ret_6", "ret_12", "ret_24",
-    "vol_6", "vol_24", "vol_48",
-    "vol_ratio",          # vol_6 / vol_48 — режим волатильности
-    "rsi_14",
-    "ema_ratio_9_21",     # ema9 / ema21 — тренд
-    "bb_width",           # ширина полос Боллинджера
-    "bb_position",        # (close - lower) / (upper - lower)
-    "taker_buy_ratio",    # taker_buy_volume / volume
-    "hour_utc",           # час дня
-    "consec_up",          # кол-во подряд идущих зелёных свечей
-    "consec_down",
+    # Returns (все горизонты)
+    "ret_1", "ret_3", "ret_6", "ret_12", "ret_24", "ret_48",
+    # Volatility
+    "vol_6", "vol_24", "vol_48", "vol_ratio",
+    # Volume
+    "vol_z_6", "taker_buy_ratio",
+    # Technical
+    "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
+    # Position vs extremes
+    "dist_to_high_24", "dist_to_low_24",
+    "dist_to_high_96", "dist_to_low_96",
+    # Range
+    "range_1", "range_avg_24",
+    # Consecutive
+    "consec_up", "consec_down",
+    # Time
+    "hour_utc", "dow",
 ]
+
+from polyflip.crypto.feature_builder import CRYPTO_FEATURE_COLUMNS
+
+# Fail fast при старте: CRYPTO_FEATURES должен быть подмножеством CRYPTO_FEATURE_COLUMNS
+_unknown = set(CRYPTO_FEATURES) - set(CRYPTO_FEATURE_COLUMNS)
+assert not _unknown, (
+    f"CRYPTO_FEATURES содержит фичи, которых нет в feature_builder: {_unknown}"
+)
 
 
 def _build_target(df: pd.DataFrame, epsilon: float) -> pd.DataFrame:

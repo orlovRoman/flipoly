@@ -68,6 +68,24 @@ class BacktestResult:
         )
 
 
+def _empty_result(symbol: str, n_candles_total: int, n_candles_test: int, epsilon: float) -> BacktestResult:
+    return BacktestResult(
+        symbol=symbol,
+        n_candles_total=n_candles_total,
+        n_candles_test=n_candles_test,
+        n_trades=0,
+        win_rate=0.0,
+        total_return=0.0,
+        total_return_net=0.0,
+        sharpe_ratio=0.0,
+        max_drawdown=0.0,
+        edge_rate=0.0,
+        epsilon=epsilon,
+        train_auc=0.0,
+        pnl_curve=[],
+    )
+
+
 def run_backtest(
     df_features: pd.DataFrame,
     symbol: str,
@@ -101,36 +119,48 @@ def run_backtest(
     feature_list = features if features is not None else CRYPTO_FEATURES
     available = [f for f in feature_list if f in df_train.columns]
 
-    if len(df_train) < 200 or len(available) == 0:
-        return BacktestResult(
-            symbol=symbol,
-            n_candles_total=n_total,
-            n_candles_test=len(df_test),
-            n_trades=0,
-            win_rate=0.0,
-            total_return=0.0,
-            total_return_net=0.0,
-            sharpe_ratio=0.0,
-            max_drawdown=0.0,
-            edge_rate=0.0,
-            epsilon=epsilon,
-            train_auc=0.0,
-            pnl_curve=[],
+    if len(df_train) < 300 or len(available) == 0:
+        return _empty_result(symbol, n_total, len(df_test), epsilon)
+
+    # ── Vol-режим: обучаем 2 модели ──────────────────────────────
+    vol_median = float(df_train["vol_ratio"].median())
+
+    models: dict[str, Any] = {}
+    train_aucs: list[float] = []
+
+    for regime, mask in [
+        ("low_vol",  df_train["vol_ratio"] <= vol_median),
+        ("high_vol", df_train["vol_ratio"] >  vol_median),
+    ]:
+        df_r = df_train[mask]
+        if len(df_r) < 150:
+            continue
+        n_splits = min(CV_N_SPLITS, 3)
+        model_bytes, auc, *_ = _fit_lgbm_and_serialize(
+            df_r[available], df_r["target"], n_splits=n_splits
         )
+        models[regime] = pickle.loads(model_bytes)
+        train_aucs.append(auc)
 
-    X_train = df_train[available]
-    y_train = df_train["target"]
+    if not models:
+        return _empty_result(symbol, n_total, len(df_test), epsilon)
 
-    # Обучаем модель (синхронно — backtest запускается из скрипта или теста)
-    n_splits = min(CV_N_SPLITS, 3)
-    model_bytes, train_auc, _, _, _, _ = _fit_lgbm_and_serialize(
-        X_train, y_train, n_splits=n_splits
-    )
-    model = pickle.loads(model_bytes)
+    train_auc = float(np.mean(train_aucs))
 
-    # Предсказания на test
+    # ── Инференс: выбираем модель по режиму каждой свечи ─────────
     X_test = df_test[available]
-    probas = model.predict_proba(X_test)[:, 1]
+    probas = np.full(len(df_test), 0.5)
+
+    low_mask  = df_test["vol_ratio"] <= vol_median
+    high_mask = ~low_mask
+
+    if "low_vol" in models and low_mask.any():
+        probas[low_mask.values]  = models["low_vol"].predict_proba(X_test[low_mask])[:, 1]
+    if "high_vol" in models and high_mask.any():
+        probas[high_mask.values] = models["high_vol"].predict_proba(X_test[high_mask])[:, 1]
+    elif "low_vol" in models and high_mask.any():
+        # Fallback на low_vol если нет high_vol
+        probas[high_mask.values] = models["low_vol"].predict_proba(X_test[high_mask])[:, 1]
 
     _min_edge   = min_edge if min_edge is not None else BACKTEST_MIN_EDGE
     _commission = commission if commission is not None else BACKTEST_COMMISSION

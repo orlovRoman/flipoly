@@ -65,7 +65,7 @@ class CryptoFeatureVector:
 
 def build_crypto_features(
     candles: Sequence,          # Sequence[CryptoCandle] или pd.DataFrame
-    min_candles: int = 50,
+    min_candles: int = 100,
 ) -> CryptoFeatureVector:
     """
     Принимает свечи отсортированные ASC.
@@ -113,7 +113,7 @@ def build_crypto_features(
     ret_6  = safe_ret(6)
     ret_12 = safe_ret(12)
     ret_24 = safe_ret(24)
-    ret_48 = safe_ret(48) if len(close) > 48 else 0.0
+    ret_48 = safe_ret(48)
 
     # ── 3. Volatility ────────────────────────────────────────────
     vol_6  = float(log_ret.iloc[-6:].std())  if len(log_ret) >= 6  else 0.0

@@ -70,21 +70,29 @@ class CryptoSignal:
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
-    _instances: list[CryptoPredictor] = []
+    _instances: list["CryptoPredictor"] = []
 
     def __init__(self) -> None:
-        self._models: dict[str, dict[str, Any]] = {}  # symbol -> {regime: model}
-        self._model_versions: dict[str, dict[str, int]] = {}  # symbol -> {regime: version}
-        self._thresholds: dict[str, dict[str, tuple[float, float]]] = {}  # symbol -> {regime: (up, down)}
-        self._vol_medians: dict[str, float] = {}  # symbol -> vol_median
+        self._models: dict[str, dict[str, Any]] = {}
+        self._model_versions: dict[str, dict[str, int]] = {}
+        self._thresholds: dict[str, dict[str, tuple[float, float]]] = {}
+        self._vol_medians: dict[str, float] = {}
         self._loaded_symbols: set[str] = set()
         CryptoPredictor._instances.append(self)
 
     @classmethod
     def invalidate_all(cls, symbol: str) -> None:
-        """Инвалидирует кэш для указанного символа во всех активных инстансах."""
+        """
+        Инвалидирует кэш для symbol во всех живых инстансах.
+        Вызывается из trainer.py после успешного переобучения.
+        """
         for inst in cls._instances:
-            inst.invalidate(symbol)
+            inst._loaded_symbols.discard(symbol)
+            inst._models.pop(symbol, None)
+            inst._model_versions.pop(symbol, None)
+            inst._thresholds.pop(symbol, None)
+            inst._vol_medians.pop(symbol, None)
+        logger.info("predictor_cache_invalidated", symbol=symbol, instances=len(cls._instances))
 
     def invalidate(self, symbol: str) -> None:
         """Инвалидирует локальный кэш для указанного символа."""
