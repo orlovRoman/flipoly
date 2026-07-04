@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 from polyflip.trading.feature_builder import MarketSignal, build_feature_vector
+from polyflip.crypto.predictor import CryptoSignal
+
 from polyflip.trading.position_sizing import (
     compute_bet_size_edge_scaled,
     compute_edge, is_in_dead_zone
@@ -17,9 +19,10 @@ from polyflip.constants import (
     FAVORITE_MIN_PRICE, FAVORITE_MAX_PRICE, FAVORITE_MIN_EDGE,
     OUTSIDER_MAX_PRICE, FLIP_THRESHOLD, NO_FLIP_THRESHOLD,
     TRADE_BET_SIZE_USDC, MAX_BET_SIZE_USDC, LIQUIDITY_FRACTION,
-    FLIP_MIDPOINT,
+    FLIP_MIDPOINT, CRYPTO_MIN_EDGE,
 )
 import structlog
+
 
 logger = structlog.get_logger(__name__)
 
@@ -44,7 +47,7 @@ def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
         bet = min_bet
     return bet
 
-StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "SKIP"]
+StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "CRYPTO_TREND", "SKIP"]
 ActionType = Literal["BUY_YES", "BUY_NO", "SKIP"]
 
 
@@ -57,6 +60,9 @@ class TradeDecision:
     strategy_type: StrategyType
     p_flip: Optional[float] = None
     edge: Optional[float] = None
+    p_up: Optional[float] = None
+    strike: Optional[float] = None
+
 
 
 def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
@@ -241,4 +247,64 @@ def decide_outsider(
         return TradeDecision("BUY_YES", signal.yes_ask, bet,
             f"outsider YES, p_flip={p_flip:.3f}", "OUTSIDER",
             p_flip=p_flip, edge=edge)
+
+
+def decide_crypto_trend(
+    crypto: CryptoSignal,
+    entry_price: float,       # Текущая цена YES токена Polymarket рынка
+    volume_5min: float,
+    config: dict,
+) -> TradeDecision:
+    """
+    Торговая логика для CRYPTO_TREND.
+    Сигнал UP (рост) -> покупаем YES.
+    Сигнал DOWN (падение) -> покупаем NO.
+    """
+    if not crypto.features_ok:
+        return TradeDecision(
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
+            reason="Invalid crypto features", strategy_type="CRYPTO_TREND", 
+            p_up=crypto.p_up, strike=crypto.strike
+        )
+
+    min_edge = float(config.get("CRYPTO_MIN_EDGE", config.get("MIN_EDGE", CRYPTO_MIN_EDGE)))
+    max_edge = float(config.get("MAX_EDGE_FILTER", MAX_EDGE_FILTER))
+
+    if crypto.direction == "NONE" or crypto.edge < min_edge:
+        return TradeDecision(
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
+            reason=f"crypto edge={crypto.edge:.4f} < min_edge={min_edge:.4f}",
+            strategy_type="CRYPTO_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
+        )
+
+    if crypto.edge > max_edge:
+        return TradeDecision(
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
+            reason=f"crypto edge={crypto.edge:.4f} > max_edge={max_edge:.4f} (suspicious)",
+            strategy_type="CRYPTO_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
+        )
+
+    # Стандартизованный сайзинг ставок с подменой MIN_EDGE на CRYPTO_MIN_EDGE
+    crypto_config = {**config, "MIN_EDGE": min_edge}
+    bet = _resolve_final_bet(crypto.edge, volume_5min, crypto_config)
+    bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
+    if bet <= 0 and not bypass:
+        return TradeDecision(
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
+            reason="Bet size 0", strategy_type="CRYPTO_TREND", 
+            p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
+        )
+
+    action: ActionType = "BUY_YES" if crypto.direction == "UP" else "BUY_NO"
+    return TradeDecision(
+        action=action,
+        buy_price=entry_price,
+        bet_size_usdc=bet,
+        reason=f"CRYPTO_TREND {crypto.symbol} p_up={crypto.p_up:.3f} edge={crypto.edge:.4f}",
+        strategy_type="CRYPTO_TREND",
+        p_up=crypto.p_up,
+        strike=crypto.strike,
+        edge=crypto.edge
+    )
+
 
