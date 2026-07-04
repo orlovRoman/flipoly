@@ -21,7 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_index(
         "ix_crypto_candle_symbol_interval_time",
-        "crypto_candle",
+        "crypto_candles",
         ["symbol", "interval", sa.text("open_time DESC")],
         postgresql_using="btree",
         if_not_exists=True,
@@ -29,5 +29,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_crypto_candle_symbol_interval_time", table_name="crypto_candle")
+    op.drop_index("ix_crypto_candle_symbol_interval_time", table_name="crypto_candles")
 
