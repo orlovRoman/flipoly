@@ -74,3 +74,11 @@ BACKTEST_MIN_EDGE         = 0.04    # модель даёт сигнал тол�
 BACKTEST_COMMISSION       = 0.001   # 0.1% на сторону (Binance taker)
 BACKTEST_TRAIN_RATIO      = 0.70    # 70% train / 30% test (walk-forward)
 BACKTEST_SHARPE_ANNUALIZE = 252 * 96  # 15m свечей в году (96 свечей × 252 торг. дня)
+
+# --- Крипто-торговля ---
+TRADING_MODE_CRYPTO = "CRYPTO"
+CRYPTO_MIN_EDGE = 0.05
+USE_CRYPTO_CONFIRM = False
+CRYPTO_STANDALONE = False
+ASSET_TO_BINANCE_SYMBOL = {"BTC": "BTCUSDT", "ETH": "ETHUSDT"}
+
