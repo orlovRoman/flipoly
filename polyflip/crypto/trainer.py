@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import structlog
 from lightgbm import LGBMClassifier
-from sklearn.calibration import CalibratedClassifierCV
+from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
 from sklearn.metrics import roc_auc_score, precision_recall_curve
 from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import func, select, update
@@ -116,7 +116,7 @@ def _fit_lgbm_and_serialize(
         # Platt-scaling поверх уже обученной модели
         # В sklearn >= 1.2 cv="prefit" удалён; передаём None + estimator уже обучен
         fold_cal = CalibratedClassifierCV(
-            estimator=fold_lgbm,
+            estimator=FrozenEstimator(fold_lgbm),
             method="sigmoid",
             cv=None,
         )
@@ -143,7 +143,7 @@ def _fit_lgbm_and_serialize(
     final_lgbm = _make_lgbm()
     final_lgbm.fit(X, y)
     final_cal = CalibratedClassifierCV(
-        estimator=final_lgbm,
+        estimator=FrozenEstimator(final_lgbm),
         method="sigmoid",
         cv=None,
     )
