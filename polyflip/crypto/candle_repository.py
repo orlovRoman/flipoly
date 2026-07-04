@@ -21,7 +21,7 @@ async def upsert_candles(
     candles: list[dict],
 ) -> int:
     """
-    Вставляет список свечей. ON CONFLICT DO NOTHING — дубликаты игнорируются.
+    Вставляет список свечей батчами по 1000 штук. ON CONFLICT DO NOTHING — дубликаты игнорируются.
     Возвращает количество реально вставленных строк.
     """
     if not candles:
@@ -43,14 +43,20 @@ async def upsert_candles(
         for c in candles
     ]
 
-    stmt = (
-        pg_insert(CryptoCandle)
-        .values(rows)
-        .on_conflict_do_nothing(constraint="uix_crypto_candle")
-    )
-    result = await session.execute(stmt)
+    total_inserted = 0
+    batch_size = 1000
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i:i+batch_size]
+        stmt = (
+            pg_insert(CryptoCandle)
+            .values(batch)
+            .on_conflict_do_nothing(constraint="uix_crypto_candle")
+        )
+        result = await session.execute(stmt)
+        total_inserted += result.rowcount
+
     await session.commit()
-    return result.rowcount
+    return total_inserted
 
 
 async def get_recent_candles(
