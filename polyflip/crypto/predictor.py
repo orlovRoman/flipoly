@@ -11,6 +11,8 @@ import structlog
 from polyflip.db.models import ModelRegistry, RuntimeSettings
 from polyflip.crypto.feature_builder import build_crypto_features, CRYPTO_FEATURE_COLUMNS
 from polyflip.crypto.edge import compute_crypto_edge
+from polyflip.crypto.trainer import CRYPTO_FEATURES
+
 
 logger = structlog.get_logger(__name__)
 
@@ -129,7 +131,6 @@ class CryptoPredictor:
             validated = CryptoFeaturesValidator(**fv_dict)
             
             # Порядок фичей для LightGBM
-            from polyflip.crypto.trainer import CRYPTO_FEATURES
             fv_array = np.array([getattr(validated, f) for f in CRYPTO_FEATURES], dtype=np.float64)
 
             # 3. Инференс
