@@ -54,3 +54,23 @@ HTTP_TIMEOUT_SEC = 10.0             # таймаут CLOB/Gamma API
 VOLUME_WINDOW_MIN = 5               # окно для volume_5min
 TRADE_CHECK_LIMIT = 5               # кол-во последних записей для проверки дублей
 LIVE_POLL_INTERVAL_SECONDS = 10     # интервал опроса коллектора по умолчанию
+
+# ─── LightGBM / Crypto trainer ────────────────────────────────────────────
+LGBM_N_ESTIMATORS      = 300
+LGBM_LEARNING_RATE     = 0.05
+LGBM_NUM_LEAVES        = 31
+LGBM_MAX_DEPTH         = 5
+LGBM_MIN_CHILD_SAMPLES = 50
+LGBM_SUBSAMPLE         = 0.8
+LGBM_COLSAMPLE_BYTREE  = 0.8
+LGBM_REG_ALPHA         = 0.1
+LGBM_REG_LAMBDA        = 1.0
+
+# ε-фильтр: свеча попадает в выборку только если |return_15m| >= EPSILON
+CANDLE_EPSILON_QUANTILE = 0.90   # вычисляется динамически по датасету
+
+# Backtester
+BACKTEST_MIN_EDGE         = 0.04    # модель даёт сигнал только если prob - 0.5 >= MIN_EDGE
+BACKTEST_COMMISSION       = 0.001   # 0.1% на сторону (Binance taker)
+BACKTEST_TRAIN_RATIO      = 0.70    # 70% train / 30% test (walk-forward)
+BACKTEST_SHARPE_ANNUALIZE = 252 * 96  # 15m свечей в году (96 свечей × 252 торг. дня)
