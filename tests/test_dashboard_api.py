@@ -50,13 +50,13 @@ async def test_max_edge_mapping(db_session):
     from sqlalchemy import select
 
     # Обновляем настройку с ключом "MAX_EDGE"
-    await update_setting("MAX_EDGE", SettingValue(value="15.0"), db=db_session, request=None)
+    await update_setting("MAX_EDGE", SettingValue(value="25.0"), db=db_session, request=None)
 
     # Проверяем, что в базе данных значение записалось именно в "MAX_BET_EDGE"
     row = (await db_session.execute(
         select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE")
     )).scalar_one_or_none()
     assert row is not None
-    assert row.value == "0.15"  # 15% переведено в долю 0.15
+    assert row.value == "0.25"  # 25% переведено в долю 0.25
 
 

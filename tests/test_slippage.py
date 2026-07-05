@@ -40,6 +40,7 @@ async def test_slippage_logged_after_successful_trade(db_session):
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_BET_EDGE", value="2.0", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_EDGE_FILTER", value="2.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_PRICE_DRIFT", value="0.20", updated_at=now, updated_by="test"),
     ]

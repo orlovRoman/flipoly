@@ -153,8 +153,8 @@ async def test_only_favorite_skips_flip_signal(db_session):
     )
     db_session.add(market)
 
-    # Модель выдает p_flip = 0.90.
-    model = MockModel([0.10, 0.90])
+    # Модель выдает p_flip = 0.95 (> upper = 0.925).
+    model = MockModel([0.05, 0.95])
     db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
 
@@ -174,5 +174,5 @@ async def test_only_favorite_skips_flip_signal(db_session):
     assert len(trades) == 1
     assert trades[0].status == "SKIPPED"
     assert "Ожидается флип" in trades[0].error_msg
-    assert trades[0].predicted_flip_prob == 0.90
+    assert trades[0].predicted_flip_prob == 0.95
     assert mock_trader.execute_trade.call_count == 0

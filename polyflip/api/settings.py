@@ -25,28 +25,34 @@ router = APIRouter(prefix="/api/settings", tags=["Settings"], dependencies=[Depe
 class SettingValue(BaseModel):
     value: str
 
-@router.get("")
-async def get_all_settings():
+async def get_all_settings(db: Optional[AsyncSession] = None):
     """
     Возвращает текущие настройки (сначала из БД, если нет - из конфига/констант).
     """
-    async with async_session() as session:
+    async with (async_session() if db is None else db) as session:
         result = await session.execute(select(RuntimeSettings))
-        db = {s.key: s.value for s in result.scalars().all()}
+        db_settings = {s.key: s.value for s in result.scalars().all()}
 
     from polyflip.settings_registry import registry_defaults
     
     # Базовые дефолты из реестра + перекрытие из БД
-    settings_dict = {**registry_defaults(), **db}
+    settings_dict = {**registry_defaults(), **db_settings}
 
     # Динамические поля по активам, которых нет в базовом реестре
     for asset in settings.asset_list:
         asset_upper = asset.upper()
-        settings_dict[f"TRADING_MODE_{asset_upper}"] = db.get(f"TRADING_MODE_{asset_upper}", "")
-        settings_dict[f"MIN_EDGE_{asset_upper}"] = db.get(f"MIN_EDGE_{asset_upper}", "")
-        settings_dict[f"TRADE_MAX_PRICE_{asset_upper}"] = db.get(f"TRADE_MAX_PRICE_{asset_upper}", "")
+        settings_dict[f"TRADING_MODE_{asset_upper}"] = db_settings.get(f"TRADING_MODE_{asset_upper}", "")
+        settings_dict[f"MIN_EDGE_{asset_upper}"] = db_settings.get(f"MIN_EDGE_{asset_upper}", "")
+        settings_dict[f"TRADE_MAX_PRICE_{asset_upper}"] = db_settings.get(f"TRADE_MAX_PRICE_{asset_upper}", "")
 
     return settings_dict
+
+@router.get("")
+async def api_get_all_settings():
+    """
+    Возвращает текущие настройки (сначала из БД, если нет - из конфига/констант).
+    """
+    return await get_all_settings()
 
 @router.get("/recommended_thresholds")
 async def get_recommended_thresholds():
@@ -171,7 +177,8 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
             self.own = False
 
         async def __aenter__(self):
-            if self.passed_db is not None:
+            from fastapi.params import Depends
+            if self.passed_db is not None and not isinstance(self.passed_db, Depends):
                 self.session = self.passed_db
             else:
                 self.session = await async_session().__aenter__()

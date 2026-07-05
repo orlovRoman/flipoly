@@ -49,6 +49,7 @@ async def test_crypto_predictor_flow():
     config = {
         "CRYPTO_MIN_EDGE": 0.05,
         "MAX_EDGE_FILTER": 0.40,
+        "MAX_BET_EDGE": 0.20,
         "TRADE_BET_SIZE_USDC": 10.0,
         "MAX_BET_SIZE_USDC": 100.0,
         "LIQUIDITY_FRACTION": 0.05,

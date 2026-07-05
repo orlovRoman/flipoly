@@ -28,7 +28,7 @@ class BacktestRunner:
         self.base_bet = float(config.get("TRADE_BET_SIZE_USDC", 5.0))
         self.max_bet = float(config.get("MAX_BET_SIZE_USDC", 50.0))
         self.min_edge = float(config.get("MIN_EDGE", -0.05))
-        self.max_edge = float(config.get("MAX_EDGE", 0.50))
+        self.max_edge = float(config.get("MAX_BET_EDGE", config.get("MAX_EDGE", 0.50)))
 
     def _predict_flip(self, signal) -> float:
         """Получает P(flip) от модели для данного тика (оптимизировано без Pandas)."""

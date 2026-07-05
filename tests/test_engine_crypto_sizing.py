@@ -46,13 +46,23 @@ def test_crypto_predictor_cache():
     predictor._thresholds["BTCUSDT"] = {"low_vol": (0.55, 0.45), "high_vol": (0.55, 0.45)}
     predictor._vol_medians["BTCUSDT"] = 1.0
     
-    # Проверяем, что load() вернет True без SQL-сессии
+    # Проверяем, что load() проверит версии в БД и вернет True (cache hit)
     import asyncio
     async def run_test():
         fake_db = AsyncMock()
+        
+        class MockRow:
+            def __init__(self, asset, version):
+                self.asset = asset
+                self.version = version
+
+        mock_result = AsyncMock()
+        mock_result.all.return_value = [MockRow("BTCUSDT_low_vol", 42), MockRow("BTCUSDT_high_vol", 42)]
+        fake_db.execute.return_value = mock_result
+        
         res = await predictor.load(fake_db, "BTCUSDT")
         assert res is True
-        fake_db.execute.assert_not_called()
+        assert fake_db.execute.call_count >= 1
         
     asyncio.run(run_test())
 

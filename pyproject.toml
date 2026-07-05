@@ -35,3 +35,14 @@ pytest-cov = "^5.0.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+testpaths = ["tests"]
+# Exclude files that make network calls on import
+collect_ignore = [
+    "scripts/test_14_crypto_dashboard.py",
+    "test_runner.py",
+    "test_remote.py",
+    "test_schema.py",
+]

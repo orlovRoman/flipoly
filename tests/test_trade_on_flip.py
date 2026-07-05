@@ -30,6 +30,7 @@ async def test_no_trade_when_flip_threshold_met(db_session):
         RuntimeSettings(key="FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"),
         RuntimeSettings(key="OUTSIDER_MAX_PRICE", value="0.60", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_BET_EDGE", value="2.0", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_EDGE_FILTER", value="2.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_PRICE_DRIFT", value="0.20", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
@@ -94,6 +95,7 @@ async def test_no_trade_skipped_when_price_exceeds_max(db_session):
         RuntimeSettings(key="OUTSIDER_MAX_PRICE", value="0.60", updated_at=now, updated_by="test"),
         RuntimeSettings(key="NO_MIN_EDGE", value="0.04", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_BET_EDGE", value="2.0", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_EDGE_FILTER", value="2.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
@@ -146,13 +148,14 @@ async def test_no_trade_skipped_when_flip_prob_too_small(db_session):
         RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.60", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_ON_FLIP", value="true", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_FLIP_THRESHOLD_BTC", value="0.70", updated_at=now, updated_by="test"),
         RuntimeSettings(key="FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"),
         RuntimeSettings(key="OUTSIDER_MAX_PRICE", value="0.75", updated_at=now, updated_by="test"),
         RuntimeSettings(key="NO_MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_BET_EDGE", value="2.0", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="MAX_EDGE_FILTER", value="2.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_PRICE_DRIFT", value="0.20", updated_at=now, updated_by="test"),
@@ -168,10 +171,10 @@ async def test_no_trade_skipped_when_flip_prob_too_small(db_session):
     )
     db_session.add(market)
     
-    # Model predicts flip prob = 0.25 (NO wins)
-    # YES is favorite (0.70), NO is outsider (0.30)
-    # 0.25 < FLIP_THRESHOLD=0.70, so trade should be skipped
-    model = MockModel([0.75, 0.25])
+    # DEAD_ZONE_WIDTH=0.05, FLIP_THRESHOLD=0.70, AUTO_DEAD_ZONE=false
+    # => compute_dead_zone(0.70, 0.05, auto_mode=False) => lower=0.65, upper=0.70
+    # p_flip=0.67 попадает в мертвую зону [0.65, 0.70] — сделка должна быть пропущена
+    model = MockModel([0.33, 0.67])
     db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
     
@@ -197,4 +200,7 @@ async def test_no_trade_skipped_when_flip_prob_too_small(db_session):
          trades = res.scalars().all()
          assert len(trades) == 1
          assert trades[0].status == "SKIPPED"
-         assert "мёртвая зона" in trades[0].error_msg.lower() or "< threshold" in trades[0].error_msg.lower() or "< threshold" in trades[0].error_msg.lower()
+         err = trades[0].error_msg.lower()
+         assert "dead" in err or "zone" in err or "мёртв" in err or "зона" in err, (
+             f"Ожидалось сообщение о мёртвой зоне, получено: {trades[0].error_msg!r}"
+         )

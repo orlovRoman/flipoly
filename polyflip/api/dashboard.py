@@ -221,7 +221,7 @@ async def get_trade_logs(
     logs_with_questions = result.all()
     
     from polyflip.api.settings import get_all_settings
-    settings_dict = await get_all_settings()
+    settings_dict = await get_all_settings(db=db)
     
     items = []
     for log, question in logs_with_questions:
