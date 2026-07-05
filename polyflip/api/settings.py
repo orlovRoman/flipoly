@@ -147,7 +147,7 @@ async def update_settings_bulk(
     return {"status": "partial" if errors else "ok", "saved": saved, "errors": errors}
 
 @router.api_route("/{key}", methods=["PUT", "POST"])
-async def update_setting(key: str, payload: SettingValue, request: Request = None, db: AsyncSession = None):
+async def update_setting(key: str, payload: SettingValue, request: Request = None, db: AsyncSession = Depends(get_db_session)):
     """
     Обновляет или создает настройку в БД.
     """
