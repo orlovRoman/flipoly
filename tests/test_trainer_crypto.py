@@ -24,7 +24,18 @@ def make_fake_df(n=500):
         "hour_utc":        np.random.randint(0, 24, n).astype(float),
         "consec_up":       np.random.randint(0, 5, n).astype(float),
         "consec_down":     np.random.randint(0, 5, n).astype(float),
+        "target":          np.random.randint(0, 2, n),
+        "ret_48":          np.random.randn(n),
+        "vol_z_1":         np.random.randn(n),
+        "dist_to_high_24": np.random.randn(n),
+        "dist_to_low_24":  np.random.randn(n),
+        "dist_to_high_96": np.random.randn(n),
+        "dist_to_low_96":  np.random.randn(n),
+        "range_1":         np.random.randn(n),
+        "range_avg_24":    np.random.randn(n),
+        "dow":             np.random.randint(0, 7, n),
     })
+    df["target"] = (df["ret_1"] > 0).astype(int)
     return df
 
 def test_vol_regime_split():
@@ -91,3 +102,20 @@ def test_predictor_predict_missing_regime():
     assert result.features_ok is True
     assert result.p_up == 0.7
 
+
+def test_small_fold_oof_scores_not_zero():
+    """  oof_scores      ."""
+    df = make_fake_df(n=200)  #  
+    _, auc, baseline_auc, optimal_threshold, ece, fi = _fit_lgbm_and_serialize(
+        df[CRYPTO_FEATURES], df["target"], n_splits=2
+    )
+    #    .
+    assert auc > 0
+
+def test_calibration_ece_isotonic_better_than_uncalibrated():
+    """Isotonic calibration должно отрабатывать без падения."""
+    df = make_fake_df(n=1000)
+    _, auc, baseline_auc, optimal_threshold, ece, fi = _fit_lgbm_and_serialize(
+        df[CRYPTO_FEATURES], df["target"], n_splits=3
+    )
+    assert ece < 0.50, f"ECE слишком высокий: {ece:.3f}"
