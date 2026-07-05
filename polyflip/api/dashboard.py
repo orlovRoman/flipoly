@@ -217,8 +217,23 @@ async def get_trade_logs(
     result = await db.execute(stmt)
     logs_with_questions = result.all()
     
-    items = [
-        {
+    from polyflip.api.settings import get_all_settings
+    settings_dict = await get_all_settings(db)
+    
+    items = []
+    for log, question in logs_with_questions:
+        active_feat = getattr(log, 'active_features', None)
+        if not active_feat and log.status == "SKIPPED":
+            base_asset = log.asset.split("USDT")[0] if "USDT" in log.asset else log.asset.split("_")[0]
+            mode = settings_dict.get(f"TRADING_MODE_{base_asset}", settings_dict.get("TRADING_MODE", "ml")).lower()
+            if mode == "crypto":
+                active_feat = "CRYPTO_TREND"
+            elif mode == "favorite":
+                active_feat = "PURE_FAVORITE"
+            else:
+                active_feat = "ml_strategy"
+                
+        items.append({
             "id": log.id,
             "market_id": log.market_id,
             "question": question or log.market_id,
@@ -229,7 +244,7 @@ async def get_trade_logs(
             "executed_price": log.executed_price,
             "predicted_flip_prob": log.predicted_flip_prob,
             "model_version": getattr(log, 'model_version', None),
-            "active_features": getattr(log, 'active_features', None),
+            "active_features": active_feat,
             "strategy_type": getattr(log, 'strategy_type', None),
             "error_msg": log.error_msg,
             "mode": getattr(log, 'mode', 'LIVE'),
@@ -239,9 +254,7 @@ async def get_trade_logs(
             "edge": getattr(log, 'edge', None),
             "created_at": log.created_at.isoformat(),
             "updated_at": log.updated_at.isoformat() if getattr(log, 'updated_at', None) else None
-        }
-        for log, question in logs_with_questions
-    ]
+        })
 
     out_data = {
         "total": total,
