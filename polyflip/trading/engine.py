@@ -40,7 +40,8 @@ from polyflip.constants import (
     OUTSIDER_MAX_PRICE,
     NO_MIN_EDGE,
     AUTO_DEAD_ZONE,
-    AUTO_DEAD_ZONE_WIDTH
+    MAX_EDGE_SCALING,
+    MAX_EDGE_FILTER,
 )
 
 
@@ -118,13 +119,14 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "TRADING_MODE",
         "FAVORITE_MODE_ENTRY_SEC",
         "MIN_EDGE",
-        "MAX_BET_EDGE",
+        "MAX_BET_EDGE",        # потолок масштабирования ставки
+        "MAX_EDGE_FILTER",     # фильтр аномального edge (SKIP если превышен)
         "FAVORITE_THRESHOLD",
         "TRADE_ON_FLIP",
         "FLIP_THRESHOLD",
         "NO_MIN_EDGE",
         "AUTO_DEAD_ZONE",
-        "AUTO_DEAD_ZONE_WIDTH",
+        # AUTO_DEAD_ZONE_WIDTH удалён — вместо него используется DEAD_ZONE_WIDTH
         "MAX_PRICE_DRIFT",
         "BET_SIZING_MODE",
         "MAX_BET_SIZE_USDC",
@@ -188,7 +190,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     no_min_edge = float(settings_db.get("NO_MIN_EDGE", str(settings.NO_MIN_EDGE)))
     entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
     min_edge = float(settings_db.get("MIN_EDGE", str(settings.MIN_EDGE)))
-    max_bet_edge = float(settings_db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)))
+    max_bet_edge = float(settings_db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)))       # потолок масштабирования
+    max_edge_filter = float(settings_db.get("MAX_EDGE_FILTER", str(settings.MAX_EDGE_FILTER))) # фильтр аномалий
     favorite_threshold = float(settings_db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)))
 
     # Вычисляем объединенный временной интервал для запроса рынков
@@ -463,11 +466,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 )
 
                 auto_dead_zone = settings_db.get("AUTO_DEAD_ZONE", "true" if settings.AUTO_DEAD_ZONE else "false").lower() == "true"
-                auto_dead_zone_width = float(settings_db.get("AUTO_DEAD_ZONE_WIDTH", str(settings.AUTO_DEAD_ZONE_WIDTH)))
+                # dead_zone единый параметр ширины — используется и в авто-, и в ручном режиме
                 
                 lower, upper = compute_dead_zone(
                     flip_threshold=base_flip_threshold,
-                    dead_zone_width=auto_dead_zone_width if auto_dead_zone else dead_zone,
+                    dead_zone_width=dead_zone,
                     auto_mode=auto_dead_zone,
                 )
 
@@ -575,8 +578,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     else:
                         current_min_edge = asset_min_edge  # fallback на общий min_edge
                 edge = compute_edge(p_win, buy_price)
-                # Проверяем лимиты по edge
-                if edge < current_min_edge or edge > max_bet_edge:
+                # Сначала фильтр аномального edge (SKIP если edge выходит за [min_edge, max_edge_filter])
+                if edge < current_min_edge or edge > max_edge_filter:
                     await save_or_update_skipped_trade(
                         db_session, market, f"Edge out of bounds (edge={edge:.4f})",
                         p_flip, model_ver, start_time,
@@ -605,7 +608,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         min_bet_usdc=bet_size,
                         max_bet_usdc=max_bet_usdc,
                         min_edge=current_min_edge,
-                        max_edge=max_bet_edge
+                        max_edge=max_bet_edge    # потолок масштабирования
                     )
                 if asset_mode == TRADING_MODE_FAVORITE and actual_bet_size < bet_size:
                     actual_bet_size = bet_size

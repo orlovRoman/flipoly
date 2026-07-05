@@ -15,7 +15,7 @@ from polyflip.trading.position_sizing import (
     compute_edge, is_in_dead_zone
 )
 from polyflip.constants import (
-    FAVORITE_THRESHOLD, AUTO_DEAD_ZONE_WIDTH, MIN_EDGE, MAX_EDGE_SCALING, MAX_EDGE_FILTER,
+    FAVORITE_THRESHOLD, DEAD_ZONE_WIDTH, MIN_EDGE, MAX_EDGE_SCALING, MAX_EDGE_FILTER,
     FAVORITE_MIN_PRICE, FAVORITE_MAX_PRICE, FAVORITE_MIN_EDGE,
     OUTSIDER_MAX_PRICE, FLIP_THRESHOLD, NO_FLIP_THRESHOLD,
     TRADE_BET_SIZE_USDC, MAX_BET_SIZE_USDC, LIQUIDITY_FRACTION,
@@ -35,7 +35,7 @@ def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
         min_bet_usdc=min_bet,
         max_bet_usdc=float(config.get("MAX_BET_SIZE_USDC", MAX_BET_SIZE_USDC)),
         min_edge=float(config.get("MIN_EDGE", MIN_EDGE)),
-        max_edge=float(config.get("MAX_BET_EDGE", MAX_EDGE_FILTER)),
+        max_edge=float(config.get("MAX_BET_EDGE", MAX_EDGE_SCALING)),  # масштабирование ставки
         liquidity_fraction=float(config.get("LIQUIDITY_FRACTION", LIQUIDITY_FRACTION)),
     )
     # При edge < min_edge_scaled, compute_bet_size_edge_scaled возвращает 0.
@@ -71,14 +71,12 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     Покупает фаворита (YES если mid_price > threshold, NO если < 1-threshold).
     config ожидает ключи:
       - FAVORITE_THRESHOLD: float (напр. 0.65)
-      - MIN_EDGE: float (напр. 0.02)
-      - MAX_EDGE: float (напр. 0.15)
+      - FAVORITE_MIN_EDGE: float (мин. edge для фаворита, мягче чем ML)
+      - DEAD_ZONE_WIDTH: float (ширина мёртвой зоны)
       - FAVORITE_MIN_PRICE / FAVORITE_MAX_PRICE: float
-      - AUTO_DEAD_ZONE_WIDTH: float
-      - INITIAL_CAPITAL: float
-      - KELLY_MULTIPLIER: float
       - TRADE_BET_SIZE_USDC: float (min bet)
       - MAX_BET_SIZE_USDC: float
+      - MAX_BET_EDGE: float (потолок масштабирования ставки)
     """
     threshold = float(config.get("FAVORITE_THRESHOLD", FAVORITE_THRESHOLD))
     if "FAVORITE_THRESHOLD" not in config:
@@ -87,7 +85,8 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             threshold=threshold,
             note="Default changed from 0.65 to 0.55 in v1.x — set FAVORITE_THRESHOLD explicitly"
         )
-    dead_zone = float(config.get("AUTO_DEAD_ZONE_WIDTH", AUTO_DEAD_ZONE_WIDTH))
+    # DEAD_ZONE_WIDTH — единый параметр ширины мёртвой зоны (убран AUTO_DEAD_ZONE_WIDTH)
+    dead_zone = float(config.get("DEAD_ZONE_WIDTH", DEAD_ZONE_WIDTH))
 
     if is_in_dead_zone(signal.mid_price, dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP")
@@ -167,7 +166,8 @@ def decide_ml_trend(
     edge = compute_edge(p_win, buy_price)
     
     min_edge = float(config.get("MIN_EDGE", MIN_EDGE))
-    max_edge = float(config.get("MAX_BET_EDGE", config.get("MAX_EDGE", MAX_EDGE_FILTER)))
+    # MAX_EDGE_FILTER как фильтр аномального edge (SKIP если edge > filter)
+    max_edge = float(config.get("MAX_EDGE_FILTER", config.get("MAX_BET_EDGE", MAX_EDGE_FILTER)))
     if edge < min_edge or edge > max_edge:
         return TradeDecision("SKIP", 0, 0, f"Edge out of bounds (edge={edge:.4f})", "SKIP", p_flip=p_flip, edge=edge)
 
@@ -205,7 +205,8 @@ def decide_outsider(
 
     max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", OUTSIDER_MAX_PRICE))
     min_edge = float(config.get("MIN_EDGE", MIN_EDGE))
-    dead_zone = float(config.get("AUTO_DEAD_ZONE_WIDTH", AUTO_DEAD_ZONE_WIDTH))
+    # DEAD_ZONE_WIDTH — единый параметр ширины мёртвой зоны
+    dead_zone = float(config.get("DEAD_ZONE_WIDTH", DEAD_ZONE_WIDTH))
 
     if is_in_dead_zone(signal.mid_price, dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip)

@@ -12,8 +12,9 @@ from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
 from polyflip.constants import (
     DAILY_LOSS_LIMIT_USDC, TRADE_ON_FLIP, FLIP_THRESHOLD,
-    NO_MIN_EDGE, AUTO_DEAD_ZONE, AUTO_DEAD_ZONE_WIDTH,
+    NO_MIN_EDGE, AUTO_DEAD_ZONE,
     FAVORITE_MIN_EDGE, CRYPTO_MIN_EDGE,
+    MAX_EDGE_FILTER, MAX_EDGE_SCALING,
 )
 
 logger = structlog.get_logger(__name__)
@@ -57,7 +58,7 @@ async def get_all_settings():
         "TRADE_ON_FLIP": db.get("TRADE_ON_FLIP", "true" if settings.TRADE_ON_FLIP else "false"),
         "FLIP_THRESHOLD": db.get("FLIP_THRESHOLD", str(settings.FLIP_THRESHOLD)),
         "AUTO_DEAD_ZONE": db.get("AUTO_DEAD_ZONE", "true" if settings.AUTO_DEAD_ZONE else "false"),
-        "AUTO_DEAD_ZONE_WIDTH": db.get("AUTO_DEAD_ZONE_WIDTH", str(settings.AUTO_DEAD_ZONE_WIDTH)),
+        # AUTO_DEAD_ZONE_WIDTH удалён — вместо него движок читает DEAD_ZONE_WIDTH
         "FAVORITE_MIN_PRICE": db.get("FAVORITE_MIN_PRICE", "0.55"),
         "FAVORITE_MAX_PRICE": db.get("FAVORITE_MAX_PRICE", "0.95"),
         "MAX_PRICE_DRIFT": db.get("MAX_PRICE_DRIFT", str(settings.MAX_PRICE_DRIFT)),
@@ -65,6 +66,7 @@ async def get_all_settings():
         "FAVORITE_MIN_EDGE": db.get("FAVORITE_MIN_EDGE", str(FAVORITE_MIN_EDGE)),
         "NO_MIN_EDGE": db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)),
         "CRYPTO_MIN_EDGE": db.get("CRYPTO_MIN_EDGE", str(CRYPTO_MIN_EDGE)),
+        "MAX_EDGE_FILTER": db.get("MAX_EDGE_FILTER", str(MAX_EDGE_FILTER)),
         "USE_CRYPTO_CONFIRM": db.get("USE_CRYPTO_CONFIRM", "false"),
         "CRYPTO_STANDALONE": db.get("CRYPTO_STANDALONE", "false")
     }
@@ -199,11 +201,12 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "FAVORITE_THRESHOLD",
         "MIN_EDGE",
         "MAX_BET_EDGE",
+        "MAX_EDGE_FILTER",     # фильтр аномального edge
         "TRADE_ON_FLIP",
         "FLIP_THRESHOLD",
         "NO_MIN_EDGE",
         "AUTO_DEAD_ZONE",
-        "AUTO_DEAD_ZONE_WIDTH",
+        # AUTO_DEAD_ZONE_WIDTH удалён — движок читает DEAD_ZONE_WIDTH
         "FAVORITE_MIN_PRICE",
         "FAVORITE_MAX_PRICE",
         "FAVORITE_MIN_EDGE",
@@ -238,7 +241,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
 
-    if key in ["MIN_EDGE", "MAX_BET_EDGE"] or key.startswith("MIN_EDGE_"):
+    if key in ["MIN_EDGE", "MAX_BET_EDGE", "MAX_EDGE_FILTER"] or key.startswith("MIN_EDGE_"):
         if key.startswith("MIN_EDGE_") and payload.value == "":
             pass
         else:
@@ -257,7 +260,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
                         raise HTTPException(status_code=400, detail=f"{key} as fraction must be ≥ 0.005 (0.5%)")
                     
                 if key in ["MIN_EDGE", "MAX_BET_EDGE"]:
-                    # Cross-validation
+                    # Cross-validation: MIN_EDGE < MAX_BET_EDGE
                     norm_val = float(payload.value)
                     async with SessionContext(db) as session:
                         if key == "MAX_BET_EDGE":
@@ -272,6 +275,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
                                 raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be less than MAX_BET_EDGE ({current_max})")
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"{key} must be a number")
+
 
     if key == "FAVORITE_THRESHOLD":
         try:
@@ -381,14 +385,14 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
             raise HTTPException(status_code=400, detail="AUTO_DEAD_ZONE must be 'true' or 'false'")
         payload.value = payload.value.lower()
 
-    if key == "AUTO_DEAD_ZONE_WIDTH":
+    if key == "MAX_EDGE_FILTER":
         try:
             val = float(payload.value)
-            if not (0.02 <= val <= 0.40):
-                raise HTTPException(status_code=400, detail="AUTO_DEAD_ZONE_WIDTH must be 0.02..0.40")
+            if not (0.05 <= val <= 0.90):
+                raise HTTPException(status_code=400, detail="MAX_EDGE_FILTER must be 0.05..0.90")
             payload.value = str(val)
         except ValueError:
-            raise HTTPException(status_code=400, detail="AUTO_DEAD_ZONE_WIDTH must be a number")
+            raise HTTPException(status_code=400, detail="MAX_EDGE_FILTER must be a number")
 
     if key == "LIVE_POLL_INTERVAL_SECONDS":
         try:

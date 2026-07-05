@@ -4,13 +4,13 @@ from polyflip.constants import (
     DEAD_ZONE_WIDTH as _DEFAULT_DEAD_ZONE,
     LIVE_POLL_INTERVAL_SECONDS as _DEFAULT_POLL_INTERVAL,
     MIN_EDGE as _DEFAULT_MIN_EDGE,
-    MAX_EDGE_FILTER as _DEFAULT_MAX_BET_EDGE,
+    MAX_EDGE_SCALING as _DEFAULT_MAX_BET_EDGE,    # для масштабирования ставки (0.40)
+    MAX_EDGE_FILTER as _DEFAULT_MAX_EDGE_FILTER,  # для фильтра аномалий (0.20)
     FAVORITE_THRESHOLD as _DEFAULT_FAVORITE_THRESHOLD,
     DAILY_LOSS_LIMIT_USDC as _DEFAULT_DAILY_LOSS_LIMIT,
     FLIP_THRESHOLD as _DEFAULT_FLIP_THRESHOLD,
     OUTSIDER_MAX_PRICE as _DEFAULT_OUTSIDER_MAX_PRICE,
     NO_MIN_EDGE as _DEFAULT_NO_MIN_EDGE,
-    AUTO_DEAD_ZONE_WIDTH as _DEFAULT_AUTO_DEAD_ZONE_WIDTH,
     CRYPTO_MIN_EDGE as _DEFAULT_CRYPTO_MIN_EDGE,
     FAVORITE_MIN_EDGE as _DEFAULT_FAVORITE_MIN_EDGE,
 )
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     TRADE_MAX_TIME_LEFT_SEC: int = 360
     TRADE_BET_SIZE_USDC: float = 10.0
     TRADE_NO_FLIP_THRESHOLD: float = 0.15
-    DEAD_ZONE_WIDTH: float = _DEFAULT_DEAD_ZONE
+    DEAD_ZONE_WIDTH: float = _DEFAULT_DEAD_ZONE  # единственный параметр ширины зоны
     TRADING_ENABLED: bool = False
     TRADE_ASSETS: str = "BTC,ETH"
     INITIAL_CAPITAL: float = 1000.0
@@ -41,7 +41,10 @@ class Settings(BaseSettings):
     TRADING_MODE: str = "ml"
     FAVORITE_MODE_ENTRY_SEC: int = 180
     FAVORITE_THRESHOLD: float = _DEFAULT_FAVORITE_THRESHOLD
+    # MAX_BET_EDGE = потолок масштабирования ставки (не фильтр аномалий)
     MAX_BET_EDGE: float = _DEFAULT_MAX_BET_EDGE
+    # MAX_EDGE_FILTER = фильтр "подозрительный edge → SKIP"
+    MAX_EDGE_FILTER: float = _DEFAULT_MAX_EDGE_FILTER
     
     # Unified Fallbacks
     BET_SIZING_MODE: str = "scaled"
@@ -51,7 +54,6 @@ class Settings(BaseSettings):
     MIN_EDGE: float = _DEFAULT_MIN_EDGE
     TRADE_ON_FLIP: bool = False
     AUTO_DEAD_ZONE: bool = True
-    AUTO_DEAD_ZONE_WIDTH: float = _DEFAULT_AUTO_DEAD_ZONE_WIDTH
     OUTSIDER_MAX_PRICE: float = _DEFAULT_OUTSIDER_MAX_PRICE
     NO_MIN_EDGE: float = _DEFAULT_NO_MIN_EDGE
     FAVORITE_MIN_EDGE: float = _DEFAULT_FAVORITE_MIN_EDGE

@@ -69,7 +69,7 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
         return response
 
 from polyflip.db.connection import async_session
-from polyflip.db.init_runtime_settings import seed_runtime_settings
+from polyflip.db.init_runtime_settings import seed_runtime_settings, migrate_auto_dead_zone_width
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -77,8 +77,10 @@ async def lifespan(app: FastAPI):
     if settings.API_KEY == "test-key":
         logger.warning("API key is set to insecure default 'test-key'. Please change it in production.")
     
-    # Запускаем автопосев настроек в БД
     async with async_session() as session:
+        # Сначала миграция (переименование AUTO_DEAD_ZONE_WIDTH → DEAD_ZONE_WIDTH)
+        await migrate_auto_dead_zone_width(session)
+        # Потом посев дефолтов для новых ключей
         await seed_runtime_settings(session)
         
     yield
