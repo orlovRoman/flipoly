@@ -41,3 +41,22 @@ async def test_trade_logs_pagination(db_session):
     res99 = await get_trade_logs(db_session, page=99, page_size=25)
     assert len(res99["items"]) == 0
     assert res99["total"] == 60
+
+
+@pytest.mark.asyncio
+async def test_max_edge_mapping(db_session):
+    from polyflip.api.settings import update_setting, SettingValue
+    from polyflip.db.models import RuntimeSettings
+    from sqlalchemy import select
+
+    # Обновляем настройку с ключом "MAX_EDGE"
+    await update_setting("MAX_EDGE", SettingValue(value="15.0"), db=db_session, request=None)
+
+    # Проверяем, что в базе данных значение записалось именно в "MAX_BET_EDGE"
+    row = (await db_session.execute(
+        select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE")
+    )).scalar_one_or_none()
+    assert row is not None
+    assert row.value == "0.15"  # 15% переведено в долю 0.15
+
+

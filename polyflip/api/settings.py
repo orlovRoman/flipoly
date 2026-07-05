@@ -48,6 +48,7 @@ async def get_all_settings():
         "LIVE_POLL_INTERVAL_SECONDS": db.get("LIVE_POLL_INTERVAL_SECONDS", str(settings.LIVE_POLL_INTERVAL_SECONDS)),
         "FAVORITE_THRESHOLD": db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)),
         "MIN_EDGE": db.get("MIN_EDGE", str(settings.MIN_EDGE)),
+        "MAX_EDGE": db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)),
         "MAX_BET_EDGE": db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)),
         "TRADE_ON_FLIP": db.get("TRADE_ON_FLIP", "false"),
         "FLIP_THRESHOLD": db.get("FLIP_THRESHOLD", str(FLIP_THRESHOLD)),
@@ -112,8 +113,15 @@ async def get_recommended_thresholds():
 class BulkSettings(BaseModel):
     settings: dict[str, Union[str, int, float, bool]]
 
+from fastapi import Depends
+from polyflip.db.connection import get_db_session
+
 @router.put("/bulk")
-async def update_settings_bulk(payload: BulkSettings, request: Request = None):
+async def update_settings_bulk(
+    payload: BulkSettings, 
+    request: Request = None,
+    db: AsyncSession = Depends(get_db_session)
+):
     """
     Массовое обновление настроек за один запрос для обхода лимитов rate limiter.
     """
@@ -128,7 +136,7 @@ async def update_settings_bulk(payload: BulkSettings, request: Request = None):
             continue
         try:
             val_str = str(val).lower() if isinstance(val, bool) else str(val)
-            await update_setting(key, SettingValue(value=val_str), request=request)
+            await update_setting(key, SettingValue(value=val_str), request=request, db=db)
             saved.append(key)
         except HTTPException as e:
             errors[key] = e.detail
@@ -138,10 +146,29 @@ async def update_settings_bulk(payload: BulkSettings, request: Request = None):
     return {"status": "partial" if errors else "ok", "saved": saved, "errors": errors}
 
 @router.api_route("/{key}", methods=["PUT", "POST"])
-async def update_setting(key: str, payload: SettingValue, request: Request = None):
+async def update_setting(key: str, payload: SettingValue, request: Request = None, db: AsyncSession = None):
     """
     Обновляет или создает настройку в БД.
     """
+    class SessionContext:
+        def __init__(self, passed_db):
+            self.passed_db = passed_db
+            self.session = None
+            self.own = False
+
+        async def __aenter__(self):
+            if self.passed_db is not None:
+                self.session = self.passed_db
+            else:
+                self.session = await async_session().__aenter__()
+                self.own = True
+            return self.session
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            if self.own:
+                await self.session.__aexit__(exc_type, exc_val, exc_tb)
+    if key == "MAX_EDGE":
+        key = "MAX_BET_EDGE"
     valid_keys = [
         "ACTIVE_FEATURES", 
         "TRADE_EXECUTION_TIME_SEC", 
@@ -164,6 +191,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "FAVORITE_THRESHOLD",
         "MIN_EDGE",
         "MAX_BET_EDGE",
+        "MAX_EDGE",
         "TRADE_ON_FLIP",
         "FLIP_THRESHOLD",
         "NO_MIN_EDGE",
@@ -221,7 +249,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
                 if key in ["MIN_EDGE", "MAX_BET_EDGE"]:
                     # Cross-validation
                     norm_val = float(payload.value)
-                    async with async_session() as session:
+                    async with SessionContext(db) as session:
                         if key == "MAX_BET_EDGE":
                             min_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE"))).scalar_one_or_none()
                             current_min = float(min_edge_row.value) if min_edge_row else settings.MIN_EDGE
@@ -361,7 +389,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         except ValueError:
             raise HTTPException(status_code=400, detail="LIVE_POLL_INTERVAL_SECONDS must be an integer")
 
-    async with async_session() as session:
+    async with SessionContext(db) as session:
         # Получить старое значение перед изменением
         old_row = (await session.execute(
             select(RuntimeSettings).where(RuntimeSettings.key == key)
