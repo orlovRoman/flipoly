@@ -96,10 +96,10 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
             ).group_by(TradeHistory.asset)
             return (await s.execute(stmt)).all()
 
-    async def fetch_trade_assets():
+    async def fetch_settings_dict():
         async with async_session() as s:
-            stmt = select(RuntimeSettings.value).where(RuntimeSettings.key == "TRADE_ASSETS")
-            return (await s.execute(stmt)).scalar()
+            stmt = select(RuntimeSettings.key, RuntimeSettings.value)
+            return {k: v for k, v in (await s.execute(stmt)).all()}
 
     collector_last, live_markets, snap_rows, models_rows, rolling_rows, trade_assets_val = await asyncio.gather(
         fetch_collector(),
@@ -107,7 +107,7 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
         fetch_snaps(),
         fetch_models(),
         fetch_rolling(),
-        fetch_trade_assets()
+        fetch_settings_dict()
     )
 
     collector_data = None
@@ -138,9 +138,25 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
         if row.asset in dataset_summary:
             dataset_summary[row.asset]["PENDING" if row.final_outcome == "PENDING" else "RESOLVED"] += row.cnt
             
+    settings_dict = trade_assets_val
+    trade_assets_str = settings_dict.get("TRADE_ASSETS", settings.TRADE_ASSETS)
+    trade_assets_list = [a.strip().upper() for a in trade_assets_str.split(",") if a.strip()]
+
+    global_mode = settings_dict.get("TRADING_MODE", "ml")
+    
     active_models = {}
     for m in models_rows:
-        active_models[m.asset] = m.version
+        # Определяем базовый ассет (BTC, ETH и т.д.)
+        base_asset = m.asset.split("USDT")[0] if "USDT" in m.asset else m.asset
+        if base_asset not in trade_assets_list:
+            continue
+            
+        mode = settings_dict.get(f"TRADING_MODE_{base_asset}", global_mode)
+        
+        if mode == "ml" and "USDT" not in m.asset:
+            active_models[m.asset] = m.version
+        elif mode == "CRYPTO" and "USDT" in m.asset:
+            active_models[m.asset] = m.version
         
     rolling_accuracy = {}
     for row in rolling_rows:
@@ -152,8 +168,7 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
                 "total_trades": total
             }
             
-    trade_assets_val = trade_assets_val or settings.TRADE_ASSETS
-    trade_assets_list = [a.strip().upper() for a in trade_assets_val.split(",") if a.strip()]
+
 
     result = {
         "collector": collector_data,

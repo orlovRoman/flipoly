@@ -30,7 +30,7 @@ class CryptoFeaturesValidator(BaseModel):
     vol_24: float
     vol_48: float
     vol_ratio: float
-    vol_z_6: float
+    vol_z_1: float
     taker_buy_ratio: float
     rsi_14: float
     ema_ratio_9_21: float

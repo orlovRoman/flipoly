@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import pickle
+import time
 from datetime import datetime, timezone
 
 import numpy as np
@@ -52,7 +53,7 @@ CRYPTO_FEATURES = [
     # Volatility
     "vol_6", "vol_24", "vol_48", "vol_ratio",
     # Volume
-    "vol_z_6", "taker_buy_ratio",
+    "vol_z_1", "taker_buy_ratio",
     # Technical
     "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
     # Position vs extremes
@@ -297,9 +298,19 @@ class CryptoModelTrainer:
                 y_r = df_regime["target"].reset_index(drop=True)
 
                 # CPU-bound в thread
-                result = await asyncio.to_thread(
-                    _fit_lgbm_and_serialize, X_r, y_r, CV_N_SPLITS, **lgbm_params
-                )
+                t0 = time.monotonic()
+                try:
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(_fit_lgbm_and_serialize, X_r, y_r, CV_N_SPLITS, **lgbm_params),
+                        timeout=1800.0,   # 30 минут — hard limit
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("regime_train_timeout", symbol=symbol, regime=regime)
+                    continue
+                finally:
+                    logger.info("regime_train_duration", symbol=symbol, regime=regime,
+                                elapsed_sec=round(time.monotonic() - t0, 1))
+
                 model_bytes, val_auc, baseline_auc, threshold, ece, fi = result
 
                 logger.info(

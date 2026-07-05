@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import pickle
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -114,7 +115,7 @@ def run_backtest(
     # test: НЕ фильтруем по ε — хотим метрики на всех свечах
     df_test = df_test_raw.copy()
     df_test["target"] = (df_test["ret_1"].shift(-1) > 0).astype(int)
-    df_test = df_test.dropna(subset=["target"])
+    df_test = df_test.dropna(subset=["target", "ret_1"])
 
     feature_list = features if features is not None else CRYPTO_FEATURES
     available = [f for f in feature_list if f in df_train.columns]
@@ -163,6 +164,12 @@ def run_backtest(
     elif "low_vol" in models and high_mask.any():
         # Fallback: нет high_vol модели — используем low_vol
         probas[high_mask.values] = models["low_vol"].predict_proba(X_test[high_mask])[:, 1]
+
+    import logging
+    if "low_vol" not in models:
+        logging.warning(f"[backtest:{symbol}] no low_vol model, {low_mask.sum()} rows use fallback or 0.5")
+    if "high_vol" not in models:
+        logging.warning(f"[backtest:{symbol}] no high_vol model, {high_mask.sum()} rows use fallback or 0.5")
 
     _min_edge   = min_edge if min_edge is not None else BACKTEST_MIN_EDGE
     _commission = commission if commission is not None else BACKTEST_COMMISSION

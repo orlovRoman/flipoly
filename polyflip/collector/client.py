@@ -17,6 +17,12 @@ class PolymarketClient:
     async def close(self):
         await self.client.aclose()
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        await self.client.aclose()
+
     async def get_active_15m_markets(self, assets: List[str]) -> List[Dict[str, Any]]:
         """
         Получает активные 15-минутные рынки (Up/Down) для заданных активов.

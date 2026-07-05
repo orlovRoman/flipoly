@@ -31,7 +31,7 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "vol_48",       # std log-returns за 48 свечей
     "vol_ratio",    # vol_6 / vol_48 — высокая/низкая волатильность
     # --- Volume anomaly ---
-    "vol_z_6",      # z-score объёма текущей свечи относительно 24-свечного окна
+    "vol_z_1",      # z-score объёма текущей свечи относительно 24-свечного окна
     "taker_buy_ratio",  # taker_buy_volume / volume — давление покупателей (0..1)
     # --- Technical Indicators ---
     "rsi_14",
@@ -125,7 +125,7 @@ def build_crypto_features(
     vol_window = volume.iloc[-24:]
     vol_mean = float(vol_window.mean())
     vol_std  = float(vol_window.std())
-    vol_z_6  = float((volume.iloc[-1] - vol_mean) / (vol_std + 1e-10))
+    vol_z_1  = float((volume.iloc[-1] - vol_mean) / (vol_std + 1e-10))
 
     last_vol = float(volume.iloc[-1])
     last_tbv = float(tbv.iloc[-1])
@@ -195,7 +195,7 @@ def build_crypto_features(
     vec = np.array([[
         ret_1, ret_3, ret_6, ret_12, ret_24, ret_48,
         vol_6, vol_24, vol_48, vol_ratio,
-        vol_z_6, taker_buy_ratio,
+        vol_z_1, taker_buy_ratio,
         rsi_14, ema_ratio_9_21, bb_width, bb_position,
         dist_h24, dist_l24, dist_h96, dist_l96,
         range_1, range_avg,
@@ -266,7 +266,7 @@ def build_features(candles: Sequence) -> pd.DataFrame:
     # ── Volume anomaly ───────────────────────────────────────────
     vol_mean = volume.rolling(24, min_periods=6).mean()
     vol_std  = volume.rolling(24, min_periods=6).std()
-    out["vol_z_6"]         = (volume - vol_mean) / (vol_std + 1e-10)
+    out["vol_z_1"]         = (volume - vol_mean) / (vol_std + 1e-10)
     out["taker_buy_ratio"] = tbv / (volume + 1e-10)
 
     # ── RSI(14) ──────────────────────────────────────────────────
@@ -304,11 +304,12 @@ def build_features(candles: Sequence) -> pd.DataFrame:
 
     # ── Consecutive candles ──────────────────────────────────────
     direction = (close >= df["open"]).astype(int)  # 1=up, 0=down
+    direction_shifted = direction.shift(1).fillna(0).astype(int)
     consec_up = []
     consec_dn = []
     cu = 0
     cd = 0
-    for i, d in enumerate(direction):
+    for d in direction_shifted:
         if d == 1:
             cu += 1
             cd = 0
