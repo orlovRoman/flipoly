@@ -216,12 +216,26 @@ async def crypto_backtest(
 
     async with async_session() as session:
         # Пытаемся получить настройки из БД для дефолта
-        if min_edge is None:
-            thr_row = (await session.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == "CRYPTO_BACKTEST_MIN_EDGE")
+        async def _get_rt(key: str, default: float) -> float:
+            row = (await session.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == key)
             )).scalar_one_or_none()
-            if thr_row:
-                min_edge = float(thr_row.value)
+            return float(row.value) if row else default
+
+        if min_edge is None:
+            min_edge = await _get_rt("CRYPTO_BACKTEST_MIN_EDGE", C.BACKTEST_MIN_EDGE)
+
+        lgbm_params = {
+            "subsample":        await _get_rt("CRYPTO_LGBM_SUBSAMPLE", C.LGBM_SUBSAMPLE),
+            "colsample_bytree": await _get_rt("CRYPTO_LGBM_COLSAMPLE_BYTREE", C.LGBM_COLSAMPLE_BYTREE),
+            "num_leaves":       int(await _get_rt("CRYPTO_LGBM_NUM_LEAVES", C.LGBM_NUM_LEAVES)),
+            "max_depth":        int(await _get_rt("CRYPTO_LGBM_MAX_DEPTH", C.LGBM_MAX_DEPTH)),
+            "min_child_samples":int(await _get_rt("CRYPTO_LGBM_MIN_CHILD_SAMPLES", C.LGBM_MIN_CHILD_SAMPLES)),
+            "n_estimators":     int(await _get_rt("CRYPTO_LGBM_N_ESTIMATORS", C.LGBM_N_ESTIMATORS)),
+            "reg_alpha":        await _get_rt("CRYPTO_LGBM_REG_ALPHA", C.LGBM_REG_ALPHA),
+            "reg_lambda":       await _get_rt("CRYPTO_LGBM_REG_LAMBDA", C.LGBM_REG_LAMBDA),
+        }
+        eps_q = await _get_rt("CRYPTO_CANDLE_EPSILON_QUANTILE", C.CANDLE_EPSILON_QUANTILE)
 
         candles = await get_recent_candles(session, symbol, interval, limit=10_000)
 
@@ -231,7 +245,11 @@ async def crypto_backtest(
     df = build_features(candles)
     
     # Запускаем backtest в пуле потоков (CPU-bound)
-    result = await asyncio.to_thread(run_backtest, df, symbol, min_edge, commission)
+    result = await asyncio.to_thread(
+        run_backtest, df, symbol, min_edge, commission, 
+        epsilon_quantile=eps_q, 
+        lgbm_params=lgbm_params
+    )
 
     data = {
         "symbol":           result.symbol,

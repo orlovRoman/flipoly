@@ -93,6 +93,8 @@ def run_backtest(
     min_edge: float | None = None,
     commission: float | None = None,
     features: list[str] | None = None,
+    epsilon_quantile: float | None = None,
+    lgbm_params: dict | None = None,
 ) -> BacktestResult:
     """
     Принимает DataFrame с фичами (выход build_features()).
@@ -108,14 +110,13 @@ def run_backtest(
     df_test_raw  = df_features.iloc[n_train:].copy()
 
     # Epsilon вычисляем только из train — без leakage
-    epsilon = float(df_train_raw["ret_1"].abs().quantile(CANDLE_EPSILON_QUANTILE))
+    _eps_q = epsilon_quantile if epsilon_quantile is not None else CANDLE_EPSILON_QUANTILE
+    epsilon = float(df_train_raw["ret_1"].abs().quantile(_eps_q))
 
     df_train = _build_target(df_train_raw, epsilon)
 
-    # test: НЕ фильтруем по ε — хотим метрики на всех свечах
-    df_test = df_test_raw.copy()
-    df_test["target"] = (df_test["ret_1"].shift(-1) > 0).astype(int)
-    df_test = df_test.dropna(subset=["target", "ret_1"])
+    # Фильтруем тест по тому же epsilon что и train
+    df_test = _build_target(df_test_raw, epsilon)
 
     feature_list = features if features is not None else CRYPTO_FEATURES
     available = [f for f in feature_list if f in df_train.columns]
@@ -137,8 +138,9 @@ def run_backtest(
         if len(df_r) < 150:
             continue
         n_splits = min(CV_N_SPLITS, 3)
+        _lgbm = lgbm_params or {}
         model_bytes, auc, *_ = _fit_lgbm_and_serialize(
-            df_r[available], df_r["target"], n_splits=n_splits
+            df_r[available], df_r["target"], n_splits=n_splits, **_lgbm
         )
         models[regime] = pickle.loads(model_bytes)
         train_aucs.append(auc)

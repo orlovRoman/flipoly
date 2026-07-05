@@ -98,7 +98,6 @@ def _make_lgbm(**kwargs) -> LGBMClassifier:
         "colsample_bytree": LGBM_COLSAMPLE_BYTREE,
         "reg_alpha": LGBM_REG_ALPHA,
         "reg_lambda": LGBM_REG_LAMBDA,
-        "class_weight": "balanced",
         "random_state": CV_RANDOM_STATE,
         "verbosity": -1,
         "n_jobs": -1,
@@ -129,18 +128,25 @@ def _fit_lgbm_and_serialize(
         fold_lgbm = _make_lgbm(**lgbm_params)
         fold_lgbm.fit(X_train, y_train)
 
-        # Platt-scaling поверх уже обученной модели
-        # В sklearn >= 1.2 cv="prefit" удалён; передаём None + estimator уже обучен
-        fold_cal = CalibratedClassifierCV(
-            estimator=FrozenEstimator(fold_lgbm),
-            method="sigmoid",
-            cv=None,
-        )
-        fold_cal.fit(X_val, y_val)
+        # Калибруем на первой половине val, измеряем AUC на второй — без пересечения
+        mid = len(val_idx) // 2
+        cal_idx, eval_idx = val_idx[:mid], val_idx[mid:]
 
-        y_proba = fold_cal.predict_proba(X_val)[:, 1]
-        oof_scores[val_idx] = y_proba
-        aucs.append(roc_auc_score(y_val, y_proba))
+        if len(cal_idx) >= 20 and len(eval_idx) >= 20:
+            X_cal,  y_cal  = X.iloc[cal_idx],  y.iloc[cal_idx]
+            X_eval, y_eval = X.iloc[eval_idx], y.iloc[eval_idx]
+            fold_cal = CalibratedClassifierCV(
+                estimator=FrozenEstimator(fold_lgbm), method="isotonic", cv=None
+            )
+            fold_cal.fit(X_cal, y_cal)
+            y_proba = fold_cal.predict_proba(X_eval)[:, 1]
+            oof_scores[eval_idx] = y_proba
+            aucs.append(roc_auc_score(y_eval, y_proba))
+        else:
+            # Фолд слишком мал — используем некалиброванную модель
+            y_proba = fold_lgbm.predict_proba(X.iloc[val_idx])[:, 1]
+            oof_scores[val_idx] = y_proba
+            aucs.append(roc_auc_score(y.iloc[val_idx], y_proba))
 
     val_auc = float(np.mean(aucs))
     baseline_auc = float(max(y.mean(), 1.0 - y.mean()))
@@ -155,14 +161,16 @@ def _fit_lgbm_and_serialize(
     logger.info("crypto_calibration", ece=round(ece, 4))
 
     # Финальная модель на всех данных
+    n_cal = max(50, int(len(X) * 0.15))
+    X_fit, X_cal_final = X.iloc[:-n_cal], X.iloc[-n_cal:]
+    y_fit, y_cal_final = y.iloc[:-n_cal], y.iloc[-n_cal:]
+
     final_lgbm = _make_lgbm(**lgbm_params)
-    final_lgbm.fit(X, y)
+    final_lgbm.fit(X_fit, y_fit)
     final_cal = CalibratedClassifierCV(
-        estimator=FrozenEstimator(final_lgbm),
-        method="sigmoid",
-        cv=None,
+        estimator=FrozenEstimator(final_lgbm), method="isotonic", cv=None
     )
-    final_cal.fit(X, y)
+    final_cal.fit(X_cal_final, y_cal_final)
 
     # Оптимальный порог через OOF (без leakage)
     prec_arr, rec_arr, thr_arr = precision_recall_curve(y, oof_scores)
