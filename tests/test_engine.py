@@ -465,6 +465,17 @@ async def test_outsider_respects_edge_limits(db_session):
              {"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.61}, # YES
              {"current_yes_price": 0.40, "current_spread": 0.01, "best_ask": 0.41}  # NO
          ])
+         mock_api.close = AsyncMock()
+         
+         await trade_worker_cycle(db_session, mock_trader, mock_api)
+         
+         res = await db_session.execute(select(TradeHistory))
+         trades = res.scalars().all()
+         target_trade = next(t for t in trades if t.market_id == "m_outsider_edge")
+         assert target_trade.status == "SKIPPED"
+         assert "Edge out of bounds" in target_trade.error_msg
+         assert mock_trader.execute_trade.call_count == 0
+
 @pytest.mark.asyncio
 async def test_skipped_crypto_trade_has_active_features_set(db_session):
     """

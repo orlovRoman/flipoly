@@ -11,3 +11,8 @@ query_remote_stats.py
 test_remote.py
 test_schema.py
 
+
+local_dev.db
+*.db
+fix_test*.py
+replace_test*.py

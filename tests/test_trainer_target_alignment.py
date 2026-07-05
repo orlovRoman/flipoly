@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from polyflip.crypto.trainer import CRYPTO_FEATURES, _fit_lgbm_and_serialize
 
-def make_trending_df(n=5000, trend_strength=0.003):
+def make_trending_df(n=5000, trend_strength=0.0):
     """Датасет с реальным трендом — модель ДОЛЖНА поймать его AUC > 0.55."""
     np.random.seed(0)
     base = np.random.randn(n) * 0.002
@@ -17,8 +17,8 @@ def make_trending_df(n=5000, trend_strength=0.003):
             df[f] = np.random.randn(n)
     # target: будет ли следующая свеча позитивной?
     df["target"] = (df["ret_1"].shift(-1) > 0).astype(int)
-    # Делаем один из признаков предиктивным для будущей свечи, чтобы модель могла выучить зависимость
-    df["vol_6"] = df["ret_1"].shift(-1) + np.random.randn(n)*0.001
+    # ПРАВИЛЬНО: предиктивный признак на основе ПРОШЛОГО, а не будущего
+    df["vol_6"] = df["ret_1"].shift(1) + np.random.randn(n) * 0.001  # лаг +1 (прошлое)
     df = df.dropna()
     return df
 

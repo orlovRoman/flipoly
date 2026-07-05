@@ -349,10 +349,13 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 fresh_yes_price = fresh_yes_prices["current_yes_price"]
 
                 decision_obj = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, settings_db)
-                print(f"DEBUG engine: asset_mode={asset_mode}, binance_symbol={binance_symbol}, decision_obj={decision_obj}")
-                p_flip = 0.0  # Для крипто-стратегии p_flip семантически не имеет значения
-                model_ver = crypto_sig.model_version
-                edge = decision_obj.edge
+                
+                logger.debug("crypto_decision_eval", asset_mode=asset_mode, binance_symbol=binance_symbol, decision_obj=decision_obj)
+                
+                if not decision_obj or decision_obj.action != "trade":
+                    p_flip = 0.0  # Для крипто-стратегии p_flip семантически не имеет значения
+                    model_ver = crypto_sig.model_version
+                    edge = decision_obj.edge
 
             elif asset_mode == TRADING_MODE_FAVORITE:
                 # --- FAVORITE MODE ---
