@@ -5,14 +5,16 @@
   - Корректный match снапшота к свече в пределах tolerance
   - Строка без снапшота → pm_yes_price = NaN
   - INVALID снапшоты пропускаются при join (фильтр в SQL)
-  - Метаданные coverage_pct логируются корректно
+  - Снапшот незадолго до t_min (граничный случай) — совпадает при расширенном запросе
+  - Снапшот за пределами tolerance → NaN
+  - Пустой DataFrame свечей → возвращаем пустой DataFrame
 """
 from __future__ import annotations
 
 import pandas as pd
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 
 def _make_candles(base: datetime, n: int, step_min: int = 15) -> pd.DataFrame:
@@ -24,12 +26,12 @@ def _make_candles(base: datetime, n: int, step_min: int = 15) -> pd.DataFrame:
 
 def _make_snapshots(times_outcomes: list[tuple]) -> list[MagicMock]:
     rows = []
-    for t, price, outcome, mid in times_outcomes:
+    for t, price, outcome in times_outcomes:
         r = MagicMock()
-        r.market_id = "mkt-test"
-        r.mid_price  = price
+        r.market_id     = "mkt-test"
+        r.mid_price     = price
         r.final_outcome = outcome
-        r.recorded_at = t
+        r.recorded_at   = t
         rows.append(r)
     return rows
 
@@ -44,9 +46,9 @@ class TestJoinPolymarketPrices:
 
         candles = _make_candles(self.BASE, 3)
         snaps = _make_snapshots([
-            (self.BASE,                            0.55, "YES", 0.55),
-            (self.BASE + timedelta(minutes=15),    0.60, "NO",  0.60),
-            (self.BASE + timedelta(minutes=30),    0.48, "YES", 0.48),
+            (self.BASE,                         0.55, "YES"),
+            (self.BASE + timedelta(minutes=15), 0.60, "NO"),
+            (self.BASE + timedelta(minutes=30), 0.48, "YES"),
         ])
 
         mock_session = AsyncMock()
@@ -69,7 +71,7 @@ class TestJoinPolymarketPrices:
 
         mock_session = AsyncMock()
         mock_result  = MagicMock()
-        mock_result.all.return_value = []  # пустой результат
+        mock_result.all.return_value = []
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         result = await join_polymarket_prices(mock_session, candles, "BTC")
@@ -79,12 +81,12 @@ class TestJoinPolymarketPrices:
 
     @pytest.mark.asyncio
     async def test_outside_tolerance_returns_nan(self):
-        """Снапшот за пределами tolerance → NaN."""
+        """Снапшот за пределами tolerance (20 мин > 7.5 мин) → NaN."""
         from polyflip.crypto.polymarket_join import join_polymarket_prices
 
-        candles = _make_candles(self.BASE, 1)
-        far_time = self.BASE + timedelta(minutes=20)  # 20 мин > 7.5 мин tolerance
-        snaps = _make_snapshots([(far_time, 0.55, "YES", 0.55)])
+        candles  = _make_candles(self.BASE, 1)
+        far_time = self.BASE + timedelta(minutes=20)  # 20 мин > tolerance=7.5 мин
+        snaps    = _make_snapshots([(far_time, 0.55, "YES")])
 
         mock_session = AsyncMock()
         mock_result  = MagicMock()
@@ -93,6 +95,29 @@ class TestJoinPolymarketPrices:
 
         result = await join_polymarket_prices(mock_session, candles, "BTC", tolerance_sec=450)
         assert result["pm_yes_price"].isna().all(), "Outside tolerance → NaN"
+
+    @pytest.mark.asyncio
+    async def test_snapshot_just_before_t_min_matches(self):
+        """
+        Граничный случай: снапшот на 2 мин раньше первой свечи.
+        Без расширения SQL-диапазона он не попал бы в выборку.
+        С расширением ±tolerance_sec — совпадает.
+        """
+        from polyflip.crypto.polymarket_join import join_polymarket_prices
+
+        candles   = _make_candles(self.BASE, 1)
+        snap_time = self.BASE - timedelta(minutes=2)  # 2 мин до t_min, внутри 7.5 мин
+        snaps     = _make_snapshots([(snap_time, 0.62, "YES")])
+
+        mock_session = AsyncMock()
+        mock_result  = MagicMock()
+        mock_result.all.return_value = snaps
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await join_polymarket_prices(mock_session, candles, "BTC", tolerance_sec=450)
+        assert result["pm_yes_price"].iloc[0] == pytest.approx(0.62), (
+            "Snapshot 2 min before t_min must match with expanded SQL range"
+        )
 
     @pytest.mark.asyncio
     async def test_empty_candles(self):
