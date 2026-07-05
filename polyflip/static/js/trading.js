@@ -222,7 +222,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tradingModeBadge: document.getElementById('trading-mode-badge'),
     pollIntervalInput: document.getElementById("LIVE_POLL_INTERVAL_SECONDS"),
     minEdge: document.getElementById("MIN_EDGE"),
-    maxEdge: document.getElementById("MAX_EDGE"),
+    maxEdge: document.getElementById("MAX_BET_EDGE"),
     favoriteThreshold: document.getElementById("FAVORITE_THRESHOLD"),
     tradeOnFlip: document.getElementById("TRADE_ON_FLIP"),
     flipThreshold: document.getElementById("FLIP_THRESHOLD"),
@@ -506,9 +506,9 @@ document.addEventListener("DOMContentLoaded", () => {
         currentMinEdge = val;
         settingsElements.minEdge.value = (val * 100).toFixed(1);
       }
-      if (settingsElements.maxEdge && data.MAX_EDGE !== undefined) {
-        let val = parseFloat(data.MAX_EDGE);
-        settingsElements.maxEdge.value = (val * 100).toFixed(1);
+      if (settingsElements.maxEdge && data.MAX_BET_EDGE !== undefined) {
+        let val = parseFloat(data.MAX_BET_EDGE);
+        settingsElements.maxEdge.value = val > 1 ? val : (val * 100).toFixed(1);
       }
       if (settingsElements.favoriteThreshold && data.FAVORITE_THRESHOLD !== undefined) {
         let val = parseFloat(data.FAVORITE_THRESHOLD);
@@ -658,7 +658,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (settingsElements.pollIntervalInput) settingsToSave.LIVE_POLL_INTERVAL_SECONDS = settingsElements.pollIntervalInput.value;
       if (settingsElements.minEdge) settingsToSave.MIN_EDGE = parseFloat(settingsElements.minEdge.value) / 100;
-      if (settingsElements.maxEdge) settingsToSave.MAX_EDGE = parseFloat(settingsElements.maxEdge.value) / 100;
+      if (settingsElements.maxEdge) settingsToSave.MAX_BET_EDGE = parseFloat(settingsElements.maxEdge.value) / 100;
       if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFloat(settingsElements.favoriteThreshold.value);
       if (settingsElements.tradeOnFlip) settingsToSave.TRADE_ON_FLIP = settingsElements.tradeOnFlip.checked ? "true" : "false";
       if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFloat(settingsElements.flipThreshold.value) / 100;

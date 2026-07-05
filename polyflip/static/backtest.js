@@ -584,7 +584,7 @@ async function applyLiveSettings() {
             : '50');
       
     document.getElementById('cfg-min-edge').value   = s.MIN_EDGE !== undefined ? parseFloat(s.MIN_EDGE).toFixed(3) : '-0.05';
-    document.getElementById('cfg-max-edge').value   = s.MAX_EDGE !== undefined ? parseFloat(s.MAX_EDGE).toFixed(3) : '0.50';
+    document.getElementById('cfg-max-edge').value   = s.MAX_BET_EDGE !== undefined ? parseFloat(s.MAX_BET_EDGE).toFixed(3) : '0.50';
     document.getElementById('cfg-trade-on-flip').checked = s.TRADE_ON_FLIP === 'true';
     
     onStrategyChange();
