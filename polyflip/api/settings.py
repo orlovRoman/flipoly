@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import structlog
 
 from polyflip.db.connection import async_session
+from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.models import RuntimeSettings, StrategyConfig
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
@@ -283,9 +284,9 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
             raise HTTPException(status_code=400, detail="Value for DAILY_LOSS_LIMIT_USDC must be a number")
 
     if key == "TRADING_MODE" or key.startswith("TRADING_MODE_"):
-        allowed = ("ml", "favorite", "") if key.startswith("TRADING_MODE_") else ("ml", "favorite")
+        allowed = ("ml", "favorite", "CRYPTO", "") if key.startswith("TRADING_MODE_") else ("ml", "favorite", "CRYPTO")
         if payload.value not in allowed:
-            raise HTTPException(status_code=400, detail=f"{key} must be 'ml', 'favorite' or empty")
+            raise HTTPException(status_code=400, detail=f"{key} must be 'ml', 'favorite', 'CRYPTO' or empty")
 
     if key == "TRADE_MAX_PRICE" or key.startswith("TRADE_MAX_PRICE_"):
         if key.startswith("TRADE_MAX_PRICE_") and payload.value == "":
