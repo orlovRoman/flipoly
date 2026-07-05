@@ -129,3 +129,48 @@ def test_auto_dead_zone_width_not_in_valid_keys():
             pass
     # Грубая проверка: в valid_keys-списке нет AUTO_DEAD_ZONE_WIDTH
     assert '"AUTO_DEAD_ZONE_WIDTH",' not in src or '# AUTO_DEAD_ZONE_WIDTH' in src
+
+from polyflip.api.main import app
+from httpx import ASGITransport, AsyncClient
+
+@pytest.mark.asyncio
+async def test_get_all_settings_does_not_crash_with_empty_db(db_session, monkeypatch):
+    """get_all_settings не должен падать когда settings_registry не совпадает с БД."""
+    from polyflip.api.main import app
+    from httpx import ASGITransport, AsyncClient
+    class DummyAsyncContextManager:
+        def __init__(self, session):
+            self.session = session
+        async def __aenter__(self):
+            return self.session
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+    monkeypatch.setattr("polyflip.api.settings.async_session", lambda: DummyAsyncContextManager(db_session))
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/settings", headers={"X-API-Key": "test-key"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, dict)
+        assert len(data) > 0
+
+@pytest.mark.asyncio
+async def test_get_all_settings_includes_security_sensitive_keys_as_masked(db_session, monkeypatch):
+    """TRADING_ENABLED и BYPASS_BET_SIZE_CHECK должны присутствовать в ответе."""
+    from polyflip.api.main import app
+    from httpx import ASGITransport, AsyncClient
+    class DummyAsyncContextManager:
+        def __init__(self, session):
+            self.session = session
+        async def __aenter__(self):
+            return self.session
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+    monkeypatch.setattr("polyflip.api.settings.async_session", lambda: DummyAsyncContextManager(db_session))
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/settings", headers={"X-API-Key": "test-key"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "TRADING_ENABLED" in data
+        assert "BYPASS_BET_SIZE_CHECK" in data

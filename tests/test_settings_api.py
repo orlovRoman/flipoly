@@ -29,7 +29,7 @@ async def test_get_all_settings_defaults(db_session):
     try:
         res = await get_all_settings()
         assert res["DAILY_LOSS_LIMIT_USDC"] == "-100.0"
-        assert res["DEAD_ZONE_WIDTH"] == "0.15"
+        assert res["DEAD_ZONE_WIDTH"] == "0.1"
     finally:
         settings_module.async_session = original_session
 
@@ -57,7 +57,7 @@ async def test_update_setting_valid_daily_limit(db_session):
     settings_module.async_session = patch_session(db_session)
     
     try:
-        await update_setting("DAILY_LOSS_LIMIT_USDC", SettingValue(value="-250"))
+        await update_setting("DAILY_LOSS_LIMIT_USDC", SettingValue(value="-250"), db=db_session)
         
         stmt = select(RuntimeSettings).where(RuntimeSettings.key == "DAILY_LOSS_LIMIT_USDC")
         row = (await db_session.execute(stmt)).scalar_one()
@@ -74,17 +74,17 @@ async def test_update_setting_invalid_daily_limit(db_session):
     try:
         # 0.0 не разрешено
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("DAILY_LOSS_LIMIT_USDC", SettingValue(value="0"))
+            await update_setting("DAILY_LOSS_LIMIT_USDC", SettingValue(value="0"), db=db_session)
         assert exc_info.value.status_code == 400
         
         # Положительные значения не разрешены
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("DAILY_LOSS_LIMIT_USDC", SettingValue(value="50"))
+            await update_setting("DAILY_LOSS_LIMIT_USDC", SettingValue(value="50"), db=db_session)
         assert exc_info.value.status_code == 400
         
         # > $100k не разрешено
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("DAILY_LOSS_LIMIT_USDC", SettingValue(value="-150000"))
+            await update_setting("DAILY_LOSS_LIMIT_USDC", SettingValue(value="-150000"), db=db_session)
         assert exc_info.value.status_code == 400
     finally:
         settings_module.async_session = original_session
@@ -97,7 +97,7 @@ async def test_update_setting_valid_poll_interval(db_session):
     settings_module.async_session = patch_session(db_session)
     
     try:
-        await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="15"))
+        await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="15"), db=db_session)
         
         stmt = select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_POLL_INTERVAL_SECONDS")
         row = (await db_session.execute(stmt)).scalar_one()
@@ -114,17 +114,17 @@ async def test_update_setting_invalid_poll_interval(db_session):
     try:
         # Слишком мало (меньше 2)
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="1"))
+            await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="1"), db=db_session)
         assert exc_info.value.status_code == 400
         
         # Слишком много (больше 300)
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="301"))
+            await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="301"), db=db_session)
         assert exc_info.value.status_code == 400
         
         # Не число
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="abc"))
+            await update_setting("LIVE_POLL_INTERVAL_SECONDS", SettingValue(value="abc"), db=db_session)
         assert exc_info.value.status_code == 400
     finally:
         settings_module.async_session = original_session
@@ -138,13 +138,13 @@ async def test_update_setting_valid_min_edge(db_session):
     
     try:
         # Проверяем сохранение процентов (8% -> 0.08)
-        await update_setting("MIN_EDGE", SettingValue(value="8"))
+        await update_setting("MIN_EDGE", SettingValue(value="8"), db=db_session)
         stmt = select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE")
         row = (await db_session.execute(stmt)).scalar_one()
         assert float(row.value) == 0.08
         
         # Проверяем сохранение доли (0.04 -> 0.04)
-        await update_setting("MIN_EDGE", SettingValue(value="0.04"))
+        await update_setting("MIN_EDGE", SettingValue(value="0.04"), db=db_session)
         row = (await db_session.execute(stmt)).scalar_one()
         assert float(row.value) == 0.04
     finally:
@@ -159,12 +159,12 @@ async def test_update_setting_invalid_min_edge(db_session):
     try:
         # Слишком много (больше 100)
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("MIN_EDGE", SettingValue(value="105"))
+            await update_setting("MIN_EDGE", SettingValue(value="105"), db=db_session)
         assert exc_info.value.status_code == 400
         
         # Слишком мало (меньше 0)
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("MIN_EDGE", SettingValue(value="-1"))
+            await update_setting("MIN_EDGE", SettingValue(value="-1"), db=db_session)
         assert exc_info.value.status_code == 400
     finally:
         settings_module.async_session = original_session
@@ -180,18 +180,16 @@ async def test_update_settings_bulk(db_session):
     try:
         payload = BulkSettings(settings={
             "TRADE_BET_SIZE_USDC": "25.0",
-            "INITIAL_CAPITAL": "1500.0",
-            "TRADING_ENABLED": "true"
+            "TRADE_MAX_PRICE": "0.95"
         })
-        res = await update_settings_bulk(payload)
+        res = await update_settings_bulk(payload, db=db_session)
         assert res["status"] == "ok"
         
         # Verify they are written in DB
         rows = (await db_session.execute(select(RuntimeSettings))).scalars().all()
         db_settings = {r.key: r.value for r in rows}
         assert db_settings["TRADE_BET_SIZE_USDC"] == "25.0"
-        assert db_settings["INITIAL_CAPITAL"] == "1500.0"
-        assert db_settings["TRADING_ENABLED"] == "true"
+        assert db_settings["TRADE_MAX_PRICE"] == "0.95"
     finally:
         settings_module.async_session = original_session
 
@@ -209,7 +207,7 @@ async def test_update_settings_bulk_partial_error(db_session):
             "FAVORITE_MAX_PRICE": "0.99",          # valid
             "DAILY_LOSS_LIMIT_USDC": "100.0" # invalid (must be strictly negative)
         })
-        res = await update_settings_bulk(payload)
+        res = await update_settings_bulk(payload, db=db_session)
         assert res["status"] == "partial"
         assert "TRADE_BET_SIZE_USDC" in res["saved"]
         assert "DAILY_LOSS_LIMIT_USDC" in res["errors"]

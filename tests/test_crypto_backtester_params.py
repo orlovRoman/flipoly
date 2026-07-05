@@ -33,9 +33,24 @@ def test_backtest_respects_epsilon_quantile(sample_df):
     assert r_strict.n_trades <= r_loose.n_trades
 
 def test_epsilon_filter_applied_to_test(sample_df):
-    """Edge rate не должен превышать 1 - epsilon_quantile * 2."""
+    """
+    n_candles_test — это свечи ПОСЛЕ фильтрации по epsilon.
+    При строгом quantile=0.90 должно остаться < 20% от тест-части.
+    """
+    n_total = len(sample_df)
+    n_train = int(n_total * 0.8)   # BACKTEST_TRAIN_RATIO default
+    n_test_raw = n_total - n_train  # свечей до фильтрации
+
     result = run_backtest(sample_df, "TEST", epsilon_quantile=0.90)
-    assert result.n_candles_test < len(sample_df) * 0.35
+
+    # После фильтрации по epsilon=0.90 quantile остаётся ~20% свечей
+    assert result.n_candles_test < n_test_raw, (
+        "n_candles_test должен быть меньше raw тест-размера после фильтрации"
+    )
+    # Конкретно: 90th percentile фильтрует ~80% → остаётся < 25%
+    assert result.n_candles_test < n_test_raw * 0.25, (
+        f"Осталось {result.n_candles_test} из {n_test_raw} — фильтр по epsilon не работает"
+    )
 
 def test_edge_rate_below_50_pct_after_fix(sample_df):
     """После патча edge_rate должен быть < 50%, не 88%."""

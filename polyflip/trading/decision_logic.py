@@ -109,7 +109,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
         bet = _resolve_final_bet(edge, signal.volume_5min, config)
         return TradeDecision("BUY_YES", signal.yes_ask, bet,
             f"favorite YES edge={edge:.4f}", "PURE_FAVORITE",
-            edge=edge)
+            edge=edge, p_up=p_win_yes)
 
     # --- NO side ---
     if signal.mid_price <= (1.0 - threshold):
@@ -124,11 +124,12 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
                 f"favorite NO edge={edge:.4f} < min_edge={min_edge:.4f}", "SKIP",
                 edge=edge)
         bet = _resolve_final_bet(edge, signal.volume_5min, config)
+        p_up = 1.0 - no_prob
         return TradeDecision("BUY_NO", signal.no_ask, bet,
             f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
-            edge=edge)
+            edge=edge, p_up=p_up)
 
-    return TradeDecision("SKIP", 0, 0, "no clear favorite", "SKIP")
+    return TradeDecision("SKIP", 0.0, 0.0, "no clear favorite", "SKIP")
 
 
 def decide_ml_trend(

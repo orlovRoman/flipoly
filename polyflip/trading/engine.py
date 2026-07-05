@@ -65,17 +65,21 @@ async def save_or_update_skipped_trade(
     model_version: Optional[int],
     start_time: datetime,
     existing_skipped: Optional[TradeHistory] = None,
-    edge: Optional[float] = None
+    edge: Optional[float] = None,
+    active_features: str = ""
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
     if existing_skipped:
         if (existing_skipped.error_msg != reason or 
             existing_skipped.predicted_flip_prob != p_flip_val or 
-            existing_skipped.edge != edge):
+            existing_skipped.edge != edge or
+            existing_skipped.active_features != active_features):
             existing_skipped.error_msg = reason
             existing_skipped.predicted_flip_prob = p_flip_val
             existing_skipped.model_version = model_version
             existing_skipped.edge = edge
+            if active_features:
+                existing_skipped.active_features = active_features
             existing_skipped.updated_at = start_time
     else:
         history = TradeHistory(
@@ -85,7 +89,7 @@ async def save_or_update_skipped_trade(
             amount_usdc=0.0,
             executed_price=0.0,
             predicted_flip_prob=p_flip_val,
-            active_features="",
+            active_features=active_features,
             model_version=model_version,
             status="SKIPPED",
             error_msg=reason,
@@ -96,6 +100,18 @@ async def save_or_update_skipped_trade(
         db_session.add(history)
 
 
+
+def _get_trade_active_features(asset_mode, active_features_str, decision_obj=None):
+    if asset_mode == TRADING_MODE_CRYPTO:
+        return "CRYPTO_TREND"
+    if asset_mode == TRADING_MODE_FAVORITE:
+        return "PURE_FAVORITE"
+    
+    base = active_features_str.strip().rstrip(',') if active_features_str else ""
+    if decision_obj and hasattr(decision_obj, "strategy_type") and decision_obj.strategy_type:
+        strat = decision_obj.strategy_type.lower()
+        return f"{base},{strat}" if base else strat
+    return base
 
 async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_client: PolymarketClient):
     """
@@ -333,6 +349,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 fresh_yes_price = fresh_yes_prices["current_yes_price"]
 
                 decision_obj = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, settings_db)
+                print(f"DEBUG engine: asset_mode={asset_mode}, binance_symbol={binance_symbol}, decision_obj={decision_obj}")
                 p_flip = 0.0  # Для крипто-стратегии p_flip семантически не имеет значения
                 model_ver = crypto_sig.model_version
                 edge = decision_obj.edge
@@ -533,7 +550,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 await save_or_update_skipped_trade(
                     db_session, market, reason, p_flip, model_ver, start_time,
                     existing_skipped=existing_skipped,
-                    edge=edge
+                    edge=edge,
+                    active_features=_get_trade_active_features(asset_mode, active_features_str, decision_obj)
                 )
                 continue
 
@@ -660,9 +678,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 predicted_flip_prob=p_flip,
                 p_up=decision_obj.p_up,
                 strike=decision_obj.strike,
-                active_features="CRYPTO_TREND" if asset_mode == TRADING_MODE_CRYPTO else (
-                    (f"{active_features_str.strip().rstrip(',')},{decision_obj.strategy_type.lower()}" if (active_features_str and active_features_str.strip().rstrip(',')) else decision_obj.strategy_type.lower()) if asset_mode == TRADING_MODE_ML else "PURE_FAVORITE"
-                ),
+                active_features=_get_trade_active_features(asset_mode, active_features_str, decision_obj),
                 model_version=model_ver,
                 status=trade_res.get("status", "FAILED"),
                 error_msg=trade_res.get("error_msg"),

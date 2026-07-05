@@ -118,7 +118,7 @@ def _fit_lgbm_and_serialize(
     """
     tscv = TimeSeriesSplit(n_splits=n_splits)
 
-    oof_scores = np.zeros(len(y))
+    oof_scores = np.full(len(y), np.nan)
     aucs: list[float] = []
 
     for train_idx, val_idx in tscv.split(X):
@@ -152,9 +152,13 @@ def _fit_lgbm_and_serialize(
     baseline_auc = float(max(y.mean(), 1.0 - y.mean()))
 
     # ECE через OOF
+    valid_mask = ~np.isnan(oof_scores)
     try:
-        frac_pos, mean_pred = calibration_curve(y, oof_scores, n_bins=10, strategy="uniform")
-        ece = float(np.mean(np.abs(frac_pos - mean_pred)))
+        if valid_mask.sum() > 10:
+            frac_pos, mean_pred = calibration_curve(y[valid_mask], oof_scores[valid_mask], n_bins=10, strategy="uniform")
+            ece = float(np.mean(np.abs(frac_pos - mean_pred)))
+        else:
+            ece = 0.5
     except ValueError:
         ece = 0.5  # недостаточно данных для расчёта
 
@@ -173,7 +177,7 @@ def _fit_lgbm_and_serialize(
     final_cal.fit(X_cal_final, y_cal_final)
 
     # Оптимальный порог через OOF (без leakage)
-    prec_arr, rec_arr, thr_arr = precision_recall_curve(y, oof_scores)
+    prec_arr, rec_arr, thr_arr = precision_recall_curve(y[valid_mask], oof_scores[valid_mask])
     if len(thr_arr) > 0:
         valid = prec_arr[:-1] >= MIN_PRECISION_FOR_THRESHOLD
         f1 = 2 * prec_arr[:-1] * rec_arr[:-1] / (prec_arr[:-1] + rec_arr[:-1] + 1e-8)

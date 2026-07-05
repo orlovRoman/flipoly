@@ -109,31 +109,45 @@ async def test_update_per_asset_max_price(db_session):
 
 
 @pytest.mark.asyncio
-async def test_per_asset_trading_mode_empty_string_falls_back_to_global(
-    db_session
-):
-    """Пустая строка per-asset TRADING_MODE не должна ломать active_models badge."""
+async def test_per_asset_empty_trading_mode_uses_global_not_empty_string(db_session):
+    """
+    Пустая строка per-asset TRADING_MODE_BTCUSDT не должна
+    использоваться как режим — должен браться глобальный TRADING_MODE.
+    """
     from polyflip.db.models import RuntimeSettings
+    from polyflip.api.settings import get_all_settings
+    import polyflip.api.settings as settings_module
     from datetime import datetime, timezone
-    db_session.add(RuntimeSettings(
-        key="TRADING_MODE_BTCUSDT", value="", updated_by="test", updated_at=datetime.now(timezone.utc)
-    ))
-    db_session.add(RuntimeSettings(
-        key="TRADING_MODE", value="CRYPTO", updated_by="test", updated_at=datetime.now(timezone.utc)
-    ))
-    await db_session.commit()
-    
-    from httpx import ASGITransport, AsyncClient
-    from polyflip.api.main import app
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # We test the dashboard endpoint which returns active_models
-        resp = await client.get("/api/dashboard/status")
-        if resp.status_code == 404:
-            # try without dashboard
-            resp = await client.get("/api/status")
 
-        if resp.status_code == 200:
-            data = resp.json()
-            active_models = data.get("data", {}).get("active_models", {})
-            # If it falls back to global ("CRYPTO"), active_models might be queried
-            pass # Endpoint logic might require mocked models, we just ensure it doesn't crash
+    class DummyAsyncContextManager:
+        def __init__(self, session):
+            self.session = session
+        async def __aenter__(self):
+            return self.session
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+    original_session = settings_module.async_session
+    settings_module.async_session = lambda: DummyAsyncContextManager(db_session)
+
+    try:
+        now = datetime.now(timezone.utc)
+        # Пустой per-asset + глобальный CRYPTO
+        db_session.add(RuntimeSettings(
+            key="TRADING_MODE_BTCUSDT", value="",
+            updated_by="test", updated_at=now
+        ))
+        db_session.add(RuntimeSettings(
+            key="TRADING_MODE", value="CRYPTO",
+            updated_by="test", updated_at=now
+        ))
+        await db_session.commit()
+
+        # Engine's logic:
+        settings_db = await get_all_settings()
+        mode = settings_db.get("TRADING_MODE_BTCUSDT") or settings_db.get("TRADING_MODE", "ML")
+        
+        # Пустая строка → fallback на global
+        assert mode == "CRYPTO", f"Ожидали CRYPTO (global fallback), получили: {mode!r}"
+        assert mode != "", "Пустая строка не должна быть режимом торговли"
+    finally:
+        settings_module.async_session = original_session
