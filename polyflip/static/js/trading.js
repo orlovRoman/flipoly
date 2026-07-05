@@ -227,6 +227,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tradeOnFlip: document.getElementById("TRADE_ON_FLIP"),
     flipThreshold: document.getElementById("FLIP_THRESHOLD"),
     noMinEdge: document.getElementById("NO_MIN_EDGE"),
+    cryptoMinEdge: document.getElementById("CRYPTO_MIN_EDGE"),
     autoDeadZone: document.getElementById("AUTO_DEAD_ZONE"),
     autoDeadZoneWidth: document.getElementById("AUTO_DEAD_ZONE_WIDTH"),
     favoriteMinEdge: document.getElementById("FAVORITE_MIN_EDGE"),
@@ -530,6 +531,10 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.NO_MIN_EDGE);
         settingsElements.noMinEdge.value = (val * 100).toFixed(1);
       }
+      if (settingsElements.cryptoMinEdge && data.CRYPTO_MIN_EDGE !== undefined) {
+        let val = parseFloat(data.CRYPTO_MIN_EDGE);
+        settingsElements.cryptoMinEdge.value = (val * 100).toFixed(1);
+      }
       if (settingsElements.autoDeadZone && data.AUTO_DEAD_ZONE) {
         settingsElements.autoDeadZone.checked = data.AUTO_DEAD_ZONE === "true";
       }
@@ -663,6 +668,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.tradeOnFlip) settingsToSave.TRADE_ON_FLIP = settingsElements.tradeOnFlip.checked ? "true" : "false";
       if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFloat(settingsElements.flipThreshold.value) / 100;
       if (settingsElements.noMinEdge) settingsToSave.NO_MIN_EDGE = parseFloat(settingsElements.noMinEdge.value) / 100;
+      if (settingsElements.cryptoMinEdge) settingsToSave.CRYPTO_MIN_EDGE = parseFloat(settingsElements.cryptoMinEdge.value) / 100;
       if (settingsElements.autoDeadZone) settingsToSave.AUTO_DEAD_ZONE = settingsElements.autoDeadZone.checked ? "true" : "false";
       if (settingsElements.autoDeadZoneWidth) settingsToSave.AUTO_DEAD_ZONE_WIDTH = parseFloat(settingsElements.autoDeadZoneWidth.value) / 100;
       if (settingsElements.favoriteMinEdge) settingsToSave.FAVORITE_MIN_EDGE = parseFloat(settingsElements.favoriteMinEdge.value) / 100;

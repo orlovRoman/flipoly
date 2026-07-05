@@ -11,6 +11,8 @@ from polyflip.constants import (
     OUTSIDER_MAX_PRICE as _DEFAULT_OUTSIDER_MAX_PRICE,
     NO_MIN_EDGE as _DEFAULT_NO_MIN_EDGE,
     AUTO_DEAD_ZONE_WIDTH as _DEFAULT_AUTO_DEAD_ZONE_WIDTH,
+    CRYPTO_MIN_EDGE as _DEFAULT_CRYPTO_MIN_EDGE,
+    FAVORITE_MIN_EDGE as _DEFAULT_FAVORITE_MIN_EDGE,
 )
 
 class Settings(BaseSettings):
@@ -34,7 +36,6 @@ class Settings(BaseSettings):
     TRADING_ENABLED: bool = False
     TRADE_ASSETS: str = "BTC,ETH"
     INITIAL_CAPITAL: float = 1000.0
-    TRADE_ONLY_FAVORITE: bool = False
     TRADE_MIN_PRICE: float = 0.05
     TRADE_MAX_PRICE: float = 0.95
     TRADING_MODE: str = "ml"
@@ -47,20 +48,18 @@ class Settings(BaseSettings):
     MAX_BET_SIZE_USDC: float = 50.0
     DAILY_LOSS_LIMIT_USDC: float = _DEFAULT_DAILY_LOSS_LIMIT
     FLIP_THRESHOLD: float = _DEFAULT_FLIP_THRESHOLD
+    MIN_EDGE: float = _DEFAULT_MIN_EDGE
     TRADE_ON_FLIP: bool = False
     AUTO_DEAD_ZONE: bool = True
     AUTO_DEAD_ZONE_WIDTH: float = _DEFAULT_AUTO_DEAD_ZONE_WIDTH
     OUTSIDER_MAX_PRICE: float = _DEFAULT_OUTSIDER_MAX_PRICE
     NO_MIN_EDGE: float = _DEFAULT_NO_MIN_EDGE
+    FAVORITE_MIN_EDGE: float = _DEFAULT_FAVORITE_MIN_EDGE
     MAX_PRICE_DRIFT: float = 0.03
-    CRYPTO_MIN_EDGE: float = 0.03
+    CRYPTO_MIN_EDGE: float = _DEFAULT_CRYPTO_MIN_EDGE
     USE_CRYPTO_CONFIRM: bool = False
     CRYPTO_STANDALONE: bool = False
     
-    # Legacy параметры (оставил на всякий случай)
-    DRIFT_THRESHOLD: float = 0.05
-    MIN_EDGE: float = _DEFAULT_MIN_EDGE
-    BET_FRACTION: float = 0.02
     ALERT_WEBHOOK_URL: str = ""
     COLLECTOR_STALE_HOURS: int = 2
     RATE_LIMIT: str = "60/minute"

@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.models import RuntimeSettings, StrategyConfig
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
-from polyflip.constants import DAILY_LOSS_LIMIT_USDC, TRADE_ON_FLIP, FLIP_THRESHOLD, NO_MIN_EDGE, AUTO_DEAD_ZONE, AUTO_DEAD_ZONE_WIDTH
+from polyflip.constants import (
+    DAILY_LOSS_LIMIT_USDC, TRADE_ON_FLIP, FLIP_THRESHOLD,
+    NO_MIN_EDGE, AUTO_DEAD_ZONE, AUTO_DEAD_ZONE_WIDTH,
+    FAVORITE_MIN_EDGE, CRYPTO_MIN_EDGE,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -52,14 +56,15 @@ async def get_all_settings():
         "MAX_BET_EDGE": db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)),
         "TRADE_ON_FLIP": db.get("TRADE_ON_FLIP", "true" if settings.TRADE_ON_FLIP else "false"),
         "FLIP_THRESHOLD": db.get("FLIP_THRESHOLD", str(settings.FLIP_THRESHOLD)),
-        "NO_MIN_EDGE": db.get("NO_MIN_EDGE", str(settings.NO_MIN_EDGE)),
         "AUTO_DEAD_ZONE": db.get("AUTO_DEAD_ZONE", "true" if settings.AUTO_DEAD_ZONE else "false"),
         "AUTO_DEAD_ZONE_WIDTH": db.get("AUTO_DEAD_ZONE_WIDTH", str(settings.AUTO_DEAD_ZONE_WIDTH)),
         "FAVORITE_MIN_PRICE": db.get("FAVORITE_MIN_PRICE", "0.55"),
         "FAVORITE_MAX_PRICE": db.get("FAVORITE_MAX_PRICE", "0.95"),
         "MAX_PRICE_DRIFT": db.get("MAX_PRICE_DRIFT", str(settings.MAX_PRICE_DRIFT)),
         "OUTSIDER_MAX_PRICE": db.get("OUTSIDER_MAX_PRICE", str(settings.OUTSIDER_MAX_PRICE)),
-        "CRYPTO_MIN_EDGE": db.get("CRYPTO_MIN_EDGE", "0.03"),
+        "FAVORITE_MIN_EDGE": db.get("FAVORITE_MIN_EDGE", str(FAVORITE_MIN_EDGE)),
+        "NO_MIN_EDGE": db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)),
+        "CRYPTO_MIN_EDGE": db.get("CRYPTO_MIN_EDGE", str(CRYPTO_MIN_EDGE)),
         "USE_CRYPTO_CONFIRM": db.get("USE_CRYPTO_CONFIRM", "false"),
         "CRYPTO_STANDALONE": db.get("CRYPTO_STANDALONE", "false")
     }
@@ -169,6 +174,9 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             if self.own:
                 await self.session.__aexit__(exc_type, exc_val, exc_tb)
+    # Backward-compatibility: фронт может слать MAX_EDGE — редиректим в MAX_BET_EDGE
+    if key == "MAX_EDGE":
+        key = "MAX_BET_EDGE"
     valid_keys = [
         "ACTIVE_FEATURES", 
         "TRADE_EXECUTION_TIME_SEC", 
