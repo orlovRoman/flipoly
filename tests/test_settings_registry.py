@@ -113,19 +113,13 @@ def test_max_edge_filter_default_is_filter():
 
 # ── Тест 5: Editable keys ────────────────────────────────────────────────────
 
-def test_editable_keys_not_include_trading_enabled():
-    """TRADING_ENABLED не должен быть редактируемым через API (только UI toggle)."""
-    from polyflip.settings_registry import editable_keys
-    assert "TRADING_ENABLED" not in editable_keys()
-
-
 def test_registry_imports_cleanly():
     """Реестр должен импортироваться без ошибок."""
     from polyflip.settings_registry import REGISTRY, registry_keys, registry_defaults, editable_keys
     assert len(REGISTRY) > 10
     assert len(registry_keys()) == len(REGISTRY)
     assert len(registry_defaults()) == len(REGISTRY)
-    assert len(editable_keys()) < len(registry_keys())  # некоторые ключи не editable
+    assert len(editable_keys()) == len(registry_keys())  # все ключи теперь editable
 
 
 # ── Тест 6: constants.py не содержит AUTO_DEAD_ZONE_WIDTH как отдельную активную константу ──

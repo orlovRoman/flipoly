@@ -62,7 +62,7 @@ REGISTRY: list[SettingDef] = [
     # --- Режим торговли ---
     SettingDef("TRADING_MODE", DEFAULT_TRADING_MODE,
                description="Режим: ml | favorite | CRYPTO"),
-    SettingDef("TRADING_ENABLED", "false", editable=False,
+    SettingDef("TRADING_ENABLED", "false",
                description="Включить исполнение сделок (управляется через UI toggle)"),
 
     # --- Таймеры / опрос ---
@@ -137,7 +137,7 @@ REGISTRY: list[SettingDef] = [
                description="Крипто-режим без привязки к Polymarket-рынку"),
 
     # --- Прочее ---
-    SettingDef("BYPASS_BET_SIZE_CHECK", "false", editable=False,
+    SettingDef("BYPASS_BET_SIZE_CHECK", "false",
                description="Обойти проверку минимального размера ставки (debugging)"),
     SettingDef("ENTRY_STRATEGY", "first",
                description="Стратегия входа: first | best_edge | confirmed"),
