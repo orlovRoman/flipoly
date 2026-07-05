@@ -325,6 +325,16 @@
                     return;
                 }
 
+                // Заполняем селектор важности признаков
+                const fiSelector = document.getElementById('fi-symbol-selector');
+                if (fiSelector) {
+                    const currentVal = fiSelector.value;
+                    fiSelector.innerHTML = Object.keys(d.models).map(k => `<option value="${k}">${k}</option>`).join('');
+                    if (Object.keys(d.models).includes(currentVal)) {
+                        fiSelector.value = currentVal;
+                    }
+                }
+
                 el.innerHTML = Object.entries(d.models).map(([sym, m]) => `
                     <div class="stat-card" style="margin-bottom: 1rem; background: rgba(255,255,255,0.01); border: 1px solid var(--border-color);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">

@@ -79,20 +79,26 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     if "status" in _cache and now - _cache["status"]["ts"] < _CACHE_TTL:
         return _cache["status"]["data"]
 
+
+
+    allowed_assets = []
+    for s in CRYPTO_SYMBOLS:
+        allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
+
     stmt = select(ModelRegistry).where(
         ModelRegistry.is_active.is_(True),
-        ModelRegistry.asset.in_(CRYPTO_SYMBOLS),
+        ModelRegistry.asset.in_(allowed_assets),
     )
     rows = (await db.execute(stmt)).scalars().all()
 
     # Пороги из RuntimeSettings
-    thr_keys = [f"CRYPTO_THRESHOLD_{s}" for s in CRYPTO_SYMBOLS]
+    thr_keys = [f"CRYPTO_THRESHOLD_{a}" for a in allowed_assets]
     thr_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(thr_keys))
     thr_rows = (await db.execute(thr_stmt)).scalars().all()
     thresholds = {r.key.replace("CRYPTO_THRESHOLD_", ""): float(r.value) for r in thr_rows}
 
     # Важность признаков из RuntimeSettings
-    fi_keys = [f"CRYPTO_FI_{s}" for s in CRYPTO_SYMBOLS]
+    fi_keys = [f"CRYPTO_FI_{a}" for a in allowed_assets]
     fi_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(fi_keys))
     fi_rows = (await db.execute(fi_stmt)).scalars().all()
     feature_importances = {}
