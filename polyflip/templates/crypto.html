@@ -103,19 +103,7 @@
                     <div id="models-status">Загрузка данных...</div>
                 </div>
 
-                <!-- Панель feature importance -->
-                <div class="panel">
-                    <h2>Важность признаков (Feature Importance)</h2>
-                    <p class="panel-desc">Относительное влияние признаков при разделении деревьев решений.</p>
-                    <div style="margin-bottom: 1rem;">
-                        <select id="fi-symbol-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 150px;" onchange="updateFeatureImportanceChart()">
-                            {% for sym in symbols %}<option value="{{ sym }}">{{ sym }}</option>{% endfor %}
-                        </select>
-                    </div>
-                    <div style="position: relative; height: 300px; width: 100%;">
-                        <canvas id="fi-chart"></canvas>
-                    </div>
-                </div>
+
             </div>
 
             <!-- Раздел: Настройки и параметры обучения -->
@@ -235,6 +223,20 @@
                             <canvas id="pnl-chart"></canvas>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Панель feature importance (перенесена вниз) -->
+            <div class="panel" style="margin-bottom: 2rem;">
+                <h2>Важность признаков (Feature Importance)</h2>
+                <p class="panel-desc">Относительное влияние признаков при разделении деревьев решений.</p>
+                <div style="margin-bottom: 1rem;">
+                    <select id="fi-symbol-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 150px;" onchange="updateFeatureImportanceChart()">
+                        {% for sym in symbols %}<option value="{{ sym }}">{{ sym }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div style="position: relative; height: 500px; width: 100%;">
+                    <canvas id="fi-chart"></canvas>
                 </div>
             </div>
         </main>
@@ -373,12 +375,39 @@
             }
 
             const fi = statusData.models[sym].feature_importance;
-            const sorted = Object.entries(fi).sort((a, b) => b[1] - a[1]).slice(0, 10);
+            const sorted = Object.entries(fi).sort((a, b) => b[1] - a[1]).slice(0, 15);
             
+            const labelMap = {
+                'vol_ratio': 'Отношение объемов (vol_ratio)',
+                'vol_z_6': 'Z-оценка объема 6ч (vol_z_6)',
+                'vol_48': 'Объем 48ч (vol_48)',
+                'vol_24': 'Объем 24ч (vol_24)',
+                'vol_6': 'Объем 6ч (vol_6)',
+                'vol_1': 'Объем 1ч (vol_1)',
+                'dist_to_low_24': 'Спред до мин 24ч (dist_to_low_24)',
+                'dist_to_high_24': 'Спред до макс 24ч (dist_to_high_24)',
+                'ret_1': 'Доходность 1ч (ret_1)',
+                'ret_6': 'Доходность 6ч (ret_6)',
+                'ret_24': 'Доходность 24ч (ret_24)',
+                'ret_48': 'Доходность 48ч (ret_48)',
+                'bb_position': 'Позиция Боллинджера (bb_position)',
+                'bb_width': 'Ширина Боллинджера (bb_width)',
+                'hour_utc': 'Час (UTC)',
+                'range_1': 'Волатильность 1ч (range_1)',
+                'range_6': 'Волатильность 6ч (range_6)',
+                'range_24': 'Волатильность 24ч (range_24)',
+                'range_48': 'Волатильность 48ч (range_48)',
+                'rsi_14': 'Индекс силы RSI 14 (rsi_14)',
+                'macd': 'MACD (macd)',
+                'macd_signal': 'MACD Сигнал (macd_signal)',
+                'macd_hist': 'MACD Гистограмма (macd_hist)',
+                'atr_14': 'ATR 14 (atr_14)'
+            };
+
             fiChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: sorted.map(x => x[0]),
+                    labels: sorted.map(x => labelMap[x[0]] || x[0]),
                     datasets: [{
                         label: 'Важность фичи',
                         data: sorted.map(x => x[1]),
@@ -396,7 +425,7 @@
                     },
                     scales: {
                         x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#888' } },
-                        y: { grid: { display: false }, ticks: { color: '#FFF' } }
+                        y: { grid: { display: false }, ticks: { color: '#FFF', font: { size: 12 } } }
                     }
                 }
             });
