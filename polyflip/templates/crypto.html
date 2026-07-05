@@ -240,17 +240,68 @@
         </main>
     </div>
 
+
     <script>
-        const API_KEY = "{{ api_key }}";
+        let API_KEY = "{{ api_key }}";
+        if (!API_KEY) {
+            try {
+                API_KEY = localStorage.getItem("polyflip_api_key") || "";
+            } catch (e) {
+                console.warn("localStorage unavailable");
+            }
+        }
+
+        // Если ключа нет, запрашиваем его у пользователя
+        if (!API_KEY) {
+            const enteredKey = prompt("Пожалуйста, введите ваш API-ключ для доступа к функциям Crypto ML:");
+            if (enteredKey) {
+                try {
+                    localStorage.setItem("polyflip_api_key", enteredKey);
+                    // Также запишем в куку, чтобы бэкенд на Python тоже видел ключ
+                    document.cookie = `api_key=${enteredKey}; path=/; max-age=31536000`;
+                    window.location.reload();
+                } catch (e) {
+                    console.error("Не удалось сохранить API-ключ", e);
+                }
+            }
+        }
+
         const H = { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' };
 
         let statusData = null;
         let fiChart = null;
         let pnlChart = null;
 
+        function resetApiKey() {
+            try {
+                localStorage.removeItem("polyflip_api_key");
+                document.cookie = "api_key=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                window.location.reload();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
         async function loadStatus() {
             try {
                 const r = await fetch('/crypto/api/status', { headers: H });
+                if (r.status === 401) {
+                    document.getElementById('models-status').innerHTML = `
+                        <div style="color: #dc3545; text-align: center; padding: 2rem;">
+                            <b>Ошибка 401: Неавторизован.</b><br>
+                            Пожалуйста, <a href="#" onclick="resetApiKey(); return false;" style="color: #ffc107; text-decoration: underline;">сбросьте API-ключ</a> и введите его заново.
+                        </div>`;
+                    return;
+                }
+                if (!r.ok) {
+                    const errorData = await r.json().catch(() => ({}));
+                    document.getElementById('models-status').innerHTML = `
+                        <div style="color: #dc3545; text-align: center; padding: 2rem;">
+                            <b>Ошибка загрузки статуса:</b> ${errorData.detail || r.statusText || 'Неизвестная ошибка'}
+                        </div>`;
+                    return;
+                }
+
                 const d = await r.json();
                 statusData = d;
                 
@@ -354,31 +405,47 @@
                 min_edge: parseFloat(document.getElementById('p-min-edge').value),
             };
 
-            const r = await fetch('/crypto/api/settings', {
-                method: 'POST',
-                headers: H,
-                body: JSON.stringify(settings)
-            });
-            const d = await r.json();
-            alert(d.message);
-            loadStatus();
+            try {
+                const r = await fetch('/crypto/api/settings', {
+                    method: 'POST',
+                    headers: H,
+                    body: JSON.stringify(settings)
+                });
+                const d = await r.json();
+                if (!r.ok) {
+                    alert(`❌ Ошибка сохранения настроек: ${d.detail || d.message || 'Неизвестная ошибка (код ' + r.status + ')'}`);
+                    return;
+                }
+                alert(d.message);
+                loadStatus();
+            } catch (err) {
+                alert('Не удалось сохранить настройки. Проверьте сеть.');
+            }
         }
 
         async function retrain(symbol) {
-            const r = await fetch(`/crypto/api/train?symbol=${symbol}`, { method: 'POST', headers: H });
-            const d = await r.json();
-            alert(d.message);
-            
-            // Запускаем опрос статуса каждые 3 секунды, пока версия не обновится
-            const oldVersion = statusData?.models?.[symbol]?.version || 0;
-            const intervalId = setInterval(async () => {
-                await loadStatus();
-                const newVersion = statusData?.models?.[symbol]?.version || 0;
-                if (newVersion > oldVersion) {
-                    clearInterval(intervalId);
-                    alert(`✅ Модель для ${symbol} успешно обновлена до версии v${newVersion}!`);
+            try {
+                const r = await fetch(`/crypto/api/train?symbol=${symbol}`, { method: 'POST', headers: H });
+                const d = await r.json();
+                if (!r.ok) {
+                    alert(`❌ Ошибка запуска обучения: ${d.detail || d.message || 'Неизвестная ошибка (код ' + r.status + ')'}`);
+                    return;
                 }
-            }, 3000);
+                alert(d.message);
+                
+                // Запускаем опрос статуса каждые 3 секунды, пока версия не обновится
+                const oldVersion = statusData?.models?.[symbol]?.version || 0;
+                const intervalId = setInterval(async () => {
+                    await loadStatus();
+                    const newVersion = statusData?.models?.[symbol]?.version || 0;
+                    if (newVersion > oldVersion) {
+                        clearInterval(intervalId);
+                        alert(`✅ Модель для ${symbol} успешно обновлена до версии v${newVersion}!`);
+                    }
+                }, 3000);
+            } catch (err) {
+                alert('Не удалось связаться с сервером для запуска обучения.');
+            }
         }
 
         async function runBacktester() {
