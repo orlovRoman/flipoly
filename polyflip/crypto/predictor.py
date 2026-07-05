@@ -75,6 +75,7 @@ class CryptoPredictor:
     def __init__(self) -> None:
         self._models: dict[str, dict[str, Any]] = {}
         self._model_versions: dict[str, dict[str, int]] = {}
+        self._model_intervals: dict[str, dict[str, str]] = {}
         self._thresholds: dict[str, dict[str, tuple[float, float]]] = {}
         self._vol_medians: dict[str, float] = {}
         self._loaded_symbols: set[str] = set()
@@ -90,6 +91,7 @@ class CryptoPredictor:
             inst._loaded_symbols.discard(symbol)
             inst._models.pop(symbol, None)
             inst._model_versions.pop(symbol, None)
+            inst._model_intervals.pop(symbol, None)
             inst._thresholds.pop(symbol, None)
             inst._vol_medians.pop(symbol, None)
         logger.info("predictor_cache_invalidated", symbol=symbol, instances=len(cls._instances))
@@ -99,8 +101,16 @@ class CryptoPredictor:
         self._loaded_symbols.discard(symbol)
         self._models.pop(symbol, None)
         self._model_versions.pop(symbol, None)
+        self._model_intervals.pop(symbol, None)
         self._thresholds.pop(symbol, None)
         self._vol_medians.pop(symbol, None)
+
+    def get_interval(self, symbol: str) -> str:
+        """Возвращает интервал обучения для моделей указанного символа (по умолчанию '15m')."""
+        if symbol in self._model_intervals:
+            for val in self._model_intervals[symbol].values():
+                return val
+        return "15m"
 
     async def load(self, db: AsyncSession, symbol: str) -> bool:
         """Ленивая загрузка моделей и порогов для low_vol и high_vol с авто-обновлением по БД."""
@@ -154,6 +164,7 @@ class CryptoPredictor:
 
             self._models[symbol] = {}
             self._model_versions[symbol] = {}
+            self._model_intervals[symbol] = {}
             self._thresholds[symbol] = {}
 
             for regime in ["low_vol", "high_vol"]:
@@ -181,6 +192,7 @@ class CryptoPredictor:
 
                 self._models[symbol][regime] = pickle.loads(row.model_blob)
                 self._model_versions[symbol][regime] = row.version
+                self._model_intervals[symbol][regime] = getattr(row, 'interval', '15m')
 
                 # Пороги: берем CRYPTO_THRESHOLD_BTCUSDT_low_vol или общие CRYPTO_THRESHOLD_UP_BTC / DOWN_BTC
                 thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"

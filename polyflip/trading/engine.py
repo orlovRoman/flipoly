@@ -309,7 +309,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 # Загружаем модель и пороги (запросы к БД произойдут только при первом вызове для символа)
                 await crypto_predictor.load(db_session, binance_symbol)
                 
-                candles = await get_recent_candles(db_session, binance_symbol, interval="5m", limit=100)
+                model_interval = crypto_predictor.get_interval(binance_symbol)
+                candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=100)
                 crypto_sig = crypto_predictor.predict(candles, binance_symbol)
                 
                 if not crypto_sig.features_ok:
@@ -488,7 +489,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     binance_symbol = "BTCUSDT" if market.asset.upper() == "BTC" else "ETHUSDT"
                     await crypto_predictor.load(db_session, binance_symbol)
                     
-                    candles = await get_recent_candles(db_session, binance_symbol, interval="5m", limit=100)
+                    model_interval = crypto_predictor.get_interval(binance_symbol)
+                    candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=100)
                     crypto_sig = crypto_predictor.predict(candles, binance_symbol)
                     
                     if not crypto_sig.features_ok:
