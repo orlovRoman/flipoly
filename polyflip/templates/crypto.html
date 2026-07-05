@@ -385,35 +385,35 @@
             const sorted = Object.entries(fi).sort((a, b) => b[1] - a[1]).slice(0, 15);
             
             const labelMap = {
-                'vol_ratio': 'Отношение объемов (vol_ratio)',
-                'vol_z_6': 'Z-оценка объема 6ч (vol_z_6)',
-                'vol_48': 'Объем 48ч (vol_48)',
-                'vol_24': 'Объем 24ч (vol_24)',
-                'vol_6': 'Объем 6ч (vol_6)',
-                'vol_1': 'Объем 1ч (vol_1)',
-                'dist_to_low_24': 'Спред до мин 24ч (dist_to_low_24)',
-                'dist_to_high_24': 'Спред до макс 24ч (dist_to_high_24)',
-                'dist_to_high_96': 'Спред до макс 96ч (dist_to_high_96)',
-                'ret_1': 'Доходность 1ч (ret_1)',
-                'ret_3': 'Доходность 3ч (ret_3)',
-                'ret_6': 'Доходность 6ч (ret_6)',
-                'ret_12': 'Доходность 12ч (ret_12)',
-                'ret_24': 'Доходность 24ч (ret_24)',
-                'ret_48': 'Доходность 48ч (ret_48)',
-                'bb_position': 'Позиция Боллинджера (bb_position)',
-                'bb_width': 'Ширина Боллинджера (bb_width)',
+                'vol_ratio': 'Отношение объемов',
+                'vol_z_6': 'Z-оценка общ 6ч',
+                'vol_48': 'Объем 48ч',
+                'vol_24': 'Объем 24ч',
+                'vol_6': 'Объем 6ч',
+                'vol_1': 'Объем 1ч',
+                'dist_to_low_24': 'Спред до мин 24ч',
+                'dist_to_high_24': 'Спред до макс 24ч',
+                'dist_to_high_96': 'Спред до макс 96ч',
+                'ret_1': 'Доходность 1ч',
+                'ret_3': 'Доходность 3ч',
+                'ret_6': 'Доходность 6ч',
+                'ret_12': 'Доходность 12ч',
+                'ret_24': 'Доходность 24ч',
+                'ret_48': 'Доходность 48ч',
+                'bb_position': 'Позиция BB',
+                'bb_width': 'Ширина BB',
                 'hour_utc': 'Час (UTC)',
-                'range_1': 'Волатильность 1ч (range_1)',
-                'range_6': 'Волатильность 6ч (range_6)',
-                'range_24': 'Волатильность 24ч (range_24)',
-                'range_48': 'Волатильность 48ч (range_48)',
-                'rsi_14': 'Индекс силы RSI 14 (rsi_14)',
-                'macd': 'MACD (macd)',
-                'macd_signal': 'MACD Сигнал (macd_signal)',
-                'macd_hist': 'MACD Гистограмма (macd_hist)',
-                'atr_14': 'ATR 14 (atr_14)',
-                'taker_buy_ratio': 'Taker Buy Ratio (taker_buy_ratio)',
-                'range_avg_24': 'Средняя волатильность 24ч (range_avg_24)'
+                'range_1': 'Волатильность 1ч',
+                'range_6': 'Волатильность 6ч',
+                'range_24': 'Волатильность 24ч',
+                'range_48': 'Волатильность 48ч',
+                'rsi_14': 'RSI 14',
+                'macd': 'MACD',
+                'macd_signal': 'MACD Сигнал',
+                'macd_hist': 'MACD Гист',
+                'atr_14': 'ATR 14',
+                'taker_buy_ratio': 'Taker Buy Ratio',
+                'range_avg_24': 'Ср. волат-ть 24ч'
             };
 
             const labels = sorted.map(x => labelMap[x[0]] || x[0]);
@@ -454,8 +454,8 @@
                             y: { 
                                 grid: { display: false }, 
                                 ticks: { 
-                                    color: '#ccc', 
-                                    font: { size: 11, family: 'Inter, sans-serif' } 
+                                    color: '#E2E8F0', 
+                                    font: { size: 13, family: 'Inter, sans-serif', weight: 'bold' } 
                                 } 
                             }
                         }
