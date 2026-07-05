@@ -151,7 +151,10 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
         if base_asset not in trade_assets_list:
             continue
             
-        mode = settings_dict.get(f"TRADING_MODE_{base_asset}", global_mode).lower()
+        mode_str = settings_dict.get(f"TRADING_MODE_{base_asset}", global_mode)
+        if not mode_str:
+            mode_str = global_mode
+        mode = mode_str.lower()
         
         if mode == "ml" and "USDT" not in m.asset:
             active_models[m.asset] = m.version
