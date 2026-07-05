@@ -361,15 +361,22 @@
             }
         }
 
+
+        const chartColors = [
+            '#00d2ff', '#3a7bd5', '#8e2de2', '#4a00e0', '#ff416c', 
+            '#ff4b2b', '#f7b733', '#fc4a1a', '#00b4db', '#0083b0',
+            '#56ab2f', '#a8e063', '#fdc830', '#f37335', '#11998e'
+        ];
+
         function updateFeatureImportanceChart() {
             const sym = document.getElementById('fi-symbol-selector').value;
             const ctx = document.getElementById('fi-chart').getContext('2d');
             
-            if (fiChart) {
-                fiChart.destroy();
-            }
-
             if (!statusData || !statusData.models || !statusData.models[sym] || !statusData.models[sym].feature_importance) {
+                if (fiChart) {
+                    fiChart.destroy();
+                    fiChart = null;
+                }
                 ctx.clearRect(0, 0, 300, 300);
                 return;
             }
@@ -386,8 +393,11 @@
                 'vol_1': 'Объем 1ч (vol_1)',
                 'dist_to_low_24': 'Спред до мин 24ч (dist_to_low_24)',
                 'dist_to_high_24': 'Спред до макс 24ч (dist_to_high_24)',
+                'dist_to_high_96': 'Спред до макс 96ч (dist_to_high_96)',
                 'ret_1': 'Доходность 1ч (ret_1)',
+                'ret_3': 'Доходность 3ч (ret_3)',
                 'ret_6': 'Доходность 6ч (ret_6)',
+                'ret_12': 'Доходность 12ч (ret_12)',
                 'ret_24': 'Доходность 24ч (ret_24)',
                 'ret_48': 'Доходность 48ч (ret_48)',
                 'bb_position': 'Позиция Боллинджера (bb_position)',
@@ -401,34 +411,57 @@
                 'macd': 'MACD (macd)',
                 'macd_signal': 'MACD Сигнал (macd_signal)',
                 'macd_hist': 'MACD Гистограмма (macd_hist)',
-                'atr_14': 'ATR 14 (atr_14)'
+                'atr_14': 'ATR 14 (atr_14)',
+                'taker_buy_ratio': 'Taker Buy Ratio (taker_buy_ratio)',
+                'range_avg_24': 'Средняя волатильность 24ч (range_avg_24)'
             };
 
-            fiChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: sorted.map(x => labelMap[x[0]] || x[0]),
-                    datasets: [{
-                        label: 'Важность фичи',
-                        data: sorted.map(x => x[1]),
-                        backgroundColor: '#ffc107',
-                        borderWidth: 0,
-                        borderRadius: 5
-                    }]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
+            const labels = sorted.map(x => labelMap[x[0]] || x[0]);
+            const data = sorted.map(x => x[1]);
+            const bgColors = sorted.map((_, i) => chartColors[i % chartColors.length]);
+
+            if (fiChart) {
+                fiChart.data.labels = labels;
+                fiChart.data.datasets[0].data = data;
+                fiChart.data.datasets[0].backgroundColor = bgColors;
+                fiChart.update('none'); // Update without animation to prevent flashing on intervals
+            } else {
+                fiChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Важность фичи',
+                            data: data,
+                            backgroundColor: bgColors,
+                            borderWidth: 0,
+                            borderRadius: 6
+                        }]
                     },
-                    scales: {
-                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#888' } },
-                        y: { grid: { display: false }, ticks: { color: '#FFF', font: { size: 12 } } }
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: { duration: 500 },
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            x: { 
+                                grid: { color: 'rgba(255,255,255,0.05)' }, 
+                                ticks: { color: '#a0a0a0', font: { family: 'Inter, sans-serif' } } 
+                            },
+                            y: { 
+                                grid: { display: false }, 
+                                ticks: { 
+                                    color: '#E2E8F0', 
+                                    font: { size: 13, family: 'Inter, sans-serif', weight: 'bold' } 
+                                } 
+                            }
+                        }
                     }
-                }
-            });
+                });
+            }
         }
 
         async function saveSettings() {
