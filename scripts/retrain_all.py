@@ -7,6 +7,14 @@ logger = structlog.get_logger(__name__)
 
 async def main():
     async with async_session() as db:
+        from sqlalchemy import select, func
+        from polyflip.db.models import CryptoCandle
+        counts = (await db.execute(
+            select(CryptoCandle.symbol, CryptoCandle.interval, func.count())
+            .group_by(CryptoCandle.symbol, CryptoCandle.interval)
+        )).all()
+        print(f"Candles counts in DB: {counts}")
+
         for symbol in ["BTCUSDT", "ETHUSDT"]:
             t = CryptoModelTrainer(db)
             try:
