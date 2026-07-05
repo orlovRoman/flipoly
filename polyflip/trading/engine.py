@@ -321,8 +321,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 # Запрашиваем свежие цены Polymarket YES-токена
                 fresh_yes_prices = await api_client.get_market_prices(yes_token_id)
                 if not fresh_yes_prices or "current_yes_price" not in fresh_yes_prices:
+                    error_detail = fresh_yes_prices.get("error", "unknown") if fresh_yes_prices else "None returned"
                     await save_or_update_skipped_trade(
-                        db_session, market, "No fresh yes price for crypto standalone",
+                        db_session, market, f"No fresh yes price: {error_detail}",
                         0.0, crypto_sig.model_version, start_time, existing_skipped=existing_skipped
                     )
                     continue
