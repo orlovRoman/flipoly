@@ -167,7 +167,7 @@ def decide_ml_trend(
     edge = compute_edge(p_win, buy_price)
     
     min_edge = float(config.get("MIN_EDGE", MIN_EDGE))
-    max_edge = float(config.get("MAX_EDGE", MAX_EDGE_FILTER))
+    max_edge = float(config.get("MAX_BET_EDGE", config.get("MAX_EDGE", MAX_EDGE_FILTER)))
     if edge < min_edge or edge > max_edge:
         return TradeDecision("SKIP", 0, 0, f"Edge out of bounds (edge={edge:.4f})", "SKIP", p_flip=p_flip, edge=edge)
 
@@ -260,6 +260,14 @@ def decide_crypto_trend(
     Сигнал UP (рост) -> покупаем YES.
     Сигнал DOWN (падение) -> покупаем NO.
     """
+    if entry_price <= 0.0:
+        return TradeDecision(
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
+            reason=f"entry_price={entry_price} invalid",
+            strategy_type="CRYPTO_TREND",
+            p_up=crypto.p_up, strike=crypto.strike
+        )
+
     if not crypto.features_ok:
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
@@ -268,7 +276,7 @@ def decide_crypto_trend(
         )
 
     min_edge = float(config.get("CRYPTO_MIN_EDGE", config.get("MIN_EDGE", CRYPTO_MIN_EDGE)))
-    max_edge = float(config.get("MAX_EDGE_FILTER", MAX_EDGE_FILTER))
+    max_edge = float(config.get("MAX_BET_EDGE", config.get("MAX_EDGE_FILTER", MAX_EDGE_FILTER)))
 
     if crypto.direction == "NONE" or crypto.edge < min_edge:
         return TradeDecision(

@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 from polyflip.config import settings
 from polyflip.trading.feature_builder import MarketSignal
 from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider, decide_crypto_trend
-from polyflip.crypto.predictor import CryptoPredictor
+from polyflip.crypto.predictor import CryptoPredictor, MIN_CANDLES_REQUIRED
 from polyflip.crypto.candle_repository import get_recent_candles
 
 from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory, SlippageLog
@@ -137,10 +137,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "USE_CRYPTO_CONFIRM",
         "CRYPTO_STANDALONE",
         "CRYPTO_MIN_EDGE",
-        "CRYPTO_THRESHOLD_UP_BTC",
-        "CRYPTO_THRESHOLD_DOWN_BTC",
-        "CRYPTO_THRESHOLD_UP_ETH",
-        "CRYPTO_THRESHOLD_DOWN_ETH",
+        # NOTE: vol-режимные пороги (CRYPTO_THRESHOLD_BTCUSDT_low_vol и т.д.)
+        # загружаются predictor.load() напрямую из RuntimeSettings — не передавать через settings_db.
     ]
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
@@ -310,7 +308,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 await crypto_predictor.load(db_session, binance_symbol)
                 
                 model_interval = crypto_predictor.get_interval(binance_symbol)
-                candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=100)
+                candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
                 crypto_sig = crypto_predictor.predict(candles, binance_symbol)
                 
                 if not crypto_sig.features_ok:
@@ -490,7 +488,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     await crypto_predictor.load(db_session, binance_symbol)
                     
                     model_interval = crypto_predictor.get_interval(binance_symbol)
-                    candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=100)
+                    candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
                     crypto_sig = crypto_predictor.predict(candles, binance_symbol)
                     
                     if not crypto_sig.features_ok:

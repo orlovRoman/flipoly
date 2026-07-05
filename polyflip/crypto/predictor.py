@@ -1,5 +1,6 @@
 from __future__ import annotations
 import pickle
+import weakref
 from dataclasses import dataclass
 from typing import Optional, Any
 import numpy as np
@@ -13,8 +14,9 @@ from polyflip.crypto.feature_builder import build_crypto_features, CRYPTO_FEATUR
 from polyflip.crypto.edge import compute_crypto_edge
 from polyflip.crypto.trainer import CRYPTO_FEATURES
 
-
 logger = structlog.get_logger(__name__)
+
+MIN_CANDLES_REQUIRED = 110   # запас +10% к min_candles=100
 
 # Схема валидации входного вектора признаков перед инференсом
 class CryptoFeaturesValidator(BaseModel):
@@ -70,7 +72,7 @@ class CryptoSignal:
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
-    _instances: list["CryptoPredictor"] = []
+    _instances: list[weakref.ref] = []
 
     def __init__(self) -> None:
         self._models: dict[str, dict[str, Any]] = {}
@@ -79,7 +81,7 @@ class CryptoPredictor:
         self._thresholds: dict[str, dict[str, tuple[float, float]]] = {}
         self._vol_medians: dict[str, float] = {}
         self._loaded_symbols: set[str] = set()
-        CryptoPredictor._instances.append(self)
+        CryptoPredictor._instances.append(weakref.ref(self))
 
     @classmethod
     def invalidate_all(cls, symbol: str) -> None:
@@ -87,14 +89,19 @@ class CryptoPredictor:
         Инвалидирует кэш для symbol во всех живых инстансах.
         Вызывается из trainer.py после успешного переобучения.
         """
-        for inst in cls._instances:
-            inst._loaded_symbols.discard(symbol)
-            inst._models.pop(symbol, None)
-            inst._model_versions.pop(symbol, None)
-            inst._model_intervals.pop(symbol, None)
-            inst._thresholds.pop(symbol, None)
-            inst._vol_medians.pop(symbol, None)
-        logger.info("predictor_cache_invalidated", symbol=symbol, instances=len(cls._instances))
+        alive = []
+        for ref in cls._instances:
+            inst = ref()
+            if inst is not None:
+                inst._loaded_symbols.discard(symbol)
+                inst._models.pop(symbol, None)
+                inst._model_versions.pop(symbol, None)
+                inst._model_intervals.pop(symbol, None)
+                inst._thresholds.pop(symbol, None)
+                inst._vol_medians.pop(symbol, None)
+                alive.append(ref)
+        cls._instances = alive
+        logger.info("predictor_cache_invalidated", symbol=symbol, instances=len(alive))
 
     def invalidate(self, symbol: str) -> None:
         """Инвалидирует локальный кэш для указанного символа."""
