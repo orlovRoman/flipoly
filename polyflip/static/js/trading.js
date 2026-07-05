@@ -684,7 +684,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.favoriteMinPrice) settingsToSave.FAVORITE_MIN_PRICE = parseFloat(settingsElements.favoriteMinPrice.value);
       if (settingsElements.favoriteMaxPrice) settingsToSave.FAVORITE_MAX_PRICE = parseFloat(settingsElements.favoriteMaxPrice.value);
       if (settingsElements.outsiderMaxPrice) settingsToSave.OUTSIDER_MAX_PRICE = parseFloat(settingsElements.outsiderMaxPrice.value);
-      if (settingsElements.bypassBetSizeCheck) settingsToSave.BYPASS_BET_SIZE_CHECK = settingsElements.bypassBetSizeCheck.checked ? "true" : "false";
+      
+      const bypassValue = settingsElements.bypassBetSizeCheck ? (settingsElements.bypassBetSizeCheck.checked ? "true" : "false") : null;
+      
       if (settingsElements.liquidityFraction) settingsToSave.LIQUIDITY_FRACTION = parseFloat(settingsElements.liquidityFraction.value);
       if (settingsElements.maxPriceDrift) settingsToSave.MAX_PRICE_DRIFT = parseFloat(settingsElements.maxPriceDrift.value);
       settingsToSave.TRADE_ASSETS = tradeAssets;
@@ -710,6 +712,14 @@ document.addEventListener("DOMContentLoaded", () => {
       });
 
       try {
+        if (bypassValue !== null) {
+            await fetch(window.API_BASE + "/api/settings/security/BYPASS_BET_SIZE_CHECK", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+                body: JSON.stringify({ value: bypassValue }),
+            });
+        }
+
         const res = await fetch(window.API_BASE + "/api/settings/bulk", {
           method: "PUT",
           headers: {
