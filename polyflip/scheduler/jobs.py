@@ -10,6 +10,7 @@ from polyflip.trading.engine import trade_worker_cycle
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.db.connection import async_session
+from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.config import settings
 from sqlalchemy import select, and_, delete
 import os
