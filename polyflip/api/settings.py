@@ -16,6 +16,7 @@ from polyflip.constants import (
     FAVORITE_MIN_EDGE, CRYPTO_MIN_EDGE,
     MAX_EDGE_FILTER, MAX_EDGE_SCALING,
 )
+from polyflip.settings_registry import editable_keys as _registry_editable_keys
 
 logger = structlog.get_logger(__name__)
 
@@ -179,45 +180,8 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
     # Backward-compatibility: фронт может слать MAX_EDGE — редиректим в MAX_BET_EDGE
     if key == "MAX_EDGE":
         key = "MAX_BET_EDGE"
-    valid_keys = [
-        "ACTIVE_FEATURES", 
-        "TRADE_EXECUTION_TIME_SEC", 
-        "TRADE_MIN_TIME_LEFT_SEC",
-        "TRADE_MAX_TIME_LEFT_SEC",
-        "BET_SIZING_MODE",
-        "MAX_BET_SIZE_USDC",
-        "TRADE_BET_SIZE_USDC", 
-        "TRADE_NO_FLIP_THRESHOLD", 
-        "DEAD_ZONE_WIDTH", 
-        "DAILY_LOSS_LIMIT_USDC",
-        "TRADING_ENABLED",
-        "INITIAL_CAPITAL",
-        "TRADE_MIN_PRICE",
-        "TRADE_MAX_PRICE",
-        "TRADE_ASSETS",
-        "TRADING_MODE",
-        "FAVORITE_MODE_ENTRY_SEC",
-        "LIVE_POLL_INTERVAL_SECONDS",
-        "FAVORITE_THRESHOLD",
-        "MIN_EDGE",
-        "MAX_BET_EDGE",
-        "MAX_EDGE_FILTER",     # фильтр аномального edge
-        "TRADE_ON_FLIP",
-        "FLIP_THRESHOLD",
-        "NO_MIN_EDGE",
-        "AUTO_DEAD_ZONE",
-        # AUTO_DEAD_ZONE_WIDTH удалён — движок читает DEAD_ZONE_WIDTH
-        "FAVORITE_MIN_PRICE",
-        "FAVORITE_MAX_PRICE",
-        "FAVORITE_MIN_EDGE",
-        "LIQUIDITY_FRACTION",
-        "BYPASS_BET_SIZE_CHECK",
-        "MAX_PRICE_DRIFT",
-        "OUTSIDER_MAX_PRICE",
-        "CRYPTO_MIN_EDGE",
-        "USE_CRYPTO_CONFIRM",
-        "CRYPTO_STANDALONE"
-    ]
+    # valid_keys берётся из реестра — единственного источника истины
+    valid_keys = list(_registry_editable_keys())
     
     is_per_asset_key = False
     for asset in settings.asset_list:
@@ -259,8 +223,8 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
                     if val < 0.005:
                         raise HTTPException(status_code=400, detail=f"{key} as fraction must be ≥ 0.005 (0.5%)")
                     
-                if key in ["MIN_EDGE", "MAX_BET_EDGE"]:
-                    # Cross-validation: MIN_EDGE < MAX_BET_EDGE
+                if key in ["MIN_EDGE", "MAX_BET_EDGE", "MAX_EDGE_FILTER"]:
+                    # Cross-validation: MIN_EDGE < MAX_EDGE_FILTER ≤ MAX_BET_EDGE
                     norm_val = float(payload.value)
                     async with SessionContext(db) as session:
                         if key == "MAX_BET_EDGE":
@@ -273,6 +237,12 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
                             current_max = float(max_edge_row.value) if max_edge_row else getattr(settings, 'MAX_BET_EDGE', 0.10)
                             if norm_val >= current_max:
                                 raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be less than MAX_BET_EDGE ({current_max})")
+                        elif key == "MAX_EDGE_FILTER":
+                            # MAX_EDGE_FILTER (фильтр аномалий) должен быть ≤ MAX_BET_EDGE (масштабирование)
+                            max_bet_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE"))).scalar_one_or_none()
+                            current_max_bet = float(max_bet_row.value) if max_bet_row else getattr(settings, 'MAX_BET_EDGE', 0.40)
+                            if norm_val > current_max_bet:
+                                raise HTTPException(status_code=400, detail=f"MAX_EDGE_FILTER ({norm_val}) не должен превышать MAX_BET_EDGE ({current_max_bet})")
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"{key} must be a number")
 
@@ -388,8 +358,8 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
     if key == "MAX_EDGE_FILTER":
         try:
             val = float(payload.value)
-            if not (0.05 <= val <= 0.90):
-                raise HTTPException(status_code=400, detail="MAX_EDGE_FILTER must be 0.05..0.90")
+            if not (0.05 <= val <= 0.50):
+                raise HTTPException(status_code=400, detail="MAX_EDGE_FILTER must be 0.05..0.50")
             payload.value = str(val)
         except ValueError:
             raise HTTPException(status_code=400, detail="MAX_EDGE_FILTER must be a number")

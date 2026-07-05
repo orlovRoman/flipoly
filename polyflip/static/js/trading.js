@@ -229,7 +229,7 @@ document.addEventListener("DOMContentLoaded", () => {
     noMinEdge: document.getElementById("NO_MIN_EDGE"),
     cryptoMinEdge: document.getElementById("CRYPTO_MIN_EDGE"),
     autoDeadZone: document.getElementById("AUTO_DEAD_ZONE"),
-    autoDeadZoneWidth: document.getElementById("AUTO_DEAD_ZONE_WIDTH"),
+    // autoDeadZoneWidth удалён — единый параметр ширины: DEAD_ZONE_WIDTH
     favoriteMinEdge: document.getElementById("FAVORITE_MIN_EDGE"),
     favoriteMinPrice: document.getElementById("FAVORITE_MIN_PRICE"),
     favoriteMaxPrice: document.getElementById("FAVORITE_MAX_PRICE"),
@@ -241,37 +241,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateDeadZoneInfo() {
     if (!settingsElements.autoDeadZone) return;
-    const isAuto = settingsElements.autoDeadZone.checked;
-    const autoWidth = parseFloat(settingsElements.autoDeadZoneWidth.value) / 100 || 0.10;
-    const manualWidth = parseFloat(settingsElements.deadZoneWidth.value) / 100 || 0.15;
+    const width = parseFloat(settingsElements.deadZoneWidth.value) / 100 || 0.10;
     const noFlip = parseFloat(settingsElements.noFlipThreshold.value) / 100 || 0.45;
     
-    // Toggle fields
-    if (isAuto) {
-      document.getElementById("auto-dead-zone-width-group").style.display = "block";
-      document.getElementById("manual-dead-zone-width-group").style.display = "none";
-      
-      const baseFlip = currentFlipThreshold;
-      const lower = Math.max(0, baseFlip - autoWidth / 2);
-      const upper = Math.min(1, baseFlip + autoWidth / 2);
-      document.getElementById("dead-zone-range-text").textContent = 
-        `${Math.round(lower * 100)}% – ${Math.round(upper * 100)}% (Авто: YES < ${Math.round(lower * 100)}%, NO > ${Math.round(upper * 100)}%)`;
-    } else {
-      document.getElementById("auto-dead-zone-width-group").style.display = "none";
-      document.getElementById("manual-dead-zone-width-group").style.display = "block";
-      
-      const lower = noFlip;
-      const upper = noFlip + manualWidth;
-      document.getElementById("dead-zone-range-text").textContent = 
-        `${Math.round(lower * 100)}% – ${Math.round(upper * 100)}% (Ручной: YES < ${Math.round(lower * 100)}%, NO > ${Math.round(upper * 100)}%)`;
+    // Два записа "auto-dead-zone-width-group" больше нет — всегда показываем dead-zone-width-group
+    const zoneGroup = document.getElementById("dead-zone-width-group");
+    if (zoneGroup) zoneGroup.style.display = "block";
+    
+    const lower = noFlip;
+    const upper = noFlip + width;
+    const rangeEl = document.getElementById("dead-zone-range-text");
+    if (rangeEl) {
+      rangeEl.textContent =
+        `${Math.round(lower * 100)}% – ${Math.round(upper * 100)}% (YES < ${Math.round(lower * 100)}%, NO > ${Math.round(upper * 100)}%)`;
     }
   }
 
   if (settingsElements.autoDeadZone) {
     settingsElements.autoDeadZone.addEventListener("change", updateDeadZoneInfo);
-  }
-  if (settingsElements.autoDeadZoneWidth) {
-    settingsElements.autoDeadZoneWidth.addEventListener("input", updateDeadZoneInfo);
   }
   if (settingsElements.deadZoneWidth) {
     settingsElements.deadZoneWidth.addEventListener("input", updateDeadZoneInfo);

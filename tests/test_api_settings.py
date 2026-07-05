@@ -100,3 +100,13 @@ def test_engine_no_references_to_removed_legacy():
     src = (ROOT / "polyflip/trading/engine.py").read_text(encoding="utf-8")
     for field in ("TRADE_ONLY_FAVORITE", "DRIFT_THRESHOLD", "BET_FRACTION"):
         assert field not in src, f"engine.py содержит ссылку на удалённое поле {field}"
+
+def test_no_min_edge_constant_value():
+    """
+    Значение в константах должно быть явно задокументировано.
+    Ранее сидер сеял '0.05', а константа была 0.04.
+    При смене нужно учитывать, что у старых инсталляций в БД останется старое значение.
+    """
+    from polyflip.constants import NO_MIN_EDGE
+    import pytest
+    assert NO_MIN_EDGE == pytest.approx(0.04), "Если меняешь — обновить и DEFAULTS и комментарий"
