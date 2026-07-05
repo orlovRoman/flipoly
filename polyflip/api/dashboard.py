@@ -147,15 +147,15 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
     active_models = {}
     for m in models_rows:
         # Определяем базовый ассет (BTC, ETH и т.д.)
-        base_asset = m.asset.split("USDT")[0] if "USDT" in m.asset else m.asset
+        base_asset = m.asset.split("USDT")[0] if "USDT" in m.asset else m.asset.split("_")[0]
         if base_asset not in trade_assets_list:
             continue
             
-        mode = settings_dict.get(f"TRADING_MODE_{base_asset}", global_mode)
+        mode = settings_dict.get(f"TRADING_MODE_{base_asset}", global_mode).lower()
         
         if mode == "ml" and "USDT" not in m.asset:
             active_models[m.asset] = m.version
-        elif mode == "CRYPTO" and "USDT" in m.asset:
+        elif mode == "crypto" and "USDT" in m.asset:
             active_models[m.asset] = m.version
         
     rolling_accuracy = {}
