@@ -30,3 +30,9 @@ def test_feature_builder_produces_all_features():
     out = build_features(candles_df)
     missing = [f for f in CRYPTO_FEATURES if f not in out.columns]
     assert not missing, f"Отсутствуют в build_features: {missing}"
+
+    # Проверяем что ключевые фичи не all-NaN
+    critical = ["ret_1", "vol_ratio", "rsi_14", "dist_to_high_96", "vol_z_6"]
+    for col in critical:
+        if col in out.columns:
+            assert out[col].notna().any(), f"{col} — все значения NaN"

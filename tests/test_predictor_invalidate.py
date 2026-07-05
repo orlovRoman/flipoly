@@ -1,7 +1,19 @@
-def test_invalidate_all_clears_cache():
-    from polyflip.crypto.predictor import CryptoPredictor
-    p1, p2 = CryptoPredictor(), CryptoPredictor()
+import pytest
+from polyflip.crypto.predictor import CryptoPredictor
 
+
+@pytest.fixture(autouse=True)
+def clean_predictor_instances():
+    """Очищаем _instances до и после каждого теста."""
+    original = CryptoPredictor._instances.copy()
+    CryptoPredictor._instances.clear()
+    yield
+    CryptoPredictor._instances.clear()
+    CryptoPredictor._instances.extend(original)
+
+
+def test_invalidate_all_clears_cache():
+    p1, p2 = CryptoPredictor(), CryptoPredictor()
     for p in [p1, p2]:
         p._loaded_symbols.add("BTCUSDT")
         p._models["BTCUSDT"]         = {"low_vol": object()}
@@ -18,13 +30,11 @@ def test_invalidate_all_clears_cache():
 
 
 def test_invalidate_other_symbol_untouched():
-    from polyflip.crypto.predictor import CryptoPredictor
     p = CryptoPredictor()
     p._loaded_symbols.update({"BTCUSDT", "ETHUSDT"})
     p._models["ETHUSDT"] = {"low_vol": object()}
 
     CryptoPredictor.invalidate_all("BTCUSDT")
 
-    # ETHUSDT должен остаться нетронутым
     assert "ETHUSDT" in p._loaded_symbols
     assert "ETHUSDT" in p._models

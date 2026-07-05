@@ -155,11 +155,13 @@ def run_backtest(
     high_mask = ~low_mask
 
     if "low_vol" in models and low_mask.any():
-        probas[low_mask.values]  = models["low_vol"].predict_proba(X_test[low_mask])[:, 1]
-    if "high_vol" in models and high_mask.any():
-        probas[high_mask.values] = models["high_vol"].predict_proba(X_test[high_mask])[:, 1]
+        probas[low_mask.values] = models["low_vol"].predict_proba(X_test[low_mask])[:, 1]
+
+    if "high_vol" in models:
+        if high_mask.any():
+            probas[high_mask.values] = models["high_vol"].predict_proba(X_test[high_mask])[:, 1]
     elif "low_vol" in models and high_mask.any():
-        # Fallback на low_vol если нет high_vol
+        # Fallback: нет high_vol модели — используем low_vol
         probas[high_mask.values] = models["low_vol"].predict_proba(X_test[high_mask])[:, 1]
 
     _min_edge   = min_edge if min_edge is not None else BACKTEST_MIN_EDGE

@@ -8,6 +8,7 @@ LightGBM-тренер для крипто-модели Up/Down на OHLCV-све
 from __future__ import annotations
 
 import asyncio
+import json
 import pickle
 from datetime import datetime, timezone
 
@@ -15,7 +16,7 @@ import numpy as np
 import pandas as pd
 import structlog
 from lightgbm import LGBMClassifier
-from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
+from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator, calibration_curve
 from sklearn.metrics import roc_auc_score, precision_recall_curve
 from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import func, select, update
@@ -39,7 +40,7 @@ from polyflip.constants import (
     MIN_PRECISION_FOR_THRESHOLD,
 )
 from polyflip.crypto.candle_repository import get_recent_candles
-from polyflip.crypto.feature_builder import build_features
+from polyflip.crypto.feature_builder import build_features, CRYPTO_FEATURE_COLUMNS
 from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
 
 logger = structlog.get_logger(__name__)
@@ -64,8 +65,6 @@ CRYPTO_FEATURES = [
     # Time
     "hour_utc", "dow",
 ]
-
-from polyflip.crypto.feature_builder import CRYPTO_FEATURE_COLUMNS
 
 # Fail fast при старте: CRYPTO_FEATURES должен быть подмножеством CRYPTO_FEATURE_COLUMNS
 _unknown = set(CRYPTO_FEATURES) - set(CRYPTO_FEATURE_COLUMNS)
@@ -146,7 +145,6 @@ def _fit_lgbm_and_serialize(
     baseline_auc = float(max(y.mean(), 1.0 - y.mean()))
 
     # ECE через OOF
-    from sklearn.calibration import calibration_curve
     try:
         frac_pos, mean_pred = calibration_curve(y, oof_scores, n_bins=10, strategy="uniform")
         ece = float(np.mean(np.abs(frac_pos - mean_pred)))
@@ -287,7 +285,6 @@ class CryptoModelTrainer:
         df_high = df_filtered[df_filtered["vol_ratio"] >  vol_median]
 
         trained_any = False
-        import json
         from polyflip.crypto.predictor import CryptoPredictor
 
         for regime, df_regime in [("low_vol", df_low), ("high_vol", df_high)]:
