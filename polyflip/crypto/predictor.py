@@ -103,9 +103,45 @@ class CryptoPredictor:
         self._vol_medians.pop(symbol, None)
 
     async def load(self, db: AsyncSession, symbol: str) -> bool:
-        """Ленивая загрузка моделей и порогов для low_vol и high_vol."""
-        if symbol in self._loaded_symbols:
-            return True
+        """Ленивая загрузка моделей и порогов для low_vol и high_vol с авто-обновлением по БД."""
+        try:
+            allowed_assets = [f"{symbol}_low_vol", f"{symbol}_high_vol"]
+            stmt = select(ModelRegistry.asset, ModelRegistry.version).where(
+                ModelRegistry.asset.in_(allowed_assets),
+                ModelRegistry.is_active
+            )
+            db_versions = (await db.execute(stmt)).all()
+            db_ver_dict = {row.asset: row.version for row in db_versions}
+            
+            # Если для какого-то режима модель еще не обучалась, делаем fallback на "CRYPTO"
+            for regime in ["low_vol", "high_vol"]:
+                reg_asset = f"{symbol}_{regime}"
+                if reg_asset not in db_ver_dict:
+                    fallback_stmt = select(ModelRegistry.version).where(
+                        ModelRegistry.asset == "CRYPTO",
+                        ModelRegistry.is_active
+                    )
+                    f_ver = (await db.execute(fallback_stmt)).scalar()
+                    if f_ver is not None:
+                        db_ver_dict[reg_asset] = f_ver
+            
+            # Проверяем, совпадает ли то, что загружено в память, с актуальным в БД
+            if symbol in self._loaded_symbols:
+                cache_ok = True
+                for asset, ver in db_ver_dict.items():
+                    regime = asset.replace(f"{symbol}_", "")
+                    if self._model_versions.get(symbol, {}).get(regime) != ver:
+                        cache_ok = False
+                        break
+                if cache_ok:
+                    return True
+                else:
+                    logger.info("new_models_detected_in_db", symbol=symbol, old_versions=self._model_versions.get(symbol), new_versions=db_ver_dict)
+                    self.invalidate(symbol)
+        except Exception as e:
+            logger.warning("failed_to_check_db_model_versions", symbol=symbol, error=str(e))
+            if symbol in self._loaded_symbols:
+                return True
 
         try:
             # 1. Загружаем медиану волатильности из RuntimeSettings
