@@ -31,36 +31,37 @@ async def get_all_settings():
     settings_dict = {
         "ACTIVE_FEATURES": db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES),
         "TRADE_EXECUTION_TIME_SEC": db.get("TRADE_EXECUTION_TIME_SEC", str(settings.TRADE_EXECUTION_TIME_SEC)),
-        "TRADE_MIN_TIME_LEFT_SEC": db.get("TRADE_MIN_TIME_LEFT_SEC", str(getattr(settings, 'TRADE_MIN_TIME_LEFT_SEC', 10))),
-        "TRADE_MAX_TIME_LEFT_SEC": db.get("TRADE_MAX_TIME_LEFT_SEC", str(getattr(settings, 'TRADE_MAX_TIME_LEFT_SEC', 360))),
-        "BET_SIZING_MODE": db.get("BET_SIZING_MODE", "scaled"),
-        "MAX_BET_SIZE_USDC": db.get("MAX_BET_SIZE_USDC", "50.0"),
+        "TRADE_MIN_TIME_LEFT_SEC": db.get("TRADE_MIN_TIME_LEFT_SEC", str(settings.TRADE_MIN_TIME_LEFT_SEC)),
+        "TRADE_MAX_TIME_LEFT_SEC": db.get("TRADE_MAX_TIME_LEFT_SEC", str(settings.TRADE_MAX_TIME_LEFT_SEC)),
+        "BET_SIZING_MODE": db.get("BET_SIZING_MODE", settings.BET_SIZING_MODE),
+        "MAX_BET_SIZE_USDC": db.get("MAX_BET_SIZE_USDC", str(settings.MAX_BET_SIZE_USDC)),
         "TRADE_BET_SIZE_USDC": db.get("TRADE_BET_SIZE_USDC", str(settings.TRADE_BET_SIZE_USDC)),
         "TRADE_NO_FLIP_THRESHOLD": db.get("TRADE_NO_FLIP_THRESHOLD", str(settings.TRADE_NO_FLIP_THRESHOLD)),
-        "DEAD_ZONE_WIDTH": db.get("DEAD_ZONE_WIDTH", str(getattr(settings, 'DEAD_ZONE_WIDTH', 0.15))),
-        "DAILY_LOSS_LIMIT_USDC": db.get("DAILY_LOSS_LIMIT_USDC", str(getattr(settings, 'DAILY_LOSS_LIMIT_USDC', DAILY_LOSS_LIMIT_USDC))),
+        "DEAD_ZONE_WIDTH": db.get("DEAD_ZONE_WIDTH", str(settings.DEAD_ZONE_WIDTH)),
+        "DAILY_LOSS_LIMIT_USDC": db.get("DAILY_LOSS_LIMIT_USDC", str(settings.DAILY_LOSS_LIMIT_USDC)),
         "TRADING_ENABLED": db.get("TRADING_ENABLED", "true" if settings.TRADING_ENABLED else "false"),
-        "INITIAL_CAPITAL": db.get("INITIAL_CAPITAL", str(getattr(settings, 'INITIAL_CAPITAL', 100.0))),
-        "TRADE_MIN_PRICE": db.get("TRADE_MIN_PRICE", str(getattr(settings, 'TRADE_MIN_PRICE', 0.05))),
-        "TRADE_MAX_PRICE": db.get("TRADE_MAX_PRICE", str(getattr(settings, 'TRADE_MAX_PRICE', 0.95))),
-        "TRADE_ASSETS": db.get("TRADE_ASSETS", str(getattr(settings, 'TRADE_ASSETS', 'BTC,ETH'))),
+        "INITIAL_CAPITAL": db.get("INITIAL_CAPITAL", str(settings.INITIAL_CAPITAL)),
+        "TRADE_MIN_PRICE": db.get("TRADE_MIN_PRICE", str(settings.TRADE_MIN_PRICE)),
+        "TRADE_MAX_PRICE": db.get("TRADE_MAX_PRICE", str(settings.TRADE_MAX_PRICE)),
+        "TRADE_ASSETS": db.get("TRADE_ASSETS", settings.TRADE_ASSETS),
         "TRADING_MODE": db.get("TRADING_MODE", settings.TRADING_MODE),
         "FAVORITE_MODE_ENTRY_SEC": db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)),
         "LIVE_POLL_INTERVAL_SECONDS": db.get("LIVE_POLL_INTERVAL_SECONDS", str(settings.LIVE_POLL_INTERVAL_SECONDS)),
         "FAVORITE_THRESHOLD": db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)),
         "MIN_EDGE": db.get("MIN_EDGE", str(settings.MIN_EDGE)),
-        "MAX_EDGE": db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)),
         "MAX_BET_EDGE": db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)),
-        "TRADE_ON_FLIP": db.get("TRADE_ON_FLIP", "false"),
-        "FLIP_THRESHOLD": db.get("FLIP_THRESHOLD", str(FLIP_THRESHOLD)),
-        "NO_MIN_EDGE": db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)),
-        "AUTO_DEAD_ZONE": db.get("AUTO_DEAD_ZONE", "true"),
-        "AUTO_DEAD_ZONE_WIDTH": db.get("AUTO_DEAD_ZONE_WIDTH", str(AUTO_DEAD_ZONE_WIDTH)),
+        "TRADE_ON_FLIP": db.get("TRADE_ON_FLIP", "true" if settings.TRADE_ON_FLIP else "false"),
+        "FLIP_THRESHOLD": db.get("FLIP_THRESHOLD", str(settings.FLIP_THRESHOLD)),
+        "NO_MIN_EDGE": db.get("NO_MIN_EDGE", str(settings.NO_MIN_EDGE)),
+        "AUTO_DEAD_ZONE": db.get("AUTO_DEAD_ZONE", "true" if settings.AUTO_DEAD_ZONE else "false"),
+        "AUTO_DEAD_ZONE_WIDTH": db.get("AUTO_DEAD_ZONE_WIDTH", str(settings.AUTO_DEAD_ZONE_WIDTH)),
         "FAVORITE_MIN_PRICE": db.get("FAVORITE_MIN_PRICE", "0.55"),
         "FAVORITE_MAX_PRICE": db.get("FAVORITE_MAX_PRICE", "0.95"),
-        "MAX_BET_SIZE_USDC": db.get("MAX_BET_SIZE_USDC", "50.0"),
-        "MAX_PRICE_DRIFT": db.get("MAX_PRICE_DRIFT", "0.10"),
-        "OUTSIDER_MAX_PRICE": db.get("OUTSIDER_MAX_PRICE", "0.45")
+        "MAX_PRICE_DRIFT": db.get("MAX_PRICE_DRIFT", str(settings.MAX_PRICE_DRIFT)),
+        "OUTSIDER_MAX_PRICE": db.get("OUTSIDER_MAX_PRICE", str(settings.OUTSIDER_MAX_PRICE)),
+        "CRYPTO_MIN_EDGE": db.get("CRYPTO_MIN_EDGE", "0.03"),
+        "USE_CRYPTO_CONFIRM": db.get("USE_CRYPTO_CONFIRM", "false"),
+        "CRYPTO_STANDALONE": db.get("CRYPTO_STANDALONE", "false")
     }
 
     for asset in settings.asset_list:
@@ -168,8 +169,6 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             if self.own:
                 await self.session.__aexit__(exc_type, exc_val, exc_tb)
-    if key == "MAX_EDGE":
-        key = "MAX_BET_EDGE"
     valid_keys = [
         "ACTIVE_FEATURES", 
         "TRADE_EXECUTION_TIME_SEC", 
@@ -192,7 +191,6 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "FAVORITE_THRESHOLD",
         "MIN_EDGE",
         "MAX_BET_EDGE",
-        "MAX_EDGE",
         "TRADE_ON_FLIP",
         "FLIP_THRESHOLD",
         "NO_MIN_EDGE",
@@ -204,7 +202,10 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         "LIQUIDITY_FRACTION",
         "BYPASS_BET_SIZE_CHECK",
         "MAX_PRICE_DRIFT",
-        "OUTSIDER_MAX_PRICE"
+        "OUTSIDER_MAX_PRICE",
+        "CRYPTO_MIN_EDGE",
+        "USE_CRYPTO_CONFIRM",
+        "CRYPTO_STANDALONE"
     ]
     
     is_per_asset_key = False

@@ -38,6 +38,15 @@ DEFAULTS = {
     "MAX_PRICE_DRIFT": "0.10",
     "AUTO_DEAD_ZONE": "true",
     "AUTO_DEAD_ZONE_WIDTH": str(AUTO_DEAD_ZONE_WIDTH),
+    "INITIAL_CAPITAL": "1000.0",
+    "TRADE_BET_SIZE_USDC": "5.0",
+    "TRADE_EXECUTION_TIME_SEC": "30",
+    "TRADE_MIN_TIME_LEFT_SEC": "10",
+    "TRADE_MAX_TIME_LEFT_SEC": "360",
+    "TRADE_NO_FLIP_THRESHOLD": "0.15",
+    "CRYPTO_MIN_EDGE": "0.03",
+    "USE_CRYPTO_CONFIRM": "false",
+    "CRYPTO_STANDALONE": "false",
 }
 
 from datetime import datetime, timezone

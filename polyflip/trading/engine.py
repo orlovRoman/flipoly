@@ -175,17 +175,17 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     bet_size = float(settings_db.get("TRADE_BET_SIZE_USDC", settings.TRADE_BET_SIZE_USDC))
     no_flip_threshold = float(settings_db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD))
     
-    dead_zone = float(settings_db.get("DEAD_ZONE_WIDTH", str(DEAD_ZONE_WIDTH)))
-    daily_limit = float(settings_db.get("DAILY_LOSS_LIMIT_USDC", str(DAILY_LOSS_LIMIT_USDC)))
+    dead_zone = float(settings_db.get("DEAD_ZONE_WIDTH", str(settings.DEAD_ZONE_WIDTH)))
+    daily_limit = float(settings_db.get("DAILY_LOSS_LIMIT_USDC", str(settings.DAILY_LOSS_LIMIT_USDC)))
     trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
     trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
     capital = float(settings_db.get("INITIAL_CAPITAL", getattr(settings, 'INITIAL_CAPITAL', 100.0)))
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
-    trade_on_flip = settings_db.get("TRADE_ON_FLIP", "false").lower() == "true"
-    flip_threshold = float(settings_db.get("FLIP_THRESHOLD", str(FLIP_THRESHOLD)))
-    no_max_price = float(settings_db.get("OUTSIDER_MAX_PRICE", str(OUTSIDER_MAX_PRICE)))
-    no_min_edge = float(settings_db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)))
+    trade_on_flip = settings_db.get("TRADE_ON_FLIP", "true" if settings.TRADE_ON_FLIP else "false").lower() == "true"
+    flip_threshold = float(settings_db.get("FLIP_THRESHOLD", str(settings.FLIP_THRESHOLD)))
+    no_max_price = float(settings_db.get("OUTSIDER_MAX_PRICE", str(settings.OUTSIDER_MAX_PRICE)))
+    no_min_edge = float(settings_db.get("NO_MIN_EDGE", str(settings.NO_MIN_EDGE)))
     entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
     min_edge = float(settings_db.get("MIN_EDGE", str(settings.MIN_EDGE)))
     max_bet_edge = float(settings_db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)))
@@ -462,8 +462,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     else no_flip_threshold + dead_zone
                 )
 
-                auto_dead_zone = settings_db.get("AUTO_DEAD_ZONE", "true").lower() == "true"
-                auto_dead_zone_width = float(settings_db.get("AUTO_DEAD_ZONE_WIDTH", 0.10))
+                auto_dead_zone = settings_db.get("AUTO_DEAD_ZONE", "true" if settings.AUTO_DEAD_ZONE else "false").lower() == "true"
+                auto_dead_zone_width = float(settings_db.get("AUTO_DEAD_ZONE_WIDTH", str(settings.AUTO_DEAD_ZONE_WIDTH)))
                 
                 lower, upper = compute_dead_zone(
                     flip_threshold=base_flip_threshold,
@@ -549,7 +549,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
 
             fresh_ask = fresh_prices["best_ask"]
             price_drift = abs(fresh_ask - buy_price)
-            if price_drift > float(settings_db.get("MAX_PRICE_DRIFT", 0.03)):
+            if price_drift > float(settings_db.get("MAX_PRICE_DRIFT", str(settings.MAX_PRICE_DRIFT))):
                 await save_or_update_skipped_trade(
                     db_session, market, f"Price drift too large: {price_drift:.3f}",
                     0.0, model_ver, start_time, existing_skipped=existing_skipped
@@ -595,11 +595,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 continue
             
             if asset_mode != TRADING_MODE_CRYPTO:
-                sizing_mode = settings_db.get("BET_SIZING_MODE", "scaled")
+                sizing_mode = settings_db.get("BET_SIZING_MODE", settings.BET_SIZING_MODE)
                 if sizing_mode == "fixed":
                     actual_bet_size = bet_size
                 else:
-                    max_bet_usdc = float(settings_db.get("MAX_BET_SIZE_USDC", 50.0))
+                    max_bet_usdc = float(settings_db.get("MAX_BET_SIZE_USDC", str(settings.MAX_BET_SIZE_USDC)))
                     actual_bet_size = compute_bet_size_edge_scaled(
                         edge=edge,
                         min_bet_usdc=bet_size,
