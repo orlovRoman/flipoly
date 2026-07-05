@@ -245,7 +245,7 @@
                             <div class="radio-group">
                                 <label class="radio-option">
                                     <input type="radio" name="trading_mode" value="ml" id="mode-ml" checked>
-                                    <span>🤖 ML (с моделью)</span>
+                                    <span>🤖 ML (Logistic Regression)</span>
                                 </label>
                                 <label class="radio-option">
                                     <input type="radio" name="trading_mode" value="favorite" id="mode-favorite">
@@ -253,7 +253,7 @@
                                 </label>
                                 <label class="radio-option">
                                     <input type="radio" name="trading_mode" value="CRYPTO" id="mode-crypto">
-                                    <span>🪙 Crypto ML (Binance)</span>
+                                    <span>🪙 ML (LightGBM)</span>
                                 </label>
                             </div>
                             
@@ -312,9 +312,9 @@
                                             <td style="padding: 8px; vertical-align: middle;">
                                                 <select id="TRADING_MODE_{{ asset }}" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem; width: 100%; max-width: 150px; cursor: pointer;">
                                                     <option value="">Глобальный</option>
-                                                    <option value="ml">🤖 ML (Model)</option>
+                                                    <option value="ml">🤖 ML (LogReg)</option>
                                                     <option value="favorite">⚡ Pure Favorite</option>
-                                                    <option value="CRYPTO">🪙 Crypto ML</option>
+                                                    <option value="CRYPTO">🪙 ML (LightGBM)</option>
                                                 </select>
                                             </td>
                                             <td style="padding: 8px; vertical-align: middle;">

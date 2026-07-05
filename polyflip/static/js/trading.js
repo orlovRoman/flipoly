@@ -772,8 +772,9 @@ document.addEventListener("DOMContentLoaded", () => {
             ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>`
             : escapeHtml(log.error_msg || "-");
         const isPureFav = log.active_features === "PURE_FAVORITE";
+        const isCrypto = log.active_features === "CRYPTO_TREND";
         const modelStr = log.model_version 
-          ? `v${log.model_version}` 
+          ? (isCrypto ? `LightGBM v${log.model_version}` : `v${log.model_version}`) 
           : (isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-"));
 
         let pnlText = "-";
@@ -888,7 +889,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const badge = document.getElementById("active-models-badge");
         if (badge) {
           const modelsText = Object.entries(data.active_models)
-            .map(([asset, v]) => `${asset} v${v}`)
+            .map(([asset, v]) => asset.includes("vol") ? `LightGBM ${asset} v${v}` : `${asset} v${v}`)
             .join(", ");
           badge.textContent = modelsText
             ? `[Активные модели: ${modelsText}]`
