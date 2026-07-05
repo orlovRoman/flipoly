@@ -578,7 +578,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     else:
                         current_min_edge = asset_min_edge  # fallback на общий min_edge
                 edge = compute_edge(p_win, buy_price)
-                # Сначала фильтр аномального edge (SKIP если edge выходит за [min_edge, max_edge_filter])
+                # Этот фильтр обязателен здесь (хотя похожий есть в decide_*),
+                # так как здесь edge пересчитывается по реальной fresh_ask цене из стакана,
+                # которая может значительно отличаться от оценочной цены, использованной в decide_*.
                 if edge < current_min_edge or edge > max_edge_filter:
                     await save_or_update_skipped_trade(
                         db_session, market, f"Edge out of bounds (edge={edge:.4f})",

@@ -34,44 +34,12 @@ async def get_all_settings():
         result = await session.execute(select(RuntimeSettings))
         db = {s.key: s.value for s in result.scalars().all()}
 
-    settings_dict = {
-        "ACTIVE_FEATURES": db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES),
-        "TRADE_EXECUTION_TIME_SEC": db.get("TRADE_EXECUTION_TIME_SEC", str(settings.TRADE_EXECUTION_TIME_SEC)),
-        "TRADE_MIN_TIME_LEFT_SEC": db.get("TRADE_MIN_TIME_LEFT_SEC", str(settings.TRADE_MIN_TIME_LEFT_SEC)),
-        "TRADE_MAX_TIME_LEFT_SEC": db.get("TRADE_MAX_TIME_LEFT_SEC", str(settings.TRADE_MAX_TIME_LEFT_SEC)),
-        "BET_SIZING_MODE": db.get("BET_SIZING_MODE", settings.BET_SIZING_MODE),
-        "MAX_BET_SIZE_USDC": db.get("MAX_BET_SIZE_USDC", str(settings.MAX_BET_SIZE_USDC)),
-        "TRADE_BET_SIZE_USDC": db.get("TRADE_BET_SIZE_USDC", str(settings.TRADE_BET_SIZE_USDC)),
-        "TRADE_NO_FLIP_THRESHOLD": db.get("TRADE_NO_FLIP_THRESHOLD", str(settings.TRADE_NO_FLIP_THRESHOLD)),
-        "DEAD_ZONE_WIDTH": db.get("DEAD_ZONE_WIDTH", str(settings.DEAD_ZONE_WIDTH)),
-        "DAILY_LOSS_LIMIT_USDC": db.get("DAILY_LOSS_LIMIT_USDC", str(settings.DAILY_LOSS_LIMIT_USDC)),
-        "TRADING_ENABLED": db.get("TRADING_ENABLED", "true" if settings.TRADING_ENABLED else "false"),
-        "INITIAL_CAPITAL": db.get("INITIAL_CAPITAL", str(settings.INITIAL_CAPITAL)),
-        "TRADE_MIN_PRICE": db.get("TRADE_MIN_PRICE", str(settings.TRADE_MIN_PRICE)),
-        "TRADE_MAX_PRICE": db.get("TRADE_MAX_PRICE", str(settings.TRADE_MAX_PRICE)),
-        "TRADE_ASSETS": db.get("TRADE_ASSETS", settings.TRADE_ASSETS),
-        "TRADING_MODE": db.get("TRADING_MODE", settings.TRADING_MODE),
-        "FAVORITE_MODE_ENTRY_SEC": db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)),
-        "LIVE_POLL_INTERVAL_SECONDS": db.get("LIVE_POLL_INTERVAL_SECONDS", str(settings.LIVE_POLL_INTERVAL_SECONDS)),
-        "FAVORITE_THRESHOLD": db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)),
-        "MIN_EDGE": db.get("MIN_EDGE", str(settings.MIN_EDGE)),
-        "MAX_BET_EDGE": db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)),
-        "TRADE_ON_FLIP": db.get("TRADE_ON_FLIP", "true" if settings.TRADE_ON_FLIP else "false"),
-        "FLIP_THRESHOLD": db.get("FLIP_THRESHOLD", str(settings.FLIP_THRESHOLD)),
-        "AUTO_DEAD_ZONE": db.get("AUTO_DEAD_ZONE", "true" if settings.AUTO_DEAD_ZONE else "false"),
-        # AUTO_DEAD_ZONE_WIDTH удалён — вместо него движок читает DEAD_ZONE_WIDTH
-        "FAVORITE_MIN_PRICE": db.get("FAVORITE_MIN_PRICE", "0.55"),
-        "FAVORITE_MAX_PRICE": db.get("FAVORITE_MAX_PRICE", "0.95"),
-        "MAX_PRICE_DRIFT": db.get("MAX_PRICE_DRIFT", str(settings.MAX_PRICE_DRIFT)),
-        "OUTSIDER_MAX_PRICE": db.get("OUTSIDER_MAX_PRICE", str(settings.OUTSIDER_MAX_PRICE)),
-        "FAVORITE_MIN_EDGE": db.get("FAVORITE_MIN_EDGE", str(FAVORITE_MIN_EDGE)),
-        "NO_MIN_EDGE": db.get("NO_MIN_EDGE", str(NO_MIN_EDGE)),
-        "CRYPTO_MIN_EDGE": db.get("CRYPTO_MIN_EDGE", str(CRYPTO_MIN_EDGE)),
-        "MAX_EDGE_FILTER": db.get("MAX_EDGE_FILTER", str(MAX_EDGE_FILTER)),
-        "USE_CRYPTO_CONFIRM": db.get("USE_CRYPTO_CONFIRM", "false"),
-        "CRYPTO_STANDALONE": db.get("CRYPTO_STANDALONE", "false")
-    }
+    from polyflip.settings_registry import registry_defaults
+    
+    # Базовые дефолты из реестра + перекрытие из БД
+    settings_dict = {**registry_defaults(), **db}
 
+    # Динамические поля по активам, которых нет в базовом реестре
     for asset in settings.asset_list:
         asset_upper = asset.upper()
         settings_dict[f"TRADING_MODE_{asset_upper}"] = db.get(f"TRADING_MODE_{asset_upper}", "")
@@ -155,6 +123,42 @@ async def update_settings_bulk(
     
     return {"status": "partial" if errors else "ok", "saved": saved, "errors": errors}
 
+@router.api_route("/security/{key}", methods=["PUT", "POST"])
+async def update_security_setting(key: str, payload: SettingValue, request: Request = None, db: AsyncSession = Depends(get_db_session)):
+    """
+    Отдельный эндпоинт для обновления флагов безопасности, которые недоступны через основной API.
+    """
+    if key not in ["TRADING_ENABLED", "BYPASS_BET_SIZE_CHECK"]:
+        raise HTTPException(status_code=400, detail="Invalid security key")
+    
+    if payload.value not in ["true", "false"]:
+        raise HTTPException(status_code=400, detail="Value must be 'true' or 'false'")
+    
+    from polyflip.db.models import RuntimeSettings
+    from sqlalchemy import select
+
+    async with async_session() if db is None else db as session:
+        # Поскольку Depends(get_db_session) может вернуть db,
+        # логика транзакции тут упрощена, но для надёжности лучше использовать свой SessionContext
+        # если db был передан снаружи. Но в рамках HTTP-вызова db инжектится FastAPI.
+        
+        existing = (await session.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == key)
+        )).scalar_one_or_none()
+
+        if existing:
+            existing.value = payload.value
+        else:
+            session.add(RuntimeSettings(key=key, value=payload.value))
+        
+        await session.commit()
+        
+        if ws_manager:
+            await ws_manager.broadcast_settings_update({key: payload.value})
+
+    return {"message": "Security setting updated", "key": key, "value": payload.value}
+
+
 @router.api_route("/{key}", methods=["PUT", "POST"])
 async def update_setting(key: str, payload: SettingValue, request: Request = None, db: AsyncSession = Depends(get_db_session)):
     """
@@ -232,6 +236,16 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
                             current_min = float(min_edge_row.value) if min_edge_row else settings.MIN_EDGE
                             if norm_val <= current_min:
                                 raise HTTPException(status_code=400, detail=f"MAX_BET_EDGE ({norm_val}) must be greater than MIN_EDGE ({current_min})")
+                            
+                            filter_row = (await session.execute(
+                                select(RuntimeSettings).where(RuntimeSettings.key == "MAX_EDGE_FILTER")
+                            )).scalar_one_or_none()
+                            current_filter = float(filter_row.value) if filter_row else getattr(settings, 'MAX_EDGE_FILTER', 0.20)
+                            if norm_val < current_filter:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"MAX_BET_EDGE ({norm_val}) не должен быть меньше MAX_EDGE_FILTER ({current_filter})"
+                                )
                         elif key == "MIN_EDGE":
                             max_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE"))).scalar_one_or_none()
                             current_max = float(max_edge_row.value) if max_edge_row else getattr(settings, 'MAX_BET_EDGE', 0.10)

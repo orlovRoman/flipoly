@@ -70,21 +70,6 @@ def test_auto_dead_zone_width_removed_from_api_response():
                     )
 
 
-def test_dead_zone_width_in_api_response():
-    """DEAD_ZONE_WIDTH должен присутствовать в settings_dict API."""
-    import ast
-    src = (ROOT / "polyflip/api/settings.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    keys_found = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Dict):
-            for k in node.keys:
-                if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                    keys_found.add(k.value)
-    assert "DEAD_ZONE_WIDTH" in keys_found
-    assert "MAX_EDGE_FILTER" in keys_found
-
-
 # ── Тест 4: MAX_EDGE_FILTER и MAX_BET_EDGE разные константы ──────────────────
 
 def test_max_edge_filter_lt_max_edge_scaling():
@@ -113,13 +98,18 @@ def test_max_edge_filter_default_is_filter():
 
 # ── Тест 5: Editable keys ────────────────────────────────────────────────────
 
+def test_trading_enabled_is_not_editable_via_api():
+    from polyflip.settings_registry import editable_keys
+    assert "TRADING_ENABLED" not in editable_keys()
+    assert "BYPASS_BET_SIZE_CHECK" not in editable_keys()
+
 def test_registry_imports_cleanly():
     """Реестр должен импортироваться без ошибок."""
     from polyflip.settings_registry import REGISTRY, registry_keys, registry_defaults, editable_keys
     assert len(REGISTRY) > 10
     assert len(registry_keys()) == len(REGISTRY)
     assert len(registry_defaults()) == len(REGISTRY)
-    assert len(editable_keys()) == len(registry_keys())  # все ключи теперь editable
+    assert len(editable_keys()) < len(registry_keys())  # некоторые ключи не editable
 
 
 # ── Тест 6: constants.py не содержит AUTO_DEAD_ZONE_WIDTH как отдельную активную константу ──

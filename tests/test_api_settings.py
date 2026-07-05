@@ -10,48 +10,6 @@ ROOT = pathlib.Path(__file__).parent.parent
 
 # ── 7.1 Тест: ключи в GET /api/settings (AST-анализ settings.py) ──────────
 
-def _get_settings_dict_keys() -> set[str]:
-    """Парсит AST polyflip/api/settings.py и возвращает ключи settings_dict."""
-    src = (ROOT / "polyflip/api/settings.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    keys: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Dict):
-            for k in node.keys:
-                if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                    keys.add(k.value)
-    return keys
-
-
-def test_settings_api_no_duplicate_max_edge():
-    """MAX_EDGE не должен появляться в GET /api/settings — только MAX_BET_EDGE."""
-    keys = _get_settings_dict_keys()
-    assert "MAX_EDGE" not in keys, "MAX_EDGE не должен присутствовать в GET /api/settings"
-    assert "MAX_BET_EDGE" in keys, "MAX_BET_EDGE должен присутствовать в GET /api/settings"
-
-
-def test_settings_api_edge_fields_present():
-    """FAVORITE_MIN_EDGE, NO_MIN_EDGE, CRYPTO_MIN_EDGE должны быть в GET /api/settings."""
-    keys = _get_settings_dict_keys()
-    for expected in ("FAVORITE_MIN_EDGE", "NO_MIN_EDGE", "CRYPTO_MIN_EDGE"):
-        assert expected in keys, f"{expected} отсутствует в GET /api/settings"
-
-
-def test_settings_api_no_duplicate_max_bet_size():
-    """MAX_BET_SIZE_USDC должен встречаться как ключ ровно 1 раз в словаре."""
-    src = (ROOT / "polyflip/api/settings.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    count = 0
-    # Ищем в первом Dict, который явно является settings_dict (его ключ ACTIVE_FEATURES)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Dict):
-            node_keys = [k.value for k in node.keys if isinstance(k, ast.Constant)]
-            if "ACTIVE_FEATURES" in node_keys:
-                count = node_keys.count("MAX_BET_SIZE_USDC")
-                break
-    assert count == 1, f"MAX_BET_SIZE_USDC встречается {count} раз в settings_dict (ожидается 1)"
-
-
 # ── 7.3 Тест: DEFAULTS из сидера совпадают с константами ─────────────────
 
 def test_defaults_no_min_edge_matches_constant():

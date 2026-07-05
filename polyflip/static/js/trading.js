@@ -474,6 +474,29 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.tradingEnabled && data.TRADING_ENABLED) {
         settingsElements.tradingEnabled.checked =
           data.TRADING_ENABLED === "true";
+        // Setup direct toggle listener (added here to ensure element exists)
+        if (!settingsElements.tradingEnabled.hasAttribute('data-toggle-bound')) {
+          settingsElements.tradingEnabled.setAttribute('data-toggle-bound', 'true');
+          settingsElements.tradingEnabled.addEventListener("change", async (e) => {
+            const val = e.target.checked ? "true" : "false";
+            try {
+              const res = await fetch("/api/settings/security/TRADING_ENABLED", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", "Authorization": "Bearer " + apiKey },
+                body: JSON.stringify({ value: val })
+              });
+              if (!res.ok) {
+                e.target.checked = !e.target.checked; // Revert
+                const err = await res.json();
+                alert("Ошибка: " + (err.detail || "Не удалось изменить статус торговли"));
+              }
+            } catch (err) {
+              e.target.checked = !e.target.checked; // Revert
+              console.error(err);
+              alert("Ошибка сети при изменении статуса торговли");
+            }
+          });
+        }
       }
 
       const statusBadge = document.getElementById("trading-status-badge");
@@ -638,7 +661,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
 
       if (settingsElements.dailyLossLimit) settingsToSave.DAILY_LOSS_LIMIT_USDC = settingsElements.dailyLossLimit.value;
-      if (settingsElements.tradingEnabled) settingsToSave.TRADING_ENABLED = settingsElements.tradingEnabled.checked ? "true" : "false";
       if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
