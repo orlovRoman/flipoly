@@ -58,8 +58,8 @@ def test_tertile_covers_all_rows():
 
 
 def test_tertile_min_regime_size():
-    """При n=450 каждый режим должен превышать MIN_ROWS=150."""
-    df = _make_filtered_df(450)
+    """При n=500 каждый режим должен превышать MIN_ROWS=150."""
+    df = _make_filtered_df(500)
     p33 = df["vol_ratio"].quantile(0.33)
     p67 = df["vol_ratio"].quantile(0.67)
 
