@@ -30,6 +30,7 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "vol_24",       # std log-returns за 24 свечи
     "vol_48",       # std log-returns за 48 свечей
     "vol_ratio",    # vol_6 / vol_48 — высокая/низкая волатильность
+    "vol_trend",    # vol_6 / vol_24 — нарастание краткосрочной волатильности
     # --- Volume anomaly ---
     "vol_z_1",      # z-score объёма текущей свечи относительно 24-свечного окна
     "taker_buy_ratio",  # taker_buy_volume / volume — давление покупателей (0..1)
@@ -120,6 +121,7 @@ def build_crypto_features(
     vol_24 = float(log_ret.iloc[-24:].std()) if len(log_ret) >= 24 else 0.0
     vol_48 = float(log_ret.iloc[-48:].std()) if len(log_ret) >= 48 else 0.0
     vol_ratio = (vol_6 / vol_48) if vol_48 > 1e-10 else 1.0
+    vol_trend = (vol_6 / vol_24) if vol_24 > 1e-10 else 1.0
 
     # ── 4. Volume anomaly ────────────────────────────────────────
     vol_window = volume.iloc[-24:]
@@ -194,7 +196,7 @@ def build_crypto_features(
     # ── 9. Сборка ────────────────────────────────────────────────
     vec = np.array([[
         ret_1, ret_3, ret_6, ret_12, ret_24, ret_48,
-        vol_6, vol_24, vol_48, vol_ratio,
+        vol_6, vol_24, vol_48, vol_ratio, vol_trend,
         vol_z_1, taker_buy_ratio,
         rsi_14, ema_ratio_9_21, bb_width, bb_position,
         dist_h24, dist_l24, dist_h96, dist_l96,
@@ -262,6 +264,7 @@ def build_features(candles: Sequence) -> pd.DataFrame:
     out["vol_24"]  = log_ret.rolling(24, min_periods=6).std()
     out["vol_48"]  = log_ret.rolling(48, min_periods=12).std()
     out["vol_ratio"] = out["vol_6"] / (out["vol_48"] + 1e-10)
+    out["vol_trend"] = out["vol_6"] / (out["vol_24"] + 1e-10)
 
     # ── Volume anomaly ───────────────────────────────────────────
     vol_mean = volume.rolling(24, min_periods=6).mean()

@@ -30,6 +30,7 @@ class CryptoFeaturesValidator(BaseModel):
     vol_24: float
     vol_48: float
     vol_ratio: float
+    vol_trend: float
     vol_z_1: float
     taker_buy_ratio: float
     rsi_14: float
@@ -79,7 +80,8 @@ class CryptoPredictor:
         self._model_versions: dict[str, dict[str, int]] = {}
         self._model_intervals: dict[str, dict[str, str]] = {}
         self._thresholds: dict[str, dict[str, tuple[float, float]]] = {}
-        self._vol_medians: dict[str, float] = {}
+        self._vol_p33s: dict[str, float] = {}
+        self._vol_p67s: dict[str, float] = {}
         self._loaded_symbols: set[str] = set()
         CryptoPredictor._instances.append(weakref.ref(self))
 
@@ -98,7 +100,8 @@ class CryptoPredictor:
                 inst._model_versions.pop(symbol, None)
                 inst._model_intervals.pop(symbol, None)
                 inst._thresholds.pop(symbol, None)
-                inst._vol_medians.pop(symbol, None)
+                inst._vol_p33s.pop(symbol, None)
+                inst._vol_p67s.pop(symbol, None)
                 alive.append(ref)
         cls._instances = alive
         logger.info("predictor_cache_invalidated", symbol=symbol, instances=len(alive))
@@ -110,7 +113,8 @@ class CryptoPredictor:
         self._model_versions.pop(symbol, None)
         self._model_intervals.pop(symbol, None)
         self._thresholds.pop(symbol, None)
-        self._vol_medians.pop(symbol, None)
+        self._vol_p33s.pop(symbol, None)
+        self._vol_p67s.pop(symbol, None)
 
     def get_interval(self, symbol: str) -> str:
         """Возвращает интервал обучения для моделей указанного символа (по умолчанию '15m')."""
@@ -122,7 +126,7 @@ class CryptoPredictor:
     async def load(self, db: AsyncSession, symbol: str) -> bool:
         """Ленивая загрузка моделей и порогов для low_vol и high_vol с авто-обновлением по БД."""
         try:
-            allowed_assets = [f"{symbol}_low_vol", f"{symbol}_high_vol"]
+            allowed_assets = [f"{symbol}_low_vol", f"{symbol}_mid_vol", f"{symbol}_high_vol"]
             stmt = select(ModelRegistry.asset, ModelRegistry.version).where(
                 ModelRegistry.asset.in_(allowed_assets),
                 ModelRegistry.is_active
@@ -131,7 +135,7 @@ class CryptoPredictor:
             db_ver_dict = {row.asset: row.version for row in db_versions}
             
             # Если для какого-то режима модель еще не обучалась, делаем fallback на "CRYPTO"
-            for regime in ["low_vol", "high_vol"]:
+            for regime in ["low_vol", "mid_vol", "high_vol"]:
                 reg_asset = f"{symbol}_{regime}"
                 if reg_asset not in db_ver_dict:
                     fallback_stmt = select(ModelRegistry.version).where(
@@ -161,20 +165,25 @@ class CryptoPredictor:
                 return True
 
         try:
-            # 1. Загружаем медиану волатильности из RuntimeSettings
-            median_key = f"CRYPTO_VOL_MEDIAN_{symbol}"
-            median_row = (await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == median_key)
+            # 1. Загружаем квантили волатильности из RuntimeSettings
+            p33_key = f"CRYPTO_VOL_P33_{symbol}"
+            p33_row = (await db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == p33_key)
             )).scalar_one_or_none()
-            vol_median = float(median_row.value) if median_row else 1.0
-            self._vol_medians[symbol] = vol_median
+            self._vol_p33s[symbol] = float(p33_row.value) if p33_row else 0.5
+
+            p67_key = f"CRYPTO_VOL_P67_{symbol}"
+            p67_row = (await db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == p67_key)
+            )).scalar_one_or_none()
+            self._vol_p67s[symbol] = float(p67_row.value) if p67_row else 1.5
 
             self._models[symbol] = {}
             self._model_versions[symbol] = {}
             self._model_intervals[symbol] = {}
             self._thresholds[symbol] = {}
 
-            for regime in ["low_vol", "high_vol"]:
+            for regime in ["low_vol", "mid_vol", "high_vol"]:
                 regime_asset = f"{symbol}_{regime}"
                 stmt = select(ModelRegistry).where(
                     ModelRegistry.asset == regime_asset,
@@ -226,7 +235,7 @@ class CryptoPredictor:
                 logger.info(
                     "crypto_regime_model_loaded",
                     symbol=symbol, regime=regime, version=row.version,
-                    th_up=th_up, th_down=th_down, vol_median=vol_median
+                    th_up=th_up, th_down=th_down, vol_p33=self._vol_p33s[symbol], vol_p67=self._vol_p67s[symbol]
                 )
 
             self._loaded_symbols.add(symbol)
@@ -251,8 +260,15 @@ class CryptoPredictor:
             
             # Определяем режим волатильности
             vol_ratio = fv_dict.get("vol_ratio", 1.0)
-            vol_median = self._vol_medians.get(symbol, 1.0)
-            regime = "low_vol" if vol_ratio <= vol_median else "high_vol"
+            vol_p33 = self._vol_p33s.get(symbol, 0.5)
+            vol_p67 = self._vol_p67s.get(symbol, 1.5)
+
+            if vol_ratio <= vol_p33:
+                regime = "low_vol"
+            elif vol_ratio <= vol_p67:
+                regime = "mid_vol"
+            else:
+                regime = "high_vol"
 
             # 2. Pydantic-валидация признаков
             validated = CryptoFeaturesValidator(**fv_dict)

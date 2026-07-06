@@ -51,7 +51,7 @@ CRYPTO_FEATURES = [
     # Returns (все горизонты)
     "ret_1", "ret_3", "ret_6", "ret_12", "ret_24", "ret_48",
     # Volatility
-    "vol_6", "vol_24", "vol_48", "vol_ratio",
+    "vol_6", "vol_24", "vol_48", "vol_ratio", "vol_trend",
     # Volume
     "vol_z_1", "taker_buy_ratio",
     # Technical
@@ -272,35 +272,36 @@ class CryptoModelTrainer:
         if missing:
             logger.warning("missing_features", missing=list(missing))
 
-        # Определяем vol-режим по медиане vol_ratio
-        vol_median = float(df_filtered["vol_ratio"].median())
-        logger.info("vol_regime_split", symbol=symbol, vol_median=round(vol_median, 4))
+        # Определяем vol-режим по P33/P67 vol_ratio
+        vol_p33 = float(df_filtered["vol_ratio"].quantile(0.33))
+        vol_p67 = float(df_filtered["vol_ratio"].quantile(0.67))
 
-        # Сохраняем медиану в RuntimeSettings
+        logger.info(
+            "vol_regime_tertiles",
+            symbol=symbol,
+            p33=round(vol_p33, 4),
+            p67=round(vol_p67, 4),
+        )
+
         now = datetime.now(timezone.utc)
-        median_key = f"CRYPTO_VOL_MEDIAN_{symbol}"
-        median_row = (await self.db.execute(
-            select(RuntimeSettings).where(RuntimeSettings.key == median_key)
-        )).scalar_one_or_none()
-        if median_row:
-            median_row.value = str(round(vol_median, 4))
-            median_row.updated_at = now
-            median_row.updated_by = "crypto_train_job"
-        else:
-            self.db.add(RuntimeSettings(
-                key=median_key,
-                value=str(round(vol_median, 4)),
-                updated_at=now,
-                updated_by="crypto_train_job",
-            ))
+        # Сохраняем tertile-границы для предсказателя
+        for key, val in [(f"CRYPTO_VOL_P33_{symbol}", vol_p33), (f"CRYPTO_VOL_P67_{symbol}", vol_p67)]:
+            row = (await self.db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+            if row:
+                row.value = str(round(val, 4))
+                row.updated_at = now
+                row.updated_by = "crypto_train_job"
+            else:
+                self.db.add(RuntimeSettings(key=key, value=str(round(val, 4)), updated_at=now, updated_by="crypto_train_job"))
 
-        df_low  = df_filtered[df_filtered["vol_ratio"] <= vol_median]
-        df_high = df_filtered[df_filtered["vol_ratio"] >  vol_median]
+        df_low  = df_filtered[df_filtered["vol_ratio"] <= vol_p33]
+        df_mid  = df_filtered[(df_filtered["vol_ratio"] > vol_p33) & (df_filtered["vol_ratio"] <= vol_p67)]
+        df_high = df_filtered[df_filtered["vol_ratio"] > vol_p67]
 
         trained_any = False
         from polyflip.crypto.predictor import CryptoPredictor
 
-        for regime, df_regime in [("low_vol", df_low), ("high_vol", df_high)]:
+        for regime, df_regime in [("low_vol", df_low), ("mid_vol", df_mid), ("high_vol", df_high)]:
             if len(df_regime) < 150:
                 logger.warning("regime_too_small", regime=regime, rows=len(df_regime))
                 continue
