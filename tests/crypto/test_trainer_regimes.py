@@ -4,10 +4,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 def _make_filtered_df(n: int = 600) -> pd.DataFrame:
-    """Синтетический df_filtered с vol_ratio для тестирования разбиения."""
+    """Детерминированный df_filtered: равномерное распределение vol_ratio."""
+    # Используем linspace вместо exponential — каждый tertile ровно n//3 строк
+    vol_ratios = np.linspace(0.01, 3.0, n)
     np.random.seed(0)
     return pd.DataFrame({
-        "vol_ratio": np.random.exponential(scale=0.5, size=n),
+        "vol_ratio": vol_ratios,
         "ret_1": np.random.normal(0, 0.002, n),
     })
 
@@ -58,8 +60,8 @@ def test_tertile_covers_all_rows():
 
 
 def test_tertile_min_regime_size():
-    """При n=500 каждый режим должен превышать MIN_ROWS=150."""
-    df = _make_filtered_df(500)
+    """С равномерным распределением каждый tertile строго = n//3 строк."""
+    df = _make_filtered_df(600)
     p33 = df["vol_ratio"].quantile(0.33)
     p67 = df["vol_ratio"].quantile(0.67)
 
@@ -67,5 +69,8 @@ def test_tertile_min_regime_size():
     mid  = df[(df["vol_ratio"] > p33) & (df["vol_ratio"] <= p67)]
     high = df[df["vol_ratio"] > p67]
 
-    for part in [low, mid, high]:
-        assert len(part) >= 150, f"Режим слишком мал: {len(part)} строк"
+    # При linspace каждый tertile = ровно 33% ± 1 строка
+    for part, name in [(low, "low"), (mid, "mid"), (high, "high")]:
+        assert len(part) >= 150, f"Режим {name} слишком мал: {len(part)} строк"
+        # Строгая проверка: при n=600 каждый tertile ≈ 198 строк
+        assert len(part) >= 190, f"Режим {name} неожиданно мал: {len(part)}"
