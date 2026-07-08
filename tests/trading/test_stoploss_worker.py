@@ -10,7 +10,12 @@ from polyflip.trading.stoploss_worker import stoploss_worker_cycle
 @pytest.mark.asyncio
 async def test_worker_skips_when_disabled(db_session):
     """Воркер ничего не делает, если STOP_LOSS_ENABLED != true."""
-    db_session.add(RuntimeSettings(key="STOP_LOSS_ENABLED", value="false"))
+    db_session.add(RuntimeSettings(
+        key="STOP_LOSS_ENABLED", 
+        value="false",
+        updated_at=datetime.now(timezone.utc),
+        updated_by="test"
+    ))
     await db_session.commit()
 
     trader_mock = AsyncMock()
@@ -24,7 +29,12 @@ async def test_worker_skips_when_disabled(db_session):
 @pytest.mark.asyncio
 async def test_worker_expired_by_market_end_time(db_session):
     """Если now >= market_end_time → статус EXPIRED, sell не вызывается."""
-    db_session.add(RuntimeSettings(key="STOP_LOSS_ENABLED", value="true"))
+    db_session.add(RuntimeSettings(
+        key="STOP_LOSS_ENABLED", 
+        value="true",
+        updated_at=datetime.now(timezone.utc),
+        updated_by="test"
+    ))
     
     now = datetime.now(timezone.utc)
     past_end = now - timedelta(minutes=5)
@@ -58,7 +68,12 @@ async def test_worker_expired_by_market_end_time(db_session):
 @pytest.mark.asyncio
 async def test_worker_expired_when_market_missing_from_live(db_session):
     """Если рынок отсутствует в LiveMarket → EXPIRED."""
-    db_session.add(RuntimeSettings(key="STOP_LOSS_ENABLED", value="true"))
+    db_session.add(RuntimeSettings(
+        key="STOP_LOSS_ENABLED", 
+        value="true",
+        updated_at=datetime.now(timezone.utc),
+        updated_by="test"
+    ))
     
     now = datetime.now(timezone.utc)
     future_end = now + timedelta(minutes=10)
@@ -92,7 +107,12 @@ async def test_worker_expired_when_market_missing_from_live(db_session):
 @pytest.mark.asyncio
 async def test_worker_no_trigger_when_bid_above_stop(db_session):
     """При bid > stop_price sell не выполняется."""
-    db_session.add(RuntimeSettings(key="STOP_LOSS_ENABLED", value="true"))
+    db_session.add(RuntimeSettings(
+        key="STOP_LOSS_ENABLED", 
+        value="true",
+        updated_at=datetime.now(timezone.utc),
+        updated_by="test"
+    ))
     
     now = datetime.now(timezone.utc)
     future_end = now + timedelta(minutes=10)
@@ -142,7 +162,12 @@ async def test_worker_no_trigger_when_bid_above_stop(db_session):
 @pytest.mark.asyncio
 async def test_worker_triggers_sell_when_bid_below_stop(db_session):
     """При bid <= stop_price выполняется sell-ордер и статус меняется на TRIGGERED."""
-    db_session.add(RuntimeSettings(key="STOP_LOSS_ENABLED", value="true"))
+    db_session.add(RuntimeSettings(
+        key="STOP_LOSS_ENABLED", 
+        value="true",
+        updated_at=datetime.now(timezone.utc),
+        updated_by="test"
+    ))
     
     now = datetime.now(timezone.utc)
     future_end = now + timedelta(minutes=10)
