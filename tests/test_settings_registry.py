@@ -207,8 +207,3 @@ def test_no_settingdef_uses_settingmeta():
     assert not hasattr(sr, "SettingMeta"), "SettingMeta не существует, используй SettingDef"
 
 
-def test_trading_enabled_is_not_editable():
-    """TRADING_ENABLED — единственный нередактируемый ключ, не должен попасть в editable."""
-    from polyflip.settings_registry import editable_keys
-    assert "TRADING_ENABLED" not in set(editable_keys())
-

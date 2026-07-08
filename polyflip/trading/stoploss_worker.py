@@ -83,6 +83,12 @@ async def stoploss_worker_cycle(
 
             current_bid = float(prices["best_bid"])
 
+            if trade.stop_loss_pct is None:
+                logger.warning("stoploss_missing_pct", trade_id=trade.id)
+                trade.stop_loss_status = "EXPIRED"
+                await db_session.commit()
+                continue
+
             decision = evaluate_stop_loss(
                 entry_price=trade.executed_price,
                 stop_loss_pct=trade.stop_loss_pct,

@@ -16,7 +16,7 @@ async def test_worker_skips_when_disabled(db_session):
         updated_at=datetime.now(timezone.utc),
         updated_by="test"
     ))
-    await db_session.commit()
+    await db_session.flush()
 
     trader_mock = AsyncMock()
     api_mock = AsyncMock()
@@ -54,7 +54,7 @@ async def test_worker_expired_by_market_end_time(db_session):
         active_features="test"
     )
     db_session.add(trade)
-    await db_session.commit()
+    await db_session.flush()
 
     trader_mock = AsyncMock()
     api_mock = AsyncMock()
@@ -94,7 +94,7 @@ async def test_worker_expired_when_market_missing_from_live(db_session):
         active_features="test"
     )
     db_session.add(trade)
-    await db_session.commit()
+    await db_session.flush()
 
     trader_mock = AsyncMock()
     api_mock = AsyncMock()
@@ -149,7 +149,7 @@ async def test_worker_no_trigger_when_bid_above_stop(db_session):
         last_updated=now
     )
     db_session.add_all([trade, market])
-    await db_session.commit()
+    await db_session.flush()
 
     trader_mock = AsyncMock()
     api_mock = AsyncMock()
@@ -205,7 +205,7 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
         last_updated=now
     )
     db_session.add_all([trade, market])
-    await db_session.commit()
+    await db_session.flush()
 
     trader_mock = AsyncMock()
     trader_mock.execute_trade.return_value = {
@@ -228,7 +228,7 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
         price=0.20,
         size=20.0
     )
-    assert trade.pnl == -6.0
+    assert trade.pnl == pytest.approx(-6.0)
     assert trade.stop_loss_sell_price == 0.20
 
     # Проверим, что SlippageLog был создан
@@ -238,3 +238,45 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
     assert slip_log.expected_price == 0.20
     assert slip_log.executed_price == 0.20
     assert slip_log.slippage == 0.0
+
+
+@pytest.mark.asyncio
+async def test_worker_skips_trade_with_missing_stop_loss_pct(db_session):
+    """Позиция с stop_loss_pct=None не должна падать — статус EXPIRED."""
+    db_session.add(RuntimeSettings(
+        key="STOP_LOSS_ENABLED", value="true",
+        updated_at=datetime.now(timezone.utc), updated_by="test"
+    ))
+    now = datetime.now(timezone.utc)
+    trade = TradeHistory(
+        market_id="m_none_pct", asset="BTC", outcome_bought="YES",
+        amount_usdc=10.0, executed_price=0.5, predicted_flip_prob=0.3,
+        status="SUCCESS", stop_loss_status="ACTIVE",
+        stop_loss_pct=None,       # ← ключевое
+        stop_loss_price=0.25,
+        market_end_time=now + timedelta(minutes=10),
+        created_at=now, active_features="test"
+    )
+    db_session.add(trade)
+    await db_session.flush()
+
+    market = LiveMarket(
+        market_id="m_none_pct", asset="BTC", question="?",
+        yes_token_id="y1", no_token_id="n1",
+        end_time_est=now + timedelta(minutes=10),
+        current_yes_price=0.5, current_no_price=0.5,
+        current_spread=0.01, volume_5min=0.0,
+        price_velocity=0.0, last_updated=now
+    )
+    db_session.add(market)
+    await db_session.flush()
+
+    trader_mock = AsyncMock()
+    api_mock = AsyncMock()
+    api_mock.get_market_prices.return_value = {"best_bid": 0.20}
+
+    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
+
+    await db_session.refresh(trade)
+    assert trade.stop_loss_status == "EXPIRED"
+    trader_mock.execute_trade.assert_not_called()
