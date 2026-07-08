@@ -818,8 +818,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const timeStr = new Date(displayTime).toLocaleTimeString();
         const flipColor = log.predicted_flip_prob > 0.5 ? "#00ff88" : "#ff3366";
         let statusColor = "#8F9BB3"; // SKIPPED
+        let displayStatus = log.status;
         if (log.status === "SUCCESS") statusColor = "#00ff88";
         if (log.status === "FAILED") statusColor = "#ff3366";
+        
+        if (log.status === "SUCCESS" && log.stop_loss_status === "TRIGGERED") {
+            displayStatus = "SUCCESS (STOP-LOSS)";
+            statusColor = "#ffb020"; // Yellow/orange for stop-loss
+        }
 
         const reasonHtml =
           log.status === "SKIPPED"
@@ -875,7 +881,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px;"><a href="#" class="market-link" data-market-id="${log.market_id}" data-asset="${escapeHtml(log.asset)}" style="color: var(--text-main); text-decoration: underline; cursor: pointer;">${escapeHtml(log.question)}</a></td>
                         <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
-                        <td style="padding: 8px; color: ${statusColor};">${log.status}</td>
+                        <td style="padding: 8px; color: ${statusColor};">${displayStatus}</td>
                         <td style="padding: 8px;">${betTypeHtml}</td>
                         <td style="padding: 8px; font-weight: bold; color: var(--text-main);">${betText}</td>
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? "$" + parseFloat(log.executed_price).toFixed(3) : "-"}</td>
