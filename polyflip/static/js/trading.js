@@ -216,6 +216,9 @@ document.addEventListener("DOMContentLoaded", () => {
     initialCapital: document.getElementById("INITIAL_CAPITAL"),
     minPrice: document.getElementById("TRADE_MIN_PRICE"),
     maxPrice: document.getElementById("TRADE_MAX_PRICE"),
+    stopLossEnabled: document.getElementById("STOP_LOSS_ENABLED"),
+    stopLossPct: document.getElementById("STOP_LOSS_PCT"),
+    stopLossCheckSec: document.getElementById("STOP_LOSS_CHECK_SEC"),
     tradingModeRadios: document.querySelectorAll('input[name="trading_mode"]'),
     favoriteModeSettings: document.getElementById('favorite-mode-settings'),
     favoriteEntrySecInput: document.getElementById('FAVORITE_MODE_ENTRY_SEC'),
@@ -471,6 +474,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.dailyLossLimit && data.DAILY_LOSS_LIMIT_USDC !== undefined) {
         settingsElements.dailyLossLimit.value = data.DAILY_LOSS_LIMIT_USDC;
       }
+      if (settingsElements.stopLossEnabled && data.STOP_LOSS_ENABLED !== undefined) {
+        settingsElements.stopLossEnabled.checked = data.STOP_LOSS_ENABLED === "true";
+      }
+      if (settingsElements.stopLossPct && data.STOP_LOSS_PCT !== undefined) {
+        settingsElements.stopLossPct.value = data.STOP_LOSS_PCT;
+      }
+      if (settingsElements.stopLossCheckSec && data.STOP_LOSS_CHECK_SEC !== undefined) {
+        settingsElements.stopLossCheckSec.value = data.STOP_LOSS_CHECK_SEC;
+      }
       if (settingsElements.tradingEnabled && data.TRADING_ENABLED) {
         settingsElements.tradingEnabled.checked =
           data.TRADING_ENABLED === "true";
@@ -661,6 +673,23 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
 
       if (settingsElements.dailyLossLimit) settingsToSave.DAILY_LOSS_LIMIT_USDC = settingsElements.dailyLossLimit.value;
+      if (settingsElements.stopLossEnabled) settingsToSave.STOP_LOSS_ENABLED = settingsElements.stopLossEnabled.checked ? "true" : "false";
+      if (settingsElements.stopLossPct) {
+        const val = parseFloat(settingsElements.stopLossPct.value);
+        if (isNaN(val) || val <= 0 || val >= 100) {
+          alert("Стоп-лосс % должен быть от 1 до 99");
+          return;
+        }
+        settingsToSave.STOP_LOSS_PCT = val.toString();
+      }
+      if (settingsElements.stopLossCheckSec) {
+        const val = parseInt(settingsElements.stopLossCheckSec.value);
+        if (isNaN(val) || val < 10 || val > 300) {
+          alert("Интервал проверки стоп-лосса должен быть от 10 до 300 секунд");
+          return;
+        }
+        settingsToSave.STOP_LOSS_CHECK_SEC = val.toString();
+      }
       if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;

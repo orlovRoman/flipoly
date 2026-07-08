@@ -394,6 +394,29 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         except ValueError:
             raise HTTPException(status_code=400, detail="LIVE_POLL_INTERVAL_SECONDS must be an integer")
 
+    if key == "STOP_LOSS_ENABLED":
+        if payload.value.lower() not in ("true", "false"):
+            raise HTTPException(status_code=400, detail="STOP_LOSS_ENABLED must be 'true' or 'false'")
+        payload.value = payload.value.lower()
+
+    if key == "STOP_LOSS_PCT":
+        try:
+            val = float(payload.value)
+            if not (1.0 <= val <= 99.0):
+                raise HTTPException(status_code=400, detail="STOP_LOSS_PCT must be between 1.0 and 99.0")
+            payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="STOP_LOSS_PCT must be a number")
+
+    if key == "STOP_LOSS_CHECK_SEC":
+        try:
+            val = int(payload.value)
+            if not (10 <= val <= 300):
+                raise HTTPException(status_code=400, detail="STOP_LOSS_CHECK_SEC must be between 10 and 300 seconds")
+            payload.value = str(val)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="STOP_LOSS_CHECK_SEC must be an integer")
+
     async with SessionContext(db) as session:
         # Получить старое значение перед изменением
         old_row = (await session.execute(

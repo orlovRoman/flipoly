@@ -59,6 +59,14 @@ REGISTRY: list[SettingDef] = [
     SettingDef("INITIAL_CAPITAL", "1000.0",
                description="Начальный капитал для расчёта финрезультата"),
 
+    # --- Стоп-лосс позиции ---
+    SettingDef("STOP_LOSS_ENABLED", "false",
+               description="Включить стоп-лосс открытых позиций"),
+    SettingDef("STOP_LOSS_PCT", "50.0",
+               description="Стоп-лосс в % от цены покупки (1–99). Пример: 50 → продать при падении цены вдвое"),
+    SettingDef("STOP_LOSS_CHECK_SEC", "30",
+               description="Интервал проверки открытых позиций воркером стоп-лосса (сек)"),
+
     # --- Режим торговли ---
     SettingDef("TRADING_MODE", DEFAULT_TRADING_MODE,
                description="Режим: ml | favorite | CRYPTO"),

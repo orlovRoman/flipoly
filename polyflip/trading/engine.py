@@ -155,6 +155,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "USE_CRYPTO_CONFIRM",
         "CRYPTO_STANDALONE",
         "CRYPTO_MIN_EDGE",
+        "STOP_LOSS_ENABLED",
+        "STOP_LOSS_PCT",
         # NOTE: vol-режимные пороги (CRYPTO_THRESHOLD_BTCUSDT_low_vol и т.д.)
         # загружаются predictor.load() напрямую из RuntimeSettings — не передавать через settings_db.
     ]
@@ -713,6 +715,16 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     created_at=start_time,
                 )
                 db_session.add(slippage_record)
+                
+                # Записываем стоп-лосс при открытии позиции
+                stop_enabled = settings_db.get("STOP_LOSS_ENABLED", "false").lower() == "true"
+                if stop_enabled:
+                    from polyflip.trading.stoploss import compute_stop_price
+                    stop_pct = float(settings_db.get("STOP_LOSS_PCT", "50.0"))
+                    history.market_end_time = market.end_time_est
+                    history.stop_loss_pct = stop_pct
+                    history.stop_loss_price = compute_stop_price(exec_p, stop_pct)
+                    history.stop_loss_status = "ACTIVE"
 
             invalidate_stats_cache()
             invalidate_dashboard_cache()

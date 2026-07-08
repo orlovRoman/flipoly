@@ -7,6 +7,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from polyflip.collector.parser import run_collector_cycle
 from polyflip.collector.resolver import resolve_pending_markets
 from polyflip.trading.engine import trade_worker_cycle
+from polyflip.trading.stoploss_worker import stoploss_worker_cycle
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.db.connection import async_session
@@ -50,6 +51,10 @@ async def resolver_job():
 async def trade_job(trader, api_client):
     async with async_session() as session:
         await trade_worker_cycle(session, trader, api_client)
+
+async def stoploss_job(trader, api_client):
+    async with async_session() as session:
+        await stoploss_worker_cycle(session, trader, api_client)
 
 async def backup_job():
     logger.info("starting_backup_job")
@@ -239,6 +244,7 @@ async def candle_pruning_job():
 async def check_settings_job(scheduler):
     try:
         async with async_session() as session:
+            # 1. LIVE_POLL_INTERVAL_SECONDS
             stmt = select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_POLL_INTERVAL_SECONDS")
             res = await session.execute(stmt)
             setting = res.scalar_one_or_none()
@@ -248,21 +254,39 @@ async def check_settings_job(scheduler):
                 if job:
                     try:
                         current_interval = job.trigger.interval.total_seconds()
-                        if int(current_interval) == new_interval:
-                            return
+                        if int(current_interval) != new_interval:
+                            logger.info("rescheduling_collector_job", new_interval=new_interval)
+                            scheduler.reschedule_job(
+                                "collector_job",
+                                trigger=IntervalTrigger(seconds=new_interval)
+                            )
                     except AttributeError:
                         logger.warning("check_settings_job_trigger_has_no_interval_rescheduling", job_id="collector_job", new_interval=new_interval)
-                    
-                    logger.info("rescheduling_collector_job", new_interval=new_interval)
-                    scheduler.reschedule_job(
-                        "collector_job",
-                        trigger=IntervalTrigger(seconds=new_interval)
-                    )
+            
+            # 2. STOP_LOSS_CHECK_SEC
+            stmt = select(RuntimeSettings).where(RuntimeSettings.key == "STOP_LOSS_CHECK_SEC")
+            res = await session.execute(stmt)
+            setting = res.scalar_one_or_none()
+            if setting:
+                new_interval = int(setting.value)
+                job = scheduler.get_job("stoploss_job")
+                if job:
+                    try:
+                        current_interval = job.trigger.interval.total_seconds()
+                        if int(current_interval) != new_interval:
+                            logger.info("rescheduling_stoploss_job", new_interval=new_interval)
+                            scheduler.reschedule_job(
+                                "stoploss_job",
+                                trigger=IntervalTrigger(seconds=new_interval)
+                            )
+                    except AttributeError:
+                        logger.warning("check_settings_job_trigger_has_no_interval_rescheduling", job_id="stoploss_job", new_interval=new_interval)
     except Exception as e:
         logger.exception("check_settings_job_error", error=str(e))
 
 async def main():
     poll_interval = settings.LIVE_POLL_INTERVAL_SECONDS
+    stoploss_interval = 30
     try:
         async with async_session() as session:
             stmt = select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_POLL_INTERVAL_SECONDS")
@@ -270,10 +294,16 @@ async def main():
             setting = res.scalar_one_or_none()
             if setting:
                 poll_interval = int(setting.value)
+                
+            stmt_sl = select(RuntimeSettings).where(RuntimeSettings.key == "STOP_LOSS_CHECK_SEC")
+            res_sl = await session.execute(stmt_sl)
+            setting_sl = res_sl.scalar_one_or_none()
+            if setting_sl:
+                stoploss_interval = int(setting_sl.value)
     except Exception as e:
-        logger.warning("failed_to_load_initial_poll_interval", error=str(e))
+        logger.warning("failed_to_load_initial_intervals", error=str(e))
 
-    logger.info("scheduler_starting", interval=poll_interval)
+    logger.info("scheduler_starting", interval=poll_interval, stoploss_interval=stoploss_interval)
     
     # Инициализируем общие клиенты для переиспользования соединений
     trader = PolyTrader()
@@ -292,6 +322,17 @@ async def main():
         trigger=IntervalTrigger(seconds=poll_interval),
         id="collector_job",
         replace_existing=True
+    )
+    
+    # Запускаем воркер стоп-лосса с передачей общих клиентов
+    scheduler.add_job(
+        stoploss_job,
+        trigger=IntervalTrigger(seconds=stoploss_interval),
+        id="stoploss_job",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=10,
+        kwargs={"trader": trader, "api_client": api_client}
     )
     
     # Проверяем настройки интервала каждые 10 секунд

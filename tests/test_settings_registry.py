@@ -174,3 +174,35 @@ async def test_get_all_settings_includes_security_sensitive_keys_as_masked(db_se
         data = resp.json()
         assert "TRADING_ENABLED" in data
         assert "BYPASS_BET_SIZE_CHECK" in data
+
+
+# ── Тест 7: Настройки стоп-лосса ──────────────────────────────────────────────
+
+def test_stoploss_settings_in_registry():
+    from polyflip.settings_registry import REGISTRY, editable_keys, registry_defaults
+
+    keys = {s.key for s in REGISTRY}
+    assert "STOP_LOSS_ENABLED"   in keys
+    assert "STOP_LOSS_PCT"       in keys
+    assert "STOP_LOSS_CHECK_SEC" in keys
+
+def test_stoploss_defaults():
+    from polyflip.settings_registry import registry_defaults
+    defaults = registry_defaults()
+    assert defaults["STOP_LOSS_ENABLED"]   == "false"
+    assert defaults["STOP_LOSS_PCT"]       == "50.0"
+    assert defaults["STOP_LOSS_CHECK_SEC"] == "30"
+
+def test_stoploss_keys_are_editable():
+    from polyflip.settings_registry import editable_keys
+    editable = editable_keys()
+    # Все три должны быть редактируемы через дашборд
+    assert "STOP_LOSS_ENABLED"   in editable
+    assert "STOP_LOSS_PCT"       in editable
+    assert "STOP_LOSS_CHECK_SEC" in editable
+
+def test_no_settingdef_uses_settingmeta():
+    """Гарантируем что в кодовой базе нет несуществующего SettingMeta."""
+    import polyflip.settings_registry as sr
+    assert not hasattr(sr, "SettingMeta"), "SettingMeta не существует, используй SettingDef"
+

@@ -106,6 +106,15 @@ class TradeHistory(Base):
     p_up = Column(Float, nullable=True)
     strike = Column(Float, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # --- Stop-loss ---
+    market_end_time      = Column(DateTime(timezone=True), nullable=True)
+    stop_loss_pct        = Column(Float, nullable=True)
+    stop_loss_price      = Column(Float, nullable=True)
+    stop_loss_status     = Column(String(20), nullable=True, default="ACTIVE")
+    stop_loss_hit_at     = Column(DateTime(timezone=True), nullable=True)
+    stop_loss_sell_price = Column(Float, nullable=True)
+    
     created_at = Column(DateTime(timezone=True), nullable=False)
     
     __table_args__ = (
