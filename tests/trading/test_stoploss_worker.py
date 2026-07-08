@@ -50,7 +50,8 @@ async def test_worker_expired_by_market_end_time(db_session):
         stop_loss_status="ACTIVE",
         stop_loss_price=0.25,
         market_end_time=past_end,
-        created_at=now
+        created_at=now,
+        active_features="test"
     )
     db_session.add(trade)
     await db_session.commit()
@@ -89,7 +90,8 @@ async def test_worker_expired_when_market_missing_from_live(db_session):
         stop_loss_status="ACTIVE",
         stop_loss_price=0.25,
         market_end_time=future_end,
-        created_at=now
+        created_at=now,
+        active_features="test"
     )
     db_session.add(trade)
     await db_session.commit()
@@ -129,7 +131,8 @@ async def test_worker_no_trigger_when_bid_above_stop(db_session):
         stop_loss_pct=50.0,
         stop_loss_price=0.25,
         market_end_time=future_end,
-        created_at=now
+        created_at=now,
+        active_features="test"
     )
     market = LiveMarket(
         market_id="m1",
@@ -184,7 +187,8 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
         stop_loss_pct=50.0,
         stop_loss_price=0.25,
         market_end_time=future_end,
-        created_at=now
+        created_at=now,
+        active_features="test"
     )
     market = LiveMarket(
         market_id="m1",
