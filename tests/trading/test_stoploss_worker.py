@@ -1,166 +1,182 @@
 import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
+from sqlalchemy import select
 
-from polyflip.db.models import TradeHistory, RuntimeSettings, LiveMarket
+from polyflip.db.models import TradeHistory, RuntimeSettings, LiveMarket, SlippageLog
 from polyflip.trading.stoploss_worker import stoploss_worker_cycle
 
 
 @pytest.mark.asyncio
-async def test_worker_skips_when_disabled():
+async def test_worker_skips_when_disabled(db_session):
     """Воркер ничего не делает, если STOP_LOSS_ENABLED != true."""
-    db_mock = AsyncMock()
-    # Mock Settings: STOP_LOSS_ENABLED = "false"
-    mock_setting = MagicMock(key="STOP_LOSS_ENABLED", value="false")
-    db_mock.execute.return_value.scalar_one_or_none.return_value = mock_setting
+    db_session.add(RuntimeSettings(key="STOP_LOSS_ENABLED", value="false"))
+    await db_session.commit()
 
-    trader_mock = MagicMock()
-    api_mock = MagicMock()
+    trader_mock = AsyncMock()
+    api_mock = AsyncMock()
 
-    await stoploss_worker_cycle(db_mock, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
 
-    # Должен быть только один запрос к БД (выборка настроек)
-    assert db_mock.execute.call_count == 1
     trader_mock.execute_trade.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_worker_expired_by_market_end_time():
+async def test_worker_expired_by_market_end_time(db_session):
     """Если now >= market_end_time → статус EXPIRED, sell не вызывается."""
-    db_mock = AsyncMock()
-    # Mock Settings: STOP_LOSS_ENABLED = "true"
-    mock_setting = MagicMock(key="STOP_LOSS_ENABLED", value="true")
+    db_session.add(RuntimeSettings(key="STOP_LOSS_ENABLED", value="true"))
     
-    # Mock Trade: ACTIVE, но market_end_time в прошлом
     now = datetime.now(timezone.utc)
     past_end = now - timedelta(minutes=5)
     
     trade = TradeHistory(
-        id=1,
         market_id="m1",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=10.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.3,
         status="SUCCESS",
         stop_loss_status="ACTIVE",
         stop_loss_price=0.25,
-        market_end_time=past_end
+        market_end_time=past_end,
+        created_at=now
     )
-    
-    # Сначала возвращаем настройки, потом список сделок
-    db_mock.execute.return_value.scalar_one_or_none.side_effect = [mock_setting, None]
-    db_mock.execute.return_value.scalars.return_value.all.return_value = [trade]
+    db_session.add(trade)
+    await db_session.commit()
 
-    trader_mock = MagicMock()
-    api_mock = MagicMock()
+    trader_mock = AsyncMock()
+    api_mock = AsyncMock()
 
-    await stoploss_worker_cycle(db_mock, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
 
+    await db_session.refresh(trade)
     assert trade.stop_loss_status == "EXPIRED"
     trader_mock.execute_trade.assert_not_called()
-    assert db_mock.commit.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_worker_expired_when_market_missing_from_live():
+async def test_worker_expired_when_market_missing_from_live(db_session):
     """Если рынок отсутствует в LiveMarket → EXPIRED."""
-    db_mock = AsyncMock()
-    mock_setting = MagicMock(key="STOP_LOSS_ENABLED", value="true")
+    db_session.add(RuntimeSettings(key="STOP_LOSS_ENABLED", value="true"))
     
     now = datetime.now(timezone.utc)
     future_end = now + timedelta(minutes=10)
     
     trade = TradeHistory(
-        id=1,
         market_id="m1",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=10.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.3,
         status="SUCCESS",
         stop_loss_status="ACTIVE",
         stop_loss_price=0.25,
-        market_end_time=future_end
+        market_end_time=future_end,
+        created_at=now
     )
-    
-    # Настройки, потом список сделок, потом LiveMarket (возвращаем None)
-    db_mock.execute.return_value.scalar_one_or_none.side_effect = [mock_setting, None]
-    db_mock.execute.return_value.scalars.return_value.all.return_value = [trade]
+    db_session.add(trade)
+    await db_session.commit()
 
-    trader_mock = MagicMock()
-    api_mock = MagicMock()
+    trader_mock = AsyncMock()
+    api_mock = AsyncMock()
 
-    await stoploss_worker_cycle(db_mock, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
 
+    await db_session.refresh(trade)
     assert trade.stop_loss_status == "EXPIRED"
     trader_mock.execute_trade.assert_not_called()
-    assert db_mock.commit.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_worker_no_trigger_when_bid_above_stop():
+async def test_worker_no_trigger_when_bid_above_stop(db_session):
     """При bid > stop_price sell не выполняется."""
-    db_mock = AsyncMock()
-    mock_setting = MagicMock(key="STOP_LOSS_ENABLED", value="true")
+    db_session.add(RuntimeSettings(key="STOP_LOSS_ENABLED", value="true"))
     
     now = datetime.now(timezone.utc)
     future_end = now + timedelta(minutes=10)
     
     trade = TradeHistory(
-        id=1,
         market_id="m1",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=10.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.3,
         status="SUCCESS",
         stop_loss_status="ACTIVE",
         stop_loss_pct=50.0,
         stop_loss_price=0.25,
-        executed_price=0.50,
-        market_end_time=future_end
+        market_end_time=future_end,
+        created_at=now
     )
-    
     market = LiveMarket(
         market_id="m1",
+        asset="BTC",
+        question="BTC up?",
         yes_token_id="yes1",
-        no_token_id="no1"
+        no_token_id="no1",
+        end_time_est=future_end,
+        current_yes_price=0.5,
+        current_no_price=0.5,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
+        last_updated=now
     )
-    
-    db_mock.execute.return_value.scalar_one_or_none.side_effect = [mock_setting, market]
-    db_mock.execute.return_value.scalars.return_value.all.return_value = [trade]
+    db_session.add_all([trade, market])
+    await db_session.commit()
 
-    trader_mock = MagicMock()
+    trader_mock = AsyncMock()
     api_mock = AsyncMock()
-    # bid = 0.30, что выше stop = 0.25
     api_mock.get_market_prices.return_value = {"best_bid": 0.30}
 
-    await stoploss_worker_cycle(db_mock, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
 
+    await db_session.refresh(trade)
     assert trade.stop_loss_status == "ACTIVE"
     trader_mock.execute_trade.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_worker_triggers_sell_when_bid_below_stop():
+async def test_worker_triggers_sell_when_bid_below_stop(db_session):
     """При bid <= stop_price выполняется sell-ордер и статус меняется на TRIGGERED."""
-    db_mock = AsyncMock()
-    mock_setting = MagicMock(key="STOP_LOSS_ENABLED", value="true")
+    db_session.add(RuntimeSettings(key="STOP_LOSS_ENABLED", value="true"))
     
     now = datetime.now(timezone.utc)
     future_end = now + timedelta(minutes=10)
     
     trade = TradeHistory(
-        id=1,
         market_id="m1",
         asset="BTC",
         outcome_bought="YES",
         amount_usdc=10.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.3,
         status="SUCCESS",
         stop_loss_status="ACTIVE",
         stop_loss_pct=50.0,
         stop_loss_price=0.25,
-        executed_price=0.50,
-        market_end_time=future_end
+        market_end_time=future_end,
+        created_at=now
     )
-    
     market = LiveMarket(
         market_id="m1",
+        asset="BTC",
+        question="BTC up?",
         yes_token_id="yes1",
-        no_token_id="no1"
+        no_token_id="no1",
+        end_time_est=future_end,
+        current_yes_price=0.5,
+        current_no_price=0.5,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
+        last_updated=now
     )
-    
-    db_mock.execute.return_value.scalar_one_or_none.side_effect = [mock_setting, market]
-    db_mock.execute.return_value.scalars.return_value.all.return_value = [trade]
+    db_session.add_all([trade, market])
+    await db_session.commit()
 
     trader_mock = AsyncMock()
     trader_mock.execute_trade.return_value = {
@@ -170,19 +186,26 @@ async def test_worker_triggers_sell_when_bid_below_stop():
     }
     
     api_mock = AsyncMock()
-    # bid = 0.20, что ниже stop = 0.25
     api_mock.get_market_prices.return_value = {"best_bid": 0.20}
 
-    await stoploss_worker_cycle(db_mock, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
 
+    await db_session.refresh(trade)
     assert trade.stop_loss_status == "TRIGGERED"
     trader_mock.execute_trade.assert_called_once_with(
         market_id="m1",
         token_id="yes1",
         side="SELL",
         price=0.20,
-        size=20.0  # amount_usdc / executed_price = 10 / 0.50 = 20
+        size=20.0
     )
-    # PnL = (0.20 - 0.50) * 20 = -6.0
     assert trade.pnl == -6.0
-    assert db_mock.commit.call_count == 1
+    assert trade.stop_loss_sell_price == 0.20
+
+    # Проверим, что SlippageLog был создан
+    res = await db_session.execute(select(SlippageLog).where(SlippageLog.trade_id == trade.id))
+    slip_log = res.scalar_one_or_none()
+    assert slip_log is not None
+    assert slip_log.expected_price == 0.20
+    assert slip_log.executed_price == 0.20
+    assert slip_log.slippage == 0.0
