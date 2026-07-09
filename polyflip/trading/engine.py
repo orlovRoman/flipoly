@@ -138,6 +138,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "MAX_BET_EDGE",        # потолок масштабирования ставки
         "MAX_EDGE_FILTER",     # фильтр аномального edge (SKIP если превышен)
         "FAVORITE_THRESHOLD",
+        "TRADE_ON_FAVORITE",
         "TRADE_ON_FLIP",
         "FLIP_THRESHOLD",
         "NO_MIN_EDGE",
@@ -202,6 +203,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     capital = float(settings_db.get("INITIAL_CAPITAL", getattr(settings, 'INITIAL_CAPITAL', 100.0)))
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
+    trade_on_favorite = settings_db.get("TRADE_ON_FAVORITE", "true" if getattr(settings, "TRADE_ON_FAVORITE", True) else "false").lower() == "true"
     trade_on_flip = settings_db.get("TRADE_ON_FLIP", "true" if settings.TRADE_ON_FLIP else "false").lower() == "true"
     flip_threshold = float(settings_db.get("FLIP_THRESHOLD", str(settings.FLIP_THRESHOLD)))
     no_max_price = float(settings_db.get("OUTSIDER_MAX_PRICE", str(settings.OUTSIDER_MAX_PRICE)))
@@ -351,6 +353,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 fresh_yes_price = fresh_yes_prices["current_yes_price"]
 
                 decision_obj = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, settings_db)
+                if not trade_on_favorite:
+                    decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
                 
                 logger.debug("crypto_decision_eval", asset_mode=asset_mode, binance_symbol=binance_symbol, decision_obj=decision_obj)
                 
@@ -390,6 +394,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     local_fav_config["FAVORITE_MIN_EDGE"] = float(settings_db.get("FAVORITE_MIN_EDGE", "-0.01"))
                 
                 decision_obj = decide_favorite(signal, local_fav_config)
+                if not trade_on_favorite:
+                    decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
                 
                 p_flip = 0.0
                 model_ver = None
@@ -503,7 +509,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 local_config["MAX_BET_EDGE"] = 100.0
                 local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 
-                decision_obj = decide_ml_trend(signal, p_flip, local_config)
+                decision_obj = None
+                if trade_on_favorite:
+                    decision_obj = decide_ml_trend(signal, p_flip, local_config)
+                else:
+                    from polyflip.trading.decision_logic import TradeDecision
+                    decision_obj = TradeDecision(action="SKIP", strategy_type="ML_TREND", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)", edge=0.0)
                 
                 if decision_obj.action == "SKIP" and trade_on_flip:
                     decision_obj = decide_outsider(signal, p_flip, local_config)
@@ -535,7 +546,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             # Единая логика SKIP
             if decision_obj.action == "SKIP":
                 reason = decision_obj.reason
-                if asset_mode == TRADING_MODE_ML:
+                if asset_mode == TRADING_MODE_ML and reason != "Favorite trades disabled (TRADE_ON_FAVORITE=False)":
                     if lower <= p_flip < upper:
                         reason = f"Мёртвая зона (p_flip={p_flip:.2f} в [{lower:.2f}, {upper:.2f}])"
                     elif not trade_on_flip and p_flip >= upper:

@@ -227,6 +227,7 @@ document.addEventListener("DOMContentLoaded", () => {
     minEdge: document.getElementById("MIN_EDGE"),
     maxEdge: document.getElementById("MAX_BET_EDGE"),
     favoriteThreshold: document.getElementById("FAVORITE_THRESHOLD"),
+    tradeOnFavorite: document.getElementById("TRADE_ON_FAVORITE"),
     tradeOnFlip: document.getElementById("TRADE_ON_FLIP"),
     flipThreshold: document.getElementById("FLIP_THRESHOLD"),
     noMinEdge: document.getElementById("NO_MIN_EDGE"),
@@ -537,6 +538,9 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.FAVORITE_THRESHOLD);
         settingsElements.favoriteThreshold.value = val;
       }
+      if (settingsElements.tradeOnFavorite && data.TRADE_ON_FAVORITE !== undefined) {
+        settingsElements.tradeOnFavorite.checked = data.TRADE_ON_FAVORITE === "true";
+      }
       if (settingsElements.tradeOnFlip && data.TRADE_ON_FLIP) {
         settingsElements.tradeOnFlip.checked = data.TRADE_ON_FLIP === "true";
         updateOutsiderStrategyStatus();
@@ -703,6 +707,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.minEdge) settingsToSave.MIN_EDGE = parseFloat(settingsElements.minEdge.value) / 100;
       if (settingsElements.maxEdge) settingsToSave.MAX_BET_EDGE = parseFloat(settingsElements.maxEdge.value) / 100;
       if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFloat(settingsElements.favoriteThreshold.value);
+      if (settingsElements.tradeOnFavorite) settingsToSave.TRADE_ON_FAVORITE = settingsElements.tradeOnFavorite.checked ? "true" : "false";
       if (settingsElements.tradeOnFlip) settingsToSave.TRADE_ON_FLIP = settingsElements.tradeOnFlip.checked ? "true" : "false";
       if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFloat(settingsElements.flipThreshold.value) / 100;
       if (settingsElements.noMinEdge) settingsToSave.NO_MIN_EDGE = parseFloat(settingsElements.noMinEdge.value) / 100;

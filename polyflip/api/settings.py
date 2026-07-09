@@ -11,7 +11,7 @@ from polyflip.db.models import RuntimeSettings, StrategyConfig
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
 from polyflip.constants import (
-    DAILY_LOSS_LIMIT_USDC, TRADE_ON_FLIP, FLIP_THRESHOLD,
+    DAILY_LOSS_LIMIT_USDC, TRADE_ON_FAVORITE, TRADE_ON_FLIP, FLIP_THRESHOLD,
     NO_MIN_EDGE, AUTO_DEAD_ZONE,
     FAVORITE_MIN_EDGE, CRYPTO_MIN_EDGE,
     MAX_EDGE_FILTER, MAX_EDGE_SCALING,
@@ -366,9 +366,9 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         except ValueError:
             raise HTTPException(status_code=400, detail="NO_MIN_EDGE must be a number")
 
-    if key == "TRADE_ON_FLIP":
+    if key in ["TRADE_ON_FAVORITE", "TRADE_ON_FLIP"]:
         if payload.value.lower() not in ("true", "false"):
-            raise HTTPException(status_code=400, detail="TRADE_ON_FLIP must be 'true' or 'false'")
+            raise HTTPException(status_code=400, detail=f"{key} must be 'true' or 'false'")
         payload.value = payload.value.lower()
 
     if key == "AUTO_DEAD_ZONE":
