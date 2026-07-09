@@ -541,7 +541,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.tradeOnFavorite && data.TRADE_ON_FAVORITE !== undefined) {
         settingsElements.tradeOnFavorite.checked = data.TRADE_ON_FAVORITE === "true";
       }
-      if (settingsElements.tradeOnFlip && data.TRADE_ON_FLIP) {
+      if (settingsElements.tradeOnFlip && data.TRADE_ON_FLIP !== undefined) {
         settingsElements.tradeOnFlip.checked = data.TRADE_ON_FLIP === "true";
         updateOutsiderStrategyStatus();
       }

@@ -35,6 +35,7 @@ from polyflip.constants import (
     TRADING_MODE_CRYPTO,
     FAVORITE_MODE_ENTRY_SEC,
     FAVORITE_MODE_ENTRY_WINDOW_SEC,
+    TRADE_ON_FAVORITE,
     TRADE_ON_FLIP,
     FLIP_THRESHOLD,
     OUTSIDER_MAX_PRICE,
@@ -203,8 +204,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
     capital = float(settings_db.get("INITIAL_CAPITAL", getattr(settings, 'INITIAL_CAPITAL', 100.0)))
     
     active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
-    trade_on_favorite = settings_db.get("TRADE_ON_FAVORITE", "true" if getattr(settings, "TRADE_ON_FAVORITE", True) else "false").lower() == "true"
-    trade_on_flip = settings_db.get("TRADE_ON_FLIP", "true" if settings.TRADE_ON_FLIP else "false").lower() == "true"
+    trade_on_favorite = settings_db.get("TRADE_ON_FAVORITE", "true" if TRADE_ON_FAVORITE else "false").lower() == "true"
+    trade_on_flip = settings_db.get("TRADE_ON_FLIP", "true" if TRADE_ON_FLIP else "false").lower() == "true"
     flip_threshold = float(settings_db.get("FLIP_THRESHOLD", str(settings.FLIP_THRESHOLD)))
     no_max_price = float(settings_db.get("OUTSIDER_MAX_PRICE", str(settings.OUTSIDER_MAX_PRICE)))
     no_min_edge = float(settings_db.get("NO_MIN_EDGE", str(settings.NO_MIN_EDGE)))
@@ -322,6 +323,13 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
                 await save_or_update_skipped_trade(db_session, market, "Token IDs missing in DB", 0.0, None, start_time, existing_skipped=existing_skipped)
                 continue
+
+            # Инициализация переменных по умолчанию (во избежание UnboundLocalError в блоке SKIP)
+            p_flip = 0.0
+            model_ver = None
+            edge = None
+            lower = 0.0
+            upper = 0.0
 
             if asset_mode == TRADING_MODE_CRYPTO:
                 # --- CRYPTO STANDALONE MODE ---
