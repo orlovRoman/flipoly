@@ -143,11 +143,11 @@ async def update_security_setting(key: str, payload: SettingValue, request: Requ
     from polyflip.db.models import RuntimeSettings
     from sqlalchemy import select
 
-    async with async_session() if db is None else db as session:
-        # Поскольку Depends(get_db_session) может вернуть db,
-        # логика транзакции тут упрощена, но для надёжности лучше использовать свой SessionContext
-        # если db был передан снаружи. Но в рамках HTTP-вызова db инжектится FastAPI.
-        
+    # Если db передан снаружи (FastAPI Depends), не используем async with, так как сессия закроется.
+    session = db if db is not None else async_session()
+    own_session = db is None
+    
+    try:
         existing = (await session.execute(
             select(RuntimeSettings).where(RuntimeSettings.key == key)
         )).scalar_one_or_none()
@@ -161,6 +161,9 @@ async def update_security_setting(key: str, payload: SettingValue, request: Requ
         
         if ws_manager:
             await ws_manager.broadcast_settings_update({key: payload.value})
+    finally:
+        if own_session:
+            await session.close()
 
     return {"message": "Security setting updated", "key": key, "value": payload.value}
 

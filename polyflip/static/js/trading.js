@@ -828,7 +828,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (log.status === "FAILED") statusColor = "#ff3366";
         
         if (log.status === "SUCCESS" && log.stop_loss_status === "TRIGGERED") {
-            displayStatus = "SUCCESS (STOP-LOSS)";
+            displayStatus = "Закрыто по стоп-лоссу";
             statusColor = "#ffb020"; // Yellow/orange for stop-loss
         }
 
