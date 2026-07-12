@@ -424,10 +424,18 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="STOP_LOSS_PCT">Стоп-лосс % от цены покупки (1–99)</label>
-                                <input type="number" step="1" min="1" max="99" id="STOP_LOSS_PCT" value="50.0">
+                                <label for="STOP_LOSS_PCT_FAVORITE">Стоп-лосс % для ставок на фаворита (1–99)</label>
+                                <input type="number" step="1" min="1" max="99" id="STOP_LOSS_PCT_FAVORITE" value="40.0">
                                 <small style="color: var(--text-muted, #888); margin-top: 4px; display: block;">
-                                    Продать позицию при падении лучшего bid ниже этого процента от цены покупки.
+                                    Продать позицию при падении bid ниже этого % от цены покупки (ставки по тренду).
+                                </small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="STOP_LOSS_PCT_OUTSIDER">Стоп-лосс % для ставок на аутсайдера (1–99)</label>
+                                <input type="number" step="1" min="1" max="99" id="STOP_LOSS_PCT_OUTSIDER" value="60.0">
+                                <small style="color: var(--text-muted, #888); margin-top: 4px; display: block;">
+                                    Продать позицию при падении bid ниже этого % от цены покупки (ставки против тренда).
                                 </small>
                             </div>
 

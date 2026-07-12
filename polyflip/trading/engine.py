@@ -158,7 +158,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "CRYPTO_STANDALONE",
         "CRYPTO_MIN_EDGE",
         "STOP_LOSS_ENABLED",
-        "STOP_LOSS_PCT",
+        "STOP_LOSS_PCT_FAVORITE",
+        "STOP_LOSS_PCT_OUTSIDER",
         # NOTE: vol-режимные пороги (CRYPTO_THRESHOLD_BTCUSDT_low_vol и т.д.)
         # загружаются predictor.load() напрямую из RuntimeSettings — не передавать через settings_db.
     ]
@@ -739,7 +740,16 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 stop_enabled = settings_db.get("STOP_LOSS_ENABLED", "false").lower() == "true"
                 if stop_enabled:
                     from polyflip.trading.stoploss import compute_stop_price
-                    stop_pct = float(settings_db.get("STOP_LOSS_PCT", "50.0"))
+                    # Выбираем % стоп-лосса в зависимости от типа ставки
+                    is_outsider = (
+                        hasattr(decision_obj, 'strategy_type')
+                        and decision_obj.strategy_type
+                        and decision_obj.strategy_type.upper() == "OUTSIDER"
+                    )
+                    if is_outsider:
+                        stop_pct = float(settings_db.get("STOP_LOSS_PCT_OUTSIDER", "60.0"))
+                    else:
+                        stop_pct = float(settings_db.get("STOP_LOSS_PCT_FAVORITE", "40.0"))
                     history.market_end_time = market.end_time_est
                     history.stop_loss_pct = stop_pct
                     history.stop_loss_price = compute_stop_price(exec_p, stop_pct)

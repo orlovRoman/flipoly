@@ -62,8 +62,10 @@ REGISTRY: list[SettingDef] = [
     # --- Стоп-лосс позиции ---
     SettingDef("STOP_LOSS_ENABLED", "false",
                description="Включить стоп-лосс открытых позиций"),
-    SettingDef("STOP_LOSS_PCT", "50.0",
-               description="Стоп-лосс в % от цены покупки (1–99). Пример: 50 → продать при падении цены вдвое"),
+    SettingDef("STOP_LOSS_PCT_FAVORITE", "40.0",
+               description="Стоп-лосс % для ставок на фаворита (1–99)"),
+    SettingDef("STOP_LOSS_PCT_OUTSIDER", "60.0",
+               description="Стоп-лосс % для ставок на аутсайдера (1–99)"),
     SettingDef("STOP_LOSS_CHECK_SEC", "30",
                description="Интервал проверки открытых позиций воркером стоп-лосса (сек)"),
 

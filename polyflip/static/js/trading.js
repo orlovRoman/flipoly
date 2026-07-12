@@ -217,7 +217,8 @@ document.addEventListener("DOMContentLoaded", () => {
     minPrice: document.getElementById("TRADE_MIN_PRICE"),
     maxPrice: document.getElementById("TRADE_MAX_PRICE"),
     stopLossEnabled: document.getElementById("STOP_LOSS_ENABLED"),
-    stopLossPct: document.getElementById("STOP_LOSS_PCT"),
+    stopLossPctFavorite: document.getElementById("STOP_LOSS_PCT_FAVORITE"),
+    stopLossPctOutsider: document.getElementById("STOP_LOSS_PCT_OUTSIDER"),
     stopLossCheckSec: document.getElementById("STOP_LOSS_CHECK_SEC"),
     tradingModeRadios: document.querySelectorAll('input[name="trading_mode"]'),
     favoriteModeSettings: document.getElementById('favorite-mode-settings'),
@@ -478,8 +479,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.stopLossEnabled && data.STOP_LOSS_ENABLED !== undefined) {
         settingsElements.stopLossEnabled.checked = data.STOP_LOSS_ENABLED === "true";
       }
-      if (settingsElements.stopLossPct && data.STOP_LOSS_PCT !== undefined) {
-        settingsElements.stopLossPct.value = data.STOP_LOSS_PCT;
+      if (settingsElements.stopLossPctFavorite && data.STOP_LOSS_PCT_FAVORITE !== undefined) {
+        settingsElements.stopLossPctFavorite.value = data.STOP_LOSS_PCT_FAVORITE;
+      }
+      if (settingsElements.stopLossPctOutsider && data.STOP_LOSS_PCT_OUTSIDER !== undefined) {
+        settingsElements.stopLossPctOutsider.value = data.STOP_LOSS_PCT_OUTSIDER;
       }
       if (settingsElements.stopLossCheckSec && data.STOP_LOSS_CHECK_SEC !== undefined) {
         settingsElements.stopLossCheckSec.value = data.STOP_LOSS_CHECK_SEC;
@@ -678,13 +682,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (settingsElements.dailyLossLimit) settingsToSave.DAILY_LOSS_LIMIT_USDC = settingsElements.dailyLossLimit.value;
       if (settingsElements.stopLossEnabled) settingsToSave.STOP_LOSS_ENABLED = settingsElements.stopLossEnabled.checked ? "true" : "false";
-      if (settingsElements.stopLossPct) {
-        const val = parseFloat(settingsElements.stopLossPct.value);
+      if (settingsElements.stopLossPctFavorite) {
+        const val = parseFloat(settingsElements.stopLossPctFavorite.value);
         if (isNaN(val) || val <= 0 || val >= 100) {
-          alert("Стоп-лосс % должен быть от 1 до 99");
+          alert("Стоп-лосс % (фаворит) должен быть от 1 до 99");
           return;
         }
-        settingsToSave.STOP_LOSS_PCT = val.toString();
+        settingsToSave.STOP_LOSS_PCT_FAVORITE = val.toString();
+      }
+      if (settingsElements.stopLossPctOutsider) {
+        const val = parseFloat(settingsElements.stopLossPctOutsider.value);
+        if (isNaN(val) || val <= 0 || val >= 100) {
+          alert("Стоп-лосс % (аутсайдер) должен быть от 1 до 99");
+          return;
+        }
+        settingsToSave.STOP_LOSS_PCT_OUTSIDER = val.toString();
       }
       if (settingsElements.stopLossCheckSec) {
         const val = parseInt(settingsElements.stopLossCheckSec.value);

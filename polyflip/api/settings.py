@@ -194,6 +194,9 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
     # Backward-compatibility: фронт может слать MAX_EDGE — редиректим в MAX_BET_EDGE
     if key == "MAX_EDGE":
         key = "MAX_BET_EDGE"
+    # Backward-compatibility: старый STOP_LOSS_PCT → STOP_LOSS_PCT_FAVORITE
+    if key == "STOP_LOSS_PCT":
+        key = "STOP_LOSS_PCT_FAVORITE"
     # valid_keys берётся из реестра — единственного источника истины
     valid_keys = list(_registry_editable_keys())
     

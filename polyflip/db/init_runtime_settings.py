@@ -43,6 +43,35 @@ async def migrate_auto_dead_zone_width(session: AsyncSession):
         await session.commit()
 
 
+async def migrate_stop_loss_pct(session: AsyncSession):
+    """
+    Разовая миграция: если в БД есть STOP_LOSS_PCT (старый единый ключ) —
+    копируем значение в STOP_LOSS_PCT_FAVORITE и STOP_LOSS_PCT_OUTSIDER,
+    затем удаляем старый ключ.
+    """
+    old = await session.scalar(
+        select(RuntimeSettings).where(RuntimeSettings.key == "STOP_LOSS_PCT")
+    )
+    if not old:
+        return
+
+    now = datetime.now(timezone.utc)
+    for new_key in ("STOP_LOSS_PCT_FAVORITE", "STOP_LOSS_PCT_OUTSIDER"):
+        existing = await session.scalar(
+            select(RuntimeSettings).where(RuntimeSettings.key == new_key)
+        )
+        if not existing:
+            session.add(RuntimeSettings(
+                key=new_key,
+                value=old.value,
+                updated_by="migration_stop_loss_pct",
+                updated_at=now,
+            ))
+
+    await session.delete(old)
+    await session.commit()
+
+
 async def seed_runtime_settings(session: AsyncSession):
     """Заполняет отсутствующие ключи дефолтами при старте."""
     for key, value in DEFAULTS.items():
