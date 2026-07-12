@@ -196,6 +196,7 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
         key = "MAX_BET_EDGE"
     # Backward-compatibility: старый STOP_LOSS_PCT → STOP_LOSS_PCT_FAVORITE
     if key == "STOP_LOSS_PCT":
+        logger.warning("deprecated_key_redirect", old_key="STOP_LOSS_PCT", new_key="STOP_LOSS_PCT_FAVORITE")
         key = "STOP_LOSS_PCT_FAVORITE"
     # valid_keys берётся из реестра — единственного источника истины
     valid_keys = list(_registry_editable_keys())

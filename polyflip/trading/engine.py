@@ -743,7 +743,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     # Выбираем % стоп-лосса в зависимости от типа ставки
                     is_outsider = (
                         hasattr(decision_obj, 'strategy_type')
-                        and decision_obj.strategy_type
+                        and isinstance(decision_obj.strategy_type, str)
                         and decision_obj.strategy_type.upper() == "OUTSIDER"
                     )
                     if is_outsider:
