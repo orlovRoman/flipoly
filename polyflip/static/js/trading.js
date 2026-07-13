@@ -210,6 +210,7 @@ document.addEventListener("DOMContentLoaded", () => {
     maxBetSize: document.getElementById("MAX_BET_SIZE_USDC"),
     betSize: document.getElementById("TRADE_BET_SIZE_USDC"),
     noFlipThreshold: document.getElementById("TRADE_NO_FLIP_THRESHOLD"),
+    tradeFlipThreshold: document.getElementById("TRADE_FLIP_THRESHOLD"),
     deadZoneWidth: document.getElementById("DEAD_ZONE_WIDTH"),
     dailyLossLimit: document.getElementById("DAILY_LOSS_LIMIT_USDC"),
     tradingEnabled: document.getElementById("TRADING_ENABLED"),
@@ -678,6 +679,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxBetSize) settingsToSave.MAX_BET_SIZE_USDC = settingsElements.maxBetSize.value;
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
       if (settingsElements.noFlipThreshold) settingsToSave.TRADE_NO_FLIP_THRESHOLD = parseFloat(settingsElements.noFlipThreshold.value) / 100;
+      if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
 
       if (settingsElements.dailyLossLimit) settingsToSave.DAILY_LOSS_LIMIT_USDC = settingsElements.dailyLossLimit.value;

@@ -494,13 +494,13 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 )
 
                 flip_threshold_key = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
-                has_per_asset_threshold = flip_threshold_key in settings_db
                 
-                base_flip_threshold = (
-                    float(settings_db[flip_threshold_key])
-                    if has_per_asset_threshold
-                    else no_flip_threshold + dead_zone
-                )
+                if flip_threshold_key in settings_db:
+                    base_flip_threshold = float(settings_db[flip_threshold_key])
+                elif "TRADE_FLIP_THRESHOLD" in settings_db:
+                    base_flip_threshold = float(settings_db["TRADE_FLIP_THRESHOLD"])
+                else:
+                    base_flip_threshold = no_flip_threshold + dead_zone
 
                 auto_dead_zone = settings_db.get("AUTO_DEAD_ZONE", "true" if settings.AUTO_DEAD_ZONE else "false").lower() == "true"
                 # dead_zone единый параметр ширины — используется и в авто-, и в ручном режиме

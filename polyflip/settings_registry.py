@@ -121,6 +121,8 @@ REGISTRY: list[SettingDef] = [
                description="Торговать на флип (стратегия аутсайдера)"),
     SettingDef("FLIP_THRESHOLD", str(FLIP_THRESHOLD),
                description="Порог p_flip для входа в аутсайдера"),
+    SettingDef("TRADE_FLIP_THRESHOLD", "0.85",
+               description="Глобальный порог ПРОТИВ ТОЛПЫ (если нет индивидуального)"),
 
     # --- ML ---
     SettingDef("TRADE_NO_FLIP_THRESHOLD", "0.15",
