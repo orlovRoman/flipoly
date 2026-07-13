@@ -32,7 +32,8 @@ async def check():
         if not latest_trades:
             print("No trades found.")
         for t in latest_trades:
-            print(f"[{t.created_at}] {t.asset} | {t.outcome_bought} | {t.status} | p_flip={t.predicted_flip_prob:.3f} | {t.error_msg}")
+            p_flip_str = f"{t.predicted_flip_prob:.3f}" if t.predicted_flip_prob is not None else "N/A"
+            print(f"[{t.created_at}] {t.asset} | {t.outcome_bought} | {t.status} | p_flip={p_flip_str} | {t.error_msg}")
 
 if __name__ == "__main__":
     asyncio.run(check())

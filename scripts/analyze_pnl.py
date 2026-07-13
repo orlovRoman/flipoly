@@ -22,10 +22,10 @@ async def analyze():
         # Determine strategy type
         if "OUTSIDER" in af:
             strategy = "OUTSIDER"
-        elif "FAVORITE" in af:
-            strategy = "FAVORITE"
         elif "CRYPTO" in af:
             strategy = "CRYPTO"
+        elif "FAVORITE" in af or "ML_TREND" in af or "PURE_FAVORITE" in af:
+            strategy = "FAVORITE"
         else:
             strategy = "OTHER"
 
