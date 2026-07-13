@@ -17,12 +17,19 @@ def test_interaction_features_no_nan():
         assert feat in result.columns, f"Missing feature: {feat}"
         assert result[feat].isna().sum() == 0, f"NaN in {feat}"
 
-def test_is_final_phase_logic():
+def test_time_phase_values():
+    """Проверяет что time_phase корректно нормализован."""
     df = pd.DataFrame({
-        "mid_price": [0.5], "spread": [0.02],
-        "time_left_min": [1.0],  # последние ~7% от 15 мин → time_phase < 0.20
-        "volume_5min": [100], "price_velocity": [0.0],
-        "hour_of_day": [10], "market_id": ["m1"],
+        "mid_price": [0.5, 0.6],
+        "spread": [0.02, 0.02],
+        "time_left_min": [3.0, 15.0],  # 3/15=0.2, 15/15=1.0
+        "volume_5min": [100, 100],
+        "price_velocity": [0.0, 0.0],
+        "hour_of_day": [10, 10],
+        "market_id": ["m1", "m2"], # Инференс (нет дубликатов)
     })
     result = add_derived_features(df)
-    assert result["is_final_phase"].iloc[0] == 1.0
+    assert abs(result["time_phase"].iloc[0] - 0.20) < 1e-4  # 3/15
+    assert abs(result["time_phase"].iloc[1] - 1.00) < 1e-4  # 15/15
+    assert result["is_final_phase"].iloc[0] == 1.0   # <= 0.20
+    assert result["is_final_phase"].iloc[1] == 0.0

@@ -101,4 +101,4 @@ def get_price_phase(mid_price: float) -> str:
     for phase, (lo, hi) in PRICE_PHASE_BOUNDARIES.items():
         if lo <= dev < hi:
             return phase
-    return "decided"  # fallback: dev >= 0.50
+    return "decided"  # fallback: dev >= 0.50

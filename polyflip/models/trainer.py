@@ -69,8 +69,17 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df["price_distance_from_max"] = 0.0
 
-    if "time_left_min" in df.columns:
-        # Для 15-минутных рынков жестко задаем макс. время, чтобы инференс работал корректно
+    if "market_id" in df.columns and "time_left_min" in df.columns:
+        if len(df) > df["market_id"].nunique():
+            # Тренинг: несколько снапшотов на рынок, вычисляем реальную длину жизни
+            df["time_phase"] = (
+                df["time_left_min"] / 
+                (df.groupby("market_id")["time_left_min"].transform("max") + 1e-6)
+            ).clip(0, 1)
+        else:
+            # Инференс: один снапшот на рынок, используем дефолт 15.0 минут
+            df["time_phase"] = (df["time_left_min"] / 15.0).clip(0, 1)
+    elif "time_left_min" in df.columns:
         df["time_phase"] = (df["time_left_min"] / 15.0).clip(0, 1)
     else:
         import structlog
@@ -78,7 +87,7 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         df["time_phase"] = 1.0
 
     # --- Interaction Features ---
-    df["is_final_phase"] = (df["time_phase"] < 0.20).astype(float)
+    df["is_final_phase"] = (df["time_phase"] <= 0.20).astype(float)
     df["high_price_final"] = df["price_deviation"] * (1.0 - df["time_phase"])
     if "price_velocity" in df.columns:
         df["velocity_x_phase"] = df["price_velocity"] * (1.0 - df["time_phase"])
