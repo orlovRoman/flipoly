@@ -561,10 +561,21 @@ async function applyLiveSettings() {
     document.getElementById('cfg-max-time').value   = s.TRADE_MAX_TIME_LEFT_SEC != null ? (parseInt(s.TRADE_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
     const modeMap = { ml: 'ML', favorite: 'PURE_FAVORITE', CRYPTO: 'ML' };
     document.getElementById('cfg-strategy-mode').value = modeMap[s.TRADING_MODE] ?? 'ML';
-    document.getElementById('cfg-no-flip').value    = s.TRADE_NO_FLIP_THRESHOLD != null ? (parseFloat(s.TRADE_NO_FLIP_THRESHOLD) * 100).toFixed(0) : '35';
-    document.getElementById('cfg-flip').value       = s.FLIP_THRESHOLD != null ? (parseFloat(s.FLIP_THRESHOLD) * 100).toFixed(0) : '60';
-    document.getElementById('cfg-fav-thresh').value = s.FAVORITE_THRESHOLD != null ? parseFloat(s.FAVORITE_THRESHOLD).toFixed(2) : '0.65';
-    document.getElementById('cfg-dead-zone').value  = s.DEAD_ZONE_WIDTH != null ? (parseFloat(s.DEAD_ZONE_WIDTH) * 100).toFixed(0) : '10';
+      const parseThresh = (val) => {
+        let f = parseFloat(val);
+        if (isNaN(f)) return null;
+        if (f > 1) f /= 100;
+        return f;
+      };
+
+      const noFlip = parseThresh(s.TRADE_NO_FLIP_THRESHOLD) ?? 0.35;
+      const flip = parseThresh(s.FLIP_THRESHOLD) ?? 0.60;
+      const deadZone = parseThresh(s.DEAD_ZONE_WIDTH) ?? 0.10;
+
+      document.getElementById('cfg-no-flip').value    = (noFlip * 100).toFixed(0);
+      document.getElementById('cfg-flip').value       = (flip * 100).toFixed(0);
+      document.getElementById('cfg-dead-zone').value  = (deadZone * 100).toFixed(0);
+      document.getElementById('cfg-fav-thresh').value = s.FAVORITE_THRESHOLD != null ? parseFloat(s.FAVORITE_THRESHOLD).toFixed(2) : '0.65';
     
     document.getElementById('cfg-fav-min').value    = s.FAVORITE_MIN_PRICE  != null ? s.FAVORITE_MIN_PRICE  : '0.55';
     document.getElementById('cfg-fav-max').value    = s.FAVORITE_MAX_PRICE  != null ? s.FAVORITE_MAX_PRICE  : '0.95';
