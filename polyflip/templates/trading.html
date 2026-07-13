@@ -370,14 +370,14 @@
 
 
                             <div class="form-group">
-                                <label for="TRADE_FLIP_THRESHOLD" title="Вероятность (%), выше которой ML модель считает, что аутсайдер выиграет, и бот поставит против толпы.">
+                                <label for="TRADE_FLIP_THRESHOLD" title="[ДЛЯ ML-МОДЕЛЕЙ] Вероятность (%), выше которой ML модель считает, что аутсайдер выиграет, и бот поставит против толпы.">
                                     Порог ПРОТИВ ТОЛПЫ — flip (%, выше — ставим на аутсайдера)
                                 </label>
                                 <input type="number" step="0.1" max="100" min="0" id="TRADE_FLIP_THRESHOLD" value="85">
                             </div>
                             
                             <div class="form-group">
-                                <label for="TRADE_NO_FLIP_THRESHOLD" title="Вероятность (%), ниже которой ML модель уверена в победе фаворита, и бот поставит по тренду." style="display:flex; justify-content:space-between; align-items:center;">
+                                <label for="TRADE_NO_FLIP_THRESHOLD" title="[ДЛЯ ML-МОДЕЛЕЙ - Резервный] Используется, только если бот не может рассчитать мертвую зону от основного порога. Вероятность (%), ниже которой бот ставит по тренду." style="display:flex; justify-content:space-between; align-items:center;">
                                     <span>Порог ПО ТРЕНДУ — no_flip (%, ниже — ставим на фаворита)</span>
                                     <button type="button" id="btn-apply-recommended-no-flip"
                                             style="font-size:0.75rem; padding:2px 10px; border-radius:12px;
@@ -474,7 +474,7 @@
                             </div>
                             
                             <div class="form-group">
-                                <label for="MIN_EDGE" title="Минимальное математическое ожидание (Edge в %), при котором бот войдет в сделку.">Минимальный Edge для ставки (%)</label>
+                                <label for="MIN_EDGE" title="[БАЗОВЫЙ ПАРАМЕТР] Минимальное математическое ожидание (Edge в %), при котором бот войдет в сделку. Если бот скипает фаворитов, снизьте этот порог до 1-2%.">Мин. Edge для ставки (%)</label>
                                 <input type="number" step="0.1" min="0.5" max="50" id="MIN_EDGE" value="5">
                             </div>
 
@@ -504,7 +504,7 @@
                             </div>
                             
                             <div class="form-group">
-                                <label for="FAVORITE_MIN_EDGE" title="Минимальное матожидание (Edge) для ставок на фаворита. Можно ставить отрицательное (например -1.0%), чтобы ставить по тренду даже с небольшой комиссией.">Мин Edge для Фаворита (%, напр. -1.0 = -1%)</label>
+                                <label for="FAVORITE_MIN_EDGE" title="[ДЛЯ ML TREND] Минимальное матожидание (Edge) для ставок на фаворита. Для уверенных моделей (BTC_decided) ставьте 1-2%, чтобы бот не браковал ставки из-за малого эджа. Можно ставить отрицательное (например -1.0%).">Мин Edge для Фаворита (%, напр. -1.0 = -1%)</label>
                                 <input type="number" step="0.1" id="FAVORITE_MIN_EDGE" value="-1.0" placeholder="-1.0" min="-20" max="50">
                             </div>
 
@@ -517,7 +517,7 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="FLIP_THRESHOLD" title="Порог вероятности переворота рынка (Флипа), выше которого бот ставит на Аутсайдера (в %).">Порог Флипа для NO (%)</label>
+                                <label for="FLIP_THRESHOLD" title="[ТОЛЬКО ДЛЯ CRYPTO TREND (без ML)] Порог вероятности переворота рынка, выше которого бот ставит на Аутсайдера. В текущем ML-режиме бот ПОЛНОСТЬЮ ИГНОРИРУЕТ эту цифру.">Порог Флипа для NO (Crypto Trend)</label>
                                 <input type="number" step="1" min="50" max="99" id="FLIP_THRESHOLD" value="70">
                             </div>
 
