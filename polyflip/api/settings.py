@@ -44,6 +44,7 @@ async def get_all_settings(db: Optional[AsyncSession] = None):
         settings_dict[f"TRADING_MODE_{asset_upper}"] = db_settings.get(f"TRADING_MODE_{asset_upper}", "")
         settings_dict[f"MIN_EDGE_{asset_upper}"] = db_settings.get(f"MIN_EDGE_{asset_upper}", "")
         settings_dict[f"TRADE_MAX_PRICE_{asset_upper}"] = db_settings.get(f"TRADE_MAX_PRICE_{asset_upper}", "")
+        settings_dict[f"TRADE_FLIP_THRESHOLD_{asset_upper}"] = db_settings.get(f"TRADE_FLIP_THRESHOLD_{asset_upper}", "")
 
     return settings_dict
 
@@ -205,7 +206,12 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
     is_per_asset_key = False
     for asset in settings.asset_list:
         asset_upper = asset.upper()
-        if key in [f"TRADING_MODE_{asset_upper}", f"MIN_EDGE_{asset_upper}", f"TRADE_MAX_PRICE_{asset_upper}"]:
+        if key in [
+            f"TRADING_MODE_{asset_upper}", 
+            f"MIN_EDGE_{asset_upper}", 
+            f"TRADE_MAX_PRICE_{asset_upper}",
+            f"TRADE_FLIP_THRESHOLD_{asset_upper}"
+        ]:
             is_per_asset_key = True
             break
             
