@@ -619,6 +619,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const modeSelect = document.getElementById(`TRADING_MODE_${asset}`);
         const minEdgeInput = document.getElementById(`MIN_EDGE_${asset}`);
         const maxPriceInput = document.getElementById(`TRADE_MAX_PRICE_${asset}`);
+        const flipThresholdInput = document.getElementById(`TRADE_FLIP_THRESHOLD_${asset}`);
         
         if (modeSelect && data[`TRADING_MODE_${asset}`] !== undefined) {
           modeSelect.value = data[`TRADING_MODE_${asset}`];
@@ -633,10 +634,19 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if (maxPriceInput) {
           const val = data[`TRADE_MAX_PRICE_${asset}`];
-          if (val !== undefined && val !== "") {
+          if (val !== undefined && val !== null && val !== "") {
             maxPriceInput.value = val;
           } else {
             maxPriceInput.value = "";
+          }
+        }
+        
+        if (flipThresholdInput) {
+          const val = data[`TRADE_FLIP_THRESHOLD_${asset}`];
+          if (val !== undefined && val !== null && val !== "") {
+            flipThresholdInput.value = (parseFloat(val) * 100).toString();
+          } else {
+            flipThresholdInput.value = "";
           }
         }
       });
@@ -745,6 +755,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const modeSelect = document.getElementById(`TRADING_MODE_${asset}`);
         const minEdgeInput = document.getElementById(`MIN_EDGE_${asset}`);
         const maxPriceInput = document.getElementById(`TRADE_MAX_PRICE_${asset}`);
+        const flipThresholdInput = document.getElementById(`TRADE_FLIP_THRESHOLD_${asset}`);
         
         if (modeSelect) {
           settingsToSave[`TRADING_MODE_${asset}`] = modeSelect.value;
@@ -756,6 +767,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (maxPriceInput) {
           const val = maxPriceInput.value.trim();
           settingsToSave[`TRADE_MAX_PRICE_${asset}`] = val !== "" ? parseFloat(val) : "";
+        }
+        if (flipThresholdInput) {
+          const val = flipThresholdInput.value.trim();
+          settingsToSave[`TRADE_FLIP_THRESHOLD_${asset}`] = val !== "" ? parseFloat(val) / 100 : "";
         }
       });
 

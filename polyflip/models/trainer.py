@@ -47,7 +47,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     gkf = GroupKFold(n_splits=CV_N_SPLITS)
     base_model = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight=None, C=5.0, random_state=CV_RANDOM_STATE, max_iter=1000))
+        ("model", LogisticRegression(class_weight="balanced", C=5.0, random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
     
     from sklearn.calibration import CalibratedClassifierCV
@@ -83,19 +83,23 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     ece = float(np.mean(np.abs(frac_pos - mean_pred)))
     logger.info("calibration_check", ece=round(ece, 4))
     
-    # Обучаем финальную модель на всех данных
+    # Обучаем финальную модель на всех данных (с holdout для честной калибровки)
+    from sklearn.model_selection import train_test_split
+    X_train_cal, X_cal, y_train_cal, y_cal = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
     final_base = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight=None, C=5.0, random_state=CV_RANDOM_STATE, max_iter=1000))
+        ("model", LogisticRegression(class_weight="balanced", C=5.0, random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
-    final_base.fit(X, y)
+    final_base.fit(X_train_cal, y_train_cal)
     
     from sklearn.frozen import FrozenEstimator
     final_model = CalibratedClassifierCV(
         estimator=FrozenEstimator(final_base),
         method="sigmoid"
     )
-    final_model.fit(X, y)
+    final_model.fit(X_cal, y_cal)
     
     coefs = final_base.named_steps["model"].coef_[0]
     coef_info = dict(zip(list(X.columns), [round(float(c), 4) for c in coefs]))
@@ -229,7 +233,9 @@ class ModelTrainer:
             )
             derived_row = derived_setting.scalar_one_or_none()
             if derived_row:
-                derived_row.value = ",".join(active_features)
+                new_value = ",".join(active_features)
+                if derived_row.value != new_value:
+                    derived_row.value = new_value
         
         # Базовая проверка на разнообразие классов
         if len(df["target"].unique()) < 2:
@@ -268,7 +274,7 @@ class ModelTrainer:
         next_version = (last_v or 0) + 1
 
         # Сохраняем калиброванный порог в RuntimeSettings
-        threshold_key = f"TRADE_FLIP_THRESHOLD_{asset}"
+        threshold_key = f"AUTO_FLIP_THRESHOLD_{asset}"
         existing = await self.db.execute(
             select(RuntimeSettings).where(RuntimeSettings.key == threshold_key)
         )

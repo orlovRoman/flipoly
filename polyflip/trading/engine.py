@@ -493,10 +493,13 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     time_left_min=time_left_sec / 60.0
                 )
 
-                flip_threshold_key = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
+                manual_key = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
+                auto_key = f"AUTO_FLIP_THRESHOLD_{market.asset.upper()}"
                 
-                if flip_threshold_key in settings_db:
-                    base_flip_threshold = float(settings_db[flip_threshold_key])
+                if manual_key in settings_db and str(settings_db[manual_key]).strip() != "":
+                    base_flip_threshold = float(settings_db[manual_key])
+                elif auto_key in settings_db:
+                    base_flip_threshold = float(settings_db[auto_key])
                 elif "TRADE_FLIP_THRESHOLD" in settings_db:
                     base_flip_threshold = float(settings_db["TRADE_FLIP_THRESHOLD"])
                 else:

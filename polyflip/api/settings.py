@@ -77,7 +77,7 @@ async def get_recommended_thresholds():
     # Per-asset
     per_asset = {}
     for asset in settings.asset_list:
-        key = f"TRADE_FLIP_THRESHOLD_{asset.upper()}"
+        key = f"AUTO_FLIP_THRESHOLD_{asset.upper()}"
         if key in db:
             asset_flip = float(db[key])
             per_asset[asset] = {

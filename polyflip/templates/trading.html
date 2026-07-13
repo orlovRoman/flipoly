@@ -305,6 +305,7 @@
                                             <th style="padding: 8px;">Режим торговли</th>
                                             <th style="padding: 8px;">Мин. Edge (%)</th>
                                             <th style="padding: 8px;">Макс. цена входа (USD)</th>
+                                            <th style="padding: 8px;">Порог ПРОТИВ ТОЛПЫ (%)</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -327,6 +328,9 @@
                                             </td>
                                             <td style="padding: 8px; vertical-align: middle;">
                                                 <input type="number" step="0.01" min="0.01" max="0.99" id="TRADE_MAX_PRICE_{{ asset }}" placeholder="Глобальный" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem; width: 100px;">
+                                            </td>
+                                            <td style="padding: 8px; vertical-align: middle;">
+                                                <input type="number" step="1" min="1" max="100" id="TRADE_FLIP_THRESHOLD_{{ asset }}" placeholder="Глоб/Авто" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem; width: 100px;" title="Если пусто - используется Авто (от ML), если Авто нет - Глобальный">
                                             </td>
                                         </tr>
                                         {% endfor %}
