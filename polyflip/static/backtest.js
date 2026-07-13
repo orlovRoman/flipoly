@@ -53,11 +53,11 @@ function readConfig() {
     strategy_mode:        document.getElementById('cfg-strategy-mode').value,
     min_time_left_min:    parseFloat(document.getElementById('cfg-min-time').value),
     max_time_left_min:    parseFloat(document.getElementById('cfg-max-time').value),
-    no_flip_threshold:    parseFloat(document.getElementById('cfg-no-flip').value),
-    flip_threshold:       parseFloat(document.getElementById('cfg-flip').value),
+    no_flip_threshold:    parseFloat(document.getElementById('cfg-no-flip').value) / 100,
+    flip_threshold:       parseFloat(document.getElementById('cfg-flip').value) / 100,
     trade_on_flip:        document.getElementById('cfg-trade-on-flip').checked,
     favorite_threshold:   parseFloat(document.getElementById('cfg-fav-thresh').value),
-    auto_dead_zone_width: parseFloat(document.getElementById('cfg-dead-zone').value),
+    auto_dead_zone_width: parseFloat(document.getElementById('cfg-dead-zone').value) / 100,
     favorite_min_price:   parseFloat(document.getElementById('cfg-fav-min').value),
     favorite_max_price:   parseFloat(document.getElementById('cfg-fav-max').value),
 
@@ -66,7 +66,7 @@ function readConfig() {
     trade_bet_size_usdc:  parseFloat(document.getElementById('cfg-min-bet').value),
     max_bet_size_usdc:    parseFloat(document.getElementById('cfg-max-bet').value),
     min_edge:             parseFloat(document.getElementById('cfg-min-edge').value),
-    max_edge:             parseFloat(document.getElementById('cfg-max-edge').value),
+    max_bet_edge:         parseFloat(document.getElementById('cfg-max-edge').value),
     slippage_pct:         parseFloat(document.getElementById('cfg-slippage').value) / 100,
   };
 }
@@ -426,10 +426,10 @@ async function loadHistoricRun(runId) {
         document.getElementById('cfg-strategy-mode').value = cfg.strategy_mode || 'ML';
         document.getElementById('cfg-min-time').value   = cfg.min_time_left_min || 1;
         document.getElementById('cfg-max-time').value   = cfg.max_time_left_min || 60;
-        document.getElementById('cfg-no-flip').value    = cfg.no_flip_threshold || 0.35;
-        document.getElementById('cfg-flip').value       = cfg.flip_threshold || 0.60;
+        document.getElementById('cfg-no-flip').value    = cfg.no_flip_threshold != null ? (cfg.no_flip_threshold * 100).toFixed(0) : '35';
+        document.getElementById('cfg-flip').value       = cfg.flip_threshold != null ? (cfg.flip_threshold * 100).toFixed(0) : '60';
         document.getElementById('cfg-fav-thresh').value = cfg.favorite_threshold != null ? cfg.favorite_threshold : 0.65;
-        document.getElementById('cfg-dead-zone').value  = cfg.auto_dead_zone_width != null ? cfg.auto_dead_zone_width : 0.10;
+        document.getElementById('cfg-dead-zone').value  = cfg.auto_dead_zone_width != null ? (cfg.auto_dead_zone_width * 100).toFixed(0) : '10';
         document.getElementById('cfg-fav-min').value    = cfg.favorite_min_price != null ? cfg.favorite_min_price : 0.55;
         document.getElementById('cfg-fav-max').value    = cfg.favorite_max_price != null ? cfg.favorite_max_price : 0.95;
 
@@ -535,14 +535,10 @@ function resetConfig() {
   document.getElementById('cfg-min-time').value   = '1';
   document.getElementById('cfg-max-time').value   = '60';
   document.getElementById('cfg-strategy-mode').value = 'ML';
-  document.getElementById('cfg-no-flip').value    = '0.35';
-  document.getElementById('cfg-flip').value       = '0.60';
+  document.getElementById('cfg-no-flip').value    = '35';
+  document.getElementById('cfg-flip').value       = '60';
   document.getElementById('cfg-fav-thresh').value = '0.65';
-  document.getElementById('cfg-dead-zone').value  = '0.10';
-  document.getElementById('cfg-yes-min').value    = '0.55';
-  document.getElementById('cfg-yes-max').value    = '0.95';
-  document.getElementById('cfg-no-min').value     = '0.55';
-  document.getElementById('cfg-no-max').value     = '0.95';
+  document.getElementById('cfg-dead-zone').value  = '10';
 
   document.getElementById('cfg-capital').value    = '1000';
   document.getElementById('cfg-bet-sizing-mode').value = 'scaled';
@@ -561,11 +557,12 @@ async function applyLiveSettings() {
     document.getElementById('cfg-assets').value     = s.TRADE_ASSETS || 'BTC,ETH';
     document.getElementById('cfg-min-time').value   = s.TRADE_MIN_TIME_LEFT_SEC != null ? (parseInt(s.TRADE_MIN_TIME_LEFT_SEC) / 60).toFixed(1) : '1';
     document.getElementById('cfg-max-time').value   = s.TRADE_MAX_TIME_LEFT_SEC != null ? (parseInt(s.TRADE_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
-    document.getElementById('cfg-strategy-mode').value = s.TRADING_MODE === 'ml' ? 'ML' : 'PURE_FAVORITE';
-    document.getElementById('cfg-no-flip').value    = s.TRADE_NO_FLIP_THRESHOLD != null ? parseFloat(s.TRADE_NO_FLIP_THRESHOLD).toFixed(2) : '0.35';
-    document.getElementById('cfg-flip').value       = s.FLIP_THRESHOLD != null ? parseFloat(s.FLIP_THRESHOLD).toFixed(2) : '0.60';
+    const modeMap = { ml: 'ML', favorite: 'PURE_FAVORITE', CRYPTO: 'ML' };
+    document.getElementById('cfg-strategy-mode').value = modeMap[s.TRADING_MODE] ?? 'ML';
+    document.getElementById('cfg-no-flip').value    = s.TRADE_NO_FLIP_THRESHOLD != null ? (parseFloat(s.TRADE_NO_FLIP_THRESHOLD) * 100).toFixed(0) : '35';
+    document.getElementById('cfg-flip').value       = s.FLIP_THRESHOLD != null ? (parseFloat(s.FLIP_THRESHOLD) * 100).toFixed(0) : '60';
     document.getElementById('cfg-fav-thresh').value = s.FAVORITE_THRESHOLD != null ? parseFloat(s.FAVORITE_THRESHOLD).toFixed(2) : '0.65';
-    document.getElementById('cfg-dead-zone').value  = s.DEAD_ZONE_WIDTH != null ? parseFloat(s.DEAD_ZONE_WIDTH).toFixed(2) : '0.10';
+    document.getElementById('cfg-dead-zone').value  = s.DEAD_ZONE_WIDTH != null ? (parseFloat(s.DEAD_ZONE_WIDTH) * 100).toFixed(0) : '10';
     
     document.getElementById('cfg-fav-min').value    = s.FAVORITE_MIN_PRICE  != null ? s.FAVORITE_MIN_PRICE  : '0.55';
     document.getElementById('cfg-fav-max').value    = s.FAVORITE_MAX_PRICE  != null ? s.FAVORITE_MAX_PRICE  : '0.95';
