@@ -258,26 +258,11 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
                             if norm_val <= current_min:
                                 raise HTTPException(status_code=400, detail=f"MAX_BET_EDGE ({norm_val}) must be greater than MIN_EDGE ({current_min})")
                             
-                            filter_row = (await session.execute(
-                                select(RuntimeSettings).where(RuntimeSettings.key == "MAX_EDGE_FILTER")
-                            )).scalar_one_or_none()
-                            current_filter = float(filter_row.value) if filter_row else getattr(settings, 'MAX_EDGE_FILTER', 0.20)
-                            if norm_val < current_filter:
-                                raise HTTPException(
-                                    status_code=400,
-                                    detail=f"MAX_BET_EDGE ({norm_val}) не должен быть меньше MAX_EDGE_FILTER ({current_filter})"
-                                )
                         elif key == "MIN_EDGE":
                             max_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE"))).scalar_one_or_none()
                             current_max = float(max_edge_row.value) if max_edge_row else getattr(settings, 'MAX_BET_EDGE', 0.10)
                             if norm_val >= current_max:
                                 raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be less than MAX_BET_EDGE ({current_max})")
-                        elif key == "MAX_EDGE_FILTER":
-                            # MAX_EDGE_FILTER (фильтр аномалий) должен быть ≤ MAX_BET_EDGE (масштабирование)
-                            max_bet_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE"))).scalar_one_or_none()
-                            current_max_bet = float(max_bet_row.value) if max_bet_row else getattr(settings, 'MAX_BET_EDGE', 0.40)
-                            if norm_val > current_max_bet:
-                                raise HTTPException(status_code=400, detail=f"MAX_EDGE_FILTER ({norm_val}) не должен превышать MAX_BET_EDGE ({current_max_bet})")
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"{key} must be a number")
 
@@ -393,8 +378,8 @@ async def update_setting(key: str, payload: SettingValue, request: Request = Non
     if key == "MAX_EDGE_FILTER":
         try:
             val = float(payload.value)
-            if not (0.05 <= val <= 0.50):
-                raise HTTPException(status_code=400, detail="MAX_EDGE_FILTER must be 0.05..0.50")
+            if not (0.05 <= val <= 1.0):
+                raise HTTPException(status_code=400, detail="MAX_EDGE_FILTER must be 0.05..1.0")
             payload.value = str(val)
         except ValueError:
             raise HTTPException(status_code=400, detail="MAX_EDGE_FILTER must be a number")
