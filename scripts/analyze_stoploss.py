@@ -95,20 +95,32 @@ async def analyze():
         print(f"   Count: {len(incorrect_and_stopped)} ({pct_effective:.1f}%)")
         print(f"   (We correctly stopped out and saved part of the deposit, because we would have lost 100% anyway)")
         
-        print(f"\n--- PnL Impact of Stop Losses (Resolved trades) ---")
-        total_pnl = resolved_triggered['pnl'].sum()
-        print(f"Total PnL on these triggered stop losses: {total_pnl:.2f} USDC")
+        print(f"\n--- Детальный разбор PnL (Влияние Stop-Loss) ---")
         
-        # Calculate theoretical PnL if we didn't use stop loss
-        # If mistake: we would have won. Win PnL = (1 - executed_price) * shares = (1/executed_price - 1) * amount_usdc
+        # Разбор MISTAKE
+        actual_pnl_mistake = correct_but_stopped['pnl'].sum()
         theoretical_win_pnl = ((1 / correct_but_stopped['executed_price'] - 1) * correct_but_stopped['amount_usdc']).sum()
-        
-        # If effective: we would have lost 100%. Loss PnL = -amount_usdc
+        missed_opportunity = theoretical_win_pnl - actual_pnl_mistake
+        print(f"[MISTAKE] Для {len(correct_but_stopped)} ошибочных срабатываний:")
+        print(f"   Фактический зафиксированный убыток по стоп-лоссу: {actual_pnl_mistake:.2f} USDC")
+        print(f"   Если бы не выходили, мы бы заработали (теоретический профит): +{theoretical_win_pnl:.2f} USDC")
+        print(f"   -> Упущенная выгода (потеряно из-за стоп-лосса): {missed_opportunity:.2f} USDC")
+
+        # Разбор EFFECTIVE
+        actual_pnl_effective = incorrect_and_stopped['pnl'].sum()
         theoretical_loss_pnl = -incorrect_and_stopped['amount_usdc'].sum()
-        
-        theoretical_total_pnl = theoretical_win_pnl + theoretical_loss_pnl
-        print(f"Theoretical PnL if we DID NOT use stop losses: {theoretical_total_pnl:.2f} USDC")
-        print(f"Difference (Value of Stop Loss feature): {total_pnl - theoretical_total_pnl:.2f} USDC")
+        saved_money = actual_pnl_effective - theoretical_loss_pnl
+        print(f"\n[EFFECTIVE] Для {len(incorrect_and_stopped)} полезных срабатываний:")
+        print(f"   Фактический зафиксированный убыток по стоп-лоссу: {actual_pnl_effective:.2f} USDC")
+        print(f"   Если бы не выходили, мы бы потеряли 100% ставки: {theoretical_loss_pnl:.2f} USDC")
+        print(f"   -> Сэкономлено благодаря стоп-лоссу: +{saved_money:.2f} USDC")
+
+        print(f"\n--- ИТОГО ---")
+        total_actual_pnl = actual_pnl_mistake + actual_pnl_effective
+        total_theoretical_pnl = theoretical_win_pnl + theoretical_loss_pnl
+        print(f"Общий PnL при использовании стоп-лосса: {total_actual_pnl:.2f} USDC")
+        print(f"Общий PnL без использования стоп-лосса: {total_theoretical_pnl:.2f} USDC")
+        print(f"Чистая польза функции Stop-Loss: {total_actual_pnl - total_theoretical_pnl:.2f} USDC")
 
     print("\n--- By Mode ---")
     if not triggered.empty:
