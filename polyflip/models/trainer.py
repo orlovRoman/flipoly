@@ -68,6 +68,8 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     if "market_id" in df.columns and "time_left_min" in df.columns:
         df["time_phase"] = (df["time_left_min"] / (df.groupby("market_id")["time_left_min"].transform("max") + 1e-6)).clip(0, 1)
     else:
+        import structlog
+        structlog.get_logger(__name__).warning("time_phase_fallback", reason="no market_id, using 1.0")
         df["time_phase"] = 1.0
 
     return df
