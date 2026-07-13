@@ -57,11 +57,46 @@
                     async function fetchTimeLeftStats() {
                         const pre = document.getElementById('time-left-stats');
                         pre.style.display = 'block';
-                        pre.textContent = "Загрузка...";
+                        pre.innerHTML = "<div style='padding: 10px;'>Загрузка...</div>";
                         try {
                             const res = await fetch(window.API_BASE + '/api/analytics/time_left_distribution');
                             const data = await res.json();
-                            pre.textContent = JSON.stringify(data, null, 2);
+                            
+                            let html = `<table class="data-table" style="width: 100%; text-align: left; margin-top: 10px;">
+                                <thead>
+                                    <tr>
+                                        <th>Актив</th>
+                                        <th>Сэмплов (n)</th>
+                                        <th>Медиана</th>
+                                        <th>p10</th>
+                                        <th>p25</th>
+                                        <th>p75</th>
+                                        <th>p90</th>
+                                        <th>Мин</th>
+                                        <th>Макс</th>
+                                        <th>>22m (%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
+                                
+                            for (const [asset, stats] of Object.entries(data)) {
+                                html += `<tr>
+                                    <td><strong>${asset}</strong></td>
+                                    <td>${stats.n}</td>
+                                    <td>${stats.median}</td>
+                                    <td>${stats.p10}</td>
+                                    <td>${stats.p25}</td>
+                                    <td>${stats.p75}</td>
+                                    <td>${stats.p90}</td>
+                                    <td>${stats.min}</td>
+                                    <td>${stats.max}</td>
+                                    <td>${stats.pct_above_22m}%</td>
+                                </tr>`;
+                            }
+                            html += `</tbody></table>`;
+                            pre.innerHTML = html;
+                            pre.style.background = 'none';
+                            pre.style.padding = '0';
                         } catch (e) {
                             pre.textContent = "Ошибка загрузки: " + e.message;
                         }

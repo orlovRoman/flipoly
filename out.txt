@@ -1,0 +1,3 @@
+52: <button class="btn" onclick="fetchTimeLeftStats()">📊 Показать распределение time_left</button>
+62: const res = await fetch(window.API_BASE + '/api/analytics/time_left_distribution');
+185: <label><input type="checkbox" value="time_left_min"> Время до конца (мин)</label>

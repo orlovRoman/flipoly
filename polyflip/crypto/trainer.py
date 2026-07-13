@@ -74,16 +74,15 @@ assert not _unknown, (
 )
 
 
-def _build_target(df: pd.DataFrame, epsilon: float) -> pd.DataFrame:
+def _build_target(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Вычисляет таргет Up(1)/Down(0) и фильтрует свечи с |return| < epsilon.
+    Вычисляет таргет Up(1)/Down(0) без фильтрации.
     """
     df = df.copy()
     next_ret = df["ret_1"].shift(-1)
     df["target"] = (next_ret > 0).astype(int)
     df["abs_ret_next"] = next_ret.abs()
     df = df.dropna(subset=["target", "abs_ret_next"])
-    df = df[df["abs_ret_next"] >= epsilon].copy()
     return df
 
 
@@ -242,8 +241,6 @@ class CryptoModelTrainer:
         colsample_bytree = await _get_float_setting("CRYPTO_LGBM_COLSAMPLE_BYTREE", LGBM_COLSAMPLE_BYTREE)
         reg_alpha = await _get_float_setting("CRYPTO_LGBM_REG_ALPHA", LGBM_REG_ALPHA)
         reg_lambda = await _get_float_setting("CRYPTO_LGBM_REG_LAMBDA", LGBM_REG_LAMBDA)
-        eps_quantile = await _get_float_setting("CRYPTO_CANDLE_EPSILON_QUANTILE", CANDLE_EPSILON_QUANTILE)
-
         lgbm_params = {
             "n_estimators": n_estimators,
             "learning_rate": learning_rate,
@@ -259,14 +256,10 @@ class CryptoModelTrainer:
         # Строим фичи
         df = build_features(candles)
 
-        # Фильтруем по ε
-        next_returns = df["ret_1"].shift(-1).abs().dropna()
-        epsilon = float(next_returns.quantile(eps_quantile))
-        logger.info("epsilon_filter", symbol=symbol, epsilon=round(epsilon, 5), quantile=eps_quantile, n_next_returns=len(next_returns))
-        df_filtered = _build_target(df, epsilon)
+        df_filtered = _build_target(df)
 
         if len(df_filtered) < 300:
-            logger.warning("too_few_after_epsilon_filter", symbol=symbol, rows=len(df_filtered))
+            logger.warning("too_few_candles", symbol=symbol, rows=len(df_filtered))
             return False
 
         # Оставляем только доступные фичи

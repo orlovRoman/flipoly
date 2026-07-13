@@ -62,7 +62,6 @@ async def crypto_page(request: Request):
                 "colsample_bytree": C.LGBM_COLSAMPLE_BYTREE,
                 "reg_alpha": C.LGBM_REG_ALPHA,
                 "reg_lambda": C.LGBM_REG_LAMBDA,
-                "epsilon_quantile": C.CANDLE_EPSILON_QUANTILE,
                 "min_edge": C.BACKTEST_MIN_EDGE,
             }
         },
@@ -114,7 +113,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "CRYPTO_LGBM_N_ESTIMATORS", "CRYPTO_LGBM_LEARNING_RATE", "CRYPTO_LGBM_NUM_LEAVES",
         "CRYPTO_LGBM_MAX_DEPTH", "CRYPTO_LGBM_MIN_CHILD_SAMPLES", "CRYPTO_LGBM_SUBSAMPLE",
         "CRYPTO_LGBM_COLSAMPLE_BYTREE", "CRYPTO_LGBM_REG_ALPHA", "CRYPTO_LGBM_REG_LAMBDA",
-        "CRYPTO_CANDLE_EPSILON_QUANTILE", "CRYPTO_BACKTEST_MIN_EDGE"
+        "CRYPTO_BACKTEST_MIN_EDGE"
     ]
     set_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     set_rows = (await db.execute(set_stmt)).scalars().all()
@@ -130,7 +129,6 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "colsample_bytree": float(db_settings.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", C.LGBM_COLSAMPLE_BYTREE)),
         "reg_alpha": float(db_settings.get("CRYPTO_LGBM_REG_ALPHA", C.LGBM_REG_ALPHA)),
         "reg_lambda": float(db_settings.get("CRYPTO_LGBM_REG_LAMBDA", C.LGBM_REG_LAMBDA)),
-        "epsilon_quantile": float(db_settings.get("CRYPTO_CANDLE_EPSILON_QUANTILE", C.CANDLE_EPSILON_QUANTILE)),
         "min_edge": float(db_settings.get("CRYPTO_BACKTEST_MIN_EDGE", C.BACKTEST_MIN_EDGE)),
     }
 
@@ -173,7 +171,6 @@ async def save_crypto_settings(
         "colsample_bytree": "CRYPTO_LGBM_COLSAMPLE_BYTREE",
         "reg_alpha": "CRYPTO_LGBM_REG_ALPHA",
         "reg_lambda": "CRYPTO_LGBM_REG_LAMBDA",
-        "epsilon_quantile": "CRYPTO_CANDLE_EPSILON_QUANTILE",
         "min_edge": "CRYPTO_BACKTEST_MIN_EDGE",
     }
 
@@ -235,7 +232,6 @@ async def crypto_backtest(
             "reg_alpha":        await _get_rt("CRYPTO_LGBM_REG_ALPHA", C.LGBM_REG_ALPHA),
             "reg_lambda":       await _get_rt("CRYPTO_LGBM_REG_LAMBDA", C.LGBM_REG_LAMBDA),
         }
-        eps_q = await _get_rt("CRYPTO_CANDLE_EPSILON_QUANTILE", C.CANDLE_EPSILON_QUANTILE)
 
         candles = await get_recent_candles(session, symbol, interval, limit=10_000)
 
@@ -247,7 +243,6 @@ async def crypto_backtest(
     # Запускаем backtest в пуле потоков (CPU-bound)
     result = await asyncio.to_thread(
         run_backtest, df, symbol, min_edge, commission, 
-        epsilon_quantile=eps_q, 
         lgbm_params=lgbm_params
     )
 

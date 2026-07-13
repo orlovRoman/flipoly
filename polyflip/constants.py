@@ -72,8 +72,6 @@ LGBM_COLSAMPLE_BYTREE  = 0.8
 LGBM_REG_ALPHA         = 0.1
 LGBM_REG_LAMBDA        = 1.0
 
-# ε-фильтр: свеча попадает в выборку только если |return_15m| >= EPSILON
-CANDLE_EPSILON_QUANTILE = 0.70   # вычисляется динамически по датасету
 
 # Backtester
 BACKTEST_MIN_EDGE         = 0.04    # модель даёт сигнал только если prob - 0.5 >= MIN_EDGE
