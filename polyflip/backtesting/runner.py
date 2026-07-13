@@ -169,44 +169,55 @@ class BacktestRunner:
         self.p_flips = {}  # Сбрасываем кэш предсказаний перед новым запуском
         # Батч-предикшн вероятностей флипа для всех тиков, чтобы избежать оверхеда на единичные вызовы scikit-learn
         if self.strategy_mode == "ML" and self.model and self.features:
-            all_ticks = []
-            min_time = float(self.config.get("MIN_TIME_LEFT_MIN", 1.0))
-            max_time = float(self.config.get("MAX_TIME_LEFT_MIN", 60.0))
+            from polyflip.models.trainer import add_derived_features
+            from polyflip.models.feature_lags import add_lag_features
+            import numpy as np
             
+            rows = []
             for replay in replays.values():
-                if replay.is_tradeable:
-                    ticks = replay.get_ticks_in_window(min_time, max_time)
-                    all_ticks.extend(ticks)
+                if not replay.is_tradeable:
+                    continue
+                for tick in replay.ticks:
+                    rows.append({
+                        "market_id": tick.market_id,
+                        "recorded_at": tick.recorded_at,
+                        "time_left_min": tick.time_left_min,
+                        "mid_price": tick.mid_price,
+                        "spread": tick.spread,
+                        "volume_5min": tick.volume_5min,
+                        "price_velocity": tick.price_velocity,
+                        "hour_of_day": tick.hour_of_day,
+                        "day_of_week": tick.recorded_at.weekday(),
+                        "tick_obj": tick
+                    })
             
-            if all_ticks:
-                import math
-                X = []
-                for tick in all_ticks:
-                    signal = tick.to_signal()
-                    price_dev = abs(signal.mid_price - 0.5)
-                    row_dict = {
-                        "time_left_min": signal.time_left_min,
-                        "mid_price": signal.mid_price,
-                        "spread": signal.spread,
-                        "volume_5min": signal.volume_5min,
-                        "price_velocity": signal.price_velocity,
-                        "hour_of_day": signal.hour_of_day,
-                        "price_deviation": price_dev,
-                        "deviation_x_time": price_dev * signal.time_left_min,
-                        "price_deviation_sq": price_dev ** 2,
-                        "spread_pct": min(signal.spread / (signal.mid_price + 1e-6), 10.0),
-                        "log_time_left": math.log1p(signal.time_left_min),
-                    }
-                    X.append([row_dict[f] for f in self.features])
+            if rows:
+                df = pd.DataFrame(rows)
+                df = add_derived_features(df)
+                df = add_lag_features(df)
                 
-                try:
-                    probas = self.model.predict_proba(X)
-                    self.p_flips = {
-                        (tick.market_id, tick.time_left_min): float(proba[1] if len(proba) > 1 else 0.0)
-                        for tick, proba in zip(all_ticks, probas)
-                    }
-                except Exception:
+                min_time = float(self.config.get("MIN_TIME_LEFT_MIN", 1.0))
+                max_time = float(self.config.get("MAX_TIME_LEFT_MIN", 60.0))
+                mask = (df["time_left_min"] >= min_time) & (df["time_left_min"] <= max_time)
+                df_window = df[mask].copy()
+                
+                missing = [f for f in self.features if f not in df_window.columns]
+                if missing:
+                    import structlog
+                    structlog.get_logger(__name__).error("backtest_inference_missing_features", missing=missing)
                     self.p_flips = {}
+                else:
+                    X = df_window[self.features]
+                    try:
+                        probas = self.model.predict_proba(X)
+                        p_flip_values = probas[:, 1] if probas.shape[1] > 1 else np.zeros(len(df_window))
+                        for idx, p_val in zip(df_window.index, p_flip_values):
+                            tick = df_window.at[idx, "tick_obj"]
+                            self.p_flips[(tick.market_id, tick.time_left_min)] = float(p_val)
+                    except Exception as e:
+                        import structlog
+                        structlog.get_logger(__name__).error("backtest_inference_error", error=str(e))
+                        self.p_flips = {}
 
         for market_id, replay in replays.items():
             self.run_market(replay)

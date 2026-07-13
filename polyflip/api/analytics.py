@@ -340,7 +340,7 @@ async def get_time_left_distribution(db: AsyncSession = Depends(get_db_session))
     stmt = select(
         MarketSnapshot.asset,
         MarketSnapshot.time_left_min,
-    ).where(MarketSnapshot.final_outcome != "PENDING")
+    ).where(MarketSnapshot.final_outcome != "PENDING").order_by(MarketSnapshot.recorded_at.desc()).limit(200000)
 
     rows = (await db.execute(stmt)).all()
     if not rows:
