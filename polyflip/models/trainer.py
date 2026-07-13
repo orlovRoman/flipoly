@@ -53,9 +53,13 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         df["price_distance_from_max"] = (df["_market_max"] - df["mid_price"]).clip(lower=0.0)
         df.drop(columns=["_market_max"], inplace=True)
     elif "market_id" in df.columns:
-        df["_market_max"] = df.groupby("market_id")["mid_price"].transform("max")
-        df["price_distance_from_max"] = (df["_market_max"] - df["mid_price"]).clip(lower=0.0)
-        df.drop(columns=["_market_max"], inplace=True)
+        df_sorted = df.sort_values("market_id").reset_index(drop=True)
+        df["price_distance_from_max"] = (
+            df_sorted.groupby("market_id")["mid_price"]
+            .transform(lambda x: x.expanding().max())
+            .values
+            - df["mid_price"]
+        ).clip(lower=0.0)
     else:
         df["price_distance_from_max"] = 0.0
 
@@ -68,11 +72,38 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
+    # --- Grid search по C ---
+    C_GRID = [0.05, 0.1, 0.5, 1.0, 2.0, 5.0]
+    gkf_search = GroupKFold(n_splits=CV_N_SPLITS)
+    c_results = {}
+    
+    for c_val in C_GRID:
+        probe = Pipeline([
+            ("scaler", StandardScaler()),
+            ("model", LogisticRegression(
+                class_weight="balanced", C=c_val,
+                random_state=CV_RANDOM_STATE, max_iter=1000,
+            )),
+        ])
+        probe_aucs = []
+        for tr_idx, vl_idx in gkf_search.split(X, y, groups=groups):
+            if len(np.unique(y.iloc[vl_idx])) < 2:
+                continue
+            m = clone(probe)
+            m.fit(X.iloc[tr_idx], y.iloc[tr_idx])
+            proba = m.predict_proba(X.iloc[vl_idx])[:, 1]
+            probe_aucs.append(roc_auc_score(y.iloc[vl_idx], proba))
+        if probe_aucs:
+            c_results[c_val] = round(float(np.mean(probe_aucs)), 4)
+    
+    best_C = max(c_results, key=c_results.get) if c_results else 5.0
+    logger.info("c_grid_search_results", c_grid=c_results, best_C=best_C)
+
     # 3. Обучаем модель с кросс-валидацией
     gkf = GroupKFold(n_splits=CV_N_SPLITS)
     base_model = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight="balanced", C=5.0, random_state=CV_RANDOM_STATE, max_iter=1000))
+        ("model", LogisticRegression(class_weight="balanced", C=best_C, random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
     
     from sklearn.calibration import CalibratedClassifierCV
@@ -118,7 +149,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     )
     final_base = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight="balanced", C=5.0, random_state=CV_RANDOM_STATE, max_iter=1000))
+        ("model", LogisticRegression(class_weight="balanced", C=best_C, random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
     final_base.fit(X_train_cal, y_train_cal)
     
@@ -132,6 +163,28 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     coefs = final_base.named_steps["model"].coef_[0]
     coef_info = dict(zip(list(X.columns), [round(float(c), 4) for c in coefs]))
     logger.info("model_feature_weights", coefficients=coef_info)
+    
+    # --- ДОБАВИТЬ: ранжирование по |coef| ---
+    abs_coefs = sorted(
+        [(feat, abs(float(c))) for feat, c in zip(X.columns, coefs)],
+        key=lambda x: x[1], reverse=True,
+    )
+    logger.info(
+        "feature_importance_top10",
+        top_features=[{"feature": f, "abs_coef": round(v, 4)} for f, v in abs_coefs[:10]],
+        bottom_features=[{"feature": f, "abs_coef": round(v, 4)} for f, v in abs_coefs[-5:]],
+    )
+
+    from polyflip.constants import LR_COEF_THRESHOLD, LR_MIN_FEATURES
+    weak_features = [f for f, v in abs_coefs if v < LR_COEF_THRESHOLD]
+    if len(X.columns) - len(weak_features) >= LR_MIN_FEATURES and weak_features:
+        logger.warning(
+            "weak_features_detected",
+            count=len(weak_features),
+            features=weak_features,
+            threshold=LR_COEF_THRESHOLD,
+            suggestion="Consider removing from ACTIVE_FEATURES via dashboard",
+        )
     
     # Калибровка порога с использованием Out-Of-Fold предсказаний (исключаем Data Leakage)
     precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, oof_scores)
@@ -155,6 +208,26 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
             f"Подозрительный порог {optimal_threshold:.3f} >= {MAX_SUSPICIOUS_THRESHOLD:.2f} — "
             "вероятно data leakage при калибровке. Проверь OOF-скоры."
         )
+
+    best_thr_idx = np.searchsorted(thresholds_pr, optimal_threshold - 1e-9)
+    best_thr_idx = min(best_thr_idx, len(precision_arr) - 2)
+    _prec = float(precision_arr[best_thr_idx])
+    _rec  = float(recall_arr[best_thr_idx])
+    _f1   = 2 * _prec * _rec / (_prec + _rec + 1e-8)
+    
+    logger.info(
+        "threshold_diagnostics",
+        optimal_threshold=round(optimal_threshold, 4),
+        precision=round(_prec, 4),
+        recall=round(_rec, 4),
+        f1=round(_f1, 4),
+        val_auc=round(val_acc, 4),
+        baseline_auc=round(baseline_acc, 4),
+        ece=round(ece, 4),
+        min_precision_used=MIN_PRECISION_FOR_THRESHOLD,
+        n_samples=len(y),
+        fold_aucs=[round(a, 4) for a in aucs],
+    )
 
     # Сериализуем модель (Pipeline сохраняет скейлер внутри)
     model_bytes = pickle.dumps(final_model)
@@ -248,11 +321,14 @@ class ModelTrainer:
         if not df.empty:
             logger.info("time_left_distribution", 
                 asset=asset,
-                min=round(df["time_left_min"].min(), 1),
-                max=round(df["time_left_min"].max(), 1),
-                median=round(df["time_left_min"].median(), 1),
-                p25=round(df["time_left_min"].quantile(0.25), 1),
-                p75=round(df["time_left_min"].quantile(0.75), 1),
+                n_snapshots=len(df),
+                min_min=round(df["time_left_min"].min(), 2),
+                max_min=round(df["time_left_min"].max(), 2),
+                median_min=round(df["time_left_min"].median(), 2),
+                p25=round(df["time_left_min"].quantile(0.25), 2),
+                p75=round(df["time_left_min"].quantile(0.75), 2),
+                n_markets=df["market_id"].nunique(),
+                snapshots_per_market=round(len(df) / max(df["market_id"].nunique(), 1), 1),
             )
 
         # Добавляем инженерные признаки
@@ -341,17 +417,33 @@ class ModelTrainer:
             features=",".join(active_features),
             ece=ece,
             is_active=True,
-            interval="5m",
+            interval="15m",
             trained_at=datetime.now(timezone.utc)
         )
+
+        from polyflip.constants import LR_MIN_AUC_FOR_DEPLOY
+
+        min_auc_row = (await self.db.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == f"MIN_AUC_{asset}")
+        )).scalar_one_or_none()
+        min_auc = float(min_auc_row.value) if min_auc_row else LR_MIN_AUC_FOR_DEPLOY
+
+        if val_acc < min_auc:
+            logger.warning(
+                "model_quality_below_threshold",
+                asset=asset,
+                val_auc=round(val_acc, 4),
+                min_auc_required=min_auc,
+            )
+            self.status_messages[asset] = (
+                f"Пропущено: AUC {val_acc:.3f} < min_auc {min_auc:.2f} — "
+                f"модель не задеплоена, используется предыдущая версия"
+            )
+            return False
+            
         self.db.add(new_model_record)
         await self.db.commit()
 
         logger.info("model_saved_to_db", asset=asset, version=next_version, threshold=optimal_threshold)
-        
-        if val_acc < 0.55:
-            logger.warning("model_quality_too_low", asset=asset, auc=val_acc)
-            self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.2f} — модель слабее случайной+10%)"
-        else:
-            self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.2f})"
+        self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.2f})"
         return True

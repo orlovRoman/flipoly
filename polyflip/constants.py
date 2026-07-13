@@ -50,6 +50,11 @@ MAX_SUSPICIOUS_THRESHOLD = 0.95     # выше этого — подозрени
 CV_N_SPLITS = 5                     # кол-во фолдов кросс-валидации
 CV_RANDOM_STATE = 42                # seed для воспроизводимости
 
+# --- Отбор фич LogisticRegression ---
+LR_COEF_THRESHOLD = 0.005  # для 15m рынков порог ниже
+LR_MIN_FEATURES   = 4
+LR_MIN_AUC_FOR_DEPLOY = 0.53  # 15m рынки сложнее
+
 # --- API / сеть ---
 HTTP_TIMEOUT_SEC = 10.0             # таймаут CLOB/Gamma API
 VOLUME_WINDOW_MIN = 5               # окно для volume_5min
