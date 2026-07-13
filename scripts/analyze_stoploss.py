@@ -6,15 +6,23 @@ import pandas as pd
 
 async def analyze():
     print("Connecting to the database...")
-    async with async_session() as session:
-        # Get trades that have a stop_loss_status defined
-        stmt = (
-            select(TradeHistory, MarketSnapshot.final_outcome)
-            .outerjoin(MarketSnapshot, TradeHistory.market_id == MarketSnapshot.market_id)
-            .where(TradeHistory.status == 'SUCCESS')
-        )
-        result = await session.execute(stmt)
-        rows = result.all()
+    try:
+        async with async_session() as session:
+            print("Session opened, executing query...")
+            # Get trades that have a stop_loss_status defined
+            stmt = (
+                select(TradeHistory, MarketSnapshot.final_outcome)
+                .outerjoin(MarketSnapshot, TradeHistory.market_id == MarketSnapshot.market_id)
+                .where(TradeHistory.status == 'SUCCESS')
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+            print(f"Query completed, got {len(rows)} rows")
+    except Exception as e:
+        print(f"ERROR during query: {e}")
+        import traceback
+        traceback.print_exc()
+        return
 
     if not rows:
         print("No successful trades found.")
