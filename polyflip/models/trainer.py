@@ -24,12 +24,17 @@ from polyflip.constants import (
 
 logger = structlog.get_logger(__name__)
 
+from polyflip.models.feature_lags import add_lag_features, LAG_FEATURE_NAMES
+
 DERIVED_FEATURES = [
     "price_deviation",
     "deviation_x_time",
     "price_deviation_sq",
     "spread_pct",
     "log_time_left",
+    "day_of_week",
+    "price_distance_from_max",
+    *LAG_FEATURE_NAMES,
 ]
 
 def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -39,6 +44,15 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     df["price_deviation_sq"]  = df["price_deviation"] ** 2
     df["spread_pct"]          = (df["spread"] / (df["mid_price"] + 1e-6)).clip(upper=10.0)
     df["log_time_left"]       = np.log1p(df["time_left_min"])
+
+    # price_distance_from_max: по всей истории рынка в датасете
+    if "market_id" in df.columns:
+        df["_market_max"] = df.groupby("market_id")["mid_price"].transform("max")
+        df["price_distance_from_max"] = (df["_market_max"] - df["mid_price"]).clip(lower=0.0)
+        df.drop(columns=["_market_max"], inplace=True)
+    else:
+        df["price_distance_from_max"] = 0.0
+
     return df
 
 def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
@@ -85,8 +99,11 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     
     # Обучаем финальную модель на всех данных (с holdout для честной калибровки)
     from sklearn.model_selection import train_test_split
+    min_class_count = int(y.value_counts().min())
+    use_stratify = y if min_class_count >= 10 else None
+    
     X_train_cal, X_cal, y_train_cal, y_cal = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+        X, y, test_size=0.2, random_state=42, stratify=use_stratify
     )
     final_base = Pipeline([
         ("scaler", StandardScaler()),
@@ -204,19 +221,23 @@ class ModelTrainer:
         for s in snapshots:
             data.append({
                 "market_id": s.market_id,
+                "recorded_at": s.recorded_at,
                 "time_left_min": s.time_left_min,
                 "mid_price": s.mid_price,
                 "spread": s.spread,
                 "price_velocity": s.price_velocity,
                 "volume_5min": s.volume_5min,
-                "hour_of_day": s.hour_of_day, # BUG-006 FIX: Добавлена фича hour_of_day
+                "hour_of_day": s.hour_of_day,
+                "day_of_week": s.recorded_at.weekday(),
                 "target": 1 if s.flip_vs_final else 0
             })
             
         df = pd.DataFrame(data)
         
-        # Добавляем инженерные признаки (не хранятся в БД, вычисляются на лету)
+        # Добавляем инженерные признаки
         df = add_derived_features(df)
+        df = add_lag_features(df)
+        df.drop(columns=["recorded_at"], errors="ignore", inplace=True)
 
         # Автоматически расширяем active_features производными признаками,
         # если их базовые источники (mid_price, spread, time_left_min) присутствуют

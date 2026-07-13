@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, desc
 
 logger = structlog.get_logger(__name__)
 
@@ -17,12 +17,13 @@ from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, de
 from polyflip.crypto.predictor import CryptoPredictor, MIN_CANDLES_REQUIRED
 from polyflip.crypto.candle_repository import get_recent_candles
 
-from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory, SlippageLog
+from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory, SlippageLog, MarketSnapshot
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.utils import compute_dead_zone
 from polyflip.trading.position_sizing import compute_edge, compute_bet_size_edge_scaled
 from polyflip.models.trainer import add_derived_features
+from polyflip.models.feature_lags import add_lag_features
 from polyflip.api.trading_dashboard import invalidate_stats_cache
 from polyflip.api.dashboard import invalidate_dashboard_cache
 from polyflip.constants import (
@@ -460,25 +461,73 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 fresh_spread = fresh_yes_prices["current_spread"]
                 fresh_price_velocity = market.price_velocity
 
-                feature_data = {
+                # Запрос 1: последние 7 снапшотов для лагов
+                history_stmt = (
+                    select(MarketSnapshot)
+                    .where(
+                        MarketSnapshot.market_id == market.market_id,
+                        MarketSnapshot.asset == market.asset,
+                    )
+                    .order_by(desc(MarketSnapshot.recorded_at))
+                    .limit(7)
+                )
+                history_snaps = list(reversed(
+                    (await db_session.execute(history_stmt)).scalars().all()
+                ))
+
+                # Запрос 2: глобальный максимум рынка — выравниваем с обучением
+                max_price_stmt = select(func.max(MarketSnapshot.mid_price)).where(
+                    MarketSnapshot.market_id == market.market_id
+                )
+                global_max = (await db_session.execute(max_price_stmt)).scalar() or 0.0
+                
+                # Строим DataFrame
+                rows = []
+                for s in history_snaps:
+                    rows.append({
+                        "market_id":      s.market_id,
+                        "recorded_at":    s.recorded_at,
+                        "time_left_min":  s.time_left_min,
+                        "mid_price":      s.mid_price,
+                        "spread":         s.spread,
+                        "price_velocity": float(s.price_velocity or 0.0),
+                        "volume_5min":    float(s.volume_5min or 0.0),
+                        "hour_of_day":    int(s.hour_of_day or 0),
+                        "day_of_week":    s.recorded_at.weekday(),
+                    })
+                
+                # Добавляем текущее (Live) состояние как последний снапшот
+                # для которого нам и нужен инференс
+                rows.append({
+                    "market_id": market.market_id,
+                    "recorded_at": start_time,
                     "time_left_min": time_left_sec / 60.0,
                     "mid_price": fresh_yes_price,
                     "spread": fresh_spread,
-                    "price_velocity": fresh_price_velocity,
-                    "volume_5min": market.volume_5min,
-                    "hour_of_day": start_time.hour
-                }
+                    "price_velocity": float(fresh_price_velocity or 0.0),
+                    "volume_5min": float(market.volume_5min or 0.0),
+                    "hour_of_day": start_time.hour,
+                    "day_of_week": start_time.weekday(),
+                })
+
+                df_inf = pd.DataFrame(rows)
+                df_inf = add_derived_features(df_inf)
+
+                # Переопределяем price_distance_from_max через реальный глобальный max
+                df_inf["price_distance_from_max"] = (global_max - df_inf["mid_price"]).clip(lower=0.0)
+
+                df_inf = add_lag_features(df_inf)
+                df_inf.drop(columns=["recorded_at", "market_id"], errors="ignore", inplace=True)
+
+                row_inf = df_inf.iloc[[-1]]
                 
-                df_features = pd.DataFrame([feature_data])
-                df_features = add_derived_features(df_features)
-                
-                missing = [f for f in m_features if f not in df_features.columns]
+                missing = [f for f in m_features if f not in row_inf.columns]
                 if missing:
                     logger.error("inference_missing_features", asset=market.asset, missing=missing)
                     await save_or_update_skipped_trade(db_session, market, f"Missing features: {missing}", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
                     continue
                 
-                X_real = df_features[m_features]
+                X_real = row_inf[m_features]
                 
                 proba = model.predict_proba(X_real)[0]
                 p_flip = proba[1] if len(proba) > 1 else 0.0

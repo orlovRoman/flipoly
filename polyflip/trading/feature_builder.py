@@ -8,13 +8,21 @@ from dataclasses import dataclass
 
 # ВАЖНО: порядок колонок должен совпадать с порядком при обучении модели.
 # Если модель переобучается — обновить этот список.
+from polyflip.models.feature_lags import LAG_FEATURE_NAMES
+
 FEATURE_COLUMNS: list[str] = [
+    # Базовые (существующие)
     "time_left_min",
     "mid_price",
     "spread",
     "volume_5min",
     "price_velocity",
     "hour_of_day",
+    # Новые статические
+    "day_of_week",
+    "price_distance_from_max",
+    # Лаговые (динамические)
+    *LAG_FEATURE_NAMES,   # price_velocity_lag1, price_momentum, spread_trend, volume_trend
 ]
 
 @dataclass(frozen=True)
