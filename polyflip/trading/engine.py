@@ -480,6 +480,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     MarketSnapshot.market_id == market.market_id
                 )
                 global_max = (await db_session.execute(max_price_stmt)).scalar() or 0.0
+                if global_max == 0.0:
+                    logger.warning("no_snapshot_history_for_market", 
+                                   market_id=market.market_id, asset=market.asset)
                 
                 # Строим DataFrame
                 rows = []
