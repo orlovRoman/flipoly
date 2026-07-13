@@ -335,6 +335,7 @@ async def get_time_left_distribution(db: AsyncSession = Depends(get_db_session))
     Кэшируется на 5 минут.
     """
     async with _time_left_dist_lock:
+        global _time_left_dist_cache, _time_left_dist_cache_time
         now = time.time()
         if _time_left_dist_cache is not None and (now - _time_left_dist_cache_time) < 300:
             return _time_left_dist_cache
