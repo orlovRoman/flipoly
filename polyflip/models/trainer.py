@@ -46,7 +46,12 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     df["log_time_left"]       = np.log1p(df["time_left_min"])
 
     # price_distance_from_max: по всей истории рынка в датасете
-    if "market_id" in df.columns:
+    if "market_id" in df.columns and "recorded_at" in df.columns:
+        df = df.sort_values(["market_id", "recorded_at"]).reset_index(drop=True)
+        df["_market_max"] = df.groupby("market_id")["mid_price"].cummax()
+        df["price_distance_from_max"] = (df["_market_max"] - df["mid_price"]).clip(lower=0.0)
+        df.drop(columns=["_market_max"], inplace=True)
+    elif "market_id" in df.columns:
         df["_market_max"] = df.groupby("market_id")["mid_price"].transform("max")
         df["price_distance_from_max"] = (df["_market_max"] - df["mid_price"]).clip(lower=0.0)
         df.drop(columns=["_market_max"], inplace=True)
