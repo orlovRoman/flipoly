@@ -49,7 +49,24 @@
                         {% for asset in assets %}
                         <button class="btn primary-btn btn-train-asset" data-asset="{{ asset }}">Обучить {{ asset }}</button>
                         {% endfor %}
+                        <button class="btn" onclick="fetchTimeLeftStats()">📊 Показать распределение time_left</button>
                     </div>
+                    <pre id="time-left-stats" style="margin-top: 10px; font-size: 0.9em; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 10px; display: none;"></pre>
+
+                    <script>
+                    async function fetchTimeLeftStats() {
+                        const pre = document.getElementById('time-left-stats');
+                        pre.style.display = 'block';
+                        pre.textContent = "Загрузка...";
+                        try {
+                            const res = await fetch(window.API_BASE + '/api/analytics/time_left_distribution');
+                            const data = await res.json();
+                            pre.textContent = JSON.stringify(data, null, 2);
+                        } catch (e) {
+                            pre.textContent = "Ошибка загрузки: " + e.message;
+                        }
+                    }
+                    </script>
                 </header>
 
                 <div class="stats-grid">
