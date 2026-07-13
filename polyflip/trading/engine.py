@@ -28,8 +28,6 @@ from polyflip.api.trading_dashboard import invalidate_stats_cache
 from polyflip.api.dashboard import invalidate_dashboard_cache
 from polyflip.constants import (
     DEAD_ZONE_WIDTH,
-    get_price_phase,
-)
     DAILY_LOSS_LIMIT_USDC,
     FAVORITE_THRESHOLD,
     TRADE_CHECK_LIMIT,
@@ -46,6 +44,7 @@ from polyflip.constants import (
     AUTO_DEAD_ZONE,
     MAX_EDGE_SCALING,
     MAX_EDGE_FILTER,
+    get_price_phase,
 )
 
 

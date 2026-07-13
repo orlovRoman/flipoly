@@ -97,8 +97,8 @@ MIN_SAMPLES_FOR_PHASE_MODEL = 150  # порог для фазовой модел
 
 def get_price_phase(mid_price: float) -> str:
     """Определяет фазу по mid_price. Единое место истины для trainer и engine."""
-    dev = abs(mid_price - 0.5)
+    dev = round(abs(mid_price - 0.5), 4)
     for phase, (lo, hi) in PRICE_PHASE_BOUNDARIES.items():
         if lo <= dev < hi:
             return phase
-    return "decided"  # fallback: dev >= 0.50
+    return "decided"  # fallback: dev >= 0.50

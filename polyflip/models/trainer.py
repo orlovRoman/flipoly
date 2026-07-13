@@ -69,11 +69,12 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df["price_distance_from_max"] = 0.0
 
-    if "market_id" in df.columns and "time_left_min" in df.columns:
-        df["time_phase"] = (df["time_left_min"] / (df.groupby("market_id")["time_left_min"].transform("max") + 1e-6)).clip(0, 1)
+    if "time_left_min" in df.columns:
+        # Для 15-минутных рынков жестко задаем макс. время, чтобы инференс работал корректно
+        df["time_phase"] = (df["time_left_min"] / 15.0).clip(0, 1)
     else:
         import structlog
-        structlog.get_logger(__name__).warning("time_phase_fallback", reason="no market_id, using 1.0")
+        structlog.get_logger(__name__).warning("time_phase_fallback", reason="no time_left_min, using 1.0")
         df["time_phase"] = 1.0
 
     # --- Interaction Features ---
@@ -472,6 +473,9 @@ class ModelTrainer:
         self.db.add(new_model_record)
         await self.db.commit()
 
+        logger.info("model_saved_to_db", asset=asset, version=next_version, threshold=optimal_threshold)
+        self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.2f})"
+
         # --- Шаг 3: Price-Phase Split ---
         from polyflip.constants import PRICE_PHASE_BOUNDARIES, MIN_SAMPLES_FOR_PHASE_MODEL, CV_N_SPLITS
         
@@ -570,6 +574,4 @@ class ModelTrainer:
         await self.db.commit()
         logger.info("price_phase_models_complete", asset=asset, results=phase_results)
 
-        logger.info("model_saved_to_db", asset=asset, version=next_version, threshold=optimal_threshold)
-        self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.2f})"
         return True
