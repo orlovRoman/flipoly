@@ -523,7 +523,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     decision_obj = decide_ml_trend(signal, p_flip, local_config)
                 else:
                     from polyflip.trading.decision_logic import TradeDecision
-                    decision_obj = TradeDecision(action="SKIP", strategy_type="ML_TREND", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)", edge=0.0)
+                    decision_obj = TradeDecision(action="SKIP", buy_price=0.0, bet_size_usdc=0.0, strategy_type="ML_TREND", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)", edge=0.0)
                 
                 if decision_obj.action == "SKIP" and trade_on_flip:
                     decision_obj = decide_outsider(signal, p_flip, local_config)
