@@ -9,15 +9,34 @@ async def analyze():
     try:
         async with async_session() as session:
             print("Session opened, executing query...")
-            # Get trades that have a stop_loss_status defined
-            stmt = (
-                select(TradeHistory, MarketSnapshot.final_outcome)
-                .outerjoin(MarketSnapshot, TradeHistory.market_id == MarketSnapshot.market_id)
-                .where(TradeHistory.status == 'SUCCESS')
-            )
+            # Get all successful trades
+            stmt = select(TradeHistory).where(TradeHistory.status == 'SUCCESS')
             result = await session.execute(stmt)
-            rows = result.all()
-            print(f"Query completed, got {len(rows)} rows")
+            trades = result.scalars().all()
+            print(f"Query completed, got {len(trades)} trades")
+
+            # Get outcomes for these markets
+            market_ids = list({t.market_id for t in trades})
+            print(f"Fetching outcomes for {len(market_ids)} unique markets...")
+            
+            # chunking market_ids if too many
+            outcomes = {}
+            chunk_size = 500
+            for i in range(0, len(market_ids), chunk_size):
+                chunk = market_ids[i:i+chunk_size]
+                out_stmt = select(MarketSnapshot.market_id, MarketSnapshot.final_outcome).where(
+                    MarketSnapshot.market_id.in_(chunk)
+                ).distinct()
+                out_res = await session.execute(out_stmt)
+                for mid, outc in out_res.all():
+                    # We only care if it resolved to YES or NO or INVALID, not PENDING
+                    if outc != "PENDING":
+                        outcomes[mid] = outc
+                        
+            # Map trades and outcomes
+            rows = []
+            for t in trades:
+                rows.append((t, outcomes.get(t.market_id)))
     except Exception as e:
         print(f"ERROR during query: {e}")
         import traceback
