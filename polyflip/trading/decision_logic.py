@@ -205,7 +205,7 @@ def decide_outsider(
             p_flip=p_flip)
 
     max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", OUTSIDER_MAX_PRICE))
-    min_edge = float(config.get("MIN_EDGE", MIN_EDGE))
+    min_edge = float(config.get("NO_MIN_EDGE", config.get("MIN_EDGE", MIN_EDGE)))
     # DEAD_ZONE_WIDTH — единый параметр ширины мёртвой зоны
     dead_zone = float(config.get("DEAD_ZONE_WIDTH", DEAD_ZONE_WIDTH))
 

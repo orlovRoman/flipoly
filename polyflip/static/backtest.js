@@ -539,6 +539,8 @@ function resetConfig() {
   document.getElementById('cfg-flip').value       = '60';
   document.getElementById('cfg-fav-thresh').value = '0.65';
   document.getElementById('cfg-dead-zone').value  = '10';
+  document.getElementById('cfg-fav-min').value    = '0.55';
+  document.getElementById('cfg-fav-max').value    = '0.95';
 
   document.getElementById('cfg-capital').value    = '1000';
   document.getElementById('cfg-bet-sizing-mode').value = 'scaled';

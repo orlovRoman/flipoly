@@ -184,6 +184,9 @@ class TestBoundaryValues:
         """min_time >= max_time должно бросать ValidationError."""
         with pytest.raises(ValidationError, match="must be <"):
             BacktestConfig(min_time_left_min=60.0, max_time_left_min=60.0)
+            
+        with pytest.raises(ValidationError, match="must be <"):
+            BacktestConfig(min_time_left_min=65.0, max_time_left_min=60.0)
 
     def test_none_values_use_defaults(self):
         """None в Live → используются дефолтные значения."""
