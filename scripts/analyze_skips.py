@@ -12,7 +12,7 @@ async def analyze():
         time_threshold = datetime.now(timezone.utc) - timedelta(days=1)
         
         stmt = select(TradeHistory).where(
-            TradeHistory.status == 'SKIP'
+            TradeHistory.status == 'SKIPPED'
         ).where(
             TradeHistory.created_at >= time_threshold
         ).order_by(desc(TradeHistory.created_at))
