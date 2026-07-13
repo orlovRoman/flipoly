@@ -873,8 +873,17 @@ document.addEventListener("DOMContentLoaded", () => {
             : escapeHtml(log.error_msg || "-");
         const isPureFav = log.active_features === "PURE_FAVORITE";
         const isCrypto = log.active_features === "CRYPTO_TREND";
+        
+        let phaseSuffix = "";
+        if (!isPureFav && !isCrypto && log.executed_price > 0) {
+            const dev = Math.abs(log.executed_price - 0.5);
+            if (dev < 0.10) phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(contested)</span>";
+            else if (dev < 0.25) phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(leaning)</span>";
+            else phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(decided)</span>";
+        }
+        
         const modelStr = log.model_version 
-          ? (isCrypto ? `LightGBM v${log.model_version}` : `v${log.model_version}`) 
+          ? (isCrypto ? `LightGBM v${log.model_version}` : `v${log.model_version}${phaseSuffix}`) 
           : (isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-"));
 
         let pnlText = "-";
