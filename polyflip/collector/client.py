@@ -116,7 +116,10 @@ class PolymarketClient:
         try:
             response = await self.client.get(f"{self.CLOB_API}/book", params={"token_id": yes_token_id})
             if response.status_code != 200:
-                logger.warning("clob_api_error", token_id=yes_token_id, status=response.status_code)
+                if response.status_code == 404:
+                    logger.debug("clob_api_404_market_likely_closed", token_id=yes_token_id)
+                else:
+                    logger.warning("clob_api_error", token_id=yes_token_id, status=response.status_code)
                 return {"error": f"API HTTP Error {response.status_code}"}
                 
             book = response.json()
