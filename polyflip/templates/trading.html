@@ -234,7 +234,7 @@
                         </div>
 
                         <div class="form-group" style="margin-top: 1rem; margin-bottom: 1.5rem;">
-                            <label for="LIVE_POLL_INTERVAL_SECONDS">Интервал обновления данных (сек)</label>
+                            <label for="LIVE_POLL_INTERVAL_SECONDS" title="Частота сканирования активных рынков (в секундах) для поиска новых сделок.">Интервал обновления данных (сек)</label>
                             <span style="color: var(--text-muted); font-size: 0.8rem; font-weight: normal; display: block; margin-bottom: 4px;">Как часто бот запрашивает новые рынки и цены с Polymarket (от 2 до 300 сек)</span>
                             <input type="number" id="LIVE_POLL_INTERVAL_SECONDS" min="2" max="300" step="1" value="10" style="width: 100%; max-width: 200px;">
                         </div>
@@ -260,7 +260,7 @@
                             <!-- Настройки Pure Favorite — скрыты по умолчанию -->
                             <div id="favorite-mode-settings" style="display: none; margin-top: 12px;">
                                 <div class="form-group" style="margin: 0;">
-                                    <label for="FAVORITE_MODE_ENTRY_SEC" class="settings-label">
+                                    <label for="FAVORITE_MODE_ENTRY_SEC" title="За сколько секунд до закрытия рынка входить в сделку по стратегии Фаворита (чем меньше, тем точнее, но выше риск не успеть)" class="settings-label">
                                         Время входа до закрытия (сек)
                                         <span style="color: var(--text-muted); font-size: 0.8rem; font-weight: normal; display: block; margin-top: 2px;">Допустимо 30–600 сек (дефолт 180 = 3 мин). Окно входа: +60 сек</span>
                                     </label>
@@ -276,7 +276,7 @@
                             
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1.5rem; margin-bottom: 0;">
                                 <input type="checkbox" id="TRADE_ON_FAVORITE" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;" checked>
-                                <label for="TRADE_ON_FAVORITE" style="margin: 0; cursor: pointer;">Включить ставки на фаворита (TRADE_ON_FAVORITE)</label>
+                                <label for="TRADE_ON_FAVORITE" title="Если включено, бот будет делать ставки по тренду на фаворита (Pure Favorite/ML Trend/Crypto Trend)." style="margin: 0; cursor: pointer;">Включить ставки на фаворита (TRADE_ON_FAVORITE)</label>
                             </div>
                         </div>
                         
@@ -337,17 +337,17 @@
 
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
                             <div class="form-group">
-                                <label for="TRADE_MIN_TIME_LEFT_SEC">Мин. время до конца (в сек.)</label>
+                                <label for="TRADE_MIN_TIME_LEFT_SEC" title="Минимально допустимое время до закрытия рынка (секунды), при котором бот еще может войти в сделку.">Мин. время до конца (в сек.)</label>
                                 <input type="number" id="TRADE_MIN_TIME_LEFT_SEC" value="10">
                             </div>
                             
                             <div class="form-group">
-                                <label for="TRADE_MAX_TIME_LEFT_SEC">Макс. время до конца (в сек.)</label>
+                                <label for="TRADE_MAX_TIME_LEFT_SEC" title="Максимальное время до закрытия рынка (секунды). Бот не будет входить в сделки, если до конца рынка больше этого времени.">Макс. время до конца (в сек.)</label>
                                 <input type="number" id="TRADE_MAX_TIME_LEFT_SEC" value="360">
                             </div>
 
                             <div class="form-group">
-                                <label for="BET_SIZING_MODE">Режим размера ставки</label>
+                                <label for="BET_SIZING_MODE" title="scaled - размер ставки зависит от прибыльности (edge). fixed - всегда фиксированный размер ставки.">Режим размера ставки</label>
                                 <select id="BET_SIZING_MODE" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 0.75rem 1rem; border-radius: 8px; outline: none;">
                                     <option value="fixed">Фиксированная ставка (без разгона)</option>
                                     <option value="scaled">Масштабирование по ROI (Скейлинг)</option>
@@ -355,25 +355,25 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="TRADE_BET_SIZE_USDC">Размер ставки (Базовый) (USDC)</label>
+                                <label for="TRADE_BET_SIZE_USDC" title="Базовый или фиксированный размер ставки в USDC.">Размер ставки (Базовый) (USDC)</label>
                                 <input type="number" step="0.1" id="TRADE_BET_SIZE_USDC" value="10.0">
                             </div>
                             
                             <div class="form-group" id="max-bet-size-group">
-                                <label for="MAX_BET_SIZE_USDC">Макс. размер ставки (Скейлинг) (USDC)</label>
+                                <label for="MAX_BET_SIZE_USDC" title="Максимальный размер ставки в USDC при использовании режима скейлинга (scaled).">Макс. размер ставки (Скейлинг) (USDC)</label>
                                 <input type="number" step="0.1" id="MAX_BET_SIZE_USDC" value="50.0">
                             </div>
 
 
                             <div class="form-group">
-                                <label for="TRADE_FLIP_THRESHOLD">
+                                <label for="TRADE_FLIP_THRESHOLD" title="Вероятность (%), выше которой ML модель считает, что аутсайдер выиграет, и бот поставит против толпы.">
                                     Порог ПРОТИВ ТОЛПЫ — flip (%, выше — ставим на аутсайдера)
                                 </label>
                                 <input type="number" step="1" max="100" min="0" id="TRADE_FLIP_THRESHOLD" value="85">
                             </div>
                             
                             <div class="form-group">
-                                <label for="TRADE_NO_FLIP_THRESHOLD" style="display:flex; justify-content:space-between; align-items:center;">
+                                <label for="TRADE_NO_FLIP_THRESHOLD" title="Вероятность (%), ниже которой ML модель уверена в победе фаворита, и бот поставит по тренду." style="display:flex; justify-content:space-between; align-items:center;">
                                     <span>Порог ПО ТРЕНДУ — no_flip (%, ниже — ставим на фаворита)</span>
                                     <button type="button" id="btn-apply-recommended-no-flip"
                                             style="font-size:0.75rem; padding:2px 10px; border-radius:12px;
@@ -392,12 +392,12 @@
 
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem;">
                                 <input type="checkbox" id="AUTO_DEAD_ZONE" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                <label for="AUTO_DEAD_ZONE" style="margin: 0; cursor: pointer;">Автоматическая мёртвая зона (AUTO_DEAD_ZONE)</label>
+                                <label for="AUTO_DEAD_ZONE" title="Автоматически вычислять 'мертвую зону' (коридор вероятностей, где бот не делает ставки) на основе калибровки ML модели." style="margin: 0; cursor: pointer;">Автоматическая мёртвая зона (AUTO_DEAD_ZONE)</label>
                             </div>
 
                             <!-- AUTO_DEAD_ZONE_WIDTH удалён — единственный параметр ширины: DEAD_ZONE_WIDTH -->
                             <div class="form-group" id="dead-zone-width-group">
-                                <label for="DEAD_ZONE_WIDTH">Ширина мёртвой зоны (%)</label>
+                                <label for="DEAD_ZONE_WIDTH" title="Ширина 'мертвой зоны' (в %). Чем шире, тем меньше сделок, но выше их надежность.">Ширина мёртвой зоны (%)</label>
                                 <input type="number" step="1" max="40" min="2" id="DEAD_ZONE_WIDTH" value="10">
                                 <small style="color: var(--text-muted, #888); margin-top: 4px; display: block;">
                                     Используется в обоих режимах (AUTO и ручном). Рекомендуется: 8–15%.
@@ -409,22 +409,22 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="DAILY_LOSS_LIMIT_USDC">Дневной лимит потерь (USDC, отрицательный)</label>
+                                <label for="DAILY_LOSS_LIMIT_USDC" title="Сумма чистого убытка за день в USDC, при достижении которой бот прекратит торговлю.">Дневной лимит потерь (USDC, отрицательный)</label>
                                 <input type="number" step="1" max="0" id="DAILY_LOSS_LIMIT_USDC" value="-100">
                             </div>
 
                             <div class="form-group">
-                                <label for="INITIAL_CAPITAL">Начальный Капитал (USDC)</label>
+                                <label for="INITIAL_CAPITAL" title="Начальный капитал в USDC для расчета финансового результата и доходности (ROI).">Начальный Капитал (USDC)</label>
                                 <input type="number" step="0.1" id="INITIAL_CAPITAL" value="1000.0">
                             </div>
 
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem;">
                                 <input type="checkbox" id="STOP_LOSS_ENABLED" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                <label for="STOP_LOSS_ENABLED" style="margin: 0; cursor: pointer;">Включить стоп-лосс открытых позиций</label>
+                                <label for="STOP_LOSS_ENABLED" title="Автоматически закрывать открытые позиции (продавать токены) при падении их цены, чтобы минимизировать убытки." style="margin: 0; cursor: pointer;">Включить стоп-лосс открытых позиций</label>
                             </div>
 
                             <div class="form-group">
-                                <label for="STOP_LOSS_PCT_FAVORITE">Стоп-лосс % для ставок на фаворита (1–99)</label>
+                                <label for="STOP_LOSS_PCT_FAVORITE" title="Продать позицию фаворита, если её цена упала на этот % от цены нашей покупки.">Стоп-лосс % для ставок на фаворита (1–99)</label>
                                 <input type="number" step="1" min="1" max="99" id="STOP_LOSS_PCT_FAVORITE" value="40.0">
                                 <small style="color: var(--text-muted, #888); margin-top: 4px; display: block;">
                                     Продать позицию при падении bid ниже этого % от цены покупки (ставки по тренду).
@@ -432,7 +432,7 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="STOP_LOSS_PCT_OUTSIDER">Стоп-лосс % для ставок на аутсайдера (1–99)</label>
+                                <label for="STOP_LOSS_PCT_OUTSIDER" title="Продать позицию аутсайдера, если её цена упала на этот % от цены нашей покупки.">Стоп-лосс % для ставок на аутсайдера (1–99)</label>
                                 <input type="number" step="1" min="1" max="99" id="STOP_LOSS_PCT_OUTSIDER" value="60.0">
                                 <small style="color: var(--text-muted, #888); margin-top: 4px; display: block;">
                                     Продать позицию при падении bid ниже этого % от цены покупки (ставки против тренда).
@@ -440,62 +440,62 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="STOP_LOSS_CHECK_SEC">Интервал проверки стоп-лосса (сек, 10–300)</label>
+                                <label for="STOP_LOSS_CHECK_SEC" title="Как часто (в секундах) бот будет проверять текущую стоимость открытых позиций для стоп-лосса.">Интервал проверки стоп-лосса (сек, 10–300)</label>
                                 <input type="number" step="1" min="10" max="300" id="STOP_LOSS_CHECK_SEC" value="30">
                             </div>
                             
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem;">
                                 <input type="checkbox" id="BYPASS_BET_SIZE_CHECK" name="BYPASS_BET_SIZE_CHECK" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                <label for="BYPASS_BET_SIZE_CHECK" style="margin: 0; cursor: pointer;">Игнорировать ограничения размера ставки</label>
+                                <label for="BYPASS_BET_SIZE_CHECK" title="Режим отладки: игнорировать проверку минимального размера ставки биржи." style="margin: 0; cursor: pointer;">Игнорировать ограничения размера ставки</label>
                             </div>
 
                             <div class="form-group">
-                                <label for="LIQUIDITY_FRACTION">Макс. доля ликвидности на ставку</label>
+                                <label for="LIQUIDITY_FRACTION" title="Максимальная доля от 5-минутного объема торгов на рынке, которую бот может занять своей ставкой (защита от проскальзывания).">Макс. доля ликвидности на ставку</label>
                                 <input type="number" step="0.01" id="LIQUIDITY_FRACTION" value="0.05">
                             </div>
 
                             <div class="form-group">
-                                <label for="MAX_PRICE_DRIFT">Макс. дрифт цены (%)</label>
+                                <label for="MAX_PRICE_DRIFT" title="Максимально допустимое отклонение цены (проскальзывание) между моментом принятия решения и фактической покупкой.">Макс. дрифт цены (%)</label>
                                 <input type="number" step="0.01" id="MAX_PRICE_DRIFT" value="0.03">
                             </div>
                             
                             <div class="form-group">
-                                <label for="TRADE_MIN_PRICE">Минимальная цена входа (USD)</label>
+                                <label for="TRADE_MIN_PRICE" title="Бот не будет покупать токены (ни YES, ни NO), если они стоят дешевле этого значения (слишком рискованные копейки).">Минимальная цена входа (USD)</label>
                                 <input type="number" step="0.01" min="0" max="1" id="TRADE_MIN_PRICE" value="0.05">
                             </div>
 
                             <div class="form-group">
-                                <label for="TRADE_MAX_PRICE">Максимальная цена входа (USD)</label>
+                                <label for="TRADE_MAX_PRICE" title="Бот не будет покупать токены, если они стоят дороже этого значения (осталось слишком мало прибыли).">Максимальная цена входа (USD)</label>
                                 <input type="number" step="0.01" min="0" max="1" id="TRADE_MAX_PRICE" value="0.95">
                             </div>
                             
                             <div class="form-group">
-                                <label for="MIN_EDGE">Минимальный Edge для ставки (%)</label>
+                                <label for="MIN_EDGE" title="Минимальное математическое ожидание (Edge в %), при котором бот войдет в сделку.">Минимальный Edge для ставки (%)</label>
                                 <input type="number" step="0.1" min="0.5" max="50" id="MIN_EDGE" value="5">
                             </div>
 
                             <div class="form-group">
-                                <label for="MAX_BET_EDGE">Максимальный Edge для ставки (%)</label>
+                                <label for="MAX_BET_EDGE" title="Уровень математического ожидания (Edge), при котором размер ставки достигнет максимума (MAX_BET_SIZE) в режиме скейлинга.">Максимальный Edge для ставки (%)</label>
                                 <input type="number" step="0.1" min="1" max="50" id="MAX_BET_EDGE" value="10">
                             </div>
 
                             <div class="form-group">
-                                <label for="FAVORITE_THRESHOLD">Порог Фаворита (0.50 - 0.99)</label>
+                                <label for="FAVORITE_THRESHOLD" title="Цена (от 0.50 до 0.99), начиная с которой токен официально считается 'Фаворитом' на рынке.">Порог Фаворита (0.50 - 0.99)</label>
                                 <input type="number" step="0.01" min="0.50" max="0.99" id="FAVORITE_THRESHOLD" value="0.55">
                             </div>
 
                             <div class="form-group">
-                                <label for="FAVORITE_MIN_PRICE">Мин. цена входа Фаворит/Тренд (USD)</label>
+                                <label for="FAVORITE_MIN_PRICE" title="Минимальная цена, при которой разрешено покупать фаворита (защита от покупки неочевидных фаворитов).">Мин. цена входа Фаворит/Тренд (USD)</label>
                                 <input type="number" step="0.01" min="0.01" max="0.99" id="FAVORITE_MIN_PRICE" value="0.55">
                             </div>
 
                             <div class="form-group">
-                                <label for="FAVORITE_MAX_PRICE">Макс. цена входа Фаворит/Тренд (USD)</label>
+                                <label for="FAVORITE_MAX_PRICE" title="Максимальная цена, при которой разрешено покупать фаворита (защита от покупки слишком дорогих токенов без прибыли).">Макс. цена входа Фаворит/Тренд (USD)</label>
                                 <input type="number" step="0.01" min="0.01" max="0.99" id="FAVORITE_MAX_PRICE" value="0.95">
                             </div>
                             
                             <div class="form-group">
-                                <label for="FAVORITE_MIN_EDGE">Мин Edge для Фаворита (%, напр. -1.0 = -1%)</label>
+                                <label for="FAVORITE_MIN_EDGE" title="Минимальное матожидание (Edge) для ставок на фаворита. Можно ставить отрицательное (например -1.0%), чтобы ставить по тренду даже с небольшой комиссией.">Мин Edge для Фаворита (%, напр. -1.0 = -1%)</label>
                                 <input type="number" step="0.1" id="FAVORITE_MIN_EDGE" value="-1.0" placeholder="-1.0" min="-20" max="50">
                             </div>
 
@@ -504,26 +504,26 @@
                             
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem;">
                                 <input type="checkbox" id="TRADE_ON_FLIP" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                <label for="TRADE_ON_FLIP" style="margin: 0; cursor: pointer;">Включить ставки на аутсайдера (TRADE_ON_FLIP)</label>
+                                <label for="TRADE_ON_FLIP" title="Торговать на разворот (стратегия Аутсайдера - когда ML модель предсказывает сильную вероятность разворота рынка)." style="margin: 0; cursor: pointer;">Включить ставки на аутсайдера (TRADE_ON_FLIP)</label>
                             </div>
 
                             <div class="form-group">
-                                <label for="FLIP_THRESHOLD">Порог Флипа для NO (%)</label>
+                                <label for="FLIP_THRESHOLD" title="Порог вероятности переворота рынка (Флипа), выше которого бот ставит на Аутсайдера (в %).">Порог Флипа для NO (%)</label>
                                 <input type="number" step="1" min="50" max="99" id="FLIP_THRESHOLD" value="70">
                             </div>
 
                             <div class="form-group">
-                                <label for="NO_MIN_EDGE">Мин. edge для аутсайдера — NO (%)</label>
+                                <label for="NO_MIN_EDGE" title="Минимальное матожидание (Edge) для ставок на аутсайдера (обычно берется высокое, чтобы компенсировать риски).">Мин. edge для аутсайдера — NO (%)</label>
                                 <input type="number" step="0.1" min="0.5" max="30" id="NO_MIN_EDGE" value="4">
                             </div>
 
                             <div class="form-group">
-                                <label for="CRYPTO_MIN_EDGE">Мин. edge для Crypto Trend (%)</label>
+                                <label for="CRYPTO_MIN_EDGE" title="Минимальное матожидание (Edge) для входа по стратегии Crypto Trend (торговля по скачкам Биткоина/Эфира).">Мин. edge для Crypto Trend (%)</label>
                                 <input type="number" step="0.1" min="0.1" max="30" id="CRYPTO_MIN_EDGE" value="5">
                             </div>
 
                             <div class="form-group">
-                                <label for="OUTSIDER_MAX_PRICE">Макс. цена аутсайдера (NO и YES)</label>
+                                <label for="OUTSIDER_MAX_PRICE" title="Максимальная цена покупки аутсайдера. Если аутсайдер стоит дороже - это уже не аутсайдер, пропускаем.">Макс. цена аутсайдера (NO и YES)</label>
                                 <input type="number" step="0.01" min="0.01" max="0.99" id="OUTSIDER_MAX_PRICE" value="0.45">
                                 <small style="color: var(--text-muted, #888); margin-top: 4px; display: block;">
                                     Единый потолок цены для покупки аутсайдера в обе стороны (NO если YES-фаворит и YES если NO-фаворит).
