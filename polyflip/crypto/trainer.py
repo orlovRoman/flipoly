@@ -25,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.constants import (
     BACKTEST_TRAIN_RATIO,
-    CANDLE_EPSILON_QUANTILE,
     CV_N_SPLITS,
     CV_RANDOM_STATE,
     LGBM_COLSAMPLE_BYTREE,
