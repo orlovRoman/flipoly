@@ -77,11 +77,11 @@ assert not _unknown, (
 def _build_target(df: pd.DataFrame, epsilon: float) -> pd.DataFrame:
     """
     Вычисляет таргет Up(1)/Down(0) и фильтрует свечи с |return| < epsilon.
-    epsilon вычисляется как CANDLE_EPSILON_QUANTILE-перцентиль |ret_1|.
     """
     df = df.copy()
-    df["target"] = (df["ret_1"].shift(-1) > 0).astype(int)  # следующая свеча Up?
-    df["abs_ret_next"] = df["ret_1"].shift(-1).abs()
+    next_ret = df["ret_1"].shift(-1)
+    df["target"] = (next_ret > 0).astype(int)
+    df["abs_ret_next"] = next_ret.abs()
     df = df.dropna(subset=["target", "abs_ret_next"])
     df = df[df["abs_ret_next"] >= epsilon].copy()
     return df
@@ -135,8 +135,9 @@ def _fit_lgbm_and_serialize(
         if len(cal_idx) >= 20 and len(eval_idx) >= 20:
             X_cal,  y_cal  = X.iloc[cal_idx],  y.iloc[cal_idx]
             X_eval, y_eval = X.iloc[eval_idx], y.iloc[eval_idx]
+            calibration_method = "sigmoid" if len(cal_idx) < 200 else "isotonic"
             fold_cal = CalibratedClassifierCV(
-                estimator=FrozenEstimator(fold_lgbm), method="isotonic", cv=None
+                estimator=FrozenEstimator(fold_lgbm), method=calibration_method, cv=None
             )
             fold_cal.fit(X_cal, y_cal)
             y_proba = fold_cal.predict_proba(X_eval)[:, 1]
@@ -171,8 +172,9 @@ def _fit_lgbm_and_serialize(
 
     final_lgbm = _make_lgbm(**lgbm_params)
     final_lgbm.fit(X_fit, y_fit)
+    final_calibration_method = "sigmoid" if n_cal < 200 else "isotonic"
     final_cal = CalibratedClassifierCV(
-        estimator=FrozenEstimator(final_lgbm), method="isotonic", cv=None
+        estimator=FrozenEstimator(final_lgbm), method=final_calibration_method, cv=None
     )
     final_cal.fit(X_cal_final, y_cal_final)
 
@@ -258,8 +260,9 @@ class CryptoModelTrainer:
         df = build_features(candles)
 
         # Фильтруем по ε
-        epsilon = float(df["ret_1"].abs().quantile(eps_quantile))
-        logger.info("epsilon_filter", symbol=symbol, epsilon=round(epsilon, 5), quantile=eps_quantile)
+        next_returns = df["ret_1"].shift(-1).abs().dropna()
+        epsilon = float(next_returns.quantile(eps_quantile))
+        logger.info("epsilon_filter", symbol=symbol, epsilon=round(epsilon, 5), quantile=eps_quantile, n_next_returns=len(next_returns))
         df_filtered = _build_target(df, epsilon)
 
         if len(df_filtered) < 300:
@@ -302,19 +305,33 @@ class CryptoModelTrainer:
         from polyflip.crypto.predictor import CryptoPredictor
 
         for regime, df_regime in [("low_vol", df_low), ("mid_vol", df_mid), ("high_vol", df_high)]:
-            if len(df_regime) < 150:
+            if len(df_regime) < 300:
                 logger.warning("regime_too_small", regime=regime, rows=len(df_regime))
                 continue
 
             try:
                 X_r = df_regime[available].reset_index(drop=True)
                 y_r = df_regime["target"].reset_index(drop=True)
+                
+                n_regime = len(df_regime)
+                adaptive_params = lgbm_params.copy()
+                if n_regime < 500:
+                    adaptive_params["num_leaves"] = 15
+                    adaptive_params["max_depth"] = 4
+                    adaptive_params["min_child_samples"] = 30
+                    adaptive_params["n_estimators"] = 200
+                elif n_regime < 1000:
+                    adaptive_params["num_leaves"] = 20
+                    adaptive_params["max_depth"] = 5
+                    adaptive_params["min_child_samples"] = 25
+                
+                logger.info("adaptive_lgbm_params", regime=regime, n_regime=n_regime, num_leaves=adaptive_params["num_leaves"])
 
                 # CPU-bound в thread
                 t0 = time.monotonic()
                 try:
                     result = await asyncio.wait_for(
-                        asyncio.to_thread(_fit_lgbm_and_serialize, X_r, y_r, CV_N_SPLITS, **lgbm_params),
+                        asyncio.to_thread(_fit_lgbm_and_serialize, X_r, y_r, CV_N_SPLITS, **adaptive_params),
                         timeout=1800.0,   # 30 минут — hard limit
                     )
                 except asyncio.TimeoutError:

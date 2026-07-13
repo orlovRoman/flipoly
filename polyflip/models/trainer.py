@@ -34,6 +34,7 @@ DERIVED_FEATURES = [
     "log_time_left",
     "day_of_week",
     "price_distance_from_max",
+    "time_phase",
     *LAG_FEATURE_NAMES,
 ]
 
@@ -57,6 +58,11 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         df.drop(columns=["_market_max"], inplace=True)
     else:
         df["price_distance_from_max"] = 0.0
+
+    if "market_id" in df.columns and "time_left_min" in df.columns:
+        df["time_phase"] = (df["time_left_min"] / (df.groupby("market_id")["time_left_min"].transform("max") + 1e-6)).clip(0, 1)
+    else:
+        df["time_phase"] = 1.0
 
     return df
 
@@ -239,6 +245,16 @@ class ModelTrainer:
             
         df = pd.DataFrame(data)
         
+        if not df.empty:
+            logger.info("time_left_distribution", 
+                asset=asset,
+                min=round(df["time_left_min"].min(), 1),
+                max=round(df["time_left_min"].max(), 1),
+                median=round(df["time_left_min"].median(), 1),
+                p25=round(df["time_left_min"].quantile(0.25), 1),
+                p75=round(df["time_left_min"].quantile(0.75), 1),
+            )
+
         # Добавляем инженерные признаки
         df = add_derived_features(df)
         df = add_lag_features(df)

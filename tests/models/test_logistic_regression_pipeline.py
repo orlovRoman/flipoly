@@ -45,7 +45,7 @@ def build_test_df(n_markets: int = 5, snaps_per_market: int = 8) -> pd.DataFrame
                 spread=0.01 + 0.005 * t,
                 price_velocity=0.001 * t,
                 volume_5min=200 + 50 * t,
-                time_left_min=60 - t * 5,
+                time_left_min=max(0.0, 60 - t * 5),
                 minutes_ago=snaps_per_market - t,
             ))
     return pd.DataFrame(rows)
@@ -76,7 +76,7 @@ class TestDerivedFeatures:
     def test_all_derived_columns_present(self, df_with_derived):
         base_derived = [
             "price_deviation", "deviation_x_time", "price_deviation_sq",
-            "spread_pct", "log_time_left", "price_distance_from_max",
+            "spread_pct", "log_time_left", "price_distance_from_max", "time_phase"
         ]
         for col in base_derived:
             assert col in df_with_derived.columns
@@ -84,7 +84,7 @@ class TestDerivedFeatures:
     def test_no_nan_in_derived(self, df_with_derived):
         base_derived = [
             "price_deviation", "deviation_x_time", "price_deviation_sq",
-            "spread_pct", "log_time_left", "price_distance_from_max",
+            "spread_pct", "log_time_left", "price_distance_from_max", "time_phase"
         ]
         nan_counts = df_with_derived[base_derived].isna().sum()
         assert nan_counts.sum() == 0
