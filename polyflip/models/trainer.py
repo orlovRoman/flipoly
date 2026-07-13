@@ -48,18 +48,20 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # price_distance_from_max: по всей истории рынка в датасете
     if "market_id" in df.columns and "recorded_at" in df.columns:
-        df = df.sort_values(["market_id", "recorded_at"]).reset_index(drop=True)
-        df["_market_max"] = df.groupby("market_id")["mid_price"].cummax()
-        df["price_distance_from_max"] = (df["_market_max"] - df["mid_price"]).clip(lower=0.0)
-        df.drop(columns=["_market_max"], inplace=True)
-    elif "market_id" in df.columns:
-        df_sorted = df.sort_values("market_id").reset_index(drop=True)
-        df["price_distance_from_max"] = (
+        # expanding max по времени внутри рынка
+        df_sorted = df.sort_values(["market_id", "recorded_at"])
+        expanding_max = (
             df_sorted.groupby("market_id")["mid_price"]
             .transform(lambda x: x.expanding().max())
-            .values
-            - df["mid_price"]
-        ).clip(lower=0.0)
+        )
+        # Присваиваем через индекс, а не .values — это безопасно
+        df["price_distance_from_max"] = (
+            expanding_max - df_sorted["mid_price"]
+        ).clip(lower=0.0).reindex(df.index)
+    elif "market_id" in df.columns:
+        df["_market_max"] = df.groupby("market_id")["mid_price"].transform("max")
+        df["price_distance_from_max"] = (df["_market_max"] - df["mid_price"]).clip(lower=0.0)
+        df.drop(columns=["_market_max"], inplace=True)
     else:
         df["price_distance_from_max"] = 0.0
 
@@ -87,7 +89,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
         ])
         probe_aucs = []
         for tr_idx, vl_idx in gkf_search.split(X, y, groups=groups):
-            if len(np.unique(y.iloc[vl_idx])) < 2:
+            if len(np.unique(y.iloc[tr_idx])) < 2 or len(np.unique(y.iloc[vl_idx])) < 2:
                 continue
             m = clone(probe)
             m.fit(X.iloc[tr_idx], y.iloc[tr_idx])
@@ -114,13 +116,17 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
         X_train, X_val = X.iloc[train_index], X.iloc[val_index]
         y_train, y_val = y.iloc[train_index], y.iloc[val_index]
         
+        if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
+            continue
+        
         fold_base = clone(base_model)
         fold_base.fit(X_train, y_train)
         
         from sklearn.frozen import FrozenEstimator
         fold_calibrated = CalibratedClassifierCV(
             estimator=FrozenEstimator(fold_base),
-            method="sigmoid"
+            method="sigmoid",
+            cv=[([], np.arange(len(y_val)))]
         )
         fold_calibrated.fit(X_val, y_val)
         
@@ -128,7 +134,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
         oof_scores[val_index] = y_proba
         aucs.append(roc_auc_score(y_val, y_proba))
         
-    val_acc = float(np.mean(aucs))
+    val_acc = float(np.mean(aucs)) if aucs else 0.5
     
     # Baseline ROC-AUC/Accuracy (доля мажоритарного класса)
     baseline_acc = float(max(y.mean(), 1.0 - y.mean()))
@@ -147,18 +153,25 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     X_train_cal, X_cal, y_train_cal, y_cal = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=use_stratify
     )
-    final_base = Pipeline([
-        ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight="balanced", C=best_C, random_state=CV_RANDOM_STATE, max_iter=1000))
-    ])
-    final_base.fit(X_train_cal, y_train_cal)
     
-    from sklearn.frozen import FrozenEstimator
-    final_model = CalibratedClassifierCV(
-        estimator=FrozenEstimator(final_base),
-        method="sigmoid"
-    )
-    final_model.fit(X_cal, y_cal)
+    if len(np.unique(y_train_cal)) < 2 or len(np.unique(y_cal)) < 2:
+        # Fallback to uncalibrated model on entire dataset if split is invalid
+        final_model = clone(base_model)
+        try:
+            final_model.fit(X, y)
+        except Exception:
+            return None # Impossible to fit
+    else:
+        final_base = clone(base_model)
+        final_base.fit(X_train_cal, y_train_cal)
+        
+        from sklearn.frozen import FrozenEstimator
+        final_model = CalibratedClassifierCV(
+            estimator=FrozenEstimator(final_base),
+            method="sigmoid",
+            cv=[([], np.arange(len(y_cal)))]
+        )
+        final_model.fit(X_cal, y_cal)
     
     coefs = final_base.named_steps["model"].coef_[0]
     coef_info = dict(zip(list(X.columns), [round(float(c), 4) for c in coefs]))

@@ -21,6 +21,12 @@ FEATURE_COLUMNS: list[str] = [
     # Новые статические
     "day_of_week",
     "price_distance_from_max",
+    "time_phase",
+    "price_deviation",
+    "deviation_x_time",
+    "price_deviation_sq",
+    "spread_pct",
+    "log_time_left",
     # Лаговые (динамические)
     *LAG_FEATURE_NAMES,   # price_velocity_lag1, price_momentum, spread_trend, volume_trend
 ]

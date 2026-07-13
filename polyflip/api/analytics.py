@@ -3,7 +3,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Integer, update
 from typing import Dict, Any
 import pandas as pd
-import numpy as np
 import structlog
 import json
 from datetime import datetime, timezone
@@ -34,11 +33,14 @@ _time_left_dist_cache = None
 _time_left_dist_cache_time = 0.0
 _time_left_dist_lock = asyncio.Lock()
 
-def invalidate_analytics_cache():
+async def invalidate_analytics_cache():
     global _summary_cache, _probabilities_cache, _time_left_dist_cache
-    _summary_cache = None
-    _probabilities_cache = None
-    _time_left_dist_cache = None
+    async with _summary_lock:
+        _summary_cache = None
+    async with _probabilities_lock:
+        _probabilities_cache = None
+    async with _time_left_dist_lock:
+        _time_left_dist_cache = None
 
 
 @router.get("/analytics/summary")
@@ -143,7 +145,7 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
         raise HTTPException(status_code=404, detail="Model not found")
         
     await db.commit()
-    invalidate_analytics_cache()
+    await invalidate_analytics_cache()
     return {"status": "success", "active_version": version}
 
 async def set_training_status(session: AsyncSession, asset: str, status: str, message: str, last_run: str = None):
@@ -213,12 +215,12 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks, db: As
                 
                 logger.info("train_single_asset_completed", asset=asset, status=msg)
                 await set_training_status(bg_session, asset, "success", f"{asset}: {msg}", datetime.now(timezone.utc).isoformat())
-                invalidate_analytics_cache()
+                await invalidate_analytics_cache()
         except Exception as e:
             logger.exception("train_single_asset_failed", asset=asset, error=str(e))
             async with async_session() as bg_session:
                 await set_training_status(bg_session, asset, "error", f"Ошибка: {str(e)}", datetime.now(timezone.utc).isoformat())
-                invalidate_analytics_cache()
+                await invalidate_analytics_cache()
             
     background_tasks.add_task(train_single_asset)
     return {"status": "running", "asset": asset}
@@ -332,60 +334,58 @@ async def get_time_left_distribution(db: AsyncSession = Depends(get_db_session))
     Предназначен для подбора min_time_min / max_time_min перед переобучением.
     Кэшируется на 5 минут.
     """
-    global _time_left_dist_cache, _time_left_dist_cache_time
-    now = time.time()
-    if _time_left_dist_cache is not None and (now - _time_left_dist_cache_time) < 300:
-        return _time_left_dist_cache
-
-    stmt = select(
-        MarketSnapshot.asset,
-        MarketSnapshot.time_left_min,
-    ).where(MarketSnapshot.final_outcome != "PENDING").order_by(MarketSnapshot.recorded_at.desc()).limit(200000)
-
-    rows = (await db.execute(stmt)).all()
-    if not rows:
-        return {}
-
-    rows_data = [{"asset": r.asset, "time_left_min": r.time_left_min} for r in rows]
-
-    def compute_distribution(data):
-        df = pd.DataFrame(data)
-        bins   = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,float("inf")]
-        labels = ["0m","1m","2m","3m","4m","5m","6m","7m","8m","9m",
-                  "10m","11m","12m","13m","14m","15m","16m","17m","18m","19m","20m","21m",">22m"]
-        result = {}
-        for asset, group in df.groupby("asset"):
-            t = group["time_left_min"].dropna()
-            if len(t) == 0:
-                continue
-            counts = (
-                pd.cut(t, bins=bins, labels=labels, right=False)
-                .value_counts()
-                .reindex(labels)
-                .fillna(0)
-            )
-            result[asset] = {
-                "n":              int(len(t)),
-                "median":         round(float(t.median()), 2),
-                "p10":            round(float(t.quantile(0.10)), 2),
-                "p25":            round(float(t.quantile(0.25)), 2),
-                "p75":            round(float(t.quantile(0.75)), 2),
-                "p90":            round(float(t.quantile(0.90)), 2),
-                "min":            round(float(t.min()), 2),
-                "max":            round(float(t.max()), 2),
-                "pct_above_22m":  round(float((t > 22).mean()) * 100, 1),
-                "distribution":   {k: int(v) for k, v in counts.items()},
-            }
-        return result
-
-    out = await asyncio.to_thread(compute_distribution, rows_data)
-
     async with _time_left_dist_lock:
-        if _time_left_dist_cache is None or (time.time() - _time_left_dist_cache_time) >= 300:
-            _time_left_dist_cache = out
-            _time_left_dist_cache_time = time.time()
+        now = time.time()
+        if _time_left_dist_cache is not None and (now - _time_left_dist_cache_time) < 300:
+            return _time_left_dist_cache
 
-    return _time_left_dist_cache
+        stmt = select(
+            MarketSnapshot.asset,
+            MarketSnapshot.time_left_min,
+        ).where(MarketSnapshot.final_outcome != "PENDING").order_by(MarketSnapshot.recorded_at.desc()).limit(200000)
+
+        rows = (await db.execute(stmt)).all()
+        if not rows:
+            return {}
+
+        rows_data = [{"asset": r.asset, "time_left_min": r.time_left_min} for r in rows]
+
+        def compute_distribution(data):
+            df = pd.DataFrame(data)
+            bins   = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,float("inf")]
+            labels = ["0m","1m","2m","3m","4m","5m","6m","7m","8m","9m",
+                      "10m","11m","12m","13m","14m","15m","16m","17m","18m","19m","20m","21m",">22m"]
+            result = {}
+            for asset, group in df.groupby("asset"):
+                t = group["time_left_min"].dropna()
+                if len(t) == 0:
+                    continue
+                counts = (
+                    pd.cut(t, bins=bins, labels=labels, right=False)
+                    .value_counts()
+                    .reindex(labels)
+                    .fillna(0)
+                )
+                result[asset] = {
+                    "n":              int(len(t)),
+                    "median":         round(float(t.median()), 2),
+                    "p10":            round(float(t.quantile(0.10)), 2),
+                    "p25":            round(float(t.quantile(0.25)), 2),
+                    "p75":            round(float(t.quantile(0.75)), 2),
+                    "p90":            round(float(t.quantile(0.90)), 2),
+                    "min":            round(float(t.min()), 2),
+                    "max":            round(float(t.max()), 2),
+                    "pct_above_22m":  round(float((t > 22).mean()) * 100, 1),
+                    "distribution":   {k: int(v) for k, v in counts.items()},
+                }
+            return result
+
+        out = await asyncio.to_thread(compute_distribution, rows_data)
+
+        _time_left_dist_cache = out
+        _time_left_dist_cache_time = time.time()
+
+        return _time_left_dist_cache
 
 
 # --- End Analytics ---
