@@ -28,6 +28,8 @@ from polyflip.api.trading_dashboard import invalidate_stats_cache
 from polyflip.api.dashboard import invalidate_dashboard_cache
 from polyflip.constants import (
     DEAD_ZONE_WIDTH,
+    get_price_phase,
+)
     DAILY_LOSS_LIMIT_USDC,
     FAVORITE_THRESHOLD,
     TRADE_CHECK_LIMIT,
@@ -412,6 +414,21 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 edge = decision_obj.edge
             else:
                 # --- ML MODE ---
+                # Предварительно получаем свежие цены для фазовой модели
+                fresh_yes_prices = await api_client.get_market_prices(yes_token_id)
+                if not fresh_yes_prices or "error" in fresh_yes_prices:
+                    error_msg = fresh_yes_prices.get("error", "No fresh YES prices from API") if fresh_yes_prices else "No fresh YES prices from API"
+                    logger.warning("no_fresh_yes_prices", market_id=market.market_id, error=error_msg)
+                    await save_or_update_skipped_trade(
+                        db_session, market, error_msg,
+                        0.0, None, start_time,
+                        existing_skipped=existing_skipped
+                    )
+                    continue
+                fresh_yes_price = fresh_yes_prices["current_yes_price"]
+                fresh_spread = fresh_yes_prices["current_spread"]
+                fresh_price_velocity = market.price_velocity
+
                 if models_by_asset is None:
                     # Загружаем active models
                     models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
@@ -432,9 +449,22 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         except Exception as e:
                             logger.error("failed_to_load_model", asset=m.asset, error=str(e))
 
-                model = models_by_asset.get(market.asset)
-                model_ver = model_versions.get(market.asset)
-                m_features = model_features.get(market.asset, [])
+                phase = get_price_phase(fresh_yes_price)
+                phase_asset = f"{market.asset}_{phase}"
+                
+                if phase_asset in models_by_asset:
+                    model      = models_by_asset[phase_asset]
+                    model_ver  = model_versions[phase_asset]
+                    m_features = model_features.get(phase_asset, [])
+                    used_model = phase_asset
+                else:
+                    model      = models_by_asset.get(market.asset)
+                    model_ver  = model_versions.get(market.asset)
+                    m_features = model_features.get(market.asset, [])
+                    used_model = market.asset
+                    logger.debug("price_phase_fallback_to_base", asset=market.asset, phase=phase, mid_price=fresh_yes_price)
+
+                logger.debug("price_phase_model_selected", asset=market.asset, phase=phase, used_model=used_model, mid_price=round(fresh_yes_price, 3))
                 
                 if not model:
                     logger.warning("no_active_model_for_trade", asset=market.asset, market_id=market.market_id)
@@ -445,21 +475,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     logger.warning("model_has_no_features", asset=market.asset, version=model_ver)
                     await save_or_update_skipped_trade(db_session, market, f"Model v{model_ver} has no features", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
                     continue
-
-                fresh_yes_prices = await api_client.get_market_prices(yes_token_id)
-                if not fresh_yes_prices or "error" in fresh_yes_prices:
-                    error_msg = fresh_yes_prices.get("error", "No fresh YES prices from API") if fresh_yes_prices else "No fresh YES prices from API"
-                    logger.warning("no_fresh_yes_prices", market_id=market.market_id, error=error_msg)
-                    await save_or_update_skipped_trade(
-                        db_session, market, error_msg,
-                        0.0, model_ver, start_time,
-                        existing_skipped=existing_skipped
-                    )
-                    continue
-
-                fresh_yes_price = fresh_yes_prices["current_yes_price"]
-                fresh_spread = fresh_yes_prices["current_spread"]
-                fresh_price_velocity = market.price_velocity
 
                 # Запрос 1: последние 7 снапшотов для лагов
                 history_stmt = (
@@ -530,6 +545,22 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     await save_or_update_skipped_trade(db_session, market, f"Missing features: {missing}", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
                     continue
                 
+                # Приоритет: ручной → фазовый авто → базовый авто → дефолт
+                manual_key     = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
+                auto_key_phase = f"AUTO_FLIP_THRESHOLD_{used_model}"
+                auto_key_base  = f"AUTO_FLIP_THRESHOLD_{market.asset.upper()}"
+
+                if manual_key in settings_db and str(settings_db[manual_key]).strip():
+                    base_flip_threshold = float(settings_db[manual_key])
+                elif auto_key_phase in settings_db:
+                    base_flip_threshold = float(settings_db[auto_key_phase])
+                elif auto_key_base in settings_db:
+                    base_flip_threshold = float(settings_db[auto_key_base])
+                elif "TRADE_FLIP_THRESHOLD" in settings_db:
+                    base_flip_threshold = float(settings_db["TRADE_FLIP_THRESHOLD"])
+                else:
+                    base_flip_threshold = no_flip_threshold + dead_zone
+
                 X_real = row_inf[m_features]
                 
                 proba = model.predict_proba(X_real)[0]
@@ -544,18 +575,6 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     hour_of_day=start_time.hour,
                     time_left_min=time_left_sec / 60.0
                 )
-
-                manual_key = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
-                auto_key = f"AUTO_FLIP_THRESHOLD_{market.asset.upper()}"
-                
-                if manual_key in settings_db and str(settings_db[manual_key]).strip() != "":
-                    base_flip_threshold = float(settings_db[manual_key])
-                elif auto_key in settings_db:
-                    base_flip_threshold = float(settings_db[auto_key])
-                elif "TRADE_FLIP_THRESHOLD" in settings_db:
-                    base_flip_threshold = float(settings_db["TRADE_FLIP_THRESHOLD"])
-                else:
-                    base_flip_threshold = no_flip_threshold + dead_zone
 
                 auto_dead_zone = settings_db.get("AUTO_DEAD_ZONE", "true" if settings.AUTO_DEAD_ZONE else "false").lower() == "true"
                 # dead_zone единый параметр ширины — используется и в авто-, и в ручном режиме

@@ -86,3 +86,19 @@ USE_CRYPTO_CONFIRM = False
 CRYPTO_STANDALONE = False
 ASSET_TO_BINANCE_SYMBOL = {"BTC": "BTCUSDT", "ETH": "ETHUSDT"}
 
+# --- Price-Phase Split Boundaries ---
+PRICE_PHASE_BOUNDARIES: dict[str, tuple[float, float]] = {
+    "contested": (0.00, 0.10),  # mid_price 0.40–0.60: рынок не решён
+    "leaning":   (0.10, 0.25),  # mid_price 0.25–0.75: есть склонение
+    "decided":   (0.25, 0.50),  # mid_price < 0.25 или > 0.75: рынок решён
+}
+
+MIN_SAMPLES_FOR_PHASE_MODEL = 150  # порог для фазовой модели
+
+def get_price_phase(mid_price: float) -> str:
+    """Определяет фазу по mid_price. Единое место истины для trainer и engine."""
+    dev = abs(mid_price - 0.5)
+    for phase, (lo, hi) in PRICE_PHASE_BOUNDARIES.items():
+        if lo <= dev < hi:
+            return phase
+    return "decided"  # fallback: dev >= 0.50

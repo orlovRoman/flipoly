@@ -35,6 +35,10 @@ DERIVED_FEATURES = [
     "day_of_week",
     "price_distance_from_max",
     "time_phase",
+    "is_final_phase",
+    "high_price_final",
+    "velocity_x_phase",
+    "dev_sq_x_phase",
     *LAG_FEATURE_NAMES,
 ]
 
@@ -71,6 +75,15 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         import structlog
         structlog.get_logger(__name__).warning("time_phase_fallback", reason="no market_id, using 1.0")
         df["time_phase"] = 1.0
+
+    # --- Interaction Features ---
+    df["is_final_phase"] = (df["time_phase"] < 0.20).astype(float)
+    df["high_price_final"] = df["price_deviation"] * (1.0 - df["time_phase"])
+    if "price_velocity" in df.columns:
+        df["velocity_x_phase"] = df["price_velocity"] * (1.0 - df["time_phase"])
+    else:
+        df["velocity_x_phase"] = 0.0
+    df["dev_sq_x_phase"] = df["price_deviation_sq"] * (1.0 - df["time_phase"])
 
     return df
 
@@ -458,6 +471,104 @@ class ModelTrainer:
             
         self.db.add(new_model_record)
         await self.db.commit()
+
+        # --- Шаг 3: Price-Phase Split ---
+        from polyflip.constants import PRICE_PHASE_BOUNDARIES, MIN_SAMPLES_FOR_PHASE_MODEL, CV_N_SPLITS
+        
+        assert "price_deviation" in df.columns, (
+            "price_deviation must be computed before phase split. "
+            "Call add_derived_features(df) first."
+        )
+        
+        phase_results = {}
+        for phase_name, (lo, hi) in PRICE_PHASE_BOUNDARIES.items():
+            df_phase = df[
+                (df["price_deviation"] >= lo) & (df["price_deviation"] < hi)
+            ].copy()
+
+            n_phase = len(df_phase)
+            logger.info("price_phase_split_stats", asset=asset, phase=phase_name, n=n_phase,
+                        target_mean=round(df_phase["target"].mean(), 3) if n_phase > 0 else None)
+
+            if n_phase < MIN_SAMPLES_FOR_PHASE_MODEL:
+                logger.warning("price_phase_model_skipped", asset=asset, phase=phase_name,
+                               n=n_phase, required=MIN_SAMPLES_FOR_PHASE_MODEL)
+                phase_results[phase_name] = f"skipped ({n_phase} samples)"
+                continue
+
+            if len(df_phase["target"].unique()) < 2:
+                logger.warning("price_phase_one_class", asset=asset, phase=phase_name)
+                phase_results[phase_name] = "skipped (one class)"
+                continue
+                
+            n_unique_markets = df_phase["market_id"].nunique()
+            if n_unique_markets < CV_N_SPLITS:
+                logger.warning(
+                    "price_phase_not_enough_groups",
+                    asset=asset, phase=phase_name,
+                    n_markets=n_unique_markets, required=CV_N_SPLITS,
+                )
+                phase_results[phase_name] = f"skipped ({n_unique_markets} markets < {CV_N_SPLITS} folds)"
+                continue
+
+            X_phase  = df_phase[active_features]
+            y_phase  = df_phase["target"]
+            grp_phase = df_phase["market_id"]
+            phase_asset = f"{asset}_{phase_name}"
+
+            try:
+                fit_res_phase = await asyncio.to_thread(
+                    _fit_and_serialize, X_phase, y_phase, grp_phase
+                )
+            except Exception as e:
+                logger.error("price_phase_fit_failed", asset=asset, phase=phase_name, error=str(e))
+                phase_results[phase_name] = f"failed: {e}"
+                continue
+                
+            if not fit_res_phase:
+                continue
+
+            model_bytes_p, val_acc_p, baseline_acc_p, threshold_p, ece_p = fit_res_phase
+
+            if val_acc_p < min_auc:
+                logger.warning("price_phase_auc_too_low", asset=asset, phase=phase_name,
+                               val_auc=round(val_acc_p, 4), min_auc=min_auc)
+                phase_results[phase_name] = f"auc_too_low ({val_acc_p:.3f})"
+                continue
+
+            # Деактивируем старые
+            await self.db.execute(
+                update(ModelRegistry).where(ModelRegistry.asset == phase_asset).values(is_active=False)
+            )
+            last_v_p = (await self.db.execute(
+                select(ModelRegistry.version).where(ModelRegistry.asset == phase_asset)
+                .order_by(ModelRegistry.version.desc()).limit(1)
+            )).scalar_one_or_none()
+
+            # Сохраняем порог
+            thr_key = f"AUTO_FLIP_THRESHOLD_{phase_asset}"
+            existing_thr = (await self.db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+            )).scalar_one_or_none()
+            if existing_thr:
+                existing_thr.value = str(round(threshold_p, 4))
+            else:
+                self.db.add(RuntimeSettings(
+                    key=thr_key, value=str(round(threshold_p, 4)),
+                    updated_at=datetime.now(timezone.utc), updated_by="train_job_phase"
+                ))
+
+            self.db.add(ModelRegistry(
+                asset=phase_asset, version=(last_v_p or 0) + 1,
+                model_blob=model_bytes_p, accuracy=val_acc_p,
+                baseline=baseline_acc_p, features=",".join(active_features),
+                ece=ece_p, is_active=True, interval="15m",
+                trained_at=datetime.now(timezone.utc),
+            ))
+            phase_results[phase_name] = f"ok (AUC {val_acc_p:.3f}, n={n_phase})"
+
+        await self.db.commit()
+        logger.info("price_phase_models_complete", asset=asset, results=phase_results)
 
         logger.info("model_saved_to_db", asset=asset, version=next_version, threshold=optimal_threshold)
         self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.2f})"
