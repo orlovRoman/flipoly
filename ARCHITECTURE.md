@@ -135,6 +135,7 @@ polyflip/
 4. `volume_5min` (float) — объем торгов по данному рынку за последние 5 минут.
 5. `price_velocity` (float) — скорость изменения цены за последние 5 минут.
 6. `hour_of_day` (int) — час UTC времени создания/наблюдения (0 – 23).
+7. Динамические лаговые фичи (trend, momentum, velocity_lag) — рассчитываются на лету для учета исторической динамики.
 
 ### 4.2 Обучение
 Обучение выполняется в [trainer.py](file:///C:/Users/orlov/.gemini/antigravity/scratch/polyflip/polyflip/models/trainer.py):

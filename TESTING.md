@@ -112,6 +112,17 @@ def test_retrain_versioning(mock_db_with_data):
 # 2. Расчет PnL с учетом slippage и комиссий.
 ```
 
+### 2.6 Дополнительные тесты моделей и фичей
+
+Тестирование `models/trainer.py` и `models/feature_lags.py` (новые пайплайны логистической регрессии и лаги).
+
+```python
+# Что тестируем:
+# 1. Pipeline LogisticRegression с учетом гиперпараметров, калибровки, data leakage.
+# 2. test_feature_lags.py — корректность расчета динамических лагов.
+# 3. test_stop_loss_split.py — миграция и корректное применение FAVORITE/OUTSIDER stop-loss.
+```
+
 ---
 
 ## 3. Integration-тесты
