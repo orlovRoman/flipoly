@@ -67,6 +67,7 @@ function readConfig() {
     max_bet_size_usdc:    parseFloat(document.getElementById('cfg-max-bet').value),
     min_edge:             parseFloat(document.getElementById('cfg-min-edge').value),
     max_bet_edge:         parseFloat(document.getElementById('cfg-max-edge').value),
+    max_edge_filter:      parseFloat(document.getElementById('cfg-max-edge-filter').value),
     slippage_pct:         parseFloat(document.getElementById('cfg-slippage').value) / 100,
   };
 }
@@ -438,7 +439,8 @@ async function loadHistoricRun(runId) {
         document.getElementById('cfg-min-bet').value    = cfg.trade_bet_size_usdc != null ? cfg.trade_bet_size_usdc : 5;
         document.getElementById('cfg-max-bet').value    = cfg.max_bet_size_usdc != null ? cfg.max_bet_size_usdc : 50;
         document.getElementById('cfg-min-edge').value   = cfg.min_edge != null ? cfg.min_edge : -0.05;
-        document.getElementById('cfg-max-edge').value   = cfg.max_edge != null ? cfg.max_edge : 0.50;
+        document.getElementById('cfg-max-edge').value   = cfg.max_bet_edge != null ? cfg.max_bet_edge : 0.50;
+        document.getElementById('cfg-max-edge-filter').value = cfg.max_edge_filter != null ? cfg.max_edge_filter : 0.20;
         document.getElementById('cfg-slippage').value   = (cfg.slippage_pct || 0.005) * 100;
         document.getElementById('cfg-trade-on-flip').checked = cfg.trade_on_flip === true;
         
@@ -548,6 +550,7 @@ function resetConfig() {
   document.getElementById('cfg-max-bet').value    = '50';
   document.getElementById('cfg-min-edge').value   = '-0.05';
   document.getElementById('cfg-max-edge').value   = '0.50';
+  document.getElementById('cfg-max-edge-filter').value = '0.20';
   document.getElementById('cfg-slippage').value   = '0.5';
   onStrategyChange();
 
@@ -595,6 +598,7 @@ async function applyLiveSettings() {
       
     document.getElementById('cfg-min-edge').value   = s.MIN_EDGE !== undefined ? parseFloat(s.MIN_EDGE).toFixed(3) : '-0.05';
     document.getElementById('cfg-max-edge').value   = s.MAX_BET_EDGE !== undefined ? parseFloat(s.MAX_BET_EDGE).toFixed(3) : '0.50';
+    document.getElementById('cfg-max-edge-filter').value = s.MAX_EDGE_FILTER !== undefined ? parseFloat(s.MAX_EDGE_FILTER).toFixed(3) : '0.20';
     document.getElementById('cfg-trade-on-flip').checked = s.TRADE_ON_FLIP === 'true';
     
     onStrategyChange();

@@ -606,6 +606,22 @@
             </div>
 
             <div class="config-grid">
+              <div class="config-group">
+                <label>Мин. Edge <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальное математическое ожидание сделки для входа.">❓</span></label>
+                <input id="cfg-min-edge" type="number" value="-0.05" step="0.01">
+              </div>
+              <div class="config-group">
+                <label>Макс. Edge <span class="tooltip-icon tooltip-icon--right" data-tooltip="Уровень Edge, при котором достигается MAX_BET.">❓</span></label>
+                <input id="cfg-max-edge" type="number" value="0.50" step="0.01">
+              </div>
+            </div>
+
+            <div class="config-group">
+              <label>Фильтр Edge (MAX_EDGE_FILTER) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Предохранитель. Все сделки с Edge выше этого отбрасываются (защита от сломанных стаканов). В бэктесте помогает отсечь ложные граали.">❓</span></label>
+              <input id="cfg-max-edge-filter" type="number" value="0.20" step="0.01">
+            </div>
+
+            <div class="config-grid">
               <div class="config-group" style="grid-column: span 2;">
                 <label>Режим размера ставки <span class="tooltip-icon tooltip-icon--right" data-tooltip="Масштабировать ставку от базовой до максимальной в зависимости от ROI, либо использовать строго фиксированную">❓</span></label>
                 <select id="cfg-bet-sizing-mode" style="width: 100%; background: var(--bg-color); border: 1px solid var(--border-color); color: white; padding: 0.75rem 1rem; border-radius: 8px; outline: none;">
