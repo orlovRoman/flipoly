@@ -8,13 +8,11 @@ from datetime import datetime, timedelta, timezone
 async def analyze():
     print("Connecting to database...")
     async with async_session() as session:
-        # Get skipped outsider trades from the last 24 hours
+        # Get all skipped trades from the last 24 hours
         time_threshold = datetime.now(timezone.utc) - timedelta(days=1)
         
         stmt = select(TradeHistory).where(
             TradeHistory.status == 'SKIP'
-        ).where(
-            TradeHistory.active_features.ilike('%OUTSIDER%')
         ).where(
             TradeHistory.created_at >= time_threshold
         ).order_by(desc(TradeHistory.created_at))
@@ -23,7 +21,7 @@ async def analyze():
         trades = result.scalars().all()
 
     if not trades:
-        print("No skipped OUTSIDER trades found in the last 24 hours.")
+        print("No skipped trades found in the last 24 hours.")
         return
 
     reasons = Counter([t.error_msg for t in trades])
