@@ -15,7 +15,7 @@ async def analyze():
             TradeHistory.status == 'SKIPPED'
         ).where(
             TradeHistory.created_at >= time_threshold
-        ).order_by(desc(TradeHistory.created_at)).limit(5000)
+        ).order_by(desc(TradeHistory.created_at)).limit(500)
         
         result = await session.execute(stmt)
         trades = result.scalars().all()

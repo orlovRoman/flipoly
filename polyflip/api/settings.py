@@ -66,7 +66,8 @@ async def get_recommended_thresholds():
                 RuntimeSettings.key.in_([
                     "DEAD_ZONE_WIDTH",
                     "TRADE_NO_FLIP_THRESHOLD",
-                    *[f"TRADE_FLIP_THRESHOLD_{a.upper()}" for a in settings.asset_list]
+                    *[f"TRADE_FLIP_THRESHOLD_{a.upper()}" for a in settings.asset_list],
+                    *[f"AUTO_FLIP_THRESHOLD_{a.upper()}" for a in settings.asset_list]
                 ])
             )
         )
