@@ -376,7 +376,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 logger.debug("crypto_decision_eval", asset_mode=asset_mode, binance_symbol=binance_symbol, decision_obj=decision_obj)
                 
-                if not decision_obj or decision_obj.action != "trade":
+                if not decision_obj or decision_obj.action != "SKIP":
                     p_flip = 0.0  # Для крипто-стратегии p_flip семантически не имеет значения
                     model_ver = crypto_sig.model_version
                     edge = decision_obj.edge

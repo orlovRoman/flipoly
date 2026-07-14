@@ -42,6 +42,9 @@ from polyflip.crypto.trainer import (
     _fit_lgbm_and_serialize,
 )
 
+# Малый положительный порог вместо нуля (защита от деления на ноль в логарифмических вычислениях)
+_EPSILON: float = 1e-9
+
 
 @dataclass
 class BacktestResult:
@@ -98,7 +101,7 @@ def _empty_result(
         total_return_net=0.0,
         sharpe_ratio=0.0,
         max_drawdown=0.0,
-        epsilon=0.0,
+        epsilon=epsilon,
         pnl_mode=pnl_mode,
         pnl_curve=[],
     )
@@ -200,7 +203,7 @@ def run_backtest(
             sharpe_ratio=0.0,
             max_drawdown=0.0,
             edge_rate=float(df_test["signal"].mean()),
-            epsilon=0.0,
+            epsilon=_EPSILON,
             train_auc=train_auc,
             pnl_mode=pnl_mode,
             pnl_curve=[],
@@ -256,7 +259,7 @@ def run_backtest(
                 sharpe_ratio=0.0,
                 max_drawdown=0.0,
                 edge_rate=float(df_test["signal"].mean()),
-                epsilon=0.0,
+                epsilon=_EPSILON,
                 train_auc=train_auc,
                 pnl_mode=pnl_mode,
                 n_polymarket_matched=0,
@@ -310,7 +313,7 @@ def run_backtest(
             sharpe_ratio=sharpe,
             max_drawdown=max_dd,
             edge_rate=float(df_test["signal"].mean()),
-            epsilon=0.0,
+            epsilon=_EPSILON,
             train_auc=train_auc,
             pnl_mode=pnl_mode,
             n_polymarket_matched=n_matched,
@@ -355,7 +358,7 @@ def run_backtest(
         sharpe_ratio=sharpe,
         max_drawdown=max_dd,
         edge_rate=float(df_test["signal"].mean()),
-        epsilon=0.0,
+        epsilon=_EPSILON,
         train_auc=train_auc,
         pnl_mode="binance",
         pnl_curve=_build_pnl_curve(trades, cum_pnl),

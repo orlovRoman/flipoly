@@ -54,8 +54,11 @@ async def trade_job(trader, api_client):
         await trade_worker_cycle(session, trader, api_client)
 
 async def stoploss_job(trader, api_client):
-    async with async_session() as session:
-        await stoploss_worker_cycle(session, trader, api_client)
+    try:
+        async with async_session() as session:
+            await stoploss_worker_cycle(session, trader, api_client)
+    except Exception as e:
+        logger.exception("stoploss_job_error", error=str(e))
 
 async def takeprofit_job(trader, api_client):
     try:

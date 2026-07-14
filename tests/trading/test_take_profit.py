@@ -26,17 +26,17 @@ def test_tp_price_invalid_multiplier():
         compute_take_profit_price(0.50, 0.9)
 
 def test_evaluate_tp_triggers():
-    d = evaluate_take_profit(entry_price=0.40, tp_multiplier=2.0, current_ask=0.82)
+    d = evaluate_take_profit(entry_price=0.40, tp_multiplier=2.0, current_bid=0.82)
     assert d.should_sell is True
     assert d.tp_price == 0.80
 
 def test_evaluate_tp_not_triggered():
-    d = evaluate_take_profit(entry_price=0.40, tp_multiplier=2.0, current_ask=0.75)
+    d = evaluate_take_profit(entry_price=0.40, tp_multiplier=2.0, current_bid=0.75)
     assert d.should_sell is False
 
 def test_evaluate_tp_exact_boundary():
-    # current_ask == tp_price → должен сработать (>=)
-    d = evaluate_take_profit(entry_price=0.40, tp_multiplier=2.0, current_ask=0.80)
+    # current_bid == tp_price → должен сработать (>=)
+    d = evaluate_take_profit(entry_price=0.40, tp_multiplier=2.0, current_bid=0.80)
     assert d.should_sell is True
 
 
@@ -76,7 +76,7 @@ async def test_tp_worker_triggers_when_price_reached(db_session):
     })
     api_mock = AsyncMock()
     api_mock.get_market_prices = AsyncMock(return_value={
-        "best_ask": 0.82, "current_yes_price": 0.82, "current_spread": 0.01
+        "best_bid": 0.82, "current_yes_price": 0.82, "current_spread": 0.01
     })
 
     await takeprofit_worker_cycle(db_session, trader_mock, api_mock)
@@ -128,7 +128,7 @@ async def test_tp_worker_does_not_trigger_below_target(db_session):
     trader_mock = AsyncMock()
     api_mock = AsyncMock()
     api_mock.get_market_prices = AsyncMock(return_value={
-        "best_ask": 0.70, "current_yes_price": 0.70, "current_spread": 0.01
+        "best_bid": 0.70, "current_yes_price": 0.70, "current_spread": 0.01
     })
 
     await takeprofit_worker_cycle(db_session, trader_mock, api_mock)

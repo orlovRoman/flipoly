@@ -71,14 +71,14 @@ async def takeprofit_worker_cycle(
 
             token_id = market.yes_token_id if trade.outcome_bought == "YES" else market.no_token_id
 
-            # Получаем текущий ask (цена, по которой можно продать в рынок)
+            # Получаем текущий bid (цена, по которой покупатели готовы выкупить токен — цена продажи)
             prices = await api_client.get_market_prices(token_id)
-            if not prices or "error" in prices or prices.get("best_ask") is None:
-                logger.warning("takeprofit_no_ask", trade_id=trade.id,
+            if not prices or "error" in prices or prices.get("best_bid") is None:
+                logger.warning("takeprofit_no_bid", trade_id=trade.id,
                                error=prices.get("error") if prices else "No response")
                 continue
 
-            current_ask = float(prices["best_ask"])
+            current_bid = float(prices["best_bid"])
 
             if trade.take_profit_multiplier is None:
                 logger.warning("takeprofit_missing_multiplier", trade_id=trade.id)
@@ -89,7 +89,7 @@ async def takeprofit_worker_cycle(
             decision = evaluate_take_profit(
                 entry_price=trade.executed_price,
                 tp_multiplier=trade.take_profit_multiplier,
-                current_ask=current_ask,
+                current_bid=current_bid,
             )
 
             if not decision.should_sell:
@@ -102,7 +102,7 @@ async def takeprofit_worker_cycle(
                 market_id=trade.market_id,
                 entry=trade.executed_price,
                 tp_price=decision.tp_price,
-                current_ask=current_ask,
+                current_bid=current_bid,
             )
 
             shares_held = round(trade.amount_usdc / trade.executed_price, 2)
@@ -110,11 +110,11 @@ async def takeprofit_worker_cycle(
                 market_id=trade.market_id,
                 token_id=token_id,
                 side="SELL",
-                price=current_ask,
+                price=current_bid,
                 size=shares_held,
             )
 
-            executed_price = sell_res.get("executed_price", current_ask)
+            executed_price = sell_res.get("executed_price", current_bid)
 
             # PnL с вычетом комиссии Polymarket 0.2%
             gross = executed_price * shares_held
@@ -127,8 +127,8 @@ async def takeprofit_worker_cycle(
             trade.take_profit_sell_price = executed_price
 
             # Записываем проскальзывание
-            slip      = round(current_ask - executed_price, 6)
-            slip_pct  = round(slip / current_ask * 100, 4) if current_ask > 0 else 0.0
+            slip      = round(current_bid - executed_price, 6)
+            slip_pct  = round(slip / current_bid * 100, 4) if current_bid > 0 else 0.0
             slip_cost = round(slip * shares_held, 4)
 
             db_session.add(SlippageLog(
@@ -136,7 +136,7 @@ async def takeprofit_worker_cycle(
                 market_id=trade.market_id,
                 asset=trade.asset,
                 outcome_bought=trade.outcome_bought,
-                expected_price=current_ask,
+                expected_price=current_bid,
                 executed_price=executed_price,
                 slippage=slip,
                 slippage_pct=slip_pct,

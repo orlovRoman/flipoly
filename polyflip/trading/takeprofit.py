@@ -21,14 +21,18 @@ class TakeProfitDecision:
 def evaluate_take_profit(
     entry_price: float,
     tp_multiplier: float,
-    current_ask: float,   # лучший ask в стакане (цена продажи)
+    current_bid: float,   # лучший bid в стакане (цена, по которой покупатели готовы выкупить токен)
 ) -> TakeProfitDecision:
-    """Возвращает решение: зафиксировать прибыль или нет."""
+    """Возвращает решение: зафиксировать прибыль или нет.
+
+    Использует best_bid (аналогично stoploss_worker), так как продажа
+    токенов на Polymarket исполняется по цене лучшего покупателя (bid).
+    """
     tp_price = compute_take_profit_price(entry_price, tp_multiplier)
-    should_sell = current_ask >= tp_price
+    should_sell = current_bid >= tp_price
     return TakeProfitDecision(
         should_sell=should_sell,
-        current_price=current_ask,
+        current_price=current_bid,
         tp_price=tp_price,
-        reason=f"ask={current_ask:.4f} >= tp={tp_price:.4f}" if should_sell else "below_target"
+        reason=f"bid={current_bid:.4f} >= tp={tp_price:.4f}" if should_sell else "below_target"
     )
