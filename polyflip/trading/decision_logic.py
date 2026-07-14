@@ -306,9 +306,11 @@ def decide_crypto_trend(
         )
 
     action: ActionType = "BUY_YES" if crypto.direction == "UP" else "BUY_NO"
+    actual_buy_price = entry_price if action == "BUY_YES" else round(1.0 - entry_price, 4)
+    
     return TradeDecision(
         action=action,
-        buy_price=entry_price,
+        buy_price=actual_buy_price,
         bet_size_usdc=bet,
         reason=f"CRYPTO_TREND {crypto.symbol} p_up={crypto.p_up:.3f} edge={crypto.edge:.4f}",
         strategy_type="CRYPTO_TREND",

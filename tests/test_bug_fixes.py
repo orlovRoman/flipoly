@@ -6,6 +6,27 @@ from unittest.mock import AsyncMock, patch
 
 # ─── BUG-01: engine.py — условие crypto-решения ────────────────────────────
 
+def test_decide_crypto_trend_buy_no_price():
+    """Проверяет, что при BUY_NO в decide_crypto_trend цена покупки рассчитывается как 1.0 - entry_price"""
+    from polyflip.trading.decision_logic import decide_crypto_trend
+    from polyflip.crypto.predictor import CryptoSignal
+
+    crypto = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.1, p_down=0.9, direction="DOWN",
+        edge=0.1, strike=60000, threshold_up=0.55, threshold_down=0.45,
+        model_version=1, features_ok=True
+    )
+    # entry_price - это цена YES
+    entry_price = 0.80
+    config = {"CRYPTO_MIN_EDGE": 0.05, "MAX_BET_EDGE": 0.5, "BET_SIZE_FIXED_USDC": 10.0}
+    
+    decision = decide_crypto_trend(crypto, entry_price, 1000.0, config)
+    
+    assert decision.action == "BUY_NO"
+    # Цена для NO должна быть 1.0 - 0.80 = 0.20
+    assert decision.buy_price == 0.20
+
+
 def test_crypto_action_trade_should_execute():
     """BUG-01: когда action='BUY_YES', условие (not d or action != 'SKIP') = True
     → p_flip/edge устанавливаются для единого SKIP-обработчика."""
