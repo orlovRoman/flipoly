@@ -355,7 +355,7 @@ def run_backtest(
         sharpe_ratio=sharpe,
         max_drawdown=max_dd,
         edge_rate=float(df_test["signal"].mean()),
-        epsilon=epsilon,
+        epsilon=0.0,
         train_auc=train_auc,
         pnl_mode="binance",
         pnl_curve=_build_pnl_curve(trades, cum_pnl),
