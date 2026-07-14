@@ -1,18 +1,21 @@
 import asyncio
+import os
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
-import json
+from polyflip.config import settings
 
 async def main():
-    # Подключаемся к базе внутри контейнера
-    engine = create_async_engine("sqlite+aiosqlite:////app/vault/database.sqlite")
+    # Подключаемся к базе внутри контейнера, используя URL из настроек (Postgres)
+    db_url = settings.DATABASE_URL
+    print(f"Connecting to: {db_url}")
+    engine = create_async_engine(db_url)
     try:
         async with engine.begin() as conn:
             res = await conn.execute(text("SELECT key, value FROM runtime_settings ORDER BY key"))
-            settings = {row[0]: row[1] for row in res}
+            runtime_settings = {row[0]: row[1] for row in res}
             
             print("\n=== ТЕКУЩИЕ БОЕВЫЕ НАСТРОЙКИ (runtime_settings) ===\n")
-            for k, v in settings.items():
+            for k, v in runtime_settings.items():
                 print(f"{k}: {v}")
             print("\n===================================================\n")
     except Exception as e:
