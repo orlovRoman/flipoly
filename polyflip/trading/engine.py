@@ -181,6 +181,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         threshold_keys.append(f"TRADING_MODE_{asset_upper}")
         threshold_keys.append(f"MIN_EDGE_{asset_upper}")
         threshold_keys.append(f"TRADE_MAX_PRICE_{asset_upper}")
+        # Загружаем авто-калиброванные пороги
+        threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}")
+        threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}_contested")
+        threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}_leaning")
+        threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}_decided")
         
     if threshold_keys:
         t_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(threshold_keys))
@@ -369,7 +374,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 logger.debug("crypto_decision_eval", asset_mode=asset_mode, binance_symbol=binance_symbol, decision_obj=decision_obj)
                 
-                if not decision_obj or decision_obj.action != "trade":
+                if not decision_obj or decision_obj.action != "SKIP":
                     p_flip = 0.0  # Для крипто-стратегии p_flip семантически не имеет значения
                     model_ver = crypto_sig.model_version
                     edge = decision_obj.edge
@@ -549,8 +554,9 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 auto_key_phase = f"AUTO_FLIP_THRESHOLD_{used_model}"
                 auto_key_base  = f"AUTO_FLIP_THRESHOLD_{market.asset.upper()}"
 
-                if manual_key in settings_db and str(settings_db[manual_key]).strip():
-                    base_flip_threshold = float(settings_db[manual_key])
+                manual_val = settings_db.get(manual_key)
+                if manual_val is not None and str(manual_val).strip() not in ("", "0", "0.0"):
+                    base_flip_threshold = float(manual_val)
                 elif auto_key_phase in settings_db:
                     base_flip_threshold = float(settings_db[auto_key_phase])
                 elif auto_key_base in settings_db:

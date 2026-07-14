@@ -127,10 +127,7 @@ async def retrain_job():
                 trade_assets = [a.strip().upper() for a in settings.TRADE_ASSETS.split(",") if a.strip()]
 
             trainer = ModelTrainer(session)
-            for asset in settings.asset_list:
-                if asset.upper() not in trade_assets:
-                    logger.info("retrain_skipped_asset_not_for_trading", asset=asset)
-                    continue
+            for asset in trade_assets:
                 await trainer.train_model(asset)
         logger.info("finished_retrain_job")
     except Exception as e:
@@ -176,7 +173,9 @@ async def resolve_trades_job():
                         
                         if is_win:
                             if t.executed_price > 0:
-                                t.pnl = (t.amount_usdc / t.executed_price) - t.amount_usdc
+                                gross_payout = t.amount_usdc / t.executed_price
+                                net_payout = gross_payout * (1.0 - 0.002)  # Polymarket fee 0.2%
+                                t.pnl = round(net_payout - t.amount_usdc, 4)
                             else:
                                 t.pnl = 0.0
                         else:

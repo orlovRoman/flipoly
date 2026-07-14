@@ -61,7 +61,8 @@ async def test_trainer_saves_model_even_if_accuracy_is_low(db_session):
     await db_session.commit()
 
     trainer = ModelTrainer(db_session)
-    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10):
+    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10), \
+         patch("polyflip.constants.LR_MIN_AUC_FOR_DEPLOY", 0.45):
         res = await trainer.train_model("BTC")
     
     assert res is True # Модель должна успешно сохраниться, несмотря на низкую точность

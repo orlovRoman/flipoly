@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -171,13 +171,11 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     logger.info("calibration_check", ece=round(ece, 4))
     
     # Обучаем финальную модель на всех данных (с holdout для честной калибровки)
-    from sklearn.model_selection import train_test_split
-    min_class_count = int(y.value_counts().min())
-    use_stratify = y if min_class_count >= 10 else None
-    
-    X_train_cal, X_cal, y_train_cal, y_cal = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=use_stratify
-    )
+    # Чтобы исключить Group Leakage (BUG-05), разбиваем выборку по группам (market_id)
+    gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+    train_idx, cal_idx = next(gss.split(X, y, groups=groups))
+    X_train_cal, X_cal = X.iloc[train_idx], X.iloc[cal_idx]
+    y_train_cal, y_cal = y.iloc[train_idx], y.iloc[cal_idx]
     
     if len(np.unique(y_train_cal)) < 2 or len(np.unique(y_cal)) < 2:
         # Fallback to uncalibrated model on entire dataset if split is invalid
