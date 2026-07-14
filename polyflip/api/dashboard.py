@@ -256,6 +256,8 @@ async def get_trade_logs(
             "kelly_multiplier": getattr(log, 'kelly_multiplier', None),
             "edge": getattr(log, 'edge', None),
             "stop_loss_status": getattr(log, 'stop_loss_status', None),
+            "take_profit_status": getattr(log, 'take_profit_status', None),
+            "take_profit_sell_price": getattr(log, 'take_profit_sell_price', None),
             "created_at": log.created_at.isoformat(),
             "updated_at": log.updated_at.isoformat() if getattr(log, 'updated_at', None) else None
         })
