@@ -221,6 +221,9 @@ document.addEventListener("DOMContentLoaded", () => {
     stopLossPctFavorite: document.getElementById("STOP_LOSS_PCT_FAVORITE"),
     stopLossPctOutsider: document.getElementById("STOP_LOSS_PCT_OUTSIDER"),
     stopLossCheckSec: document.getElementById("STOP_LOSS_CHECK_SEC"),
+    takeProfitEnabled: document.getElementById("TAKE_PROFIT_ENABLED"),
+    takeProfitMultiplier: document.getElementById("TAKE_PROFIT_MULTIPLIER"),
+    takeProfitCheckIntervalSec: document.getElementById("TAKE_PROFIT_CHECK_INTERVAL_SEC"),
     tradingModeRadios: document.querySelectorAll('input[name="trading_mode"]'),
     favoriteModeSettings: document.getElementById('favorite-mode-settings'),
     favoriteEntrySecInput: document.getElementById('FAVORITE_MODE_ENTRY_SEC'),
@@ -490,6 +493,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.stopLossCheckSec && data.STOP_LOSS_CHECK_SEC !== undefined) {
         settingsElements.stopLossCheckSec.value = data.STOP_LOSS_CHECK_SEC;
       }
+      if (settingsElements.takeProfitEnabled && data.TAKE_PROFIT_ENABLED !== undefined) {
+        settingsElements.takeProfitEnabled.checked = data.TAKE_PROFIT_ENABLED === "true";
+      }
+      if (settingsElements.takeProfitMultiplier && data.TAKE_PROFIT_MULTIPLIER !== undefined) {
+        settingsElements.takeProfitMultiplier.value = data.TAKE_PROFIT_MULTIPLIER;
+      }
+      if (settingsElements.takeProfitCheckIntervalSec && data.TAKE_PROFIT_CHECK_INTERVAL_SEC !== undefined) {
+        settingsElements.takeProfitCheckIntervalSec.value = data.TAKE_PROFIT_CHECK_INTERVAL_SEC;
+      }
       if (settingsElements.tradingEnabled && data.TRADING_ENABLED) {
         settingsElements.tradingEnabled.checked =
           data.TRADING_ENABLED === "true";
@@ -723,6 +735,25 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         settingsToSave.STOP_LOSS_CHECK_SEC = val.toString();
       }
+      if (settingsElements.takeProfitEnabled) {
+        settingsToSave.TAKE_PROFIT_ENABLED = settingsElements.takeProfitEnabled.checked ? "true" : "false";
+      }
+      if (settingsElements.takeProfitMultiplier) {
+        const val = parseFloat(settingsElements.takeProfitMultiplier.value);
+        if (isNaN(val) || val <= 1.0) {
+          alert("Мультипликатор тейк-профита должен быть больше 1.0");
+          return;
+        }
+        settingsToSave.TAKE_PROFIT_MULTIPLIER = val.toString();
+      }
+      if (settingsElements.takeProfitCheckIntervalSec) {
+        const val = parseInt(settingsElements.takeProfitCheckIntervalSec.value);
+        if (isNaN(val) || val < 10 || val > 300) {
+          alert("Интервал проверки тейк-профита должен быть от 10 до 300 секунд");
+          return;
+        }
+        settingsToSave.TAKE_PROFIT_CHECK_INTERVAL_SEC = val.toString();
+      }
       if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
@@ -865,6 +896,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (log.status === "SUCCESS" && log.stop_loss_status === "TRIGGERED") {
             displayStatus = "Закрыто по стоп-лоссу";
             statusColor = "#ffb020"; // Yellow/orange for stop-loss
+        }
+        
+        if (log.status === "SUCCESS" && log.take_profit_status === "TRIGGERED") {
+            const price = log.take_profit_sell_price ? ` @ $${parseFloat(log.take_profit_sell_price).toFixed(3)}` : "";
+            displayStatus = `Закрыто по тейк-профиту${price}`;
+            statusColor = "#00ff88"; // Green for take-profit
         }
 
         const reasonHtml =

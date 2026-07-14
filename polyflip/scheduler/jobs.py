@@ -8,6 +8,7 @@ from polyflip.collector.parser import run_collector_cycle
 from polyflip.collector.resolver import resolve_pending_markets
 from polyflip.trading.engine import trade_worker_cycle
 from polyflip.trading.stoploss_worker import stoploss_worker_cycle
+from polyflip.trading.takeprofit_worker import takeprofit_worker_cycle
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.db.connection import async_session
@@ -55,6 +56,13 @@ async def trade_job(trader, api_client):
 async def stoploss_job(trader, api_client):
     async with async_session() as session:
         await stoploss_worker_cycle(session, trader, api_client)
+
+async def takeprofit_job(trader, api_client):
+    try:
+        async with async_session() as session:
+            await takeprofit_worker_cycle(session, trader, api_client)
+    except Exception as e:
+        logger.exception("takeprofit_job_error", error=str(e))
 
 async def backup_job():
     logger.info("starting_backup_job")
@@ -122,9 +130,13 @@ async def retrain_job():
             setting = res.scalar_one_or_none()
             
             if setting and setting.value.strip():
-                trade_assets = [a.strip().upper() for a in setting.value.split(",") if a.strip()]
+                trade_assets = list(dict.fromkeys(
+                    a.strip().upper() for a in setting.value.split(",") if a.strip()
+                ))
             else:
-                trade_assets = [a.strip().upper() for a in settings.TRADE_ASSETS.split(",") if a.strip()]
+                trade_assets = list(dict.fromkeys(
+                    a.strip().upper() for a in settings.TRADE_ASSETS.split(",") if a.strip()
+                ))
 
             trainer = ModelTrainer(session)
             for asset in trade_assets:
@@ -280,12 +292,32 @@ async def check_settings_job(scheduler):
                             )
                     except AttributeError:
                         logger.warning("check_settings_job_trigger_has_no_interval_rescheduling", job_id="stoploss_job", new_interval=new_interval)
+            
+            # 3. TAKE_PROFIT_CHECK_INTERVAL_SEC
+            stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TAKE_PROFIT_CHECK_INTERVAL_SEC")
+            res = await session.execute(stmt)
+            setting = res.scalar_one_or_none()
+            if setting:
+                new_interval = int(setting.value)
+                job = scheduler.get_job("takeprofit_job")
+                if job:
+                    try:
+                        current_interval = job.trigger.interval.total_seconds()
+                        if int(current_interval) != new_interval:
+                            logger.info("rescheduling_takeprofit_job", new_interval=new_interval)
+                            scheduler.reschedule_job(
+                                "takeprofit_job",
+                                trigger=IntervalTrigger(seconds=new_interval)
+                            )
+                    except AttributeError:
+                        logger.warning("check_settings_job_trigger_has_no_interval_rescheduling", job_id="takeprofit_job", new_interval=new_interval)
     except Exception as e:
         logger.exception("check_settings_job_error", error=str(e))
 
 async def main():
     poll_interval = settings.LIVE_POLL_INTERVAL_SECONDS
     stoploss_interval = 30
+    takeprofit_interval = 30
     try:
         async with async_session() as session:
             stmt = select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_POLL_INTERVAL_SECONDS")
@@ -299,10 +331,16 @@ async def main():
             setting_sl = res_sl.scalar_one_or_none()
             if setting_sl:
                 stoploss_interval = int(setting_sl.value)
+
+            stmt_tp = select(RuntimeSettings).where(RuntimeSettings.key == "TAKE_PROFIT_CHECK_INTERVAL_SEC")
+            res_tp = await session.execute(stmt_tp)
+            setting_tp = res_tp.scalar_one_or_none()
+            if setting_tp:
+                takeprofit_interval = int(setting_tp.value)
     except Exception as e:
         logger.warning("failed_to_load_initial_intervals", error=str(e))
 
-    logger.info("scheduler_starting", interval=poll_interval, stoploss_interval=stoploss_interval)
+    logger.info("scheduler_starting", interval=poll_interval, stoploss_interval=stoploss_interval, takeprofit_interval=takeprofit_interval)
     
     # Инициализируем общие клиенты для переиспользования соединений
     trader = PolyTrader()
@@ -328,6 +366,17 @@ async def main():
         stoploss_job,
         trigger=IntervalTrigger(seconds=stoploss_interval),
         id="stoploss_job",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=10,
+        kwargs={"trader": trader, "api_client": api_client}
+    )
+    
+    # Запускаем воркер тейк-профита с передачей общих клиентов
+    scheduler.add_job(
+        takeprofit_job,
+        trigger=IntervalTrigger(seconds=takeprofit_interval),
+        id="takeprofit_job",
         replace_existing=True,
         max_instances=1,
         misfire_grace_time=10,

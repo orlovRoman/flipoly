@@ -237,5 +237,7 @@ async def test_bug_09_pnl_polymarket_fee(db_session):
     q_lose = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "m_lose"))
     t_lose = q_lose.scalar_one()
     
-    assert float(t_win.pnl) == 9.96  # Вычет 0.2% от 20 USDC
-    assert float(t_lose.pnl) == -10.00  # Полный убыток без комиссий
+    # При выигрыше: валовая выплата = 10 / 0.5 = 20 USDC. С учетом 0.2% комиссии Polymarket: 20 * 0.998 = 19.96 USDC. PnL = 19.96 - 10.0 = 9.96.
+    assert float(t_win.pnl) == 9.96
+    # При проигрыше: позиция YES обесценивается до 0. Полный убыток равен размеру ставки (-10.0 USDC), комиссия Polymarket при этом не взимается.
+    assert float(t_lose.pnl) == -10.00

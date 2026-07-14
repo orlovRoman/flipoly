@@ -82,6 +82,7 @@ class CryptoPredictor:
         self._thresholds: dict[str, dict[str, tuple[float, float]]] = {}
         self._vol_p33s: dict[str, float] = {}
         self._vol_p67s: dict[str, float] = {}
+        self._vol_medians: dict[str, float] = {}
         self._loaded_symbols: set[str] = set()
         CryptoPredictor._instances.append(weakref.ref(self))
 
@@ -102,6 +103,7 @@ class CryptoPredictor:
                 inst._thresholds.pop(symbol, None)
                 inst._vol_p33s.pop(symbol, None)
                 inst._vol_p67s.pop(symbol, None)
+                inst._vol_medians.pop(symbol, None)
                 alive.append(ref)
         cls._instances = alive
         logger.info("predictor_cache_invalidated", symbol=symbol, instances=len(alive))
@@ -115,6 +117,7 @@ class CryptoPredictor:
         self._thresholds.pop(symbol, None)
         self._vol_p33s.pop(symbol, None)
         self._vol_p67s.pop(symbol, None)
+        self._vol_medians.pop(symbol, None)
 
     def get_interval(self, symbol: str) -> str:
         """Возвращает интервал обучения для моделей указанного символа (по умолчанию '15m')."""

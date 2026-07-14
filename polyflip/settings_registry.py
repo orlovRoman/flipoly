@@ -69,6 +69,14 @@ REGISTRY: list[SettingDef] = [
     SettingDef("STOP_LOSS_CHECK_SEC", "30",
                description="Интервал проверки открытых позиций воркером стоп-лосса (сек)"),
 
+    # --- Тейк-профит позиции ---
+    SettingDef("TAKE_PROFIT_ENABLED", "false",
+               description="Включить тейк-профит открытых позиций"),
+    SettingDef("TAKE_PROFIT_MULTIPLIER", "2.0",
+               description="Мультипликатор тейк-профита от цены входа"),
+    SettingDef("TAKE_PROFIT_CHECK_INTERVAL_SEC", "30",
+               description="Интервал проверки открытых позиций воркером тейк-профита (сек)"),
+
     # --- Режим торговли ---
     SettingDef("TRADING_MODE", DEFAULT_TRADING_MODE,
                description="Режим: ml | favorite | CRYPTO"),

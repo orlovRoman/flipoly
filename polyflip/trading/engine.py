@@ -162,6 +162,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
         "STOP_LOSS_ENABLED",
         "STOP_LOSS_PCT_FAVORITE",
         "STOP_LOSS_PCT_OUTSIDER",
+        "TAKE_PROFIT_ENABLED",
+        "TAKE_PROFIT_MULTIPLIER",
         # NOTE: vol-режимные пороги (CRYPTO_THRESHOLD_BTCUSDT_low_vol и т.д.)
         # загружаются predictor.load() напрямую из RuntimeSettings — не передавать через settings_db.
     ]
@@ -374,7 +376,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 
                 logger.debug("crypto_decision_eval", asset_mode=asset_mode, binance_symbol=binance_symbol, decision_obj=decision_obj)
                 
-                if not decision_obj or decision_obj.action != "SKIP":
+                if not decision_obj or decision_obj.action != "trade":
                     p_flip = 0.0  # Для крипто-стратегии p_flip семантически не имеет значения
                     model_ver = crypto_sig.model_version
                     edge = decision_obj.edge
@@ -833,6 +835,19 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     history.stop_loss_pct = stop_pct
                     history.stop_loss_price = compute_stop_price(exec_p, stop_pct)
                     history.stop_loss_status = "ACTIVE"
+
+                # Записываем тейк-профит при открытии позиции
+                tp_enabled = settings_db.get("TAKE_PROFIT_ENABLED", "false").lower() == "true"
+                if tp_enabled:
+                    from polyflip.trading.takeprofit import compute_take_profit_price
+                    tp_multiplier = float(settings_db.get("TAKE_PROFIT_MULTIPLIER", "2.0"))
+                    history.take_profit_enabled    = True
+                    history.take_profit_multiplier = tp_multiplier
+                    history.take_profit_price      = compute_take_profit_price(exec_p, tp_multiplier)
+                    history.take_profit_status     = "ACTIVE"
+                else:
+                    history.take_profit_enabled = False
+                    history.take_profit_status  = "SKIPPED"
 
             invalidate_stats_cache()
             invalidate_dashboard_cache()

@@ -115,6 +115,14 @@ class TradeHistory(Base):
     stop_loss_hit_at     = Column(DateTime(timezone=True), nullable=True)
     stop_loss_sell_price = Column(Float, nullable=True)
     
+    # --- Take Profit ---
+    take_profit_enabled    = Column(Boolean, nullable=True, default=False)
+    take_profit_multiplier = Column(Float, nullable=True)
+    take_profit_price      = Column(Float, nullable=True)
+    take_profit_status     = Column(String(20), nullable=True, default="ACTIVE")
+    take_profit_hit_at     = Column(DateTime(timezone=True), nullable=True)
+    take_profit_sell_price = Column(Float, nullable=True)
+    
     created_at = Column(DateTime(timezone=True), nullable=False)
     
     __table_args__ = (
