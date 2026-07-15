@@ -387,3 +387,72 @@ async def verify_resolves(db: AsyncSession = Depends(get_db_session)):
                 logger.error("error_fetching_market_data", error=str(r))
                 
     return {"status": "success", "results": results}
+
+@router.get("/api/dashboard/daily_pnl", dependencies=[Depends(verify_api_key)])
+async def get_daily_pnl(db: AsyncSession = Depends(get_db_session)):
+    """Возвращает отчет PnL за текущие сутки (с полуночи UTC)"""
+    now = datetime.now(timezone.utc)
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    stmt = select(
+        TradeHistory.asset,
+        TradeHistory.active_features,
+        TradeHistory.pnl,
+        TradeHistory.amount_usdc
+    ).where(
+        TradeHistory.created_at >= midnight,
+        TradeHistory.status.in_(["SUCCESS", "FAILED"]),
+        TradeHistory.pnl.is_not(None)
+    )
+    
+    result = await db.execute(stmt)
+    trades = result.all()
+    
+    aggregated = {}
+    for row in trades:
+        asset = row.asset.split('_')[0].split('USDT')[0].upper()
+        features = (row.active_features or "").lower()
+        
+        if 'аутсайдер' in features or 'outsider' in features:
+            strategy = 'Аутсайдер'
+        elif 'фаворит' in features or 'favorite' in features:
+            strategy = 'Фаворит'
+        else:
+            strategy = 'Другое'
+            
+        key = f"{asset}_{strategy}"
+        if key not in aggregated:
+            aggregated[key] = {
+                "asset": asset,
+                "strategy": strategy,
+                "trades": 0,
+                "wins": 0,
+                "pnl": 0.0,
+                "volume": 0.0
+            }
+            
+        aggregated[key]["trades"] += 1
+        if row.pnl and row.pnl > 0:
+            aggregated[key]["wins"] += 1
+        aggregated[key]["pnl"] += (row.pnl or 0.0)
+        aggregated[key]["volume"] += (row.amount_usdc or 0.0)
+        
+    response_data = []
+    for data in aggregated.values():
+        wr = (data["wins"] / data["trades"] * 100) if data["trades"] > 0 else 0
+        response_data.append({
+            "asset": data["asset"],
+            "strategy": data["strategy"],
+            "trades": data["trades"],
+            "win_rate": round(wr, 1),
+            "pnl": round(data["pnl"], 2),
+            "volume": round(data["volume"], 2)
+        })
+        
+    def sort_key(x):
+        s_order = 0 if x["strategy"] == "Аутсайдер" else (1 if x["strategy"] == "Фаворит" else 2)
+        return (s_order, x["asset"])
+        
+    response_data.sort(key=sort_key)
+    
+    return {"status": "success", "data": response_data}

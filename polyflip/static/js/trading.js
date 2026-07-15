@@ -13,10 +13,8 @@ document.addEventListener("DOMContentLoaded", () => {
     winrate: document.getElementById("stat-winrate"),
     wl: document.getElementById("stat-wl"),
     assetTable: document.querySelector("#asset-stats-table tbody"),
-    avgWinPrice: document.getElementById("avg-win-price"),
-    avgWinProb: document.getElementById("avg-win-prob"),
-    avgLossPrice: document.getElementById("avg-loss-price"),
-    avgLossProb: document.getElementById("avg-loss-prob"),
+    dailyPnlTable: document.querySelector("#daily-pnl-table tbody"),
+    dailyPnlLoader: document.getElementById("daily-pnl-loader"),
     refreshBtn: document.getElementById("btn-refresh-trading"),
   };
 
@@ -70,12 +68,6 @@ document.addEventListener("DOMContentLoaded", () => {
             `;
       elements.assetTable.appendChild(tr);
     }
-
-    // Update Parameters
-    elements.avgWinPrice.textContent = `$${data.parameters.avg_win_price}`;
-    elements.avgWinProb.textContent = `${(data.parameters.avg_win_prob * 100).toFixed(1)}%`;
-    elements.avgLossPrice.textContent = `$${data.parameters.avg_loss_price}`;
-    elements.avgLossProb.textContent = `${(data.parameters.avg_loss_prob * 100).toFixed(1)}%`;
 
     updateCharts(data.daily_pnl);
   }
@@ -1134,10 +1126,12 @@ document.addEventListener("DOMContentLoaded", () => {
   loadSettings();
   loadLogs();
   loadActiveModels();
+  fetchDailyPnL();
 
   // Auto refresh every 5 min for stats, every 30 sec for logs (only if tab is active)
   if (window.statsIntervalId) clearInterval(window.statsIntervalId);
   if (window.logsIntervalId) clearInterval(window.logsIntervalId);
+  if (window.dailyPnlIntervalId) clearInterval(window.dailyPnlIntervalId);
 
   window.statsIntervalId = setInterval(() => {
     if (document.hidden) return;
@@ -1148,4 +1142,42 @@ document.addEventListener("DOMContentLoaded", () => {
     if (document.hidden) return;
     loadLogs(currentPage);
   }, 30000);
+
+  window.dailyPnlIntervalId = setInterval(() => {
+    if (document.hidden) return;
+    fetchDailyPnL();
+  }, 60000);
+
+  async function fetchDailyPnL() {
+    if (elements.dailyPnlLoader) {
+      elements.dailyPnlLoader.style.display = "inline";
+    }
+    try {
+      const response = await fetch(`${window.API_BASE}/api/dashboard/daily_pnl`, {
+        headers: { "X-API-Key": apiKey },
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.status === "success" && elements.dailyPnlTable) {
+          elements.dailyPnlTable.innerHTML = "";
+          result.data.forEach(item => {
+            const tr = document.createElement("tr");
+            const pnlColor = item.pnl > 0 ? "#00ff88" : (item.pnl < 0 ? "#ff3366" : "inherit");
+            tr.innerHTML = `
+              <td>${item.asset} <span style="opacity:0.7;font-size:0.9em;margin-left:0.5rem">${item.strategy}</span></td>
+              <td>${item.win_rate}%</td>
+              <td style="color: ${pnlColor}">${item.pnl > 0 ? "+" : ""}${item.pnl.toFixed(2)}</td>
+            `;
+            elements.dailyPnlTable.appendChild(tr);
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Error fetching daily PnL", e);
+    } finally {
+      if (elements.dailyPnlLoader) {
+        elements.dailyPnlLoader.style.display = "none";
+      }
+    }
+  }
 });

@@ -158,18 +158,23 @@
                     </div>
                     
                     <div class="stat-card">
-                        <h3>Параметры ставок</h3>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
-                            <div>
-                                <h4 style="color: #00ff88; margin-bottom: 0.5rem;">Выигрышные ставки</h4>
-                                <p>Ср. цена входа: <span id="avg-win-price">--</span></p>
-                                <p>Ср. вероятность: <span id="avg-win-prob">--</span></p>
-                            </div>
-                            <div>
-                                <h4 style="color: #ff3366; margin-bottom: 0.5rem;">Проигрышные ставки</h4>
-                                <p>Ср. цена входа: <span id="avg-loss-price">--</span></p>
-                                <p>Ср. вероятность: <span id="avg-loss-prob">--</span></p>
-                            </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <h3>PnL за сутки (по стратегиям)</h3>
+                            <span id="daily-pnl-loader" class="sync-indicator">Загрузка...</span>
+                        </div>
+                        <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                            <table class="data-table" id="daily-pnl-table" style="width: 100%; text-align: left; margin-top: 1rem;">
+                                <thead>
+                                    <tr>
+                                        <th>Актив & Стратегия</th>
+                                        <th>Win Rate</th>
+                                        <th>PnL (USDC)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Rendered via JS -->
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
