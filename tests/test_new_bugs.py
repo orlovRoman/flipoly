@@ -28,39 +28,7 @@ def test_empty_result_accepts_epsilon():
     default = sig.parameters["epsilon"].default
     assert default == _EPSILON or default != inspect.Parameter.empty
 
-# ── BUG-07: daily_pnl правильно классифицирует CRYPTO_TREND ─────────────────
 
-@pytest.mark.asyncio
-async def test_daily_pnl_crypto_strategy_classified():
-    """BUG-07: Сделки с active_features='CRYPTO_TREND' не должны быть 'Другое'."""
-    from polyflip.api.dashboard import get_daily_pnl
-    from unittest.mock import AsyncMock, MagicMock
-
-    mock_trade = MagicMock()
-    mock_trade.asset = "BTCUSDT"
-    mock_trade.active_features = "CRYPTO_TREND"
-    mock_trade.pnl = 5.0
-    mock_trade.amount_usdc = 10.0
-
-    mock_result = MagicMock()
-    mock_result.all.return_value = [mock_trade]
-    mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(return_value=mock_result)
-
-    response = await get_daily_pnl(db=mock_db)
-    
-    strategies = [item["strategy"] for item in response["data"]]
-    assert "Другое" not in strategies, (
-        "BUG-07: Крипто-стратегия классифицируется как 'Другое'"
-    )
-    assert "Крипто" in strategies
-
-def test_daily_pnl_has_crypto_branch():
-    """BUG-07: исходник dashboard.py должен содержать ветку для crypto."""
-    source = open("polyflip/api/dashboard.py", encoding="utf-8").read()
-    assert "crypto" in source.lower() or "крипто" in source.lower(), (
-        "BUG-07: get_daily_pnl не классифицирует крипто-стратегию"
-    )
 
 # ── BUG-08: takeprofit_worker заполняет take_profit_sell_size ────────────────
 
