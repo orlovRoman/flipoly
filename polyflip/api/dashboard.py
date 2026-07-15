@@ -419,8 +419,8 @@ async def get_daily_pnl(db: AsyncSession = Depends(get_db_session)):
             strategy = 'Фаворит'
         elif 'crypto' in features or 'крипто' in features:
             strategy = 'Крипто'
-        elif 'trend' in features:
-            if trade.executed_price and float(trade.executed_price) >= 0.5:
+        elif trade.executed_price is not None:
+            if float(trade.executed_price) >= 0.5:
                 strategy = 'Фаворит'
             else:
                 strategy = 'Аутсайдер'
