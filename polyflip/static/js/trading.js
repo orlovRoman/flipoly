@@ -1165,6 +1165,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const pnlColor = item.pnl > 0 ? "#00ff88" : (item.pnl < 0 ? "#ff3366" : "inherit");
             tr.innerHTML = `
               <td>${item.asset} <span style="opacity:0.7;font-size:0.9em;margin-left:0.5rem">${item.strategy}</span></td>
+              <td>${item.trades}</td>
               <td>${item.win_rate}%</td>
               <td style="color: ${pnlColor}">${item.pnl > 0 ? "+" : ""}${item.pnl.toFixed(2)}</td>
             `;

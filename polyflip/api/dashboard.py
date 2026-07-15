@@ -417,6 +417,8 @@ async def get_daily_pnl(db: AsyncSession = Depends(get_db_session)):
             strategy = 'Аутсайдер'
         elif 'фаворит' in features or 'favorite' in features:
             strategy = 'Фаворит'
+        elif 'crypto' in features or 'крипто' in features:
+            strategy = 'Крипто'
         else:
             strategy = 'Другое'
             

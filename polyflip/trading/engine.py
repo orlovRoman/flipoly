@@ -377,8 +377,16 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 logger.debug("crypto_decision_eval", asset_mode=asset_mode, binance_symbol=binance_symbol, decision_obj=decision_obj)
                 
                 p_flip = 0.0  # Для крипто-стратегии p_flip семантически не имеет значения
-                model_ver = crypto_sig.model_version
+                model_ver = crypto_sig.model_version if crypto_sig else None
                 edge = decision_obj.edge if decision_obj else None
+                
+                if decision_obj is None or decision_obj.action == "SKIP":
+                    await save_or_update_skipped_trade(
+                        db_session, market, 
+                        decision_obj.reason if decision_obj else "No crypto decision", 
+                        0.0, model_ver, start_time, existing_skipped=existing_skipped
+                    )
+                    continue
 
             elif asset_mode == TRADING_MODE_FAVORITE:
                 # --- FAVORITE MODE ---

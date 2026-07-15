@@ -88,7 +88,7 @@ def _empty_result(
     symbol: str,
     n_candles_total: int,
     n_candles_test: int,
-    epsilon: float,
+    epsilon: float = _EPSILON,
     pnl_mode: str = "binance",
 ) -> BacktestResult:
     return BacktestResult(

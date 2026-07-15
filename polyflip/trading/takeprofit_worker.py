@@ -106,6 +106,7 @@ async def takeprofit_worker_cycle(
             )
 
             shares_held = round(trade.amount_usdc / trade.executed_price, 2)
+            trade.take_profit_sell_size = shares_held
             sell_res = await trader.execute_trade(
                 market_id=trade.market_id,
                 token_id=token_id,
