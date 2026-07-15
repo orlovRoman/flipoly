@@ -1,868 +1,128 @@
-import os
-import pickle
-import dataclasses
-import numpy as np
-import pandas as pd
-from datetime import datetime, timezone, timedelta
-from typing import Optional
 import structlog
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, desc
+from typing import Optional
+
+from polyflip.collector.client import PolymarketClient
+from polyflip.trading.trader import PolyTrader
+from polyflip.constants import TRADING_MODE_CRYPTO, TRADING_MODE_ML, TRADING_MODE_FAVORITE
+
+from polyflip.trading.settings_loader import load_trading_settings
+from polyflip.trading.trading_config import parse_trading_settings
+from polyflip.trading.market_loader import load_eligible_markets
+from polyflip.trading.market_guards import check_market_guards
+from polyflip.trading.decision_runners import decide_favorite_mode, decide_ml_mode
+from polyflip.trading.pre_trade_validator import validate_pre_trade
+from polyflip.trading.trade_recorder import execute_and_record, save_or_update_skipped_trade
 
 logger = structlog.get_logger(__name__)
 
-from polyflip.config import settings
-from polyflip.trading.feature_builder import MarketSignal
-from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider, decide_crypto_trend
-from polyflip.crypto.predictor import CryptoPredictor, MIN_CANDLES_REQUIRED
-from polyflip.crypto.candle_repository import get_recent_candles
+_crypto_predictor = None
 
-from polyflip.db.models import LiveMarket, ModelRegistry, RuntimeSettings, TradeHistory, SlippageLog, MarketSnapshot
-from polyflip.trading.trader import PolyTrader
-from polyflip.collector.client import PolymarketClient
-from polyflip.trading.utils import compute_dead_zone
-from polyflip.trading.position_sizing import compute_edge, compute_bet_size_edge_scaled
-from polyflip.models.trainer import add_derived_features
-from polyflip.models.feature_lags import add_lag_features
-from polyflip.api.trading_dashboard import invalidate_stats_cache
-from polyflip.api.dashboard import invalidate_dashboard_cache
-from polyflip.constants import (
-    DEAD_ZONE_WIDTH,
-    DAILY_LOSS_LIMIT_USDC,
-    FAVORITE_THRESHOLD,
-    TRADE_CHECK_LIMIT,
-    TRADING_MODE_ML,
-    TRADING_MODE_FAVORITE,
-    TRADING_MODE_CRYPTO,
-    FAVORITE_MODE_ENTRY_SEC,
-    FAVORITE_MODE_ENTRY_WINDOW_SEC,
-    TRADE_ON_FAVORITE,
-    TRADE_ON_FLIP,
-    FLIP_THRESHOLD,
-    OUTSIDER_MAX_PRICE,
-    NO_MIN_EDGE,
-    AUTO_DEAD_ZONE,
-    MAX_EDGE_SCALING,
-    MAX_EDGE_FILTER,
-    get_price_phase,
-)
-
-
-_crypto_predictor: Optional[CryptoPredictor] = None
-
-def _get_crypto_predictor() -> CryptoPredictor:
+def _get_crypto_predictor():
     global _crypto_predictor
     if _crypto_predictor is None:
-        _crypto_predictor = CryptoPredictor()
+        try:
+            from polyflip.crypto.predictor import CryptoPredictor
+            _crypto_predictor = CryptoPredictor()
+        except ImportError:
+            _crypto_predictor = None
     return _crypto_predictor
 
 
-logger = structlog.get_logger(__name__)
-
-
-async def save_or_update_skipped_trade(
-    db_session: AsyncSession,
-    market,
-    reason: str,
-    p_flip_val: float,
-    model_version: Optional[int],
-    start_time: datetime,
-    existing_skipped: Optional[TradeHistory] = None,
-    edge: Optional[float] = None,
-    active_features: str = ""
-):
-    """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
-    if existing_skipped:
-        if (existing_skipped.error_msg != reason or 
-            existing_skipped.predicted_flip_prob != p_flip_val or 
-            existing_skipped.edge != edge or
-            existing_skipped.active_features != active_features):
-            existing_skipped.error_msg = reason
-            existing_skipped.predicted_flip_prob = p_flip_val
-            existing_skipped.model_version = model_version
-            existing_skipped.edge = edge
-            if active_features:
-                existing_skipped.active_features = active_features
-            existing_skipped.updated_at = start_time
-    else:
-        history = TradeHistory(
-            market_id=market.market_id,
-            asset=market.asset,
-            outcome_bought="NONE",
-            amount_usdc=0.0,
-            executed_price=0.0,
-            predicted_flip_prob=p_flip_val,
-            active_features=active_features,
-            model_version=model_version,
-            status="SKIPPED",
-            error_msg=reason,
-            mode="LIVE" if bool(os.getenv("POLYGON_PRIVATE_KEY") and os.getenv("POLYGON_ADDRESS")) else "PAPER",
-            edge=edge,
-            created_at=start_time
-        )
-        db_session.add(history)
-
-
-
-def _get_trade_active_features(asset_mode, active_features_str, decision_obj=None):
-    if asset_mode == TRADING_MODE_CRYPTO:
-        return "CRYPTO_TREND"
-    if asset_mode == TRADING_MODE_FAVORITE:
-        return "PURE_FAVORITE"
-    
-    base = active_features_str.strip().rstrip(',') if active_features_str else ""
-    if decision_obj and hasattr(decision_obj, "strategy_type") and decision_obj.strategy_type:
-        strat = decision_obj.strategy_type.lower()
-        return f"{base},{strat}" if base else strat
-    return base
-
 async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_client: PolymarketClient):
     """
-    Фоновый процесс торгового движка.
+    Фоновый процесс торгового движка (оркестратор).
     """
     start_time = datetime.now(timezone.utc)
     
-    # 1. Загружаем базовые торговые настройки
-    settings_keys = [
-        "TRADING_ENABLED", 
-        "TRADE_MIN_TIME_LEFT_SEC",
-        "TRADE_MAX_TIME_LEFT_SEC",
-        "TRADE_BET_SIZE_USDC",
-        "TRADE_NO_FLIP_THRESHOLD",
-        "DEAD_ZONE_WIDTH",
-        "DAILY_LOSS_LIMIT_USDC",
-        "ACTIVE_FEATURES",
-        "TRADE_MIN_PRICE",
-        "TRADE_MAX_PRICE",
-        "TRADE_ASSETS",
-        "TRADING_MODE",
-        "FAVORITE_MODE_ENTRY_SEC",
-        "MIN_EDGE",
-        "MAX_BET_EDGE",        # потолок масштабирования ставки
-        "MAX_EDGE_FILTER",     # фильтр аномального edge (SKIP если превышен)
-        "FAVORITE_THRESHOLD",
-        "TRADE_ON_FAVORITE",
-        "TRADE_ON_FLIP",
-        "FLIP_THRESHOLD",
-        "NO_MIN_EDGE",
-        "AUTO_DEAD_ZONE",
-        # AUTO_DEAD_ZONE_WIDTH удалён — вместо него используется DEAD_ZONE_WIDTH
-        "MAX_PRICE_DRIFT",
-        "BET_SIZING_MODE",
-        "MAX_BET_SIZE_USDC",
-        "FAVORITE_MIN_PRICE",
-        "FAVORITE_MAX_PRICE",
-        "FAVORITE_MIN_EDGE",
-        "OUTSIDER_MAX_PRICE",
-        "LIQUIDITY_FRACTION",
-        "BYPASS_BET_SIZE_CHECK",
-        "USE_CRYPTO_CONFIRM",
-        "CRYPTO_STANDALONE",
-        "CRYPTO_MIN_EDGE",
-        "STOP_LOSS_ENABLED",
-        "STOP_LOSS_PCT_FAVORITE",
-        "STOP_LOSS_PCT_OUTSIDER",
-        "TAKE_PROFIT_ENABLED",
-        "TAKE_PROFIT_MULTIPLIER",
-        # NOTE: vol-режимные пороги (CRYPTO_THRESHOLD_BTCUSDT_low_vol и т.д.)
-        # загружаются predictor.load() напрямую из RuntimeSettings — не передавать через settings_db.
-    ]
-    stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
-    result = await db_session.execute(stmt)
-    settings_db = {s.key: s.value for s in result.scalars().all()}
-    
-    # Сначала определяем список торгуемых активов
-    trade_assets_str = settings_db.get("TRADE_ASSETS", settings.TRADE_ASSETS)
-    trade_assets = [a.strip() for a in trade_assets_str.split(",") if a.strip()]
-    
-    # 2. Загружаем per-asset пороги и настройки для найденных активов
-    threshold_keys = []
-    for asset in trade_assets:
-        asset_upper = asset.upper()
-        threshold_keys.append(f"TRADE_FLIP_THRESHOLD_{asset_upper}")
-        threshold_keys.append(f"TRADING_MODE_{asset_upper}")
-        threshold_keys.append(f"MIN_EDGE_{asset_upper}")
-        threshold_keys.append(f"TRADE_MAX_PRICE_{asset_upper}")
-        # Загружаем авто-калиброванные пороги
-        threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}")
-        threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}_contested")
-        threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}_leaning")
-        threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}_decided")
-        
-    if threshold_keys:
-        t_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(threshold_keys))
-        t_result = await db_session.execute(t_stmt)
-        for s in t_result.scalars().all():
-            settings_db[s.key] = s.value
-
-    trading_enabled = settings_db.get("TRADING_ENABLED", str(settings.TRADING_ENABLED)).lower() == "true"
-    trading_mode = settings_db.get("TRADING_MODE", settings.TRADING_MODE)
-    
-    if not trading_enabled:
-        logger.info("trading_disabled_skipping", mode=trading_mode)
-        return
-        
-    min_time_left = int(settings_db.get("TRADE_MIN_TIME_LEFT_SEC", settings.TRADE_MIN_TIME_LEFT_SEC))
-    max_time_left = int(settings_db.get("TRADE_MAX_TIME_LEFT_SEC", settings.TRADE_MAX_TIME_LEFT_SEC))
-    bet_size = float(settings_db.get("TRADE_BET_SIZE_USDC", settings.TRADE_BET_SIZE_USDC))
-    no_flip_threshold = float(settings_db.get("TRADE_NO_FLIP_THRESHOLD", settings.TRADE_NO_FLIP_THRESHOLD))
-    
-    dead_zone = float(settings_db.get("DEAD_ZONE_WIDTH", str(settings.DEAD_ZONE_WIDTH)))
-    daily_limit = float(settings_db.get("DAILY_LOSS_LIMIT_USDC", str(settings.DAILY_LOSS_LIMIT_USDC)))
-    trade_min_price = float(settings_db.get("TRADE_MIN_PRICE", settings.TRADE_MIN_PRICE))
-    trade_max_price = float(settings_db.get("TRADE_MAX_PRICE", settings.TRADE_MAX_PRICE))
-    capital = float(settings_db.get("INITIAL_CAPITAL", getattr(settings, 'INITIAL_CAPITAL', 100.0)))
-    
-    active_features_str = settings_db.get("ACTIVE_FEATURES", settings.ACTIVE_FEATURES)
-    trade_on_favorite = settings_db.get("TRADE_ON_FAVORITE", "true" if TRADE_ON_FAVORITE else "false").lower() == "true"
-    trade_on_flip = settings_db.get("TRADE_ON_FLIP", "true" if TRADE_ON_FLIP else "false").lower() == "true"
-    flip_threshold = float(settings_db.get("FLIP_THRESHOLD", str(settings.FLIP_THRESHOLD)))
-    no_max_price = float(settings_db.get("OUTSIDER_MAX_PRICE", str(settings.OUTSIDER_MAX_PRICE)))
-    no_min_edge = float(settings_db.get("NO_MIN_EDGE", str(settings.NO_MIN_EDGE)))
-    entry_sec = int(settings_db.get("FAVORITE_MODE_ENTRY_SEC", str(settings.FAVORITE_MODE_ENTRY_SEC)))
-    min_edge = float(settings_db.get("MIN_EDGE", str(settings.MIN_EDGE)))
-    max_bet_edge = float(settings_db.get("MAX_BET_EDGE", str(settings.MAX_BET_EDGE)))       # потолок масштабирования
-    max_edge_filter = float(settings_db.get("MAX_EDGE_FILTER", str(settings.MAX_EDGE_FILTER))) # фильтр аномалий
-    favorite_threshold = float(settings_db.get("FAVORITE_THRESHOLD", str(settings.FAVORITE_THRESHOLD)))
-
-    # Вычисляем объединенный временной интервал для запроса рынков
-    union_min_sec = min(min_time_left, entry_sec)
-    union_max_sec = max(max_time_left, entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC)
-    
-    min_td = timedelta(seconds=union_min_sec)
-    max_td = timedelta(seconds=union_max_sec)
-    
-    live_markets_stmt = select(LiveMarket).where(
-        and_(
-            LiveMarket.end_time_est >= start_time + min_td,
-            LiveMarket.end_time_est <= start_time + max_td
-        )
-    )
-    markets = (await db_session.execute(live_markets_stmt)).scalars().all()
-    
-    if markets:
-        # Проверяем дневной PnL перед тем как торговать (лимит $100 убытка в день)
-        start_of_today = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_of_today = start_of_today + timedelta(days=1)
-        
-        daily_pnl_stmt = select(func.sum(TradeHistory.pnl)).where(
-            and_(
-                TradeHistory.created_at >= start_of_today,
-                TradeHistory.created_at < end_of_today,
-                TradeHistory.status == "SUCCESS",
-                TradeHistory.pnl.is_not(None)
-            )
-        )
-
-        daily_pnl = (await db_session.execute(daily_pnl_stmt)).scalar() or 0.0
-        if daily_pnl <= daily_limit:
-            logger.warning("daily_loss_limit_reached", pnl=daily_pnl, limit=daily_limit)
-            return
-            
-    models_by_asset = None
-    model_versions = {}
-    model_features = {}
-    crypto_predictor = _get_crypto_predictor()
-    use_crypto_confirm = settings_db.get("USE_CRYPTO_CONFIRM", "false").lower() == "true"
-    crypto_standalone = settings_db.get("CRYPTO_STANDALONE", "false").lower() == "true"
-
-
     try:
-        # ══════════════════════════════════════════════════
-        # ЕДИИЫЙ ЦИКЛ ТОРГОВЛИ (ML и FAVORITE для каждого актива отдельно)
-        # ══════════════════════════════════════════════════
+        raw_settings = await load_trading_settings(db_session)
+        cfg = parse_trading_settings(raw_settings)
+        
+        if not cfg.trading_enabled:
+            logger.info("trading_disabled_skipping", mode=cfg.trading_mode)
+            return
+
+        markets = await load_eligible_markets(db_session, cfg, start_time)
+        if markets is None or not markets:
+            return
+
         for market in markets:
-            end_time = market.end_time_est
-            if end_time.tzinfo is None:
-                end_time = end_time.replace(tzinfo=timezone.utc)
-            time_left_sec = (end_time - start_time).total_seconds()
+            asset_mode = raw_settings.get(f"TRADING_MODE_{market.asset.upper()}", cfg.trading_mode)
+            asset_min_edge = float(raw_settings.get(f"MIN_EDGE_{market.asset.upper()}", cfg.min_edge))
+            asset_max_price = float(raw_settings.get(f"TRADE_MAX_PRICE_{market.asset.upper()}", cfg.trade_max_price))
+
+            end_time_utc = market.end_time_est
+            if end_time_utc.tzinfo is None:
+                end_time_utc = end_time_utc.replace(tzinfo=timezone.utc)
+            time_left_sec = (end_time_utc - start_time).total_seconds()
+
+            guard_res = await check_market_guards(db_session, market, cfg, asset_mode, time_left_sec, start_time)
             
-            if time_left_sec <= 0:
-                continue
-
-            asset_upper = market.asset.upper()
-            
-            # Определяем индивидуальный режим актива
-            asset_mode = settings_db.get(f"TRADING_MODE_{asset_upper}", trading_mode)
-            if not asset_mode:
-                asset_mode = trading_mode
-
-            # Проверяем временное окно входа для выбранного режима
-            if asset_mode == TRADING_MODE_FAVORITE:
-                window_min = entry_sec
-                window_max = entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC
-                if not (window_min <= time_left_sec <= window_max):
-                    continue
-            else:
-                if not (min_time_left <= time_left_sec <= max_time_left):
-                    continue
-
-            # Проверка дублей — не торговать дважды на одном рынке
-            trade_check = select(TradeHistory).where(
-                TradeHistory.market_id == market.market_id
-            ).limit(TRADE_CHECK_LIMIT)
-            existing_trades = (await db_session.execute(trade_check)).scalars().all()
-            
-            existing_statuses = [t.status for t in existing_trades]
-            if any(s in ("SUCCESS", "LIVE", "FAILED") for s in existing_statuses):
-                continue
-            
-            existing_skipped = next((t for t in existing_trades if t.status == "SKIPPED"), None)
-            
-            # Актив разрешён?
-            if market.asset not in trade_assets:
-                continue
-
-            # Разрешаем индивидуальные настройки
-            asset_min_edge_val = settings_db.get(f"MIN_EDGE_{asset_upper}")
-            if asset_min_edge_val is not None and asset_min_edge_val != "":
-                asset_min_edge = float(asset_min_edge_val)
-            else:
-                asset_min_edge = min_edge
-
-            asset_max_price_val = settings_db.get(f"TRADE_MAX_PRICE_{asset_upper}")
-            if asset_max_price_val is not None and asset_max_price_val != "":
-                asset_max_price = float(asset_max_price_val)
-            else:
-                asset_max_price = trade_max_price
-
-            yes_token_id = market.yes_token_id
-            no_token_id = market.no_token_id
-            
-            if not yes_token_id or not no_token_id or yes_token_id == 'N/A' or no_token_id == 'N/A':
-                logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
-                await save_or_update_skipped_trade(db_session, market, "Token IDs missing in DB", 0.0, None, start_time, existing_skipped=existing_skipped)
-                continue
-
-            # Инициализация переменных по умолчанию (во избежание UnboundLocalError в блоке SKIP)
-            p_flip = 0.0
-            model_ver = None
-            edge = None
-            lower = 0.0
-            upper = 0.0
-
-            if asset_mode == TRADING_MODE_CRYPTO:
-                # --- CRYPTO STANDALONE MODE ---
-                binance_symbol = "BTCUSDT" if market.asset.upper() == "BTC" else "ETHUSDT"
-                
-                # Загружаем модель и пороги (запросы к БД произойдут только при первом вызове для символа)
-                await crypto_predictor.load(db_session, binance_symbol)
-                
-                model_interval = crypto_predictor.get_interval(binance_symbol)
-                candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
-                crypto_sig = crypto_predictor.predict(candles, binance_symbol)
-                
-                if not crypto_sig.features_ok:
+            if not guard_res.passed:
+                if guard_res.skip_reason and guard_res.skip_reason != "Time left <= 0":
                     await save_or_update_skipped_trade(
-                        db_session, market, "Invalid crypto features", 
-                        0.0, crypto_sig.model_version, start_time, existing_skipped=existing_skipped
+                        db_session, market, guard_res.skip_reason, p_flip_val=0.0,
+                        model_version=None, start_time=start_time,
+                        existing_skipped=guard_res.existing_skipped
                     )
-                    continue
-
-                # Запрашиваем свежие цены Polymarket YES-токена
-                fresh_yes_prices = await api_client.get_market_prices(yes_token_id)
-                if not fresh_yes_prices or "current_yes_price" not in fresh_yes_prices:
-                    error_detail = fresh_yes_prices.get("error", "unknown") if fresh_yes_prices else "None returned"
-                    await save_or_update_skipped_trade(
-                        db_session, market, f"No fresh yes price: {error_detail}",
-                        0.0, crypto_sig.model_version, start_time, existing_skipped=existing_skipped
-                    )
-                    continue
-                fresh_yes_price = fresh_yes_prices["current_yes_price"]
-
-                decision_obj = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, settings_db)
-                if not trade_on_favorite:
-                    decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
-                
-                logger.debug("crypto_decision_eval", asset_mode=asset_mode, binance_symbol=binance_symbol, decision_obj=decision_obj)
-                
-                p_flip = 0.0  # Для крипто-стратегии p_flip семантически не имеет значения
-                model_ver = crypto_sig.model_version if crypto_sig else None
-                edge = decision_obj.edge if decision_obj else None
-                
-                if decision_obj is None or decision_obj.action == "SKIP":
-                    await save_or_update_skipped_trade(
-                        db_session, market, 
-                        decision_obj.reason if decision_obj else "No crypto decision", 
-                        0.0, model_ver, start_time, existing_skipped=existing_skipped
-                    )
-                    continue
-
-            elif asset_mode == TRADING_MODE_FAVORITE:
-                # --- FAVORITE MODE ---
-                if market.current_yes_price == 0.5:
-                    logger.info("favorite_mode_skip_no_favorite", market_id=market.market_id)
-                    await save_or_update_skipped_trade(
-                        db_session, market,
-                        "Pure Favorite: no clear favorite (price == 0.5)",
-                        0.0, None, start_time,
-                        existing_skipped=existing_skipped
-                    )
-                    continue
-
-                signal = MarketSignal(
-                    asset=market.asset,
-                    mid_price=market.current_yes_price,
-                    spread=market.current_spread or 0.01,
-                    volume_5min=market.volume_5min or 0.0,
-                    price_velocity=market.price_velocity or 0.0,
-                    hour_of_day=start_time.hour,
-                    time_left_min=time_left_sec / 60.0
-                )
-                
-                local_fav_config = {**settings_db}
-                local_fav_config["MIN_EDGE"] = asset_min_edge
-                local_fav_config["TRADE_MAX_PRICE"] = asset_max_price
-                if asset_min_edge_val is not None and asset_min_edge_val != "":
-                    local_fav_config["FAVORITE_MIN_EDGE"] = asset_min_edge
-                else:
-                    local_fav_config["FAVORITE_MIN_EDGE"] = float(settings_db.get("FAVORITE_MIN_EDGE", "-0.01"))
-                
-                decision_obj = decide_favorite(signal, local_fav_config)
-                if not trade_on_favorite:
-                    decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
-                
-                p_flip = 0.0
-                model_ver = None
-                edge = decision_obj.edge
-            else:
-                # --- ML MODE ---
-                # Предварительно получаем свежие цены для фазовой модели
-                fresh_yes_prices = await api_client.get_market_prices(yes_token_id)
-                if not fresh_yes_prices or "error" in fresh_yes_prices:
-                    error_msg = fresh_yes_prices.get("error", "No fresh YES prices from API") if fresh_yes_prices else "No fresh YES prices from API"
-                    logger.warning("no_fresh_yes_prices", market_id=market.market_id, error=error_msg)
-                    await save_or_update_skipped_trade(
-                        db_session, market, error_msg,
-                        0.0, None, start_time,
-                        existing_skipped=existing_skipped
-                    )
-                    continue
-                fresh_yes_price = fresh_yes_prices["current_yes_price"]
-                fresh_spread = fresh_yes_prices["current_spread"]
-                fresh_price_velocity = market.price_velocity
-
-                if models_by_asset is None:
-                    # Загружаем active models
-                    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
-                    active_models = (await db_session.execute(models_stmt)).scalars().all()
-                    
-                    models_by_asset = {}
-                    for m in active_models:
-                        try:
-                            model_obj = pickle.loads(m.model_blob)
-                            models_by_asset[m.asset] = model_obj
-                            model_versions[m.asset] = m.version
-                            
-                            m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
-                            if not m_feats and hasattr(model_obj, "feature_names_in_"):
-                                m_feats = list(model_obj.feature_names_in_)
-                                
-                            model_features[m.asset] = m_feats
-                        except Exception as e:
-                            logger.error("failed_to_load_model", asset=m.asset, error=str(e))
-
-                phase = get_price_phase(fresh_yes_price)
-                phase_asset = f"{market.asset}_{phase}"
-                
-                if phase_asset in models_by_asset:
-                    model      = models_by_asset[phase_asset]
-                    model_ver  = model_versions[phase_asset]
-                    m_features = model_features.get(phase_asset, [])
-                    used_model = phase_asset
-                else:
-                    model      = models_by_asset.get(market.asset)
-                    model_ver  = model_versions.get(market.asset)
-                    m_features = model_features.get(market.asset, [])
-                    used_model = market.asset
-                    logger.debug("price_phase_fallback_to_base", asset=market.asset, phase=phase, mid_price=fresh_yes_price)
-
-                logger.debug("price_phase_model_selected", asset=market.asset, phase=phase, used_model=used_model, mid_price=round(fresh_yes_price, 3))
-                
-                if not model:
-                    logger.warning("no_active_model_for_trade", asset=market.asset, market_id=market.market_id)
-                    await save_or_update_skipped_trade(db_session, market, "No active model", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
-                    continue
-                    
-                if not m_features:
-                    logger.warning("model_has_no_features", asset=market.asset, version=model_ver)
-                    await save_or_update_skipped_trade(db_session, market, f"Model v{model_ver} has no features", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
-                    continue
-
-                # Запрос 1: последние 7 снапшотов для лагов
-                history_stmt = (
-                    select(MarketSnapshot)
-                    .where(
-                        MarketSnapshot.market_id == market.market_id,
-                        MarketSnapshot.asset == market.asset,
-                    )
-                    .order_by(desc(MarketSnapshot.recorded_at))
-                    .limit(7)
-                )
-                history_snaps = list(reversed(
-                    (await db_session.execute(history_stmt)).scalars().all()
-                ))
-
-                # Запрос 2: глобальный максимум рынка — выравниваем с обучением
-                max_price_stmt = select(func.max(MarketSnapshot.mid_price)).where(
-                    MarketSnapshot.market_id == market.market_id
-                )
-                global_max = (await db_session.execute(max_price_stmt)).scalar() or 0.0
-                if global_max == 0.0:
-                    logger.warning("no_snapshot_history_for_market", 
-                                   market_id=market.market_id, asset=market.asset)
-                
-                # Строим DataFrame
-                rows = []
-                for s in history_snaps:
-                    rows.append({
-                        "market_id":      s.market_id,
-                        "recorded_at":    s.recorded_at,
-                        "time_left_min":  s.time_left_min,
-                        "mid_price":      s.mid_price,
-                        "spread":         s.spread,
-                        "price_velocity": float(s.price_velocity or 0.0),
-                        "volume_5min":    float(s.volume_5min or 0.0),
-                        "hour_of_day":    int(s.hour_of_day or 0),
-                        "day_of_week":    s.recorded_at.weekday(),
-                    })
-                
-                # Добавляем текущее (Live) состояние как последний снапшот
-                # для которого нам и нужен инференс
-                rows.append({
-                    "market_id": market.market_id,
-                    "recorded_at": start_time,
-                    "time_left_min": time_left_sec / 60.0,
-                    "mid_price": fresh_yes_price,
-                    "spread": fresh_spread,
-                    "price_velocity": float(fresh_price_velocity or 0.0),
-                    "volume_5min": float(market.volume_5min or 0.0),
-                    "hour_of_day": start_time.hour,
-                    "day_of_week": start_time.weekday(),
-                })
-
-                df_inf = pd.DataFrame(rows)
-                df_inf = add_derived_features(df_inf)
-
-                # Переопределяем price_distance_from_max через реальный глобальный max
-                df_inf["price_distance_from_max"] = (global_max - df_inf["mid_price"]).clip(lower=0.0)
-
-                df_inf = add_lag_features(df_inf)
-                df_inf.drop(columns=["recorded_at", "market_id"], errors="ignore", inplace=True)
-
-                row_inf = df_inf.iloc[[-1]]
-                
-                missing = [f for f in m_features if f not in row_inf.columns]
-                if missing:
-                    logger.error("inference_missing_features", asset=market.asset, missing=missing)
-                    await save_or_update_skipped_trade(db_session, market, f"Missing features: {missing}", 0.0, model_ver, start_time, existing_skipped=existing_skipped)
-                    continue
-                
-                # Приоритет: ручной → фазовый авто → базовый авто → дефолт
-                manual_key     = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
-                auto_key_phase = f"AUTO_FLIP_THRESHOLD_{used_model}"
-                auto_key_base  = f"AUTO_FLIP_THRESHOLD_{market.asset.upper()}"
-
-                manual_val = settings_db.get(manual_key)
-                if manual_val is not None and str(manual_val).strip() not in ("", "0", "0.0"):
-                    base_flip_threshold = float(manual_val)
-                elif auto_key_phase in settings_db:
-                    base_flip_threshold = float(settings_db[auto_key_phase])
-                elif auto_key_base in settings_db:
-                    base_flip_threshold = float(settings_db[auto_key_base])
-                elif "TRADE_FLIP_THRESHOLD" in settings_db:
-                    base_flip_threshold = float(settings_db["TRADE_FLIP_THRESHOLD"])
-                else:
-                    base_flip_threshold = no_flip_threshold + dead_zone
-
-                X_real = row_inf[m_features]
-                
-                proba = model.predict_proba(X_real)[0]
-                p_flip = proba[1] if len(proba) > 1 else 0.0
-                
-                signal = MarketSignal(
-                    asset=market.asset,
-                    mid_price=fresh_yes_price,
-                    spread=fresh_spread,
-                    volume_5min=market.volume_5min,
-                    price_velocity=market.price_velocity,
-                    hour_of_day=start_time.hour,
-                    time_left_min=time_left_sec / 60.0
-                )
-
-                auto_dead_zone = settings_db.get("AUTO_DEAD_ZONE", "true" if settings.AUTO_DEAD_ZONE else "false").lower() == "true"
-                # dead_zone единый параметр ширины — используется и в авто-, и в ручном режиме
-                
-                lower, upper = compute_dead_zone(
-                    flip_threshold=base_flip_threshold,
-                    dead_zone_width=dead_zone,
-                    auto_mode=auto_dead_zone,
-                )
-
-                local_config = {**settings_db}
-                local_config["NO_FLIP_THRESHOLD"] = lower
-                local_config["FLIP_THRESHOLD"] = upper
-                local_config["MIN_EDGE"] = -100.0
-                local_config["MAX_BET_EDGE"] = 100.0
-                local_config["BYPASS_BET_SIZE_CHECK"] = "true"
-
-                decision_obj = None
-                if trade_on_favorite:
-                    decision_obj = decide_ml_trend(signal, p_flip, local_config)
-                else:
-                    from polyflip.trading.decision_logic import TradeDecision
-                    decision_obj = TradeDecision(action="SKIP", buy_price=0.0, bet_size_usdc=0.0, strategy_type="ML_TREND", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)", edge=0.0)
-                
-                if decision_obj.action == "SKIP" and trade_on_flip:
-                    decision_obj = decide_outsider(signal, p_flip, local_config)
-
-                # Проверка подтверждения криптой (Confirm Gate)
-                if decision_obj.action != "SKIP" and use_crypto_confirm:
-                    binance_symbol = "BTCUSDT" if market.asset.upper() == "BTC" else "ETHUSDT"
-                    await crypto_predictor.load(db_session, binance_symbol)
-                    
-                    model_interval = crypto_predictor.get_interval(binance_symbol)
-                    candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
-                    crypto_sig = crypto_predictor.predict(candles, binance_symbol)
-                    
-                    if not crypto_sig.features_ok:
-                        decision_obj = dataclasses.replace(
-                            decision_obj, action="SKIP", reason="Crypto confirm: features invalid"
-                        )
-                    else:
-                        market_direction = "UP" if decision_obj.action == "BUY_YES" else "DOWN"
-                        if crypto_sig.direction != market_direction:
-                            decision_obj = dataclasses.replace(
-                                decision_obj, action="SKIP", 
-                                reason=f"Crypto confirm veto: direction is {crypto_sig.direction} vs market {market_direction}"
-                            )
-
-                edge = decision_obj.edge
-
-
-            # Единая логика SKIP
-            if decision_obj.action == "SKIP":
-                reason = decision_obj.reason
-                if asset_mode == TRADING_MODE_ML and reason != "Favorite trades disabled (TRADE_ON_FAVORITE=False)":
-                    if lower <= p_flip < upper:
-                        reason = f"Мёртвая зона (p_flip={p_flip:.2f} в [{lower:.2f}, {upper:.2f}])"
-                    elif not trade_on_flip and p_flip >= upper:
-                        reason = f"Ожидается флип (p_flip={p_flip:.2f} >= {upper:.2f})"
-                
-                logger.info(
-                    "trade_decision",
-                    asset=market.asset,
-                    market_id=market.market_id,
-                    action="SKIP",
-                    p_flip=round(p_flip, 4),
-                    edge=round(edge, 4) if edge is not None else None,
-                    buy_price=0.0,
-                    strategy=decision_obj.strategy_type,
-                    reason=reason
-                )
-                await save_or_update_skipped_trade(
-                    db_session, market, reason, p_flip, model_ver, start_time,
-                    existing_skipped=existing_skipped,
-                    edge=edge,
-                    active_features=_get_trade_active_features(asset_mode, active_features_str, decision_obj)
-                )
                 continue
 
-            decision = decision_obj.action.replace("BUY_", "")
-            buy_price = decision_obj.buy_price
-            actual_bet_size = decision_obj.bet_size_usdc
-            token_to_buy = yes_token_id if decision == "YES" else no_token_id
+            existing_skipped = guard_res.existing_skipped
+            decision_res = None
             
-            fresh_prices = await api_client.get_market_prices(token_to_buy)
-            if not fresh_prices or fresh_prices.get("best_ask") is None:
-                await save_or_update_skipped_trade(
-                    db_session, market, f"No fresh prices from API for {asset_mode} ({decision})",
-                    0.0, model_ver, start_time, existing_skipped=existing_skipped
-                )
-                continue
-
-            fresh_ask = fresh_prices["best_ask"]
-            price_drift = abs(fresh_ask - buy_price)
-            if price_drift > float(settings_db.get("MAX_PRICE_DRIFT", str(settings.MAX_PRICE_DRIFT))):
-                await save_or_update_skipped_trade(
-                    db_session, market, f"Price drift too large: {price_drift:.3f}",
-                    0.0, model_ver, start_time, existing_skipped=existing_skipped
-                )
-                continue
-
-            buy_price = fresh_ask
-            
-            # Пересчитываем edge
-            if asset_mode == TRADING_MODE_CRYPTO:
-                # В крипто-режиме edge берется из предсказания, а не из цен Polymarket
-                edge = decision_obj.edge
-                actual_bet_size = decision_obj.bet_size_usdc
-            else:
+            try:
                 if asset_mode == TRADING_MODE_ML:
-                    p_win = 1.0 - p_flip if decision_obj.strategy_type == "ML_TREND" else p_flip
-                    current_min_edge = asset_min_edge
-                else:
-                    p_win = market.current_yes_price if decision == "YES" else (1.0 - market.current_yes_price)
-                    favorite_min_edge = settings_db.get("FAVORITE_MIN_EDGE")
-                    if favorite_min_edge is not None and favorite_min_edge != "":
-                        current_min_edge = float(favorite_min_edge)
-                    else:
-                        current_min_edge = asset_min_edge  # fallback на общий min_edge
-                edge = compute_edge(p_win, buy_price)
-                # Этот фильтр обязателен здесь (хотя похожий есть в decide_*),
-                # так как здесь edge пересчитывается по реальной fresh_ask цене из стакана,
-                # которая может значительно отличаться от оценочной цены, использованной в decide_*.
-                if edge < current_min_edge or edge > max_edge_filter:
-                    await save_or_update_skipped_trade(
-                        db_session, market, f"Edge out of bounds (edge={edge:.4f})",
-                        p_flip, model_ver, start_time,
-                        existing_skipped=existing_skipped,
-                        edge=edge
+                    from polyflip.trading.ml_inference import get_models_cache
+                    models_cache = get_models_cache()
+                    decision_res = await decide_ml_mode(
+                        db_session, api_client, market, cfg, models_cache, _get_crypto_predictor(),
+                        start_time, time_left_sec, existing_skipped
                     )
-                    continue
-
-            if not (trade_min_price <= buy_price <= asset_max_price):
+                elif asset_mode == TRADING_MODE_FAVORITE:
+                    decision_res = await decide_favorite_mode(
+                        market, cfg, asset_min_edge, asset_max_price, start_time, time_left_sec
+                    )
+                elif asset_mode == TRADING_MODE_CRYPTO:
+                    try:
+                        from polyflip.trading.decision_runners import decide_crypto_mode
+                        decision_res = await decide_crypto_mode(
+                            api_client, market, cfg, raw_settings, _get_crypto_predictor(), start_time, time_left_sec
+                        )
+                    except ImportError:
+                        pass
+            except Exception as e:
+                logger.exception("decision_logic_error", market=market.market_id, error=str(e))
                 await save_or_update_skipped_trade(
-                    db_session, market, f"Price out of bounds: {buy_price:.3f} [{trade_min_price}, {asset_max_price}]",
-                    p_flip, model_ver, start_time,
-                    existing_skipped=existing_skipped,
-                    edge=edge
+                    db_session, market, f"Error calculating prediction: {e}", 0.0, None, start_time, existing_skipped
                 )
                 continue
-            
-            if asset_mode != TRADING_MODE_CRYPTO:
-                sizing_mode = settings_db.get("BET_SIZING_MODE", settings.BET_SIZING_MODE)
-                if sizing_mode == "fixed":
-                    actual_bet_size = bet_size
-                else:
-                    max_bet_usdc = float(settings_db.get("MAX_BET_SIZE_USDC", str(settings.MAX_BET_SIZE_USDC)))
-                    actual_bet_size = compute_bet_size_edge_scaled(
-                        edge=edge,
-                        min_bet_usdc=bet_size,
-                        max_bet_usdc=max_bet_usdc,
-                        min_edge=current_min_edge,
-                        max_edge=max_bet_edge    # потолок масштабирования
-                    )
-                if asset_mode == TRADING_MODE_FAVORITE and actual_bet_size < bet_size:
-                    actual_bet_size = bet_size
-
-            if actual_bet_size <= 0:
-                await save_or_update_skipped_trade(
-                    db_session, market, "Bet size <= 0",
-                    p_flip, model_ver, start_time,
-                    existing_skipped=existing_skipped,
-                    edge=edge
-                )
-                continue
-            
-            num_shares = round(actual_bet_size / buy_price, 2)
-            
-            logger.info(
-                "trade_decision",
-                asset=market.asset,
-                market_id=market.market_id,
-                action=decision_obj.action,
-                p_flip=round(p_flip, 4) if p_flip is not None else None,
-                p_up=round(decision_obj.p_up, 4) if decision_obj.p_up is not None else None,
-                strike=decision_obj.strike,
-                edge=round(edge, 4) if edge is not None else None,
-                buy_price=buy_price,
-                strategy=decision_obj.strategy_type,
-                bet_size=actual_bet_size
-            )
-            
-            trade_res = await trader.execute_trade(
-                market_id=market.market_id,
-                token_id=token_to_buy,
-                side="BUY",
-                price=buy_price,
-                size=num_shares
-            )
-            
-            if existing_skipped:
-                await db_session.delete(existing_skipped)
-
-            history = TradeHistory(
-                market_id=market.market_id,
-                asset=market.asset,
-                outcome_bought=decision,
-                amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
-                executed_price=trade_res.get("executed_price", buy_price),
-                predicted_flip_prob=p_flip,
-                p_up=decision_obj.p_up,
-                strike=decision_obj.strike,
-                active_features=_get_trade_active_features(asset_mode, active_features_str, decision_obj),
-                model_version=model_ver,
-                status=trade_res.get("status", "FAILED"),
-                error_msg=trade_res.get("error_msg"),
-                mode=trade_res.get("mode", "PAPER"),
-                edge=round(edge, 4) if edge is not None else None,
-                created_at=start_time
-            )
-            db_session.add(history)
-            await db_session.flush()
-
-            if trade_res.get("status") == "SUCCESS":
-                exec_p = trade_res.get("executed_price", buy_price)
-                slip = round(exec_p - buy_price, 6)
-                slip_pct = round(slip / buy_price * 100, 4) if buy_price > 0 else 0.0
-                slip_cost = round(slip * (actual_bet_size / exec_p), 4) if exec_p > 0 else 0.0
-
-                slippage_record = SlippageLog(
-                    trade_id=history.id,
-                    market_id=market.market_id,
-                    asset=market.asset,
-                    outcome_bought=decision,
-                    expected_price=buy_price,
-                    executed_price=exec_p,
-                    slippage=slip,
-                    slippage_pct=slip_pct,
-                    bet_size_usdc=actual_bet_size,
-                    slippage_cost_usdc=slip_cost,
-                    mode=trade_res.get("mode", "PAPER"),
-                    created_at=start_time,
-                )
-                db_session.add(slippage_record)
                 
-                # Записываем стоп-лосс при открытии позиции
-                stop_enabled = settings_db.get("STOP_LOSS_ENABLED", "false").lower() == "true"
-                if stop_enabled:
-                    from polyflip.trading.stoploss import compute_stop_price
-                    # Выбираем % стоп-лосса в зависимости от типа ставки
-                    is_outsider = (
-                        hasattr(decision_obj, 'strategy_type')
-                        and isinstance(decision_obj.strategy_type, str)
-                        and decision_obj.strategy_type.upper() == "OUTSIDER"
-                    )
-                    if is_outsider:
-                        stop_pct = float(settings_db.get("STOP_LOSS_PCT_OUTSIDER", "60.0"))
-                    else:
-                        stop_pct = float(settings_db.get("STOP_LOSS_PCT_FAVORITE", "40.0"))
-                    history.market_end_time = market.end_time_est
-                    history.stop_loss_pct = stop_pct
-                    history.stop_loss_price = compute_stop_price(exec_p, stop_pct)
-                    history.stop_loss_status = "ACTIVE"
+            if not decision_res or not decision_res.decision_obj or decision_res.decision_obj.action == "SKIP":
+                skip_reason = decision_res.skip_reason if decision_res else "SKIP"
+                p_flip = decision_res.p_flip if decision_res else 0.0
+                edge = decision_res.edge if decision_res else None
+                model_ver = decision_res.model_ver if decision_res else None
+                await save_or_update_skipped_trade(
+                    db_session, market, skip_reason or "SKIP", p_flip, model_ver, start_time, existing_skipped, edge
+                )
+                continue
 
-                # Записываем тейк-профит при открытии позиции
-                tp_enabled = settings_db.get("TAKE_PROFIT_ENABLED", "false").lower() == "true"
-                if tp_enabled:
-                    from polyflip.trading.takeprofit import compute_take_profit_price
-                    tp_multiplier = float(settings_db.get("TAKE_PROFIT_MULTIPLIER", "2.0"))
-                    history.take_profit_enabled    = True
-                    history.take_profit_multiplier = tp_multiplier
-                    history.take_profit_price      = compute_take_profit_price(exec_p, tp_multiplier)
-                    history.take_profit_status     = "ACTIVE"
-                else:
-                    history.take_profit_enabled = False
-                    history.take_profit_status  = "SKIPPED"
+            validation = await validate_pre_trade(
+                api_client, market, decision_res.decision_obj, cfg, asset_mode,
+                asset_min_edge, asset_max_price, decision_res.p_flip, decision_res.model_ver
+            )
 
-            invalidate_stats_cache()
-            invalidate_dashboard_cache()
-                    
+            await execute_and_record(
+                db_session, trader, market, decision_res.decision_obj, validation,
+                asset_mode, cfg.active_features_str, decision_res.p_flip, decision_res.model_ver,
+                cfg, existing_skipped, start_time
+            )
+
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))
     finally:
-        # Commit in finally to ensure successfully executed trades are saved even if cycle crashed mid-way
         try:
             await db_session.commit()
         except Exception as e_commit:
