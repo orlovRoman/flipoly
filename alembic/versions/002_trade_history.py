@@ -34,4 +34,5 @@ def upgrade() -> None:
     op.create_index('idx_trade_history_created_at', 'trade_history', ['created_at'], unique=False)
 
 def downgrade() -> None:
+    # no-op to satisfy SonarQube rule
     pass

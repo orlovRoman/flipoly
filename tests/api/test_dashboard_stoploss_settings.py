@@ -11,6 +11,7 @@ async def test_patch_stop_loss_pct_valid(db_session, monkeypatch):
         async def __aenter__(self):
             return self.session
         async def __aexit__(self, exc_type, exc_val, exc_tb):
+            # no-op to satisfy SonarQube rule
             pass
             
     monkeypatch.setattr("polyflip.api.settings.async_session", lambda: DummyAsyncContextManager(db_session))
@@ -30,6 +31,7 @@ async def test_patch_stop_loss_pct_invalid(db_session, monkeypatch):
         async def __aenter__(self):
             return self.session
         async def __aexit__(self, exc_type, exc_val, exc_tb):
+            # no-op to satisfy SonarQube rule
             pass
             
     monkeypatch.setattr("polyflip.api.settings.async_session", lambda: DummyAsyncContextManager(db_session))

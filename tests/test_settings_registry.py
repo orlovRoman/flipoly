@@ -144,6 +144,7 @@ async def test_get_all_settings_does_not_crash_with_empty_db(db_session, monkeyp
         async def __aenter__(self):
             return self.session
         async def __aexit__(self, exc_type, exc_val, exc_tb):
+            # no-op to satisfy SonarQube rule
             pass
     monkeypatch.setattr("polyflip.api.settings.async_session", lambda: DummyAsyncContextManager(db_session))
     
@@ -165,6 +166,7 @@ async def test_get_all_settings_includes_security_sensitive_keys_as_masked(db_se
         async def __aenter__(self):
             return self.session
         async def __aexit__(self, exc_type, exc_val, exc_tb):
+            # no-op to satisfy SonarQube rule
             pass
     monkeypatch.setattr("polyflip.api.settings.async_session", lambda: DummyAsyncContextManager(db_session))
     

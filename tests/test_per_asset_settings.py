@@ -10,6 +10,7 @@ class DummyAsyncContextManager:
     async def __aenter__(self):
         return self.session
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # no-op to satisfy SonarQube rule
         pass
 
 def patch_session(db_session):
@@ -125,6 +126,7 @@ async def test_per_asset_empty_trading_mode_uses_global_not_empty_string(db_sess
         async def __aenter__(self):
             return self.session
         async def __aexit__(self, exc_type, exc_val, exc_tb):
+            # no-op to satisfy SonarQube rule
             pass
     original_session = settings_module.async_session
     settings_module.async_session = lambda: DummyAsyncContextManager(db_session)

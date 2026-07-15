@@ -103,6 +103,7 @@ async def test_crypto_backtest_passes_lgbm_params_to_run_backtest(
         async def __aenter__(self):
             return self.session
         async def __aexit__(self, exc_type, exc_val, exc_tb):
+            # no-op to satisfy SonarQube rule
             pass
     monkeypatch.setattr("polyflip.api.crypto_dashboard.async_session", lambda: DummyAsyncContextManager(db_session))
     

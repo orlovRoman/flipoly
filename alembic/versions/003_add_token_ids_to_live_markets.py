@@ -24,4 +24,5 @@ def upgrade() -> None:
     op.alter_column('live_markets', 'no_token_id', server_default=None, existing_type=sa.String(length=128), existing_nullable=False)
 
 def downgrade() -> None:
+    # no-op to satisfy SonarQube rule
     pass

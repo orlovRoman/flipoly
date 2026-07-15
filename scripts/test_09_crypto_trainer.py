@@ -28,10 +28,8 @@ def make_fake_df(n=1500):
 
 
 df = make_fake_df()
-# Тест использует 0.7 вместо 0.9: при 1500 строках => ~450 строк после фильтра
-epsilon = float(df["ret_1"].abs().quantile(0.7))
-df_filtered = _build_target(df, epsilon)
-assert len(df_filtered) > 100, f"После epsilon-фильтра слишком мало строк: {len(df_filtered)}"
+df_filtered = _build_target(df)
+assert len(df_filtered) > 100, f"После построения таргетов слишком мало строк: {len(df_filtered)}"
 
 X = df_filtered[[f for f in CRYPTO_FEATURES if f in df_filtered.columns]]
 y = df_filtered["target"]

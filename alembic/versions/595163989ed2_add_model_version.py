@@ -23,4 +23,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # no-op to satisfy SonarQube rule
     pass

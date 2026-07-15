@@ -22,6 +22,7 @@ class DummyAsyncContextManager:
     async def __aenter__(self):
         return self.session
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # no-op to satisfy SonarQube rule
         pass
 
 def patch_session(db_session):

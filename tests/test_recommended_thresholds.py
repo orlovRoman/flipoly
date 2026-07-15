@@ -96,6 +96,7 @@ async def test_recommended_thresholds_api(db_session):
         async def __aenter__(self):
             return self.session
         async def __aexit__(self, exc_type, exc_val, exc_tb):
+            # no-op to satisfy SonarQube rule
             pass
 
     def dummy_session_creator():

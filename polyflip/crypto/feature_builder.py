@@ -65,7 +65,7 @@ class CryptoFeatureVector:
 
 
 def build_crypto_features(
-    candles: Sequence,          # Sequence[CryptoCandle] или pd.DataFrame
+    candles: Sequence | pd.DataFrame,
     min_candles: int = 100,
 ) -> CryptoFeatureVector:
     """
@@ -218,7 +218,7 @@ def build_crypto_features(
     )
 
 
-def build_features(candles: Sequence) -> pd.DataFrame:
+def build_features(candles: Sequence | pd.DataFrame) -> pd.DataFrame:
     """
     Строит DataFrame с фичами для ВСЕХ свечей (используется при обучении модели).
     Порядок строк: ASC по open_time.
