@@ -108,12 +108,15 @@ from polyflip.db.connection import get_db_session
 @router.put("/bulk")
 async def update_settings_bulk(
     payload: BulkSettings, 
-    request: Request = None,
+    request: Optional[Request] = Depends(lambda request: request),
     db: AsyncSession = Depends(get_db_session)
 ):
     """
     Массовое обновление настроек за один запрос для обхода лимитов rate limiter.
     """
+    from fastapi.params import Depends
+    if isinstance(request, Depends):
+        request = None
     errors = {}
     saved = []
     for key, val in payload.settings.items():
@@ -135,10 +138,13 @@ async def update_settings_bulk(
     return {"status": "partial" if errors else "ok", "saved": saved, "errors": errors}
 
 @router.api_route("/security/{key}", methods=["PUT", "POST"])
-async def update_security_setting(key: str, payload: SettingValue, request: Request = None, db: AsyncSession = Depends(get_db_session)):
+async def update_security_setting(key: str, payload: SettingValue, request: Optional[Request] = Depends(lambda request: request), db: AsyncSession = Depends(get_db_session)):
     """
     Отдельный эндпоинт для обновления флагов безопасности, которые недоступны через основной API.
     """
+    from fastapi.params import Depends
+    if isinstance(request, Depends):
+        request = None
     if key not in ["TRADING_ENABLED", "BYPASS_BET_SIZE_CHECK"]:
         raise HTTPException(status_code=400, detail="Invalid security key")
     
@@ -174,10 +180,13 @@ async def update_security_setting(key: str, payload: SettingValue, request: Requ
 
 
 @router.api_route("/{key}", methods=["PUT", "POST"])
-async def update_setting(key: str, payload: SettingValue, request: Request = None, db: AsyncSession = Depends(get_db_session)):
+async def update_setting(key: str, payload: SettingValue, request: Optional[Request] = Depends(lambda request: request), db: AsyncSession = Depends(get_db_session)):
     """
     Обновляет или создает настройку в БД.
     """
+    from fastapi.params import Depends
+    if isinstance(request, Depends):
+        request = None
     class SessionContext:
         def __init__(self, passed_db):
             self.passed_db = passed_db

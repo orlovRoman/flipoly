@@ -36,6 +36,27 @@ def test_no_ask_floored():
     assert signal.no_bid >= 0.01
 
 def test_spread_zero_fallback():
-    # spread=0 не должен давить ошибок
     signal = make_signal(spread=0.0)
     assert signal.yes_ask == signal.yes_bid == signal.mid_price
+
+
+def test_build_feature_vector_no_nan():
+    from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUMNS
+    from polyflip.trading.decision_logic import MarketSignal
+    signal = MarketSignal(
+        asset="BTC", mid_price=0.65, spread=0.02,
+        volume_5min=100.0, price_velocity=0.01,
+        hour_of_day=14, time_left_min=10.0
+    )
+    vec = build_feature_vector(signal)
+    import numpy as np
+    assert not np.any(np.isnan(vec)), \
+        f"NaN в feature vector на позициях: {[FEATURE_COLUMNS[i] for i in np.where(np.isnan(vec[0]))[0]]}"
+
+
+def test_get_price_phase_importable_and_works():
+    from polyflip.constants import get_price_phase
+    assert get_price_phase(0.15) in ("contested", "leaning", "decided")
+    assert get_price_phase(0.50) is not None
+    assert get_price_phase(0.85) is not None
+

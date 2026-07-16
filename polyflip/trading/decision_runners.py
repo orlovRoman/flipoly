@@ -164,7 +164,9 @@ async def decide_ml_mode(
     local_config = {**raw_settings}
     local_config["NO_FLIP_THRESHOLD"] = str(lower)
     local_config["FLIP_THRESHOLD"] = str(upper)
-    local_config["MIN_EDGE"] = "-100.0"
+    # Используем FAVORITE_MIN_EDGE=-100.0 для обхода edge-фильтра внутри вспомогательного вызова decide_favorite.
+    # Это сохраняет оригинальный MIN_EDGE в local_config для итоговой ML-фильтрации в decide_ml_trend.
+    local_config["FAVORITE_MIN_EDGE"] = "-100.0"
     local_config["MAX_BET_EDGE"] = "100.0"
     local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 
