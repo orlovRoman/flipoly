@@ -91,6 +91,12 @@ async def decide_ml_mode(
     
     asset_upper = market.asset.upper()
     model = models_cache.models.get(asset_upper)
+    
+    if not model:
+        from polyflip.trading.ml_inference import populate_models_cache
+        await populate_models_cache(db_session)
+        model = models_cache.models.get(asset_upper)
+
     model_ver = models_cache.versions.get(asset_upper)
     active_features = models_cache.features.get(asset_upper, [])
     
@@ -157,10 +163,10 @@ async def decide_ml_mode(
                 decision_obj, action="SKIP", reason="Crypto confirm: features invalid"
             )
         else:
-            crypto_decision = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, local_config)
-            if crypto_decision.action == "SKIP":
+            market_direction = "UP" if decision_obj.action == "BUY_YES" else "DOWN"
+            if crypto_sig.direction != market_direction:
                 decision_obj = dataclasses.replace(
-                    decision_obj, action="SKIP", reason=f"Crypto confirm block: {crypto_decision.reason}"
+                    decision_obj, action="SKIP", reason=f"Crypto confirm veto: direction is {crypto_sig.direction} vs market {market_direction}"
                 )
 
     return DecisionResult(

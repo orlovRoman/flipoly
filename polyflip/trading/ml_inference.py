@@ -4,6 +4,10 @@ from datetime import datetime
 from typing import Any
 import structlog
 from dataclasses import dataclass
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+import pickle
+from polyflip.db.models import ModelRegistry
 
 logger = structlog.get_logger(__name__)
 
@@ -21,6 +25,25 @@ def get_models_cache() -> ModelsCache:
     if _models_cache is None:
         _models_cache = ModelsCache(models={}, versions={}, features={})
     return _models_cache
+
+async def populate_models_cache(db_session: AsyncSession) -> None:
+    cache = get_models_cache()
+    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
+    active_models = (await db_session.execute(models_stmt)).scalars().all()
+    
+    for m in active_models:
+        try:
+            model_obj = pickle.loads(m.model_blob)
+            cache.models[m.asset] = model_obj
+            cache.versions[m.asset] = m.version
+            
+            m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
+            if not m_feats and hasattr(model_obj, "feature_names_in_"):
+                m_feats = list(model_obj.feature_names_in_)
+                
+            cache.features[m.asset] = m_feats
+        except Exception as e:
+            logger.error("Failed to load model", asset=m.asset, error=str(e))
 
 
 def build_inference_dataframe(
