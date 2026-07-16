@@ -442,7 +442,7 @@ async def decide_combined_mode(
         decision_obj=final_decision,
         p_flip=ml_result.p_flip,
         model_ver=ml_result.model_ver,
-        edge=ml_result.edge,  # сохраняем edge всегда — важно для анализа вето
+        edge=final_decision.edge if final_decision.edge is not None else ml_result.edge,  # сохраняем edge всегда — важно для анализа вето
         skip_reason=vote.reason if vote.action == "SKIP" else None,
         lgbm_metadata=lgbm_meta,
     )

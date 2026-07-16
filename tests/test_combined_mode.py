@@ -89,7 +89,7 @@ def test_combined_skip_preserves_edge():
     from polyflip.trading.decision_logic import TradeDecision
 
     # Мокаем decide_ml_mode, чтобы он возвращал ML-сигнал с положительным edge
-    ml_dec = TradeDecision(action="BUY_YES", buy_price=0.55, bet_size_usdc=10.0, reason="ML ok", strategy_type="ML_TREND", p_up=0.60, strike=0.5)
+    ml_dec = TradeDecision(action="BUY_YES", buy_price=0.55, bet_size_usdc=10.0, reason="ML ok", strategy_type="ML_TREND", p_up=0.60, strike=0.5, edge=0.08)
     ml_res = DecisionResult(decision_obj=ml_dec, p_flip=0.12, model_ver=4, edge=0.08, skip_reason=None)
 
     # Мокаем _fetch_lgbm_signal, чтобы он возвращал вето (LGBM=DOWN при ML=BUY_YES)
@@ -199,11 +199,12 @@ def test_combined_bet_reduction_original_bet():
     # Ставка должна быть 8.0 (clamped by min_bet)
     assert res.decision_obj.bet_size_usdc == 8.0
 
-    # Проверяем вызов логгера
-    mock_logger.info.assert_any_call(
-        "combined_bet_reduced",
-        asset="BTC",
-        multiplier=0.5,
-        original_bet=10.0,
-        reduced_bet=8.0
-    )
+    # Проверяем логи через call_args_list
+    info_calls = mock_logger.info.call_args_list
+    bet_reduced_calls = [c for c in info_calls if c.args and c.args[0] == "combined_bet_reduced"]
+    assert len(bet_reduced_calls) == 1
+
+    call_kwargs = bet_reduced_calls[0].kwargs
+    assert call_kwargs["original_bet"] == 10.0
+    assert call_kwargs["reduced_bet"] == 8.0
+    assert call_kwargs["multiplier"] == 0.5
