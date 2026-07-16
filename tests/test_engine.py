@@ -484,7 +484,7 @@ async def test_skipped_crypto_trade_has_active_features_set(db_session):
     """
     now = datetime.now(timezone.utc)
     settings = [
-        RuntimeSettings(key="TRADING_MODE", value="CRYPTO", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADING_MODE", value="lightgbm", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
         RuntimeSettings(key="CRYPTO_MIN_EDGE", value="0.10", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_EDGE_FILTER", value="1.0", updated_at=now, updated_by="test"),

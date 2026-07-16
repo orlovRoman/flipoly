@@ -42,6 +42,11 @@
             border: 1px solid rgba(240, 185, 11, 0.3) !important;
             color: #f0b90b !important;
         }
+        .mode-lightgbm {
+            background: rgba(230, 100, 20, 0.1) !important;
+            border: 1px solid rgba(230, 100, 20, 0.3) !important;
+            color: #e66414 !important;
+        }
         .settings-group {
             margin-top: 1.5rem;
             margin-bottom: 1.5rem;
@@ -258,7 +263,7 @@
                                     <span>⚡ Pure Favorite (без ML)</span>
                                 </label>
                                 <label class="radio-option">
-                                    <input type="radio" name="trading_mode" value="CRYPTO" id="mode-crypto">
+                                    <input type="radio" name="trading_mode" value="lightgbm" id="mode-lightgbm">
                                     <span>🪙 ML (LightGBM)</span>
                                 </label>
                             </div>
@@ -326,7 +331,7 @@
                                                     <option value="">Глобальный</option>
                                                     <option value="ml">🤖 ML (LogReg)</option>
                                                     <option value="favorite">⚡ Pure Favorite</option>
-                                                    <option value="CRYPTO">🪙 ML (LightGBM)</option>
+                                                    <option value="lightgbm">🪙 ML (LightGBM)</option>
                                                 </select>
                                             </td>
                                             <td style="padding: 8px; vertical-align: middle;">

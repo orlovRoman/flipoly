@@ -5,7 +5,7 @@ from typing import Optional
 
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.trader import PolyTrader
-from polyflip.constants import TRADING_MODE_CRYPTO, TRADING_MODE_ML, TRADING_MODE_FAVORITE
+from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE
 
 from polyflip.trading.settings_loader import load_trading_settings
 from polyflip.trading.trading_config import parse_trading_settings
@@ -98,7 +98,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     decision_res = await decide_favorite_mode(
                         market, cfg, asset_min_edge, asset_max_price, start_time, time_left_sec
                     )
-                elif asset_mode == TRADING_MODE_CRYPTO:
+                elif asset_mode == TRADING_MODE_LIGHTGBM:
                     try:
                         from polyflip.trading.decision_runners import decide_crypto_mode
                         decision_res = await decide_crypto_mode(

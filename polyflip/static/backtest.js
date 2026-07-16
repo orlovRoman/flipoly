@@ -562,7 +562,7 @@ async function applyLiveSettings() {
     document.getElementById('cfg-assets').value     = s.TRADE_ASSETS || 'BTC,ETH';
     document.getElementById('cfg-min-time').value   = s.TRADE_MIN_TIME_LEFT_SEC != null ? (parseInt(s.TRADE_MIN_TIME_LEFT_SEC) / 60).toFixed(1) : '1';
     document.getElementById('cfg-max-time').value   = s.TRADE_MAX_TIME_LEFT_SEC != null ? (parseInt(s.TRADE_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
-    const modeMap = { ml: 'ML', favorite: 'PURE_FAVORITE', CRYPTO: 'ML' };
+    const modeMap = { ml: 'ML', favorite: 'PURE_FAVORITE', CRYPTO: 'ML', lightgbm: 'ML' };
     document.getElementById('cfg-strategy-mode').value = modeMap[s.TRADING_MODE] ?? 'ML';
       const parseThresh = (val) => {
         let f = parseFloat(val);

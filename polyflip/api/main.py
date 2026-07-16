@@ -69,7 +69,7 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
         return response
 
 from polyflip.db.connection import async_session
-from polyflip.db.init_runtime_settings import seed_runtime_settings, migrate_auto_dead_zone_width, migrate_stop_loss_pct
+from polyflip.db.init_runtime_settings import seed_runtime_settings, migrate_auto_dead_zone_width, migrate_stop_loss_pct, migrate_crypto_to_lightgbm
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -82,6 +82,8 @@ async def lifespan(app: FastAPI):
         await migrate_auto_dead_zone_width(session)
         # Миграция: STOP_LOSS_PCT → STOP_LOSS_PCT_FAVORITE + STOP_LOSS_PCT_OUTSIDER
         await migrate_stop_loss_pct(session)
+        # Миграция: CRYPTO -> lightgbm
+        await migrate_crypto_to_lightgbm(session)
         # Потом посев дефолтов для новых ключей
         await seed_runtime_settings(session)
         

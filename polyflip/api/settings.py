@@ -302,9 +302,11 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
             raise HTTPException(status_code=400, detail="Value for DAILY_LOSS_LIMIT_USDC must be a number")
 
     if key == "TRADING_MODE" or key.startswith("TRADING_MODE_"):
-        allowed = ("ml", "favorite", "CRYPTO", "") if key.startswith("TRADING_MODE_") else ("ml", "favorite", "CRYPTO")
+        if payload.value == "CRYPTO":
+            payload.value = "lightgbm"
+        allowed = ("ml", "favorite", "lightgbm", "") if key.startswith("TRADING_MODE_") else ("ml", "favorite", "lightgbm")
         if payload.value not in allowed:
-            raise HTTPException(status_code=400, detail=f"{key} must be 'ml', 'favorite', 'CRYPTO' or empty")
+            raise HTTPException(status_code=400, detail=f"{key} must be 'ml', 'favorite', 'lightgbm' or empty")
 
     if key == "TRADE_MAX_PRICE" or key.startswith("TRADE_MAX_PRICE_"):
         if key.startswith("TRADE_MAX_PRICE_") and payload.value == "":

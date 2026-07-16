@@ -386,9 +386,13 @@ document.addEventListener("DOMContentLoaded", () => {
       settingsElements.favoriteModeSettings.style.display = isFavorite ? 'block' : 'none';
     }
     if (settingsElements.tradingModeBadge) {
-      settingsElements.tradingModeBadge.textContent = isFavorite 
-        ? '⚡ Режим: Pure Favorite' 
-        : '🤖 Режим: ML';
+      if (mode === 'favorite') {
+        settingsElements.tradingModeBadge.textContent = '⚡ Режим: Pure Favorite';
+      } else if (mode === 'lightgbm') {
+        settingsElements.tradingModeBadge.textContent = '🪙 Режим: ML (LightGBM)';
+      } else {
+        settingsElements.tradingModeBadge.textContent = '🤖 Режим: ML (LogReg)';
+      }
       settingsElements.tradingModeBadge.className = `mode-badge mode-${mode}`;
     }
   }

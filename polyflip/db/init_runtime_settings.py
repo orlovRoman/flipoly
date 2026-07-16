@@ -72,6 +72,29 @@ async def migrate_stop_loss_pct(session: AsyncSession):
     await session.commit()
 
 
+async def migrate_crypto_to_lightgbm(session: AsyncSession):
+    """
+    Разовая миграция: если в БД есть TRADING_MODE = "CRYPTO" или TRADING_MODE_<ASSET> = "CRYPTO",
+    меняем это значение на "lightgbm".
+    """
+    result = await session.execute(
+        select(RuntimeSettings).where(
+            (RuntimeSettings.key == "TRADING_MODE") |
+            RuntimeSettings.key.like("TRADING_MODE_%")
+        )
+    )
+    rows = result.scalars().all()
+    updated = False
+    for r in rows:
+        if r.value == "CRYPTO":
+            r.value = "lightgbm"
+            r.updated_by = "migration_crypto_to_lightgbm"
+            r.updated_at = datetime.now(timezone.utc)
+            updated = True
+    if updated:
+        await session.commit()
+
+
 async def seed_runtime_settings(session: AsyncSession):
     """Заполняет отсутствующие ключи дефолтами при старте."""
     for key, value in DEFAULTS.items():

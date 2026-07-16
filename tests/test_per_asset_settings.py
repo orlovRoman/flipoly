@@ -139,7 +139,7 @@ async def test_per_asset_empty_trading_mode_uses_global_not_empty_string(db_sess
             updated_by="test", updated_at=now
         ))
         db_session.add(RuntimeSettings(
-            key="TRADING_MODE", value="CRYPTO",
+            key="TRADING_MODE", value="lightgbm",
             updated_by="test", updated_at=now
         ))
         await db_session.commit()
@@ -149,7 +149,7 @@ async def test_per_asset_empty_trading_mode_uses_global_not_empty_string(db_sess
         mode = settings_db.get("TRADING_MODE_BTCUSDT") or settings_db.get("TRADING_MODE", "ML")
         
         # Пустая строка → fallback на global
-        assert mode == "CRYPTO", f"Ожидали CRYPTO (global fallback), получили: {mode!r}"
+        assert mode == "lightgbm", f"Ожидали lightgbm (global fallback), получили: {mode!r}"
         assert mode != "", "Пустая строка не должна быть режимом торговли"
     finally:
         settings_module.async_session = original_session

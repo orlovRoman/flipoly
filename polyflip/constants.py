@@ -80,7 +80,8 @@ BACKTEST_TRAIN_RATIO      = 0.70    # 70% train / 30% test (walk-forward)
 BACKTEST_SHARPE_ANNUALIZE = 252 * 96  # 15m свечей в году (96 свечей × 252 торг. дня)
 
 # --- Крипто-торговля ---
-TRADING_MODE_CRYPTO = "CRYPTO"
+TRADING_MODE_LIGHTGBM = "lightgbm"
+TRADING_MODE_CRYPTO = TRADING_MODE_LIGHTGBM
 CRYPTO_MIN_EDGE = 0.05
 USE_CRYPTO_CONFIRM = False
 CRYPTO_STANDALONE = False
