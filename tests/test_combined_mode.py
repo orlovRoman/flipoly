@@ -208,3 +208,38 @@ def test_combined_bet_reduction_original_bet():
     assert call_kwargs["original_bet"] == 10.0
     assert call_kwargs["reduced_bet"] == 8.0
     assert call_kwargs["multiplier"] == 0.5
+
+def test_combined_lgbm_invalid_preserves_ml_skip_reason():
+    """Если LGBM фичи невалидны, но ML сам решил сделать SKIP, должна сохраниться оригинальная причина ML"""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from polyflip.trading.decision_runners import decide_combined_mode, DecisionResult
+    from polyflip.trading.decision_logic import TradeDecision
+
+    ml_dec = TradeDecision(action="SKIP", buy_price=0.0, bet_size_usdc=0.0, reason="ML dead zone", strategy_type="ML_TREND", p_up=0.60, strike=0.5, edge=0.0)
+    ml_res = DecisionResult(decision_obj=ml_dec, p_flip=0.12, model_ver=4, edge=0.0, skip_reason="ML dead zone")
+
+    # LGBM фичи невалидны
+    lgbm_proxy = CryptoSignalProxy(direction=None, features_ok=False)
+
+    db_session = AsyncMock()
+    api_client = MagicMock()
+    market = MagicMock()
+    market.asset = "BTC"
+    cfg = MagicMock()
+    cfg.bet_size = 10.0
+    raw_settings = {"COMBINED_NONE_BET_MULTIPLIER": "0.5"}
+    models_cache = MagicMock()
+    crypto_predictor = MagicMock()
+
+    with patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=ml_res)), \
+         patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=lgbm_proxy)):
+        
+        res = asyncio.run(decide_combined_mode(
+            db_session, api_client, market, cfg, raw_settings,
+            models_cache, crypto_predictor, start_time=MagicMock(), time_left_sec=300
+        ))
+
+    assert res.decision_obj.action == "SKIP"
+    # Должна сохраниться оригинальная причина ML
+    assert res.skip_reason == "ML dead zone"

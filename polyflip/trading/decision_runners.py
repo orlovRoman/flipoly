@@ -417,10 +417,11 @@ async def decide_combined_mode(
         return DecisionResult(None, ml_result.p_flip, ml_result.model_ver, None, vote.reason, lgbm_metadata=lgbm_meta)
 
     _strategy = "COMBINED" if vote.action != "SKIP" else ml_result.decision_obj.strategy_type
+    _reason = ml_result.decision_obj.reason if vote.action == "SKIP" and ml_action == "SKIP" else vote.reason
     final_decision = dataclasses.replace(
         ml_result.decision_obj,
         action=vote.action,
-        reason=vote.reason,
+        reason=_reason,
         strategy_type=_strategy,
     )
 
@@ -443,6 +444,6 @@ async def decide_combined_mode(
         p_flip=ml_result.p_flip,
         model_ver=ml_result.model_ver,
         edge=final_decision.edge if final_decision.edge is not None else ml_result.edge,  # сохраняем edge всегда — важно для анализа вето
-        skip_reason=vote.reason if vote.action == "SKIP" else None,
+        skip_reason=_reason if vote.action == "SKIP" else None,
         lgbm_metadata=lgbm_meta,
     )
