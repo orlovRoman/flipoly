@@ -24,7 +24,7 @@ logger = structlog.get_logger(__name__)
 
 @dataclass(frozen=True)
 class CryptoSignalProxy:
-    direction: Optional[Literal["UP", "DOWN"]]
+    direction: Optional[Literal["UP", "DOWN", "NONE"]]
     features_ok: bool
     model_version: Optional[int] = None
 
@@ -56,20 +56,6 @@ def combine_votes(
             confidence=ml_edge,
             ml_action=ml_action,
             lgbm_direction=None,
-            lgbm_features_ok=False,
-        )
-
-    if crypto_sig.direction not in ("UP", "DOWN"):
-        logger.warning("combined_lgbm_invalid_direction", direction=crypto_sig.direction, asset=asset)
-        return VotingResult(
-            action=ml_action,
-            reason=f"LightGBM invalid direction={crypto_sig.direction!r}, fallback to ML",
-            confidence=ml_edge,
-            ml_action=ml_action,
-            lgbm_direction=crypto_sig.direction,
-            lgbm_features_ok=False,
-        )
-
     if ml_action == "SKIP":
         return VotingResult(
             action="SKIP",

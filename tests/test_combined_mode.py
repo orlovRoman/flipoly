@@ -28,7 +28,11 @@ def test_combined_mode_veto():
     assert res.action == "SKIP"
     assert "veto" in res.reason.lower()
 
-    # ML говорит YES, LGBM не имеет направления (None) при features_ok=True -> fallback
+    # ML говорит YES, LGBM говорит NONE (нет тренда) -> вето
+    crypto = CryptoSignalProxy(direction="NONE", features_ok=True)
+    res = combine_votes("BUY_YES", 0.10, crypto, "BTC")
+    assert res.action == "SKIP"
+    assert "veto" in res.reason.lower()
     # Если LGBM не определил направление (None) но features_ok=True — это баг в predictor,
     # combine_votes должен это обработать как fallback (защита от невалидного direction)
     crypto = CryptoSignalProxy(direction=None, features_ok=True)
