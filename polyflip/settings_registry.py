@@ -79,7 +79,7 @@ REGISTRY: list[SettingDef] = [
 
     # --- Режим торговли ---
     SettingDef("TRADING_MODE", DEFAULT_TRADING_MODE,
-               description="Режим: ml | favorite | lightgbm"),
+               description="Режим: ml | favorite | lightgbm | combined"),
     SettingDef("TRADING_ENABLED", "false", editable=False,
                description="Управляется только через UI toggle, не через general settings API"),
 

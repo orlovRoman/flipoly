@@ -304,9 +304,14 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
     if key == "TRADING_MODE" or key.startswith("TRADING_MODE_"):
         if payload.value == "CRYPTO":
             payload.value = "lightgbm"
-        allowed = ("ml", "favorite", "lightgbm", "") if key.startswith("TRADING_MODE_") else ("ml", "favorite", "lightgbm")
+        allowed_per_asset = ("ml", "favorite", "lightgbm", "combined", "")
+        allowed_global   = ("ml", "favorite", "lightgbm", "combined")
+        allowed = allowed_per_asset if key.startswith("TRADING_MODE_") else allowed_global
         if payload.value not in allowed:
-            raise HTTPException(status_code=400, detail=f"{key} must be 'ml', 'favorite', 'lightgbm' or empty")
+            raise HTTPException(
+                status_code=400,
+                detail=f"{key} must be 'ml', 'favorite', 'lightgbm' or 'combined'"
+            )
 
     if key == "TRADE_MAX_PRICE" or key.startswith("TRADE_MAX_PRICE_"):
         if key.startswith("TRADE_MAX_PRICE_") and payload.value == "":

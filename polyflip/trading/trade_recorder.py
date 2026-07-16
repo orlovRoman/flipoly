@@ -13,13 +13,15 @@ from polyflip.trading.takeprofit import compute_take_profit_price
 from polyflip.api.trading_dashboard import invalidate_stats_cache
 from polyflip.api.dashboard import invalidate_dashboard_cache
 import os
-from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE
+from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
 
 logger = structlog.get_logger(__name__)
 
 def _get_trade_active_features(asset_mode: str, active_features_str: str, decision_obj: Any) -> str:
     if asset_mode == TRADING_MODE_LIGHTGBM:
         return "LIGHTGBM_TREND"
+    if asset_mode == TRADING_MODE_COMBINED:
+        return "COMBINED_ML_LGBM"
     if asset_mode == TRADING_MODE_FAVORITE:
         return "PURE_FAVORITE"
     

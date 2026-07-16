@@ -390,6 +390,8 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.tradingModeBadge.textContent = '⚡ Режим: Pure Favorite';
       } else if (mode === 'lightgbm') {
         settingsElements.tradingModeBadge.textContent = '🪙 Режим: ML (LightGBM)';
+      } else if (mode === 'combined') {
+        settingsElements.tradingModeBadge.textContent = '⚖️ Режим: ML + LightGBM (Combined)';
       } else {
         settingsElements.tradingModeBadge.textContent = '🤖 Режим: ML (LogReg)';
       }

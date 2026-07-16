@@ -269,3 +269,105 @@ async def decide_crypto_mode(
         edge=decision_obj.edge if decision_obj else None,
         skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None
     )
+
+async def decide_combined_mode(
+    db_session: AsyncSession,
+    api_client: Any,
+    market: LiveMarket,
+    cfg: TradingConfig,
+    raw_settings: dict,
+    models_cache: Any,
+    crypto_predictor: Any,
+    start_time: datetime,
+    time_left_sec: float,
+) -> DecisionResult:
+    """
+    COMBINED-режим: ML (LogReg) + LightGBM голосуют, решение по таблице.
+    Поддерживается только для активов из COMBINED_MODE_SUPPORTED_ASSETS.
+    """
+    from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS, COMBINED_BINANCE_SYMBOLS
+    from polyflip.trading.combined_voting import combine_votes, CryptoSignalProxy
+    from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
+    from polyflip.crypto.candle_repository import get_recent_candles
+
+    asset_upper = market.asset.upper()
+
+    # Guard: если актив не поддерживает LightGBM — деградируем в ML-режим
+    if asset_upper not in COMBINED_MODE_SUPPORTED_ASSETS:
+        logger.warning(
+            "combined_mode_unsupported_asset_fallback_to_ml",
+            asset=asset_upper,
+            supported=list(COMBINED_MODE_SUPPORTED_ASSETS),
+        )
+        return await decide_ml_mode(
+            db_session, api_client, market, cfg,
+            raw_settings, models_cache, None,
+            start_time, time_left_sec,
+        )
+
+    # --- Шаг A: запускаем ML-ветку ---
+    ml_result = await decide_ml_mode(
+        db_session, api_client, market, cfg,
+        raw_settings, models_cache, None,   # crypto_predictor=None, вето здесь не нужно
+        start_time, time_left_sec,
+    )
+
+    # --- Шаг B: запускаем LightGBM-ветку ---
+    binance_symbol = COMBINED_BINANCE_SYMBOLS.get(asset_upper)
+    crypto_proxy = CryptoSignalProxy(direction=None, features_ok=False)
+
+    if crypto_predictor is not None and binance_symbol is not None:
+        try:
+            await crypto_predictor.load(db_session, binance_symbol)
+            model_interval = crypto_predictor.get_interval(binance_symbol)
+            candles = await get_recent_candles(
+                db_session, binance_symbol,
+                interval=model_interval, limit=MIN_CANDLES_REQUIRED
+            )
+            raw_sig = crypto_predictor.predict(candles, binance_symbol)
+            crypto_proxy = CryptoSignalProxy(
+                direction=raw_sig.direction,
+                features_ok=raw_sig.features_ok,
+                model_version=getattr(raw_sig, "model_version", None),
+            )
+        except Exception as exc:
+            logger.error("combined_lgbm_error_fallback", asset=asset_upper, error=str(exc))
+            # features_ok=False → combine_votes сделает fallback на ML
+    else:
+        logger.warning("combined_no_crypto_predictor", asset=asset_upper)
+
+    # --- Шаг C: голосование ---
+    ml_action = ml_result.decision_obj.action if ml_result.decision_obj else "SKIP"
+    ml_edge   = ml_result.edge or 0.0
+
+    vote = combine_votes(ml_action, ml_edge, crypto_proxy, asset_upper)
+
+    logger.info(
+        "combined_vote_result",
+        asset=asset_upper,
+        ml_action=vote.ml_action,
+        lgbm_direction=vote.lgbm_direction,
+        lgbm_features_ok=vote.lgbm_features_ok,
+        final_action=vote.action,
+        reason=vote.reason,
+        confidence=round(vote.confidence, 4),
+    )
+
+    # --- Шаг D: применяем результат голосования к decision_obj ---
+    import dataclasses
+    if ml_result.decision_obj is None:
+        return DecisionResult(None, ml_result.p_flip, ml_result.model_ver, None, vote.reason)
+
+    final_decision = dataclasses.replace(
+        ml_result.decision_obj,
+        action=vote.action,
+        reason=vote.reason,
+    )
+
+    return DecisionResult(
+        decision_obj=final_decision,
+        p_flip=ml_result.p_flip,
+        model_ver=ml_result.model_ver,
+        edge=final_decision.edge if vote.action != "SKIP" else None,
+        skip_reason=vote.reason if vote.action == "SKIP" else None,
+    )

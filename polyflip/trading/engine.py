@@ -5,7 +5,7 @@ from typing import Optional
 
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.trader import PolyTrader
-from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE
+from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
 
 from polyflip.trading.settings_loader import load_trading_settings
 from polyflip.trading.trading_config import parse_trading_settings
@@ -106,6 +106,20 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         )
                     except ImportError:
                         pass
+                elif asset_mode == TRADING_MODE_COMBINED:
+                    try:
+                        from polyflip.trading.decision_runners import decide_combined_mode
+                        from polyflip.trading.ml_inference import get_models_cache
+                        models_cache = get_models_cache()
+                        decision_res = await decide_combined_mode(
+                            db_session, api_client, market, cfg,
+                            raw_settings, models_cache, _get_crypto_predictor(),
+                            start_time, time_left_sec
+                        )
+                    except Exception as e:
+                        logger.error("combined_mode_error", error=str(e), market_id=market.market_id)
+                        from polyflip.trading.decision_runners import DecisionResult
+                        decision_res = DecisionResult(None, 0.0, None, None, f"Combined mode error: {e}")
             except Exception as e:
                 logger.exception("decision_logic_error", market=market.market_id, error=str(e))
                 await save_or_update_skipped_trade(

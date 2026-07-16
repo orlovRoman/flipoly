@@ -7,7 +7,7 @@ from polyflip.db.models import LiveMarket
 from polyflip.trading.trading_config import TradingConfig
 from polyflip.trading.decision_logic import TradeDecision
 from polyflip.trading.position_sizing import compute_edge, compute_bet_size_edge_scaled
-from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE
+from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
 
 logger = structlog.get_logger(__name__)
 
@@ -65,7 +65,7 @@ async def validate_pre_trade(
     buy_price = fresh_ask
     
     # Пересчет edge по реальной цене
-    if asset_mode == TRADING_MODE_LIGHTGBM:
+    if asset_mode in (TRADING_MODE_LIGHTGBM, TRADING_MODE_COMBINED):
         edge = decision_obj.edge or 0.0
         actual_bet_size = decision_obj.bet_size_usdc
     else:
@@ -90,7 +90,7 @@ async def validate_pre_trade(
             skip_reason=f"Price out of bounds: {buy_price:.3f} [{cfg.trade_min_price}, {asset_max_price}]"
         )
         
-    if asset_mode != TRADING_MODE_LIGHTGBM:
+    if asset_mode not in (TRADING_MODE_LIGHTGBM, TRADING_MODE_COMBINED):
         if cfg.bet_sizing_mode == "fixed":
             actual_bet_size = cfg.bet_size
         else:

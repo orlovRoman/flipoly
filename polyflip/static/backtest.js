@@ -566,6 +566,7 @@ async function applyLiveSettings() {
       ml: 'ML',
       favorite: 'PURE_FAVORITE',
       lightgbm: 'ML',
+      combined: 'ML',
       CRYPTO: 'ML' // @deprecated: legacy value, remove after 2026-08-01
     };
     document.getElementById('cfg-strategy-mode').value = modeMap[s.TRADING_MODE] ?? 'ML';
