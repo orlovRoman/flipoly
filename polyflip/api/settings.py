@@ -85,14 +85,23 @@ async def get_recommended_thresholds():
         manual_key = f"TRADE_FLIP_THRESHOLD_{asset.upper()}"
         auto_key = f"AUTO_FLIP_THRESHOLD_{asset.upper()}"
         
-        key = manual_key if manual_key in db else auto_key
-        if key in db:
-            asset_flip = float(db[key])
-            per_asset[asset] = {
-                "flip_threshold": asset_flip,
-                "recommended_no_flip": round(asset_flip - dead_zone, 4),
-                "is_auto_calibrated": True
-            }
+        manual_val = db.get(manual_key)
+        if manual_val is not None and manual_val.strip() != "":
+            key = manual_key
+        else:
+            key = auto_key
+            
+        val_str = db.get(key)
+        if val_str is not None and val_str.strip() != "":
+            try:
+                asset_flip = float(val_str)
+                per_asset[asset] = {
+                    "flip_threshold": asset_flip,
+                    "recommended_no_flip": round(asset_flip - dead_zone, 4),
+                    "is_auto_calibrated": key == auto_key
+                }
+            except ValueError:
+                pass
 
     return {
         "global": {

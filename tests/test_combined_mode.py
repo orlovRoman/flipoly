@@ -243,3 +243,55 @@ def test_combined_lgbm_invalid_preserves_ml_skip_reason():
     assert res.decision_obj.action == "SKIP"
     # Должна сохраниться оригинальная причина ML
     assert res.skip_reason == "ML dead zone"
+
+def test_recommended_thresholds_empty_and_invalid_values():
+    """Тестируем, что get_recommended_thresholds не падает на пустых строках или невалидных значениях"""
+    from polyflip.api.settings import get_recommended_thresholds
+    from polyflip.db.models import RuntimeSettings
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, MagicMock, patch
+    import asyncio
+
+    now = datetime.now(timezone.utc)
+    db_settings = [
+        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.20", updated_at=now, updated_by="test"),
+        # BTC имеет пустой ручной порог, но валидный авто-порог
+        RuntimeSettings(key="TRADE_FLIP_THRESHOLD_BTC", value="", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="AUTO_FLIP_THRESHOLD_BTC", value="0.65", updated_at=now, updated_by="test"),
+        # ETH имеет невалидное значение
+        RuntimeSettings(key="TRADE_FLIP_THRESHOLD_ETH", value="invalid_float", updated_at=now, updated_by="test"),
+    ]
+
+    mock_db_session = AsyncMock()
+    mock_execute_result = MagicMock()
+    mock_execute_result.scalars.return_value.all.return_value = db_settings
+    mock_db_session.execute.return_value = mock_execute_result
+
+    class DummyAsyncContextManager:
+        def __init__(self, session):
+            self.session = session
+        async def __aenter__(self):
+            return self.session
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    def dummy_session_creator():
+        return DummyAsyncContextManager(mock_db_session)
+
+    from polyflip.config import Settings
+    from unittest.mock import PropertyMock
+
+    with patch("polyflip.api.settings.async_session", dummy_session_creator), \
+         patch.object(Settings, "asset_list", new_callable=PropertyMock) as mock_prop:
+         mock_prop.return_value = ["BTC", "ETH"]
+         response = asyncio.run(get_recommended_thresholds())
+         
+         # Должно отработать без ValueError
+         assert response["global"]["dead_zone"] == 0.15
+         # BTC должен переключиться на авто-порог
+         assert "BTC" in response["per_asset"]
+         assert response["per_asset"]["BTC"]["flip_threshold"] == 0.65
+         assert response["per_asset"]["BTC"]["is_auto_calibrated"] is True
+         # ETH должен пропуститься из-за невалидного значения
+         assert "ETH" not in response["per_asset"]
