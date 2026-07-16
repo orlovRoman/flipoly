@@ -310,7 +310,7 @@ def test_decide_crypto_trend_buy_yes():
     )
     d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG)
     assert d.action == "BUY_YES"
-    assert d.strategy_type == "CRYPTO_TREND"
+    assert d.strategy_type == "LIGHTGBM_TREND"
     assert d.p_up == 0.75
     assert d.strike == 60000.0
     assert d.edge == 0.15
@@ -323,7 +323,7 @@ def test_decide_crypto_trend_buy_no():
     )
     d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG)
     assert d.action == "BUY_NO"
-    assert d.strategy_type == "CRYPTO_TREND"
+    assert d.strategy_type == "LIGHTGBM_TREND"
     assert d.p_up == 0.25
 
 def test_decide_crypto_trend_skip_dead_zone():
@@ -334,6 +334,6 @@ def test_decide_crypto_trend_skip_dead_zone():
     )
     d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG)
     assert d.action == "SKIP"
-    assert d.strategy_type == "CRYPTO_TREND"
+    assert d.strategy_type == "LIGHTGBM_TREND"
     assert "edge" in d.reason
 

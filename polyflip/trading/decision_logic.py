@@ -47,7 +47,7 @@ def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
         bet = min_bet
     return bet
 
-StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "CRYPTO_TREND", "SKIP"]
+StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "LIGHTGBM_TREND", "SKIP"]
 ActionType = Literal["BUY_YES", "BUY_NO", "SKIP"]
 
 
@@ -258,7 +258,7 @@ def decide_crypto_trend(
     config: dict,
 ) -> TradeDecision:
     """
-    Торговая логика для CRYPTO_TREND.
+    Торговая логика для LIGHTGBM_TREND.
     Сигнал UP (рост) -> покупаем YES.
     Сигнал DOWN (падение) -> покупаем NO.
     """
@@ -266,14 +266,14 @@ def decide_crypto_trend(
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason=f"entry_price={entry_price} invalid",
-            strategy_type="CRYPTO_TREND",
+            strategy_type="LIGHTGBM_TREND",
             p_up=crypto.p_up, strike=crypto.strike
         )
 
     if not crypto.features_ok:
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
-            reason="Invalid crypto features", strategy_type="CRYPTO_TREND", 
+            reason="Invalid crypto features", strategy_type="LIGHTGBM_TREND", 
             p_up=crypto.p_up, strike=crypto.strike
         )
 
@@ -284,14 +284,14 @@ def decide_crypto_trend(
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason=f"crypto edge={crypto.edge:.4f} < min_edge={min_edge:.4f}",
-            strategy_type="CRYPTO_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
         )
 
     if crypto.edge > max_edge:
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason=f"crypto edge={crypto.edge:.4f} > max_edge={max_edge:.4f} (suspicious)",
-            strategy_type="CRYPTO_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
         )
 
     # Стандартизованный сайзинг ставок с подменой MIN_EDGE на CRYPTO_MIN_EDGE
@@ -301,7 +301,7 @@ def decide_crypto_trend(
     if bet <= 0 and not bypass:
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
-            reason="Bet size 0", strategy_type="CRYPTO_TREND", 
+            reason="Bet size 0", strategy_type="LIGHTGBM_TREND", 
             p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
         )
 
@@ -312,8 +312,8 @@ def decide_crypto_trend(
         action=action,
         buy_price=actual_buy_price,
         bet_size_usdc=bet,
-        reason=f"CRYPTO_TREND {crypto.symbol} p_up={crypto.p_up:.3f} edge={crypto.edge:.4f}",
-        strategy_type="CRYPTO_TREND",
+        reason=f"LIGHTGBM_TREND {crypto.symbol} p_up={crypto.p_up:.3f} edge={crypto.edge:.4f}",
+        strategy_type="LIGHTGBM_TREND",
         p_up=crypto.p_up,
         strike=crypto.strike,
         edge=crypto.edge

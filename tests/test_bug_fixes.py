@@ -34,7 +34,7 @@ def test_crypto_action_trade_should_execute():
 
     decision = TradeDecision(
         action="BUY_YES", buy_price=0.40, bet_size_usdc=5.0,
-        strategy_type="CRYPTO_TREND", reason="test", edge=0.12
+        strategy_type="LIGHTGBM_TREND", reason="test", edge=0.12
     )
     # Правильное условие: BUY_YES != SKIP → True → устанавливаем переменные (edge, model_ver, p_flip)
     assert (not decision or decision.action != "SKIP") is True, (
@@ -53,7 +53,7 @@ def test_crypto_action_skip_should_skip_init_block():
 
     decision = TradeDecision(
         action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
-        strategy_type="CRYPTO_TREND", reason="No signal", edge=0.0
+        strategy_type="LIGHTGBM_TREND", reason="No signal", edge=0.0
     )
     # Правильное условие: SKIP != SKIP = False → блок не выполняется (OK — SKIP попадёт в единый обработчик ниже)
     assert (not decision or decision.action != "SKIP") is False, (

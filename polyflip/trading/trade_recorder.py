@@ -19,7 +19,7 @@ logger = structlog.get_logger(__name__)
 
 def _get_trade_active_features(asset_mode: str, active_features_str: str, decision_obj: Any) -> str:
     if asset_mode == TRADING_MODE_LIGHTGBM:
-        return "CRYPTO_TREND"
+        return "LIGHTGBM_TREND"
     if asset_mode == TRADING_MODE_FAVORITE:
         return "PURE_FAVORITE"
     

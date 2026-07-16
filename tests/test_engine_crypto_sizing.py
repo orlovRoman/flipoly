@@ -11,7 +11,7 @@ def test_crypto_bet_size_not_overwritten():
     """TradeDecision сохраняет размер ставки."""
     decision = TradeDecision(
         action="BUY_YES", buy_price=0.6, bet_size_usdc=12.5,
-        reason="test", strategy_type="CRYPTO_TREND",
+        reason="test", strategy_type="LIGHTGBM_TREND",
         p_up=0.7, strike=65000.0, edge=0.15
     )
     assert decision.bet_size_usdc == 12.5

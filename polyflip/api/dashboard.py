@@ -229,8 +229,8 @@ async def get_trade_logs(
         if not active_feat and log.status == "SKIPPED":
             base_asset = log.asset.split("USDT")[0] if "USDT" in log.asset else log.asset.split("_")[0]
             mode = settings_dict.get(f"TRADING_MODE_{base_asset}", settings_dict.get("TRADING_MODE", "ml")).lower()
-            if mode == "crypto":
-                active_feat = "CRYPTO_TREND"
+            if mode == "lightgbm":
+                active_feat = "LIGHTGBM_TREND"
             elif mode == "favorite":
                 active_feat = "PURE_FAVORITE"
             else:

@@ -77,12 +77,16 @@ async def migrate_crypto_to_lightgbm(session: AsyncSession):
     Разовая миграция: если в БД есть TRADING_MODE = "CRYPTO" или TRADING_MODE_<ASSET> = "CRYPTO",
     меняем это значение на "lightgbm".
     """
-    result = await session.execute(
-        select(RuntimeSettings).where(
-            (RuntimeSettings.key == "TRADING_MODE") |
-            RuntimeSettings.key.like("TRADING_MODE_%")
-        )
+    stmt = select(RuntimeSettings).where(
+        (RuntimeSettings.key == "TRADING_MODE") |
+        RuntimeSettings.key.like("TRADING_MODE_%")
     )
+    # Используем блокировку только для полноценных СУБД (PostgreSQL), так как SQLite не поддерживает FOR UPDATE
+    bind = session.bind
+    if bind and bind.dialect.name != "sqlite":
+        stmt = stmt.with_for_update(skip_locked=True)
+        
+    result = await session.execute(stmt)
     rows = result.scalars().all()
     updated = False
     for r in rows:

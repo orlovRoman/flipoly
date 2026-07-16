@@ -59,7 +59,7 @@ async def test_crypto_predictor_flow():
     
     decision = decide_crypto_trend(signal, entry_price=0.65, volume_5min=5000.0, config=config)
     assert decision.action == "BUY_YES"
-    assert decision.strategy_type == "CRYPTO_TREND"
+    assert decision.strategy_type == "LIGHTGBM_TREND"
     assert decision.bet_size_usdc == 70.0
     assert decision.p_up == 0.8
     assert decision.strike == 60099.0

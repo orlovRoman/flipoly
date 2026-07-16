@@ -905,7 +905,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>`
             : escapeHtml(log.error_msg || "-");
         const isPureFav = log.active_features === "PURE_FAVORITE";
-        const isCrypto = log.active_features === "CRYPTO_TREND";
+        const isCrypto = log.active_features === "LIGHTGBM_TREND" || log.active_features === "CRYPTO_TREND";
         
         let phaseSuffix = "";
         if (!isPureFav && !isCrypto && log.executed_price > 0) {

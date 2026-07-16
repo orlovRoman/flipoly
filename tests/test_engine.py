@@ -529,7 +529,7 @@ async def test_skipped_crypto_trade_has_active_features_set(db_session):
          
          from polyflip.trading.decision_logic import TradeDecision
          mock_decide.return_value = TradeDecision(
-             action="SKIP", buy_price=0.0, bet_size_usdc=0.0, p_up=0.51, edge=0.01, strategy_type="CRYPTO_TREND", reason="Edge < min_edge", strike=60000.0
+             action="SKIP", buy_price=0.0, bet_size_usdc=0.0, p_up=0.51, edge=0.01, strategy_type="LIGHTGBM_TREND", reason="Edge < min_edge", strike=60000.0
          )
          
          await trade_worker_cycle(db_session, mock_trader, mock_api)
@@ -545,4 +545,4 @@ async def test_skipped_crypto_trade_has_active_features_set(db_session):
          assert trade is not None
          assert trade.status == "SKIPPED"
          assert trade.active_features != "", "active_features должны быть заполнены даже для skipped крипто-сделок"
-         assert "crypto" in trade.active_features.lower()
+         assert "lightgbm" in trade.active_features.lower()
