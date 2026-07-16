@@ -33,6 +33,7 @@ from polyflip.constants import (
     LIQUIDITY_FRACTION,
     FAVORITE_MIN_PRICE,
     FAVORITE_MAX_PRICE,
+    COMBINED_NONE_BET_MULTIPLIER,
 )
 
 
@@ -135,6 +136,8 @@ REGISTRY: list[SettingDef] = [
     # --- ML ---
     SettingDef("TRADE_NO_FLIP_THRESHOLD", "0.15",
                description="p_flip < этого → торгуем фаворита (ML режим)"),
+    SettingDef("COMBINED_NONE_BET_MULTIPLIER", str(COMBINED_NONE_BET_MULTIPLIER),
+               description="Множитель размера ставки при неопределенности (LGBM=NONE) в Combined-режиме (0.0 - 1.0)"),
     SettingDef("MAX_PRICE_DRIFT", "0.10",
                description="Макс. дрейф цены от момента сигнала до исполнения"),
 

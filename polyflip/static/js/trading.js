@@ -239,6 +239,8 @@ document.addEventListener("DOMContentLoaded", () => {
     bypassBetSizeCheck: document.getElementById("BYPASS_BET_SIZE_CHECK"),
     liquidityFraction: document.getElementById("LIQUIDITY_FRACTION"),
     maxPriceDrift: document.getElementById("MAX_PRICE_DRIFT"),
+    combinedModeSettings: document.getElementById('combined-mode-settings'),
+    combinedNoneBetMultiplier: document.getElementById('COMBINED_NONE_BET_MULTIPLIER'),
   };
 
   function updateDeadZoneInfo() {
@@ -382,8 +384,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function onTradingModeChange(mode) {
     const isFavorite = mode === 'favorite';
+    const isCombined = mode === 'combined';
     if (settingsElements.favoriteModeSettings) {
       settingsElements.favoriteModeSettings.style.display = isFavorite ? 'block' : 'none';
+    }
+    if (settingsElements.combinedModeSettings) {
+      settingsElements.combinedModeSettings.style.display = isCombined ? 'block' : 'none';
     }
     if (settingsElements.tradingModeBadge) {
       if (mode === 'favorite') {
@@ -607,6 +613,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxPriceDrift && data.MAX_PRICE_DRIFT !== undefined) {
         settingsElements.maxPriceDrift.value = data.MAX_PRICE_DRIFT;
       }
+      if (settingsElements.combinedNoneBetMultiplier && data.COMBINED_NONE_BET_MULTIPLIER !== undefined) {
+        settingsElements.combinedNoneBetMultiplier.value = data.COMBINED_NONE_BET_MULTIPLIER;
+      }
       updateDeadZoneInfo();
       if (data.TRADING_MODE) {
         const mode = data.TRADING_MODE;
@@ -782,6 +791,9 @@ document.addEventListener("DOMContentLoaded", () => {
       
       if (settingsElements.liquidityFraction) settingsToSave.LIQUIDITY_FRACTION = parseFloat(settingsElements.liquidityFraction.value);
       if (settingsElements.maxPriceDrift) settingsToSave.MAX_PRICE_DRIFT = parseFloat(settingsElements.maxPriceDrift.value);
+      if (settingsElements.combinedNoneBetMultiplier) {
+        settingsToSave.COMBINED_NONE_BET_MULTIPLIER = parseFloat(settingsElements.combinedNoneBetMultiplier.value);
+      }
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
       // Считываем индивидуальные настройки по активам

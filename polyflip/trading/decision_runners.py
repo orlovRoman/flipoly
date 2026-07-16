@@ -1,4 +1,7 @@
 import dataclasses
+import json
+import asyncio
+import time
 from dataclasses import dataclass
 from typing import Optional, Any
 from datetime import datetime, timezone
@@ -30,6 +33,7 @@ class DecisionResult:
     model_ver: Optional[int]
     edge: Optional[float]
     skip_reason: Optional[str]
+    lgbm_metadata: Optional[str] = None
 
 async def decide_favorite_mode(
     market: LiveMarket,
@@ -279,6 +283,30 @@ async def decide_crypto_mode(
         skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None
     )
 
+async def _fetch_lgbm_signal(
+    db_session: AsyncSession,
+    crypto_predictor: Any,
+    binance_symbol: str,
+    asset_upper: str,
+) -> Any:
+    """Изолированная LGBM-ветка для asyncio.gather."""
+    from polyflip.trading.combined_voting import CryptoSignalProxy
+    from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
+    from polyflip.crypto.candle_repository import get_recent_candles
+    try:
+        await crypto_predictor.load(db_session, binance_symbol)
+        interval = crypto_predictor.get_interval(binance_symbol)
+        candles = await get_recent_candles(db_session, binance_symbol, interval=interval, limit=MIN_CANDLES_REQUIRED)
+        raw_sig = crypto_predictor.predict(candles, binance_symbol)
+        return CryptoSignalProxy(
+            direction=raw_sig.direction,
+            features_ok=raw_sig.features_ok,
+            model_version=getattr(raw_sig, "model_version", None),
+        )
+    except Exception as exc:
+        logger.error("combined_lgbm_error_fallback", asset=asset_upper, error=str(exc))
+        return CryptoSignalProxy(direction=None, features_ok=False)
+
 async def decide_combined_mode(
     db_session: AsyncSession,
     api_client: Any,
@@ -297,8 +325,6 @@ async def decide_combined_mode(
     """
     from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS, COMBINED_BINANCE_SYMBOLS
     from polyflip.trading.combined_voting import combine_votes, CryptoSignalProxy
-    from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
-    from polyflip.crypto.candle_repository import get_recent_candles
 
     asset_upper = market.asset.upper()
 
@@ -309,48 +335,55 @@ async def decide_combined_mode(
             asset=asset_upper,
             supported=list(COMBINED_MODE_SUPPORTED_ASSETS),
         )
+        # NOTE: для неподдерживаемых активов (DOGE, XRP, SOL до обучения LGBM)
+        # деградируем в чистый ML без Confirm Gate — поведение идентично TRADING_MODE_ML.
+        # Когда актив войдет в COMBINED_MODE_SUPPORTED_ASSETS, он автоматически
+        # получит полный COMBINED-флоу без изменений здесь.
         return await decide_ml_mode(
             db_session, api_client, market, cfg,
             raw_settings, models_cache, None,
             start_time, time_left_sec, existing_skipped,
         )
 
-    # --- Шаг A: запускаем ML-ветку ---
-    ml_result = await decide_ml_mode(
+    t0 = time.monotonic()
+
+    # --- Шаг A: готовим ML-ветку ---
+    # NOTE: crypto_predictor=None намеренно.
+    # В COMBINED-режиме Confirm Gate (USE_CRYPTO_CONFIRM) заменяется механизмом
+    # голосования combine_votes на шаге C. Передача predictor сюда создала бы
+    # двойное вето: сначала Confirm Gate внутри decide_ml_mode, потом combine_votes.
+    # Если в будущем понадобится Confirm Gate в ML-ветке COMBINED — передавать predictor
+    # только при USE_CRYPTO_CONFIRM=True И явном флаге cfg.combined_confirm_gate=True.
+    ml_task = decide_ml_mode(
         db_session, api_client, market, cfg,
-        raw_settings, models_cache, None,   # crypto_predictor=None, вето здесь не нужно
+        raw_settings, models_cache, None,
         start_time, time_left_sec, existing_skipped,
     )
 
-    # --- Шаг B: запускаем LightGBM-ветку ---
+    # --- Шаг B: готовим LightGBM-ветку ---
     binance_symbol = COMBINED_BINANCE_SYMBOLS.get(asset_upper)
-    crypto_proxy = CryptoSignalProxy(direction=None, features_ok=False)
 
     if crypto_predictor is not None and binance_symbol is not None:
-        try:
-            await crypto_predictor.load(db_session, binance_symbol)
-            model_interval = crypto_predictor.get_interval(binance_symbol)
-            candles = await get_recent_candles(
-                db_session, binance_symbol,
-                interval=model_interval, limit=MIN_CANDLES_REQUIRED
-            )
-            raw_sig = crypto_predictor.predict(candles, binance_symbol)
-            crypto_proxy = CryptoSignalProxy(
-                direction=raw_sig.direction,
-                features_ok=raw_sig.features_ok,
-                model_version=getattr(raw_sig, "model_version", None),
-            )
-        except Exception as exc:
-            logger.error("combined_lgbm_error_fallback", asset=asset_upper, error=str(exc))
-            # features_ok=False → combine_votes сделает fallback на ML
+        lgbm_task = _fetch_lgbm_signal(db_session, crypto_predictor, binance_symbol, asset_upper)
+        # Запускаем параллельно
+        ml_result, crypto_proxy = await asyncio.gather(ml_task, lgbm_task)
     else:
+        ml_result = await ml_task
+        crypto_proxy = CryptoSignalProxy(direction=None, features_ok=False)
         logger.warning("combined_no_crypto_predictor", asset=asset_upper)
+
+    elapsed = time.monotonic() - t0
+    logger.info("combined_mode_latency", asset=asset_upper, elapsed_ms=round(elapsed * 1000, 1))
 
     # --- Шаг C: голосование ---
     ml_action = ml_result.decision_obj.action if ml_result.decision_obj else "SKIP"
     ml_edge   = ml_result.edge or 0.0
 
-    vote = combine_votes(ml_action, ml_edge, crypto_proxy, asset_upper)
+    none_bet_multiplier = _get_float_setting(raw_settings, "COMBINED_NONE_BET_MULTIPLIER")
+    if none_bet_multiplier is None:
+        none_bet_multiplier = 0.5
+
+    vote = combine_votes(ml_action, ml_edge, crypto_proxy, asset_upper, none_bet_multiplier=none_bet_multiplier)
 
     logger.info(
         "combined_vote_result",
@@ -361,23 +394,49 @@ async def decide_combined_mode(
         final_action=vote.action,
         reason=vote.reason,
         confidence=round(vote.confidence, 4),
+        bet_size_multiplier=vote.bet_size_multiplier,
     )
+
+    lgbm_meta = json.dumps({
+        "lgbm_version": crypto_proxy.model_version,
+        "lgbm_direction": crypto_proxy.direction,
+        "lgbm_features_ok": crypto_proxy.features_ok,
+        "is_fallback": not crypto_proxy.features_ok,
+        "vote_action": vote.action,
+        "bet_size_multiplier": vote.bet_size_multiplier,
+    })
 
     # --- Шаг D: применяем результат голосования к decision_obj ---
     import dataclasses
     if ml_result.decision_obj is None:
-        return DecisionResult(None, ml_result.p_flip, ml_result.model_ver, None, vote.reason)
+        return DecisionResult(None, ml_result.p_flip, ml_result.model_ver, None, vote.reason, lgbm_metadata=lgbm_meta)
 
+    _strategy = "COMBINED" if vote.action != "SKIP" else ml_result.decision_obj.strategy_type
     final_decision = dataclasses.replace(
         ml_result.decision_obj,
         action=vote.action,
         reason=vote.reason,
+        strategy_type=_strategy,
     )
+
+    if 0.0 < vote.bet_size_multiplier < 1.0:
+        reduced_bet = round(final_decision.bet_size_usdc * vote.bet_size_multiplier, 2)
+        min_bet = cfg.bet_size
+        reduced_bet = max(reduced_bet, min_bet)
+        final_decision = dataclasses.replace(final_decision, bet_size_usdc=reduced_bet)
+        logger.info(
+            "combined_bet_reduced",
+            asset=asset_upper,
+            multiplier=vote.bet_size_multiplier,
+            original_bet=final_decision.bet_size_usdc / vote.bet_size_multiplier,
+            reduced_bet=reduced_bet,
+        )
 
     return DecisionResult(
         decision_obj=final_decision,
         p_flip=ml_result.p_flip,
         model_ver=ml_result.model_ver,
-        edge=final_decision.edge if vote.action != "SKIP" else None,
+        edge=final_decision.edge,  # сохраняем edge всегда — важно для анализа вето
         skip_reason=vote.reason if vote.action == "SKIP" else None,
+        lgbm_metadata=lgbm_meta,
     )

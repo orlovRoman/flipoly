@@ -49,20 +49,23 @@ async def save_or_update_skipped_trade(
     start_time: datetime,
     existing_skipped: Optional[TradeHistory] = None,
     edge: Optional[float] = None,
-    active_features: str = ""
+    active_features: str = "",
+    lgbm_metadata: Optional[str] = None
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
     if existing_skipped:
         if (existing_skipped.error_msg != reason or 
             existing_skipped.predicted_flip_prob != p_flip_val or 
             existing_skipped.edge != edge or
-            existing_skipped.active_features != active_features):
+            existing_skipped.active_features != active_features or
+            existing_skipped.lgbm_metadata != lgbm_metadata):
             existing_skipped.error_msg = reason
             existing_skipped.predicted_flip_prob = p_flip_val
             existing_skipped.model_version = model_version
             existing_skipped.edge = edge
             if active_features:
                 existing_skipped.active_features = active_features
+            existing_skipped.lgbm_metadata = lgbm_metadata
             existing_skipped.updated_at = start_time
     else:
         history = TradeHistory(
@@ -78,6 +81,7 @@ async def save_or_update_skipped_trade(
             error_msg=reason,
             mode="LIVE" if bool(os.getenv("POLYGON_PRIVATE_KEY") and os.getenv("POLYGON_ADDRESS")) else "PAPER",
             edge=edge,
+            lgbm_metadata=lgbm_metadata,
             created_at=start_time
         )
         db_session.add(history)
@@ -97,6 +101,7 @@ async def execute_and_record(
     cfg: TradingConfig,
     existing_skipped: Optional[TradeHistory],
     start_time: datetime,
+    lgbm_metadata: Optional[str] = None,
 ) -> None:
     if not validation.valid:
         raise ValueError("execute_and_record called with failed validation")
@@ -152,6 +157,7 @@ async def execute_and_record(
         error_msg=trade_res.get("error_msg"),
         mode=trade_res.get("mode", "PAPER"),
         edge=round(edge, 4) if edge is not None else None,
+        lgbm_metadata=lgbm_metadata,
         created_at=start_time
     )
     db_session.add(history)

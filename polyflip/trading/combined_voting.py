@@ -5,16 +5,18 @@ ML-модель (LogReg) предсказывает p_flip (вероятност
 LightGBM-модель предсказывает направление крипто-цены (UP/DOWN).
 
 Правила объединения:
-┌──────────────┬────────────────┬──────────────┐
-│  ML-сигнал   │ LightGBM-сигн. │   Решение    │
-├──────────────┼────────────────┼──────────────┤
-│ BUY_YES      │ UP             │ BUY_YES (полн. размер) │
-│ BUY_YES      │ DOWN           │ SKIP (вето)  │
-│ BUY_NO       │ DOWN           │ BUY_NO (полн. размер)  │
-│ BUY_NO       │ UP             │ SKIP (вето)  │
-│ SKIP         │ любой          │ SKIP         │
-│ любой        │ features_ok=F  │ fallback → ML│
-└──────────────┴────────────────┴──────────────┘
+┌──────────────┬────────────────┬──────────────────────────────────┐
+│  ML-сигнал   │ LightGBM-сигн. │   Решение                        │
+├──────────────┼────────────────┼──────────────────────────────────┤
+│ BUY_YES      │ UP             │ BUY_YES (полный размер)           │
+│ BUY_YES      │ DOWN           │ SKIP (вето)                       │
+│ BUY_YES      │ NONE           │ BUY_YES (50% размер, без буста)   │
+│ BUY_NO       │ DOWN           │ BUY_NO (полный размер)            │
+│ BUY_NO       │ UP             │ SKIP (вето)                       │
+│ BUY_NO       │ NONE           │ BUY_NO (50% размер, без буста)    │
+│ SKIP         │ любой          │ SKIP                              │
+│ любой        │ features_ok=F  │ fallback → ML                     │
+└──────────────┴────────────────┴──────────────────────────────────┘
 """
 from dataclasses import dataclass
 from typing import Literal, Optional
@@ -36,16 +38,17 @@ class VotingResult:
     ml_action: str
     lgbm_direction: Optional[str]
     lgbm_features_ok: bool
+    bet_size_multiplier: float = 1.0  # 1.0 = полный, 0.5 = уменьшенный, 0.0 = вето
 
 def combine_votes(
     ml_action: str,
     ml_edge: float,
     crypto_sig: CryptoSignalProxy,
     asset: str,
+    none_bet_multiplier: float = 0.5,
 ) -> VotingResult:
     """
-    Основная таблица голосования.
-    ml_action: "BUY_YES" | "BUY_NO" | "SKIP"
+    Основная таблица голосования с поддержкой уменьшенного размера ставки при NONE.
     """
     if not crypto_sig.features_ok:
         # LightGBM-фичи недоступны → fallback на ML-решение без вето
@@ -57,6 +60,7 @@ def combine_votes(
             ml_action=ml_action,
             lgbm_direction=None,
             lgbm_features_ok=False,
+            bet_size_multiplier=1.0,
         )
 
     if ml_action == "SKIP":
@@ -67,10 +71,24 @@ def combine_votes(
             ml_action=ml_action,
             lgbm_direction=crypto_sig.direction,
             lgbm_features_ok=True,
+            bet_size_multiplier=0.0,
         )
 
     # Согласование направлений
     ml_direction = "UP" if ml_action == "BUY_YES" else "DOWN"
+
+    if crypto_sig.direction == "NONE":
+        # LGBM во флэте — не знает, но и не против. Уменьшаем ставку вместо вето.
+        return VotingResult(
+            action=ml_action,
+            reason=f"LightGBM flat (NONE): ML={ml_action}, reduced bet size",
+            confidence=ml_edge * 0.7,
+            ml_action=ml_action,
+            lgbm_direction="NONE",
+            lgbm_features_ok=True,
+            bet_size_multiplier=none_bet_multiplier,
+        )
+
     if crypto_sig.direction == ml_direction:
         return VotingResult(
             action=ml_action,
@@ -79,6 +97,7 @@ def combine_votes(
             ml_action=ml_action,
             lgbm_direction=crypto_sig.direction,
             lgbm_features_ok=True,
+            bet_size_multiplier=1.0,
         )
     else:
         return VotingResult(
@@ -88,4 +107,6 @@ def combine_votes(
             ml_action=ml_action,
             lgbm_direction=crypto_sig.direction,
             lgbm_features_ok=True,
+            bet_size_multiplier=0.0,
         )
+

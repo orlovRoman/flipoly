@@ -47,7 +47,7 @@ def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
         bet = min_bet
     return bet
 
-StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "LIGHTGBM_TREND", "SKIP"]
+StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "LIGHTGBM_TREND", "COMBINED", "SKIP"]
 ActionType = Literal["BUY_YES", "BUY_NO", "SKIP"]
 
 

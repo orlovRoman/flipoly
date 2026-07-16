@@ -105,6 +105,7 @@ class TradeHistory(Base):
     edge = Column(Float, nullable=True)
     p_up = Column(Float, nullable=True)
     strike = Column(Float, nullable=True)
+    lgbm_metadata = Column(String, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)
     
     # --- Stop-loss ---

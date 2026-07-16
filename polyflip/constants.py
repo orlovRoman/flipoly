@@ -120,3 +120,7 @@ def get_price_phase(mid_price: float) -> str:
         if lo <= dev < hi:
             return phase
     return "decided"  # fallback: dev >= 0.50
+
+# --- Combined Mode ---
+COMBINED_NONE_BET_MULTIPLIER = 0.5
+

@@ -294,9 +294,26 @@
                                 </div>
                             </div>
                             
+                            <!-- Настройки Combined режима (размер ставки при флэте) -->
+                            <div id="combined-mode-settings" style="display: none; margin-top: 12px;">
+                                <div class="form-group" style="margin: 0;">
+                                    <label for="COMBINED_NONE_BET_MULTIPLIER" title="Множитель размера ставки в Combined-режиме, если LightGBM находится во флэте (NONE). 0.5 означает снижение размера ставки наполовину." class="settings-label">
+                                        Множитель ставки при неопределенности LGBM (NONE)
+                                        <span style="color: var(--text-muted); font-size: 0.8rem; font-weight: normal; display: block; margin-top: 2px;">Допустимо от 0.0 до 1.0 (дефолт 0.5 = 50% от базового размера).</span>
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        id="COMBINED_NONE_BET_MULTIPLIER" 
+                                        min="0.0" max="1.0" step="0.1" 
+                                        value="0.5"
+                                        style="width: 100%; max-width: 200px;"
+                                    >
+                                </div>
+                            </div>
+                            
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1.5rem; margin-bottom: 0;">
                                 <input type="checkbox" id="TRADE_ON_FAVORITE" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;" checked>
-                                <label for="TRADE_ON_FAVORITE" title="Если включено, бот будет делать ставки по тренду на фаворита (Pure Favorite/ML Trend/Crypto Trend)." style="margin: 0; cursor: pointer;">Включить ставки на фаворита (TRADE_ON_FAVORITE)</label>
+                                <label for="TRADE_ON_FAVORITE" title="Если включено, бот будет делать ставки по тренду (за фаворита) во всех режимах (ML, Combined, Pure Favorite)." style="margin: 0; cursor: pointer;">Включить ставки по тренду (TRADE_ON_FAVORITE)</label>
                             </div>
                         </div>
                         
@@ -552,11 +569,11 @@
                             
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem;">
                                 <input type="checkbox" id="TRADE_ON_FLIP" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                <label for="TRADE_ON_FLIP" title="Торговать на разворот (стратегия Аутсайдера - когда ML модель предсказывает сильную вероятность разворота рынка)." style="margin: 0; cursor: pointer;">Включить ставки на аутсайдера (TRADE_ON_FLIP)</label>
+                                <label for="TRADE_ON_FLIP" title="Торговать на разворот (стратегия Аутсайдера - когда модель предсказывает сильную вероятность разворота рынка) во всех режимах (ML, Combined)." style="margin: 0; cursor: pointer;">Включить ставки на аутсайдера (TRADE_ON_FLIP)</label>
                             </div>
 
                             <div class="form-group">
-                                <label for="FLIP_THRESHOLD" title="[ТОЛЬКО ДЛЯ CRYPTO TREND (без ML)] Порог вероятности переворота рынка, выше которого бот ставит на Аутсайдера. В текущем ML-режиме бот ПОЛНОСТЬЮ ИГНОРИРУЕТ эту цифру.">Порог Флипа для NO (Crypto Trend)</label>
+                                <label for="FLIP_THRESHOLD" title="[ДЛЯ LIGHTGBM РЕЖИМА (Crypto Trend)] Порог вероятности переворота рынка, выше которого бот ставит на Аутсайдера. В ML и Combined режимах бот ПОЛНОСТЬЮ ИГНОРИРУЕТ эту цифру.">Порог Флипа для NO (LightGBM Режим)</label>
                                 <input type="number" step="1" min="50" max="99" id="FLIP_THRESHOLD" value="70">
                             </div>
 
