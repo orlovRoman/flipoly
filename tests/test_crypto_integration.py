@@ -63,3 +63,9 @@ async def test_crypto_predictor_flow():
     assert decision.bet_size_usdc == 70.0
     assert decision.p_up == 0.8
     assert decision.strike == 60099.0
+
+
+def test_crypto_features_count_matches_mock():
+    from polyflip.crypto.trainer import CRYPTO_FEATURES
+    assert len(CRYPTO_FEATURES) == 27, \
+        f"Тесты мокают 27 фичей, но реальных: {len(CRYPTO_FEATURES)}"

@@ -166,7 +166,7 @@ def decide_ml_trend(
 
     edge = compute_edge(p_win, buy_price)
     
-    min_edge = float(config.get("MIN_EDGE_FILTER", config.get("MIN_EDGE", MIN_EDGE)))
+    min_edge = float(config.get("MIN_EDGE", MIN_EDGE))
     # MAX_EDGE_FILTER как фильтр аномального edge (SKIP если edge > filter)
     max_edge = float(config.get("MAX_EDGE_FILTER", config.get("MAX_BET_EDGE", MAX_EDGE_FILTER)))
     if edge < min_edge or edge > max_edge:

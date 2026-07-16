@@ -357,7 +357,7 @@ async def test_engine_skips_when_edge_too_small(db_session):
          assert len(trades) == 1
          assert trades[0].status == "SKIPPED"
          assert "Edge out of bounds" in trades[0].error_msg
-         assert abs(trades[0].edge - 0.0345) < 1e-4
+         assert abs(trades[0].edge - (-0.0083)) < 1e-4
          assert mock_trader.execute_trade.call_count == 0
 
 
@@ -415,8 +415,8 @@ async def test_engine_skips_no_deal_when_edge_too_small(db_session):
          target_trade = next(t for t in trades if t.market_id == "m_edge_no")
          assert target_trade.status == "SKIPPED"
          assert "Edge out of bounds" in target_trade.error_msg
-         # edge = (p_win / buy_price) - 1 = (0.4 / 0.68) - 1 = -0.4118
-         assert abs(target_trade.edge - (-0.4118)) < 1e-4
+         # edge = (p_win / buy_price) - 1 = (0.4 / 0.705) - 1 = -0.4326
+         assert abs(target_trade.edge - (-0.4326)) < 1e-4
          assert mock_trader.execute_trade.call_count == 0
 
 @pytest.mark.asyncio

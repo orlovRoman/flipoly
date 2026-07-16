@@ -147,3 +147,8 @@ async def test_engine_crypto_standalone_bet_size(db_session):
          assert trades[0].status == "SUCCESS"
          assert trades[0].amount_usdc > 0
 
+
+def test_crypto_features_count_matches_mock():
+    from polyflip.crypto.trainer import CRYPTO_FEATURES
+    assert len(CRYPTO_FEATURES) == 27, \
+        f"Тесты мокают 27 фичей, но реальных: {len(CRYPTO_FEATURES)}"

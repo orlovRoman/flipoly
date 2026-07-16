@@ -14,6 +14,15 @@ from polyflip.trading.utils import compute_dead_zone
 
 logger = structlog.get_logger(__name__)
 
+def _get_float_setting(raw_settings: dict, key: str) -> Optional[float]:
+    val = raw_settings.get(key)
+    if val is not None and str(val).strip() not in ("", "0", "0.0"):
+        try:
+            return float(val)
+        except ValueError:
+            pass
+    return None
+
 @dataclass
 class DecisionResult:
     decision_obj: Optional[TradeDecision]
@@ -143,19 +152,10 @@ async def decide_ml_mode(
     auto_key_phase = f"AUTO_FLIP_THRESHOLD_{used_model}"
     auto_key_base  = f"AUTO_FLIP_THRESHOLD_{market.asset.upper()}"
 
-    def _get_float_setting(key):
-        val = raw_settings.get(key)
-        if val is not None and str(val).strip() not in ("", "0", "0.0"):
-            try:
-                return float(val)
-            except ValueError:
-                pass
-        return None
-
-    manual_val = _get_float_setting(manual_key)
-    auto_phase_val = _get_float_setting(auto_key_phase)
-    auto_base_val = _get_float_setting(auto_key_base)
-    global_threshold_val = _get_float_setting("TRADE_FLIP_THRESHOLD")
+    manual_val = _get_float_setting(raw_settings, manual_key)
+    auto_phase_val = _get_float_setting(raw_settings, auto_key_phase)
+    auto_base_val = _get_float_setting(raw_settings, auto_key_base)
+    global_threshold_val = _get_float_setting(raw_settings, "TRADE_FLIP_THRESHOLD")
 
     if manual_val is not None:
         base_flip_threshold = manual_val
@@ -177,10 +177,9 @@ async def decide_ml_mode(
     local_config = {**raw_settings}
     local_config["NO_FLIP_THRESHOLD"] = str(lower)
     local_config["FLIP_THRESHOLD"] = str(upper)
-    # Используем FAVORITE_MIN_EDGE=-100.0 и MIN_EDGE_FILTER=-100.0 для обхода edge-фильтрации в decide_favorite и decide_ml_trend.
-    # Это сохраняет оригинальный MIN_EDGE в local_config для Kelly/scaling расчета размера ставки.
+    # Используем FAVORITE_MIN_EDGE=-100.0 для обхода edge-фильтрации внутри вспомогательного вызова decide_favorite.
+    # Это сохраняет оригинальный MIN_EDGE в local_config для правильной ML-фильтрации в decide_ml_trend и расчета Kelly.
     local_config["FAVORITE_MIN_EDGE"] = "-100.0"
-    local_config["MIN_EDGE_FILTER"] = "-100.0"
     local_config["MAX_BET_EDGE"] = "100.0"
     local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 

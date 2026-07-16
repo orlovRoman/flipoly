@@ -101,7 +101,9 @@ def _empty_result(
         total_return_net=0.0,
         sharpe_ratio=0.0,
         max_drawdown=0.0,
+        edge_rate=0.0,
         epsilon=epsilon,
+        train_auc=0.5,
         pnl_mode=pnl_mode,
         pnl_curve=[],
     )
@@ -142,15 +144,14 @@ def run_backtest(
     df_test  = _build_target(df_test_raw)
 
     if epsilon_quantile is not None:
-        n_test_len = len(df_test[df_test["ret_1"].shift(-1).abs() >= epsilon_val])
-    else:
-        n_test_len = len(df_test)
+        df_train = df_train[df_train["abs_ret_next"] >= epsilon_val].copy()
+        df_test  = df_test[df_test["abs_ret_next"] >= epsilon_val].copy()
 
     feature_list = features if features is not None else CRYPTO_FEATURES
     available    = [f for f in feature_list if f in df_train.columns]
 
     if len(df_train) < 300 or len(available) == 0:
-        return _empty_result(symbol, n_total, n_test_len, epsilon_val, pnl_mode)
+        return _empty_result(symbol, n_total, len(df_test), epsilon_val, pnl_mode)
 
     vol_median = float(df_train["vol_ratio"].median())
     models: dict[str, Any] = {}
@@ -173,7 +174,7 @@ def run_backtest(
         train_aucs.append(auc)
 
     if not models:
-        return _empty_result(symbol, n_total, n_test_len, epsilon_val, pnl_mode)
+        return _empty_result(symbol, n_total, len(df_test), epsilon_val, pnl_mode)
 
     train_auc = float(np.mean(train_aucs))
 
@@ -205,7 +206,7 @@ def run_backtest(
         return BacktestResult(
             symbol=symbol,
             n_candles_total=n_total,
-            n_candles_test=n_test_len,
+            n_candles_test=len(df_test),
             n_trades=0,
             win_rate=0.0,
             total_return=0.0,
@@ -261,7 +262,7 @@ def run_backtest(
             return BacktestResult(
                 symbol=symbol,
                 n_candles_total=n_total,
-                n_candles_test=n_test_len,
+                n_candles_test=len(df_test),
                 n_trades=0,
                 win_rate=0.0,
                 total_return=0.0,
@@ -315,7 +316,7 @@ def run_backtest(
         return BacktestResult(
             symbol=symbol,
             n_candles_total=n_total,
-            n_candles_test=n_test_len,
+            n_candles_test=len(df_test),
             n_trades=n_matched,
             win_rate=win_rate,
             total_return=total_return,
@@ -338,10 +339,7 @@ def run_backtest(
     trades["pnl"]     = trades["direction"] * trades["ret_next"]
     trades["pnl_net"] = trades["pnl"] - _commission * 2
 
-    if epsilon_quantile is not None:
-        significant = trades[trades["ret_next"].abs() >= epsilon_val]
-    else:
-        significant = trades
+    significant = trades
 
     win_rate = (
         float((significant["pnl"] > 0).mean())
@@ -364,7 +362,7 @@ def run_backtest(
     return BacktestResult(
         symbol=symbol,
         n_candles_total=n_total,
-        n_candles_test=n_test_len,
+        n_candles_test=len(df_test),
         n_trades=len(trades),
         win_rate=win_rate,
         total_return=total_return,
