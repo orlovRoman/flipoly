@@ -133,14 +133,24 @@ def run_backtest(
     df_train_raw = df_features.iloc[:n_train].copy()
     df_test_raw  = df_features.iloc[n_train:].copy()
 
+    if epsilon_quantile is not None:
+        epsilon_val = float(df_train_raw["ret_1"].abs().quantile(epsilon_quantile))
+    else:
+        epsilon_val = _EPSILON
+
     df_train = _build_target(df_train_raw)
     df_test  = _build_target(df_test_raw)
+
+    if epsilon_quantile is not None:
+        n_test_len = len(df_test[df_test["ret_1"].shift(-1).abs() >= epsilon_val])
+    else:
+        n_test_len = len(df_test)
 
     feature_list = features if features is not None else CRYPTO_FEATURES
     available    = [f for f in feature_list if f in df_train.columns]
 
     if len(df_train) < 300 or len(available) == 0:
-        return _empty_result(symbol, n_total, len(df_test), 0.0, pnl_mode)
+        return _empty_result(symbol, n_total, n_test_len, epsilon_val, pnl_mode)
 
     vol_median = float(df_train["vol_ratio"].median())
     models: dict[str, Any] = {}
@@ -163,7 +173,7 @@ def run_backtest(
         train_aucs.append(auc)
 
     if not models:
-        return _empty_result(symbol, n_total, len(df_test), 0.0, pnl_mode)
+        return _empty_result(symbol, n_total, n_test_len, epsilon_val, pnl_mode)
 
     train_auc = float(np.mean(train_aucs))
 
@@ -195,7 +205,7 @@ def run_backtest(
         return BacktestResult(
             symbol=symbol,
             n_candles_total=n_total,
-            n_candles_test=len(df_test),
+            n_candles_test=n_test_len,
             n_trades=0,
             win_rate=0.0,
             total_return=0.0,
@@ -203,7 +213,7 @@ def run_backtest(
             sharpe_ratio=0.0,
             max_drawdown=0.0,
             edge_rate=float(df_test["signal"].mean()),
-            epsilon=_EPSILON,
+            epsilon=epsilon_val,
             train_auc=train_auc,
             pnl_mode=pnl_mode,
             pnl_curve=[],
@@ -251,7 +261,7 @@ def run_backtest(
             return BacktestResult(
                 symbol=symbol,
                 n_candles_total=n_total,
-                n_candles_test=len(df_test),
+                n_candles_test=n_test_len,
                 n_trades=0,
                 win_rate=0.0,
                 total_return=0.0,
@@ -259,7 +269,7 @@ def run_backtest(
                 sharpe_ratio=0.0,
                 max_drawdown=0.0,
                 edge_rate=float(df_test["signal"].mean()),
-                epsilon=_EPSILON,
+                epsilon=epsilon_val,
                 train_auc=train_auc,
                 pnl_mode=pnl_mode,
                 n_polymarket_matched=0,
@@ -305,7 +315,7 @@ def run_backtest(
         return BacktestResult(
             symbol=symbol,
             n_candles_total=n_total,
-            n_candles_test=len(df_test),
+            n_candles_test=n_test_len,
             n_trades=n_matched,
             win_rate=win_rate,
             total_return=total_return,
@@ -313,7 +323,7 @@ def run_backtest(
             sharpe_ratio=sharpe,
             max_drawdown=max_dd,
             edge_rate=float(df_test["signal"].mean()),
-            epsilon=_EPSILON,
+            epsilon=epsilon_val,
             train_auc=train_auc,
             pnl_mode=pnl_mode,
             n_polymarket_matched=n_matched,
@@ -328,7 +338,11 @@ def run_backtest(
     trades["pnl"]     = trades["direction"] * trades["ret_next"]
     trades["pnl_net"] = trades["pnl"] - _commission * 2
 
-    significant = trades
+    if epsilon_quantile is not None:
+        significant = trades[trades["ret_next"].abs() >= epsilon_val]
+    else:
+        significant = trades
+
     win_rate = (
         float((significant["pnl"] > 0).mean())
         if len(significant) > 0
@@ -350,7 +364,7 @@ def run_backtest(
     return BacktestResult(
         symbol=symbol,
         n_candles_total=n_total,
-        n_candles_test=len(df_test),
+        n_candles_test=n_test_len,
         n_trades=len(trades),
         win_rate=win_rate,
         total_return=total_return,
@@ -358,7 +372,7 @@ def run_backtest(
         sharpe_ratio=sharpe,
         max_drawdown=max_dd,
         edge_rate=float(df_test["signal"].mean()),
-        epsilon=_EPSILON,
+        epsilon=epsilon_val,
         train_auc=train_auc,
         pnl_mode="binance",
         pnl_curve=_build_pnl_curve(trades, cum_pnl),

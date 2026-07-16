@@ -51,9 +51,21 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             return
 
         for market in markets:
-            asset_mode = raw_settings.get(f"TRADING_MODE_{market.asset.upper()}", cfg.trading_mode)
-            asset_min_edge = float(raw_settings.get(f"MIN_EDGE_{market.asset.upper()}", cfg.min_edge))
-            asset_max_price = float(raw_settings.get(f"TRADE_MAX_PRICE_{market.asset.upper()}", cfg.trade_max_price))
+            asset_mode = raw_settings.get(f"TRADING_MODE_{market.asset.upper()}")
+            if not asset_mode or asset_mode.strip() == "":
+                asset_mode = cfg.trading_mode
+                
+            val_min_edge = raw_settings.get(f"MIN_EDGE_{market.asset.upper()}")
+            if val_min_edge is not None and val_min_edge.strip() != "":
+                asset_min_edge = float(val_min_edge)
+            else:
+                asset_min_edge = cfg.min_edge
+                
+            val_max_price = raw_settings.get(f"TRADE_MAX_PRICE_{market.asset.upper()}")
+            if val_max_price is not None and val_max_price.strip() != "":
+                asset_max_price = float(val_max_price)
+            else:
+                asset_max_price = cfg.trade_max_price
 
             end_time_utc = market.end_time_est
             if end_time_utc.tzinfo is None:

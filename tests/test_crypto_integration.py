@@ -16,17 +16,18 @@ async def test_crypto_predictor_flow():
     # predict_proba должна возвращать массив вида [[p_down, p_up]]
     mock_lgb.predict_proba.return_value = [[0.2, 0.8]]
     
-    predictor._models["BTCUSDT"] = {"low_vol": mock_lgb, "high_vol": mock_lgb}
-    predictor._model_versions["BTCUSDT"] = {"low_vol": 42, "high_vol": 42}
-    predictor._thresholds["BTCUSDT"] = {"low_vol": (0.65, 0.35), "high_vol": (0.65, 0.35)}
-    predictor._vol_medians["BTCUSDT"] = 1.0
+    predictor._models["BTCUSDT"] = {"low_vol": mock_lgb, "mid_vol": mock_lgb, "high_vol": mock_lgb}
+    predictor._model_versions["BTCUSDT"] = {"low_vol": 42, "mid_vol": 42, "high_vol": 42}
+    predictor._thresholds["BTCUSDT"] = {"low_vol": (0.65, 0.35), "mid_vol": (0.65, 0.35), "high_vol": (0.65, 0.35)}
+    predictor._vol_p33s["BTCUSDT"] = 0.5
+    predictor._vol_p67s["BTCUSDT"] = 1.5
     predictor._loaded_symbols.add("BTCUSDT")
 
     # 2. Мокаем сборку фичей build_crypto_features, возвращая полностью валидные 26 полей
     mock_features = MagicMock()
     mock_features.valid = True
     # 26 значений (все поля Validator заполнены)
-    mock_features.features = [np.array([0.01]*26)]
+    mock_features.features = [np.array([0.01]*27)]
 
     # Создаем фейковую свечу для страйка
     class FakeCandle:

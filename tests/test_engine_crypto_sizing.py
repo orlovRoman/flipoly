@@ -41,10 +41,11 @@ def test_crypto_predictor_cache():
     predictor = CryptoPredictor()
     predictor._loaded_symbols.add("BTCUSDT")
     mock = object()
-    predictor._models["BTCUSDT"] = {"low_vol": mock, "high_vol": mock}
-    predictor._model_versions["BTCUSDT"] = {"low_vol": 42, "high_vol": 42}
-    predictor._thresholds["BTCUSDT"] = {"low_vol": (0.55, 0.45), "high_vol": (0.55, 0.45)}
-    predictor._vol_medians["BTCUSDT"] = 1.0
+    predictor._models["BTCUSDT"] = {"low_vol": mock, "mid_vol": mock, "high_vol": mock}
+    predictor._model_versions["BTCUSDT"] = {"low_vol": 42, "mid_vol": 42, "high_vol": 42}
+    predictor._thresholds["BTCUSDT"] = {"low_vol": (0.55, 0.45), "mid_vol": (0.55, 0.45), "high_vol": (0.55, 0.45)}
+    predictor._vol_p33s["BTCUSDT"] = 0.5
+    predictor._vol_p67s["BTCUSDT"] = 1.5
     
     # Проверяем, что load() проверит версии в БД и вернет True (cache hit)
     import asyncio
@@ -57,7 +58,7 @@ def test_crypto_predictor_cache():
                 self.version = version
 
         mock_result = AsyncMock()
-        mock_result.all.return_value = [MockRow("BTCUSDT_low_vol", 42), MockRow("BTCUSDT_high_vol", 42)]
+        mock_result.all.return_value = [MockRow("BTCUSDT_low_vol", 42), MockRow("BTCUSDT_mid_vol", 42), MockRow("BTCUSDT_high_vol", 42)]
         fake_db.execute.return_value = mock_result
         
         res = await predictor.load(fake_db, "BTCUSDT")
@@ -121,13 +122,13 @@ async def test_engine_crypto_standalone_bet_size(db_session):
     fake_candles = [FakeCandle()]
     mock_features = MagicMock()
     mock_features.valid = True
-    mock_features.features = [np.array([0.01]*26)]
+    mock_features.features = [np.array([0.01]*27)]
 
     with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
          patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls, \
          patch("pickle.loads", return_value=mock_model), \
          patch("polyflip.crypto.predictor.build_crypto_features", return_value=mock_features), \
-         patch("polyflip.trading.engine.get_recent_candles", AsyncMock(return_value=fake_candles)):
+         patch("polyflip.trading.decision_runners.get_recent_candles", AsyncMock(return_value=fake_candles)):
 
          mock_trader = mock_trader_cls.return_value
          mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
