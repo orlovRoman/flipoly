@@ -398,7 +398,8 @@ async def get_daily_pnl(db: AsyncSession = Depends(get_db_session)):
         TradeHistory.asset,
         TradeHistory.active_features,
         TradeHistory.pnl,
-        TradeHistory.amount_usdc
+        TradeHistory.amount_usdc,
+        TradeHistory.executed_price
     ).where(
         TradeHistory.created_at >= midnight,
         TradeHistory.status.in_(["SUCCESS", "FAILED"]),
@@ -417,8 +418,8 @@ async def get_daily_pnl(db: AsyncSession = Depends(get_db_session)):
             strategy = 'Аутсайдер'
         elif 'фаворит' in features or 'favorite' in features:
             strategy = 'Фаворит'
-        elif trade.executed_price is not None:
-            if float(trade.executed_price) >= 0.5:
+        elif row.executed_price is not None:
+            if float(row.executed_price) >= 0.5:
                 strategy = 'Фаворит'
             else:
                 strategy = 'Аутсайдер'

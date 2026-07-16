@@ -60,3 +60,31 @@ async def test_max_edge_mapping(db_session):
     assert row.value == "0.25"  # 25% переведено в долю 0.25
 
 
+@pytest.mark.asyncio
+async def test_get_daily_pnl(db_session):
+    from polyflip.api.dashboard import get_daily_pnl
+    now = datetime.now(timezone.utc)
+    
+    # Добавляем сделку без active_features, но с executed_price
+    t = TradeHistory(
+        market_id="m_pnl_1",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=10.0,
+        executed_price=0.6,
+        predicted_flip_prob=0.8,
+        active_features="other",
+        status="SUCCESS",
+        pnl=1.5,
+        created_at=now
+    )
+    db_session.add(t)
+    await db_session.commit()
+
+    res = await get_daily_pnl(db=db_session)
+    assert res["status"] == "success"
+    assert len(res["data"]) == 1
+    assert res["data"][0]["strategy"] == "Фаворит"
+
+
+

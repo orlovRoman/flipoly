@@ -20,6 +20,9 @@ from polyflip.settings_registry import editable_keys as _registry_editable_keys
 
 logger = structlog.get_logger(__name__)
 
+def get_request(request: Request) -> Request:
+    return request
+
 router = APIRouter(prefix="/api/settings", tags=["Settings"], dependencies=[Depends(verify_api_key)])
 
 class SettingValue(BaseModel):
@@ -108,7 +111,7 @@ from polyflip.db.connection import get_db_session
 @router.put("/bulk")
 async def update_settings_bulk(
     payload: BulkSettings, 
-    request: Optional[Request] = Depends(lambda request: request),
+    request: Optional[Request] = Depends(get_request),
     db: AsyncSession = Depends(get_db_session)
 ):
     """
@@ -138,7 +141,7 @@ async def update_settings_bulk(
     return {"status": "partial" if errors else "ok", "saved": saved, "errors": errors}
 
 @router.api_route("/security/{key}", methods=["PUT", "POST"])
-async def update_security_setting(key: str, payload: SettingValue, request: Optional[Request] = Depends(lambda request: request), db: AsyncSession = Depends(get_db_session)):
+async def update_security_setting(key: str, payload: SettingValue, request: Optional[Request] = Depends(get_request), db: AsyncSession = Depends(get_db_session)):
     """
     Отдельный эндпоинт для обновления флагов безопасности, которые недоступны через основной API.
     """
@@ -180,7 +183,7 @@ async def update_security_setting(key: str, payload: SettingValue, request: Opti
 
 
 @router.api_route("/{key}", methods=["PUT", "POST"])
-async def update_setting(key: str, payload: SettingValue, request: Optional[Request] = Depends(lambda request: request), db: AsyncSession = Depends(get_db_session)):
+async def update_setting(key: str, payload: SettingValue, request: Optional[Request] = Depends(get_request), db: AsyncSession = Depends(get_db_session)):
     """
     Обновляет или создает настройку в БД.
     """
