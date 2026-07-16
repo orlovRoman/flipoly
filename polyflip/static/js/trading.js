@@ -908,6 +908,7 @@ document.addEventListener("DOMContentLoaded", () => {
             : escapeHtml(log.error_msg || "-");
         const isPureFav = log.active_features === "PURE_FAVORITE";
         const isCrypto = log.active_features === "LIGHTGBM_TREND" || log.active_features === "CRYPTO_TREND";
+        const isCombined = log.active_features === "COMBINED_ML_LGBM";
         
         let phaseSuffix = "";
         if (!isPureFav && !isCrypto && log.executed_price > 0) {
@@ -918,7 +919,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         
         const modelStr = log.model_version 
-          ? (isCrypto ? `LightGBM v${log.model_version}` : `v${log.model_version}${phaseSuffix}`) 
+          ? (isCrypto ? `LightGBM v${log.model_version}` : 
+             isCombined ? `v${log.model_version}${phaseSuffix} + LightGBM` : 
+             `v${log.model_version}${phaseSuffix}`) 
           : (isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-"));
 
         let pnlText = "-";
