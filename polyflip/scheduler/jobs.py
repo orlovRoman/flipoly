@@ -224,22 +224,24 @@ async def candle_collector_job():
 
 
 async def candle_backfill_job(session: AsyncSession) -> None:
-    """
-    Запускается ОДИН РАЗ при старте.
-    Проверяет наличие истории — если < 500 свечей для BTCUSDT/15m, загружает.
-    """
     from polyflip.crypto.candle_repository import get_latest_open_time
-    
-    latest = await get_latest_open_time(session, "BTCUSDT", "15m")
-    needs_backfill = (
-        latest is None or
-        (datetime.now(timezone.utc) - latest) > timedelta(days=7)
-    )
-    if needs_backfill:
-        logger.info("backfill_triggered")
-        await load_history_all(session)
+    from polyflip.crypto.historical_loader import load_history_all, DEFAULT_SYMBOLS
+
+    symbols_to_backfill = []
+    for symbol in DEFAULT_SYMBOLS:
+        latest = await get_latest_open_time(session, symbol, "15m")
+        needs = (
+            latest is None or
+            (datetime.now(timezone.utc) - latest) > timedelta(days=7)
+        )
+        if needs:
+            symbols_to_backfill.append(symbol)
+
+    if symbols_to_backfill:
+        logger.info("backfill_triggered", symbols=symbols_to_backfill)
+        await load_history_all(session, symbols=symbols_to_backfill)
     else:
-        logger.info("backfill_skipped", latest=latest.isoformat())
+        logger.info("backfill_skipped")
 
 
 async def candle_pruning_job():

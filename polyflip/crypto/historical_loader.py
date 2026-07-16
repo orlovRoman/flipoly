@@ -18,7 +18,7 @@ from polyflip.crypto.candle_repository import upsert_candles
 logger = structlog.get_logger(__name__)
 
 # Настройки по умолчанию — переопределяются через аргументы или RuntimeSettings
-DEFAULT_SYMBOLS:   list[str] = ["BTCUSDT", "ETHUSDT"]
+DEFAULT_SYMBOLS:   list[str] = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"]
 DEFAULT_INTERVALS: list[str] = ["5m", "15m"]
 DEFAULT_DAYS_BACK: int       = 90
 BINANCE_SLEEP_SEC: float     = 0.15   # 150ms между батчами → ~6 req/sec, хорошо в рамках лимита

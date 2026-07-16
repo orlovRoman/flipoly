@@ -24,6 +24,9 @@ KLINES_LIMIT = 1000   # максимум за один запрос
 COIN_TO_SYMBOL: dict[str, str] = {
     "bitcoin":  "BTCUSDT",
     "ethereum": "ETHUSDT",
+    "dogecoin": "DOGEUSDT",
+    "ripple":   "XRPUSDT",
+    "solana":   "SOLUSDT",
 }
 
 _transport = HTTPTransport(retries=3)   # автоматический retry на network errors

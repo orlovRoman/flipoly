@@ -15,7 +15,7 @@ from polyflip.crypto.candle_repository import upsert_candles, get_latest_open_ti
 
 log = logging.getLogger(__name__)
 
-SYMBOLS   = ["BTCUSDT", "ETHUSDT"]
+SYMBOLS   = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"]
 INTERVALS = ["5m", "15m"]
 
 
