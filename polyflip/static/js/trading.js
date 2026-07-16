@@ -911,18 +911,21 @@ document.addEventListener("DOMContentLoaded", () => {
         const isCombined = log.active_features === "COMBINED_ML_LGBM";
         
         let phaseSuffix = "";
+        // phaseSuffix вычисляется для ml и combined (оба используют phase-модели)
         if (!isPureFav && !isCrypto && log.executed_price > 0) {
             const dev = Math.abs(log.executed_price - 0.5);
             if (dev < 0.10) phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(contested)</span>";
             else if (dev < 0.25) phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(leaning)</span>";
             else phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(decided)</span>";
         }
-        
-        const modelStr = log.model_version 
-          ? (isCrypto ? `LightGBM v${log.model_version}` : 
-             isCombined ? `v${log.model_version}${phaseSuffix} + LightGBM` : 
-             `v${log.model_version}${phaseSuffix}`) 
-          : (isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-"));
+        const modelStr = (() => {
+          if (!log.model_version) {
+            return isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-");
+          }
+          if (isCrypto) return `LightGBM v${log.model_version}`;
+          if (isCombined) return `v${log.model_version}${phaseSuffix} + LightGBM`;
+          return `v${log.model_version}${phaseSuffix}`;
+        })();
 
         let pnlText = "-";
         let pnlColor = "var(--text-main)";
