@@ -62,7 +62,7 @@ def combine_votes(
     if ml_action == "SKIP":
         return VotingResult(
             action="SKIP",
-            reason="ML voted SKIP",
+            reason="ML (in Combined mode) voted SKIP",
             confidence=0.0,
             ml_action=ml_action,
             lgbm_direction=crypto_sig.direction,
