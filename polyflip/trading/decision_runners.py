@@ -280,6 +280,7 @@ async def decide_combined_mode(
     crypto_predictor: Any,
     start_time: datetime,
     time_left_sec: float,
+    existing_skipped: Any = None,
 ) -> DecisionResult:
     """
     COMBINED-режим: ML (LogReg) + LightGBM голосуют, решение по таблице.
@@ -302,14 +303,14 @@ async def decide_combined_mode(
         return await decide_ml_mode(
             db_session, api_client, market, cfg,
             raw_settings, models_cache, None,
-            start_time, time_left_sec,
+            start_time, time_left_sec, existing_skipped,
         )
 
     # --- Шаг A: запускаем ML-ветку ---
     ml_result = await decide_ml_mode(
         db_session, api_client, market, cfg,
         raw_settings, models_cache, None,   # crypto_predictor=None, вето здесь не нужно
-        start_time, time_left_sec,
+        start_time, time_left_sec, existing_skipped,
     )
 
     # --- Шаг B: запускаем LightGBM-ветку ---
