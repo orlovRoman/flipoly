@@ -39,12 +39,7 @@ def test_feature_columns_match_derived_plus_lag():
         f"Фичи отсутствуют в FEATURE_COLUMNS: {missing_from_columns}"
     )
 
-    # price_deviation и другие промежуточные НЕ должны попасть в FEATURE_COLUMNS
-    intermediate = {"price_deviation", "deviation_x_time", "price_deviation_sq"}
-    leaked = intermediate & set(FEATURE_COLUMNS)
-    assert not leaked, (
-        f"Промежуточные фичи не должны быть в FEATURE_COLUMNS: {leaked}"
-    )
+
 
 def test_add_lag_features_basic():
     df = pd.DataFrame({

@@ -26,14 +26,45 @@ def get_models_cache() -> ModelsCache:
         _models_cache = ModelsCache(models={}, versions={}, features={})
     return _models_cache
 
+def clear_models_cache() -> None:
+    global _models_cache
+    _models_cache = None
+
 async def populate_models_cache(db_session: AsyncSession) -> None:
     cache = get_models_cache()
-    if cache.models:
-        return
-    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
-    active_models = (await db_session.execute(models_stmt)).scalars().all()
     
-    for m in active_models:
+    # 1. Запрашиваем asset и version активных моделей
+    stmt = select(ModelRegistry.asset, ModelRegistry.version).where(ModelRegistry.is_active)
+    res = await db_session.execute(stmt)
+    active_info = res.all()
+    
+    db_assets = {row.asset for row in active_info}
+    
+    # 2. Удаляем из кэша модели, которые больше не активны в базе
+    for cached_asset in list(cache.models.keys()):
+        if cached_asset not in db_assets:
+            cache.models.pop(cached_asset, None)
+            cache.versions.pop(cached_asset, None)
+            cache.features.pop(cached_asset, None)
+            
+    # 3. Находим модели, версии которых изменились или которых нет в кэше
+    to_load = []
+    for row in active_info:
+        cached_ver = cache.versions.get(row.asset)
+        if cached_ver is None or cached_ver != row.version:
+            to_load.append(row.asset)
+            
+    if not to_load:
+        return
+        
+    # 4. Загружаем изменившиеся/новые модели
+    load_stmt = select(ModelRegistry).where(
+        ModelRegistry.is_active,
+        ModelRegistry.asset.in_(to_load)
+    )
+    models_to_load = (await db_session.execute(load_stmt)).scalars().all()
+    
+    for m in models_to_load:
         try:
             model_obj = pickle.loads(m.model_blob)
             cache.models[m.asset] = model_obj
@@ -44,6 +75,7 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
                 m_feats = list(model_obj.feature_names_in_)
                 
             cache.features[m.asset] = m_feats
+            logger.info("model_cache_updated", asset=m.asset, version=m.version)
         except Exception as e:
             logger.error("Failed to load model", asset=m.asset, error=str(e))
 
@@ -84,13 +116,18 @@ def build_inference_dataframe(
         "recorded_at": start_time,
     })
     
+    from polyflip.models.trainer import add_derived_features
+    from polyflip.models.feature_lags import add_lag_features
+
     df = pd.DataFrame(rows)
+    df = add_derived_features(df)
     df["price_distance_from_max"] = (global_max - df["mid_price"]).clip(lower=0.0)
+    df = add_lag_features(df)
     
     if "recorded_at" in df.columns:
-        df = df.drop(columns=["recorded_at"])
+        df = df.drop(columns=["recorded_at"], errors="ignore")
     if "market_id" in df.columns:
-        df = df.drop(columns=["market_id"])
+        df = df.drop(columns=["market_id"], errors="ignore")
         
     return df
 

@@ -10,6 +10,7 @@ from polyflip.trading.decision_logic import TradeDecision, MarketSignal, decide_
 from polyflip.trading.ml_inference import build_inference_dataframe, run_model_inference
 from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
 from polyflip.crypto.candle_repository import get_recent_candles
+from polyflip.trading.utils import compute_dead_zone
 
 logger = structlog.get_logger(__name__)
 
@@ -75,12 +76,17 @@ async def decide_ml_mode(
     api_client: Any,
     market: LiveMarket,
     cfg: TradingConfig,
-    models_cache: Any,
-    crypto_predictor: Any,
-    start_time: datetime,
-    time_left_sec: float,
-    existing_skipped: Optional[TradeHistory],
+    raw_settings: Optional[dict] = None,
+    models_cache: Optional[Any] = None,
+    crypto_predictor: Optional[Any] = None,
+    start_time: Optional[datetime] = None,
+    time_left_sec: float = 600.0,
+    existing_skipped: Optional[TradeHistory] = None,
 ) -> DecisionResult:
+    if raw_settings is None:
+        raw_settings = {}
+    if start_time is None:
+        start_time = datetime.now(timezone.utc)
     fresh_yes_prices = await api_client.get_market_prices(market.yes_token_id)
     if not fresh_yes_prices or "current_yes_price" not in fresh_yes_prices:
         error_msg = fresh_yes_prices.get("error", "No fresh YES prices from API") if fresh_yes_prices else "No fresh YES prices from API"
@@ -89,19 +95,26 @@ async def decide_ml_mode(
     fresh_yes_price = fresh_yes_prices["current_yes_price"]
     fresh_spread = fresh_yes_prices.get("current_spread", market.current_spread)
     
-    asset_upper = market.asset.upper()
-    model = models_cache.models.get(asset_upper)
+    from polyflip.constants import get_price_phase
+    phase = get_price_phase(fresh_yes_price)
+    phase_asset = f"{market.asset.upper()}_{phase}"
     
-    if not model:
-        from polyflip.trading.ml_inference import populate_models_cache
-        await populate_models_cache(db_session)
-        model = models_cache.models.get(asset_upper)
+    from polyflip.trading.ml_inference import populate_models_cache
+    await populate_models_cache(db_session)
 
-    model_ver = models_cache.versions.get(asset_upper)
-    active_features = models_cache.features.get(asset_upper, [])
+    if phase_asset in models_cache.models:
+        model = models_cache.models[phase_asset]
+        model_ver = models_cache.versions.get(phase_asset)
+        active_features = models_cache.features.get(phase_asset, [])
+        used_model = phase_asset
+    else:
+        model = models_cache.models.get(market.asset.upper())
+        model_ver = models_cache.versions.get(market.asset.upper())
+        active_features = models_cache.features.get(market.asset.upper(), [])
+        used_model = market.asset.upper()
     
     if not model:
-        return DecisionResult(None, 0.0, None, None, f"No active model found for {asset_upper}")
+        return DecisionResult(None, 0.0, None, None, f"No active model found for {market.asset.upper()}")
         
     df = build_inference_dataframe(
         market=market,
@@ -125,20 +138,35 @@ async def decide_ml_mode(
         time_left_min=time_left_sec / 60.0
     )
 
-    local_config = {
-        "DEAD_ZONE_WIDTH": str(cfg.dead_zone),
-        "AUTO_DEAD_ZONE": str(cfg.auto_dead_zone),
-        "TRADE_ON_FAVORITE": str(cfg.trade_on_favorite),
-        "TRADE_ON_FLIP": str(cfg.trade_on_flip),
-        "FLIP_THRESHOLD": str(cfg.flip_threshold),
-        "OUTSIDER_MAX_PRICE": "0.49",
-        "TRADE_BET_SIZE_USDC": str(cfg.bet_size),
-        "MAX_BET_SIZE_USDC": str(cfg.max_bet_size_usdc),
-        "MAX_BET_EDGE": str(cfg.max_bet_edge),
-        "MIN_EDGE": str(cfg.min_edge),
-        "TRADE_MAX_PRICE": str(cfg.trade_max_price),
-        "BET_SIZING_MODE": str(cfg.bet_sizing_mode),
-    }
+    # Приоритет: ручной → фазовый авто → базовый авто → дефолт
+    manual_key     = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
+    auto_key_phase = f"AUTO_FLIP_THRESHOLD_{used_model}"
+    auto_key_base  = f"AUTO_FLIP_THRESHOLD_{market.asset.upper()}"
+
+    manual_val = raw_settings.get(manual_key)
+    if manual_val is not None and str(manual_val).strip() not in ("", "0", "0.0"):
+        base_flip_threshold = float(manual_val)
+    elif auto_key_phase in raw_settings:
+        base_flip_threshold = float(raw_settings[auto_key_phase])
+    elif auto_key_base in raw_settings:
+        base_flip_threshold = float(raw_settings[auto_key_base])
+    elif "TRADE_FLIP_THRESHOLD" in raw_settings:
+        base_flip_threshold = float(raw_settings["TRADE_FLIP_THRESHOLD"])
+    else:
+        base_flip_threshold = cfg.no_flip_threshold + cfg.dead_zone
+
+    lower, upper = compute_dead_zone(
+        flip_threshold=base_flip_threshold,
+        dead_zone_width=cfg.dead_zone,
+        auto_mode=cfg.auto_dead_zone,
+    )
+
+    local_config = {**raw_settings}
+    local_config["NO_FLIP_THRESHOLD"] = str(lower)
+    local_config["FLIP_THRESHOLD"] = str(upper)
+    local_config["MIN_EDGE"] = "-100.0"
+    local_config["MAX_BET_EDGE"] = "100.0"
+    local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 
     if cfg.trade_on_favorite:
         decision_obj = decide_ml_trend(signal, p_flip, local_config)
@@ -147,6 +175,16 @@ async def decide_ml_mode(
 
     if decision_obj.action == "SKIP" and cfg.trade_on_flip:
         decision_obj = decide_outsider(signal, p_flip, local_config)
+
+    if decision_obj.action == "SKIP" and decision_obj.reason != "Favorite trades disabled (TRADE_ON_FAVORITE=False)":
+        if lower <= p_flip < upper:
+            decision_obj = dataclasses.replace(
+                decision_obj, reason=f"Мёртвая зона (p_flip={p_flip:.2f} в [{lower:.2f}, {upper:.2f}])"
+            )
+        elif not cfg.trade_on_flip and p_flip >= upper:
+            decision_obj = dataclasses.replace(
+                decision_obj, reason=f"Ожидается флип (p_flip={p_flip:.2f} >= {upper:.2f})"
+            )
 
     # Confirm Gate
     use_crypto_confirm = getattr(cfg, 'use_crypto_confirm', False)

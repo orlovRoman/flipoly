@@ -84,6 +84,7 @@ async def test_skipped_then_signal_appears(db_session):
     registry = res_reg.scalar_one()
     mock_model.prob_yes = 0.05
     registry.model_blob = pickle.dumps(mock_model)
+    registry.version += 1
     await db_session.commit()
 
     await trade_worker_cycle(db_session, mock_trader, mock_api)
@@ -161,6 +162,7 @@ async def test_no_double_entry(db_session):
     registry = res_reg.scalar_one()
     mock_model.prob_yes = 0.02
     registry.model_blob = pickle.dumps(mock_model)
+    registry.version += 1
     await db_session.commit()
 
     await trade_worker_cycle(db_session, mock_trader, mock_api)

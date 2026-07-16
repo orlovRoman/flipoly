@@ -35,6 +35,9 @@ def make_fake_df(n=500):
         "range_avg_24":    np.random.randn(n),
         "dow":             np.random.randint(0, 7, n),
     })
+    for f in CRYPTO_FEATURES:
+        if f not in df.columns:
+            df[f] = np.random.randn(n)
     df["target"] = (df["ret_1"] > 0).astype(int)
     return df
 
@@ -79,10 +82,11 @@ def test_predictor_predict_missing_regime():
     predictor._models["BTCUSDT"]         = {"low_vol": mock_lgb}  # нет high_vol
     predictor._model_versions["BTCUSDT"] = {"low_vol": 1}
     predictor._thresholds["BTCUSDT"]     = {"low_vol": (0.65, 0.35)}
-    predictor._vol_medians["BTCUSDT"]    = 1.0
+    predictor._vol_p33s["BTCUSDT"]       = 1.0
+    predictor._vol_p67s["BTCUSDT"]       = 2.0
     predictor._loaded_symbols.add("BTCUSDT")
 
-    # vol_ratio > median → должен запросить high_vol, которого нет
+    # vol_ratio > vol_p67 → должен запросить high_vol, которого нет
     # После фикса — должен сделать fallback на low_vol без KeyError
     from unittest.mock import patch
     with patch("polyflip.crypto.predictor.build_crypto_features") as mock_bf:

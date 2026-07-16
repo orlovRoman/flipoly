@@ -25,9 +25,12 @@ def test_no_mutation():
     assert "price_deviation" not in df.columns
 
 def test_all_derived_columns_present():
+    from polyflip.models.feature_lags import LAG_FEATURE_NAMES
     df = pd.DataFrame([{"mid_price": 0.6, "time_left_min": 8.0, "spread": 0.02}])
     r = add_derived_features(df)
     for feat in DERIVED_FEATURES:
+        if feat in LAG_FEATURE_NAMES:
+            continue
         assert feat in r.columns
 
 def test_spread_pct_near_zero_price():

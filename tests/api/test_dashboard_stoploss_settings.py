@@ -14,7 +14,7 @@ async def test_patch_stop_loss_pct_valid(db_session, monkeypatch):
             # no-op to satisfy SonarQube rule
             pass
             
-    monkeypatch.setattr("polyflip.api.settings.async_session", lambda: DummyAsyncContextManager(db_session))
+    monkeypatch.setattr("polyflip.db.connection.async_session", lambda: DummyAsyncContextManager(db_session))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Валидный патч
@@ -34,7 +34,7 @@ async def test_patch_stop_loss_pct_invalid(db_session, monkeypatch):
             # no-op to satisfy SonarQube rule
             pass
             
-    monkeypatch.setattr("polyflip.api.settings.async_session", lambda: DummyAsyncContextManager(db_session))
+    monkeypatch.setattr("polyflip.db.connection.async_session", lambda: DummyAsyncContextManager(db_session))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Инвалидный патч (0%)

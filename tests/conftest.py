@@ -1,6 +1,12 @@
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from polyflip.db.models import Base
+import pytest
+from polyflip.trading.ml_inference import clear_models_cache
+
+@pytest.fixture(autouse=True)
+def clean_models_cache_fixture():
+    clear_models_cache()
 
 
 @pytest_asyncio.fixture(scope="function")

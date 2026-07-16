@@ -14,6 +14,8 @@ from polyflip.trading.market_guards import check_market_guards
 from polyflip.trading.decision_runners import decide_favorite_mode, decide_ml_mode
 from polyflip.trading.pre_trade_validator import validate_pre_trade
 from polyflip.trading.trade_recorder import execute_and_record, save_or_update_skipped_trade
+from polyflip.crypto.candle_repository import get_recent_candles
+from polyflip.trading.decision_logic import decide_crypto_trend
 
 logger = structlog.get_logger(__name__)
 
@@ -61,7 +63,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             guard_res = await check_market_guards(db_session, market, cfg, asset_mode, time_left_sec, start_time)
             
             if not guard_res.passed:
-                if guard_res.skip_reason and guard_res.skip_reason != "Time left <= 0":
+                if guard_res.skip_reason and guard_res.skip_reason not in ("Time left <= 0", "Trade already exists"):
                     await save_or_update_skipped_trade(
                         db_session, market, guard_res.skip_reason, p_flip_val=0.0,
                         model_version=None, start_time=start_time,
@@ -77,7 +79,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     from polyflip.trading.ml_inference import get_models_cache
                     models_cache = get_models_cache()
                     decision_res = await decide_ml_mode(
-                        db_session, api_client, market, cfg, models_cache, _get_crypto_predictor(),
+                        db_session, api_client, market, cfg, raw_settings, models_cache, _get_crypto_predictor(),
                         start_time, time_left_sec, existing_skipped
                     )
                 elif asset_mode == TRADING_MODE_FAVORITE:
@@ -104,8 +106,10 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 p_flip = decision_res.p_flip if decision_res else 0.0
                 edge = decision_res.edge if decision_res else None
                 model_ver = decision_res.model_ver if decision_res else None
+                from polyflip.trading.trade_recorder import _get_trade_active_features
                 await save_or_update_skipped_trade(
-                    db_session, market, skip_reason or "SKIP", p_flip, model_ver, start_time, existing_skipped, edge
+                    db_session, market, skip_reason or "SKIP", p_flip, model_ver, start_time, existing_skipped, edge,
+                    active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj if decision_res else None)
                 )
                 continue
 

@@ -17,7 +17,8 @@ def test_invalidate_all_clears_cache():
     for p in [p1, p2]:
         p._loaded_symbols.add("BTCUSDT")
         p._models["BTCUSDT"]         = {"low_vol": object()}
-        p._vol_medians["BTCUSDT"]    = 1.0
+        p._vol_p33s["BTCUSDT"]       = 1.0
+        p._vol_p67s["BTCUSDT"]       = 2.0
         p._thresholds["BTCUSDT"]     = {"low_vol": (0.55, 0.45)}
         p._model_versions["BTCUSDT"] = {"low_vol": 1}
 
@@ -26,7 +27,8 @@ def test_invalidate_all_clears_cache():
     for p in [p1, p2]:
         assert "BTCUSDT" not in p._loaded_symbols
         assert "BTCUSDT" not in p._models
-        assert "BTCUSDT" not in p._vol_medians
+        assert "BTCUSDT" not in p._vol_p33s
+        assert "BTCUSDT" not in p._vol_p67s
 
 
 def test_invalidate_other_symbol_untouched():

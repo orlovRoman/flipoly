@@ -50,6 +50,12 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     df["spread_pct"]          = (df["spread"] / (df["mid_price"] + 1e-6)).clip(upper=10.0)
     df["log_time_left"]       = np.log1p(df["time_left_min"])
 
+    if "day_of_week" not in df.columns:
+        if "recorded_at" in df.columns:
+            df["day_of_week"] = pd.to_datetime(df["recorded_at"]).dt.weekday.astype(float)
+        else:
+            df["day_of_week"] = 0.0
+
     # price_distance_from_max: по всей истории рынка в датасете
     if "market_id" in df.columns and "recorded_at" in df.columns:
         # expanding max по времени внутри рынка
@@ -184,6 +190,7 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
             final_model.fit(X, y)
         except Exception:
             return None # Impossible to fit
+        final_base = final_model
     else:
         final_base = clone(base_model)
         final_base.fit(X_train_cal, y_train_cal)

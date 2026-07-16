@@ -27,6 +27,10 @@ FEATURE_COLUMNS: list[str] = [
     "price_deviation_sq",
     "spread_pct",
     "log_time_left",
+    "is_final_phase",
+    "high_price_final",
+    "velocity_x_phase",
+    "dev_sq_x_phase",
     # Лаговые (динамические)
     *LAG_FEATURE_NAMES,   # price_velocity_lag1, price_momentum, spread_trend, volume_trend
 ]
@@ -70,14 +74,33 @@ def build_feature_vector(signal: MarketSignal) -> np.ndarray:
     Возвращает numpy array shape (1, N) для model.predict_proba().
     Порядок колонок строго соответствует FEATURE_COLUMNS.
     """
-    return np.array([[
-        signal.time_left_min,
-        signal.mid_price,
-        signal.spread,
-        signal.volume_5min,
-        signal.price_velocity,
-        signal.hour_of_day,
-    ]], dtype=np.float64)
+    import pandas as pd
+    from datetime import datetime, timezone
+    from polyflip.models.trainer import add_derived_features
+    from polyflip.models.feature_lags import add_lag_features
+
+    df = pd.DataFrame([{
+        "market_id": signal.asset,
+        "recorded_at": datetime.now(timezone.utc),
+        "time_left_min": signal.time_left_min,
+        "mid_price": signal.mid_price,
+        "spread": signal.spread,
+        "volume_5min": signal.volume_5min,
+        "price_velocity": signal.price_velocity,
+        "hour_of_day": signal.hour_of_day,
+    }])
+    
+    df = add_derived_features(df)
+    df = add_lag_features(df)
+    
+    # Заполняем NaN в лагах или других колонках нулями для совместимости с формой
+    for col in FEATURE_COLUMNS:
+        if col not in df.columns:
+            df[col] = 0.0
+        else:
+            df[col] = df[col].fillna(0.0)
+            
+    return df[FEATURE_COLUMNS].to_numpy()
 
 
 def signal_from_snapshot_row(row) -> MarketSignal:

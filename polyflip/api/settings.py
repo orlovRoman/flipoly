@@ -79,13 +79,16 @@ async def get_recommended_thresholds():
     # Per-asset
     per_asset = {}
     for asset in settings.asset_list:
-        key = f"AUTO_FLIP_THRESHOLD_{asset.upper()}"
+        manual_key = f"TRADE_FLIP_THRESHOLD_{asset.upper()}"
+        auto_key = f"AUTO_FLIP_THRESHOLD_{asset.upper()}"
+        
+        key = manual_key if manual_key in db else auto_key
         if key in db:
             asset_flip = float(db[key])
             per_asset[asset] = {
                 "flip_threshold": asset_flip,
                 "recommended_no_flip": round(asset_flip - dead_zone, 4),
-                "is_auto_calibrated": True  # выставлен trainer'ом
+                "is_auto_calibrated": True
             }
 
     return {
@@ -105,7 +108,7 @@ from polyflip.db.connection import get_db_session
 @router.put("/bulk")
 async def update_settings_bulk(
     payload: BulkSettings, 
-    request: Optional[Request] = None,
+    request: Request = None,
     db: AsyncSession = Depends(get_db_session)
 ):
     """
@@ -132,7 +135,7 @@ async def update_settings_bulk(
     return {"status": "partial" if errors else "ok", "saved": saved, "errors": errors}
 
 @router.api_route("/security/{key}", methods=["PUT", "POST"])
-async def update_security_setting(key: str, payload: SettingValue, request: Optional[Request] = None, db: AsyncSession = Depends(get_db_session)):
+async def update_security_setting(key: str, payload: SettingValue, request: Request = None, db: AsyncSession = Depends(get_db_session)):
     """
     Отдельный эндпоинт для обновления флагов безопасности, которые недоступны через основной API.
     """
@@ -171,7 +174,7 @@ async def update_security_setting(key: str, payload: SettingValue, request: Opti
 
 
 @router.api_route("/{key}", methods=["PUT", "POST"])
-async def update_setting(key: str, payload: SettingValue, request: Optional[Request] = None, db: AsyncSession = Depends(get_db_session)):
+async def update_setting(key: str, payload: SettingValue, request: Request = None, db: AsyncSession = Depends(get_db_session)):
     """
     Обновляет или создает настройку в БД.
     """
@@ -398,7 +401,7 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
             raise HTTPException(status_code=400, detail="STOP_LOSS_ENABLED must be 'true' or 'false'")
         payload.value = payload.value.lower()
 
-    if key == "STOP_LOSS_PCT":
+    if key in ["STOP_LOSS_PCT", "STOP_LOSS_PCT_FAVORITE", "STOP_LOSS_PCT_OUTSIDER"]:
         try:
             val = float(payload.value)
             if not (1.0 <= val <= 99.0):

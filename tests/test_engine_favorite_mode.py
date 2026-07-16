@@ -336,6 +336,7 @@ async def test_ml_mode_unchanged_when_trading_mode_is_ml():
     
     trader = AsyncMock()
     api_client = AsyncMock()
+    api_client.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.70, "current_spread": 0.02})
     
     await trade_worker_cycle(db_session, trader, api_client)
     
