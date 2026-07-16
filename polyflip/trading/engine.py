@@ -114,6 +114,16 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 asset_min_edge, asset_max_price, decision_res.p_flip, decision_res.model_ver
             )
 
+            if not validation.valid:
+                from polyflip.trading.trade_recorder import _get_trade_active_features
+                await save_or_update_skipped_trade(
+                    db_session, market, validation.skip_reason, decision_res.p_flip, decision_res.model_ver, start_time,
+                    existing_skipped=existing_skipped,
+                    edge=validation.edge,
+                    active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj)
+                )
+                continue
+
             await execute_and_record(
                 db_session, trader, market, decision_res.decision_obj, validation,
                 asset_mode, cfg.active_features_str, decision_res.p_flip, decision_res.model_ver,

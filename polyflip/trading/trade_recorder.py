@@ -88,13 +88,7 @@ async def execute_and_record(
     start_time: datetime,
 ) -> None:
     if not validation.valid:
-        await save_or_update_skipped_trade(
-            db_session, market, validation.skip_reason, p_flip, model_ver, start_time,
-            existing_skipped=existing_skipped,
-            edge=validation.edge,
-            active_features=_get_trade_active_features(asset_mode, active_features, decision_obj)
-        )
-        return
+        raise ValueError("execute_and_record called with failed validation")
         
     decision = decision_obj.action.replace("BUY_", "")
     buy_price = validation.buy_price
