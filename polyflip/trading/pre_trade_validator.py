@@ -24,7 +24,7 @@ class PreTradeValidation:
 async def validate_pre_trade(
     api_client: Any,
     market: LiveMarket,
-    decision_obj: TradeDecision,
+    decision_obj: Optional[TradeDecision],
     cfg: TradingConfig,
     asset_mode: str,
     asset_min_edge: float,
@@ -36,9 +36,10 @@ async def validate_pre_trade(
     Финальная проверка сделки (Pre-Trade): 
     запрос актуальной цены, проверка drift, edge, лимитов цен и размера ставки.
     """
-    if decision_obj is None or decision_obj.action == "SKIP":
-        reason = decision_obj.reason if decision_obj else "Action is SKIP"
-        return PreTradeValidation(valid=False, buy_price=0.0, actual_bet_size=0.0, edge=0.0, skip_reason=reason)
+    if decision_obj is None:
+        return PreTradeValidation(valid=False, buy_price=0.0, actual_bet_size=0.0, edge=0.0, skip_reason="Decision is None")
+    if decision_obj.action == "SKIP":
+        return PreTradeValidation(valid=False, buy_price=0.0, actual_bet_size=0.0, edge=0.0, skip_reason=decision_obj.reason)
 
     decision = decision_obj.action.replace("BUY_", "")
     buy_price = decision_obj.buy_price

@@ -28,6 +28,8 @@ def get_models_cache() -> ModelsCache:
 
 async def populate_models_cache(db_session: AsyncSession) -> None:
     cache = get_models_cache()
+    if cache.models:
+        return
     models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
     active_models = (await db_session.execute(models_stmt)).scalars().all()
     
