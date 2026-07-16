@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)
 
 # Подключаем middleware ограничения частоты запросов
-app.add_middleware(SimpleRateLimitMiddleware, limit=60, window=60)
+app.add_middleware(SimpleRateLimitMiddleware, limit=200, window=60)
 
 app.include_router(analytics_router)
 app.include_router(dashboard_router)
