@@ -56,6 +56,9 @@ def combine_votes(
             confidence=ml_edge,
             ml_action=ml_action,
             lgbm_direction=None,
+            lgbm_features_ok=False,
+        )
+
     if ml_action == "SKIP":
         return VotingResult(
             action="SKIP",
