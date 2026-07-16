@@ -21,7 +21,10 @@ def _get_trade_active_features(asset_mode: str, active_features_str: str, decisi
     if asset_mode == TRADING_MODE_LIGHTGBM:
         return "LIGHTGBM_TREND"
     if asset_mode == TRADING_MODE_COMBINED:
-        return "COMBINED_ML_LGBM"
+        base = "COMBINED_ML_LGBM"
+        if decision_obj and hasattr(decision_obj, "strategy_type") and decision_obj.strategy_type:
+            return f"{base},{decision_obj.strategy_type.lower()}"
+        return base
     if asset_mode == TRADING_MODE_FAVORITE:
         return "PURE_FAVORITE"
     
