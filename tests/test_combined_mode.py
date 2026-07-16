@@ -1,4 +1,5 @@
 import pytest
+import math
 from polyflip.trading.combined_voting import CryptoSignalProxy, combine_votes
 
 def test_combined_mode_agreement():
@@ -6,12 +7,12 @@ def test_combined_mode_agreement():
     crypto = CryptoSignalProxy(direction="UP", features_ok=True)
     res = combine_votes("BUY_YES", 0.10, crypto, "BTC")
     assert res.action == "BUY_YES"
-    assert res.confidence == 0.12  # 0.10 * 1.2
+    assert math.isclose(res.confidence, 0.12, rel_tol=1e-9)  # 0.10 * 1.2
 
     crypto = CryptoSignalProxy(direction="DOWN", features_ok=True)
     res = combine_votes("BUY_NO", 0.05, crypto, "ETH")
     assert res.action == "BUY_NO"
-    assert res.confidence == 0.06
+    assert math.isclose(res.confidence, 0.06, rel_tol=1e-9)
 
 def test_combined_mode_veto():
     """ML и LightGBM не согласны — вето (SKIP)"""
@@ -27,12 +28,13 @@ def test_combined_mode_veto():
     assert res.action == "SKIP"
     assert "veto" in res.reason.lower()
 
-    # ML говорит YES, LGBM не имеет направления (SKIP/None) -> вето?
-    # В таблице: LogReg=BUY_YES, LGBM=SKIP -> Вето (SKIP)
-    crypto = CryptoSignalProxy(direction="SKIP", features_ok=True)
+    # ML говорит YES, LGBM не имеет направления (None) при features_ok=True -> fallback
+    # Если LGBM не определил направление (None) но features_ok=True — это баг в predictor,
+    # combine_votes должен это обработать как fallback (защита от невалидного direction)
+    crypto = CryptoSignalProxy(direction=None, features_ok=True)
     res = combine_votes("BUY_YES", 0.10, crypto, "BTC")
-    assert res.action == "SKIP"
-    assert "veto" in res.reason.lower()
+    assert res.action == "BUY_YES"
+    assert "fallback" in res.reason.lower()
 
 def test_combined_mode_ml_skip():
     """ML уже SKIP -> оставляем SKIP, независим от LightGBM"""
