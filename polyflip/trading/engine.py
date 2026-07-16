@@ -88,7 +88,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     try:
                         from polyflip.trading.decision_runners import decide_crypto_mode
                         decision_res = await decide_crypto_mode(
-                            api_client, market, cfg, raw_settings, _get_crypto_predictor(), start_time, time_left_sec
+                            db_session, api_client, market, cfg, raw_settings, _get_crypto_predictor(), start_time, time_left_sec
                         )
                     except ImportError:
                         pass

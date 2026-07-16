@@ -14,6 +14,14 @@ class ModelsCache:
     versions: dict[str, int]
     features: dict[str, list[str]]
 
+_models_cache = None
+
+def get_models_cache() -> ModelsCache:
+    global _models_cache
+    if _models_cache is None:
+        _models_cache = ModelsCache(models={}, versions={}, features={})
+    return _models_cache
+
 
 def build_inference_dataframe(
     market: Any,
