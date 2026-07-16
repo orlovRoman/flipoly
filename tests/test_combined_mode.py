@@ -45,6 +45,7 @@ def test_combined_mode_ml_skip():
     crypto = CryptoSignalProxy(direction="UP", features_ok=True)
     res = combine_votes("SKIP", 0.0, crypto, "BTC")
     assert res.action == "SKIP"
+    assert "ML (in Combined mode) voted SKIP" in res.reason
 
 def test_combined_mode_fallback():
     """LightGBM features_ok = False -> Fallback на ML"""
