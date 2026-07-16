@@ -906,9 +906,9 @@ document.addEventListener("DOMContentLoaded", () => {
           log.status === "SKIPPED"
             ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>`
             : escapeHtml(log.error_msg || "-");
-        const isPureFav = log.active_features === "PURE_FAVORITE";
-        const isCrypto = log.active_features === "LIGHTGBM_TREND" || log.active_features === "CRYPTO_TREND";
-        const isCombined = log.active_features === "COMBINED_ML_LGBM";
+        const isPureFav = log.active_features && log.active_features.includes("PURE_FAVORITE");
+        const isCrypto = log.active_features && (log.active_features.includes("LIGHTGBM_TREND") || log.active_features.includes("CRYPTO_TREND"));
+        const isCombined = log.active_features && log.active_features.includes("COMBINED_ML_LGBM");
         
         let phaseSuffix = "";
         // phaseSuffix вычисляется для ml и combined (оба используют phase-модели)
