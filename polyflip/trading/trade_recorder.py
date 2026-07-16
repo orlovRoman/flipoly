@@ -17,14 +17,22 @@ from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_M
 
 logger = structlog.get_logger(__name__)
 
-def _get_trade_active_features(asset_mode: str, active_features_str: str, decision_obj: Any) -> str:
+def _get_trade_active_features(asset_mode: str, active_features_str: str, decision_obj: Any, asset_name: str = "") -> str:
     if asset_mode == TRADING_MODE_LIGHTGBM:
         return "LIGHTGBM_TREND"
     if asset_mode == TRADING_MODE_COMBINED:
-        base = "COMBINED_ML_LGBM"
-        if decision_obj and hasattr(decision_obj, "strategy_type") and decision_obj.strategy_type:
-            return f"{base},{decision_obj.strategy_type.lower()}"
-        return base
+        from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS
+        if not asset_name or asset_name.upper() in COMBINED_MODE_SUPPORTED_ASSETS:
+            base = "COMBINED_ML_LGBM"
+            if decision_obj and hasattr(decision_obj, "strategy_type") and decision_obj.strategy_type:
+                return f"{base},{decision_obj.strategy_type.lower()}"
+            return base
+        # Если актив не поддерживается, значит был fallback на ML.
+        # Fall through к ML-ветке ниже.
+        pass
+    
+    if asset_mode == TRADING_MODE_FAVORITE:
+        return "PURE_FAVORITE"
     if asset_mode == TRADING_MODE_FAVORITE:
         return "PURE_FAVORITE"
     
@@ -140,7 +148,7 @@ async def execute_and_record(
         predicted_flip_prob=p_flip,
         p_up=decision_obj.p_up,
         strike=decision_obj.strike,
-        active_features=_get_trade_active_features(asset_mode, active_features, decision_obj),
+        active_features=_get_trade_active_features(asset_mode, active_features, decision_obj, market.asset),
         model_version=model_ver,
         status=trade_res.get("status", "FAILED"),
         error_msg=trade_res.get("error_msg"),

@@ -130,7 +130,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 from polyflip.trading.trade_recorder import _get_trade_active_features
                 await save_or_update_skipped_trade(
                     db_session, market, skip_reason or "SKIP", p_flip, model_ver, start_time, existing_skipped, edge,
-                    active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj if decision_res else None)
+                    active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj if decision_res else None, market.asset)
                 )
                 continue
 
@@ -145,7 +145,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     db_session, market, validation.skip_reason, decision_res.p_flip, decision_res.model_ver, start_time,
                     existing_skipped=existing_skipped,
                     edge=validation.edge,
-                    active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj)
+                    active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj, market.asset)
                 )
                 continue
 
