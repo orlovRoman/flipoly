@@ -81,22 +81,19 @@ def test_combined_flat_reduced_bet():
     assert res2.action == "BUY_NO"
     assert res2.bet_size_multiplier == 0.3
 
-@pytest.mark.asyncio
-async def test_combined_skip_preserves_edge(mocker):
+def test_combined_skip_preserves_edge():
     """decide_combined_mode должен сохранять edge при SKIP (вето)"""
-    from unittest.mock import AsyncMock, MagicMock
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
     from polyflip.trading.decision_runners import decide_combined_mode, DecisionResult
     from polyflip.trading.decision_logic import TradeDecision
 
     # Мокаем decide_ml_mode, чтобы он возвращал ML-сигнал с положительным edge
     ml_dec = TradeDecision(action="BUY_YES", buy_price=0.55, bet_size_usdc=10.0, reason="ML ok", strategy_type="ML_TREND", p_up=0.60, strike=0.5)
     ml_res = DecisionResult(decision_obj=ml_dec, p_flip=0.12, model_ver=4, edge=0.08, skip_reason=None)
-    mocker.patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=ml_res))
 
     # Мокаем _fetch_lgbm_signal, чтобы он возвращал вето (LGBM=DOWN при ML=BUY_YES)
-    from polyflip.trading.combined_voting import CryptoSignalProxy
     lgbm_proxy = CryptoSignalProxy(direction="DOWN", features_ok=True, model_version=10)
-    mocker.patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=lgbm_proxy))
 
     # Запускаем decide_combined_mode
     db_session = AsyncMock()
@@ -109,10 +106,13 @@ async def test_combined_skip_preserves_edge(mocker):
     models_cache = MagicMock()
     crypto_predictor = MagicMock()
 
-    res = await decide_combined_mode(
-        db_session, api_client, market, cfg, raw_settings,
-        models_cache, crypto_predictor, start_time=MagicMock(), time_left_sec=300
-    )
+    with patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=ml_res)), \
+         patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=lgbm_proxy)):
+        
+        res = asyncio.run(decide_combined_mode(
+            db_session, api_client, market, cfg, raw_settings,
+            models_cache, crypto_predictor, start_time=MagicMock(), time_left_sec=300
+        ))
 
     # Должен быть SKIP (вето)
     assert res.decision_obj.action == "SKIP"
@@ -128,3 +128,82 @@ async def test_combined_skip_preserves_edge(mocker):
     assert meta["vote_action"] == "SKIP"
     assert meta["bet_size_multiplier"] == 0.0
 
+def test_combined_none_multiplier_zero():
+    """Проверка, что множитель 0.0 правильно парсится и приводит к SKIP (вето)"""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from polyflip.trading.decision_runners import decide_combined_mode, DecisionResult
+    from polyflip.trading.decision_logic import TradeDecision
+
+    ml_dec = TradeDecision(action="BUY_YES", buy_price=0.55, bet_size_usdc=10.0, reason="ML ok", strategy_type="ML_TREND", p_up=0.60, strike=0.5)
+    ml_res = DecisionResult(decision_obj=ml_dec, p_flip=0.12, model_ver=4, edge=0.08, skip_reason=None)
+
+    lgbm_proxy = CryptoSignalProxy(direction="NONE", features_ok=True, model_version=10)
+
+    db_session = AsyncMock()
+    api_client = MagicMock()
+    market = MagicMock()
+    market.asset = "BTC"
+    cfg = MagicMock()
+    cfg.bet_size = 10.0
+    
+    raw_settings = {"COMBINED_NONE_BET_MULTIPLIER": "0.0"}
+    models_cache = MagicMock()
+    crypto_predictor = MagicMock()
+
+    with patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=ml_res)), \
+         patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=lgbm_proxy)):
+        
+        res = asyncio.run(decide_combined_mode(
+            db_session, api_client, market, cfg, raw_settings,
+            models_cache, crypto_predictor, start_time=MagicMock(), time_left_sec=300
+        ))
+
+    # Должен быть SKIP, так как множитель 0.0
+    assert res.decision_obj.action == "SKIP"
+    assert "veto" in res.skip_reason.lower()
+
+def test_combined_bet_reduction_original_bet():
+    """Проверка BUG-A: original_bet должен правильно логироваться даже при clamp по min_bet"""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from polyflip.trading.decision_runners import decide_combined_mode, DecisionResult
+    from polyflip.trading.decision_logic import TradeDecision
+
+    ml_dec = TradeDecision(action="BUY_YES", buy_price=0.55, bet_size_usdc=10.0, reason="ML ok", strategy_type="ML_TREND", p_up=0.60, strike=0.5)
+    ml_res = DecisionResult(decision_obj=ml_dec, p_flip=0.12, model_ver=4, edge=0.08, skip_reason=None)
+
+    lgbm_proxy = CryptoSignalProxy(direction="NONE", features_ok=True, model_version=10)
+
+    db_session = AsyncMock()
+    api_client = MagicMock()
+    market = MagicMock()
+    market.asset = "BTC"
+    cfg = MagicMock()
+    # min_bet равен 8.0, что выше чем calculated 10.0 * 0.5 = 5.0
+    cfg.bet_size = 8.0
+    
+    raw_settings = {"COMBINED_NONE_BET_MULTIPLIER": "0.5"}
+    models_cache = MagicMock()
+    crypto_predictor = MagicMock()
+
+    with patch("polyflip.trading.decision_runners.logger") as mock_logger, \
+         patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=ml_res)), \
+         patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=lgbm_proxy)):
+        
+        res = asyncio.run(decide_combined_mode(
+            db_session, api_client, market, cfg, raw_settings,
+            models_cache, crypto_predictor, start_time=MagicMock(), time_left_sec=300
+        ))
+
+    # Ставка должна быть 8.0 (clamped by min_bet)
+    assert res.decision_obj.bet_size_usdc == 8.0
+
+    # Проверяем вызов логгера
+    mock_logger.info.assert_any_call(
+        "combined_bet_reduced",
+        asset="BTC",
+        multiplier=0.5,
+        original_bet=10.0,
+        reduced_bet=8.0
+    )

@@ -78,6 +78,16 @@ def combine_votes(
     ml_direction = "UP" if ml_action == "BUY_YES" else "DOWN"
 
     if crypto_sig.direction == "NONE":
+        if none_bet_multiplier <= 0.0:
+            return VotingResult(
+                action="SKIP",
+                reason="LightGBM flat (NONE) with zero multiplier: veto",
+                confidence=0.0,
+                ml_action=ml_action,
+                lgbm_direction="NONE",
+                lgbm_features_ok=True,
+                bet_size_multiplier=0.0,
+            )
         # LGBM во флэте — не знает, но и не против. Уменьшаем ставку вместо вето.
         return VotingResult(
             action=ml_action,

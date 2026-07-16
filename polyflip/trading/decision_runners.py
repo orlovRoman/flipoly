@@ -216,21 +216,20 @@ async def decide_ml_mode(
             )
         else:
             await crypto_predictor.load(db_session, binance_symbol)
-        
-        model_interval = crypto_predictor.get_interval(binance_symbol)
-        candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
-        crypto_sig = crypto_predictor.predict(candles, binance_symbol)
-        
-        if not crypto_sig.features_ok:
-            decision_obj = dataclasses.replace(
-                decision_obj, action="SKIP", reason="Crypto confirm: features invalid"
-            )
-        else:
-            market_direction = "UP" if decision_obj.action == "BUY_YES" else "DOWN"
-            if crypto_sig.direction != market_direction:
+            model_interval = crypto_predictor.get_interval(binance_symbol)
+            candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
+            crypto_sig = crypto_predictor.predict(candles, binance_symbol)
+            
+            if not crypto_sig.features_ok:
                 decision_obj = dataclasses.replace(
-                    decision_obj, action="SKIP", reason=f"Crypto confirm veto: direction is {crypto_sig.direction} vs market {market_direction}"
+                    decision_obj, action="SKIP", reason="Crypto confirm: features invalid"
                 )
+            else:
+                market_direction = "UP" if decision_obj.action == "BUY_YES" else "DOWN"
+                if crypto_sig.direction != market_direction:
+                    decision_obj = dataclasses.replace(
+                        decision_obj, action="SKIP", reason=f"Crypto confirm veto: direction is {crypto_sig.direction} vs market {market_direction}"
+                    )
 
     return DecisionResult(
         decision_obj=decision_obj,
@@ -379,8 +378,14 @@ async def decide_combined_mode(
     ml_action = ml_result.decision_obj.action if ml_result.decision_obj else "SKIP"
     ml_edge   = ml_result.edge or 0.0
 
-    none_bet_multiplier = _get_float_setting(raw_settings, "COMBINED_NONE_BET_MULTIPLIER")
-    if none_bet_multiplier is None:
+    _raw_mult = raw_settings.get("COMBINED_NONE_BET_MULTIPLIER")
+    if _raw_mult is not None and str(_raw_mult).strip() != "":
+        try:
+            none_bet_multiplier = float(_raw_mult)
+            none_bet_multiplier = max(0.0, min(1.0, none_bet_multiplier))
+        except ValueError:
+            none_bet_multiplier = 0.5
+    else:
         none_bet_multiplier = 0.5
 
     vote = combine_votes(ml_action, ml_edge, crypto_proxy, asset_upper, none_bet_multiplier=none_bet_multiplier)
@@ -420,7 +425,8 @@ async def decide_combined_mode(
     )
 
     if 0.0 < vote.bet_size_multiplier < 1.0:
-        reduced_bet = round(final_decision.bet_size_usdc * vote.bet_size_multiplier, 2)
+        original_bet = final_decision.bet_size_usdc
+        reduced_bet = round(original_bet * vote.bet_size_multiplier, 2)
         min_bet = cfg.bet_size
         reduced_bet = max(reduced_bet, min_bet)
         final_decision = dataclasses.replace(final_decision, bet_size_usdc=reduced_bet)
@@ -428,7 +434,7 @@ async def decide_combined_mode(
             "combined_bet_reduced",
             asset=asset_upper,
             multiplier=vote.bet_size_multiplier,
-            original_bet=final_decision.bet_size_usdc / vote.bet_size_multiplier,
+            original_bet=original_bet,
             reduced_bet=reduced_bet,
         )
 
@@ -436,7 +442,7 @@ async def decide_combined_mode(
         decision_obj=final_decision,
         p_flip=ml_result.p_flip,
         model_ver=ml_result.model_ver,
-        edge=final_decision.edge,  # сохраняем edge всегда — важно для анализа вето
+        edge=ml_result.edge,  # сохраняем edge всегда — важно для анализа вето
         skip_reason=vote.reason if vote.action == "SKIP" else None,
         lgbm_metadata=lgbm_meta,
     )
