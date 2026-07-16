@@ -34,7 +34,7 @@ router = APIRouter(prefix="/crypto", tags=["Crypto"])
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
 
-CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"]
 
 # Кэш
 _cache: dict = {}
