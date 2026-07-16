@@ -33,8 +33,6 @@ def _get_trade_active_features(asset_mode: str, active_features_str: str, decisi
     
     if asset_mode == TRADING_MODE_FAVORITE:
         return "PURE_FAVORITE"
-    if asset_mode == TRADING_MODE_FAVORITE:
-        return "PURE_FAVORITE"
     
     base = active_features_str.strip().rstrip(',') if active_features_str else ""
     if decision_obj and hasattr(decision_obj, "strategy_type") and decision_obj.strategy_type:

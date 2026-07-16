@@ -84,16 +84,25 @@ TRADING_MODE_LIGHTGBM = "lightgbm"
 TRADING_MODE_CRYPTO = TRADING_MODE_LIGHTGBM
 TRADING_MODE_COMBINED = "combined"
 
-COMBINED_MODE_SUPPORTED_ASSETS = frozenset({"BTC", "ETH"})
+COMBINED_MODE_SUPPORTED_ASSETS = frozenset({"BTC", "ETH", "DOGE", "XRP", "SOL"})
 COMBINED_BINANCE_SYMBOLS: dict[str, str] = {
-    "BTC": "BTCUSDT",
-    "ETH": "ETHUSDT",
+    "BTC":  "BTCUSDT",
+    "ETH":  "ETHUSDT",
+    "DOGE": "DOGEUSDT",
+    "XRP":  "XRPUSDT",
+    "SOL":  "SOLUSDT",
 }
 
 CRYPTO_MIN_EDGE = 0.05
 USE_CRYPTO_CONFIRM = False
 CRYPTO_STANDALONE = False
-ASSET_TO_BINANCE_SYMBOL = {"BTC": "BTCUSDT", "ETH": "ETHUSDT"}
+ASSET_TO_BINANCE_SYMBOL = {
+    "BTC":  "BTCUSDT",
+    "ETH":  "ETHUSDT",
+    "DOGE": "DOGEUSDT",
+    "XRP":  "XRPUSDT",
+    "SOL":  "SOLUSDT",
+}
 
 # --- Price-Phase Split Boundaries ---
 PRICE_PHASE_BOUNDARIES: dict[str, tuple[float, float]] = {

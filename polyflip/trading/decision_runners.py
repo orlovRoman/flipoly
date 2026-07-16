@@ -204,8 +204,14 @@ async def decide_ml_mode(
     # Confirm Gate
     use_crypto_confirm = getattr(cfg, 'use_crypto_confirm', False)
     if decision_obj.action != "SKIP" and use_crypto_confirm and crypto_predictor:
-        binance_symbol = "BTCUSDT" if market.asset.upper() == "BTC" else "ETHUSDT"
-        await crypto_predictor.load(db_session, binance_symbol)
+        from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
+        binance_symbol = ASSET_TO_BINANCE_SYMBOL.get(market.asset.upper())
+        if not binance_symbol:
+            decision_obj = dataclasses.replace(
+                decision_obj, action="SKIP", reason=f"Crypto confirm: unsupported asset {market.asset.upper()}"
+            )
+        else:
+            await crypto_predictor.load(db_session, binance_symbol)
         
         model_interval = crypto_predictor.get_interval(binance_symbol)
         candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
@@ -240,7 +246,10 @@ async def decide_crypto_mode(
     start_time: datetime,
     time_left_sec: float
 ) -> DecisionResult:
-    binance_symbol = "BTCUSDT" if market.asset.upper() == "BTC" else "ETHUSDT"
+    from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
+    binance_symbol = ASSET_TO_BINANCE_SYMBOL.get(market.asset.upper())
+    if not binance_symbol:
+        return DecisionResult(None, 0.0, None, None, f"Unsupported crypto asset: {market.asset.upper()}")
     
     await crypto_predictor.load(db_session, binance_symbol)
     
