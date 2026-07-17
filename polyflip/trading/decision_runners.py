@@ -416,7 +416,7 @@ async def decide_combined_mode(
     if ml_result.decision_obj is None:
         return DecisionResult(None, ml_result.p_flip, ml_result.model_ver, None, vote.reason, lgbm_metadata=lgbm_meta)
 
-    _strategy = "COMBINED" if vote.action != "SKIP" else ml_result.decision_obj.strategy_type
+    _strategy = ml_result.decision_obj.strategy_type if ml_result.decision_obj else "COMBINED"
     _reason = ml_result.decision_obj.reason if vote.action == "SKIP" and ml_action == "SKIP" else vote.reason
     final_decision = dataclasses.replace(
         ml_result.decision_obj,
