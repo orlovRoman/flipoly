@@ -402,21 +402,28 @@ async def decide_combined_mode(
         bet_size_multiplier=vote.bet_size_multiplier,
     )
 
-    lgbm_meta = json.dumps({
+    lgbm_meta_dict = {
         "lgbm_version": crypto_proxy.model_version,
         "lgbm_direction": crypto_proxy.direction,
         "lgbm_features_ok": crypto_proxy.features_ok,
         "is_fallback": not crypto_proxy.features_ok,
         "vote_action": vote.action,
         "bet_size_multiplier": vote.bet_size_multiplier,
-    })
+        "trading_mode": "COMBINED",
+    }
+    if ml_result.decision_obj:
+        lgbm_meta_dict["original_strategy"] = ml_result.decision_obj.strategy_type
+    else:
+        lgbm_meta_dict["original_strategy"] = "COMBINED"
+        
+    lgbm_meta = json.dumps(lgbm_meta_dict)
 
     # --- Шаг D: применяем результат голосования к decision_obj ---
     import dataclasses
     if ml_result.decision_obj is None:
         return DecisionResult(None, ml_result.p_flip, ml_result.model_ver, None, vote.reason, lgbm_metadata=lgbm_meta)
 
-    _strategy = ml_result.decision_obj.strategy_type if ml_result.decision_obj else "COMBINED"
+    _strategy = ml_result.decision_obj.strategy_type
     _reason = ml_result.decision_obj.reason if vote.action == "SKIP" and ml_action == "SKIP" else vote.reason
     final_decision = dataclasses.replace(
         ml_result.decision_obj,

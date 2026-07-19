@@ -62,6 +62,7 @@
             cursor: pointer;
         }
     </style>
+    <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ timestamp }}"></script>
     <script>
         window.API_BASE = "{{ url_for('crypto_page') }}";
     </script>
@@ -497,9 +498,7 @@
 
         async function retrain(symbol) {
             // Запрашиваем разрешение на системные уведомления
-            if ("Notification" in window && Notification.permission === "default") {
-                Notification.requestPermission();
-            }
+            requestNotificationPermission();
 
             try {
                 const r = await fetch(`/crypto/api/train?symbol=${symbol}`, { method: 'POST', headers: H });
@@ -514,8 +513,12 @@
                 const oldLow = statusData?.models?.[`${symbol}_low_vol`]?.version || 0;
                 const oldHigh = statusData?.models?.[`${symbol}_high_vol`]?.version || 0;
                 
-                // Запускаем опрос статуса каждые 3 секунды, пока версия хотя бы одной модели не обновится
+                // Запускаем опрос статуса каждые 3 секунды с лимитом попыток
+                const MAX_POLLS = 200; // 200 * 3с = 10 минут максимум
+                let pollCount = 0;
+                
                 const intervalId = setInterval(async () => {
+                    pollCount++;
                     await loadStatus();
                     const newLow = statusData?.models?.[`${symbol}_low_vol`]?.version || 0;
                     const newHigh = statusData?.models?.[`${symbol}_high_vol`]?.version || 0;
@@ -523,23 +526,15 @@
                     if (newLow > oldLow || newHigh > oldHigh) {
                         clearInterval(intervalId);
                         
-                        const msg = `Модель для ${symbol} успешно обновлена!
-Low Vol: v${newLow} (было v${oldLow})
-High Vol: v${newHigh} (было v${oldHigh})`;
+                        const msg = `Модель для ${symbol} успешно обновлена!\nLow Vol: v${newLow} (было v${oldLow})\nHigh Vol: v${newHigh} (было v${oldHigh})`;
                         
                         // Системное push-уведомление
-                        if ("Notification" in window && Notification.permission === "granted") {
-                            try {
-                                new Notification(`✅ Обучение ${symbol} завершено`, {
-                                    body: msg,
-                                    icon: '/static/img/favicon.ico'
-                                });
-                            } catch (e) {
-                                console.error("Failed to show notification", e);
-                            }
-                        }
+                        showNotification(`✅ Обучение ${symbol} завершено`, msg);
                         
                         alert(msg);
+                    } else if (pollCount >= MAX_POLLS) {
+                        clearInterval(intervalId);
+                        alert(`⚠️ Таймаут ожидания обучения ${symbol}. Проверьте статус вручную.`);
                     }
                 }, 3000);
             } catch (err) {
