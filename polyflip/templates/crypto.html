@@ -496,6 +496,11 @@
         }
 
         async function retrain(symbol) {
+            // Запрашиваем разрешение на системные уведомления
+            if ("Notification" in window && Notification.permission === "default") {
+                Notification.requestPermission();
+            }
+
             try {
                 const r = await fetch(`/crypto/api/train?symbol=${symbol}`, { method: 'POST', headers: H });
                 const d = await r.json();
@@ -505,14 +510,36 @@
                 }
                 alert(d.message);
                 
-                // Запускаем опрос статуса каждые 3 секунды, пока версия не обновится
-                const oldVersion = statusData?.models?.[symbol]?.version || 0;
+                // Запоминаем текущие версии фазовых моделей
+                const oldLow = statusData?.models?.[`${symbol}_low_vol`]?.version || 0;
+                const oldHigh = statusData?.models?.[`${symbol}_high_vol`]?.version || 0;
+                
+                // Запускаем опрос статуса каждые 3 секунды, пока версия хотя бы одной модели не обновится
                 const intervalId = setInterval(async () => {
                     await loadStatus();
-                    const newVersion = statusData?.models?.[symbol]?.version || 0;
-                    if (newVersion > oldVersion) {
+                    const newLow = statusData?.models?.[`${symbol}_low_vol`]?.version || 0;
+                    const newHigh = statusData?.models?.[`${symbol}_high_vol`]?.version || 0;
+                    
+                    if (newLow > oldLow || newHigh > oldHigh) {
                         clearInterval(intervalId);
-                        alert(`✅ Модель для ${symbol} успешно обновлена до версии v${newVersion}!`);
+                        
+                        const msg = `Модель для ${symbol} успешно обновлена!
+Low Vol: v${newLow} (было v${oldLow})
+High Vol: v${newHigh} (было v${oldHigh})`;
+                        
+                        // Системное push-уведомление
+                        if ("Notification" in window && Notification.permission === "granted") {
+                            try {
+                                new Notification(`✅ Обучение ${symbol} завершено`, {
+                                    body: msg,
+                                    icon: '/static/img/favicon.ico'
+                                });
+                            } catch (e) {
+                                console.error("Failed to show notification", e);
+                            }
+                        }
+                        
+                        alert(msg);
                     }
                 }, 3000);
             } catch (err) {
