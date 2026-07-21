@@ -542,10 +542,19 @@ document.addEventListener("DOMContentLoaded", () => {
   // 5. Fetch Models History
   async function loadModelsHistory() {
     try {
-      const res = await fetch(window.API_BASE + "/api/analytics/models", {
-        headers: getHeaders(),
-      });
-      const data = await res.json();
+      const [resModels, resPnl] = await Promise.all([
+        fetch(window.API_BASE + "/api/analytics/models", { headers: getHeaders() }),
+        fetch(window.API_BASE + "/api/dashboard/model_pnl", { headers: getHeaders() })
+      ]);
+
+      const data = await resModels.json();
+      let pnlData = {};
+      try {
+        const pnlJson = await resPnl.json();
+        pnlData = pnlJson.data || {};
+      } catch (e) {
+        console.error("Failed to parse model PnL", e);
+      }
 
       const tbody = document.querySelector("#models-table tbody");
       if (!tbody) return;
@@ -553,7 +562,7 @@ document.addEventListener("DOMContentLoaded", () => {
       tbody.innerHTML = "";
 
       if (data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color: var(--text-muted);">Нет сохраненных моделей</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: var(--text-muted);">Нет сохраненных моделей</td></tr>`;
         return;
       }
 
@@ -596,6 +605,22 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
 
+        const pnlKey = `${m.asset}_v${m.version}`;
+        const pnl = pnlData[pnlKey];
+
+        let pnlHtml = '<td style="color: var(--text-muted);">—</td>';
+        if (pnl && pnl.total_trades > 0) {
+          const pnlVal = pnl.pnl;
+          const color = pnlVal > 0 ? "var(--poly-green, #4ade80)" : pnlVal < 0 ? "#ff3366" : "var(--text-muted)";
+          const sign = pnlVal > 0 ? "+" : "";
+          const wr = pnl.win_rate !== null ? ` (${pnl.win_rate}% WR, ${pnl.total_trades} сд.)` : "";
+          pnlHtml = `<td style="color:${color}; font-weight:600; white-space:nowrap;">
+            ${sign}${pnlVal.toFixed(2)} USDC<span style="color:var(--text-muted);font-size:0.8rem;font-weight:normal;">${wr}</span>
+          </td>`;
+        } else if (pnl && pnl.total_trades === 0) {
+          pnlHtml = '<td style="color: var(--text-muted); font-size:0.85rem;">Нет сделок</td>';
+        }
+
         rows.push(`
                     <tr>
                         <td><strong>${escapeHtml(m.asset)}</strong></td>
@@ -605,6 +630,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td>${eceHtml}</td>
                         <td style="font-size: 0.85rem; max-width: 220px; word-break: break-word; white-space: normal;">${escapeHtml(translateFeatures(m.features))}</td>
                         <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>
+                        ${pnlHtml}
                         <td>${statusHtml}</td>
                         <td>${actionHtml}</td>
                     </tr>

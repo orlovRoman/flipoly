@@ -38,8 +38,12 @@ async def get_dashboard(request: Request):
 _dashboard_cache = {}
 _DASHBOARD_CACHE_TTL = 30  # 30 секунд кэша
 
+_model_pnl_cache = {}
+_MODEL_PNL_CACHE_TTL = 60  # 60 секунд кэша
+
 def invalidate_dashboard_cache():
     _dashboard_cache.clear()
+    _model_pnl_cache.clear()
 
 _logs_cache = {}
 _LOGS_CACHE_TTL = 10  # 10 секунд кэша для логов торговли
@@ -462,3 +466,96 @@ async def get_daily_pnl(db: AsyncSession = Depends(get_db_session)):
     response_data.sort(key=sort_key)
     
     return {"status": "success", "data": response_data}
+
+
+@router.get("/api/dashboard/model_pnl", dependencies=[Depends(verify_api_key)])
+async def get_model_pnl(db: AsyncSession = Depends(get_db_session)):
+    """
+    Возвращает PnL, число сделок и win-rate для каждой версии модели
+    за период её активности (с trained_at до trained_at следующей версии).
+    """
+    current_time = time.time()
+    if "data" in _model_pnl_cache and current_time - _model_pnl_cache.get("time", 0) < _MODEL_PNL_CACHE_TTL:
+        return _model_pnl_cache["data"]
+
+    # 1. Загружаем все версии моделей из ModelRegistry
+    models_stmt = select(
+        ModelRegistry.asset,
+        ModelRegistry.version,
+        ModelRegistry.trained_at,
+        ModelRegistry.is_active,
+    ).order_by(ModelRegistry.asset, ModelRegistry.version)
+    models_rows = (await db.execute(models_stmt)).all()
+
+    from collections import defaultdict
+    by_asset = defaultdict(list)
+    for row in models_rows:
+        by_asset[row.asset].append(row)
+
+    periods = []  # (asset, version, since, until)
+    now = datetime.now(timezone.utc)
+    for asset, versions in by_asset.items():
+        for i, m in enumerate(versions):
+            since = m.trained_at
+            if since and since.tzinfo is None:
+                since = since.replace(tzinfo=timezone.utc)
+            
+            if i + 1 < len(versions):
+                until = versions[i + 1].trained_at
+                if until and until.tzinfo is None:
+                    until = until.replace(tzinfo=timezone.utc)
+            else:
+                until = now
+                
+            periods.append((asset, m.version, since, until))
+
+    # 2. Выполняем батч-запрос к TradeHistory
+    trades_stmt = select(
+        TradeHistory.asset,
+        TradeHistory.model_version,
+        TradeHistory.pnl,
+        TradeHistory.created_at,
+    ).where(
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.pnl.is_not(None),
+        TradeHistory.model_version.is_not(None),
+    )
+    trades_rows = (await db.execute(trades_stmt)).all()
+
+    # Группируем сделки по (asset, model_version)
+    trades_by_model = defaultdict(list)
+    for row in trades_rows:
+        created_at = row.created_at
+        if created_at and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        trades_by_model[(row.asset, row.model_version)].append((row.pnl, created_at))
+
+    # 3. Агрегируем результаты для каждого периода
+    result_map = {}
+    for asset, version, since, until in periods:
+        key = f"{asset}_v{version}"
+        model_trades = trades_by_model.get((asset, version), [])
+        
+        # Фильтруем по временному окну [since, until)
+        valid_trades = [
+            pnl for pnl, created_at in model_trades
+            if (since is None or created_at >= since) and (until is None or created_at < until)
+        ]
+        
+        total = len(valid_trades)
+        total_pnl = sum(valid_trades) if total > 0 else 0.0
+        wins = sum(1 for pnl in valid_trades if pnl > 0)
+        
+        result_map[key] = {
+            "asset": asset,
+            "version": version,
+            "total_trades": total,
+            "pnl": round(float(total_pnl), 2),
+            "win_rate": round(wins / total * 100, 1) if total > 0 else None,
+        }
+
+    response_data = {"status": "success", "data": result_map}
+    _model_pnl_cache["time"] = current_time
+    _model_pnl_cache["data"] = response_data
+
+    return response_data
