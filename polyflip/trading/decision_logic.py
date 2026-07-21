@@ -284,8 +284,8 @@ def decide_crypto_trend(
             p_up=crypto.p_up, strike=crypto.strike
         )
 
-    min_edge = float(config.get("CRYPTO_MIN_EDGE", config.get("MIN_EDGE", CRYPTO_MIN_EDGE)))
-    max_edge = float(config.get("MAX_BET_EDGE", config.get("MAX_EDGE_FILTER", MAX_EDGE_FILTER)))
+    min_edge = float(config.get("CRYPTO_MIN_EDGE", config.get("MIN_EDGE", 0.04)))
+    max_edge = float(config.get("MAX_BET_EDGE", config.get("MAX_EDGE_FILTER", 0.35)))
 
     if crypto.direction == "NONE" or crypto.edge < min_edge:
         return TradeDecision(

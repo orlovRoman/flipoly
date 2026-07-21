@@ -414,6 +414,10 @@ class ModelTrainer:
             self.status_messages[asset] = f"Ошибка: отсутствуют фичи {', '.join(missing_features)}"
             return False
             
+        X = df[active_features]
+        y = df["target"]
+        groups = df["market_id"]
+
         from polyflip.services.settings_service import get_float, get_int
         lr_coef_threshold = await get_float(self.db, "LR_COEF_THRESHOLD")
         lr_min_features = await get_int(self.db, "LR_MIN_FEATURES")

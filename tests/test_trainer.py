@@ -34,7 +34,7 @@ async def test_trainer_creates_model(db_session):
     await db_session.commit()
 
     trainer = ModelTrainer(db_session)
-    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10), patch("polyflip.models.trainer.MAX_SUSPICIOUS_THRESHOLD", 1.0):
+    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10):
         res = await trainer.train_model("BTC")
     assert res is True
 
@@ -61,8 +61,7 @@ async def test_trainer_saves_model_even_if_accuracy_is_low(db_session):
     await db_session.commit()
 
     trainer = ModelTrainer(db_session)
-    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10), \
-         patch("polyflip.constants.LR_MIN_AUC_FOR_DEPLOY", 0.45):
+    with patch.object(settings, "MIN_SAMPLES_FOR_MODEL", 10):
         res = await trainer.train_model("BTC")
     
     assert res is True # Модель должна успешно сохраниться, несмотря на низкую точность
