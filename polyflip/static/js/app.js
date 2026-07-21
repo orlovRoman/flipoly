@@ -572,6 +572,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 5. Fetch Models History
+  let modelsCurrentPage = 1;
+  const modelsPageSize = 15;
   let modelsSortField = "trained_at";
   let modelsSortAsc = false;
   let rawModelsData = [];
@@ -795,6 +797,31 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Обработчик кнопки удаления
+    
+    // Обработчик кнопки активации
+    document.querySelectorAll(".btn-activate-model").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        const asset = e.currentTarget.dataset.asset;
+        const version = e.currentTarget.dataset.version;
+        if (!confirm(`Сделать модель v${version} для ${asset} активной?`)) return;
+
+        try {
+          const r = await fetch(window.API_BASE + `/api/analytics/models/${asset}/activate/${version}`, {
+            method: "POST",
+            headers: getHeaders(),
+          });
+          if (r.ok) {
+            loadModelsHistory();
+          } else {
+            const d = await r.json();
+            alert("Ошибка активации: " + (d.detail || JSON.stringify(d)));
+          }
+        } catch (err) {
+          alert("Ошибка сети при активации");
+        }
+      });
+    });
+
     document.querySelectorAll(".btn-delete-polymarket-model").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         const asset = e.currentTarget.dataset.asset;
@@ -804,7 +831,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
           const r = await fetch(window.API_BASE + `/api/analytics/models/${asset}/${version}`, {
             method: "DELETE",
-            headers: getAuthHeaders(),
+            headers: getHeaders(),
           });
           const d = await r.json();
           if (r.ok) {
@@ -931,6 +958,5 @@ document.addEventListener("DOMContentLoaded", () => {
     if (document.hidden) return;
     loadParserStatus();
   }, 30000);
-});let modelsCurrentPage = 1;
-  const modelsPageSize = 15;
+});
   
