@@ -149,7 +149,11 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     result = {
         "models": models_info,
         "symbols": CRYPTO_SYMBOLS,
-        "settings": active_settings
+        "settings": active_settings,
+        "feature_importances": {
+            asset: feature_importances.get(asset, {})
+            for asset in set(m.asset for m in rows if m.is_active)
+        }
     }
     _cache["status"] = {"ts": now, "data": result}
     return result
@@ -325,7 +329,7 @@ async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
     trades = (await db.execute(trades_stmt)).all()
 
     # 3. Группируем сделки по asset + времени
-        asset_trades: dict[str, list] = defaultdict(list)
+    asset_trades: dict[str, list] = defaultdict(list)
     for row in trades:
         asset_trades[row.asset].append((row.created_at, row.pnl))
 
