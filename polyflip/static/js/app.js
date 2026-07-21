@@ -606,7 +606,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tbody.innerHTML = "";
 
     if (!rawModelsData || rawModelsData.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: var(--text-muted);">Нет сохраненных моделей</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color: var(--text-muted);">Нет сохраненных моделей</td></tr>`;
       return;
     }
 
@@ -634,18 +634,23 @@ document.addEventListener("DOMContentLoaded", () => {
           valB = b.version || 0;
           break;
         case "accuracy":
-          valA = a.accuracy != null ? a.accuracy : -1;
-          valB = b.accuracy != null ? b.accuracy : -1;
+          valA = a.accuracy || 0;
+          valB = b.accuracy || 0;
           break;
         case "baseline":
-          valA = a.baseline != null ? a.baseline : -1;
-          valB = b.baseline != null ? b.baseline : -1;
+          valA = a.baseline || 0;
+          valB = b.baseline || 0;
           break;
         case "ece":
-          valA = a.ece != null ? a.ece : 999;
-          valB = b.ece != null ? b.ece : 999;
+          const nullA = a.ece === null || a.ece === undefined;
+          const nullB = b.ece === null || b.ece === undefined;
+          if (nullA && nullB) return 0;
+          if (nullA) return 1;
+          if (nullB) return -1;
+          valA = a.ece;
+          valB = b.ece;
           break;
-        case "trained_at":
+        case "date":
           valA = a.trained_at ? new Date(a.trained_at).getTime() : 0;
           valB = b.trained_at ? new Date(b.trained_at).getTime() : 0;
           break;
@@ -681,8 +686,15 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
+    // Пагинация (15 моделей на страницу)
+    const totalPages = Math.ceil(sortedData.length / modelsPageSize);
+    if (modelsCurrentPage > totalPages) modelsCurrentPage = totalPages || 1;
+
+    const startIdx = (modelsCurrentPage - 1) * modelsPageSize;
+    const pageData = sortedData.slice(startIdx, startIdx + modelsPageSize);
+
     const rows = [];
-    sortedData.forEach((m) => {
+    pageData.forEach((m) => {
       const isActive = m.is_active;
       const isBest = m.accuracy === bestAccuracy[m.asset];
       
@@ -695,8 +707,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const actionHtml = isActive
-        ? `<button class="btn btn-primary" disabled style="opacity: 0.5;">Текущая</button>`
-        : `<button class="btn btn-primary btn-activate-model" data-asset="${m.asset}" data-version="${m.version}">Активировать</button>`;
+        ? `<button class="btn btn-primary" disabled style="opacity: 0.5; padding: 0.35rem 0.6rem; font-size: 0.8rem;">Текущая</button>`
+        : `<div style="display:flex; gap:0.4rem;">
+            <button class="btn btn-primary btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">Активировать</button>
+            <button class="btn btn-delete-polymarket-model" data-asset="${m.asset}" data-version="${m.version}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; background: rgba(220, 53, 69, 0.15); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.3);">🗑</button>
+           </div>`;
 
       const baselineText = m.baseline != null ? (m.baseline * 100).toFixed(1) + "%" : "-";
       const accuracyText = m.accuracy != null ? (m.accuracy * 100).toFixed(1) + "%" : "-";
@@ -714,10 +729,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const pnlKey = `${m.asset}_v${m.version}`;
       const pnl = rawModelsPnlData[pnlKey];
-
-      if (pnl === undefined && Object.keys(rawModelsPnlData).length > 0) {
-        console.warn(`[PnL] No data for key "${pnlKey}". Available keys count:`, Object.keys(rawModelsPnlData).length);
-      }
 
       let pnlHtml = '<td style="color: var(--text-muted);">—</td>';
       if (pnl !== undefined) {
@@ -741,7 +752,6 @@ document.addEventListener("DOMContentLoaded", () => {
                       <td>${accuracyText}</td>
                       <td>${baselineText}</td>
                       <td>${eceHtml}</td>
-                      <td style="font-size: 0.85rem; max-width: 220px; word-break: break-word; white-space: normal;">${escapeHtml(translateFeatures(m.features))}</td>
                       <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>
                       ${pnlHtml}
                       <td>${statusHtml}</td>
@@ -749,30 +759,64 @@ document.addEventListener("DOMContentLoaded", () => {
                   </tr>
               `);
     });
+
     tbody.innerHTML = rows.join("");
 
-    document.querySelectorAll(".btn-activate-model").forEach((btn) => {
+    // Пагинация под таблицей
+    let paginationContainer = document.getElementById("models-pagination");
+    if (!paginationContainer) {
+      paginationContainer = document.createElement("div");
+      paginationContainer.id = "models-pagination";
+      paginationContainer.style.cssText = "display:flex; justify-content:center; gap:0.4rem; margin-top:1.2rem;";
+      const tableWrapper = document.getElementById("models-table").parentNode;
+      tableWrapper.appendChild(paginationContainer);
+    }
+
+    if (totalPages > 1) {
+      let paginationHtml = "";
+      for (let i = 1; i <= totalPages; i++) {
+        const activeStyle = i === modelsCurrentPage 
+          ? "background: var(--poly-blue, #2563eb); color: white; border-color: var(--poly-blue, #2563eb);" 
+          : "background: rgba(255,255,255,0.05); color: var(--text-muted); border-color: var(--border-color);";
+        paginationHtml += `<button class="btn btn-models-page" data-page="${i}" style="min-width: 34px; padding: 0.3rem 0.6rem; font-size: 0.82rem; ${activeStyle}">${i}</button>`;
+      }
+      paginationContainer.innerHTML = paginationHtml;
+      paginationContainer.style.display = "flex";
+
+      document.querySelectorAll(".btn-models-page").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          modelsCurrentPage = parseInt(e.target.dataset.page);
+          renderModelsTable();
+        });
+      });
+    } else {
+      paginationContainer.style.display = "none";
+    }
+
+    // Обработчик кнопки удаления
+    document.querySelectorAll(".btn-delete-polymarket-model").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
-        const asset = e.target.getAttribute("data-asset");
-        const version = e.target.getAttribute("data-version");
-        if (confirm(`Сделать модель v${version} для ${asset} активной?`)) {
-          try {
-            const r = await fetch(window.API_BASE + `/api/analytics/models/${asset}/activate/${version}`, {
-              method: 'POST',
-              headers: getHeaders()
-            });
-            if (r.ok) {
-              loadModelsHistory();
-            } else {
-              alert("Ошибка активации модели");
-            }
-          } catch(err) {
-            console.error(err);
+        const asset = e.currentTarget.dataset.asset;
+        const version = e.currentTarget.dataset.version;
+        if (!confirm(`Удалить архивную модель ${asset} версии ${version}? Операция необратима!`)) return;
+
+        try {
+          const r = await fetch(window.API_BASE + `/api/analytics/models/${asset}/${version}`, {
+            method: "DELETE",
+            headers: getAuthHeaders(),
+          });
+          const d = await r.json();
+          if (r.ok) {
+            loadModelsHistory();
+          } else {
+            alert("Ошибка удаления: " + (d.detail || JSON.stringify(d)));
           }
+        } catch (err) {
+          alert("Ошибка сети при удалении");
         }
       });
     });
-  }
+}
 
   function setupModelsTableSorting() {
     const table = document.querySelector("#models-table");
@@ -886,4 +930,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (document.hidden) return;
     loadParserStatus();
   }, 30000);
-});
+});let modelsCurrentPage = 1;
+  const modelsPageSize = 15;
+  
