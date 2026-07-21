@@ -31,9 +31,12 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "vol_48",       # std log-returns за 48 свечей
     "vol_ratio",    # vol_6 / vol_48 — высокая/низкая волатильность
     "vol_trend",    # vol_6 / vol_24 — нарастание краткосрочной волатильности
-    # --- Volume anomaly ---
-    "vol_z_1",      # z-score объёма текущей свечи относительно 24-свечного окна
+    # --- Volume anomaly & CVD ---
+    "vol_z_1",          # z-score объёма текущей свечи относительно 24-свечного окна
     "taker_buy_ratio",  # taker_buy_volume / volume — давление покупателей (0..1)
+    "cvd_1",            # нормализованная дельта за 1 свечу
+    "cvd_6",            # накопленный дисбаланс за 6 свечей
+    "cvd_trend",        # нарастание/убывание давления (cvd_6 - cvd_1)
     # --- Technical Indicators ---
     "rsi_14",
     "ema_ratio_9_21",
@@ -133,6 +136,16 @@ def build_crypto_features(
     last_tbv = float(tbv.iloc[-1])
     taker_buy_ratio = (last_tbv / last_vol) if last_vol > 1e-10 else 0.5
 
+    all_vol = volume.fillna(0.0)
+    all_tbv = tbv.fillna(0.0)
+    all_tsell = all_vol - all_tbv
+    all_cvd = all_tbv - all_tsell
+    cvd_1 = float((all_cvd / (all_vol + 1e-10)).iloc[-1])
+    cvd_6_sum = float(all_cvd.iloc[-6:].sum()) if len(all_cvd) >= 6 else float(all_cvd.sum())
+    vol_6_sum = float(all_vol.iloc[-6:].sum()) if len(all_vol) >= 6 else float(all_vol.sum())
+    cvd_6 = cvd_6_sum / (vol_6_sum + 1e-10)
+    cvd_trend = cvd_6 - cvd_1
+
     # ── 4a. Technical Indicators ─────────────────────────────────
     delta = close.diff()
     gain  = delta.clip(lower=0).rolling(14, min_periods=1).mean()
@@ -197,7 +210,7 @@ def build_crypto_features(
     vec = np.array([[
         ret_1, ret_3, ret_6, ret_12, ret_24, ret_48,
         vol_6, vol_24, vol_48, vol_ratio, vol_trend,
-        vol_z_1, taker_buy_ratio,
+        vol_z_1, taker_buy_ratio, cvd_1, cvd_6, cvd_trend,
         rsi_14, ema_ratio_9_21, bb_width, bb_position,
         dist_h24, dist_l24, dist_h96, dist_l96,
         range_1, range_avg,
@@ -266,11 +279,19 @@ def build_features(candles: Sequence | pd.DataFrame) -> pd.DataFrame:
     out["vol_ratio"] = out["vol_6"] / (out["vol_48"] + 1e-10)
     out["vol_trend"] = out["vol_6"] / (out["vol_24"] + 1e-10)
 
-    # ── Volume anomaly ───────────────────────────────────────────
+    # ── Volume anomaly & CVD ─────────────────────────────────────
     vol_mean = volume.rolling(24, min_periods=6).mean()
     vol_std  = volume.rolling(24, min_periods=6).std()
     out["vol_z_1"]         = (volume - vol_mean) / (vol_std + 1e-10)
     out["taker_buy_ratio"] = tbv / (volume + 1e-10)
+
+    taker_sell = volume - tbv
+    cvd = (tbv - taker_sell)                         # delta за 1 свечу
+    out["cvd_1"] = cvd / (volume + 1e-10)            # нормализованная дельта
+    out["cvd_6"] = cvd.rolling(6, min_periods=2).sum() / (
+        volume.rolling(6, min_periods=2).sum() + 1e-10
+    )  # накопленный дисбаланс за 6 свечей
+    out["cvd_trend"] = out["cvd_6"] - out["cvd_1"]   # нарастание/убывание давления
 
     # ── RSI(14) ──────────────────────────────────────────────────
     delta = close.diff()

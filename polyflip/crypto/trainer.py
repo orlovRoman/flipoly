@@ -34,15 +34,20 @@ from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
 
 logger = structlog.get_logger(__name__)
 
-# СТАЛО (26 фич — совпадают с CRYPTO_FEATURE_COLUMNS в feature_builder.py)
 CRYPTO_FEATURES = [
-    # Top returns & volume (strongest signal: AUC 0.512 - 0.531)
-    "taker_buy_ratio", "ret_1", "ret_3", "ret_6", "vol_z_1",
-    # Volatility & Technicals (AUC 0.505 - 0.512) + vol_ratio for regime splitting
-    "vol_6", "vol_ratio", "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
-    # Range & Extremes 24h
-    "range_1", "range_avg_24", "dist_to_high_24", "dist_to_low_24",
-    # Consecutive candles
+    # Returns — только короткие горизонты
+    "ret_1", "ret_3", "ret_6",
+    # Volatility — только короткие
+    "vol_6", "vol_24",
+    # Volume & CVD
+    "vol_z_1", "taker_buy_ratio", "cvd_1", "cvd_6", "cvd_trend",
+    # Technical
+    "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
+    # Position vs extremes — только 24h
+    "dist_to_high_24", "dist_to_low_24",
+    # Range
+    "range_1", "range_avg_24",
+    # Consecutive
     "consec_up", "consec_down",
 ]
 
@@ -53,16 +58,33 @@ assert not _unknown, (
 )
 
 
-def _build_target(df: pd.DataFrame) -> pd.DataFrame:
+def _build_target(df: pd.DataFrame, epsilon_quantile: float = 0.70) -> pd.DataFrame:
     """
-    Вычисляет таргет Up(1)/Down(0) без фильтрации.
+    Вычисляет таргет Up(1)/Down(0) и применяет epsilon-фильтрацию.
     """
     df = df.copy()
     next_ret = df["ret_1"].shift(-1)
     df["target"] = (next_ret > 0).astype(int)
     df["abs_ret_next"] = next_ret.abs()
     df = df.dropna(subset=["target", "abs_ret_next"])
-    return df
+
+    # Фильтр: обучаем только на "значимых" движениях
+    epsilon = float(df["abs_ret_next"].quantile(epsilon_quantile))
+    df_filtered = df[df["abs_ret_next"] >= epsilon].copy()
+
+    if len(df_filtered) < 200:
+        logger.warning("epsilon_too_aggressive", rows=len(df_filtered))
+        return df  # fallback на unfiltered
+
+    logger.info(
+        "target_epsilon_filter",
+        epsilon_quantile=epsilon_quantile,
+        epsilon=round(epsilon, 6),
+        before=len(df),
+        after=len(df_filtered),
+        kept_pct=round(len(df_filtered) / len(df) * 100, 1),
+    )
+    return df_filtered
 
 
 def _make_lgbm(**params) -> LGBMClassifier:
@@ -70,11 +92,11 @@ def _make_lgbm(**params) -> LGBMClassifier:
     defaults = {
         "n_estimators":      300,
         "learning_rate":     0.05,
-        "num_leaves":        31,
-        "max_depth":         5,
-        "min_child_samples": 20,
+        "num_leaves":        15,
+        "max_depth":         4,
+        "min_child_samples": 50,
         "subsample":         0.8,
-        "colsample_bytree":  0.8,
+        "colsample_bytree":  1.0,
         "reg_alpha":         0.1,
         "reg_lambda":        1.0,
         "random_state":      CV_RANDOM_STATE,

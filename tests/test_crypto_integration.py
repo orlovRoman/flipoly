@@ -67,5 +67,5 @@ async def test_crypto_predictor_flow():
 
 def test_crypto_features_count_matches_mock():
     from polyflip.crypto.trainer import CRYPTO_FEATURES
-    assert len(CRYPTO_FEATURES) == 17, \
-        f"Ожидалось 17 фичей после скрининга Univariate AUC, фактически: {len(CRYPTO_FEATURES)}"
+    assert len(CRYPTO_FEATURES) == 20, \
+        f"Ожидалось 20 фичей после шагов 1-3, фактически: {len(CRYPTO_FEATURES)}"
