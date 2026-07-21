@@ -52,6 +52,10 @@ def compute_bet_size_with_liquidity(
         min_edge=min_edge,
         max_edge=max_edge,
     )
+    # Если объём равен 0 (нет ключей API или нет сделок), не применяем лимит ликвидности (BUG-FIX)
+    if volume_5min <= 0.0:
+        return raw_bet
+
     # liquidity_cap: не менее min_bet чтобы не заблокировать торговлю на тихих рынках
     liquidity_cap = max(volume_5min * liquidity_fraction, min_bet_usdc)
     return round(min(raw_bet, liquidity_cap), 2)
