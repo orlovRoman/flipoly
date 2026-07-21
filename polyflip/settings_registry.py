@@ -211,6 +211,8 @@ REGISTRY: list[SettingDef] = [
                description="L1 регуляризация LightGBM"),
     SettingDef("CRYPTO_LGBM_REG_LAMBDA", "1.0",
                description="L2 регуляризация LightGBM"),
+    SettingDef("LGBM_EPSILON_QUANTILE", "0.70",
+               description="Квантиль epsilon-фильтра таргета. 0.70 = учимся на топ-30% движений"),
 ]
 
 

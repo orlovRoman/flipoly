@@ -280,11 +280,12 @@ class CryptoModelTrainer:
         max_valid_thr = await get_float(self.db, "LGBM_MAX_VALID_THRESHOLD")
         thr_fallback = await get_float(self.db, "LGBM_THRESHOLD_FALLBACK")
         cv_n_splits = await get_int(self.db, "LGBM_CV_N_SPLITS")
+        epsilon_quantile = await get_float(self.db, "LGBM_EPSILON_QUANTILE")
 
         # Строим фичи
         df = build_features(candles)
 
-        df_filtered = _build_target(df)
+        df_filtered = _build_target(df, epsilon_quantile=epsilon_quantile)
 
         if len(df_filtered) < 300:
             logger.warning("too_few_candles", symbol=symbol, rows=len(df_filtered))

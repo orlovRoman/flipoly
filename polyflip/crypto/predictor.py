@@ -50,6 +50,9 @@ class CryptoFeaturesValidator(BaseModel):
     consec_down: float
     hour_utc: float
     dow: float
+    funding_rate: float
+    funding_rate_ma3: float
+    funding_extreme: float
 
     @field_validator("*", mode="before")
     @classmethod

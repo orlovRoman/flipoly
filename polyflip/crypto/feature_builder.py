@@ -56,6 +56,10 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     # --- Time ---
     "hour_utc",          # час открытия (0–23)
     "dow",               # день недели (0=Mon, 6=Sun)
+    # --- Funding Rate ---
+    "funding_rate",      # текущий 8h funding rate
+    "funding_rate_ma3",  # MA(3) последних 3 значений
+    "funding_extreme",   # abs(funding_rate) > 0.01 → бинарный маркер перегрева
 ]
 
 
@@ -70,6 +74,8 @@ class CryptoFeatureVector:
 def build_crypto_features(
     candles: Sequence | pd.DataFrame,
     min_candles: int = 100,
+    funding_rate: float = 0.0,
+    funding_rate_ma3: float = 0.0,
 ) -> CryptoFeatureVector:
     """
     Принимает свечи отсортированные ASC.
@@ -206,6 +212,9 @@ def build_crypto_features(
     hour_utc = int(last_dt.hour)
     dow      = int(last_dt.weekday())   # 0=Mon
 
+    # ── 8a. Funding Rate ─────────────────────────────────────────
+    funding_extreme = float(abs(funding_rate) > 0.01)
+
     # ── 9. Сборка ────────────────────────────────────────────────
     vec = np.array([[
         ret_1, ret_3, ret_6, ret_12, ret_24, ret_48,
@@ -216,6 +225,7 @@ def build_crypto_features(
         range_1, range_avg,
         float(consec_up), float(consec_down),
         float(hour_utc), float(dow),
+        float(funding_rate), float(funding_rate_ma3), float(funding_extreme),
     ]], dtype=np.float64)
 
     vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
@@ -231,7 +241,11 @@ def build_crypto_features(
     )
 
 
-def build_features(candles: Sequence | pd.DataFrame) -> pd.DataFrame:
+def build_features(
+    candles: Sequence | pd.DataFrame,
+    funding_rate: float = 0.0,
+    funding_rate_ma3: float = 0.0,
+) -> pd.DataFrame:
     """
     Строит DataFrame с фичами для ВСЕХ свечей (используется при обучении модели).
     Порядок строк: ASC по open_time.
@@ -349,6 +363,11 @@ def build_features(candles: Sequence | pd.DataFrame) -> pd.DataFrame:
     dt = pd.to_datetime(df["open_time"])
     out["hour_utc"] = dt.dt.hour.astype(float)
     out["dow"]      = dt.dt.weekday.astype(float)
+
+    # ── Funding Rate ─────────────────────────────────────────────
+    out["funding_rate"]     = float(funding_rate)
+    out["funding_rate_ma3"] = float(funding_rate_ma3)
+    out["funding_extreme"]  = float(abs(funding_rate) > 0.01)
 
     # ── NaN → 0 (safety net) ────────────────────────────────────
     out = out.fillna(0.0)
