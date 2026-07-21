@@ -288,8 +288,8 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
     if key == "FAVORITE_THRESHOLD":
         try:
             val = float(payload.value)
-            if not (0.5 <= val <= 0.99):
-                raise HTTPException(status_code=400, detail="FAVORITE_THRESHOLD must be between 0.50 and 0.99")
+            if not (0.01 <= val <= 0.99):
+                raise HTTPException(status_code=400, detail="FAVORITE_THRESHOLD must be between 0.01 and 0.99")
             payload.value = str(val)
         except ValueError:
             raise HTTPException(status_code=400, detail="FAVORITE_THRESHOLD must be a number")
@@ -337,14 +337,17 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
         except ValueError:
             raise HTTPException(status_code=400, detail="FAVORITE_MODE_ENTRY_SEC must be an integer")
 
-    if key == "FLIP_THRESHOLD":
-        try:
-            val = float(payload.value)
-            if not (0.50 <= val <= 0.99):
-                raise HTTPException(status_code=400, detail="FLIP_THRESHOLD must be 0.50..0.99")
-            payload.value = str(val)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="FLIP_THRESHOLD must be a number")
+    if key == "FLIP_THRESHOLD" or key == "TRADE_FLIP_THRESHOLD" or key.startswith("TRADE_FLIP_THRESHOLD_"):
+        if key.startswith("TRADE_FLIP_THRESHOLD_") and payload.value == "":
+            pass
+        else:
+            try:
+                val = float(payload.value)
+                if not (0.01 <= val <= 0.99):
+                    raise HTTPException(status_code=400, detail=f"{key} must be between 0.01 and 0.99")
+                payload.value = str(val)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"{key} must be a number")
 
     if key in ["FAVORITE_MIN_PRICE", "FAVORITE_MAX_PRICE"]:
         try:
