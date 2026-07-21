@@ -651,8 +651,9 @@ document.addEventListener("DOMContentLoaded", () => {
           valB = b.ece;
           break;
         case "date":
-          valA = a.trained_at ? new Date(a.trained_at).getTime() : 0;
-          valB = b.trained_at ? new Date(b.trained_at).getTime() : 0;
+        case "trained_at":
+          valA = a.trained_at ? (new Date(typeof a.trained_at === 'string' ? a.trained_at.replace(' ', 'T') : a.trained_at).getTime() || 0) : 0;
+          valB = b.trained_at ? (new Date(typeof b.trained_at === 'string' ? b.trained_at.replace(' ', 'T') : b.trained_at).getTime() || 0) : 0;
           break;
         case "pnl":
           valA = (pnlA && pnlA.total_trades > 0) ? pnlA.pnl : -999999;
