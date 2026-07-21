@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 1. Fetch Summary
   async function loadSummary(retryCount = 0) {
     try {
-      console.log("[Summary] Loading summary data from API...");
+      
       const res = await fetch(window.API_BASE + "/api/analytics/summary", {
         headers: getHeaders()
       });
@@ -100,7 +100,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       const data = await res.json();
-      console.log("[Summary] Received data successfully:", data);
+      
 
       const marketsEl = document.getElementById("stat-markets");
       if (marketsEl) {
@@ -757,7 +757,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const version = e.target.getAttribute("data-version");
         if (confirm(`Сделать модель v${version} для ${asset} активной?`)) {
           try {
-            const r = await fetch(window.API_BASE + `/api/analytics/models/${asset}/${version}/activate`, {
+            const r = await fetch(window.API_BASE + `/api/analytics/models/${asset}/activate/${version}`, {
               method: 'POST',
               headers: getHeaders()
             });

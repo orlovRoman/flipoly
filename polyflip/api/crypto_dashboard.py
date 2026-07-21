@@ -3,8 +3,10 @@
 Дашборд для крипто-домена (LightGBM Up/Down).
 Полностью изолирован от Polymarket-дашборда.
 Подключается в main.py одной строкой.
+
 """
 from __future__ import annotations
+from collections import defaultdict
 
 import asyncio
 import os
@@ -51,6 +53,7 @@ async def crypto_page(request: Request):
         name="crypto.html",
         context={
             "symbols": CRYPTO_SYMBOLS,
+            "root_path": request.scope.get("root_path", ""),
             "api_key": api_key,
             "defaults": {
                 "n_estimators": C.LGBM_N_ESTIMATORS,
@@ -85,9 +88,8 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
 
     stmt = select(ModelRegistry).where(
-        ModelRegistry.is_active.is_(True),
         ModelRegistry.asset.in_(allowed_assets),
-    )
+    ).order_by(ModelRegistry.asset, ModelRegistry.version.desc())
     rows = (await db.execute(stmt)).scalars().all()
 
     # Пороги из RuntimeSettings
@@ -134,14 +136,17 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
 
     models_info = {}
     for m in rows:
-        models_info[m.asset] = {
+        key = f"{m.asset}_v{m.version}"
+        models_info[key] = {
+            "asset":      m.asset,
             "version":    m.version,
+            "is_active":  m.is_active,
             "auc":        round(m.accuracy, 4),
             "baseline":   round(m.baseline, 4),
-            "ece":        round(m.ece, 4) if m.ece else None,
+            "ece":        round(m.ece, 4) if getattr(m, 'ece', None) else None,
             "threshold":  thresholds.get(m.asset),
-            "features":   m.features.split(",") if m.features else [],
-            "trained_at": m.trained_at.isoformat() if m.trained_at else None,
+            "features":   m.features.split(",") if getattr(m, 'features', None) else [],
+            "trained_at": m.trained_at.isoformat() if getattr(m, 'trained_at', None) else None,
             "feature_importance": feature_importances.get(m.asset, {}),
         }
 
@@ -313,9 +318,8 @@ async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
         allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
 
     stmt = select(ModelRegistry).where(
-        ModelRegistry.is_active.is_(True),
         ModelRegistry.asset.in_(allowed_assets),
-    )
+    ).order_by(ModelRegistry.asset, ModelRegistry.version.desc())
     models = (await db.execute(stmt)).scalars().all()
 
     if not models:
@@ -343,7 +347,6 @@ async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
     trades = (await db.execute(trades_stmt)).all()
 
     # 3. Группируем по asset
-    from collections import defaultdict
     groups: dict[str, list[float]] = defaultdict(list)
     for row in trades:
         groups[row.asset].append(row.pnl)

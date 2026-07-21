@@ -80,7 +80,7 @@
                 <li class="nav-item" onclick="window.location.href='/dashboard?tab=status'">Статус Парсера</li>
                 <li class="nav-item" onclick="window.location.href='/trading'">Торговля (PnL)</li>
                 <li class="nav-item" onclick="window.location.href='/backtest'">Бэктест</li>
-                <li class="nav-item active" onclick="window.location.href='/crypto'">Крипто ML 🪙</li>
+                <li class="nav-item active" onclick="window.location.href='/crypto'">LightGBM 🪙</li>
             </ul>
         </nav>
 
@@ -356,16 +356,27 @@
                 return;
             }
 
-            el.innerHTML = Object.entries(models).map(([sym, m]) => {
-                const pnlKey = `${sym}_v${m.version}`;
-                const pnl = pnlData[pnlKey];
+            let modelsArray = Object.values(models).map(m => {
+                const pnlKey = `${m.asset}_v${m.version}`;
+                const pnlInfo = pnlData[pnlKey] || { pnl: 0, win_rate: null, total_trades: 0 };
+                return { ...m, pnlInfo };
+            });
 
-                // Диагностика несоответствия ключей
-                if (!pnl && Object.keys(pnlData).length > 0) {
-                    console.warn(`[CryptoPnL] Key "${pnlKey}" not found. Available:`, Object.keys(pnlData));
+            // Сортировка: PnL (по убыванию) -> Активные -> Имя актива
+            modelsArray.sort((a, b) => {
+                if (b.pnlInfo.pnl !== a.pnlInfo.pnl) {
+                    return b.pnlInfo.pnl - a.pnlInfo.pnl;
                 }
+                if (b.is_active !== a.is_active) {
+                    return b.is_active ? 1 : -1;
+                }
+                return a.asset.localeCompare(b.asset);
+            });
 
-                // --- PnL блок ---
+            el.innerHTML = modelsArray.map(m => {
+                const sym = m.asset;
+                const pnl = m.pnlInfo;
+                
                 let pnlHtml;
                 if (!pnl || pnl.total_trades === 0) {
                     pnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">Нет сделок</span>`;
@@ -383,7 +394,6 @@
                         </span>`;
                 }
 
-                // --- ECE badge ---
                 let eceBadge = '—';
                 if (m.ece != null) {
                     const eceColor = m.ece < 0.03 ? 'var(--poly-green)' 
@@ -392,25 +402,31 @@
                     eceBadge = `<span style="color:${eceColor};">${m.ece.toFixed(4)}</span>`;
                 }
 
+                const activeBadgeHtml = m.is_active 
+                    ? `<span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; padding:0.2rem 0.6rem; border-radius:20px;">Активна</span>`
+                    : `<span style="font-size:0.75rem; background:rgba(255,255,255,0.05); color:var(--text-muted); padding:0.2rem 0.6rem; border-radius:20px;">Архив</span>`;
+
+                const actionButtonHtml = m.is_active
+                    ? `<button class="btn" style="background:rgba(255,255,255,0.05); color:var(--text-muted); pointer-events:none; border:none; width: 120px;">Текущая</button>`
+                    : `<button class="btn primary-btn btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="width: 120px;">Активировать</button>`;
+
                 return `
                 <div style="
                     display: grid;
-                    grid-template-columns: 1fr auto;
+                    grid-template-columns: 1fr auto auto;
                     align-items: center;
-                    gap: 1rem;
+                    gap: 1.5rem;
                     padding: 1rem 1.2rem;
                     margin-bottom: 0.75rem;
                     background: rgba(255,255,255,0.02);
                     border: 1px solid var(--border-color);
                     border-radius: 10px;
                 ">
-                    <!-- Левая часть: метрики модели -->
                     <div>
                         <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.4rem;">
                             <span style="font-size:1rem; font-weight:700; color:white;">${sym}</span>
                             <span style="font-size:0.75rem; color:var(--text-muted);">v${m.version}</span>
-                            <span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; 
-                                         padding:0.1rem 0.5rem; border-radius:20px;">Активна</span>
+                            ${activeBadgeHtml}
                         </div>
                         <div style="display:flex; gap:1.5rem; font-size:0.85rem; flex-wrap:wrap;">
                             <span>AUC: <b>${m.auc}</b> <span style="color:var(--text-muted);">(base: ${m.baseline})</span></span>
@@ -418,15 +434,40 @@
                             <span style="color:var(--text-muted);">Обучена: ${m.trained_at ? m.trained_at.slice(0,16).replace('T',' ') : '—'}</span>
                         </div>
                     </div>
-
-                    <!-- Правая часть: PnL -->
                     <div style="text-align:right; min-width:140px;">
                         <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:0.2rem; text-transform:uppercase; letter-spacing:0.05em;">PnL (live)</div>
                         ${pnlHtml}
                     </div>
+                    <div style="min-width: 120px; text-align: right;">
+                        ${actionButtonHtml}
+                    </div>
                 </div>`;
             }).join('');
+            
+            document.querySelectorAll(".btn-activate-model").forEach(btn => {
+                btn.addEventListener("click", async (e) => {
+                    const asset = e.target.dataset.asset;
+                    const version = e.target.dataset.version;
+                    if (!confirm(`Активировать модель ${asset} версии ${version}?`)) return;
+                    
+                    try {
+                        const r = await fetch(window.API_BASE + `/api/analytics/models/${asset}/activate/${version}`, {
+                            method: "POST", headers: H
+                        });
+                        const d = await r.json();
+                        if (r.ok) {
+                            alert("Модель активирована!");
+                            loadStatus(); // перезагружаем список
+                        } else {
+                            alert("Ошибка активации: " + JSON.stringify(d));
+                        }
+                    } catch(err) {
+                        alert("Ошибка сети при активации");
+                    }
+                });
+            });
         }
+
 
 
         const chartColors = [
