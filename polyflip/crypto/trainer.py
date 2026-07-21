@@ -280,18 +280,18 @@ class CryptoModelTrainer:
         }
 
         min_precision = await _get_float_setting(
-            "LGBM_MIN_PRECISION_FOR_THRESHOLD", MIN_PRECISION_FOR_THRESHOLD
+            self.db, "LGBM_MIN_PRECISION_FOR_THRESHOLD", MIN_PRECISION_FOR_THRESHOLD
         )
         min_valid_thr = await _get_float_setting(
-            "LGBM_MIN_VALID_THRESHOLD", MIN_VALID_THRESHOLD
+            self.db, "LGBM_MIN_VALID_THRESHOLD", MIN_VALID_THRESHOLD
         )
         max_valid_thr = await _get_float_setting(
-            "LGBM_MAX_VALID_THRESHOLD", MAX_VALID_THRESHOLD
+            self.db, "LGBM_MAX_VALID_THRESHOLD", MAX_VALID_THRESHOLD
         )
         thr_fallback = await _get_float_setting(
-            "LGBM_THRESHOLD_FALLBACK", THRESHOLD_FALLBACK
+            self.db, "LGBM_THRESHOLD_FALLBACK", THRESHOLD_FALLBACK
         )
-        cv_n_splits = await _get_int_setting("LGBM_CV_N_SPLITS", CV_N_SPLITS)
+        cv_n_splits = await _get_int_setting(self.db, "LGBM_CV_N_SPLITS", CV_N_SPLITS)
 
         # Строим фичи
         df = build_features(candles)

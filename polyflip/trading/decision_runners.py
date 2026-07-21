@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional, Any
 from datetime import datetime, timezone
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 from polyflip.db.models import LiveMarket, TradeHistory, MarketSnapshot
