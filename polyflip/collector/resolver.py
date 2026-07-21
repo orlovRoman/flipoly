@@ -83,24 +83,28 @@ async def resolve_pending_markets(db_session: AsyncSession):
                 outcome_map = {"UP": "YES", "DOWN": "NO", "YES": "YES", "NO": "NO"}
                 final_outcome = outcome_map.get(answer.upper(), answer.upper()) # "YES" или "NO"
                 
-                # Теперь обновляем все снепшоты этого рынка
-                async with db_session.begin_nested():
-                    snapshots_stmt = select(MarketSnapshot).where(MarketSnapshot.market_id == market_id)
-                    snapshots_result = await db_session.execute(snapshots_stmt)
-                    snapshots = snapshots_result.scalars().all()
-                    
-                    for snap in snapshots:
-                        snap.final_outcome = final_outcome
+                # Теперь обновляем все снепшоты этого рынка (BUG-AK)
+                try:
+                    async with db_session.begin_nested():
+                        snapshots_stmt = select(MarketSnapshot).where(MarketSnapshot.market_id == market_id)
+                        snapshots_result = await db_session.execute(snapshots_stmt)
+                        snapshots = snapshots_result.scalars().all()
                         
-                        if snap.mid_price == 0.5:
-                            snap.flip_vs_final = False
-                        else:
-                            market_believed_yes = snap.mid_price > 0.5
-                            actual_is_yes = (final_outcome == "YES")
-                            snap.flip_vs_final = (market_believed_yes != actual_is_yes)
-                        
-                any_resolved = True
-                logger.info("market_prepared_to_resolve", market_id=market_id, outcome=final_outcome)
+                        for snap in snapshots:
+                            snap.final_outcome = final_outcome
+                            
+                            if snap.mid_price == 0.5:
+                                snap.flip_vs_final = False
+                            else:
+                                market_believed_yes = snap.mid_price > 0.5
+                                actual_is_yes = (final_outcome == "YES")
+                                snap.flip_vs_final = (market_believed_yes != actual_is_yes)
+                    any_resolved = True
+                    logger.info("market_prepared_to_resolve", market_id=market_id, outcome=final_outcome)
+                except Exception as exc:
+                    await db_session.rollback()
+                    logger.exception("resolver_snapshot_failed", market_id=market_id, error=str(exc))
+                    raise
                 
             except Exception as e:
                 logger.error("error_preparing_market_resolve", market_id=market_id, error=str(e))

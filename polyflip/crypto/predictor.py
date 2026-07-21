@@ -70,6 +70,7 @@ class CryptoSignal:
     threshold_down: float    # Порог для шорта (BUY_DOWN)
     model_version: int       # Версия модели из реестра
     features_ok: bool        # False, если не прошли Pydantic-валидацию
+    ece: float = 0.0         # BUG-AO
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
@@ -80,6 +81,7 @@ class CryptoPredictor:
         self._model_versions: dict[str, dict[str, int]] = {}
         self._model_intervals: dict[str, dict[str, str]] = {}
         self._thresholds: dict[str, dict[str, tuple[float, float]]] = {}
+        self._model_eces: dict[str, dict[str, float]] = {} # BUG-AO
         self._vol_p33s: dict[str, float] = {}
         self._vol_p67s: dict[str, float] = {}
         self._loaded_symbols: set[str] = set()
@@ -98,6 +100,7 @@ class CryptoPredictor:
                 inst._loaded_symbols.discard(symbol)
                 inst._models.pop(symbol, None)
                 inst._model_versions.pop(symbol, None)
+                inst._model_eces.pop(symbol, None) # BUG-AO
                 inst._model_intervals.pop(symbol, None)
                 inst._thresholds.pop(symbol, None)
                 inst._vol_p33s.pop(symbol, None)
@@ -113,6 +116,7 @@ class CryptoPredictor:
         self._model_versions.pop(symbol, None)
         self._model_intervals.pop(symbol, None)
         self._thresholds.pop(symbol, None)
+        self._model_eces.pop(symbol, None) # BUG-AO
         self._vol_p33s.pop(symbol, None)
         self._vol_p67s.pop(symbol, None)
 
@@ -209,6 +213,7 @@ class CryptoPredictor:
                 self._models[symbol][regime] = pickle.loads(row.model_blob)
                 self._model_versions[symbol][regime] = row.version
                 self._model_intervals[symbol][regime] = getattr(row, 'interval', '15m')
+                self._model_eces[symbol][regime] = row.ece or 0.0 # BUG-AO
 
                 # Пороги: берем CRYPTO_THRESHOLD_BTCUSDT_low_vol или общие CRYPTO_THRESHOLD_UP_BTC / DOWN_BTC
                 thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
@@ -248,13 +253,13 @@ class CryptoPredictor:
     def predict(self, candles: list[Any], symbol: str) -> CryptoSignal:
         """Синхронный инференс по нужной модели (в зависимости от vol_ratio)."""
         if symbol not in self._loaded_symbols:
-            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False)
+            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
 
         try:
             # 1. Сборка вектора признаков
             feature_vector = build_crypto_features(candles)
             if not feature_vector.valid:
-                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False)
+                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
 
             fv_dict = dict(zip(CRYPTO_FEATURE_COLUMNS, feature_vector.features[0]))
             
@@ -288,7 +293,7 @@ class CryptoPredictor:
 
             if model is None:
                 logger.warning("no_model_available_for_predict", symbol=symbol, regime=regime)
-                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False)
+                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
 
             # 3. Инференс
             p_up = float(model.predict_proba([fv_array])[0][1])
@@ -298,6 +303,9 @@ class CryptoPredictor:
             
             # Страйк (цена последней закрытой свечи)
             strike = float(candles[-1].close)
+
+            ece = (self._model_eces.get(symbol, {}).get(regime)
+                   or next(iter(self._model_eces.get(symbol, {}).values()), 0.0))
 
             return CryptoSignal(
                 symbol=symbol,
@@ -309,9 +317,10 @@ class CryptoPredictor:
                 threshold_up=th_up,
                 threshold_down=th_down,
                 model_version=version,
-                features_ok=True
+                features_ok=True,
+                ece=ece # BUG-AO
             )
         except Exception as e:
             logger.exception("crypto_inference_failed", symbol=symbol, error=str(e))
-            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False)
+            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
 

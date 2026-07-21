@@ -6,6 +6,7 @@ from sqlalchemy import select, and_
 import structlog
 
 from polyflip.db.models import TradeHistory, RuntimeSettings, LiveMarket, SlippageLog
+from polyflip.constants import POLYMARKET_FEE_RATE
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.stoploss import evaluate_stop_loss

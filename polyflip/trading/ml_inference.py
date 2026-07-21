@@ -3,7 +3,7 @@ import numpy as np
 from datetime import datetime
 from typing import Any
 import structlog
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import pickle
@@ -17,13 +17,20 @@ class ModelsCache:
     models: dict[str, Any]
     versions: dict[str, int]
     features: dict[str, list[str]]
+    eces: dict[str, float] = field(default_factory=dict) # BUG-AO
 
 _models_cache = None
 
-def get_models_cache() -> ModelsCache:
+async def get_models_cache(db_session: AsyncSession = None) -> ModelsCache:
     global _models_cache
     if _models_cache is None:
-        _models_cache = ModelsCache(models={}, versions={}, features={})
+        from dataclasses import field
+        _models_cache = ModelsCache(models={}, versions={}, features={}, eces={})
+    
+    if (not _models_cache.models or not _models_cache.versions) and db_session is not None:
+        logger.warning("models_cache_empty_lazy_init")
+        await populate_models_cache(db_session)
+        
     return _models_cache
 
 def clear_models_cache() -> None:
@@ -46,6 +53,7 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
             cache.models.pop(cached_asset, None)
             cache.versions.pop(cached_asset, None)
             cache.features.pop(cached_asset, None)
+            cache.eces.pop(cached_asset, None) # BUG-AO
             
     # 3. Находим модели, версии которых изменились или которых нет в кэше
     to_load = []
@@ -69,6 +77,7 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
             model_obj = pickle.loads(m.model_blob)
             cache.models[m.asset] = model_obj
             cache.versions[m.asset] = m.version
+            cache.eces[m.asset] = m.ece or 0.0 # BUG-AO
             
             m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
             if not m_feats and hasattr(model_obj, "feature_names_in_"):

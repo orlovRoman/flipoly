@@ -80,3 +80,15 @@ def apply_polymarket_fee(gross_pnl: float, fee_rate: float = POLYMARKET_FEE_RATE
     Используется только для расчёта PnL в бэктесте.
     """
     return gross_pnl * (1.0 - fee_rate)
+
+
+def apply_ece_correction(p: float, ece: float) -> float:
+    """
+    Консервативная коррекция: если ECE высокий — сжимаем уверенность к 0.5.
+    Формула: p_corrected = 0.5 + (p - 0.5) * (1 - min(ece / 0.1, 1.0))
+    При ECE=0.0 → без изменений. При ECE>=0.1 → всё схлопывается к 0.5.
+    """
+    if ece is None or ece <= 0.0:
+        return p
+    shrink = max(0.0, 1.0 - ece / 0.10)
+    return 0.5 + (p - 0.5) * shrink

@@ -85,13 +85,7 @@ TRADING_MODE_CRYPTO = TRADING_MODE_LIGHTGBM
 TRADING_MODE_COMBINED = "combined"
 
 COMBINED_MODE_SUPPORTED_ASSETS = frozenset({"BTC", "ETH", "DOGE", "XRP", "SOL"})
-COMBINED_BINANCE_SYMBOLS: dict[str, str] = {
-    "BTC":  "BTCUSDT",
-    "ETH":  "ETHUSDT",
-    "DOGE": "DOGEUSDT",
-    "XRP":  "XRPUSDT",
-    "SOL":  "SOLUSDT",
-}
+# COMBINED_BINANCE_SYMBOLS alias to ASSET_TO_BINANCE_SYMBOL
 
 CRYPTO_MIN_EDGE = 0.05
 USE_CRYPTO_CONFIRM = False
@@ -103,6 +97,7 @@ ASSET_TO_BINANCE_SYMBOL = {
     "XRP":  "XRPUSDT",
     "SOL":  "SOLUSDT",
 }
+COMBINED_BINANCE_SYMBOLS = ASSET_TO_BINANCE_SYMBOL
 
 # --- Price-Phase Split Boundaries ---
 PRICE_PHASE_BOUNDARIES: dict[str, tuple[float, float]] = {
@@ -124,3 +119,8 @@ def get_price_phase(mid_price: float) -> str:
 # --- Combined Mode ---
 COMBINED_NONE_BET_MULTIPLIER = 0.5
 
+
+# Валидация порога классификатора (BUG-AI)
+MIN_VALID_THRESHOLD = 0.30      # ниже — модель почти всегда даёт сигнал
+MAX_VALID_THRESHOLD = 0.75      # выше — модель почти никогда не даёт сигнал
+THRESHOLD_FALLBACK = 0.55       # нейтральный порог при неадекватном

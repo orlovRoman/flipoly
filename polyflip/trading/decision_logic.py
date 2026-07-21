@@ -12,7 +12,8 @@ from polyflip.crypto.predictor import CryptoSignal
 
 from polyflip.trading.position_sizing import (
     compute_bet_size_edge_scaled,
-    compute_edge, is_in_dead_zone
+    compute_edge, is_in_dead_zone,
+    apply_ece_correction
 )
 from polyflip.constants import (
     FAVORITE_THRESHOLD, DEAD_ZONE_WIDTH, MIN_EDGE, MAX_EDGE_SCALING, MAX_EDGE_FILTER,
@@ -136,6 +137,7 @@ def decide_ml_trend(
     signal: MarketSignal,
     p_flip: float,
     config: dict,
+    ece: float = 0.0,
 ) -> TradeDecision:
     """
     ML Trend стратегия.
@@ -161,7 +163,12 @@ def decide_ml_trend(
     if decision.action == "SKIP":
         return TradeDecision("SKIP", 0, 0, decision.reason, "SKIP", p_flip=p_flip)
 
-    p_win = 1.0 - p_flip
+    ECE_WARN_THRESHOLD = 0.07
+    if ece and ece > ECE_WARN_THRESHOLD:
+        logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
+
+    p_flip_calibrated = apply_ece_correction(p_flip, ece)
+    p_win = 1.0 - p_flip_calibrated
     buy_price = decision.buy_price
 
     edge = compute_edge(p_win, buy_price)
@@ -189,6 +196,7 @@ def decide_outsider(
     signal: MarketSignal,
     p_flip: float,
     config: dict,
+    ece: float = 0.0,
 ) -> TradeDecision:
     """
     Outsider стратегия (TRADE_ON_FLIP).
@@ -219,7 +227,11 @@ def decide_outsider(
             return TradeDecision("SKIP", 0, 0,
                 f"NO ask {signal.no_ask:.3f} > max_outsider_price {max_outsider_price}", "SKIP",
                 p_flip=p_flip)
-        edge = compute_edge(p_flip, signal.no_ask)
+        ECE_WARN_THRESHOLD = 0.07
+        if ece and ece > ECE_WARN_THRESHOLD:
+            logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
+        p_flip_calibrated = apply_ece_correction(p_flip, ece)
+        edge = compute_edge(p_flip_calibrated, signal.no_ask)
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
 
@@ -237,7 +249,11 @@ def decide_outsider(
             return TradeDecision("SKIP", 0, 0,
                 f"YES ask {signal.yes_ask:.3f} > max_outsider_price {max_outsider_price}", "SKIP",
                 p_flip=p_flip)
-        edge = compute_edge(p_flip, signal.yes_ask)
+        ECE_WARN_THRESHOLD = 0.07
+        if ece and ece > ECE_WARN_THRESHOLD:
+            logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
+        p_flip_calibrated = apply_ece_correction(p_flip, ece)
+        edge = compute_edge(p_flip_calibrated, signal.yes_ask)
         if edge < min_edge:
             return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
 

@@ -91,7 +91,8 @@ def build_feature_vector(signal: MarketSignal) -> np.ndarray:
     }])
     
     df = add_derived_features(df)
-    df["price_distance_from_max"] = 0.0
+    # Используем fallback 0.02 вместо 0.0 для предотвращения train-test skew при отсутствии истории (BUG-AQ)
+    df["price_distance_from_max"] = 0.02
     df = add_lag_features(df)
     
     # Заполняем NaN в лагах или других колонках нулями для совместимости с формой

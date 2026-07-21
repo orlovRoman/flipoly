@@ -87,6 +87,14 @@ async def lifespan(app: FastAPI):
         # Потом посев дефолтов для новых ключей
         await seed_runtime_settings(session)
         
+        # Прогрев кэша моделей при старте (BUG-AL)
+        try:
+            from polyflip.trading.ml_inference import populate_models_cache
+            await populate_models_cache(session)
+            logger.info("models_cache_warmed_up")
+        except Exception as e:
+            logger.exception("models_cache_warmup_failed", error=str(e))
+        
     yield
 
 app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)

@@ -7,7 +7,7 @@ from typing import Optional, Any
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
-from polyflip.db.models import LiveMarket, TradeHistory
+from polyflip.db.models import LiveMarket, TradeHistory, MarketSnapshot
 from polyflip.trading.trading_config import TradingConfig
 from polyflip.trading.decision_logic import TradeDecision, MarketSignal, decide_favorite, decide_crypto_trend, decide_ml_trend, decide_outsider
 from polyflip.trading.ml_inference import build_inference_dataframe, run_model_inference
@@ -100,6 +100,9 @@ async def decide_ml_mode(
         raw_settings = {}
     if start_time is None:
         start_time = datetime.now(timezone.utc)
+    if not models_cache or not models_cache.models:
+        logger.warning("decide_ml_mode_empty_cache_skip", asset=market.asset)
+        return DecisionResult(None, 0.0, None, None, "Models cache is empty")
     fresh_yes_prices = await api_client.get_market_prices(market.yes_token_id)
     if not fresh_yes_prices or "current_yes_price" not in fresh_yes_prices:
         error_msg = fresh_yes_prices.get("error", "No fresh YES prices from API") if fresh_yes_prices else "No fresh YES prices from API"
@@ -129,12 +132,22 @@ async def decide_ml_mode(
     if not model:
         return DecisionResult(None, 0.0, None, None, f"No active model found for {market.asset.upper()}")
         
+    # Загружаем историю снапшотов для правильного расчета лагов и глобального максимума (BUG-AQ)
+    snapshots_stmt = select(MarketSnapshot).where(
+        MarketSnapshot.market_id == market.market_id
+    ).order_by(MarketSnapshot.recorded_at.asc())
+    snapshots_res = await db_session.execute(snapshots_stmt)
+    history_snaps = snapshots_res.scalars().all()
+
+    all_prices = [float(snap.mid_price) for snap in history_snaps] + [fresh_yes_price]
+    global_max = max(all_prices) if all_prices else fresh_yes_price
+
     df = build_inference_dataframe(
         market=market,
-        history_snaps=[], 
+        history_snaps=list(history_snaps), 
         fresh_yes_price=fresh_yes_price,
         fresh_spread=fresh_spread,
-        global_max=market.current_yes_price,
+        global_max=global_max,
         start_time=start_time,
         time_left_sec=time_left_sec,
     )
@@ -187,13 +200,15 @@ async def decide_ml_mode(
     # NOTE: MAX_BET_EDGE intentionally not overridden here (prevents disabling bet scaling)
     local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 
+    ece = getattr(models_cache, "eces", {}).get(used_model, 0.0)
+
     if cfg.trade_on_favorite:
-        decision_obj = decide_ml_trend(signal, p_flip, local_config)
+        decision_obj = decide_ml_trend(signal, p_flip, local_config, ece=ece)
     else:
         decision_obj = TradeDecision(action="SKIP", buy_price=0.0, bet_size_usdc=0.0, strategy_type="ML_TREND", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)", edge=0.0)
 
     if decision_obj.action == "SKIP" and cfg.trade_on_flip:
-        decision_obj = decide_outsider(signal, p_flip, local_config)
+        decision_obj = decide_outsider(signal, p_flip, local_config, ece=ece)
 
     if decision_obj.action == "SKIP" and decision_obj.reason != "Favorite trades disabled (TRADE_ON_FAVORITE=False)":
         if lower <= p_flip < upper:

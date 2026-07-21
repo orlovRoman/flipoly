@@ -38,6 +38,9 @@ from polyflip.constants import (
     LGBM_SUBSAMPLE,
     MAX_SUSPICIOUS_THRESHOLD,
     MIN_PRECISION_FOR_THRESHOLD,
+    MIN_VALID_THRESHOLD,
+    MAX_VALID_THRESHOLD,
+    THRESHOLD_FALLBACK,
 )
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.feature_builder import build_features, CRYPTO_FEATURE_COLUMNS
@@ -188,14 +191,32 @@ def _fit_lgbm_and_serialize(
     else:
         optimal_threshold = 0.55
 
-    # Защита от leakage
+    # Защита от leakage и неадекватных порогов (BUG-AI)
     if optimal_threshold >= MAX_SUSPICIOUS_THRESHOLD:
         logger.warning(
-            "suspicious_threshold",
-            threshold=optimal_threshold,
-            message="Clipping to 0.80 to avoid suspected leakage",
+            "threshold_clipped_leakage",
+            original=optimal_threshold,
+            clipped=MAX_VALID_THRESHOLD,
         )
-        optimal_threshold = 0.80
+        optimal_threshold = MAX_VALID_THRESHOLD
+
+    if optimal_threshold < MIN_VALID_THRESHOLD:
+        logger.warning(
+            "threshold_too_low",
+            threshold=optimal_threshold,
+            fallback=THRESHOLD_FALLBACK,
+            reason="below_floor_0.30_model_will_signal_constantly",
+        )
+        optimal_threshold = THRESHOLD_FALLBACK
+
+    if optimal_threshold > MAX_VALID_THRESHOLD:
+        logger.warning(
+            "threshold_too_high",
+            threshold=optimal_threshold,
+            fallback=THRESHOLD_FALLBACK,
+            reason="above_ceil_0.75_model_will_never_signal",
+        )
+        optimal_threshold = THRESHOLD_FALLBACK
 
     # Feature importance для логирования и дашборда
     fi = {
@@ -368,6 +389,17 @@ class CryptoModelTrainer:
                 thr_row = (await self.db.execute(
                     select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
                 )).scalar_one_or_none()
+
+                threshold_quality = "ok"
+                if threshold < 0.40 or threshold > 0.65:
+                    threshold_quality = "marginal"
+
+                logger.info(
+                    "threshold_saved",
+                    key=thr_key,
+                    value=round(threshold, 4),
+                    quality=threshold_quality,
+                )
 
                 if thr_row:
                     thr_row.value = str(round(threshold, 4))
