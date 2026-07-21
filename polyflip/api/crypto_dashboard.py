@@ -39,9 +39,10 @@ templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
 
 CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"]
 
-# Кэш
+# Кэш и активные процессы обучения
 _cache: dict = {}
 _CACHE_TTL = 10  # снизим до 10 секунд для лучшей отзывчивости настроек
+_active_trainings: dict[str, dict] = {}
 
 @router.get("")
 async def crypto_page(request: Request):
