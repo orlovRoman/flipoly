@@ -150,5 +150,6 @@ async def test_engine_crypto_standalone_bet_size(db_session):
 
 def test_crypto_features_count_matches_mock():
     from polyflip.crypto.trainer import CRYPTO_FEATURES
-    assert len(CRYPTO_FEATURES) == 20, \
-        f"Ожидалось 20 фичей, фактически: {len(CRYPTO_FEATURES)}"
+    assert len(CRYPTO_FEATURES) == 23, \
+        f"Ожидалось 23 фичи, фактически: {len(CRYPTO_FEATURES)}"
+
