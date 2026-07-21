@@ -34,6 +34,13 @@ from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
 
 logger = structlog.get_logger(__name__)
 
+# Константы для вычисления оптимального порога и защиты от утечек (leakage)
+MIN_PRECISION_FOR_THRESHOLD = 0.52
+MAX_SUSPICIOUS_THRESHOLD = 0.95
+MAX_VALID_THRESHOLD = 0.85
+MIN_VALID_THRESHOLD = 0.30
+THRESHOLD_FALLBACK = 0.55
+
 # СТАЛО (26 фич — совпадают с CRYPTO_FEATURE_COLUMNS в feature_builder.py)
 CRYPTO_FEATURES = [
     # Returns (все горизонты)
