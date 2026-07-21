@@ -184,7 +184,7 @@ async def decide_ml_mode(
     # Используем FAVORITE_MIN_EDGE=-100.0 для обхода edge-фильтрации внутри вспомогательного вызова decide_favorite.
     # Это сохраняет оригинальный MIN_EDGE в local_config для правильной ML-фильтрации в decide_ml_trend и расчета Kelly.
     local_config["FAVORITE_MIN_EDGE"] = "-100.0"
-    # local_config["MAX_BET_EDGE"] = "100.0"  # Удалено, так как это отключало масштабирование ставок (сайзинг)
+    # NOTE: MAX_BET_EDGE intentionally not overridden here (prevents disabling bet scaling)
     local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 
     if cfg.trade_on_favorite:

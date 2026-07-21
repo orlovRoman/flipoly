@@ -509,17 +509,27 @@ async def get_model_pnl(db: AsyncSession = Depends(get_db_session)):
                 
             periods.append((asset, m.version, since, until))
 
-    # 2. Выполняем батч-запрос к TradeHistory
+    if not periods:
+        return {"status": "success", "data": {}}
+
+    valid_sinces = [s for _, _, s, _ in periods if s is not None]
+    earliest_since = min(valid_sinces) if valid_sinces else None
+
+    # 2. Выполняем батч-запрос к TradeHistory с фильтром по времени (BUG-G fix)
+    where_conditions = [
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.pnl.is_not(None),
+        TradeHistory.model_version.is_not(None),
+    ]
+    if earliest_since is not None:
+        where_conditions.append(TradeHistory.created_at >= earliest_since)
+
     trades_stmt = select(
         TradeHistory.asset,
         TradeHistory.model_version,
         TradeHistory.pnl,
         TradeHistory.created_at,
-    ).where(
-        TradeHistory.status == "SUCCESS",
-        TradeHistory.pnl.is_not(None),
-        TradeHistory.model_version.is_not(None),
-    )
+    ).where(*where_conditions)
     trades_rows = (await db.execute(trades_stmt)).all()
 
     # Группируем сделки по (asset, model_version)

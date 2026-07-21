@@ -540,6 +540,355 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 5. Fetch Models History
+  let modelsSortField = "trained_at";
+  let modelsSortAsc = false;
+  let rawModelsData = [];
+  let rawModelsPnlData = {};
+
+  async function loadModelsHistory() {
+    try {
+      const [resModels, resPnl] = await Promise.all([
+        fetch(window.API_BASE + "/api/analytics/models", { headers: getHeaders() }),
+        fetch(window.API_BASE + "/api/dashboard/model_pnl", { headers: getHeaders() })
+      ]);
+
+      rawModelsData = await resModels.json();
+      try {
+        const pnlJson = await resPnl.json();
+        rawModelsPnlData = pnlJson.data || {};
+      } catch (e) {
+        console.error("Failed to parse model PnL", e);
+      }
+
+      renderModelsTable();
+      setupModelsTableSorting();
+    } catch (e) {
+      console.error("Failed to load models history", e);
+    }
+  }
+
+  function renderModelsTable() {
+    const tbody = document.querySelector("#models-table tbody");
+    if (!tbody) return;
+
+    tbody.innerHTML = "";
+
+    if (!rawModelsData || rawModelsData.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: var(--text-muted);">Нет сохраненных моделей</td></tr>`;
+      return;
+    }
+
+    const bestAccuracy = {};
+    rawModelsData.forEach((m) => {
+      if (!bestAccuracy[m.asset] || m.accuracy > bestAccuracy[m.asset]) {
+        bestAccuracy[m.asset] = m.accuracy;
+      }
+    });
+
+    const sortedData = [...rawModelsData].sort((a, b) => {
+      let valA, valB;
+      const keyA = `${a.asset}_v${a.version}`;
+      const keyB = `${b.asset}_v${b.version}`;
+      const pnlA = rawModelsPnlData[keyA];
+      const pnlB = rawModelsPnlData[keyB];
+
+      switch (modelsSortField) {
+        case "asset":
+          valA = a.asset || "";
+          valB = b.asset || "";
+          break;
+        case "version":
+          valA = a.version || 0;
+          valB = b.version || 0;
+          break;
+        case "accuracy":
+          valA = a.accuracy != null ? a.accuracy : -1;
+          valB = b.accuracy != null ? b.accuracy : -1;
+          break;
+        case "baseline":
+          valA = a.baseline != null ? a.baseline : -1;
+          valB = b.baseline != null ? b.baseline : -1;
+          break;
+        case "ece":
+          valA = a.ece != null ? a.ece : 999;
+          valB = b.ece != null ? b.ece : 999;
+          break;
+        case "trained_at":
+          valA = a.trained_at ? new Date(a.trained_at).getTime() : 0;
+          valB = b.trained_at ? new Date(b.trained_at).getTime() : 0;
+          break;
+        case "pnl":
+          valA = (pnlA && pnlA.total_trades > 0) ? pnlA.pnl : -999999;
+          valB = (pnlB && pnlB.total_trades > 0) ? pnlB.pnl : -999999;
+          break;
+        case "status":
+          valA = a.is_active ? 1 : 0;
+          valB = b.is_active ? 1 : 0;
+          break;
+        default:
+          valA = a.version || 0;
+          valB = b.version || 0;
+      }
+
+      if (valA < valB) return modelsSortAsc ? -1 : 1;
+      if (valA > valB) return modelsSortAsc ? 1 : -1;
+      return 0;
+    });
+
+    document.querySelectorAll("#models-table th[data-sort]").forEach((th) => {
+      const field = th.getAttribute("data-sort");
+      const icon = th.querySelector(".sort-icon");
+      if (icon) {
+        if (field === modelsSortField) {
+          icon.innerText = modelsSortAsc ? " ▲" : " ▼";
+          th.style.color = "var(--poly-blue, #60a5fa)";
+        } else {
+          icon.innerText = "";
+          th.style.color = "inherit";
+        }
+      }
+    });
+
+    const rows = [];
+    sortedData.forEach((m) => {
+      const isActive = m.is_active;
+      const isBest = m.accuracy === bestAccuracy[m.asset];
+      
+      let statusHtml = isActive
+        ? `<span style="color: var(--poly-green); font-weight: bold;">Активна</span>`
+        : `<span style="color: #8F9BB3;">Архив</span>`;
+        
+      if (isBest) {
+        statusHtml += ` <span class="status-indicator online" style="font-size: 0.75rem; padding: 0.1rem 0.5rem; margin-left: 5px; background: rgba(0, 114, 245, 0.1); color: var(--poly-blue); border: 1px solid rgba(0, 114, 245, 0.3);">Самая умная</span>`;
+      }
+
+      const actionHtml = isActive
+        ? `<button class="btn btn-primary" disabled style="opacity: 0.5;">Текущая</button>`
+        : `<button class="btn btn-primary btn-activate-model" data-asset="${m.asset}" data-version="${m.version}">Активировать</button>`;
+
+      const baselineText = m.baseline != null ? (m.baseline * 100).toFixed(1) + "%" : "-";
+      const accuracyText = m.accuracy != null ? (m.accuracy * 100).toFixed(1) + "%" : "-";
+      
+      let eceHtml = "-";
+      if (m.ece != null) {
+        if (m.ece < 0.03) {
+          eceHtml = `<span style="color: var(--poly-green);">${m.ece.toFixed(4)} (Отлично)</span>`;
+        } else if (m.ece < 0.07) {
+          eceHtml = `<span style="color: #ff9f43;">${m.ece.toFixed(4)} (Нормально)</span>`;
+        } else {
+          eceHtml = `<span style="color: #ff3366;">${m.ece.toFixed(4)} (Плохо)</span>`;
+        }
+      }
+
+      const pnlKey = `${m.asset}_v${m.version}`;
+      const pnl = rawModelsPnlData[pnlKey];
+
+      if (pnl === undefined && Object.keys(rawModelsPnlData).length > 0) {
+        console.warn(`[PnL] No data for key "${pnlKey}". Available keys count:`, Object.keys(rawModelsPnlData).length);
+      }
+
+      let pnlHtml = '<td style="color: var(--text-muted);">—</td>';
+      if (pnl !== undefined) {
+        if (pnl.total_trades > 0) {
+          const pnlVal = pnl.pnl;
+          const color = pnlVal > 0 ? "var(--poly-green, #4ade80)" : pnlVal < 0 ? "#ff3366" : "var(--text-muted)";
+          const sign = pnlVal > 0 ? "+" : "";
+          const wr = pnl.win_rate !== null ? ` (${pnl.win_rate}% WR, ${pnl.total_trades} сд.)` : "";
+          pnlHtml = `<td style="color:${color}; font-weight:600; white-space:nowrap;">
+            ${sign}${pnlVal.toFixed(2)} USDC<span style="color:var(--text-muted);font-size:0.8rem;font-weight:normal;">${wr}</span>
+          </td>`;
+        } else {
+          pnlHtml = '<td style="color: var(--text-muted); font-size:0.85rem;">Нет сделок</td>';
+        }
+      }
+
+      rows.push(`
+                  <tr>
+                      <td><strong>${escapeHtml(m.asset)}</strong></td>
+                      <td>v${m.version}</td>
+                      <td>${accuracyText}</td>
+                      <td>${baselineText}</td>
+                      <td>${eceHtml}</td>
+                      <td style="font-size: 0.85rem; max-width: 220px; word-break: break-word; white-space: normal;">${escapeHtml(translateFeatures(m.features))}</td>
+                      <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>
+                      ${pnlHtml}
+                      <td>${statusHtml}</td>
+                      <td>${actionHtml}</td>
+                  </tr>
+              `);
+    });
+    tbody.innerHTML = rows.join("");
+
+    document.querySelectorAll(".btn-activate-model").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        const asset = e.target.getAttribute("data-asset");
+        const version = e.target.getAttribute("data-version");
+        if (confirm(`Сделать модель v${version} для ${asset} активной?`)) {
+          try {
+            const r = await fetch(window.API_BASE + `/api/analytics/models/${asset}/${version}/activate`, {
+              method: 'POST',
+              headers: getHeaders()
+            });
+            if (r.ok) {
+              loadModelsHistory();
+            } else {
+              alert("Ошибка активации модели");
+            }
+          } catch(err) {
+            console.error(err);
+          }
+        }
+      });
+    });
+  }
+
+  function setupModelsTableSorting() {
+    const table = document.querySelector("#models-table");
+    if (!table || table.dataset.sortingSetup) return;
+    table.dataset.sortingSetup = "true";
+
+    table.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const field = th.getAttribute("data-sort");
+        if (modelsSortField === field) {
+          modelsSortAsc = !modelsSortAsc;
+        } else {
+          modelsSortField = field;
+          modelsSortAsc = false;
+        }
+        renderModelsTable();
+      });
+    });
+  }
+
+  // Save Settings
+  const btnSaveSettings = document.getElementById("btn-save-ml-settings");
+  if (btnSaveSettings) {
+    btnSaveSettings.addEventListener("click", async (e) => {
+      e.preventDefault();
+
+      // Сбор фичей
+      const activeFeatures = Array.from(
+        document.querySelectorAll(
+          '#ml-features input[type="checkbox"]:checked',
+        ),
+      )
+        .map((cb) => cb.value)
+        .join(",");
+
+      const settingsToSave = {
+        ACTIVE_FEATURES: activeFeatures,
+      };
+
+      let allOk = true;
+
+      for (const [key, val] of Object.entries(settingsToSave)) {
+        try {
+          const res = await fetch(window.API_BASE + `/api/settings/${key}`, {
+            method: "PUT",
+            headers: getHeaders(),
+            body: JSON.stringify({ value: String(val) }),
+          });
+          if (!res.ok) allOk = false;
+        } catch (err) {
+          allOk = false;
+        }
+      }
+
+      if (allOk) {
+        alert("Настройки успешно сохранены!");
+      } else {
+        alert("Ошибка при сохранении части настроек. Проверьте API Key.");
+      }
+    });
+  }
+
+  // 4. Fetch Parser Status
+  async function loadParserStatus() {
+    try {
+      const res = await fetch(window.API_BASE + "/api/dashboard/status", {
+        headers: getHeaders(),
+      });
+      const data = await res.json();
+
+      // 4.1 Collector Card
+      const collector = data.collector;
+      if (collector) {
+        const statusSpan = document.getElementById("cs-status");
+        statusSpan.innerText = collector.status;
+        statusSpan.style.color =
+          collector.status === "success" ? "var(--poly-green)" : "#ff3366";
+
+        document.getElementById("cs-run-at").innerText = new Date(
+          collector.run_at,
+        ).toLocaleString();
+        document.getElementById("cs-duration").innerText =
+          collector.duration_sec;
+        document.getElementById("cs-found").innerText = collector.markets_found;
+        document.getElementById("cs-saved").innerText = collector.markets_saved;
+
+        if (collector.error_message) {
+          document.getElementById("cs-error").innerText =
+            "Error: " + collector.error_message;
+          document.getElementById("cs-error").style.display = "block";
+        } else {
+          document.getElementById("cs-error").style.display = "none";
+        }
+      } else {
+        document.getElementById("cs-status").innerText = "No data yet";
+      }
+
+      // 4.2 Dataset Table
+      const dtBody = document.querySelector("#dataset-table tbody");
+      dtBody.innerHTML = "";
+      const dtRows = [];
+      for (const [asset, counts] of Object.entries(data.dataset_summary)) {
+        const hasModel = data.active_models && data.active_models[asset];
+        const isTrading = data.trade_assets && data.trade_assets.includes(asset.toUpperCase());
+        
+        let statusBadge = "";
+        if (hasModel && isTrading) {
+          statusBadge = `<span style="font-size: 0.8rem; background: rgba(0, 255, 136, 0.1); border: 1px solid rgba(0, 255, 136, 0.3); color: #00ff88; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600;">💰 Торгуется</span>`;
+        } else if (hasModel) {
+          statusBadge = `<span style="font-size: 0.8rem; background: rgba(0, 114, 245, 0.1); border: 1px solid rgba(0, 114, 245, 0.3); color: var(--poly-blue); padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600;">🤖 Обучена</span>`;
+        } else {
+          statusBadge = `<span style="font-size: 0.8rem; background: rgba(255, 176, 32, 0.1); border: 1px solid rgba(255, 176, 32, 0.3); color: #FFB020; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600;">📊 Сбор данных</span>`;
+        }
+
+        dtRows.push(`
+                    <tr>
+                        <td><strong>${escapeHtml(asset)}</strong></td>
+                        <td>${statusBadge}</td>
+                        <td style="color: var(--poly-green)">${counts.RESOLVED}</td>
+                        <td style="color: #FFB020">${counts.PENDING}</td>
+                    </tr>
+                `);
+      }
+      dtBody.innerHTML = dtRows.length > 0 ? dtRows.join("") : `<tr><td colspan="4">Нет собранных данных</td></tr>`;
+
+      // 4.3 Live Markets Table
+      const ltBody = document.querySelector("#live-table tbody");
+      ltBody.innerHTML = "";
+      const ltRows = [];
+      for (const lm of data.live_markets) {
+        ltRows.push(`
+                    <tr>
+                        <td><strong>${escapeHtml(lm.asset)}</strong></td>
+                        <td style="font-size: 0.8rem">${escapeHtml(lm.question)}</td>
+                        <td>${lm.current_yes_price}</td>
+                        <td>${lm.current_spread}</td>
+                        <td>${lm.volume_5min}</td>
+                        <td style="font-size: 0.8rem">${lm.end_time_est ? new Date(lm.end_time_est).toLocaleTimeString() : "N/A"}</td>
+                    </tr>
+                `);
+      }
+      ltBody.innerHTML = ltRows.length > 0 ? ltRows.join("") : `<tr><td colspan="6">Нет активных рынков</td></tr>`;
+    } catch (e) {
+      console.error("Failed to load parser status", e);
+    }
+  }
+
+  // 5. Fetch Models History
   async function loadModelsHistory() {
     try {
       const [resModels, resPnl] = await Promise.all([
