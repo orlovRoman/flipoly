@@ -64,7 +64,7 @@
     </style>
     <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ timestamp }}"></script>
     <script>
-        window.API_BASE = "{{ url_for('crypto_page') }}";
+        window.API_BASE = "{{ root_path }}";
     </script>
 </head>
 <body>
@@ -95,25 +95,24 @@
                 </div>
             </header>
 
-            <div class="crypto-grid" style="align-items: start;">
-                <!-- Левая колонка: Модели с PnL -->
-                <div class="panel">
-                    <h2>Активные модели LightGBM</h2>
-                    <p class="panel-desc" style="margin-bottom:1rem;">
-                        PnL считается за весь период работы модели (с <code>trained_at</code>).
-                    </p>
-                    <div id="models-status">Загрузка...</div>
-                </div>
+            <!-- Панель статуса моделей -->
+            <div class="panel" style="margin-bottom: 2rem;">
+                <h2>Активные модели LightGBM</h2>
+                <p class="panel-desc" style="margin-bottom:1rem;">
+                    PnL считается за весь период работы модели (с <code>trained_at</code>).
+                </p>
+                <div id="models-status">Загрузка...</div>
+            </div>
 
-                <!-- Правая колонка: Настройки обучения -->
-                <div class="panel">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; gap:10px;">
-                        <div>
-                            <h2>Настройки обучения</h2>
-                            <p class="panel-desc" style="margin:0;">Гиперпараметры LightGBM и фильтрации сигналов.</p>
-                        </div>
-                        <button class="btn primary-btn" onclick="saveSettings()">Сохранить</button>
+            <!-- Раздел: Настройки и параметры обучения -->
+            <div class="panel" style="margin-bottom: 2rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; gap:10px;">
+                    <div>
+                        <h2>Настройки обучения</h2>
+                        <p class="panel-desc" style="margin:0;">Гиперпараметры LightGBM и фильтрации сигналов.</p>
                     </div>
+                    <button class="btn primary-btn" onclick="saveSettings()">Сохранить</button>
+                </div>
                 
                 <div class="settings-grid">
                     <div class="settings-group">
