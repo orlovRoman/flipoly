@@ -1121,15 +1121,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
  
   // === Init ===
-  loadSummary();
-  loadCharts();
-  loadSettings();
-  loadParserStatus();
-  loadModelsHistory();
-  
-  // Auto-refresh parser status every 30 seconds (only if tab is active)
-  setInterval(() => {
-    if (document.hidden) return;
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      loadSummary();
+      loadSettings();
+      loadParserStatus();
+      loadModelsHistory();
+    });
+  } else {
+    loadSummary();
+    loadSettings();
     loadParserStatus();
-  }, 30000);
+    loadModelsHistory();
+  }
 });

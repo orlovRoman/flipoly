@@ -107,16 +107,16 @@
                 <div class="stats-grid">
                     <div class="stat-card">
                         <h3>Рынков обработано</h3>
-                        <div class="stat-value" id="stat-markets">--</div>
+                        <div class="stat-value" id="stat-markets">Загрузка...</div>
                     </div>
                     <div class="stat-card">
                         <h3>Процент флипов</h3>
-                        <div class="stat-value highlight" id="stat-flips">--%</div>
+                        <div class="stat-value highlight" id="stat-flips">Загрузка...</div>
                     </div>
                     {% for asset in assets %}
                     <div class="stat-card">
                         <h3>Текущая модель ({{ asset }})</h3>
-                        <div class="stat-value" id="stat-model-{{ asset|lower }}">v-- (Acc: --)</div>
+                        <div class="stat-value" id="stat-model-{{ asset|lower }}">Загрузка...</div>
                     </div>
                     {% endfor %}
                 </div>
@@ -304,6 +304,6 @@
 
     <!-- Custom JS -->
     <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ timestamp }}"></script>
-    <script src="{{ url_for('static', path='/js/app.js') }}?v={{ timestamp }}" defer></script>
+    <script src="{{ url_for('static', path='/js/app.js') }}?v={{ timestamp }}"></script>
 </body>
 </html>
