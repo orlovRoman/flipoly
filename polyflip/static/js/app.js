@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 1. Fetch Summary
   async function loadSummary() {
     try {
-      const res = await fetch(window.API_BASE + "/analytics/summary");
+      const res = await fetch(window.API_BASE + "/api/analytics/summary");
       if (!res.ok) {
         console.error("Summary API returned status", res.status);
         return;
@@ -188,7 +188,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     try {
-      const res = await fetch(window.API_BASE + "/analytics/probabilities");
+      const res = await fetch(window.API_BASE + "/api/analytics/probabilities");
       chartDataStore = await res.json();
       chartsLoaded = true;
       
@@ -1124,14 +1124,22 @@ document.addEventListener("DOMContentLoaded", () => {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
       loadSummary();
+      loadCharts();
       loadSettings();
       loadParserStatus();
       loadModelsHistory();
     });
   } else {
     loadSummary();
+    loadCharts();
     loadSettings();
     loadParserStatus();
     loadModelsHistory();
   }
+
+  // Auto-refresh parser status every 30 seconds (BUG-M)
+  setInterval(() => {
+    if (document.hidden) return;
+    loadParserStatus();
+  }, 30000);
 });

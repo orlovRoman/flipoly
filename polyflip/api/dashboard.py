@@ -31,7 +31,8 @@ async def get_dashboard(request: Request):
         {
             "request": request, 
             "timestamp": int(time.time()),
-            "assets": settings.asset_list
+            "assets": settings.asset_list,
+            "root_path": request.scope.get("root_path", ""),
         }
     )
 

@@ -26,6 +26,7 @@ async def get_trading_dashboard(request: Request):
         {
             "request": request,
             "timestamp": int(time.time()),
+            "root_path": request.scope.get("root_path", ""), 
             "assets": settings.asset_list
         }
     )
