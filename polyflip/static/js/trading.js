@@ -1180,29 +1180,52 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchDailyPnL();
   }, 60000);
 
-  async function fetchDailyPnL() {
+  const timeframeSelect = document.getElementById("pnl-timeframe-select");
+  if (timeframeSelect) {
+    timeframeSelect.addEventListener("change", () => {
+      const tf = timeframeSelect.value;
+      const titleEl = document.getElementById("pnl-analytics-title");
+      if (titleEl) {
+        const titles = {
+          "24h": "PnL за 24 часа (по стратегиям)",
+          "7d": "PnL за 7 дней (по стратегиям)",
+          "30d": "PnL за 30 дней (по стратегиям)",
+          "all": "PnL за все время (по стратегиям)"
+        };
+        titleEl.textContent = titles[tf] || "PnL (по стратегиям)";
+      }
+      fetchDailyPnL(tf);
+    });
+  }
+
+  async function fetchDailyPnL(tf) {
+    const timeframe = tf || (timeframeSelect ? timeframeSelect.value : "24h");
     if (elements.dailyPnlLoader) {
       elements.dailyPnlLoader.style.display = "inline";
     }
     try {
-      const response = await fetch(`${window.API_BASE}/api/dashboard/daily_pnl`, {
+      const response = await fetch(`${window.API_BASE}/api/dashboard/daily_pnl?timeframe=${encodeURIComponent(timeframe)}`, {
         headers: { "X-API-Key": apiKey },
       });
       if (response.ok) {
         const result = await response.json();
         if (result.status === "success" && elements.dailyPnlTable) {
           elements.dailyPnlTable.innerHTML = "";
-          result.data.forEach(item => {
-            const tr = document.createElement("tr");
-            const pnlColor = item.pnl > 0 ? "#00ff88" : (item.pnl < 0 ? "#ff3366" : "inherit");
-            tr.innerHTML = `
-              <td>${item.asset} <span style="opacity:0.7;font-size:0.9em;margin-left:0.5rem">${item.strategy}</span></td>
-              <td>${item.trades}</td>
-              <td>${item.win_rate}%</td>
-              <td style="color: ${pnlColor}">${item.pnl > 0 ? "+" : ""}${item.pnl.toFixed(2)}</td>
-            `;
-            elements.dailyPnlTable.appendChild(tr);
-          });
+          if (!result.data || result.data.length === 0) {
+            elements.dailyPnlTable.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding: 1rem;">Сделок за выбранный период не найдено</td></tr>`;
+          } else {
+            result.data.forEach(item => {
+              const tr = document.createElement("tr");
+              const pnlColor = item.pnl > 0 ? "#00ff88" : (item.pnl < 0 ? "#ff3366" : "inherit");
+              tr.innerHTML = `
+                <td>${item.asset} <span style="opacity:0.7;font-size:0.9em;margin-left:0.5rem">${item.strategy}</span></td>
+                <td>${item.trades}</td>
+                <td>${item.win_rate}%</td>
+                <td style="color: ${pnlColor}">${item.pnl > 0 ? "+" : ""}${item.pnl.toFixed(2)}</td>
+              `;
+              elements.dailyPnlTable.appendChild(tr);
+            });
+          }
         }
       }
     } catch (e) {
@@ -1213,4 +1236,5 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
   }
+
 });

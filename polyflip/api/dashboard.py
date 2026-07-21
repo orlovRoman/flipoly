@@ -394,10 +394,32 @@ async def verify_resolves(db: AsyncSession = Depends(get_db_session)):
     return {"status": "success", "results": results}
 
 @router.get("/api/dashboard/daily_pnl", dependencies=[Depends(verify_api_key)])
-async def get_daily_pnl(db: AsyncSession = Depends(get_db_session)):
-    """Возвращает отчет PnL за текущие сутки (с полуночи UTC)"""
+async def get_daily_pnl(
+    timeframe: str = Query("24h", description="Период аналитики: 24h, 7d, 30d, all"),
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Возвращает отчет PnL по стратегиям за выбранный период (24h, 7d, 30d, all)."""
     now = datetime.now(timezone.utc)
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    where_clause = [
+        TradeHistory.status.in_(["SUCCESS", "FAILED"]),
+        TradeHistory.pnl.is_not(None)
+    ]
+    
+    if timeframe == "24h":
+        start_time = now - timedelta(hours=24)
+        where_clause.append(TradeHistory.created_at >= start_time)
+    elif timeframe == "7d":
+        start_time = now - timedelta(days=7)
+        where_clause.append(TradeHistory.created_at >= start_time)
+    elif timeframe == "30d":
+        start_time = now - timedelta(days=30)
+        where_clause.append(TradeHistory.created_at >= start_time)
+    elif timeframe == "all":
+        pass  # без фильтра по времени
+    else:
+        start_time = now - timedelta(hours=24)
+        where_clause.append(TradeHistory.created_at >= start_time)
     
     stmt = select(
         TradeHistory.asset,
@@ -405,14 +427,11 @@ async def get_daily_pnl(db: AsyncSession = Depends(get_db_session)):
         TradeHistory.pnl,
         TradeHistory.amount_usdc,
         TradeHistory.executed_price
-    ).where(
-        TradeHistory.created_at >= midnight,
-        TradeHistory.status.in_(["SUCCESS", "FAILED"]),
-        TradeHistory.pnl.is_not(None)
-    )
+    ).where(*where_clause)
     
     result = await db.execute(stmt)
     trades = result.all()
+
     
     aggregated = {}
     for row in trades:
