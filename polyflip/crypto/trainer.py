@@ -36,23 +36,14 @@ logger = structlog.get_logger(__name__)
 
 # СТАЛО (26 фич — совпадают с CRYPTO_FEATURE_COLUMNS в feature_builder.py)
 CRYPTO_FEATURES = [
-    # Returns (все горизонты)
-    "ret_1", "ret_3", "ret_6", "ret_12", "ret_24", "ret_48",
-    # Volatility
-    "vol_6", "vol_24", "vol_48", "vol_ratio", "vol_trend",
-    # Volume
-    "vol_z_1", "taker_buy_ratio",
-    # Technical
-    "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
-    # Position vs extremes
-    "dist_to_high_24", "dist_to_low_24",
-    "dist_to_high_96", "dist_to_low_96",
-    # Range
-    "range_1", "range_avg_24",
-    # Consecutive
+    # Top returns & volume (strongest signal: AUC 0.512 - 0.531)
+    "taker_buy_ratio", "ret_1", "ret_3", "ret_6", "vol_z_1",
+    # Volatility & Technicals (AUC 0.505 - 0.512)
+    "vol_6", "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
+    # Range & Extremes 24h
+    "range_1", "range_avg_24", "dist_to_high_24", "dist_to_low_24",
+    # Consecutive candles
     "consec_up", "consec_down",
-    # Time
-    "hour_utc", "dow",
 ]
 
 # Fail fast при старте: CRYPTO_FEATURES должен быть подмножеством CRYPTO_FEATURE_COLUMNS
