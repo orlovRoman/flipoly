@@ -38,8 +38,8 @@ logger = structlog.get_logger(__name__)
 CRYPTO_FEATURES = [
     # Top returns & volume (strongest signal: AUC 0.512 - 0.531)
     "taker_buy_ratio", "ret_1", "ret_3", "ret_6", "vol_z_1",
-    # Volatility & Technicals (AUC 0.505 - 0.512)
-    "vol_6", "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
+    # Volatility & Technicals (AUC 0.505 - 0.512) + vol_ratio for regime splitting
+    "vol_6", "vol_ratio", "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
     # Range & Extremes 24h
     "range_1", "range_avg_24", "dist_to_high_24", "dist_to_low_24",
     # Consecutive candles

@@ -3,7 +3,7 @@ from sqlalchemy import select
 from datetime import datetime, timezone
 from unittest.mock import patch
 from polyflip.config import settings
-from polyflip.db.models import MarketSnapshot, ModelRegistry
+from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.models.trainer import ModelTrainer
 
 @pytest.mark.asyncio
