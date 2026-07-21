@@ -89,30 +89,49 @@ document.addEventListener("DOMContentLoaded", () => {
   async function loadSummary() {
     try {
       const res = await fetch(window.API_BASE + "/api/analytics/summary");
+      if (!res.ok) {
+        console.error("Summary API returned status", res.status);
+        return;
+      }
       const data = await res.json();
 
-      document.getElementById("stat-markets").innerText =
-        data.total_resolved_markets || 0;
-      document.getElementById("stat-flips").innerText =
-        (data.flip_percentage || 0) + "%";
+      const marketsEl = document.getElementById("stat-markets");
+      if (marketsEl) {
+        marketsEl.innerText = (data.total_resolved_markets != null) 
+          ? data.total_resolved_markets.toLocaleString() 
+          : "0";
+      }
+
+      const flipsEl = document.getElementById("stat-flips");
+      if (flipsEl) {
+        flipsEl.innerText = (data.flip_percentage != null) 
+          ? data.flip_percentage + "%" 
+          : "0%";
+      }
 
       // Заполняем карточки активных моделей для всех активов
-      document.querySelectorAll("[id^='stat-model-']").forEach((el) => {
-        const asset = el.id.replace("stat-model-", "").toUpperCase();
-        const model = data.active_models[asset] || data.active_models[asset.toLowerCase()];
-        if (model) {
-          const version = model.version !== undefined ? model.version : model;
-          const accuracy = model.accuracy !== undefined ? ` (Acc: ${(model.accuracy * 100).toFixed(1)}%)` : '';
-          el.innerText = `v${version}${accuracy}`;
-        } else {
-          el.innerText = "Нет модели";
-        }
-      });
+      if (data.active_models) {
+        document.querySelectorAll("[id^='stat-model-']").forEach((el) => {
+          const asset = el.id.replace("stat-model-", "").toUpperCase();
+          const model = data.active_models[asset] || data.active_models[asset.toLowerCase()];
+          if (model) {
+            const version = model.version !== undefined ? model.version : model;
+            const accuracy = model.accuracy !== undefined ? ` (Acc: ${(model.accuracy * 100).toFixed(1)}%)` : '';
+            el.innerText = `v${version}${accuracy}`;
+          } else {
+            el.innerText = "Нет модели";
+          }
+        });
+      }
 
-      // Рендерим графики точности для всех доступных в истории активов
+      // Рендерим графики точности при наличии Chart.js
       if (data.model_history) {
         Object.keys(data.model_history).forEach((asset) => {
-          renderAccuracyChart(data.model_history[asset], asset);
+          try {
+            renderAccuracyChart(data.model_history[asset], asset);
+          } catch (chartErr) {
+            console.warn("Failed to render accuracy chart for " + asset, chartErr);
+          }
         });
       }
     } catch (e) {
@@ -121,6 +140,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderAccuracyChart(historyData, asset) {
+    if (typeof Chart === "undefined") {
+      console.warn("Chart.js is not loaded yet or blocked, skipping chart render for " + asset);
+      return;
+    }
     const canvasId = `chart-model-accuracy-${asset.toLowerCase()}`;
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
