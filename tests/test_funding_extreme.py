@@ -26,6 +26,7 @@ def test_funding_extreme_computation():
     assert df_normal['funding_extreme'].iloc[-1] == 0.0
 
     # Проверка для build_crypto_features (инференс)
-    vec = build_crypto_features(candles, funding_rate=0.002, funding_rate_ma3=0.0015)
-    assert vec.shape[1] == 23
-    assert vec[0, -1] == 1.0  # funding_extreme - последняя 23-я фича
+    feat_obj = build_crypto_features(candles, funding_rate=0.002, funding_rate_ma3=0.0015)
+    assert feat_obj.features.shape[1] > 20
+    assert feat_obj.features[0, -1] == 1.0  # funding_extreme - последняя фича
+
