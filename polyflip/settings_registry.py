@@ -157,8 +157,8 @@ REGISTRY: list[SettingDef] = [
                description="Крипто-режим без привязки к Polymarket-рынку"),
 
     # --- Прочее ---
-    SettingDef("BYPASS_BET_SIZE_CHECK", "false", editable=False,
-               description="Debug-only. Не открывать через API."),
+    SettingDef("BYPASS_BET_SIZE_CHECK", "false",
+               description="Режим отладки: игнорировать проверку минимального размера ставки биржи"),
     SettingDef("ENTRY_STRATEGY", "first",
                description="Стратегия входа: first | best_edge | confirmed"),
 

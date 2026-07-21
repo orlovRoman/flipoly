@@ -472,15 +472,23 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.betSizingMode) {
         settingsElements.betSizingMode.dispatchEvent(new Event("change"));
       }
-      if (settingsElements.noFlipThreshold && data.TRADE_NO_FLIP_THRESHOLD) {
+      if (settingsElements.noFlipThreshold && data.TRADE_NO_FLIP_THRESHOLD !== undefined) {
         let val = parseFloat(data.TRADE_NO_FLIP_THRESHOLD);
         if (val > 1) val /= 100;
         settingsElements.noFlipThreshold.value = Math.round(val * 100);
       }
-      if (settingsElements.deadZoneWidth && data.DEAD_ZONE_WIDTH) {
+      if (settingsElements.tradeFlipThreshold && data.TRADE_FLIP_THRESHOLD !== undefined) {
+        let val = parseFloat(data.TRADE_FLIP_THRESHOLD);
+        if (val > 1) val /= 100;
+        settingsElements.tradeFlipThreshold.value = Math.round(val * 100);
+      }
+
+      if (settingsElements.deadZoneWidth && data.DEAD_ZONE_WIDTH !== undefined) {
         let val = parseFloat(data.DEAD_ZONE_WIDTH);
+        if (val > 1) val /= 100;
         settingsElements.deadZoneWidth.value = Math.round(val * 100);
       }
+
 
       if (settingsElements.dailyLossLimit && data.DAILY_LOSS_LIMIT_USDC !== undefined) {
         settingsElements.dailyLossLimit.value = data.DAILY_LOSS_LIMIT_USDC;
