@@ -33,6 +33,9 @@ class CryptoFeaturesValidator(BaseModel):
     vol_trend: float
     vol_z_1: float
     taker_buy_ratio: float
+    cvd_1: float
+    cvd_6: float
+    cvd_trend: float
     rsi_14: float
     ema_ratio_9_21: float
     bb_width: float
