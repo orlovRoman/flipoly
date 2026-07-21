@@ -16,7 +16,7 @@ import pandas as pd
 import pytest
 from datetime import datetime, timezone, timedelta
 
-from polyflip.constants import POLYMARKET_FEE_RATE
+POLYMARKET_FEE_RATE = 0.002
 
 
 def _make_minimal_features(n: int = 600) -> pd.DataFrame:

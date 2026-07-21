@@ -18,8 +18,6 @@ from polyflip.config import settings
 from polyflip.constants import (
     CV_N_SPLITS,
     CV_RANDOM_STATE,
-    MIN_PRECISION_FOR_THRESHOLD,
-    MAX_SUSPICIOUS_THRESHOLD
 )
 
 logger = structlog.get_logger(__name__)
@@ -218,22 +216,26 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
         bottom_features=[{"feature": f, "abs_coef": round(v, 4)} for f, v in abs_coefs[-5:]],
     )
 
-    from polyflip.constants import LR_COEF_THRESHOLD, LR_MIN_FEATURES
-    weak_features = [f for f, v in abs_coefs if v < LR_COEF_THRESHOLD]
-    if len(X.columns) - len(weak_features) >= LR_MIN_FEATURES and weak_features:
+    lr_coef_threshold = 0.005
+    lr_min_features = 4
+    weak_features = [f for f, v in abs_coefs if v < lr_coef_threshold]
+    if len(X.columns) - len(weak_features) >= lr_min_features and weak_features:
         logger.warning(
             "weak_features_detected",
             count=len(weak_features),
             features=weak_features,
-            threshold=LR_COEF_THRESHOLD,
+            threshold=lr_coef_threshold,
             suggestion="Consider removing from ACTIVE_FEATURES via dashboard",
         )
     
     # Калибровка порога с использованием Out-Of-Fold предсказаний (исключаем Data Leakage)
     precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, oof_scores)
 
-    # Найти порог с лучшим F1 среди тех где precision >= MIN_PRECISION_FOR_THRESHOLD
-    valid_mask = precision_arr[:-1] >= MIN_PRECISION_FOR_THRESHOLD
+    min_precision = 0.52
+    max_suspicious = 0.95
+
+    # Найти порог с лучшим F1 среди тех где precision >= min_precision
+    valid_mask = precision_arr[:-1] >= min_precision
     if valid_mask.any():
         f1 = 2 * (precision_arr[:-1] * recall_arr[:-1]) / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
         f1_filtered = np.where(valid_mask, f1, 0)
@@ -247,8 +249,8 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
 
     # Проверка на leakage временно отключена, т.к. для decided-рынков
     # порог может легально достигать 1.0 (сигнал сильный).
-    if optimal_threshold >= MAX_SUSPICIOUS_THRESHOLD:
-        logger.warning("suspicious_threshold", threshold=optimal_threshold, max=MAX_SUSPICIOUS_THRESHOLD)
+    if optimal_threshold >= max_suspicious:
+        logger.warning("suspicious_threshold", threshold=optimal_threshold, max=max_suspicious)
 
     best_thr_idx = np.searchsorted(thresholds_pr, optimal_threshold - 1e-9)
     best_thr_idx = min(best_thr_idx, len(precision_arr) - 2)
@@ -462,12 +464,12 @@ class ModelTrainer:
             trained_at=datetime.now(timezone.utc)
         )
 
-        from polyflip.constants import LR_MIN_AUC_FOR_DEPLOY
+        from polyflip.services.settings_service import get_float
 
         min_auc_row = (await self.db.execute(
             select(RuntimeSettings).where(RuntimeSettings.key == f"MIN_AUC_{asset}")
         )).scalar_one_or_none()
-        min_auc = float(min_auc_row.value) if min_auc_row else LR_MIN_AUC_FOR_DEPLOY
+        min_auc = float(min_auc_row.value) if min_auc_row else await get_float(self.db, "LR_MIN_AUC_FOR_DEPLOY")
 
         if val_acc < min_auc:
             logger.warning(
@@ -489,7 +491,9 @@ class ModelTrainer:
         self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.2f})"
 
         # --- Шаг 3: Price-Phase Split ---
-        from polyflip.constants import PRICE_PHASE_BOUNDARIES, MIN_SAMPLES_FOR_PHASE_MODEL, CV_N_SPLITS
+        from polyflip.constants import PRICE_PHASE_BOUNDARIES, CV_N_SPLITS
+        from polyflip.services.settings_service import get_int
+        min_samples = await get_int(self.db, "MIN_SAMPLES_FOR_PHASE_MODEL")
         
         assert "price_deviation" in df.columns, (
             "price_deviation must be computed before phase split. "
@@ -506,9 +510,9 @@ class ModelTrainer:
             logger.info("price_phase_split_stats", asset=asset, phase=phase_name, n=n_phase,
                         target_mean=round(df_phase["target"].mean(), 3) if n_phase > 0 else None)
 
-            if n_phase < MIN_SAMPLES_FOR_PHASE_MODEL:
+            if n_phase < min_samples:
                 logger.warning("price_phase_model_skipped", asset=asset, phase=phase_name,
-                               n=n_phase, required=MIN_SAMPLES_FOR_PHASE_MODEL)
+                               n=n_phase, required=min_samples)
                 phase_results[phase_name] = f"skipped ({n_phase} samples)"
                 continue
 

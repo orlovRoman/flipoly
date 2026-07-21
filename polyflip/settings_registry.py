@@ -2,49 +2,23 @@
 polyflip/settings_registry.py
 
 Единый реестр runtime-настроек.
-Каждый параметр описан ровно один раз — дефолт берётся из constants.py.
+Каждый параметр описан ровно один раз — с явно заданным дефолтным значением.
 
 Использование:
+  - settings_service.py:      _DEFAULTS = registry_defaults()
   - init_runtime_settings.py:  DEFAULTS = registry_defaults()
   - api/settings.py:           valid_keys = list(editable_keys())
   - trading/engine.py:         settings_keys = list(registry_keys())
 
 Это гарантирует: если добавили ключ в реестр — он автоматически появляется
-в сидере, в API и в движке. Рассинхронизация становится структурно невозможной.
+в сидере, в API, в сервисе настроек и в движке.
 """
 from dataclasses import dataclass
-from typing import Optional, Callable
 
 from polyflip.constants import (
-    DEAD_ZONE_WIDTH,
-    DAILY_LOSS_LIMIT_USDC,
     DEFAULT_TRADING_MODE,
     FAVORITE_MODE_ENTRY_SEC,
     LIVE_POLL_INTERVAL_SECONDS,
-    MIN_EDGE,
-    MAX_EDGE_SCALING,    # потолок масштабирования ставки → MAX_BET_EDGE
-    MAX_EDGE_FILTER,     # фильтр аномального edge
-    FAVORITE_THRESHOLD,
-    FAVORITE_MIN_EDGE,
-    NO_MIN_EDGE,
-    CRYPTO_MIN_EDGE,
-    FLIP_THRESHOLD,
-    NO_FLIP_THRESHOLD,
-    OUTSIDER_MAX_PRICE,
-    LIQUIDITY_FRACTION,
-    FAVORITE_MIN_PRICE,
-    FAVORITE_MAX_PRICE,
-    COMBINED_NONE_BET_MULTIPLIER,
-    MIN_VALID_THRESHOLD,
-    MAX_VALID_THRESHOLD,
-    THRESHOLD_FALLBACK,
-    MIN_PRECISION_FOR_THRESHOLD,
-    CV_N_SPLITS,
-    NO_FLIP_THRESHOLD,
-    POLYMARKET_FEE_RATE,
-    BACKTEST_MIN_EDGE,
-    BACKTEST_TRAIN_RATIO,
-    MAX_SUSPICIOUS_THRESHOLD,
 )
 
 
@@ -60,13 +34,13 @@ class SettingDef:
 # ── Реестр ───────────────────────────────────────────────────────────────────
 REGISTRY: list[SettingDef] = [
     # --- Мёртвая зона ---
-    SettingDef("DEAD_ZONE_WIDTH", str(DEAD_ZONE_WIDTH),
+    SettingDef("DEAD_ZONE_WIDTH", "0.10",
                description="Ширина мёртвой зоны вокруг flip-порога (единый параметр)"),
     SettingDef("AUTO_DEAD_ZONE", "true",
                description="Авто-расчёт границ зоны по калибровке модели"),
 
     # --- Финансы / потери ---
-    SettingDef("DAILY_LOSS_LIMIT_USDC", str(DAILY_LOSS_LIMIT_USDC),
+    SettingDef("DAILY_LOSS_LIMIT_USDC", "-100.0",
                description="Дневной стоп-лосс в USDC (отрицательное число)"),
     SettingDef("INITIAL_CAPITAL", "1000.0",
                description="Начальный капитал для расчёта финрезультата"),
@@ -109,48 +83,58 @@ REGISTRY: list[SettingDef] = [
                description="Максимальная ставка (USDC)"),
     SettingDef("BET_SIZING_MODE", "scaled",
                description="Режим расчёта размера: scaled | fixed"),
-    SettingDef("LIQUIDITY_FRACTION", str(LIQUIDITY_FRACTION),
+    SettingDef("LIQUIDITY_FRACTION", "0.05",
                description="Макс. доля от volume_5min на одну ставку"),
 
     # --- Edge ---
-    SettingDef("MIN_EDGE", str(MIN_EDGE),
+    SettingDef("MIN_EDGE", "0.05",
                description="Мин. edge для входа в сделку"),
-    SettingDef("MAX_BET_EDGE", str(MAX_EDGE_SCALING),
+    SettingDef("MAX_BET_EDGE", "0.40",
                description="Потолок масштабирования ставки (при edge=MAX_BET_EDGE → макс. ставка)"),
-    SettingDef("MAX_EDGE_FILTER", str(MAX_EDGE_FILTER),
+    SettingDef("MAX_EDGE_FILTER", "0.20",
                description="Фильтр аномального edge: SKIP если edge > этого значения"),
 
     # --- Фаворит ---
-    SettingDef("FAVORITE_THRESHOLD", str(FAVORITE_THRESHOLD),
+    SettingDef("FAVORITE_THRESHOLD", "0.55",
                description="Граница фаворит/аутсайдер по mid_price"),
-    SettingDef("FAVORITE_MIN_EDGE", str(FAVORITE_MIN_EDGE),
+    SettingDef("FAVORITE_MIN_EDGE", "-0.01",
                description="Мин. edge для PURE_FAVORITE (мягче чем ML)"),
-    SettingDef("FAVORITE_MIN_PRICE", str(FAVORITE_MIN_PRICE),
+    SettingDef("FAVORITE_MIN_PRICE", "0.55",
                description="Мин. цена для входа в фаворита"),
-    SettingDef("FAVORITE_MAX_PRICE", str(FAVORITE_MAX_PRICE),
+    SettingDef("FAVORITE_MAX_PRICE", "0.95",
                description="Макс. цена для входа в фаворита"),
 
     # --- Аутсайдер / NO ---
-    SettingDef("NO_MIN_EDGE", str(NO_MIN_EDGE),
+    SettingDef("NO_MIN_EDGE", "0.04",
                description="Мин. edge для ставки на аутсайдера (NO)"),
-    SettingDef("OUTSIDER_MAX_PRICE", str(OUTSIDER_MAX_PRICE),
+    SettingDef("OUTSIDER_MAX_PRICE", "0.45",
                description="Макс. цена покупки аутсайдера"),
     SettingDef("TRADE_ON_FAVORITE", "true",
                description="Если включено, бот делает ставки по тренду на фаворита (Pure Favorite/ML Trend/Crypto Trend)."),
     SettingDef("TRADE_ON_FLIP", "false",
                description="Торговать на флип (стратегия аутсайдера)"),
-    SettingDef("FLIP_THRESHOLD", str(FLIP_THRESHOLD),
+    SettingDef("FLIP_THRESHOLD", "0.60",
                description="Порог p_flip для входа в аутсайдера"),
     SettingDef("TRADE_FLIP_THRESHOLD", "0.85",
                description="Глобальный порог ПРОТИВ ТОЛПЫ (если нет индивидуального)"),
 
     # --- ML ---
-    SettingDef("TRADE_NO_FLIP_THRESHOLD", str(NO_FLIP_THRESHOLD),
+    SettingDef("TRADE_NO_FLIP_THRESHOLD", "0.35",
                description="p_flip < этого → торгуем фаворита (ML режим)"),
-    SettingDef("COMBINED_NONE_BET_MULTIPLIER", str(COMBINED_NONE_BET_MULTIPLIER),
+    SettingDef("COMBINED_NONE_BET_MULTIPLIER", "0.5",
                description="Множитель размера ставки при неопределенности (LGBM=NONE) в Combined-режиме (0.0 - 1.0)"),
     SettingDef("MAX_PRICE_DRIFT", "0.10",
                description="Макс. дрейф цены от момента сигнала до исполнения"),
+
+    # --- Обучение LogReg / Phase models ---
+    SettingDef("MIN_SAMPLES_FOR_PHASE_MODEL", "150",
+               description="Мин. количество сэмплов для обучения фазовой модели (contested/leaning/decided)"),
+    SettingDef("LR_MIN_AUC_FOR_DEPLOY", "0.53",
+               description="Мин. AUC LogReg-модели для деплоя. Ниже — модель не сохраняется"),
+    SettingDef("LR_COEF_THRESHOLD", "0.005",
+               description="Порог коэффициента LogReg для отсева слабых фич"),
+    SettingDef("LR_MIN_FEATURES", "4",
+               description="Мин. кол-во фич после отсева слабых"),
 
     # --- Цена входа ---
     SettingDef("TRADE_MIN_PRICE", "0.05",
@@ -165,7 +149,7 @@ REGISTRY: list[SettingDef] = [
                description="Список признаков для ML-модели"),
 
     # --- Крипто ---
-    SettingDef("CRYPTO_MIN_EDGE", str(CRYPTO_MIN_EDGE),
+    SettingDef("CRYPTO_MIN_EDGE", "0.05",
                description="Мин. edge для стратегии Crypto Trend"),
     SettingDef("USE_CRYPTO_CONFIRM", "false",
                description="Требовать подтверждение сигнала для крипто"),
@@ -179,33 +163,33 @@ REGISTRY: list[SettingDef] = [
                description="Стратегия входа: first | best_edge | confirmed"),
 
     # --- Валидация порогов LightGBM ---
-    SettingDef("LGBM_MIN_VALID_THRESHOLD", str(MIN_VALID_THRESHOLD),
+    SettingDef("LGBM_MIN_VALID_THRESHOLD", "0.30",
                description="Минимально допустимый порог LightGBM (ниже → fallback). Ниже 0.30 = модель всегда даёт сигнал"),
-    SettingDef("LGBM_MAX_VALID_THRESHOLD", str(MAX_VALID_THRESHOLD),
+    SettingDef("LGBM_MAX_VALID_THRESHOLD", "0.75",
                description="Максимально допустимый порог LightGBM (выше → fallback). Выше 0.75 = модель никогда не сигналит"),
-    SettingDef("LGBM_THRESHOLD_FALLBACK", str(THRESHOLD_FALLBACK),
+    SettingDef("LGBM_THRESHOLD_FALLBACK", "0.55",
                description="Нейтральный порог при некорректном автоматическом значении"),
-    SettingDef("LGBM_MIN_PRECISION_FOR_THRESHOLD", str(MIN_PRECISION_FOR_THRESHOLD),
+    SettingDef("LGBM_MIN_PRECISION_FOR_THRESHOLD", "0.52",
                description="Мин. precision при поиске оптимального порога. 0.52 для крипто, 0.60 для строгого режима"),
 
     # --- CV / обучение ---
-    SettingDef("LGBM_CV_N_SPLITS", str(CV_N_SPLITS),
+    SettingDef("LGBM_CV_N_SPLITS", "5",
                description="Кол-во фолдов TimeSeriesSplit при обучении LightGBM"),
-    SettingDef("LGBM_MAX_SUSPICIOUS_THRESHOLD", str(MAX_SUSPICIOUS_THRESHOLD),
+    SettingDef("LGBM_MAX_SUSPICIOUS_THRESHOLD", "0.95",
                description="Порог подозрения на data leakage при обучении (обычно 0.95)"),
 
     # --- ML пороги ---
-    SettingDef("NO_FLIP_THRESHOLD", str(NO_FLIP_THRESHOLD),
+    SettingDef("NO_FLIP_THRESHOLD", "0.35",
                description="p_flip < этого → ML_TREND покупает фаворита (не аутсайдера)"),
 
     # --- Комиссии ---
-    SettingDef("POLYMARKET_FEE_RATE", str(POLYMARKET_FEE_RATE),
+    SettingDef("POLYMARKET_FEE_RATE", "0.002",
                description="Комиссия Polymarket (0.002 = 0.2%). Влияет на расчёт PnL в takeprofit/stoploss workers"),
 
     # --- Бэктест ---
-    SettingDef("BACKTEST_MIN_EDGE", str(BACKTEST_MIN_EDGE),
+    SettingDef("BACKTEST_MIN_EDGE", "0.04",
                description="Мин. edge для сигнала в бэктесте"),
-    SettingDef("BACKTEST_TRAIN_RATIO", str(BACKTEST_TRAIN_RATIO),
+    SettingDef("BACKTEST_TRAIN_RATIO", "0.70",
                description="Доля обучающей выборки при walk-forward бэктесте (0.70 = 70%)"),
 ]
 

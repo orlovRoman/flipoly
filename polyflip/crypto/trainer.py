@@ -24,24 +24,10 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.constants import (
-    BACKTEST_TRAIN_RATIO,
     CV_N_SPLITS,
     CV_RANDOM_STATE,
-    LGBM_COLSAMPLE_BYTREE,
-    LGBM_LEARNING_RATE,
-    LGBM_MAX_DEPTH,
-    LGBM_MIN_CHILD_SAMPLES,
-    LGBM_N_ESTIMATORS,
-    LGBM_NUM_LEAVES,
-    LGBM_REG_ALPHA,
-    LGBM_REG_LAMBDA,
-    LGBM_SUBSAMPLE,
-    MAX_SUSPICIOUS_THRESHOLD,
-    MIN_PRECISION_FOR_THRESHOLD,
-    MIN_VALID_THRESHOLD,
-    MAX_VALID_THRESHOLD,
-    THRESHOLD_FALLBACK,
 )
+from polyflip.services.settings_service import get_float, get_int
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.feature_builder import build_features, CRYPTO_FEATURE_COLUMNS
 from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
@@ -90,15 +76,15 @@ def _build_target(df: pd.DataFrame) -> pd.DataFrame:
 
 def _make_lgbm(**kwargs) -> LGBMClassifier:
     params = {
-        "n_estimators": LGBM_N_ESTIMATORS,
-        "learning_rate": LGBM_LEARNING_RATE,
-        "num_leaves": LGBM_NUM_LEAVES,
-        "max_depth": LGBM_MAX_DEPTH,
-        "min_child_samples": LGBM_MIN_CHILD_SAMPLES,
-        "subsample": LGBM_SUBSAMPLE,
-        "colsample_bytree": LGBM_COLSAMPLE_BYTREE,
-        "reg_alpha": LGBM_REG_ALPHA,
-        "reg_lambda": LGBM_REG_LAMBDA,
+        "n_estimators": 300,
+        "learning_rate": 0.05,
+        "num_leaves": 31,
+        "max_depth": 5,
+        "min_child_samples": 20,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_alpha": 0.1,
+        "reg_lambda": 1.0,
         "random_state": CV_RANDOM_STATE,
         "verbosity": -1,
         "n_jobs": -1,
@@ -111,10 +97,10 @@ def _fit_lgbm_and_serialize(
     X: pd.DataFrame,
     y: pd.Series,
     n_splits: int = CV_N_SPLITS,
-    min_precision: float = MIN_PRECISION_FOR_THRESHOLD,
-    min_valid_thr: float = MIN_VALID_THRESHOLD,
-    max_valid_thr: float = MAX_VALID_THRESHOLD,
-    thr_fallback: float = THRESHOLD_FALLBACK,
+    min_precision: float = 0.52,
+    min_valid_thr: float = 0.30,
+    max_valid_thr: float = 0.75,
+    thr_fallback: float = 0.55,
     **lgbm_params,
 ) -> tuple[bytes, float, float, float, float, dict[str, int]]:
     """
@@ -232,14 +218,20 @@ def _fit_lgbm_and_serialize(
     return pickle.dumps(final_cal), val_auc, baseline_auc, optimal_threshold, ece, fi
 
 
-async def _get_float_setting(db: AsyncSession, key: str, default: float) -> float:
-    row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
-    return float(row.value) if row else default
+async def _get_float_setting(db: AsyncSession, key: str, default: float = 0.0) -> float:
+    try:
+        return await get_float(db, key)
+    except KeyError:
+        row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+        return float(row.value) if row else default
 
 
-async def _get_int_setting(db: AsyncSession, key: str, default: int) -> int:
-    row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
-    return int(row.value) if row else default
+async def _get_int_setting(db: AsyncSession, key: str, default: int = 0) -> int:
+    try:
+        return await get_int(db, key)
+    except KeyError:
+        row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+        return int(row.value) if row else default
 
 
 class CryptoModelTrainer:
@@ -258,15 +250,15 @@ class CryptoModelTrainer:
             return False
 
         # Считываем динамические гиперпараметры из RuntimeSettings
-        n_estimators = await _get_int_setting(self.db, "CRYPTO_LGBM_N_ESTIMATORS", LGBM_N_ESTIMATORS)
-        learning_rate = await _get_float_setting(self.db, "CRYPTO_LGBM_LEARNING_RATE", LGBM_LEARNING_RATE)
-        num_leaves = await _get_int_setting(self.db, "CRYPTO_LGBM_NUM_LEAVES", LGBM_NUM_LEAVES)
-        max_depth = await _get_int_setting(self.db, "CRYPTO_LGBM_MAX_DEPTH", LGBM_MAX_DEPTH)
-        min_child_samples = await _get_int_setting(self.db, "CRYPTO_LGBM_MIN_CHILD_SAMPLES", LGBM_MIN_CHILD_SAMPLES)
-        subsample = await _get_float_setting(self.db, "CRYPTO_LGBM_SUBSAMPLE", LGBM_SUBSAMPLE)
-        colsample_bytree = await _get_float_setting(self.db, "CRYPTO_LGBM_COLSAMPLE_BYTREE", LGBM_COLSAMPLE_BYTREE)
-        reg_alpha = await _get_float_setting(self.db, "CRYPTO_LGBM_REG_ALPHA", LGBM_REG_ALPHA)
-        reg_lambda = await _get_float_setting(self.db, "CRYPTO_LGBM_REG_LAMBDA", LGBM_REG_LAMBDA)
+        n_estimators = await _get_int_setting(self.db, "CRYPTO_LGBM_N_ESTIMATORS", 300)
+        learning_rate = await _get_float_setting(self.db, "CRYPTO_LGBM_LEARNING_RATE", 0.05)
+        num_leaves = await _get_int_setting(self.db, "CRYPTO_LGBM_NUM_LEAVES", 31)
+        max_depth = await _get_int_setting(self.db, "CRYPTO_LGBM_MAX_DEPTH", 5)
+        min_child_samples = await _get_int_setting(self.db, "CRYPTO_LGBM_MIN_CHILD_SAMPLES", 20)
+        subsample = await _get_float_setting(self.db, "CRYPTO_LGBM_SUBSAMPLE", 0.8)
+        colsample_bytree = await _get_float_setting(self.db, "CRYPTO_LGBM_COLSAMPLE_BYTREE", 0.8)
+        reg_alpha = await _get_float_setting(self.db, "CRYPTO_LGBM_REG_ALPHA", 0.1)
+        reg_lambda = await _get_float_setting(self.db, "CRYPTO_LGBM_REG_LAMBDA", 1.0)
         lgbm_params = {
             "n_estimators": n_estimators,
             "learning_rate": learning_rate,
@@ -279,19 +271,11 @@ class CryptoModelTrainer:
             "reg_lambda": reg_lambda,
         }
 
-        min_precision = await _get_float_setting(
-            self.db, "LGBM_MIN_PRECISION_FOR_THRESHOLD", MIN_PRECISION_FOR_THRESHOLD
-        )
-        min_valid_thr = await _get_float_setting(
-            self.db, "LGBM_MIN_VALID_THRESHOLD", MIN_VALID_THRESHOLD
-        )
-        max_valid_thr = await _get_float_setting(
-            self.db, "LGBM_MAX_VALID_THRESHOLD", MAX_VALID_THRESHOLD
-        )
-        thr_fallback = await _get_float_setting(
-            self.db, "LGBM_THRESHOLD_FALLBACK", THRESHOLD_FALLBACK
-        )
-        cv_n_splits = await _get_int_setting(self.db, "LGBM_CV_N_SPLITS", CV_N_SPLITS)
+        min_precision = await get_float(self.db, "LGBM_MIN_PRECISION_FOR_THRESHOLD")
+        min_valid_thr = await get_float(self.db, "LGBM_MIN_VALID_THRESHOLD")
+        max_valid_thr = await get_float(self.db, "LGBM_MAX_VALID_THRESHOLD")
+        thr_fallback = await get_float(self.db, "LGBM_THRESHOLD_FALLBACK")
+        cv_n_splits = await get_int(self.db, "LGBM_CV_N_SPLITS")
 
         # Строим фичи
         df = build_features(candles)

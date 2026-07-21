@@ -204,10 +204,9 @@ from sklearn.metrics import (
     roc_auc_score, precision_recall_curve,
     precision_score, recall_score, f1_score,
 )
-from polyflip.constants import (
-    CV_RANDOM_STATE,
-    MIN_PRECISION_FOR_THRESHOLD, MAX_SUSPICIOUS_THRESHOLD,
-)
+from polyflip.constants import CV_RANDOM_STATE
+MIN_PRECISION_FOR_THRESHOLD = 0.52
+MAX_SUSPICIOUS_THRESHOLD = 0.95
 
 def run_full_oof_pipeline(df: pd.DataFrame):
     feature_cols = [c for c in df.columns if c not in ("market_id", "target", "recorded_at")]

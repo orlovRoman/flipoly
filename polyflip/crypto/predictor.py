@@ -8,7 +8,6 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
-from polyflip.constants import MIN_VALID_THRESHOLD, MAX_VALID_THRESHOLD, THRESHOLD_FALLBACK
 
 from polyflip.db.models import ModelRegistry, RuntimeSettings
 from polyflip.crypto.feature_builder import build_crypto_features, CRYPTO_FEATURE_COLUMNS
@@ -217,21 +216,21 @@ class CryptoPredictor:
                 self._model_eces[symbol][regime] = row.ece or 0.0 # BUG-AO
 
                 # Пороги: берем CRYPTO_THRESHOLD_BTCUSDT_low_vol или общие CRYPTO_THRESHOLD_UP_BTC / DOWN_BTC
-                thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
-                thr_row = (await db.execute(
-                    select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
-                )).scalar_one_or_none()
-                
+                from polyflip.services.settings_service import get_float
+                min_valid_thresh = await get_float(db, "LGBM_MIN_VALID_THRESHOLD")
+                max_valid_thresh = await get_float(db, "LGBM_MAX_VALID_THRESHOLD")
+                threshold_fallback = await get_float(db, "LGBM_THRESHOLD_FALLBACK")
+
                 if thr_row:
                     threshold = float(thr_row.value)
-                    if not (MIN_VALID_THRESHOLD <= threshold <= MAX_VALID_THRESHOLD):
+                    if not (min_valid_thresh <= threshold <= max_valid_thresh):
                         logger.error(
                             "invalid_threshold_in_db_using_fallback",
                             key=thr_key,
                             invalid=round(threshold, 4),
-                            fallback=THRESHOLD_FALLBACK,
+                            fallback=threshold_fallback,
                         )
-                        threshold = THRESHOLD_FALLBACK
+                        threshold = threshold_fallback
                     th_up = threshold
                     th_down = 1.0 - threshold
                 else:

@@ -28,14 +28,13 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
-from polyflip.constants import (
-    BACKTEST_COMMISSION,
-    BACKTEST_MIN_EDGE,
-    BACKTEST_SHARPE_ANNUALIZE,
-    BACKTEST_TRAIN_RATIO,
-    CV_N_SPLITS,
-    POLYMARKET_FEE_RATE,
-)
+from polyflip.constants import CV_N_SPLITS
+
+BACKTEST_COMMISSION = 0.001
+BACKTEST_MIN_EDGE = 0.04
+BACKTEST_SHARPE_ANNUALIZE = 252 * 96
+BACKTEST_TRAIN_RATIO = 0.70
+POLYMARKET_FEE_RATE = 0.002
 from polyflip.crypto.trainer import (
     CRYPTO_FEATURES,
     _build_target,

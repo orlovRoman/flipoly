@@ -70,30 +70,25 @@ def test_auto_dead_zone_width_removed_from_api_response():
                     )
 
 
-# ── Тест 4: MAX_EDGE_FILTER и MAX_BET_EDGE разные константы ──────────────────
-
 def test_max_edge_filter_lt_max_edge_scaling():
-    """MAX_EDGE_FILTER (фильтр аномалий) < MAX_EDGE_SCALING (масштабирование)."""
-    from polyflip.constants import MAX_EDGE_FILTER, MAX_EDGE_SCALING
-    assert MAX_EDGE_FILTER < MAX_EDGE_SCALING, (
-        f"MAX_EDGE_FILTER={MAX_EDGE_FILTER} должен быть < MAX_EDGE_SCALING={MAX_EDGE_SCALING}"
-    )
+    """MAX_EDGE_FILTER (0.20) < MAX_BET_EDGE (0.40)."""
+    from polyflip.settings_registry import registry_defaults
+    defaults = registry_defaults()
+    assert float(defaults["MAX_EDGE_FILTER"]) < float(defaults["MAX_BET_EDGE"])
 
 
 def test_max_bet_edge_default_is_scaling():
-    """Дефолт MAX_BET_EDGE в реестре == MAX_EDGE_SCALING (0.40), не MAX_EDGE_FILTER (0.20)."""
-    from polyflip.constants import MAX_EDGE_SCALING
+    """Дефолт MAX_BET_EDGE в реестре == 0.40."""
     from polyflip.settings_registry import registry_defaults
     defaults = registry_defaults()
-    assert float(defaults["MAX_BET_EDGE"]) == pytest.approx(MAX_EDGE_SCALING)
+    assert float(defaults["MAX_BET_EDGE"]) == pytest.approx(0.40)
 
 
 def test_max_edge_filter_default_is_filter():
-    """Дефолт MAX_EDGE_FILTER в реестре == MAX_EDGE_FILTER (0.20)."""
-    from polyflip.constants import MAX_EDGE_FILTER
+    """Дефолт MAX_EDGE_FILTER в реестре == 0.20."""
     from polyflip.settings_registry import registry_defaults
     defaults = registry_defaults()
-    assert float(defaults["MAX_EDGE_FILTER"]) == pytest.approx(MAX_EDGE_FILTER)
+    assert float(defaults["MAX_EDGE_FILTER"]) == pytest.approx(0.20)
 
 
 # ── Тест 5: Editable keys ────────────────────────────────────────────────────

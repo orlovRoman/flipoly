@@ -10,13 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.models import RuntimeSettings, StrategyConfig
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
-from polyflip.constants import (
-    DAILY_LOSS_LIMIT_USDC, TRADE_ON_FAVORITE, TRADE_ON_FLIP, FLIP_THRESHOLD,
-    NO_MIN_EDGE, AUTO_DEAD_ZONE,
-    FAVORITE_MIN_EDGE, CRYPTO_MIN_EDGE,
-    MAX_EDGE_FILTER, MAX_EDGE_SCALING,
-)
-from polyflip.settings_registry import editable_keys as _registry_editable_keys
+from polyflip.settings_registry import registry_defaults, editable_keys as _registry_editable_keys
 
 logger = structlog.get_logger(__name__)
 

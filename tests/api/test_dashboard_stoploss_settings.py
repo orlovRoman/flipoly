@@ -18,7 +18,7 @@ async def test_patch_stop_loss_pct_valid(db_session, monkeypatch):
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Валидный патч
-        resp = await client.put("/api/settings/STOP_LOSS_PCT", json={"value": "40.0"}, headers={"X-API-Key": "test-key"})
+        resp = await client.put("/api/settings/STOP_LOSS_PCT_FAVORITE", json={"value": "40.0"}, headers={"X-API-Key": "test-key"})
         assert resp.status_code == 200
         assert resp.json()["value"] == "40.0"
 
@@ -38,9 +38,9 @@ async def test_patch_stop_loss_pct_invalid(db_session, monkeypatch):
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Инвалидный патч (0%)
-        resp = await client.put("/api/settings/STOP_LOSS_PCT", json={"value": "0"}, headers={"X-API-Key": "test-key"})
+        resp = await client.put("/api/settings/STOP_LOSS_PCT_FAVORITE", json={"value": "0"}, headers={"X-API-Key": "test-key"})
         assert resp.status_code == 400  # FastAPI выбрасывает 400 из-за HTTPException
         
         # Инвалидный патч (100%)
-        resp = await client.put("/api/settings/STOP_LOSS_PCT", json={"value": "100"}, headers={"X-API-Key": "test-key"})
+        resp = await client.put("/api/settings/STOP_LOSS_PCT_FAVORITE", json={"value": "100"}, headers={"X-API-Key": "test-key"})
         assert resp.status_code == 400

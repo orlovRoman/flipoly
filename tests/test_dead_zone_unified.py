@@ -95,18 +95,18 @@ def test_defaults_dead_zone_width_present():
     assert 0.02 <= val <= 0.40, f"DEAD_ZONE_WIDTH={val} вне допустимого диапазона"
 
 
-def test_defaults_dead_zone_matches_constant():
-    """DEFAULTS['DEAD_ZONE_WIDTH'] должен совпадать с constants.DEAD_ZONE_WIDTH."""
-    from polyflip.constants import DEAD_ZONE_WIDTH
-    assert DEFAULTS["DEAD_ZONE_WIDTH"] == str(DEAD_ZONE_WIDTH)
+def test_defaults_dead_zone_matches_registry():
+    """DEFAULTS['DEAD_ZONE_WIDTH'] должен совпадать с реестром."""
+    from polyflip.settings_registry import registry_defaults
+    assert DEFAULTS["DEAD_ZONE_WIDTH"] == registry_defaults()["DEAD_ZONE_WIDTH"]
 
 
 # ── Тест константы ────────────────────────────────────────────────────────────
 
 def test_dead_zone_width_value():
-    """DEAD_ZONE_WIDTH = 0.10 (объединённое значение)."""
-    from polyflip.constants import DEAD_ZONE_WIDTH
-    assert DEAD_ZONE_WIDTH == pytest.approx(0.10)
+    """DEAD_ZONE_WIDTH = 0.10 (объединённое значение в реестре)."""
+    from polyflip.settings_registry import registry_defaults
+    assert float(registry_defaults()["DEAD_ZONE_WIDTH"]) == pytest.approx(0.10)
 
 
 def test_auto_dead_zone_width_removed_from_constants():

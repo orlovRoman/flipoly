@@ -66,10 +66,4 @@ def test_trade_on_favorite_default_is_true():
     assert defaults["TRADE_ON_FAVORITE"] == "true"
 
 
-def test_trade_on_favorite_constant_matches_registry_default():
-    """Константа TRADE_ON_FAVORITE в constants.py совпадает с дефолтом реестра."""
-    from polyflip.constants import TRADE_ON_FAVORITE
-    from polyflip.settings_registry import registry_defaults
-    defaults = registry_defaults()
-    expected = "true" if TRADE_ON_FAVORITE else "false"
-    assert defaults["TRADE_ON_FAVORITE"] == expected
+

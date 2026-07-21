@@ -6,11 +6,16 @@ from polyflip.crypto.edge import compute_crypto_edge
 from polyflip.crypto.predictor import CryptoSignal
 
 from polyflip.trading.feature_builder import MarketSignal
-from polyflip.constants import (
-    FAVORITE_THRESHOLD, FLIP_THRESHOLD, NO_FLIP_THRESHOLD,
-    FAVORITE_MIN_PRICE, FAVORITE_MAX_PRICE, FAVORITE_MIN_EDGE,
-    MIN_EDGE, MAX_EDGE_FILTER, OUTSIDER_MAX_PRICE, DEAD_ZONE_WIDTH,
-)
+FAVORITE_THRESHOLD = 0.55
+FLIP_THRESHOLD = 0.60
+NO_FLIP_THRESHOLD = 0.35
+FAVORITE_MIN_PRICE = 0.55
+FAVORITE_MAX_PRICE = 0.95
+FAVORITE_MIN_EDGE = -0.01
+MIN_EDGE = 0.05
+MAX_EDGE_FILTER = 0.20
+OUTSIDER_MAX_PRICE = 0.45
+DEAD_ZONE_WIDTH = 0.10
 
 
 def _signal(

@@ -5,16 +5,15 @@
 from __future__ import annotations
 
 from polyflip.constants import (
-    MIN_EDGE, MAX_EDGE_SCALING, MAX_EDGE_FILTER,
-    LIQUIDITY_FRACTION, POLYMARKET_FEE_RATE,
     INVALID_EDGE_SENTINEL, FLIP_MIDPOINT
 )
+
 def compute_bet_size_edge_scaled(
     edge: float,
     min_bet_usdc: float,
     max_bet_usdc: float,
-    min_edge: float = MIN_EDGE,
-    max_edge: float = MAX_EDGE_SCALING,
+    min_edge: float = 0.05,
+    max_edge: float = 0.40,
 ) -> float:
     """
     Линейное масштабирование ставки по силе edge.
@@ -33,9 +32,9 @@ def compute_bet_size_with_liquidity(
     volume_5min: float,
     min_bet_usdc: float,
     max_bet_usdc: float,
-    min_edge: float = MIN_EDGE,
-    max_edge: float = MAX_EDGE_FILTER,
-    liquidity_fraction: float = LIQUIDITY_FRACTION,
+    min_edge: float = 0.05,
+    max_edge: float = 0.20,
+    liquidity_fraction: float = 0.05,
 ) -> float:
     """
     Масштабирует ставку по edge И ограничивает её по ликвидности рынка.
@@ -78,7 +77,7 @@ def is_in_dead_zone(mid_price: float, dead_zone_width: float) -> bool:
     return abs(mid_price - FLIP_MIDPOINT) < dead_zone_width / 2
 
 
-def apply_polymarket_fee(gross_pnl: float, fee_rate: float = POLYMARKET_FEE_RATE) -> float:
+def apply_polymarket_fee(gross_pnl: float, fee_rate: float = 0.002) -> float:
     """
     Применяет комиссию Polymarket (0.2% от выплаты).
     Используется только для расчёта PnL в бэктесте.

@@ -5,10 +5,10 @@ from sqlalchemy import select, and_
 import structlog
 
 from polyflip.db.models import TradeHistory, RuntimeSettings, LiveMarket, SlippageLog
+from polyflip.services.settings_service import get_float
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.takeprofit import evaluate_take_profit
-from polyflip.constants import POLYMARKET_FEE_RATE
 
 logger = structlog.get_logger(__name__)
 
@@ -29,11 +29,7 @@ async def takeprofit_worker_cycle(
         return
 
     # Загружаем POLYMARKET_FEE_RATE из RuntimeSettings
-    fee_row = await db_session.execute(
-        select(RuntimeSettings).where(RuntimeSettings.key == "POLYMARKET_FEE_RATE")
-    )
-    fee_row_val = fee_row.scalar_one_or_none()
-    fee_rate = float(fee_row_val.value) if fee_row_val else POLYMARKET_FEE_RATE
+    fee_rate = await get_float(db_session, "POLYMARKET_FEE_RATE")
 
     # 2. Загружаем ACTIVE позиции с выставленным take_profit_price
     stmt = select(TradeHistory).where(
