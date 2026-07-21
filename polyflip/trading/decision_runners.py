@@ -22,7 +22,10 @@ def _get_float_setting(raw_settings: dict, key: str) -> Optional[float]:
     val = raw_settings.get(key)
     if val is not None and str(val).strip() not in ("", "0", "0.0"):
         try:
-            return float(val)
+            res = float(val)
+            if res > 1.0:
+                res = res / 100.0
+            return res
         except ValueError:
             pass
     return None
@@ -35,6 +38,7 @@ class DecisionResult:
     edge: Optional[float]
     skip_reason: Optional[str]
     lgbm_metadata: Optional[str] = None
+    used_model_key: Optional[str] = None
 
 async def decide_favorite_mode(
     market: LiveMarket,
@@ -130,6 +134,16 @@ async def decide_ml_mode(
         active_features = models_cache.features.get(market.asset.upper(), [])
         used_model = market.asset.upper()
     
+    logger.info(
+        "ml_model_selected",
+        asset=market.asset,
+        fresh_price=round(fresh_yes_price, 4),
+        phase=phase,
+        phase_asset=phase_asset,
+        phase_available=(phase_asset in models_cache.models),
+        used_model=used_model,
+    )
+    
     if not model:
         return DecisionResult(None, 0.0, None, None, f"No active model found for {market.asset.upper()}")
         
@@ -171,18 +185,18 @@ async def decide_ml_mode(
     auto_key_base  = f"AUTO_FLIP_THRESHOLD_{market.asset.upper()}"
 
     manual_val = _get_float_setting(raw_settings, manual_key)
+    global_threshold_val = _get_float_setting(raw_settings, "TRADE_FLIP_THRESHOLD") or _get_float_setting(raw_settings, "FLIP_THRESHOLD")
     auto_phase_val = _get_float_setting(raw_settings, auto_key_phase)
     auto_base_val = _get_float_setting(raw_settings, auto_key_base)
-    global_threshold_val = _get_float_setting(raw_settings, "TRADE_FLIP_THRESHOLD")
 
     if manual_val is not None:
         base_flip_threshold = manual_val
+    elif global_threshold_val is not None:
+        base_flip_threshold = global_threshold_val
     elif auto_phase_val is not None:
         base_flip_threshold = auto_phase_val
     elif auto_base_val is not None:
         base_flip_threshold = auto_base_val
-    elif global_threshold_val is not None:
-        base_flip_threshold = global_threshold_val
     else:
         base_flip_threshold = cfg.no_flip_threshold + cfg.dead_zone
 
@@ -193,8 +207,11 @@ async def decide_ml_mode(
     )
 
     local_config = {**raw_settings}
+    if hasattr(cfg, "max_edge_filter") and cfg.max_edge_filter is not None:
+        local_config["MAX_EDGE_FILTER"] = str(cfg.max_edge_filter)
     local_config["NO_FLIP_THRESHOLD"] = str(lower)
     local_config["FLIP_THRESHOLD"] = str(upper)
+    local_config["FAVORITE_THRESHOLD"] = str(upper)
     # Используем FAVORITE_MIN_EDGE=-100.0 для обхода edge-фильтрации внутри вспомогательного вызова decide_favorite.
     # Это сохраняет оригинальный MIN_EDGE в local_config для правильной ML-фильтрации в decide_ml_trend и расчета Kelly.
     local_config["FAVORITE_MIN_EDGE"] = "-100.0"
@@ -252,7 +269,8 @@ async def decide_ml_mode(
         p_flip=p_flip,
         model_ver=model_ver,
         edge=decision_obj.edge if decision_obj else None,
-        skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None
+        skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None,
+        used_model_key=used_model,
     )
 
 async def decide_crypto_mode(
@@ -426,6 +444,7 @@ async def decide_combined_mode(
         "vote_action": vote.action,
         "bet_size_multiplier": vote.bet_size_multiplier,
         "trading_mode": "COMBINED",
+        "ml_phase_model": ml_result.used_model_key,
     }
     if ml_result.decision_obj:
         lgbm_meta_dict["original_strategy"] = ml_result.decision_obj.strategy_type

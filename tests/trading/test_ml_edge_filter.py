@@ -157,6 +157,5 @@ async def test_ml_mode_enters_when_edge_is_sufficient():
         time_left_sec=300.0
     )
 
-    # Должен быть вход в сделку (BUY_YES)
     assert result.decision_obj is not None
     assert result.decision_obj.action == "BUY_YES"

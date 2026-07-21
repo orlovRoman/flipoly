@@ -82,6 +82,19 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
         except Exception as e:
             logger.error("Failed to load model", asset=m.asset, error=str(e))
 
+    from polyflip.constants import PRICE_PHASE_BOUNDARIES
+    _phase_suffixes = tuple(f"_{p}" for p in PRICE_PHASE_BOUNDARIES)
+
+    phase_keys = [k for k in cache.models if k.endswith(_phase_suffixes)]
+    base_keys  = [k for k in cache.models if k not in phase_keys]
+
+    logger.info(
+        "models_cache_populated",
+        base_models=sorted(base_keys),
+        phase_models=sorted(phase_keys),
+        total=len(cache.models),
+    )
+
 
 def build_inference_dataframe(
     market: Any,

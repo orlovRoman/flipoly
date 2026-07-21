@@ -30,6 +30,8 @@ logger = structlog.get_logger(__name__)
 def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
     from polyflip.trading.position_sizing import compute_bet_size_with_liquidity
     min_bet = float(config.get("TRADE_BET_SIZE_USDC", TRADE_BET_SIZE_USDC))
+    if config.get("BET_SIZING_MODE") and str(config.get("BET_SIZING_MODE")).lower() == "fixed":
+        return min_bet
     bet = compute_bet_size_with_liquidity(
         edge=edge,
         volume_5min=volume_5min,
@@ -39,11 +41,6 @@ def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
         max_edge=float(config.get("MAX_BET_EDGE", MAX_EDGE_SCALING)),  # масштабирование ставки
         liquidity_fraction=float(config.get("LIQUIDITY_FRACTION", LIQUIDITY_FRACTION)),
     )
-    # При edge < min_edge_scaled, compute_bet_size_edge_scaled возвращает 0.
-    # Это ожидаемо для PURE_FAVORITE где FAVORITE_MIN_EDGE может быть отрицательным:
-    # edge уже прошёл фильтр decide_favorite, значит он > FAVORITE_MIN_EDGE,
-    # но может быть < MIN_EDGE (который используется при масштабировании).
-    # В этом случае ставим min_bet — минимально допустимый размер позиции.
     if bet < min_bet:
         bet = min_bet
     return bet
@@ -175,7 +172,7 @@ def decide_ml_trend(
     
     min_edge = float(config.get("MIN_EDGE", MIN_EDGE))
     # MAX_EDGE_FILTER как фильтр аномального edge (SKIP если edge > filter)
-    max_edge = float(config.get("MAX_EDGE_FILTER", config.get("MAX_BET_EDGE", MAX_EDGE_FILTER)))
+    max_edge = float(config.get("MAX_EDGE_FILTER", config.get("MAX_BET_EDGE", 0.75)))
     if edge < min_edge or edge > max_edge:
         return TradeDecision("SKIP", 0, 0, f"Edge out of bounds (edge={edge:.4f})", "SKIP", p_flip=p_flip, edge=edge)
 

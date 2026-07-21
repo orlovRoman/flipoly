@@ -90,18 +90,16 @@ async def validate_pre_trade(
             skip_reason=f"Price out of bounds: {buy_price:.3f} [{cfg.trade_min_price}, {asset_max_price}]"
         )
         
-    if asset_mode not in (TRADING_MODE_LIGHTGBM, TRADING_MODE_COMBINED):
-        if cfg.bet_sizing_mode == "fixed":
-            actual_bet_size = cfg.bet_size
-        else:
-            actual_bet_size = compute_bet_size_edge_scaled(
-                edge=edge,
-                min_bet_usdc=cfg.bet_size,
-                max_bet_usdc=cfg.max_bet_size_usdc,
-                min_edge=current_min_edge,
-                max_edge=cfg.max_bet_edge
-            )
-            
+    if cfg.bet_sizing_mode == "fixed":
+        actual_bet_size = cfg.bet_size
+    elif asset_mode not in (TRADING_MODE_LIGHTGBM, TRADING_MODE_COMBINED):
+        actual_bet_size = compute_bet_size_edge_scaled(
+            edge=edge,
+            min_bet_usdc=cfg.bet_size,
+            max_bet_usdc=cfg.max_bet_size_usdc,
+            min_edge=current_min_edge,
+            max_edge=cfg.max_bet_edge
+        )
         if asset_mode == TRADING_MODE_FAVORITE and actual_bet_size < cfg.bet_size:
             actual_bet_size = cfg.bet_size
 
