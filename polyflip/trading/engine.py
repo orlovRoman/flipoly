@@ -88,8 +88,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             
             try:
                 if asset_mode == TRADING_MODE_ML:
-                    from polyflip.trading.ml_inference import get_models_cache
+                    from polyflip.trading.ml_inference import get_models_cache, populate_models_cache
                     models_cache = get_models_cache()
+                    if not models_cache.models:
+                        logger.warning("models_cache_empty_populating", context="trade_worker_cycle")
+                        await populate_models_cache(db_session)
+                        models_cache = get_models_cache()
                     decision_res = await decide_ml_mode(
                         db_session, api_client, market, cfg, raw_settings, models_cache, _get_crypto_predictor(),
                         start_time, time_left_sec, existing_skipped
@@ -108,8 +112,12 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         pass
                 elif asset_mode == TRADING_MODE_COMBINED:
                     from polyflip.trading.decision_runners import decide_combined_mode
-                    from polyflip.trading.ml_inference import get_models_cache
+                    from polyflip.trading.ml_inference import get_models_cache, populate_models_cache
                     models_cache = get_models_cache()
+                    if not models_cache.models:
+                        logger.warning("models_cache_empty_populating", context="trade_worker_cycle")
+                        await populate_models_cache(db_session)
+                        models_cache = get_models_cache()
                     decision_res = await decide_combined_mode(
                         db_session, api_client, market, cfg,
                         raw_settings, models_cache, _get_crypto_predictor(),

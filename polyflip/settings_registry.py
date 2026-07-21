@@ -29,6 +29,7 @@ from polyflip.constants import (
     NO_MIN_EDGE,
     CRYPTO_MIN_EDGE,
     FLIP_THRESHOLD,
+    NO_FLIP_THRESHOLD,
     OUTSIDER_MAX_PRICE,
     LIQUIDITY_FRACTION,
     FAVORITE_MIN_PRICE,
@@ -144,7 +145,7 @@ REGISTRY: list[SettingDef] = [
                description="Глобальный порог ПРОТИВ ТОЛПЫ (если нет индивидуального)"),
 
     # --- ML ---
-    SettingDef("TRADE_NO_FLIP_THRESHOLD", "0.15",
+    SettingDef("TRADE_NO_FLIP_THRESHOLD", str(NO_FLIP_THRESHOLD),
                description="p_flip < этого → торгуем фаворита (ML режим)"),
     SettingDef("COMBINED_NONE_BET_MULTIPLIER", str(COMBINED_NONE_BET_MULTIPLIER),
                description="Множитель размера ставки при неопределенности (LGBM=NONE) в Combined-режиме (0.0 - 1.0)"),

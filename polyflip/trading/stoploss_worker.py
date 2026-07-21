@@ -132,10 +132,10 @@ async def stoploss_worker_cycle(
             trade.stop_loss_hit_at   = now
             trade.stop_loss_sell_price = executed_price
             
-            # PnL с вычетом комиссии Polymarket (BUG-AM)
-            gross = executed_price * shares_held
-            net   = gross * (1.0 - fee_rate)
-            trade.pnl = round(net - trade.amount_usdc, 4)
+            # PnL с учётом комиссии продажи POLYMARKET_FEE_RATE (0.002)
+            from polyflip.constants import POLYMARKET_FEE_RATE
+            net_sell = executed_price * shares_held * (1.0 - POLYMARKET_FEE_RATE)
+            trade.pnl = round(net_sell - trade.amount_usdc, 4)
 
             # Записываем проскальзывание в SlippageLog
             # Для продажи: slip = expected_price (наш bid триггера) - executed_price (цена исполнения)

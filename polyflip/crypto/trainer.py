@@ -232,6 +232,16 @@ def _fit_lgbm_and_serialize(
     return pickle.dumps(final_cal), val_auc, baseline_auc, optimal_threshold, ece, fi
 
 
+async def _get_float_setting(db: AsyncSession, key: str, default: float) -> float:
+    row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+    return float(row.value) if row else default
+
+
+async def _get_int_setting(db: AsyncSession, key: str, default: int) -> int:
+    row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+    return int(row.value) if row else default
+
+
 class CryptoModelTrainer:
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
@@ -248,23 +258,15 @@ class CryptoModelTrainer:
             return False
 
         # Считываем динамические гиперпараметры из RuntimeSettings
-        async def _get_float_setting(key: str, default: float) -> float:
-            row = (await self.db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
-            return float(row.value) if row else default
-
-        async def _get_int_setting(key: str, default: int) -> int:
-            row = (await self.db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
-            return int(row.value) if row else default
-
-        n_estimators = await _get_int_setting("CRYPTO_LGBM_N_ESTIMATORS", LGBM_N_ESTIMATORS)
-        learning_rate = await _get_float_setting("CRYPTO_LGBM_LEARNING_RATE", LGBM_LEARNING_RATE)
-        num_leaves = await _get_int_setting("CRYPTO_LGBM_NUM_LEAVES", LGBM_NUM_LEAVES)
-        max_depth = await _get_int_setting("CRYPTO_LGBM_MAX_DEPTH", LGBM_MAX_DEPTH)
-        min_child_samples = await _get_int_setting("CRYPTO_LGBM_MIN_CHILD_SAMPLES", LGBM_MIN_CHILD_SAMPLES)
-        subsample = await _get_float_setting("CRYPTO_LGBM_SUBSAMPLE", LGBM_SUBSAMPLE)
-        colsample_bytree = await _get_float_setting("CRYPTO_LGBM_COLSAMPLE_BYTREE", LGBM_COLSAMPLE_BYTREE)
-        reg_alpha = await _get_float_setting("CRYPTO_LGBM_REG_ALPHA", LGBM_REG_ALPHA)
-        reg_lambda = await _get_float_setting("CRYPTO_LGBM_REG_LAMBDA", LGBM_REG_LAMBDA)
+        n_estimators = await _get_int_setting(self.db, "CRYPTO_LGBM_N_ESTIMATORS", LGBM_N_ESTIMATORS)
+        learning_rate = await _get_float_setting(self.db, "CRYPTO_LGBM_LEARNING_RATE", LGBM_LEARNING_RATE)
+        num_leaves = await _get_int_setting(self.db, "CRYPTO_LGBM_NUM_LEAVES", LGBM_NUM_LEAVES)
+        max_depth = await _get_int_setting(self.db, "CRYPTO_LGBM_MAX_DEPTH", LGBM_MAX_DEPTH)
+        min_child_samples = await _get_int_setting(self.db, "CRYPTO_LGBM_MIN_CHILD_SAMPLES", LGBM_MIN_CHILD_SAMPLES)
+        subsample = await _get_float_setting(self.db, "CRYPTO_LGBM_SUBSAMPLE", LGBM_SUBSAMPLE)
+        colsample_bytree = await _get_float_setting(self.db, "CRYPTO_LGBM_COLSAMPLE_BYTREE", LGBM_COLSAMPLE_BYTREE)
+        reg_alpha = await _get_float_setting(self.db, "CRYPTO_LGBM_REG_ALPHA", LGBM_REG_ALPHA)
+        reg_lambda = await _get_float_setting(self.db, "CRYPTO_LGBM_REG_LAMBDA", LGBM_REG_LAMBDA)
         lgbm_params = {
             "n_estimators": n_estimators,
             "learning_rate": learning_rate,
