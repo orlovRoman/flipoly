@@ -421,8 +421,8 @@
                     : `<span style="font-size:0.75rem; background:rgba(255,255,255,0.05); color:var(--text-muted); padding:0.2rem 0.6rem; border-radius:20px;">Архив</span>`;
 
                 const actionButtonHtml = m.is_active
-                    ? `<button class="btn" style="background:rgba(255,255,255,0.05); color:var(--text-muted); pointer-events:none; border:none; width: 120px; margin-bottom: 5px;">Текущая</button>`
-                    : `<button class="btn primary-btn btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="width: 120px; margin-bottom: 5px;">Активировать</button>`;
+                    ? `<button class="btn" style="background:rgba(255,255,255,0.05); color:var(--text-muted); pointer-events:none; border:none; width: 120px; ">Текущая</button>`
+                    : `<button class="btn primary-btn btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="width: 120px; ">Активировать</button>`;
 
                 const deleteButtonHtml = m.is_active 
                     ? `` 
@@ -456,7 +456,7 @@
                         <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:0.2rem; text-transform:uppercase; letter-spacing:0.05em;">PnL (live)</div>
                         ${pnlHtml}
                     </div>
-                    <div style="min-width: 120px; text-align: right; display: flex; flex-direction: column;">
+                    <div style="min-width: 120px; text-align: right; display: flex; flex-direction: column; gap: 0.5rem; justify-content: center;">
                         ${actionButtonHtml}
                         ${deleteButtonHtml}
                     </div>

@@ -317,6 +317,9 @@ async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
     models = (await db.execute(stmt)).scalars().all()
 
     # 2. Запрашиваем все успешные сделки
+    # Fetch crypto trades. DB stores asset as 'BTC', 'ETH' etc.
+    db_assets = [s.replace("USDT", "") for s in CRYPTO_SYMBOLS]
+    
     trades_stmt = select(
         TradeHistory.asset,
         TradeHistory.pnl,
@@ -324,14 +327,18 @@ async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
     ).where(
         TradeHistory.status == "SUCCESS",
         TradeHistory.pnl.is_not(None),
-        TradeHistory.asset.in_(allowed_assets),
+        TradeHistory.asset.in_(db_assets),
     )
     trades = (await db.execute(trades_stmt)).all()
 
     # 3. Группируем сделки по asset + времени
     asset_trades: dict[str, list] = defaultdict(list)
     for row in trades:
-        asset_trades[row.asset].append((row.created_at, row.pnl))
+        # row.asset is 'BTC', map to 'BTCUSDT_low_vol', 'BTCUSDT_high_vol', etc.
+        base = row.asset
+        asset_trades[f"{base}USDT_low_vol"].append((row.created_at, row.pnl))
+        asset_trades[f"{base}USDT_high_vol"].append((row.created_at, row.pnl))
+        asset_trades[f"{base}USDT"].append((row.created_at, row.pnl))
 
     # Группируем модели по asset
     asset_versions: dict[str, list] = defaultdict(list)
