@@ -8,4 +8,9 @@ venv
 tests/
 scripts/*_check*.py
 scripts/fast_check.py
-scripts/import_sqlite.py
+backups/
+*.sqlite
+*.db
+*.log
+*.txt
+.pytest_cache/
