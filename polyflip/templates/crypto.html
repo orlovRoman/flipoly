@@ -423,8 +423,13 @@
                     valA = a.auc || 0;
                     valB = b.auc || 0;
                 } else if (currentSortField === 'ece') {
-                    valA = a.ece !== null ? a.ece : 999;
-                    valB = b.ece !== null ? b.ece : 999;
+                    const nullA = a.ece === null || a.ece === undefined;
+                    const nullB = b.ece === null || b.ece === undefined;
+                    if (nullA && nullB) return 0;
+                    if (nullA) return 1;
+                    if (nullB) return -1;
+                    valA = a.ece;
+                    valB = b.ece;
                 } else if (currentSortField === 'version') {
                     valA = a.version || 0;
                     valB = b.version || 0;
