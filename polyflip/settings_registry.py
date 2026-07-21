@@ -43,6 +43,7 @@ from polyflip.constants import (
     POLYMARKET_FEE_RATE,
     BACKTEST_MIN_EDGE,
     BACKTEST_TRAIN_RATIO,
+    MAX_SUSPICIOUS_THRESHOLD,
 )
 
 
@@ -189,6 +190,8 @@ REGISTRY: list[SettingDef] = [
     # --- CV / обучение ---
     SettingDef("LGBM_CV_N_SPLITS", str(CV_N_SPLITS),
                description="Кол-во фолдов TimeSeriesSplit при обучении LightGBM"),
+    SettingDef("LGBM_MAX_SUSPICIOUS_THRESHOLD", str(MAX_SUSPICIOUS_THRESHOLD),
+               description="Порог подозрения на data leakage при обучении (обычно 0.95)"),
 
     # --- ML пороги ---
     SettingDef("NO_FLIP_THRESHOLD", str(NO_FLIP_THRESHOLD),

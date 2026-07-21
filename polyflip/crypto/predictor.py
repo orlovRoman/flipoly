@@ -8,6 +8,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
+from polyflip.constants import MIN_VALID_THRESHOLD, MAX_VALID_THRESHOLD, THRESHOLD_FALLBACK
 
 from polyflip.db.models import ModelRegistry, RuntimeSettings
 from polyflip.crypto.feature_builder import build_crypto_features, CRYPTO_FEATURE_COLUMNS
@@ -223,6 +224,14 @@ class CryptoPredictor:
                 
                 if thr_row:
                     threshold = float(thr_row.value)
+                    if not (MIN_VALID_THRESHOLD <= threshold <= MAX_VALID_THRESHOLD):
+                        logger.error(
+                            "invalid_threshold_in_db_using_fallback",
+                            key=thr_key,
+                            invalid=round(threshold, 4),
+                            fallback=THRESHOLD_FALLBACK,
+                        )
+                        threshold = THRESHOLD_FALLBACK
                     th_up = threshold
                     th_down = 1.0 - threshold
                 else:
@@ -306,6 +315,14 @@ class CryptoPredictor:
 
             ece = (self._model_eces.get(symbol, {}).get(regime)
                    or next(iter(self._model_eces.get(symbol, {}).values()), 0.0))
+
+            logger.debug(
+                "crypto_signal",
+                symbol=symbol, regime=regime,
+                p_up=round(p_up, 4), direction=direction,
+                th_up=round(th_up, 4), th_down=round(th_down, 4),
+                edge=round(edge, 4),
+            )
 
             return CryptoSignal(
                 symbol=symbol,

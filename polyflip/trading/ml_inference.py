@@ -21,16 +21,10 @@ class ModelsCache:
 
 _models_cache = None
 
-async def get_models_cache(db_session: AsyncSession = None) -> ModelsCache:
+def get_models_cache() -> ModelsCache:
     global _models_cache
     if _models_cache is None:
-        from dataclasses import field
         _models_cache = ModelsCache(models={}, versions={}, features={}, eces={})
-    
-    if (not _models_cache.models or not _models_cache.versions) and db_session is not None:
-        logger.warning("models_cache_empty_lazy_init")
-        await populate_models_cache(db_session)
-        
     return _models_cache
 
 def clear_models_cache() -> None:
