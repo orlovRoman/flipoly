@@ -30,7 +30,7 @@ async def test_get_all_settings_defaults(db_session):
     try:
         res = await get_all_settings()
         assert res["DAILY_LOSS_LIMIT_USDC"] == "-100.0"
-        assert res["DEAD_ZONE_WIDTH"] == "0.1"
+        assert res["DEAD_ZONE_WIDTH"] == "0.10"
     finally:
         settings_module.async_session = original_session
 

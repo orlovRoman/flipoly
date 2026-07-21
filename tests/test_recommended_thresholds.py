@@ -84,7 +84,7 @@ async def test_recommended_thresholds_api(db_session):
     db_settings = [
         RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.20", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_FLIP_THRESHOLD_BTC", value="0.65", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="AUTO_FLIP_THRESHOLD_BTC", value="0.65", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(db_settings)
     await db_session.commit()

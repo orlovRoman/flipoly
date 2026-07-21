@@ -58,6 +58,7 @@ async def test_trainer_saves_model_even_if_accuracy_is_low(db_session):
             recorded_at=datetime.now(timezone.utc)
         ))
     db_session.add_all(snaps)
+    db_session.add(RuntimeSettings(key="LR_MIN_AUC_FOR_DEPLOY", value="0.45"))
     await db_session.commit()
 
     trainer = ModelTrainer(db_session)
