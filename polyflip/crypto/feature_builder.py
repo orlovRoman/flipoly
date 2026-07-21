@@ -213,7 +213,8 @@ def build_crypto_features(
     dow      = int(last_dt.weekday())   # 0=Mon
 
     # ── 8a. Funding Rate ─────────────────────────────────────────
-    funding_extreme = float(abs(funding_rate) > 0.01)
+    funding_extreme = float(abs(funding_rate) > 0.001)
+
 
     # ── 9. Сборка ────────────────────────────────────────────────
     vec = np.array([[
@@ -367,7 +368,8 @@ def build_features(
     # ── Funding Rate ─────────────────────────────────────────────
     out["funding_rate"]     = float(funding_rate)
     out["funding_rate_ma3"] = float(funding_rate_ma3)
-    out["funding_extreme"]  = float(abs(funding_rate) > 0.01)
+    out["funding_extreme"]  = (out["funding_rate"].abs() > 0.001).astype(float)
+
 
     # ── NaN → 0 (safety net) ────────────────────────────────────
     out = out.fillna(0.0)
