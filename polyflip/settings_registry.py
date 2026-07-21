@@ -34,6 +34,15 @@ from polyflip.constants import (
     FAVORITE_MIN_PRICE,
     FAVORITE_MAX_PRICE,
     COMBINED_NONE_BET_MULTIPLIER,
+    MIN_VALID_THRESHOLD,
+    MAX_VALID_THRESHOLD,
+    THRESHOLD_FALLBACK,
+    MIN_PRECISION_FOR_THRESHOLD,
+    CV_N_SPLITS,
+    NO_FLIP_THRESHOLD,
+    POLYMARKET_FEE_RATE,
+    BACKTEST_MIN_EDGE,
+    BACKTEST_TRAIN_RATIO,
 )
 
 
@@ -166,6 +175,34 @@ REGISTRY: list[SettingDef] = [
                description="Debug-only. Не открывать через API."),
     SettingDef("ENTRY_STRATEGY", "first",
                description="Стратегия входа: first | best_edge | confirmed"),
+
+    # --- Валидация порогов LightGBM ---
+    SettingDef("LGBM_MIN_VALID_THRESHOLD", str(MIN_VALID_THRESHOLD),
+               description="Минимально допустимый порог LightGBM (ниже → fallback). Ниже 0.30 = модель всегда даёт сигнал"),
+    SettingDef("LGBM_MAX_VALID_THRESHOLD", str(MAX_VALID_THRESHOLD),
+               description="Максимально допустимый порог LightGBM (выше → fallback). Выше 0.75 = модель никогда не сигналит"),
+    SettingDef("LGBM_THRESHOLD_FALLBACK", str(THRESHOLD_FALLBACK),
+               description="Нейтральный порог при некорректном автоматическом значении"),
+    SettingDef("LGBM_MIN_PRECISION_FOR_THRESHOLD", str(MIN_PRECISION_FOR_THRESHOLD),
+               description="Мин. precision при поиске оптимального порога. 0.52 для крипто, 0.60 для строгого режима"),
+
+    # --- CV / обучение ---
+    SettingDef("LGBM_CV_N_SPLITS", str(CV_N_SPLITS),
+               description="Кол-во фолдов TimeSeriesSplit при обучении LightGBM"),
+
+    # --- ML пороги ---
+    SettingDef("NO_FLIP_THRESHOLD", str(NO_FLIP_THRESHOLD),
+               description="p_flip < этого → ML_TREND покупает фаворита (не аутсайдера)"),
+
+    # --- Комиссии ---
+    SettingDef("POLYMARKET_FEE_RATE", str(POLYMARKET_FEE_RATE),
+               description="Комиссия Polymarket (0.002 = 0.2%). Влияет на расчёт PnL в takeprofit/stoploss workers"),
+
+    # --- Бэктест ---
+    SettingDef("BACKTEST_MIN_EDGE", str(BACKTEST_MIN_EDGE),
+               description="Мин. edge для сигнала в бэктесте"),
+    SettingDef("BACKTEST_TRAIN_RATIO", str(BACKTEST_TRAIN_RATIO),
+               description="Доля обучающей выборки при walk-forward бэктесте (0.70 = 70%)"),
 ]
 
 

@@ -111,6 +111,10 @@ def _fit_lgbm_and_serialize(
     X: pd.DataFrame,
     y: pd.Series,
     n_splits: int = CV_N_SPLITS,
+    min_precision: float = MIN_PRECISION_FOR_THRESHOLD,
+    min_valid_thr: float = MIN_VALID_THRESHOLD,
+    max_valid_thr: float = MAX_VALID_THRESHOLD,
+    thr_fallback: float = THRESHOLD_FALLBACK,
     **lgbm_params,
 ) -> tuple[bytes, float, float, float, float, dict[str, int]]:
     """
@@ -273,6 +277,20 @@ class CryptoModelTrainer:
             "reg_lambda": reg_lambda,
         }
 
+        min_precision = await _get_float_setting(
+            "LGBM_MIN_PRECISION_FOR_THRESHOLD", MIN_PRECISION_FOR_THRESHOLD
+        )
+        min_valid_thr = await _get_float_setting(
+            "LGBM_MIN_VALID_THRESHOLD", MIN_VALID_THRESHOLD
+        )
+        max_valid_thr = await _get_float_setting(
+            "LGBM_MAX_VALID_THRESHOLD", MAX_VALID_THRESHOLD
+        )
+        thr_fallback = await _get_float_setting(
+            "LGBM_THRESHOLD_FALLBACK", THRESHOLD_FALLBACK
+        )
+        cv_n_splits = await _get_int_setting("LGBM_CV_N_SPLITS", CV_N_SPLITS)
+
         # Строим фичи
         df = build_features(candles)
 
@@ -344,7 +362,15 @@ class CryptoModelTrainer:
                 t0 = time.monotonic()
                 try:
                     result = await asyncio.wait_for(
-                        asyncio.to_thread(_fit_lgbm_and_serialize, X_r, y_r, CV_N_SPLITS, **adaptive_params),
+                        asyncio.to_thread(
+                            _fit_lgbm_and_serialize,
+                            X_r, y_r, cv_n_splits,
+                            min_precision,
+                            min_valid_thr,
+                            max_valid_thr,
+                            thr_fallback,
+                            **adaptive_params
+                        ),
                         timeout=1800.0,   # 30 минут — hard limit
                     )
                 except asyncio.TimeoutError:

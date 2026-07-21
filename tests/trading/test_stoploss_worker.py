@@ -228,7 +228,7 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
         price=0.20,
         size=20.0
     )
-    assert trade.pnl == pytest.approx(-6.0)
+    assert trade.pnl == pytest.approx(-6.008)
     assert trade.stop_loss_sell_price == 0.20
 
     # Проверим, что SlippageLog был создан

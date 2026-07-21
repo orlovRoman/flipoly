@@ -8,6 +8,7 @@ from polyflip.db.models import TradeHistory, RuntimeSettings, LiveMarket, Slippa
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.takeprofit import evaluate_take_profit
+from polyflip.constants import POLYMARKET_FEE_RATE
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +27,13 @@ async def takeprofit_worker_cycle(
     setting = result.scalar_one_or_none()
     if not setting or setting.value.lower() != "true":
         return
+
+    # Загружаем POLYMARKET_FEE_RATE из RuntimeSettings
+    fee_row = await db_session.execute(
+        select(RuntimeSettings).where(RuntimeSettings.key == "POLYMARKET_FEE_RATE")
+    )
+    fee_row_val = fee_row.scalar_one_or_none()
+    fee_rate = float(fee_row_val.value) if fee_row_val else POLYMARKET_FEE_RATE
 
     # 2. Загружаем ACTIVE позиции с выставленным take_profit_price
     stmt = select(TradeHistory).where(
@@ -117,9 +125,9 @@ async def takeprofit_worker_cycle(
 
             executed_price = sell_res.get("executed_price", current_bid)
 
-            # PnL с вычетом комиссии Polymarket 0.2%
+            # PnL с вычетом комиссии Polymarket
             gross = executed_price * shares_held
-            net   = gross * (1.0 - 0.002)
+            net   = gross * (1.0 - fee_rate)
             trade.pnl = round(net - trade.amount_usdc, 4)
 
             # Обновляем поля тейк-профита (status сделки остаётся "SUCCESS")

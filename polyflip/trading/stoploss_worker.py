@@ -31,6 +31,13 @@ async def stoploss_worker_cycle(
     if not setting or setting.value.lower() != "true":
         return
 
+    # Загружаем POLYMARKET_FEE_RATE из RuntimeSettings
+    fee_row = await db_session.execute(
+        select(RuntimeSettings).where(RuntimeSettings.key == "POLYMARKET_FEE_RATE")
+    )
+    fee_row_val = fee_row.scalar_one_or_none()
+    fee_rate = float(fee_row_val.value) if fee_row_val else POLYMARKET_FEE_RATE
+
     # 2. Загружаем ACTIVE позиции с выставленным stop_loss_price
     stmt = select(TradeHistory).where(
         and_(
@@ -125,8 +132,10 @@ async def stoploss_worker_cycle(
             trade.stop_loss_hit_at   = now
             trade.stop_loss_sell_price = executed_price
             
-            # PnL = (sell_price - entry_price) * shares
-            trade.pnl = round((executed_price - trade.executed_price) * shares_held, 4)
+            # PnL с вычетом комиссии Polymarket (BUG-AM)
+            gross = executed_price * shares_held
+            net   = gross * (1.0 - fee_rate)
+            trade.pnl = round(net - trade.amount_usdc, 4)
 
             # Записываем проскальзывание в SlippageLog
             # Для продажи: slip = expected_price (наш bid триггера) - executed_price (цена исполнения)
