@@ -413,3 +413,38 @@ async def activate_crypto_model(
     return {"status": "success", "asset": asset, "version": version}
 
 
+from sqlalchemy import delete
+
+@router.delete("/api/models/{asset}/{version}", dependencies=[Depends(verify_api_key)])
+async def delete_crypto_model(
+    asset: str,
+    version: int,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Удаляет указанную версию крипто-модели из БД."""
+    allowed_assets = []
+    for s in CRYPTO_SYMBOLS:
+        allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
+        
+    if asset not in allowed_assets:
+        raise HTTPException(status_code=404, detail=f"Актив {asset} не найден")
+        
+    # Check if active
+    stmt = select(ModelRegistry).where(ModelRegistry.asset == asset, ModelRegistry.version == version)
+    model = (await db.execute(stmt)).scalar_one_or_none()
+    
+    if not model:
+        raise HTTPException(status_code=404, detail=f"Модель {asset} v{version} не найдена")
+        
+    if model.is_active:
+        raise HTTPException(status_code=400, detail="Нельзя удалить активную модель. Сначала активируйте другую.")
+        
+    # Delete
+    del_stmt = delete(ModelRegistry).where(ModelRegistry.asset == asset, ModelRegistry.version == version)
+    await db.execute(del_stmt)
+    await db.commit()
+    
+    _cache.clear()
+    return {"status": "success", "detail": f"Модель {asset} v{version} удалена"}
+
+

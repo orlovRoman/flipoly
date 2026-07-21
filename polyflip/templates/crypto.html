@@ -269,6 +269,8 @@
         const H = { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' };
 
         let statusData = null;
+        let currentPage = 1;
+        const pageSize = 10;
         let fiChart = null;
         let pnlChart = null;
 
@@ -363,7 +365,7 @@
                 return { ...m, pnlInfo };
             });
 
-            // Сортировка: PnL (по убыванию) -> Активные -> Имя актива
+            // Сортировка
             modelsArray.sort((a, b) => {
                 if (b.pnlInfo.pnl !== a.pnlInfo.pnl) {
                     return b.pnlInfo.pnl - a.pnlInfo.pnl;
@@ -374,7 +376,14 @@
                 return a.asset.localeCompare(b.asset);
             });
 
-            el.innerHTML = modelsArray.map(m => {
+            // Пагинация
+            const totalPages = Math.ceil(modelsArray.length / pageSize);
+            if (currentPage > totalPages) currentPage = totalPages || 1;
+            
+            const startIdx = (currentPage - 1) * pageSize;
+            const pageModels = modelsArray.slice(startIdx, startIdx + pageSize);
+
+            let html = pageModels.map(m => {
                 const sym = m.asset;
                 const pnl = m.pnlInfo;
                 
@@ -408,8 +417,12 @@
                     : `<span style="font-size:0.75rem; background:rgba(255,255,255,0.05); color:var(--text-muted); padding:0.2rem 0.6rem; border-radius:20px;">Архив</span>`;
 
                 const actionButtonHtml = m.is_active
-                    ? `<button class="btn" style="background:rgba(255,255,255,0.05); color:var(--text-muted); pointer-events:none; border:none; width: 120px;">Текущая</button>`
-                    : `<button class="btn primary-btn btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="width: 120px;">Активировать</button>`;
+                    ? `<button class="btn" style="background:rgba(255,255,255,0.05); color:var(--text-muted); pointer-events:none; border:none; width: 120px; margin-bottom: 5px;">Текущая</button>`
+                    : `<button class="btn primary-btn btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="width: 120px; margin-bottom: 5px;">Активировать</button>`;
+
+                const deleteButtonHtml = m.is_active 
+                    ? `` 
+                    : `<button class="btn btn-delete-model" data-asset="${m.asset}" data-version="${m.version}" style="width: 120px; background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220,53,69,0.3);">🗑 Удалить</button>`;
 
                 return `
                 <div style="
@@ -439,12 +452,33 @@
                         <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:0.2rem; text-transform:uppercase; letter-spacing:0.05em;">PnL (live)</div>
                         ${pnlHtml}
                     </div>
-                    <div style="min-width: 120px; text-align: right;">
+                    <div style="min-width: 120px; text-align: right; display: flex; flex-direction: column;">
                         ${actionButtonHtml}
+                        ${deleteButtonHtml}
                     </div>
                 </div>`;
             }).join('');
             
+            // Pagination controls
+            if (totalPages > 1) {
+                let paginationHtml = `<div style="display:flex; justify-content:center; gap:0.5rem; margin-top: 1rem;">`;
+                for (let i = 1; i <= totalPages; i++) {
+                    const activeStyle = i === currentPage ? 'background: var(--poly-blue); color: white; border-color: var(--poly-blue);' : 'background: rgba(255,255,255,0.05); color: var(--text-muted); border-color: var(--border-color);';
+                    paginationHtml += `<button class="btn btn-page" data-page="${i}" style="min-width: 35px; ${activeStyle}">${i}</button>`;
+                }
+                paginationHtml += `</div>`;
+                html += paginationHtml;
+            }
+
+            el.innerHTML = html;
+            
+            document.querySelectorAll(".btn-page").forEach(btn => {
+                btn.addEventListener("click", (e) => {
+                    currentPage = parseInt(e.target.dataset.page);
+                    renderModelCards(models, pnlData); // Re-render with new page
+                });
+            });
+
             document.querySelectorAll(".btn-activate-model").forEach(btn => {
                 btn.addEventListener("click", async (e) => {
                     const asset = e.target.dataset.asset;
@@ -458,16 +492,39 @@
                         const d = await r.json();
                         if (r.ok) {
                             alert("Модель активирована!");
-                            loadStatus(); // перезагружаем список
+                            loadStatus();
                         } else {
-                            alert("Ошибка активации: " + JSON.stringify(d));
+                            alert("Ошибка активации: " + (d.detail || JSON.stringify(d)));
                         }
                     } catch(err) {
                         alert("Ошибка сети при активации");
                     }
                 });
             });
+
+            document.querySelectorAll(".btn-delete-model").forEach(btn => {
+                btn.addEventListener("click", async (e) => {
+                    const asset = e.target.dataset.asset;
+                    const version = e.target.dataset.version;
+                    if (!confirm(`Удалить архивную модель ${asset} версии ${version}? Это освободит место в базе данных. Операция необратима!`)) return;
+                    
+                    try {
+                        const r = await fetch(window.API_BASE + `/crypto/api/models/${asset}/${version}`, {
+                            method: "DELETE", headers: H
+                        });
+                        const d = await r.json();
+                        if (r.ok) {
+                            loadStatus();
+                        } else {
+                            alert("Ошибка удаления: " + (d.detail || JSON.stringify(d)));
+                        }
+                    } catch(err) {
+                        alert("Ошибка сети при удалении");
+                    }
+                });
+            });
         }
+
 
 
 
