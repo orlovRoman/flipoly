@@ -216,6 +216,11 @@ class CryptoPredictor:
                 self._model_eces[symbol][regime] = row.ece or 0.0 # BUG-AO
 
                 # Пороги: берем CRYPTO_THRESHOLD_BTCUSDT_low_vol или общие CRYPTO_THRESHOLD_UP_BTC / DOWN_BTC
+                thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
+                thr_row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+                )).scalar_one_or_none()
+
                 from polyflip.services.settings_service import get_float
                 min_valid_thresh = await get_float(db, "LGBM_MIN_VALID_THRESHOLD")
                 max_valid_thresh = await get_float(db, "LGBM_MAX_VALID_THRESHOLD")

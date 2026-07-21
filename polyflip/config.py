@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     API_KEY: str = "test-key"
     ASSETS: str = "BTC,ETH"
     
+    # Инфраструктура / Мониторинг
+    ALERT_WEBHOOK_URL: str = ""
+    COLLECTOR_STALE_HOURS: int = 2
+    RATE_LIMIT: str = "60/minute"
+    SENTRY_DSN: str = ""
+
     # Дефолтные настройки, которые могут быть переопределены в БД
     LIVE_POLL_INTERVAL_SECONDS: int = _DEFAULT_POLL_INTERVAL
     RETRAIN_INTERVAL_HOURS: int = 24
@@ -47,6 +53,10 @@ class Settings(BaseSettings):
     FAVORITE_MIN_EDGE: float = -0.01
     CRYPTO_MIN_EDGE: float = 0.05
     COMBINED_NONE_BET_MULTIPLIER: float = 0.5
+
+    @property
+    def asset_list(self) -> List[str]:
+        return [a.strip() for a in self.ASSETS.split(",") if a.strip()]
 
     model_config = SettingsConfigDict(
         env_file=".env",

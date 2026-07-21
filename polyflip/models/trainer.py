@@ -101,7 +101,15 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
+def _fit_and_serialize(
+    X: pd.DataFrame,
+    y: pd.Series,
+    groups: pd.Series,
+    lr_coef_threshold: float = 0.005,
+    lr_min_features: int = 4,
+    min_precision: float = 0.52,
+    max_suspicious: float = 0.95,
+):
     """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
     # --- Grid search по C ---
     C_GRID = [0.05, 0.1, 0.5, 1.0, 2.0, 5.0]
@@ -216,8 +224,6 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
         bottom_features=[{"feature": f, "abs_coef": round(v, 4)} for f, v in abs_coefs[-5:]],
     )
 
-    lr_coef_threshold = 0.005
-    lr_min_features = 4
     weak_features = [f for f, v in abs_coefs if v < lr_coef_threshold]
     if len(X.columns) - len(weak_features) >= lr_min_features and weak_features:
         logger.warning(
@@ -230,9 +236,6 @@ def _fit_and_serialize(X: pd.DataFrame, y: pd.Series, groups: pd.Series):
     
     # Калибровка порога с использованием Out-Of-Fold предсказаний (исключаем Data Leakage)
     precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, oof_scores)
-
-    min_precision = 0.52
-    max_suspicious = 0.95
 
     # Найти порог с лучшим F1 среди тех где precision >= min_precision
     valid_mask = precision_arr[:-1] >= min_precision
@@ -411,12 +414,20 @@ class ModelTrainer:
             self.status_messages[asset] = f"Ошибка: отсутствуют фичи {', '.join(missing_features)}"
             return False
             
-        X = df[active_features]
-        y = df["target"]
-        groups = df["market_id"]
+        from polyflip.services.settings_service import get_float, get_int
+        lr_coef_threshold = await get_float(self.db, "LR_COEF_THRESHOLD")
+        lr_min_features = await get_int(self.db, "LR_MIN_FEATURES")
+        min_precision = await get_float(self.db, "LGBM_MIN_PRECISION_FOR_THRESHOLD")
+        max_suspicious = await get_float(self.db, "LGBM_MAX_SUSPICIOUS_THRESHOLD")
 
         # Выполняем CPU-bound обучение в отдельном потоке (BUG-A2 FIX)
-        fit_res = await asyncio.to_thread(_fit_and_serialize, X, y, groups)
+        fit_res = await asyncio.to_thread(
+            _fit_and_serialize, X, y, groups,
+            lr_coef_threshold=lr_coef_threshold,
+            lr_min_features=lr_min_features,
+            min_precision=min_precision,
+            max_suspicious=max_suspicious,
+        )
         model_bytes, val_acc, baseline_acc, optimal_threshold, ece = fit_res
 
         logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc, ece=ece)

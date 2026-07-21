@@ -191,6 +191,26 @@ REGISTRY: list[SettingDef] = [
                description="Мин. edge для сигнала в бэктесте"),
     SettingDef("BACKTEST_TRAIN_RATIO", "0.70",
                description="Доля обучающей выборки при walk-forward бэктесте (0.70 = 70%)"),
+
+    # --- Hyperparameters LightGBM Crypto ---
+    SettingDef("CRYPTO_LGBM_N_ESTIMATORS", "300",
+               description="Количество деревьев LightGBM для крипто-моделей"),
+    SettingDef("CRYPTO_LGBM_LEARNING_RATE", "0.05",
+               description="Скорость обучения LightGBM"),
+    SettingDef("CRYPTO_LGBM_NUM_LEAVES", "31",
+               description="Максимальное число листьев в дереве LightGBM"),
+    SettingDef("CRYPTO_LGBM_MAX_DEPTH", "5",
+               description="Максимальная глубина дерева LightGBM"),
+    SettingDef("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20",
+               description="Мин. количество образцов в листе"),
+    SettingDef("CRYPTO_LGBM_SUBSAMPLE", "0.8",
+               description="Доля сэмплов для бутстрапа"),
+    SettingDef("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8",
+               description="Доля признаков при сплите дерева"),
+    SettingDef("CRYPTO_LGBM_REG_ALPHA", "0.1",
+               description="L1 регуляризация LightGBM"),
+    SettingDef("CRYPTO_LGBM_REG_LAMBDA", "1.0",
+               description="L2 регуляризация LightGBM"),
 ]
 
 
