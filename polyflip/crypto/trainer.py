@@ -34,13 +34,6 @@ from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
 
 logger = structlog.get_logger(__name__)
 
-# Константы для вычисления оптимального порога и защиты от утечек (leakage)
-MIN_PRECISION_FOR_THRESHOLD = 0.52
-MAX_SUSPICIOUS_THRESHOLD = 0.95
-MAX_VALID_THRESHOLD = 0.85
-MIN_VALID_THRESHOLD = 0.30
-THRESHOLD_FALLBACK = 0.55
-
 # СТАЛО (26 фич — совпадают с CRYPTO_FEATURE_COLUMNS в feature_builder.py)
 CRYPTO_FEATURES = [
     # Returns (все горизонты)
@@ -81,23 +74,24 @@ def _build_target(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _make_lgbm(**kwargs) -> LGBMClassifier:
-    params = {
-        "n_estimators": 300,
-        "learning_rate": 0.05,
-        "num_leaves": 31,
-        "max_depth": 5,
+def _make_lgbm(**params) -> LGBMClassifier:
+    """Вспомогательная функция для создания квалифицированного LGBMClassifier."""
+    defaults = {
+        "n_estimators":      300,
+        "learning_rate":     0.05,
+        "num_leaves":        31,
+        "max_depth":         5,
         "min_child_samples": 20,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
-        "reg_alpha": 0.1,
-        "reg_lambda": 1.0,
-        "random_state": CV_RANDOM_STATE,
-        "verbosity": -1,
-        "n_jobs": -1,
+        "subsample":         0.8,
+        "colsample_bytree":  0.8,
+        "reg_alpha":         0.1,
+        "reg_lambda":        1.0,
+        "random_state":      CV_RANDOM_STATE,
+        "n_jobs":            1,
+        "verbose":          -1,
     }
-    params.update(kwargs)
-    return LGBMClassifier(**params)
+    defaults.update(params)
+    return LGBMClassifier(**defaults)
 
 
 def _fit_lgbm_and_serialize(
@@ -179,41 +173,31 @@ def _fit_lgbm_and_serialize(
     # Оптимальный порог через OOF (без leakage)
     prec_arr, rec_arr, thr_arr = precision_recall_curve(y[valid_mask], oof_scores[valid_mask])
     if len(thr_arr) > 0:
-        valid = prec_arr[:-1] >= MIN_PRECISION_FOR_THRESHOLD
+        valid = prec_arr[:-1] >= min_precision
         f1 = 2 * prec_arr[:-1] * rec_arr[:-1] / (prec_arr[:-1] + rec_arr[:-1] + 1e-8)
         if valid.any():
             optimal_threshold = float(thr_arr[np.argmax(np.where(valid, f1, 0.0))])
         else:
             optimal_threshold = float(thr_arr[np.argmax(f1)])
     else:
-        optimal_threshold = 0.55
+        optimal_threshold = thr_fallback
 
-    # Защита от leakage и неадекватных порогов (BUG-AI)
-    if optimal_threshold >= MAX_SUSPICIOUS_THRESHOLD:
+    # Защита от leakage и неадекватных порогов
+    if optimal_threshold >= max_valid_thr:
         logger.warning(
             "threshold_clipped_leakage",
             original=optimal_threshold,
-            clipped=MAX_VALID_THRESHOLD,
+            clipped=max_valid_thr,
         )
-        optimal_threshold = MAX_VALID_THRESHOLD
+        optimal_threshold = max_valid_thr
 
-    if optimal_threshold < MIN_VALID_THRESHOLD:
+    if optimal_threshold < min_valid_thr or optimal_threshold > max_valid_thr:
         logger.warning(
-            "threshold_too_low",
+            "threshold_out_of_bounds",
             threshold=optimal_threshold,
-            fallback=THRESHOLD_FALLBACK,
-            reason="below_floor_0.30_model_will_signal_constantly",
+            fallback=thr_fallback,
         )
-        optimal_threshold = THRESHOLD_FALLBACK
-
-    if optimal_threshold > MAX_VALID_THRESHOLD:
-        logger.warning(
-            "threshold_too_high",
-            threshold=optimal_threshold,
-            fallback=THRESHOLD_FALLBACK,
-            reason="above_ceil_0.75_model_will_never_signal",
-        )
-        optimal_threshold = THRESHOLD_FALLBACK
+        optimal_threshold = thr_fallback
 
     # Feature importance для логирования и дашборда
     fi = {
