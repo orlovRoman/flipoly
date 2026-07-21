@@ -112,7 +112,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "CRYPTO_LGBM_N_ESTIMATORS", "CRYPTO_LGBM_LEARNING_RATE", "CRYPTO_LGBM_NUM_LEAVES",
         "CRYPTO_LGBM_MAX_DEPTH", "CRYPTO_LGBM_MIN_CHILD_SAMPLES", "CRYPTO_LGBM_SUBSAMPLE",
         "CRYPTO_LGBM_COLSAMPLE_BYTREE", "CRYPTO_LGBM_REG_ALPHA", "CRYPTO_LGBM_REG_LAMBDA",
-        "CRYPTO_BACKTEST_MIN_EDGE"
+        "BACKTEST_MIN_EDGE"
     ]
     set_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     set_rows = (await db.execute(set_stmt)).scalars().all()
@@ -129,7 +129,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "colsample_bytree": float(db_settings.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", defs.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8"))),
         "reg_alpha": float(db_settings.get("CRYPTO_LGBM_REG_ALPHA", defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1"))),
         "reg_lambda": float(db_settings.get("CRYPTO_LGBM_REG_LAMBDA", defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0"))),
-        "min_edge": float(db_settings.get("CRYPTO_BACKTEST_MIN_EDGE", defs.get("BACKTEST_MIN_EDGE", "0.04"))),
+        "min_edge": float(db_settings.get("BACKTEST_MIN_EDGE", defs.get("BACKTEST_MIN_EDGE", "0.04"))),
     }
 
     models_info = {}
@@ -177,7 +177,7 @@ async def save_crypto_settings(
         "colsample_bytree": "CRYPTO_LGBM_COLSAMPLE_BYTREE",
         "reg_alpha": "CRYPTO_LGBM_REG_ALPHA",
         "reg_lambda": "CRYPTO_LGBM_REG_LAMBDA",
-        "min_edge": "CRYPTO_BACKTEST_MIN_EDGE",
+        "min_edge": "BACKTEST_MIN_EDGE",
     }
 
     for key, db_key in keys_map.items():
@@ -216,27 +216,21 @@ async def crypto_backtest(
     if cache_key in _cache and now - _cache[cache_key]["ts"] < 300:
         return _cache[cache_key]["data"]
 
-    async with async_session() as session:
-        # Пытаемся получить настройки из БД для дефолта
-        async def _get_rt(key: str, default: float) -> float:
-            row = (await session.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == key)
-            )).scalar_one_or_none()
-            return float(row.value) if row else default
+    from polyflip.services.settings_service import get_float, get_int
 
-        defs = registry_defaults()
+    async with async_session() as session:
         if min_edge is None:
-            min_edge = await _get_rt("CRYPTO_BACKTEST_MIN_EDGE", float(defs.get("BACKTEST_MIN_EDGE", "0.04")))
+            min_edge = await get_float(session, "BACKTEST_MIN_EDGE")
 
         lgbm_params = {
-            "subsample":        await _get_rt("CRYPTO_LGBM_SUBSAMPLE", float(defs.get("CRYPTO_LGBM_SUBSAMPLE", "0.8"))),
-            "colsample_bytree": await _get_rt("CRYPTO_LGBM_COLSAMPLE_BYTREE", float(defs.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8"))),
-            "num_leaves":       int(await _get_rt("CRYPTO_LGBM_NUM_LEAVES", float(defs.get("CRYPTO_LGBM_NUM_LEAVES", "31")))),
-            "max_depth":        int(await _get_rt("CRYPTO_LGBM_MAX_DEPTH", float(defs.get("CRYPTO_LGBM_MAX_DEPTH", "5")))),
-            "min_child_samples":int(await _get_rt("CRYPTO_LGBM_MIN_CHILD_SAMPLES", float(defs.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20")))),
-            "n_estimators":     int(await _get_rt("CRYPTO_LGBM_N_ESTIMATORS", float(defs.get("CRYPTO_LGBM_N_ESTIMATORS", "300")))),
-            "reg_alpha":        await _get_rt("CRYPTO_LGBM_REG_ALPHA", float(defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1"))),
-            "reg_lambda":       await _get_rt("CRYPTO_LGBM_REG_LAMBDA", float(defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0"))),
+            "subsample":        await get_float(session, "CRYPTO_LGBM_SUBSAMPLE"),
+            "colsample_bytree": await get_float(session, "CRYPTO_LGBM_COLSAMPLE_BYTREE"),
+            "num_leaves":       await get_int(session, "CRYPTO_LGBM_NUM_LEAVES"),
+            "max_depth":        await get_int(session, "CRYPTO_LGBM_MAX_DEPTH"),
+            "min_child_samples":await get_int(session, "CRYPTO_LGBM_MIN_CHILD_SAMPLES"),
+            "n_estimators":     await get_int(session, "CRYPTO_LGBM_N_ESTIMATORS"),
+            "reg_alpha":        await get_float(session, "CRYPTO_LGBM_REG_ALPHA"),
+            "reg_lambda":       await get_float(session, "CRYPTO_LGBM_REG_LAMBDA"),
         }
 
         candles = await get_recent_candles(session, symbol, interval, limit=10_000)
