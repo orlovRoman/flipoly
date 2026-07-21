@@ -45,7 +45,7 @@
             <section id="analytics" class="tab-content active">
                 <header class="tab-header">
                     <h1>Аналитика</h1>
-                    <pre id="time-left-stats" style="margin-top: 10px; font-size: 0.9em; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 10px; display: none;"></pre>
+                    
 
                     <script>
                     async function fetchTimeLeftStats() {
@@ -189,6 +189,7 @@
                         <button class="btn" onclick="fetchTimeLeftStats()">📊 Распределение time_left</button>
                     </div>
                 </div>
+                <pre id="time-left-stats" style="margin-top: 10px; font-size: 0.9em; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 10px; display: none;"></pre>
                 <div class="panel">
                     <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Здесь отображается история всех обученных моделей. Вы можете переключаться между ними в один клик.</p>
                     <div style="overflow-x: auto;">
