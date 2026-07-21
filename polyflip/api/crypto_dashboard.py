@@ -29,6 +29,7 @@ from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.db.connection import async_session, get_db_session
 from polyflip.db.models import ModelRegistry, TradeHistory, RuntimeSettings
+from polyflip.settings_registry import registry_defaults
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/crypto", tags=["Crypto"])
@@ -45,7 +46,6 @@ _CACHE_TTL = 10  # снизим до 10 секунд для лучшей отз�
 @router.get("")
 async def crypto_page(request: Request):
     """HTML-страница крипто-дашборда."""
-    from polyflip.settings_registry import registry_defaults
     defs = registry_defaults()
     api_key = request.cookies.get("api_key", "")
     return templates.TemplateResponse(
