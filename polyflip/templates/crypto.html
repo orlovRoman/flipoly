@@ -270,6 +270,8 @@
 
         let statusData = null;
         let currentPage = 1;
+        let lastModelsData = null;
+        let lastPnlData = {};
         const pageSize = 10;
         let fiChart = null;
         let pnlChart = null;
@@ -344,7 +346,9 @@
                 }
 
                 // Рендер карточек моделей с PnL
-                renderModelCards(d.models, pnlData);
+                lastModelsData = d.models;
+                lastPnlData = pnlData;
+                renderModelCards(lastModelsData, lastPnlData);
                 updateFeatureImportanceChart();
 
             } catch (err) {
@@ -475,7 +479,7 @@
             document.querySelectorAll(".btn-page").forEach(btn => {
                 btn.addEventListener("click", (e) => {
                     currentPage = parseInt(e.target.dataset.page);
-                    renderModelCards(models, pnlData); // Re-render with new page
+                    renderModelCards(lastModelsData, lastPnlData); // Re-render with new page
                 });
             });
 

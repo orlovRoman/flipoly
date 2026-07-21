@@ -6,7 +6,6 @@
 
 """
 from __future__ import annotations
-from collections import defaultdict
 
 import asyncio
 import os
@@ -16,9 +15,10 @@ from datetime import datetime, timezone
 import numpy as np
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Query, HTTPException
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import select, update, delete
+from collections import defaultdict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.api.auth import verify_api_key
@@ -41,7 +41,6 @@ CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"]
 # Кэш
 _cache: dict = {}
 _CACHE_TTL = 10  # снизим до 10 секунд для лучшей отзывчивости настроек
-
 
 @router.get("")
 async def crypto_page(request: Request):
@@ -70,7 +69,6 @@ async def crypto_page(request: Request):
         },
     )
 
-
 @router.get("/api/status", dependencies=[Depends(verify_api_key)])
 async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     """
@@ -80,8 +78,6 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     now = time.time()
     if "status" in _cache and now - _cache["status"]["ts"] < _CACHE_TTL:
         return _cache["status"]["data"]
-
-
 
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
@@ -158,7 +154,6 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     _cache["status"] = {"ts": now, "data": result}
     return result
 
-
 @router.post("/api/settings", dependencies=[Depends(verify_api_key)])
 async def save_crypto_settings(
     settings: dict,
@@ -198,7 +193,6 @@ async def save_crypto_settings(
     await db.commit()
     _cache.pop("status", None)
     return {"status": "success", "message": "Настройки успешно сохранены!"}
-
 
 @router.get("/api/backtest", dependencies=[Depends(verify_api_key)])
 async def crypto_backtest(
@@ -271,7 +265,6 @@ async def crypto_backtest(
     _cache[cache_key] = {"ts": now, "data": data}
     return data
 
-
 @router.post("/api/train", dependencies=[Depends(verify_api_key)])
 async def crypto_train(
     background_tasks: BackgroundTasks,
@@ -332,8 +325,7 @@ async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
     trades = (await db.execute(trades_stmt)).all()
 
     # 3. Группируем сделки по asset + времени
-    from collections import defaultdict
-    asset_trades: dict[str, list] = defaultdict(list)
+        asset_trades: dict[str, list] = defaultdict(list)
     for row in trades:
         asset_trades[row.asset].append((row.created_at, row.pnl))
 
@@ -376,9 +368,6 @@ async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
     _cache[cache_key] = {"ts": now, "data": result}
     return result
 
-from sqlalchemy import update
-from fastapi import HTTPException
-
 @router.post("/api/models/{asset}/activate/{version}", dependencies=[Depends(verify_api_key)])
 async def activate_crypto_model(
     asset: str,
@@ -412,9 +401,6 @@ async def activate_crypto_model(
     _cache.clear()  # сбросить весь кэш
     return {"status": "success", "asset": asset, "version": version}
 
-
-from sqlalchemy import delete
-
 @router.delete("/api/models/{asset}/{version}", dependencies=[Depends(verify_api_key)])
 async def delete_crypto_model(
     asset: str,
@@ -446,5 +432,4 @@ async def delete_crypto_model(
     
     _cache.clear()
     return {"status": "success", "detail": f"Модель {asset} v{version} удалена"}
-
 
