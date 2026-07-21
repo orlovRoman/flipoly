@@ -366,6 +366,8 @@ async def test_engine_skips_no_deal_when_edge_too_small(db_session):
     now = datetime.now(timezone.utc)
     settings = [
         RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADING_MODE_BTC", value="ml", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_EXECUTION_TIME_SEC", value="30", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"),

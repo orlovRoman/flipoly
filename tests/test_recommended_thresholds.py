@@ -25,6 +25,7 @@ async def test_engine_dynamic_no_flip_threshold(db_session):
     # Значит, для BTC рекомендованный и применяемый no_flip порог должен стать 0.60 - 0.15 = 0.45.
     db_settings = [
         RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="TRADING_MODE_BTC", value="ml", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_TIME_LEFT_SEC", value="360", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
@@ -35,6 +36,7 @@ async def test_engine_dynamic_no_flip_threshold(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(db_settings)
 
