@@ -26,7 +26,7 @@ from polyflip.crypto.feature_builder import build_features
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.db.connection import async_session, get_db_session
-from polyflip.db.models import ModelRegistry, RuntimeSettings
+from polyflip.db.models import ModelRegistry, TradeHistory, RuntimeSettings
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/crypto", tags=["Crypto"])
@@ -294,3 +294,80 @@ async def crypto_train(
         "symbol":  symbol,
         "message": f"Переобучение {symbol} запущено в фоне. Процесс займет около 15–30 секунд. Вы можете отслеживать версию на вкладке Модели.",
     }
+
+@router.get("/api/model_pnl", dependencies=[Depends(verify_api_key)])
+async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
+    """
+    Возвращает реальный PnL каждой активной крипто-модели
+    за всё время её работы (с момента trained_at).
+    Формат ответа: { "BTCUSDT_low_vol_v2": { pnl, win_rate, total_trades } }
+    """
+    now = time.time()
+    cache_key = "crypto_model_pnl"
+    if cache_key in _cache and now - _cache[cache_key]["ts"] < 60:
+        return _cache[cache_key]["data"]
+
+    # 1. Получаем активные модели с датой обучения
+    allowed_assets = []
+    for s in CRYPTO_SYMBOLS:
+        allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
+
+    stmt = select(ModelRegistry).where(
+        ModelRegistry.is_active.is_(True),
+        ModelRegistry.asset.in_(allowed_assets),
+    )
+    models = (await db.execute(stmt)).scalars().all()
+
+    if not models:
+        return {}
+
+    # 2. Батч-запрос сделок с фильтром по времени (BUG-G pattern)
+    earliest_since = min(
+        (m.trained_at for m in models if m.trained_at),
+        default=None
+    )
+
+    where_conds = [
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.pnl.is_not(None),
+        TradeHistory.asset.in_(allowed_assets),
+    ]
+    if earliest_since:
+        where_conds.append(TradeHistory.created_at >= earliest_since)
+
+    trades_stmt = select(
+        TradeHistory.asset,
+        TradeHistory.pnl,
+        TradeHistory.created_at,
+    ).where(*where_conds)
+    trades = (await db.execute(trades_stmt)).all()
+
+    # 3. Группируем по asset
+    from collections import defaultdict
+    groups: dict[str, list[float]] = defaultdict(list)
+    for row in trades:
+        groups[row.asset].append(row.pnl)
+
+    # 4. Считаем метрики для каждой модели
+    result = {}
+    for m in models:
+        key = f"{m.asset}_v{m.version}"
+        pnls = groups.get(m.asset, [])
+        if pnls:
+            total = sum(pnls)
+            wins = sum(1 for p in pnls if p > 0)
+            result[key] = {
+                "pnl": round(total, 4),
+                "win_rate": round(wins / len(pnls) * 100, 1),
+                "total_trades": len(pnls),
+            }
+        else:
+            result[key] = {
+                "pnl": 0.0,
+                "win_rate": None,
+                "total_trades": 0,
+            }
+
+    _cache[cache_key] = {"ts": now, "data": result}
+    return result
+

@@ -95,27 +95,25 @@
                 </div>
             </header>
 
-            <!-- Grid 1: Статус моделей и Настройки обучения -->
-            <div class="crypto-grid">
-                <!-- Панель статуса моделей -->
+            <div class="crypto-grid" style="align-items: start;">
+                <!-- Левая колонка: Модели с PnL -->
                 <div class="panel">
                     <h2>Активные модели LightGBM</h2>
-                    <p class="panel-desc" style="margin-bottom: 1.5rem;">Состояние моделей из `model_registry`, используемых для прогнозирования криптовалют.</p>
-                    <div id="models-status">Загрузка данных...</div>
+                    <p class="panel-desc" style="margin-bottom:1rem;">
+                        PnL считается за весь период работы модели (с <code>trained_at</code>).
+                    </p>
+                    <div id="models-status">Загрузка...</div>
                 </div>
 
-
-            </div>
-
-            <!-- Раздел: Настройки и параметры обучения -->
-            <div class="panel" style="margin-bottom: 2rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 10px;">
-                    <div>
-                        <h2>Настройки обучения и Бэктестера</h2>
-                        <p class="panel-desc" style="margin: 0;">Измените гиперпараметры модели LightGBM и настройки фильтрации.</p>
+                <!-- Правая колонка: Настройки обучения -->
+                <div class="panel">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; gap:10px;">
+                        <div>
+                            <h2>Настройки обучения</h2>
+                            <p class="panel-desc" style="margin:0;">Гиперпараметры LightGBM и фильтрации сигналов.</p>
+                        </div>
+                        <button class="btn primary-btn" onclick="saveSettings()">Сохранить</button>
                     </div>
-                    <button class="btn primary-btn" onclick="saveSettings()">Сохранить настройки</button>
-                </div>
                 
                 <div class="settings-grid">
                     <div class="settings-group">
@@ -287,8 +285,13 @@
 
         async function loadStatus() {
             try {
-                const r = await fetch('/crypto/api/status', { headers: H });
-                if (r.status === 401) {
+                // Параллельно загружаем статус и PnL
+                const [statusRes, pnlRes] = await Promise.all([
+                    fetch('/crypto/api/status', { headers: H }),
+                    fetch('/crypto/api/model_pnl', { headers: H }),
+                ]);
+
+                if (statusRes.status === 401) {
                     document.getElementById('models-status').innerHTML = `
                         <div style="color: #dc3545; text-align: center; padding: 2rem;">
                             <b>Ошибка 401: Неавторизован.</b><br>
@@ -296,18 +299,25 @@
                         </div>`;
                     return;
                 }
-                if (!r.ok) {
-                    const errorData = await r.json().catch(() => ({}));
+                if (!statusRes.ok) {
+                    const errorData = await statusRes.json().catch(() => ({}));
                     document.getElementById('models-status').innerHTML = `
                         <div style="color: #dc3545; text-align: center; padding: 2rem;">
-                            <b>Ошибка загрузки статуса:</b> ${errorData.detail || r.statusText || 'Неизвестная ошибка'}
+                            <b>Ошибка загрузки статуса:</b> ${errorData.detail || statusRes.statusText || 'Неизвестная ошибка'}
                         </div>`;
                     return;
                 }
 
-                const d = await r.json();
+                const d = await statusRes.json();
                 statusData = d;
-                
+
+                // PnL — не критичен, грузим с fallback
+                let pnlData = {};
+                if (pnlRes.ok) {
+                    try { pnlData = await pnlRes.json(); } 
+                    catch (e) { console.warn("[CryptoPnL] Parse error", e); }
+                }
+
                 // Заполняем настройки гиперпараметров
                 if (d.settings) {
                     document.getElementById('p-n-estimators').value = d.settings.n_estimators;
@@ -321,16 +331,9 @@
                     document.getElementById('p-min-edge').value = d.settings.min_edge;
                 }
 
-                // Заполняем статус моделей
-                const el = document.getElementById('models-status');
-                if (!d.models || !Object.keys(d.models).length) {
-                    el.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 2rem;"><em>Моделей в реестре нет — нажмите Обучить для создания</em></div>';
-                    return;
-                }
-
                 // Заполняем селектор важности признаков
                 const fiSelector = document.getElementById('fi-symbol-selector');
-                if (fiSelector) {
+                if (fiSelector && d.models) {
                     const currentVal = fiSelector.value;
                     fiSelector.innerHTML = Object.keys(d.models).map(k => `<option value="${k}">${k}</option>`).join('');
                     if (Object.keys(d.models).includes(currentVal)) {
@@ -338,28 +341,92 @@
                     }
                 }
 
-                el.innerHTML = Object.entries(d.models).map(([sym, m]) => `
-                    <div class="stat-card" style="margin-bottom: 1rem; background: rgba(255,255,255,0.01); border: 1px solid var(--border-color);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                            <h3 style="margin: 0; font-size: 1.1rem; color: white;">${sym} <span style="font-size: 0.8rem; color: var(--text-muted);">v${m.version}</span></h3>
-                            <span style="font-size: 0.8rem; background: rgba(40, 167, 69, 0.15); color: #28a745; padding: 0.2rem 0.6rem; border-radius: 20px;">Активна</span>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.9rem;">
-                            <div>AUC (Val): <b>${m.auc}</b> (baseline: ${m.baseline})</div>
-                            <div>ECE (Калибровка): <b>${m.ece ?? '—'}</b></div>
-                            <div>Порог модели: <b>${m.threshold ?? '—'}</b></div>
-                            <div>Обучена: <b>${m.trained_at ? m.trained_at.slice(0, 19).replace('T', ' ') : '—'}</b></div>
-                        </div>
-                        <div style="margin-top: 0.6rem; font-size: 0.75rem; color: var(--text-muted); line-height: 1.3;">
-                            <b>Фичи:</b> ${m.features.join(', ')}
-                        </div>
-                    </div>
-                `).join('');
-
+                // Рендер карточек моделей с PnL
+                renderModelCards(d.models, pnlData);
                 updateFeatureImportanceChart();
+
             } catch (err) {
                 console.error(err);
             }
+        }
+
+        function renderModelCards(models, pnlData) {
+            const el = document.getElementById('models-status');
+            if (!models || !Object.keys(models).length) {
+                el.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:2rem;">Моделей нет</div>';
+                return;
+            }
+
+            el.innerHTML = Object.entries(models).map(([sym, m]) => {
+                const pnlKey = `${sym}_v${m.version}`;
+                const pnl = pnlData[pnlKey];
+
+                // Диагностика несоответствия ключей
+                if (!pnl && Object.keys(pnlData).length > 0) {
+                    console.warn(`[CryptoPnL] Key "${pnlKey}" not found. Available:`, Object.keys(pnlData));
+                }
+
+                // --- PnL блок ---
+                let pnlHtml;
+                if (!pnl || pnl.total_trades === 0) {
+                    pnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">Нет сделок</span>`;
+                } else {
+                    const color = pnl.pnl > 0 ? 'var(--poly-green, #4ade80)' 
+                                : pnl.pnl < 0 ? '#ff3366' 
+                                : 'var(--text-muted)';
+                    const sign = pnl.pnl > 0 ? '+' : '';
+                    pnlHtml = `
+                        <span style="color:${color}; font-weight:700; font-size:1.1rem;">
+                            ${sign}${pnl.pnl.toFixed(2)} USDC
+                        </span>
+                        <span style="color:var(--text-muted); font-size:0.8rem; margin-left:6px;">
+                            ${pnl.win_rate}% WR · ${pnl.total_trades} сд.
+                        </span>`;
+                }
+
+                // --- ECE badge ---
+                let eceBadge = '—';
+                if (m.ece != null) {
+                    const eceColor = m.ece < 0.03 ? 'var(--poly-green)' 
+                                   : m.ece < 0.07 ? '#ff9f43' 
+                                   : '#ff3366';
+                    eceBadge = `<span style="color:${eceColor};">${m.ece.toFixed(4)}</span>`;
+                }
+
+                return `
+                <div style="
+                    display: grid;
+                    grid-template-columns: 1fr auto;
+                    align-items: center;
+                    gap: 1rem;
+                    padding: 1rem 1.2rem;
+                    margin-bottom: 0.75rem;
+                    background: rgba(255,255,255,0.02);
+                    border: 1px solid var(--border-color);
+                    border-radius: 10px;
+                ">
+                    <!-- Левая часть: метрики модели -->
+                    <div>
+                        <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.4rem;">
+                            <span style="font-size:1rem; font-weight:700; color:white;">${sym}</span>
+                            <span style="font-size:0.75rem; color:var(--text-muted);">v${m.version}</span>
+                            <span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; 
+                                         padding:0.1rem 0.5rem; border-radius:20px;">Активна</span>
+                        </div>
+                        <div style="display:flex; gap:1.5rem; font-size:0.85rem; flex-wrap:wrap;">
+                            <span>AUC: <b>${m.auc}</b> <span style="color:var(--text-muted);">(base: ${m.baseline})</span></span>
+                            <span>ECE: ${eceBadge}</span>
+                            <span style="color:var(--text-muted);">Обучена: ${m.trained_at ? m.trained_at.slice(0,16).replace('T',' ') : '—'}</span>
+                        </div>
+                    </div>
+
+                    <!-- Правая часть: PnL -->
+                    <div style="text-align:right; min-width:140px;">
+                        <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:0.2rem; text-transform:uppercase; letter-spacing:0.05em;">PnL (live)</div>
+                        ${pnlHtml}
+                    </div>
+                </div>`;
+            }).join('');
         }
 
 
