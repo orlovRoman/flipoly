@@ -22,7 +22,7 @@ from pathlib import Path
 
 from polyflip.db.models import RuntimeSettings, TradeHistory, MarketSnapshot, CollectorStatus
 from polyflip.models.trainer import ModelTrainer
-from polyflip.crypto.candle_collector import collect_new_candles
+from polyflip.crypto.candle_collector import collect_new_candles, refresh_funding_rates
 from polyflip.crypto.candle_pruner import prune_old_candles
 from polyflip.crypto.historical_loader import load_history_all
 
@@ -350,10 +350,11 @@ async def main():
     # Инициализируем общие клиенты для переиспользования соединений
     trader = PolyTrader()
     api_client = PolymarketClient()
-    # Вызов одноразового backfill свечей при старте
+    # Вызов одноразового backfill свечей и обновления ставок финансирования при старте
     try:
         async with async_session() as session:
             await candle_backfill_job(session)
+            await refresh_funding_rates(session)
     except Exception as e:
         logger.exception("initial_candle_backfill_failed", error=str(e))
 

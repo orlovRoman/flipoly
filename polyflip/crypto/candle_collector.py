@@ -13,10 +13,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.crypto.binance_client import fetch_klines, COIN_TO_SYMBOL
 from polyflip.crypto.candle_repository import upsert_candles, get_latest_open_time
 
+from polyflip.crypto.funding_collector import fetch_and_store_funding_rate
+
 log = logging.getLogger(__name__)
 
 SYMBOLS   = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"]
 INTERVALS = ["5m", "15m"]
+
+
+async def refresh_funding_rates(session: AsyncSession, symbols: list[str] | None = None) -> dict[str, float | None]:
+    """Обновляет и сохраняет ставки финансирования для всех передаваемых символов."""
+    target_symbols = symbols or SYMBOLS
+    results = {}
+    for symbol in target_symbols:
+        rate = await fetch_and_store_funding_rate(session, symbol)
+        results[symbol] = rate
+    return results
 
 
 async def collect_new_candles(session: AsyncSession) -> dict[str, int]:
@@ -25,6 +37,7 @@ async def collect_new_candles(session: AsyncSession) -> dict[str, int]:
       1. Читает open_time последней свечи из БД.
       2. Запрашивает у Binance свечи начиная с этого времени.
       3. Вставляет только новые (upsert ON CONFLICT DO NOTHING).
+      4. Обновляет ставки финансирования (funding rate).
 
     Принимает готовую session — как все jobs в scheduler/jobs.py.
     Возвращает {symbol_interval: inserted_count}.
@@ -53,5 +66,7 @@ async def collect_new_candles(session: AsyncSession) -> dict[str, int]:
             log.info("candle_collector_done", symbol=symbol, interval=interval, inserted=inserted)
             results[f"{symbol}_{interval}"] = inserted
 
+    await refresh_funding_rates(session)
     return results
+
 

@@ -47,6 +47,11 @@ class CryptoFeaturesValidator(BaseModel):
     # Consecutive
     consec_up: float
     consec_down: float
+    # Funding Rate
+    funding_rate: float
+    funding_rate_ma3: float
+    funding_extreme: float
+
 
     @field_validator("*", mode="before")
     @classmethod
@@ -84,6 +89,8 @@ class CryptoPredictor:
         self._model_eces: dict[str, dict[str, float]] = {} # BUG-AO
         self._vol_p33s: dict[str, float] = {}
         self._vol_p67s: dict[str, float] = {}
+        self._funding_rates: dict[str, float] = {}
+        self._funding_rate_ma3s: dict[str, float] = {}
         self._loaded_symbols: set[str] = set()
         CryptoPredictor._instances.append(weakref.ref(self))
 
@@ -105,6 +112,8 @@ class CryptoPredictor:
                 inst._thresholds.pop(symbol, None)
                 inst._vol_p33s.pop(symbol, None)
                 inst._vol_p67s.pop(symbol, None)
+                inst._funding_rates.pop(symbol, None)
+                inst._funding_rate_ma3s.pop(symbol, None)
                 alive.append(ref)
         cls._instances = alive
         logger.info("predictor_cache_invalidated", symbol=symbol, instances=len(alive))
@@ -119,6 +128,9 @@ class CryptoPredictor:
         self._model_eces.pop(symbol, None) # BUG-AO
         self._vol_p33s.pop(symbol, None)
         self._vol_p67s.pop(symbol, None)
+        self._funding_rates.pop(symbol, None)
+        self._funding_rate_ma3s.pop(symbol, None)
+
 
     def get_interval(self, symbol: str) -> str:
         """Возвращает интервал обучения для моделей указанного символа (по умолчанию '15m')."""
@@ -169,7 +181,7 @@ class CryptoPredictor:
                 return True
 
         try:
-            # 1. Загружаем квантили волатильности из RuntimeSettings
+            # 1. Загружаем квантили волатильности и ставки финансирования из RuntimeSettings
             p33_key = f"CRYPTO_VOL_P33_{symbol}"
             p33_row = (await db.execute(
                 select(RuntimeSettings).where(RuntimeSettings.key == p33_key)
@@ -181,6 +193,19 @@ class CryptoPredictor:
                 select(RuntimeSettings).where(RuntimeSettings.key == p67_key)
             )).scalar_one_or_none()
             self._vol_p67s[symbol] = float(p67_row.value) if p67_row else 1.5
+
+            fr_key = f"FUNDING_RATE_{symbol}"
+            fr_row = (await db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
+            )).scalar_one_or_none()
+            self._funding_rates[symbol] = float(fr_row.value) if fr_row else 0.0
+
+            fr_ma3_key = f"FUNDING_RATE_MA3_{symbol}"
+            fr_ma3_row = (await db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
+            )).scalar_one_or_none()
+            self._funding_rate_ma3s[symbol] = float(fr_ma3_row.value) if fr_ma3_row else 0.0
+
 
             self._models[symbol] = {}
             self._model_versions[symbol] = {}
@@ -264,14 +289,23 @@ class CryptoPredictor:
             self.invalidate(symbol)
             return False
 
-    def predict(self, candles: list[Any], symbol: str) -> CryptoSignal:
+    def predict(
+        self,
+        candles: list[Any],
+        symbol: str,
+        funding_rate: float | None = None,
+        funding_rate_ma3: float | None = None,
+    ) -> CryptoSignal:
         """Синхронный инференс по нужной модели (в зависимости от vol_ratio)."""
         if symbol not in self._loaded_symbols:
             return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
 
         try:
             # 1. Сборка вектора признаков
-            feature_vector = build_crypto_features(candles)
+            fr = funding_rate if funding_rate is not None else self._funding_rates.get(symbol, 0.0)
+            fr_ma3 = funding_rate_ma3 if funding_rate_ma3 is not None else self._funding_rate_ma3s.get(symbol, 0.0)
+            feature_vector = build_crypto_features(candles, funding_rate=fr, funding_rate_ma3=fr_ma3)
+
             if not feature_vector.valid:
                 return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
 

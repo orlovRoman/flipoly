@@ -49,7 +49,10 @@ CRYPTO_FEATURES = [
     "range_1", "range_avg_24",
     # Consecutive
     "consec_up", "consec_down",
+    # Funding Rate
+    "funding_rate", "funding_rate_ma3", "funding_extreme",
 ]
+
 
 # Fail fast при старте: CRYPTO_FEATURES должен быть подмножеством CRYPTO_FEATURE_COLUMNS
 _unknown = set(CRYPTO_FEATURES) - set(CRYPTO_FEATURE_COLUMNS)
@@ -282,8 +285,32 @@ class CryptoModelTrainer:
         cv_n_splits = await get_int(self.db, "LGBM_CV_N_SPLITS")
         epsilon_quantile = await get_float(self.db, "LGBM_EPSILON_QUANTILE")
 
+        # Читаем актуальные funding rates из БД
+        fr_key = f"FUNDING_RATE_{symbol}"
+        fr_ma3_key = f"FUNDING_RATE_MA3_{symbol}"
+        fr_row = (await self.db.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
+        )).scalar_one_or_none()
+        fr_ma3_row = (await self.db.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
+        )).scalar_one_or_none()
+
+        funding_rate = float(fr_row.value) if fr_row else 0.0
+        funding_rate_ma3 = float(fr_ma3_row.value) if fr_ma3_row else 0.0
+
+        logger.info(
+            "funding_rate_loaded_for_training",
+            symbol=symbol,
+            funding_rate=funding_rate,
+            ma3=funding_rate_ma3,
+        )
+
         # Строим фичи
-        df = build_features(candles)
+        df = build_features(
+            candles,
+            funding_rate=funding_rate,
+            funding_rate_ma3=funding_rate_ma3,
+        )
 
         df_filtered = _build_target(df, epsilon_quantile=epsilon_quantile)
 
