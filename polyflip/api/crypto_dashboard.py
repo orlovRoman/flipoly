@@ -45,7 +45,8 @@ _CACHE_TTL = 10  # снизим до 10 секунд для лучшей отз�
 @router.get("")
 async def crypto_page(request: Request):
     """HTML-страница крипто-дашборда."""
-    # Получаем API-ключ из куки для формы
+    from polyflip.settings_registry import registry_defaults
+    defs = registry_defaults()
     api_key = request.cookies.get("api_key", "")
     return templates.TemplateResponse(
         request=request,
@@ -55,16 +56,16 @@ async def crypto_page(request: Request):
             "root_path": request.scope.get("root_path", ""),
             "api_key": api_key,
             "defaults": {
-                "n_estimators": C.LGBM_N_ESTIMATORS,
-                "learning_rate": C.LGBM_LEARNING_RATE,
-                "num_leaves": C.LGBM_NUM_LEAVES,
-                "max_depth": C.LGBM_MAX_DEPTH,
-                "min_child_samples": C.LGBM_MIN_CHILD_SAMPLES,
-                "subsample": C.LGBM_SUBSAMPLE,
-                "colsample_bytree": C.LGBM_COLSAMPLE_BYTREE,
-                "reg_alpha": C.LGBM_REG_ALPHA,
-                "reg_lambda": C.LGBM_REG_LAMBDA,
-                "min_edge": C.BACKTEST_MIN_EDGE,
+                "n_estimators": int(defs.get("CRYPTO_LGBM_N_ESTIMATORS", "300")),
+                "learning_rate": float(defs.get("CRYPTO_LGBM_LEARNING_RATE", "0.05")),
+                "num_leaves": int(defs.get("CRYPTO_LGBM_NUM_LEAVES", "31")),
+                "max_depth": int(defs.get("CRYPTO_LGBM_MAX_DEPTH", "5")),
+                "min_child_samples": int(defs.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20")),
+                "subsample": float(defs.get("CRYPTO_LGBM_SUBSAMPLE", "0.8")),
+                "colsample_bytree": float(defs.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8")),
+                "reg_alpha": float(defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1")),
+                "reg_lambda": float(defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0")),
+                "min_edge": float(defs.get("BACKTEST_MIN_EDGE", "0.04")),
             }
         },
     )
@@ -117,17 +118,18 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     set_rows = (await db.execute(set_stmt)).scalars().all()
     db_settings = {r.key: r.value for r in set_rows}
 
+    defs = registry_defaults()
     active_settings = {
-        "n_estimators": int(db_settings.get("CRYPTO_LGBM_N_ESTIMATORS", C.LGBM_N_ESTIMATORS)),
-        "learning_rate": float(db_settings.get("CRYPTO_LGBM_LEARNING_RATE", C.LGBM_LEARNING_RATE)),
-        "num_leaves": int(db_settings.get("CRYPTO_LGBM_NUM_LEAVES", C.LGBM_NUM_LEAVES)),
-        "max_depth": int(db_settings.get("CRYPTO_LGBM_MAX_DEPTH", C.LGBM_MAX_DEPTH)),
-        "min_child_samples": int(db_settings.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", C.LGBM_MIN_CHILD_SAMPLES)),
-        "subsample": float(db_settings.get("CRYPTO_LGBM_SUBSAMPLE", C.LGBM_SUBSAMPLE)),
-        "colsample_bytree": float(db_settings.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", C.LGBM_COLSAMPLE_BYTREE)),
-        "reg_alpha": float(db_settings.get("CRYPTO_LGBM_REG_ALPHA", C.LGBM_REG_ALPHA)),
-        "reg_lambda": float(db_settings.get("CRYPTO_LGBM_REG_LAMBDA", C.LGBM_REG_LAMBDA)),
-        "min_edge": float(db_settings.get("CRYPTO_BACKTEST_MIN_EDGE", C.BACKTEST_MIN_EDGE)),
+        "n_estimators": int(db_settings.get("CRYPTO_LGBM_N_ESTIMATORS", defs.get("CRYPTO_LGBM_N_ESTIMATORS", "300"))),
+        "learning_rate": float(db_settings.get("CRYPTO_LGBM_LEARNING_RATE", defs.get("CRYPTO_LGBM_LEARNING_RATE", "0.05"))),
+        "num_leaves": int(db_settings.get("CRYPTO_LGBM_NUM_LEAVES", defs.get("CRYPTO_LGBM_NUM_LEAVES", "31"))),
+        "max_depth": int(db_settings.get("CRYPTO_LGBM_MAX_DEPTH", defs.get("CRYPTO_LGBM_MAX_DEPTH", "5"))),
+        "min_child_samples": int(db_settings.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", defs.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20"))),
+        "subsample": float(db_settings.get("CRYPTO_LGBM_SUBSAMPLE", defs.get("CRYPTO_LGBM_SUBSAMPLE", "0.8"))),
+        "colsample_bytree": float(db_settings.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", defs.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8"))),
+        "reg_alpha": float(db_settings.get("CRYPTO_LGBM_REG_ALPHA", defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1"))),
+        "reg_lambda": float(db_settings.get("CRYPTO_LGBM_REG_LAMBDA", defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0"))),
+        "min_edge": float(db_settings.get("CRYPTO_BACKTEST_MIN_EDGE", defs.get("BACKTEST_MIN_EDGE", "0.04"))),
     }
 
     models_info = {}
@@ -222,18 +224,19 @@ async def crypto_backtest(
             )).scalar_one_or_none()
             return float(row.value) if row else default
 
+        defs = registry_defaults()
         if min_edge is None:
-            min_edge = await _get_rt("CRYPTO_BACKTEST_MIN_EDGE", C.BACKTEST_MIN_EDGE)
+            min_edge = await _get_rt("CRYPTO_BACKTEST_MIN_EDGE", float(defs.get("BACKTEST_MIN_EDGE", "0.04")))
 
         lgbm_params = {
-            "subsample":        await _get_rt("CRYPTO_LGBM_SUBSAMPLE", C.LGBM_SUBSAMPLE),
-            "colsample_bytree": await _get_rt("CRYPTO_LGBM_COLSAMPLE_BYTREE", C.LGBM_COLSAMPLE_BYTREE),
-            "num_leaves":       int(await _get_rt("CRYPTO_LGBM_NUM_LEAVES", C.LGBM_NUM_LEAVES)),
-            "max_depth":        int(await _get_rt("CRYPTO_LGBM_MAX_DEPTH", C.LGBM_MAX_DEPTH)),
-            "min_child_samples":int(await _get_rt("CRYPTO_LGBM_MIN_CHILD_SAMPLES", C.LGBM_MIN_CHILD_SAMPLES)),
-            "n_estimators":     int(await _get_rt("CRYPTO_LGBM_N_ESTIMATORS", C.LGBM_N_ESTIMATORS)),
-            "reg_alpha":        await _get_rt("CRYPTO_LGBM_REG_ALPHA", C.LGBM_REG_ALPHA),
-            "reg_lambda":       await _get_rt("CRYPTO_LGBM_REG_LAMBDA", C.LGBM_REG_LAMBDA),
+            "subsample":        await _get_rt("CRYPTO_LGBM_SUBSAMPLE", float(defs.get("CRYPTO_LGBM_SUBSAMPLE", "0.8"))),
+            "colsample_bytree": await _get_rt("CRYPTO_LGBM_COLSAMPLE_BYTREE", float(defs.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8"))),
+            "num_leaves":       int(await _get_rt("CRYPTO_LGBM_NUM_LEAVES", float(defs.get("CRYPTO_LGBM_NUM_LEAVES", "31")))),
+            "max_depth":        int(await _get_rt("CRYPTO_LGBM_MAX_DEPTH", float(defs.get("CRYPTO_LGBM_MAX_DEPTH", "5")))),
+            "min_child_samples":int(await _get_rt("CRYPTO_LGBM_MIN_CHILD_SAMPLES", float(defs.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20")))),
+            "n_estimators":     int(await _get_rt("CRYPTO_LGBM_N_ESTIMATORS", float(defs.get("CRYPTO_LGBM_N_ESTIMATORS", "300")))),
+            "reg_alpha":        await _get_rt("CRYPTO_LGBM_REG_ALPHA", float(defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1"))),
+            "reg_lambda":       await _get_rt("CRYPTO_LGBM_REG_LAMBDA", float(defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0"))),
         }
 
         candles = await get_recent_candles(session, symbol, interval, limit=10_000)
