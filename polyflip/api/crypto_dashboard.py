@@ -78,7 +78,9 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     """
     now = time.time()
     if "status" in _cache and now - _cache["status"]["ts"] < _CACHE_TTL:
-        return _cache["status"]["data"]
+        res = dict(_cache["status"]["data"])
+        res["active_trainings"] = _active_trainings
+        return res
 
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
@@ -152,6 +154,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "models": models_info,
         "symbols": CRYPTO_SYMBOLS,
         "settings": active_settings,
+        "active_trainings": _active_trainings,
         "feature_importances": {
             asset: feature_importances.get(asset, {})
             for asset in set(m.asset for m in rows if m.is_active)
@@ -276,22 +279,40 @@ async def crypto_train(
     Запускает переобучение LightGBM-модели в фоне.
     Не блокирует HTTP-ответ — обучение идёт в background task.
     """
+    if symbol in _active_trainings:
+        return {
+            "status": "already_running",
+            "symbol": symbol,
+            "message": f"Обучение модели {symbol} уже выполняется.",
+        }
+
+    _active_trainings[symbol] = {
+        "status": "training",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "symbol": symbol,
+    }
+    _cache.pop("status", None)
+
     async def _train():
-        async with async_session() as session:
-            trainer = CryptoModelTrainer(session)
-            ok = await trainer.train(symbol, interval)
-            # Сбрасываем кэши
+        try:
+            async with async_session() as session:
+                trainer = CryptoModelTrainer(session)
+                ok = await trainer.train(symbol, interval)
+                logger.info("crypto_retrain_done", symbol=symbol, success=ok)
+        except Exception as exc:
+            logger.exception("crypto_retrain_error", symbol=symbol, error=str(exc))
+        finally:
+            _active_trainings.pop(symbol, None)
             _cache.pop("status", None)
             for k in list(_cache.keys()):
                 if k.startswith(f"backtest_{symbol}"):
                     _cache.pop(k, None)
-            logger.info("crypto_retrain_done", symbol=symbol, success=ok)
 
     background_tasks.add_task(_train)
     return {
         "status":  "started",
         "symbol":  symbol,
-        "message": f"Переобучение {symbol} запущено в фоне. Процесс займет около 15–30 секунд. Вы можете отслеживать версию на вкладке Модели.",
+        "message": f"Переобучение {symbol} запущено в фоне.",
     }
 
 @router.get("/api/model_pnl", dependencies=[Depends(verify_api_key)])

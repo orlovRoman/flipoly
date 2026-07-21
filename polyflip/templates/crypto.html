@@ -61,6 +61,45 @@
         .nav-links .nav-item {
             cursor: pointer;
         }
+        
+        /* Стили для оповещения об обучении моделей */
+        .training-banner {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(90deg, rgba(255, 193, 7, 0.15), rgba(255, 152, 0, 0.08));
+            border: 1px solid rgba(255, 193, 7, 0.4);
+            border-radius: 12px;
+            color: #ffc107;
+            animation: pulseBorder 2s infinite alternate;
+        }
+        @keyframes pulseBorder {
+            0% { border-color: rgba(255, 193, 7, 0.3); box-shadow: 0 0 8px rgba(255, 193, 7, 0.1); }
+            100% { border-color: rgba(255, 193, 7, 0.8); box-shadow: 0 0 18px rgba(255, 193, 7, 0.25); }
+        }
+        .btn-training {
+            background: rgba(255, 193, 7, 0.2) !important;
+            border: 1px solid #ffc107 !important;
+            color: #ffc107 !important;
+            cursor: not-allowed !important;
+            opacity: 0.9;
+        }
+        .spinner-icon {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 193, 7, 0.3);
+            border-radius: 50%;
+            border-top-color: #ffc107;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
     <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ timestamp }}"></script>
     <script>
@@ -88,12 +127,15 @@
         <main class="main-content">
             <header class="tab-header">
                 <h1>🪙 Управление Crypto LightGBM (15m)</h1>
-                <div style="display: flex; gap: 10px;">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;" id="train-buttons-container">
                     {% for sym in symbols %}
-                    <button class="btn primary-btn" onclick="retrain('{{ sym }}')">🔄 Обучить {{ sym }}</button>
+                    <button class="btn primary-btn" id="btn-train-{{ sym }}" onclick="retrain('{{ sym }}')">🔄 Обучить {{ sym }}</button>
                     {% endfor %}
                 </div>
             </header>
+
+            <!-- Баннер уведомления об активном обучении -->
+            <div id="active-training-banner" style="display: none;"></div>
 
             <!-- Панель статуса моделей -->
             <div class="panel" style="margin-bottom: 2rem;">
@@ -295,6 +337,45 @@
         const pageSize = 10;
         let fiChart = null;
         let pnlChart = null;
+        let localActiveTrainings = {};
+
+        function updateTrainButtonsAndBanner(activeTrainings) {
+            const symbols = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"];
+            const activeList = Object.keys(activeTrainings || {});
+            
+            symbols.forEach(sym => {
+                const btn = document.getElementById(`btn-train-${sym}`);
+                if (!btn) return;
+                if (activeList.includes(sym)) {
+                    btn.disabled = true;
+                    btn.className = "btn btn-training";
+                    btn.innerHTML = `<span class="spinner-icon"></span> ⏳ Обучение ${sym}...`;
+                } else {
+                    btn.disabled = false;
+                    btn.className = "btn primary-btn";
+                    btn.innerHTML = `🔄 Обучить ${sym}`;
+                }
+            });
+
+            const bannerEl = document.getElementById('active-training-banner');
+            if (bannerEl) {
+                if (activeList.length > 0) {
+                    bannerEl.style.display = 'flex';
+                    bannerEl.className = 'training-banner';
+                    bannerEl.innerHTML = `
+                        <div style="font-size: 1.5rem;"><span class="spinner-icon" style="width:22px; height:22px; border-width:3px;"></span></div>
+                        <div>
+                            <div style="font-weight: 700; font-size: 1.05rem;">⏳ Идёт обучение модели: ${activeList.join(', ')}</div>
+                            <div style="font-size: 0.85rem; opacity: 0.9; margin-top: 2px;">
+                                Происходит выборка Binance-свечей, расчет параметров волатильности, K-Fold кросс-валидация и калибровка ECE.
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    bannerEl.style.display = 'none';
+                }
+            }
+        }
 
         function resetApiKey() {
             try {
@@ -333,6 +414,10 @@
 
                 const d = await statusRes.json();
                 statusData = d;
+                
+                // Синхронизируем состояние активных обучений
+                localActiveTrainings = d.active_trainings || {};
+                updateTrainButtonsAndBanner(localActiveTrainings);
 
                 // PnL — не критичен, грузим с fallback
                 let pnlData = {};
@@ -738,47 +823,60 @@
         }
 
         async function retrain(symbol) {
-            // Запрашиваем разрешение на системные уведомления
             requestNotificationPermission();
+
+            // Мгновенное обновление кнопки и баннера на фронтенде
+            localActiveTrainings[symbol] = { status: 'training' };
+            updateTrainButtonsAndBanner(localActiveTrainings);
 
             try {
                 const r = await fetch(`/crypto/api/train?symbol=${symbol}`, { method: 'POST', headers: H });
                 const d = await r.json();
-                if (!r.ok) {
-                    alert(`❌ Ошибка запуска обучения: ${d.detail || d.message || 'Неизвестная ошибка (код ' + r.status + ')'}`);
+                if (!r.ok || d.status === "already_running") {
+                    if (d.status === "already_running") {
+                        showNotification(`ℹ️ Обучение ${symbol}`, d.message);
+                    } else {
+                        delete localActiveTrainings[symbol];
+                        updateTrainButtonsAndBanner(localActiveTrainings);
+                        alert(`❌ Ошибка запуска обучения: ${d.detail || d.message || 'Неизвестная ошибка'}`);
+                    }
                     return;
                 }
-                alert(d.message);
-                
+
                 // Запоминаем текущие версии фазовых моделей
                 const oldLow = statusData?.models?.[`${symbol}_low_vol`]?.version || 0;
                 const oldHigh = statusData?.models?.[`${symbol}_high_vol`]?.version || 0;
                 
-                // Запускаем опрос статуса каждые 3 секунды с лимитом попыток
-                const MAX_POLLS = 200; // 200 * 3с = 10 минут максимум
+                // Запускаем опрос статуса каждые 2 секунды
+                const MAX_POLLS = 300; // 10 минут макс
                 let pollCount = 0;
                 
                 const intervalId = setInterval(async () => {
                     pollCount++;
                     await loadStatus();
+                    
+                    const isStillTraining = !!localActiveTrainings[symbol];
                     const newLow = statusData?.models?.[`${symbol}_low_vol`]?.version || 0;
                     const newHigh = statusData?.models?.[`${symbol}_high_vol`]?.version || 0;
                     
-                    if (newLow > oldLow || newHigh > oldHigh) {
+                    if (!isStillTraining || newLow > oldLow || newHigh > oldHigh) {
                         clearInterval(intervalId);
+                        delete localActiveTrainings[symbol];
+                        updateTrainButtonsAndBanner(localActiveTrainings);
                         
                         const msg = `Модель для ${symbol} успешно обновлена!\nLow Vol: v${newLow} (было v${oldLow})\nHigh Vol: v${newHigh} (было v${oldHigh})`;
-                        
-                        // Системное push-уведомление
                         showNotification(`✅ Обучение ${symbol} завершено`, msg);
-                        
                         alert(msg);
                     } else if (pollCount >= MAX_POLLS) {
                         clearInterval(intervalId);
+                        delete localActiveTrainings[symbol];
+                        updateTrainButtonsAndBanner(localActiveTrainings);
                         alert(`⚠️ Таймаут ожидания обучения ${symbol}. Проверьте статус вручную.`);
                     }
-                }, 3000);
+                }, 2000);
             } catch (err) {
+                delete localActiveTrainings[symbol];
+                updateTrainButtonsAndBanner(localActiveTrainings);
                 alert('Не удалось связаться с сервером для запуска обучения.');
             }
         }
