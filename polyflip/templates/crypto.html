@@ -332,10 +332,11 @@
 
                 // Заполняем селектор важности признаков
                 const fiSelector = document.getElementById('fi-symbol-selector');
-                if (fiSelector && d.models) {
+                if (fiSelector && d.feature_importances) {
                     const currentVal = fiSelector.value;
-                    fiSelector.innerHTML = Object.keys(d.models).map(k => `<option value="${k}">${k}</option>`).join('');
-                    if (Object.keys(d.models).includes(currentVal)) {
+                    const fiKeys = Object.keys(d.feature_importances);
+                    fiSelector.innerHTML = fiKeys.map(k => `<option value="${k}">${k}</option>`).join('');
+                    if (fiKeys.includes(currentVal)) {
                         fiSelector.value = currentVal;
                     }
                 }
@@ -451,7 +452,7 @@
                     if (!confirm(`Активировать модель ${asset} версии ${version}?`)) return;
                     
                     try {
-                        const r = await fetch(window.API_BASE + `/api/analytics/models/${asset}/activate/${version}`, {
+                        const r = await fetch(window.API_BASE + `/crypto/api/models/${asset}/activate/${version}`, {
                             method: "POST", headers: H
                         });
                         const d = await r.json();
@@ -480,7 +481,7 @@
             const sym = document.getElementById('fi-symbol-selector').value;
             const ctx = document.getElementById('fi-chart').getContext('2d');
             
-            if (!statusData || !statusData.models || !statusData.models[sym] || !statusData.models[sym].feature_importance) {
+            if (!statusData || !statusData.feature_importances || !statusData.feature_importances[sym]) {
                 if (fiChart) {
                     fiChart.destroy();
                     fiChart = null;
@@ -489,7 +490,7 @@
                 return;
             }
 
-            const fi = statusData.models[sym].feature_importance;
+            const fi = statusData.feature_importances[sym];
             const sorted = Object.entries(fi).sort((a, b) => b[1] - a[1]).slice(0, 15);
             
             const labelMap = {

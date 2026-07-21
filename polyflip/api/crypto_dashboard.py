@@ -302,75 +302,114 @@ async def crypto_train(
 
 @router.get("/api/model_pnl", dependencies=[Depends(verify_api_key)])
 async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
-    """
-    Возвращает реальный PnL каждой активной крипто-модели
-    за всё время её работы (с момента trained_at).
-    Формат ответа: { "BTCUSDT_low_vol_v2": { pnl, win_rate, total_trades } }
-    """
-    now = time.time()
     cache_key = "crypto_model_pnl"
-    if cache_key in _cache and now - _cache[cache_key]["ts"] < 60:
-        return _cache[cache_key]["data"]
+    now = time.time()
+    if cache_key in _cache:
+        c = _cache[cache_key]
+        if now - c["ts"] < 30:
+            return c["data"]
 
-    # 1. Получаем активные модели с датой обучения
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
         allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
 
+    # 1. Запрашиваем модели
     stmt = select(ModelRegistry).where(
         ModelRegistry.asset.in_(allowed_assets),
     ).order_by(ModelRegistry.asset, ModelRegistry.version.desc())
     models = (await db.execute(stmt)).scalars().all()
 
-    if not models:
-        return {}
-
-    # 2. Батч-запрос сделок с фильтром по времени (BUG-G pattern)
-    earliest_since = min(
-        (m.trained_at for m in models if m.trained_at),
-        default=None
-    )
-
-    where_conds = [
-        TradeHistory.status == "SUCCESS",
-        TradeHistory.pnl.is_not(None),
-        TradeHistory.asset.in_(allowed_assets),
-    ]
-    if earliest_since:
-        where_conds.append(TradeHistory.created_at >= earliest_since)
-
+    # 2. Запрашиваем все успешные сделки
     trades_stmt = select(
         TradeHistory.asset,
         TradeHistory.pnl,
         TradeHistory.created_at,
-    ).where(*where_conds)
+    ).where(
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.pnl.is_not(None),
+        TradeHistory.asset.in_(allowed_assets),
+    )
     trades = (await db.execute(trades_stmt)).all()
 
-    # 3. Группируем по asset
-    groups: dict[str, list[float]] = defaultdict(list)
+    # 3. Группируем сделки по asset + времени
+    from collections import defaultdict
+    asset_trades: dict[str, list] = defaultdict(list)
     for row in trades:
-        groups[row.asset].append(row.pnl)
+        asset_trades[row.asset].append((row.created_at, row.pnl))
 
-    # 4. Считаем метрики для каждой модели
-    result = {}
+    # Группируем модели по asset
+    asset_versions: dict[str, list] = defaultdict(list)
     for m in models:
-        key = f"{m.asset}_v{m.version}"
-        pnls = groups.get(m.asset, [])
-        if pnls:
-            total = sum(pnls)
-            wins = sum(1 for p in pnls if p > 0)
-            result[key] = {
-                "pnl": round(total, 4),
-                "win_rate": round(wins / len(pnls) * 100, 1),
-                "total_trades": len(pnls),
-            }
-        else:
-            result[key] = {
-                "pnl": 0.0,
-                "win_rate": None,
-                "total_trades": 0,
-            }
+        asset_versions[m.asset].append(m)
+
+    # 4. Считаем метрики для каждой версии
+    result = {}
+    for asset, versions in asset_versions.items():
+        versions_asc = list(reversed(versions))
+        
+        for idx, m in enumerate(versions_asc):
+            since = m.trained_at
+            until = versions_asc[idx + 1].trained_at if idx + 1 < len(versions_asc) else None
+            
+            pnls = [
+                pnl for (ts, pnl) in asset_trades[asset]
+                if (since is None or ts >= since)
+                and (until is None or ts < until)
+            ]
+            
+            key = f"{asset}_v{m.version}"
+            if pnls:
+                total = sum(pnls)
+                wins = sum(1 for p in pnls if p > 0)
+                result[key] = {
+                    "pnl": round(total, 4),
+                    "win_rate": round(wins / len(pnls) * 100, 1),
+                    "total_trades": len(pnls),
+                }
+            else:
+                result[key] = {
+                    "pnl": 0.0,
+                    "win_rate": None,
+                    "total_trades": 0,
+                }
 
     _cache[cache_key] = {"ts": now, "data": result}
     return result
+
+from sqlalchemy import update
+from fastapi import HTTPException
+
+@router.post("/api/models/{asset}/activate/{version}", dependencies=[Depends(verify_api_key)])
+async def activate_crypto_model(
+    asset: str,
+    version: int,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Активирует указанную версию крипто-модели, деактивируя остальные."""
+    allowed_assets = []
+    for s in CRYPTO_SYMBOLS:
+        allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
+    
+    if asset not in allowed_assets:
+        raise HTTPException(status_code=404, detail=f"Актив {asset} не найден")
+    
+    # Деактивировать все версии этого актива
+    await db.execute(
+        update(ModelRegistry)
+        .where(ModelRegistry.asset == asset)
+        .values(is_active=False)
+    )
+    # Активировать нужную версию
+    result = await db.execute(
+        update(ModelRegistry)
+        .where(ModelRegistry.asset == asset, ModelRegistry.version == version)
+        .values(is_active=True)
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail=f"Версия {version} не найдена")
+    
+    await db.commit()
+    _cache.clear()  # сбросить весь кэш
+    return {"status": "success", "asset": asset, "version": version}
+
 
