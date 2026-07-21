@@ -191,6 +191,7 @@ class CryptoPredictor:
             self._models[symbol] = {}
             self._model_versions[symbol] = {}
             self._model_intervals[symbol] = {}
+            self._model_eces[symbol] = {}
             self._thresholds[symbol] = {}
 
             for regime in ["low_vol", "mid_vol", "high_vol"]:

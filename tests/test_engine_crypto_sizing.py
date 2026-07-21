@@ -122,7 +122,7 @@ async def test_engine_crypto_standalone_bet_size(db_session):
     fake_candles = [FakeCandle()]
     mock_features = MagicMock()
     mock_features.valid = True
-    mock_features.features = [np.array([0.01]*27)]
+    mock_features.features = [np.array([0.01]*33)]
 
     with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
          patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls, \
