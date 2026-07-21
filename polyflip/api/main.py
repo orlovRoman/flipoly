@@ -95,6 +95,7 @@ app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(SimpleRateLimitMiddleware, limit=200, window=60)
 
 app.include_router(analytics_router)
+app.include_router(analytics_router, prefix="/api")
 app.include_router(dashboard_router)
 app.include_router(trading_dashboard_router)
 app.include_router(settings_router)

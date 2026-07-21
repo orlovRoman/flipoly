@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 1. Fetch Summary
   async function loadSummary() {
     try {
-      const res = await fetch(window.API_BASE + "/api/analytics/summary");
+      const res = await fetch(window.API_BASE + "/analytics/summary");
       if (!res.ok) {
         console.error("Summary API returned status", res.status);
         return;
@@ -188,7 +188,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     try {
-      const res = await fetch(window.API_BASE + "/api/analytics/probabilities");
+      const res = await fetch(window.API_BASE + "/analytics/probabilities");
       chartDataStore = await res.json();
       chartsLoaded = true;
       
