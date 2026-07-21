@@ -354,8 +354,8 @@ async def main():
     try:
         async with async_session() as session:
             await candle_backfill_job(session)
-            await refresh_funding_rates(session)
     except Exception as e:
+
         logger.exception("initial_candle_backfill_failed", error=str(e))
 
     scheduler = AsyncIOScheduler()
