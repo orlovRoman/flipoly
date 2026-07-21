@@ -20,39 +20,33 @@ MIN_CANDLES_REQUIRED = 110   # запас +10% к min_candles=100
 
 # Схема валидации входного вектора признаков перед инференсом
 class CryptoFeaturesValidator(BaseModel):
+    # Returns — только короткие горизонты
     ret_1: float
     ret_3: float
     ret_6: float
-    ret_12: float
-    ret_24: float
-    ret_48: float
+    # Volatility — только короткие
     vol_6: float
     vol_24: float
-    vol_48: float
-    vol_ratio: float
-    vol_trend: float
+    # Volume & CVD
     vol_z_1: float
     taker_buy_ratio: float
     cvd_1: float
     cvd_6: float
     cvd_trend: float
+    # Technical
     rsi_14: float
     ema_ratio_9_21: float
     bb_width: float
     bb_position: float
+    # Position vs extremes — только 24h
     dist_to_high_24: float
     dist_to_low_24: float
-    dist_to_high_96: float
-    dist_to_low_96: float
+    # Range
     range_1: float
     range_avg_24: float
+    # Consecutive
     consec_up: float
     consec_down: float
-    hour_utc: float
-    dow: float
-    funding_rate: float
-    funding_rate_ma3: float
-    funding_extreme: float
 
     @field_validator("*", mode="before")
     @classmethod
@@ -318,6 +312,16 @@ class CryptoPredictor:
             # 3. Инференс
             p_up = float(model.predict_proba([fv_array])[0][1])
             p_down = 1.0 - p_up
+
+            DEGENERATE_THRESHOLD = 0.05
+            if p_up < DEGENERATE_THRESHOLD or p_up > (1.0 - DEGENERATE_THRESHOLD):
+                logger.warning(
+                    "degenerate_prediction_detected",
+                    symbol=symbol,
+                    regime=regime,
+                    p_up=round(p_up, 4),
+                    hint="Model likely trained on different feature set — retrain required",
+                )
             
             edge, direction = compute_crypto_edge(p_up, th_up, th_down)
             

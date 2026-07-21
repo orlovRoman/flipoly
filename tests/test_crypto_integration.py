@@ -69,3 +69,16 @@ def test_crypto_features_count_matches_mock():
     from polyflip.crypto.trainer import CRYPTO_FEATURES
     assert len(CRYPTO_FEATURES) == 20, \
         f"Ожидалось 20 фичей после шагов 1-3, фактически: {len(CRYPTO_FEATURES)}"
+
+
+def test_validator_matches_crypto_features():
+    """Гарантирует что CryptoFeaturesValidator == CRYPTO_FEATURES (порядок не важен)."""
+    from polyflip.crypto.predictor import CryptoFeaturesValidator
+    from polyflip.crypto.trainer import CRYPTO_FEATURES
+    validator_fields = set(CryptoFeaturesValidator.model_fields.keys())
+    features_set = set(CRYPTO_FEATURES)
+    assert validator_fields == features_set, (
+        f"Mismatch!\n"
+        f"  In validator but not in CRYPTO_FEATURES: {validator_fields - features_set}\n"
+        f"  In CRYPTO_FEATURES but not in validator: {features_set - validator_fields}"
+    )

@@ -31,9 +31,9 @@ def test_trainer_features_subset_of_validator():
     unknown = trainer_features - validator_fields
     assert not unknown, f"Trainer использует признаки не из validator: {unknown}"
 
-def test_feature_columns_match_validator():
-    """CRYPTO_FEATURE_COLUMNS (feature_builder) == CryptoFeaturesValidator."""
-    assert set(CRYPTO_FEATURE_COLUMNS) == set(CryptoFeaturesValidator.model_fields.keys())
+def test_validator_features_subset_of_columns():
+    """CryptoFeaturesValidator должен быть подмножеством CRYPTO_FEATURE_COLUMNS."""
+    assert set(CryptoFeaturesValidator.model_fields.keys()).issubset(set(CRYPTO_FEATURE_COLUMNS))
 
 def test_crypto_predictor_cache():
     """Повторный вызов load() для загруженного символа не делает запросы к БД."""
