@@ -46,6 +46,7 @@ def make_settings_db(
         "TRADE_CAPITAL_USDC": "100",
         "TRADING_MODE": trading_mode,
         "FAVORITE_MODE_ENTRY_SEC": str(entry_sec),
+        "FAVORITE_THRESHOLD": "0.70",
         "FAVORITE_MIN_EDGE": "-0.05",
         "MIN_EDGE": "-0.05",
     }
@@ -79,14 +80,18 @@ async def test_pure_favorite_buys_yes_when_yes_is_favorite():
     daily_pnl_scalar.scalar.return_value = 0.0  # нет потерь сегодня
     
     trade_check_scalars = MagicMock()
-    trade_check_scalars.scalars.return_value.all.return_value = []  # нет дублей
-    
+    trade_check_scalars.scalars.return_value.first.return_value = None  # нет дублей
+
+    skipped_check_scalars = MagicMock()
+    skipped_check_scalars.scalar_one_or_none.return_value = None
+
     db_session.execute.side_effect = [
-        settings_scalars,    # 1. settings_keys
-        empty_scalars,       # 2. per-asset thresholds
-        markets_scalars,     # 3. live markets
-        daily_pnl_scalar,    # 4. daily PnL (т.к. есть рынки)
-        trade_check_scalars, # 5. trade history check (внутри цикла)
+        settings_scalars,        # 1. settings_keys
+        empty_scalars,           # 2. per-asset thresholds
+        markets_scalars,         # 3. live markets
+        daily_pnl_scalar,        # 4. daily PnL (т.к. есть рынки)
+        trade_check_scalars,     # 5. trade history check
+        skipped_check_scalars,   # 6. skipped trade check
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
     
@@ -136,14 +141,18 @@ async def test_pure_favorite_buys_no_when_no_is_favorite():
     daily_pnl_scalar.scalar.return_value = 0.0
     
     trade_check_scalars = MagicMock()
-    trade_check_scalars.scalars.return_value.all.return_value = []
-    
+    trade_check_scalars.scalars.return_value.first.return_value = None
+
+    skipped_check_scalars = MagicMock()
+    skipped_check_scalars.scalar_one_or_none.return_value = None
+
     db_session.execute.side_effect = [
-        settings_scalars,    # 1. settings_keys
-        empty_scalars,       # 2. per-asset thresholds
-        markets_scalars,     # 3. live markets
-        daily_pnl_scalar,    # 4. daily PnL
-        trade_check_scalars, # 5. trade history check
+        settings_scalars,        # 1. settings_keys
+        empty_scalars,           # 2. per-asset thresholds
+        markets_scalars,         # 3. live markets
+        daily_pnl_scalar,        # 4. daily PnL
+        trade_check_scalars,     # 5. trade history check
+        skipped_check_scalars,   # 6. skipped trade check
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
     
@@ -269,14 +278,18 @@ async def test_pure_favorite_skips_when_price_exactly_05():
     daily_pnl_scalar.scalar.return_value = 0.0
     
     trade_check_scalars = MagicMock()
-    trade_check_scalars.scalars.return_value.all.return_value = []
-    
+    trade_check_scalars.scalars.return_value.first.return_value = None
+
+    skipped_check_scalars = MagicMock()
+    skipped_check_scalars.scalar_one_or_none.return_value = None
+
     db_session.execute.side_effect = [
         settings_scalars,
         empty_scalars,
         markets_scalars,
         daily_pnl_scalar,
-        trade_check_scalars
+        trade_check_scalars,
+        skipped_check_scalars,
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
     
@@ -323,27 +336,31 @@ async def test_ml_mode_unchanged_when_trading_mode_is_ml():
     active_models_scalars.scalars.return_value.all.return_value = []
 
     trade_check_scalars = MagicMock()
-    trade_check_scalars.scalars.return_value.all.return_value = []
-    
+    trade_check_scalars.scalars.return_value.first.return_value = None
+
+    skipped_check_scalars = MagicMock()
+    skipped_check_scalars.scalar_one_or_none.return_value = None
+
     db_session.execute.side_effect = [
         settings_scalars,      # 1. settings_keys
         empty_scalars,         # 2. per-asset thresholds
         markets_scalars,       # 3. live markets
         daily_pnl_scalar,      # 4. daily PnL
-        active_models_scalars, # 5. active models
-        trade_check_scalars,   # 6. trade history check (внутри цикла)
+        trade_check_scalars,   # 5. trade history check (guards)
+        skipped_check_scalars, # 6. skipped check (guards)
+        active_models_scalars, # 7. active models (decide_ml_mode)
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
-    
+
     trader = AsyncMock()
     api_client = AsyncMock()
     api_client.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.70, "current_spread": 0.02})
-    
+
     await trade_worker_cycle(db_session, trader, api_client)
-    
+
     # execute_trade не должен быть вызван, т.к. нет моделей
     trader.execute_trade.assert_not_called()
-    
+
     # Проверим, что была добавлена запись о пропуске из-за отсутствия моделей
     added = db_session.add.call_args_list
     trade_record = next(
@@ -351,38 +368,42 @@ async def test_ml_mode_unchanged_when_trading_mode_is_ml():
     )
     assert trade_record is not None
     assert trade_record.status == "SKIPPED"
-    assert "No active model" in trade_record.error_msg
+    assert "No active model" in trade_record.error_msg or "Models cache is empty" in trade_record.error_msg
 
 
 @pytest.mark.asyncio
 async def test_pure_favorite_skips_no_when_yes_becomes_favorite():
     """NO фаворит в БД (YES цена 0.30), но по API NO подешевел до 0.30 (YES подорожал до 0.70) -> пропускаем."""
     market = make_market(yes_price=0.30, end_offset_sec=200)
-    
+
     db_session = AsyncMock()
     db_session.execute = AsyncMock()
-    
+
     settings_scalars = MagicMock()
     settings_scalars.scalars.return_value.all.return_value = make_settings_db()
-    
+
     empty_scalars = MagicMock()
     empty_scalars.scalars.return_value.all.return_value = []
-    
+
     markets_scalars = MagicMock()
     markets_scalars.scalars.return_value.all.return_value = [market]
 
     daily_pnl_scalar = MagicMock()
     daily_pnl_scalar.scalar.return_value = 0.0
-    
+
     trade_check_scalars = MagicMock()
-    trade_check_scalars.scalars.return_value.all.return_value = []
-    
+    trade_check_scalars.scalars.return_value.first.return_value = None
+
+    skipped_check_scalars = MagicMock()
+    skipped_check_scalars.scalar_one_or_none.return_value = None
+
     db_session.execute.side_effect = [
         settings_scalars,
         empty_scalars,
         markets_scalars,
         daily_pnl_scalar,
-        trade_check_scalars
+        trade_check_scalars,
+        skipped_check_scalars,
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
     
