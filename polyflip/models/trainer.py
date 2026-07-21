@@ -270,7 +270,7 @@ def _fit_and_serialize(
         val_auc=round(val_acc, 4),
         baseline_auc=round(baseline_acc, 4),
         ece=round(ece, 4),
-        min_precision_used=MIN_PRECISION_FOR_THRESHOLD,
+        min_precision_used=min_precision,
         n_samples=len(y),
         fold_aucs=[round(a, 4) for a in aucs],
     )
