@@ -70,7 +70,7 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
             "version": m.version,
             "accuracy": round(m.accuracy, 4),
             "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
-            "trained_at": m.trained_at
+            "trained_at": m.trained_at.isoformat() if m.trained_at else None
         }
         for m in models
     }
@@ -119,7 +119,7 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
             "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
             "features": m.features or "",
             "is_active": m.is_active,
-            "trained_at": m.trained_at.isoformat() if m.trained_at else None
+            "trained_at": m.trained_at.isoformat() if m.trained_at else None.isoformat() if m.trained_at else None
         }
         for m in models
     ]

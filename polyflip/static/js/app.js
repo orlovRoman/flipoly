@@ -86,14 +86,21 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   // 1. Fetch Summary
-  async function loadSummary() {
+  async function loadSummary(retryCount = 0) {
     try {
-      const res = await fetch(window.API_BASE + "/api/analytics/summary");
+      console.log("[Summary] Loading summary data from API...");
+      const res = await fetch(window.API_BASE + "/api/analytics/summary", {
+        headers: getHeaders()
+      });
       if (!res.ok) {
-        console.error("Summary API returned status", res.status);
+        console.error("[Summary] API returned non-200 status:", res.status);
+        if (retryCount < 3) {
+          setTimeout(() => loadSummary(retryCount + 1), 1000);
+        }
         return;
       }
       const data = await res.json();
+      console.log("[Summary] Received data successfully:", data);
 
       const marketsEl = document.getElementById("stat-markets");
       if (marketsEl) {
@@ -135,10 +142,12 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
     } catch (e) {
-      console.error("Failed to load summary", e);
+      console.error("[Summary] Failed to load summary", e);
+      if (retryCount < 3) {
+        setTimeout(() => loadSummary(retryCount + 1), 1500);
+      }
     }
   }
-
   function renderAccuracyChart(historyData, asset) {
     if (typeof Chart === "undefined") {
       console.warn("Chart.js is not loaded yet or blocked, skipping chart render for " + asset);
