@@ -97,10 +97,28 @@
 
             <!-- Панель статуса моделей -->
             <div class="panel" style="margin-bottom: 2rem;">
-                <h2>Активные модели LightGBM</h2>
-                <p class="panel-desc" style="margin-bottom:1rem;">
-                    PnL считается за весь период работы модели (с <code>trained_at</code>).
-                </p>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+                    <div>
+                        <h2 style="margin:0;">Модели LightGBM</h2>
+                        <p class="panel-desc" style="margin: 0.3rem 0 0 0;">
+                            PnL считается за весь период работы модели (с <code>trained_at</code>).
+                        </p>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.6rem;">
+                        <label for="sort-field" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Сортировка:</label>
+                        <select id="sort-field" onchange="onSortChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.8rem; border-radius: 8px; font-size: 0.85rem; outline: none; cursor: pointer;">
+                            <option value="pnl" selected>PnL (прибыль)</option>
+                            <option value="trained_at">Дате обучения (новые сначала)</option>
+                            <option value="win_rate">Win Rate (%)</option>
+                            <option value="auc">AUC</option>
+                            <option value="ece">ECE (калибровка)</option>
+                            <option value="version">Версии (номер)</option>
+                        </select>
+                        <button id="sort-order-btn" onclick="toggleSortOrder()" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.75rem; border-radius: 8px; font-size: 0.85rem; cursor: pointer; font-weight: bold;" title="Переключить направление (убывание / возрастание)">
+                            ↓
+                        </button>
+                    </div>
+                </div>
                 <div id="models-status">Загрузка...</div>
             </div>
 
@@ -270,6 +288,8 @@
 
         let statusData = null;
         let currentPage = 1;
+        let currentSortField = 'pnl';
+        let currentSortOrder = 'desc';
         let lastModelsData = null;
         let lastPnlData = {};
         const pageSize = 10;
@@ -346,6 +366,10 @@
                 }
 
                 // Рендер карточек моделей с PnL
+                
+                if (document.getElementById('sort-field')) {
+                    document.getElementById('sort-field').value = currentSortField;
+                }
                 lastModelsData = d.models;
                 lastPnlData = pnlData;
                 renderModelCards(lastModelsData, lastPnlData);
@@ -354,6 +378,20 @@
             } catch (err) {
                 console.error(err);
             }
+        }
+
+        
+        function onSortChange() {
+            const sel = document.getElementById('sort-field');
+            if (sel) currentSortField = sel.value;
+            if (lastModelsData) renderModelCards(lastModelsData, lastPnlData);
+        }
+
+        function toggleSortOrder() {
+            currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc';
+            const btn = document.getElementById('sort-order-btn');
+            if (btn) btn.innerText = currentSortOrder === 'desc' ? '↓' : '↑';
+            if (lastModelsData) renderModelCards(lastModelsData, lastPnlData);
         }
 
         function renderModelCards(models, pnlData) {
@@ -369,14 +407,43 @@
                 return { ...m, pnlInfo };
             });
 
-            // Сортировка
+            // Интерактивная сортировка
             modelsArray.sort((a, b) => {
-                if (b.pnlInfo.pnl !== a.pnlInfo.pnl) {
-                    return b.pnlInfo.pnl - a.pnlInfo.pnl;
+                let valA = 0, valB = 0;
+                if (currentSortField === 'pnl') {
+                    valA = a.pnlInfo.pnl || 0;
+                    valB = b.pnlInfo.pnl || 0;
+                } else if (currentSortField === 'win_rate') {
+                    valA = a.pnlInfo.win_rate || 0;
+                    valB = b.pnlInfo.win_rate || 0;
+                } else if (currentSortField === 'trained_at') {
+                    valA = a.trained_at ? new Date(a.trained_at).getTime() : 0;
+                    valB = b.trained_at ? new Date(b.trained_at).getTime() : 0;
+                } else if (currentSortField === 'auc') {
+                    valA = a.auc || 0;
+                    valB = b.auc || 0;
+                } else if (currentSortField === 'ece') {
+                    valA = a.ece !== null ? a.ece : 999;
+                    valB = b.ece !== null ? b.ece : 999;
+                } else if (currentSortField === 'version') {
+                    valA = a.version || 0;
+                    valB = b.version || 0;
                 }
-                if (b.is_active !== a.is_active) {
-                    return b.is_active ? 1 : -1;
+
+                let diff = 0;
+                if (typeof valA === 'string') {
+                    diff = valA.localeCompare(valB);
+                } else {
+                    diff = valA - valB;
                 }
+
+                if (currentSortOrder === 'desc') {
+                    diff = -diff;
+                }
+
+                if (diff !== 0) return diff;
+                
+                if (b.is_active !== a.is_active) return b.is_active ? 1 : -1;
                 return a.asset.localeCompare(b.asset);
             });
 
@@ -400,11 +467,11 @@
                                 : 'var(--text-muted)';
                     const sign = pnl.pnl > 0 ? '+' : '';
                     pnlHtml = `
-                        <span style="color:${color}; font-weight:700; font-size:1.1rem;">
+                        <span style="color:${color}; font-weight:700; font-size:1.05rem;">
                             ${sign}${pnl.pnl.toFixed(2)} USDC
                         </span>
                         <span style="color:var(--text-muted); font-size:0.8rem; margin-left:6px;">
-                            ${pnl.win_rate}% WR · ${pnl.total_trades} сд.
+                            ${pnl.win_rate != null ? pnl.win_rate + '%' : '—'} WR · ${pnl.total_trades} сд.
                         </span>`;
                 }
 
@@ -413,62 +480,62 @@
                     const eceColor = m.ece < 0.03 ? 'var(--poly-green)' 
                                    : m.ece < 0.07 ? '#ff9f43' 
                                    : '#ff3366';
-                    eceBadge = `<span style="color:${eceColor};">${m.ece.toFixed(4)}</span>`;
+                    eceBadge = `<span style="color:${eceColor}; font-weight:600;">${m.ece.toFixed(4)}</span>`;
                 }
 
                 const activeBadgeHtml = m.is_active 
-                    ? `<span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; padding:0.2rem 0.6rem; border-radius:20px;">Активна</span>`
-                    : `<span style="font-size:0.75rem; background:rgba(255,255,255,0.05); color:var(--text-muted); padding:0.2rem 0.6rem; border-radius:20px;">Архив</span>`;
+                    ? `<span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">Активна</span>`
+                    : `<span style="font-size:0.75rem; background:rgba(255,255,255,0.05); color:var(--text-muted); padding:0.15rem 0.5rem; border-radius:20px;">Архив</span>`;
 
                 const actionButtonHtml = m.is_active
-                    ? `<button class="btn" style="background:rgba(255,255,255,0.05); color:var(--text-muted); pointer-events:none; border:none; width: 120px; ">Текущая</button>`
-                    : `<button class="btn primary-btn btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="width: 120px; ">Активировать</button>`;
+                    ? `<button class="btn" style="background:rgba(255,255,255,0.04); color:var(--text-muted); pointer-events:none; border:1px solid rgba(255,255,255,0.08); width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; white-space:nowrap;">Текущая</button>`
+                    : `<button class="btn primary-btn btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; white-space:nowrap; font-weight:600;">Активировать</button>`;
 
                 const deleteButtonHtml = m.is_active 
                     ? `` 
-                    : `<button class="btn btn-delete-model" data-asset="${m.asset}" data-version="${m.version}" style="width: 120px; background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220,53,69,0.3);">🗑 Удалить</button>`;
+                    : `<button class="btn btn-delete-model" data-asset="${m.asset}" data-version="${m.version}" style="width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; background:rgba(220, 53, 69, 0.15); color:#ff6b6b; border:1px solid rgba(220,53,69,0.3); white-space:nowrap; display:inline-flex; align-items:center; justify-content:center; gap:0.3rem;"><span>🗑</span> Удалить</button>`;
 
                 return `
                 <div style="
                     display: grid;
                     grid-template-columns: 1fr auto auto;
                     align-items: center;
-                    gap: 1.5rem;
-                    padding: 1rem 1.2rem;
-                    margin-bottom: 0.75rem;
+                    gap: 1.2rem;
+                    padding: 0.9rem 1.2rem;
+                    margin-bottom: 0.6rem;
                     background: rgba(255,255,255,0.02);
                     border: 1px solid var(--border-color);
                     border-radius: 10px;
                 ">
                     <div>
-                        <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.4rem;">
-                            <span style="font-size:1rem; font-weight:700; color:white;">${sym}</span>
+                        <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.35rem;">
+                            <span style="font-size:0.98rem; font-weight:700; color:white;">${sym}</span>
                             <span style="font-size:0.75rem; color:var(--text-muted);">v${m.version}</span>
                             ${activeBadgeHtml}
                         </div>
-                        <div style="display:flex; gap:1.5rem; font-size:0.85rem; flex-wrap:wrap;">
-                            <span>AUC: <b>${m.auc}</b> <span style="color:var(--text-muted);">(base: ${m.baseline})</span></span>
+                        <div style="display:flex; gap:1.2rem; font-size:0.82rem; flex-wrap:wrap; color: var(--text-muted);">
+                            <span>AUC: <b style="color:white;">${m.auc}</b> <span style="font-size:0.78rem;">(base: ${m.baseline})</span></span>
                             <span>ECE: ${eceBadge}</span>
-                            <span style="color:var(--text-muted);">Обучена: ${m.trained_at ? m.trained_at.slice(0,16).replace('T',' ') : '—'}</span>
+                            <span>Обучена: <span style="color:white;">${m.trained_at ? m.trained_at.slice(0,16).replace('T',' ') : '—'}</span></span>
                         </div>
                     </div>
-                    <div style="text-align:right; min-width:140px;">
-                        <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:0.2rem; text-transform:uppercase; letter-spacing:0.05em;">PnL (live)</div>
+                    <div style="text-align:right; min-width:150px;">
+                        <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:0.2rem; text-transform:uppercase; letter-spacing:0.05em;">PnL (live)</div>
                         ${pnlHtml}
                     </div>
-                    <div style="min-width: 120px; text-align: right; display: flex; flex-direction: column; gap: 0.5rem; justify-content: center;">
+                    <div style="min-width: 130px; display: flex; flex-direction: column; gap: 0.4rem; justify-content: center; align-items: flex-end;">
                         ${actionButtonHtml}
                         ${deleteButtonHtml}
                     </div>
                 </div>`;
             }).join('');
             
-            // Pagination controls
+            // Пагинация
             if (totalPages > 1) {
-                let paginationHtml = `<div style="display:flex; justify-content:center; gap:0.5rem; margin-top: 1rem;">`;
+                let paginationHtml = `<div style="display:flex; justify-content:center; gap:0.4rem; margin-top: 1.2rem;">`;
                 for (let i = 1; i <= totalPages; i++) {
-                    const activeStyle = i === currentPage ? 'background: var(--poly-blue); color: white; border-color: var(--poly-blue);' : 'background: rgba(255,255,255,0.05); color: var(--text-muted); border-color: var(--border-color);';
-                    paginationHtml += `<button class="btn btn-page" data-page="${i}" style="min-width: 35px; ${activeStyle}">${i}</button>`;
+                    const activeStyle = i === currentPage ? 'background: var(--poly-blue, #2563eb); color: white; border-color: var(--poly-blue, #2563eb);' : 'background: rgba(255,255,255,0.05); color: var(--text-muted); border-color: var(--border-color);';
+                    paginationHtml += `<button class="btn btn-page" data-page="${i}" style="min-width: 34px; padding: 0.3rem 0.6rem; font-size: 0.82rem; ${activeStyle}">${i}</button>`;
                 }
                 paginationHtml += `</div>`;
                 html += paginationHtml;
@@ -479,7 +546,7 @@
             document.querySelectorAll(".btn-page").forEach(btn => {
                 btn.addEventListener("click", (e) => {
                     currentPage = parseInt(e.target.dataset.page);
-                    renderModelCards(lastModelsData, lastPnlData); // Re-render with new page
+                    renderModelCards(lastModelsData, lastPnlData);
                 });
             });
 
@@ -495,7 +562,6 @@
                         });
                         const d = await r.json();
                         if (r.ok) {
-                            alert("Модель активирована!");
                             loadStatus();
                         } else {
                             alert("Ошибка активации: " + (d.detail || JSON.stringify(d)));
@@ -510,7 +576,7 @@
                 btn.addEventListener("click", async (e) => {
                     const asset = e.target.dataset.asset;
                     const version = e.target.dataset.version;
-                    if (!confirm(`Удалить архивную модель ${asset} версии ${version}? Это освободит место в базе данных. Операция необратима!`)) return;
+                    if (!confirm(`Удалить архивную модель ${asset} версии ${version}? Операция необратима!`)) return;
                     
                     try {
                         const r = await fetch(window.API_BASE + `/crypto/api/models/${asset}/${version}`, {
@@ -528,6 +594,7 @@
                 });
             });
         }
+
 
 
 
