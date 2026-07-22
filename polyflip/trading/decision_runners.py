@@ -284,9 +284,6 @@ async def decide_ml_mode(
 
     g3_dead_zone = not (lower <= p_flip < upper)
     g4_no_flip = p_flip < lower
-    _min_edge = float(local_config.get("MIN_EDGE", 0.0))
-    g5_min_edge = (decision_obj.edge is not None and decision_obj.edge >= _min_edge)
-    g6_price_range = not (decision_obj.action == "SKIP" and "price" in (decision_obj.reason or "").lower())
     g7_crypto_confirm = None
 
     # Confirm Gate
@@ -315,6 +312,10 @@ async def decide_ml_mode(
                         decision_obj, action="SKIP", reason=f"Crypto confirm veto: direction is {crypto_sig.direction} vs market {market_direction}"
                     )
         g7_crypto_confirm = (decision_obj.action != "SKIP")
+
+    _min_edge = float(local_config.get("MIN_EDGE", 0.0))
+    g5_min_edge = (decision_obj.edge is not None and decision_obj.edge >= _min_edge)
+    g6_price_range = not (decision_obj.action == "SKIP" and "price" in (decision_obj.reason or "").lower())
 
     await log_funnel(
         db_session,
