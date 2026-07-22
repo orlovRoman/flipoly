@@ -135,6 +135,20 @@ REGISTRY: list[SettingDef] = [
                description="Порог коэффициента LogReg для отсева слабых фич"),
     SettingDef("LR_MIN_FEATURES", "4",
                description="Мин. кол-во фич после отсева слабых"),
+    SettingDef("LR_TRAIN_MAX_TIME_LEFT_MIN", "15.0",
+               description="Верхняя граница time_left (мин) для обучающей выборки LogReg. "
+                           "Для 15-минутных рынков = 15.0. Отсекает данные с нерелевантным горизонтом."),
+    SettingDef("LR_TRAIN_MIN_TIME_LEFT_MIN", "0.5",
+               description="Нижняя граница time_left (мин) для обучающей выборки. "
+                           "Исключает снапшоты последних 30 сек (шум исполнения)."),
+    SettingDef("LR_SAMPLE_WEIGHT_MODE", "time_decay",
+               description="Режим взвешивания сэмплов при обучении: "
+                           "'uniform' — без весов, "
+                           "'time_decay' — вес = 1/(time_left+1), "
+                           "'exp_decay' — вес = exp(-time_left/tau)."),
+    SettingDef("LR_SAMPLE_WEIGHT_TAU", "5.0",
+               description="Параметр tau для exp_decay взвешивания (в минутах). "
+                           "Сэмплы старше tau минут получают вес < 0.37."),
 
     # --- Цена входа ---
     SettingDef("TRADE_MIN_PRICE", "0.05",
