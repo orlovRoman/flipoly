@@ -19,16 +19,19 @@ from polyflip.trading.utils import compute_dead_zone
 logger = structlog.get_logger(__name__)
 
 def _get_float_setting(raw_settings: dict, key: str) -> Optional[float]:
+    """
+    Читает float из raw_settings.
+    Возвращает None если ключ отсутствует, пустой или равен "0"/"0.0".
+    НЕ нормализует значения — если в дашборде введено 80, вернёт 80.0.
+    Все пороги должны храниться в БД как десятичные дроби (0.8, не 80).
+    """
     val = raw_settings.get(key)
-    if val is not None and str(val).strip() not in ("", "0", "0.0"):
-        try:
-            res = float(val)
-            if res > 1.0:
-                res = res / 100.0
-            return res
-        except ValueError:
-            pass
-    return None
+    if val is None or str(val).strip() in ("", "0", "0.0"):
+        return None
+    try:
+        return float(val)
+    except ValueError:
+        return None
 
 @dataclass
 class DecisionResult:
@@ -179,26 +182,37 @@ async def decide_ml_mode(
         time_left_min=time_left_sec / 60.0
     )
 
-    # Приоритет: ручной → фазовый авто → базовый авто → дефолт
-    manual_key     = f"TRADE_FLIP_THRESHOLD_{market.asset.upper()}"
-    auto_key_phase = f"AUTO_FLIP_THRESHOLD_{used_model}"
-    auto_key_base  = f"AUTO_FLIP_THRESHOLD_{market.asset.upper()}"
+    _asset_upper = market.asset.upper()
+    _priority_chain = [
+        f"FLIP_THRESHOLD_{_asset_upper}",              # per-asset из дашборда
+        "FLIP_THRESHOLD",                              # глобальный из дашборда
+        f"AUTO_FLIP_THRESHOLD_{used_model}_contested",  # авто: фаза contested
+        f"AUTO_FLIP_THRESHOLD_{used_model}_leaning",    # авто: фаза leaning
+        f"AUTO_FLIP_THRESHOLD_{used_model}_decided",    # авто: фаза decided
+        f"AUTO_FLIP_THRESHOLD_{used_model}",            # авто: базовый для модели
+        f"AUTO_FLIP_THRESHOLD_{_asset_upper}",          # авто: по символу
+    ]
 
-    manual_val = _get_float_setting(raw_settings, manual_key)
-    global_threshold_val = _get_float_setting(raw_settings, "TRADE_FLIP_THRESHOLD") or _get_float_setting(raw_settings, "FLIP_THRESHOLD")
-    auto_phase_val = _get_float_setting(raw_settings, auto_key_phase)
-    auto_base_val = _get_float_setting(raw_settings, auto_key_base)
+    base_flip_threshold = None
+    _resolved_key = None
+    for _key in _priority_chain:
+        _val = _get_float_setting(raw_settings, _key)
+        if _val is not None:
+            base_flip_threshold = _val
+            _resolved_key = _key
+            break
 
-    if manual_val is not None:
-        base_flip_threshold = manual_val
-    elif global_threshold_val is not None:
-        base_flip_threshold = global_threshold_val
-    elif auto_phase_val is not None:
-        base_flip_threshold = auto_phase_val
-    elif auto_base_val is not None:
-        base_flip_threshold = auto_base_val
-    else:
+    if base_flip_threshold is None:
         base_flip_threshold = cfg.no_flip_threshold + cfg.dead_zone
+        _resolved_key = "system_default"
+
+    logger.info(
+        "flip_threshold_resolved",
+        asset=_asset_upper,
+        resolved_key=_resolved_key,
+        value=round(base_flip_threshold, 4),
+        used_model=used_model,
+    )
 
     lower, upper = compute_dead_zone(
         flip_threshold=base_flip_threshold,
@@ -212,9 +226,12 @@ async def decide_ml_mode(
     local_config["NO_FLIP_THRESHOLD"] = str(lower)
     local_config["FLIP_THRESHOLD"] = str(upper)
     local_config["FAVORITE_THRESHOLD"] = str(upper)
-    # Используем FAVORITE_MIN_EDGE=-100.0 для обхода edge-фильтрации внутри вспомогательного вызова decide_favorite.
-    # Это сохраняет оригинальный MIN_EDGE в local_config для правильной ML-фильтрации в decide_ml_trend и расчета Kelly.
-    local_config["FAVORITE_MIN_EDGE"] = "-100.0"
+    # В ML_TREND режиме decide_favorite используется только для определения стороны (YES/NO),
+    # но не для фильтрации по edge — это делает decide_ml_trend с MIN_EDGE.
+    # Поэтому передаём заведомо низкий порог, чтобы favorite не заблокировал стороны
+    # из-за своего edge-фильтра. Итоговый edge проверяется в decide_ml_trend.
+    ML_MODE_BYPASS_FAV_EDGE = -100.0
+    local_config["FAVORITE_MIN_EDGE"] = str(ML_MODE_BYPASS_FAV_EDGE)
     # NOTE: MAX_BET_EDGE intentionally not overridden here (prevents disabling bet scaling)
     local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 

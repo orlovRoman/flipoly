@@ -61,14 +61,10 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     """
     PURE_FAVORITE стратегия.
     Покупает фаворита (YES если mid_price > threshold, NO если < 1-threshold).
-    config ожидает ключи:
-      - FAVORITE_THRESHOLD: float (напр. 0.65)
-      - FAVORITE_MIN_EDGE: float (мин. edge для фаворита, мягче чем ML)
-      - DEAD_ZONE_WIDTH: float (ширина мёртвой зоны)
-      - FAVORITE_MIN_PRICE / FAVORITE_MAX_PRICE: float
-      - TRADE_BET_SIZE_USDC: float (min bet)
-      - MAX_BET_SIZE_USDC: float
-      - MAX_BET_EDGE: float (потолок масштабирования ставки)
+    
+    Важно: обе стороны проверяются независимо.
+    YES-side out-of-bounds НЕ блокирует проверку NO-side.
+    Если обе стороны подходят — выбирается с бо́льшим edge.
     """
     threshold = float(config.get("FAVORITE_THRESHOLD", 0.55))
     if "FAVORITE_THRESHOLD" not in config:
@@ -77,51 +73,53 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             threshold=threshold,
             note="Default changed from 0.65 to 0.55 in v1.x — set FAVORITE_THRESHOLD explicitly"
         )
-    # DEAD_ZONE_WIDTH — единый параметр ширины мёртвой зоны (убран AUTO_DEAD_ZONE_WIDTH)
     dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
 
     if is_in_dead_zone(signal.mid_price, dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP")
 
-    fav_min = float(config.get("FAVORITE_MIN_PRICE", 0.55))
-    fav_max = float(config.get("FAVORITE_MAX_PRICE", 0.95))
+    fav_min  = float(config.get("FAVORITE_MIN_PRICE", 0.55))
+    fav_max  = float(config.get("FAVORITE_MAX_PRICE", 0.95))
+    min_edge = float(config.get("FAVORITE_MIN_EDGE", config.get("MIN_EDGE", -0.01)))
+
+    candidates: list[TradeDecision] = []
 
     # --- YES side ---
     if signal.mid_price >= threshold:
-        if not (fav_min <= signal.yes_ask <= fav_max):
-            return TradeDecision("SKIP", 0, 0,
-                f"YES price {signal.yes_ask:.3f} out of bounds [{fav_min},{fav_max}]", "SKIP")
-        p_win_yes = signal.mid_price
-        edge = compute_edge(p_win_yes, signal.yes_ask)
-        min_edge = float(config.get("FAVORITE_MIN_EDGE", config.get("MIN_EDGE", -0.01)))
-        if edge < min_edge:
-            return TradeDecision("SKIP", 0, 0,
-                f"favorite YES edge={edge:.4f} < min_edge={min_edge:.4f}", "SKIP",
-                edge=edge)
-        bet = _resolve_final_bet(edge, signal.volume_5min, config)
-        return TradeDecision("BUY_YES", signal.yes_ask, bet,
-            f"favorite YES edge={edge:.4f}", "PURE_FAVORITE",
-            edge=edge, p_up=p_win_yes)
+        if fav_min <= signal.yes_ask <= fav_max:
+            p_win_yes = signal.mid_price
+            edge = compute_edge(p_win_yes, signal.yes_ask)
+            if edge >= min_edge:
+                bet = _resolve_final_bet(edge, signal.volume_5min, config)
+                candidates.append(TradeDecision(
+                    "BUY_YES", signal.yes_ask, bet,
+                    f"favorite YES edge={edge:.4f}", "PURE_FAVORITE",
+                    edge=edge, p_up=p_win_yes,
+                ))
 
-    # --- NO side ---
+    # --- NO side --- проверяется НЕЗАВИСИМО от YES-side
     if signal.mid_price <= (1.0 - threshold):
-        no_prob = 1.0 - signal.mid_price
-        if not (fav_min <= signal.no_ask <= fav_max):
-            return TradeDecision("SKIP", 0, 0,
-                f"NO price {signal.no_ask:.3f} out of bounds [{fav_min},{fav_max}]", "SKIP")
-        edge = compute_edge(no_prob, signal.no_ask)
-        min_edge = float(config.get("FAVORITE_MIN_EDGE", config.get("MIN_EDGE", -0.01)))
-        if edge < min_edge:
-            return TradeDecision("SKIP", 0, 0,
-                f"favorite NO edge={edge:.4f} < min_edge={min_edge:.4f}", "SKIP",
-                edge=edge)
-        bet = _resolve_final_bet(edge, signal.volume_5min, config)
-        p_up = 1.0 - no_prob
-        return TradeDecision("BUY_NO", signal.no_ask, bet,
-            f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
-            edge=edge, p_up=p_up)
+        if fav_min <= signal.no_ask <= fav_max:
+            no_prob = 1.0 - signal.mid_price
+            edge = compute_edge(no_prob, signal.no_ask)
+            if edge >= min_edge:
+                bet = _resolve_final_bet(edge, signal.volume_5min, config)
+                candidates.append(TradeDecision(
+                    "BUY_NO", signal.no_ask, bet,
+                    f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
+                    edge=edge, p_up=1.0 - no_prob,
+                ))
 
-    return TradeDecision("SKIP", 0.0, 0.0, "no clear favorite", "SKIP")
+    if not candidates:
+        if signal.mid_price >= threshold and not (fav_min <= signal.yes_ask <= fav_max):
+            reason = f"YES price {signal.yes_ask:.3f} out of bounds [{fav_min},{fav_max}]"
+        elif signal.mid_price <= (1.0 - threshold) and not (fav_min <= signal.no_ask <= fav_max):
+            reason = f"NO price {signal.no_ask:.3f} out of bounds [{fav_min},{fav_max}]"
+        else:
+            reason = "no clear favorite"
+        return TradeDecision("SKIP", 0.0, 0.0, reason, "SKIP")
+
+    return max(candidates, key=lambda d: d.edge or 0.0)
 
 
 def decide_ml_trend(

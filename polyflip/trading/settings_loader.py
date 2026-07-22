@@ -65,6 +65,7 @@ async def load_trading_settings(
     threshold_keys = []
     for asset in trade_assets:
         asset_upper = asset.upper()
+        threshold_keys.append(f"FLIP_THRESHOLD_{asset_upper}")
         threshold_keys.append(f"TRADE_FLIP_THRESHOLD_{asset_upper}")
         threshold_keys.append(f"TRADING_MODE_{asset_upper}")
         threshold_keys.append(f"MIN_EDGE_{asset_upper}")
