@@ -78,7 +78,7 @@ async def get_trading_stats(
                 TradeHistory.asset,
                 func.count(TradeHistory.id).label("total_trades"),
                 func.sum(TradeHistory.pnl).label("total_pnl"),
-                func.sum(case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
+                func.sum(sa_case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
             ).where(*conds).group_by(TradeHistory.asset)
             return (await s.execute(stmt)).all()
 
@@ -93,8 +93,8 @@ async def get_trading_stats(
             stmt = select(
                 cast(TradeHistory.created_at, Date).label("day"),
                 func.sum(TradeHistory.pnl).label("daily_pnl"),
-                func.sum(case((TradeHistory.pnl > 0, 1), else_=0)).label("wins"),
-                func.sum(case((TradeHistory.pnl <= 0, 1), else_=0)).label("losses")
+                func.sum(sa_case((TradeHistory.pnl > 0, 1), else_=0)).label("wins"),
+                func.sum(sa_case((TradeHistory.pnl <= 0, 1), else_=0)).label("losses")
             ).where(*conds).group_by(cast(TradeHistory.created_at, Date))
             return (await s.execute(stmt)).all()
 
@@ -107,10 +107,10 @@ async def get_trading_stats(
             if cutoff_dt:
                 conds.append(TradeHistory.created_at >= cutoff_dt)
             stmt = select(
-                func.avg(case((TradeHistory.pnl > 0, TradeHistory.executed_price), else_=None)).label("avg_win_price"),
-                func.avg(case((TradeHistory.pnl <= 0, TradeHistory.executed_price), else_=None)).label("avg_loss_price"),
-                func.avg(case((TradeHistory.pnl > 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_win_prob"),
-                func.avg(case((TradeHistory.pnl <= 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_loss_prob")
+                func.avg(sa_case((TradeHistory.pnl > 0, TradeHistory.executed_price), else_=None)).label("avg_win_price"),
+                func.avg(sa_case((TradeHistory.pnl <= 0, TradeHistory.executed_price), else_=None)).label("avg_loss_price"),
+                func.avg(sa_case((TradeHistory.pnl > 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_win_prob"),
+                func.avg(sa_case((TradeHistory.pnl <= 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_loss_prob")
             ).where(*conds)
             return (await s.execute(stmt)).first()
 
@@ -119,7 +119,7 @@ async def get_trading_stats(
             stmt = select(
                 func.count(TradeHistory.id).label("total_trades"),
                 func.sum(TradeHistory.pnl).label("total_pnl"),
-                func.sum(case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
+                func.sum(sa_case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
             ).where(
                 TradeHistory.status == "SUCCESS",
                 TradeHistory.pnl.is_not(None)
