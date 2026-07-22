@@ -292,7 +292,7 @@ def decide_crypto_trend(
             p_up=crypto.p_up, strike=crypto.strike
         )
 
-    min_edge = float(config.get("CRYPTO_MIN_EDGE", config.get("MIN_EDGE", 0.04)))
+    min_edge = float(config.get("MIN_EDGE", 0.05))
 
     if crypto.direction == "NONE" or crypto.edge < min_edge:
         return TradeDecision(
@@ -301,9 +301,7 @@ def decide_crypto_trend(
             strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
         )
 
-    # Стандартизованный сайзинг ставок с подменой MIN_EDGE на CRYPTO_MIN_EDGE
-    crypto_config = {**config, "MIN_EDGE": min_edge}
-    bet = _resolve_final_bet(crypto.edge, volume_5min, crypto_config)
+    bet = _resolve_final_bet(crypto.edge, volume_5min, config)
     bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
     if bet <= 0 and not bypass:
         return TradeDecision(

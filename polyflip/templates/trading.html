@@ -563,7 +563,7 @@
                             </div>
                             
                             <div class="form-group">
-                                <label for="MIN_EDGE" title="[БАЗОВЫЙ ПАРАМЕТР] Минимальное математическое ожидание (Edge в %), при котором бот войдет в сделку. Если бот скипает фаворитов, снизьте этот порог до 1-2%.">Мин. Edge для ставки (%)</label>
+                                <label for="MIN_EDGE" title="[БАЗОВЫЙ ПАРАМЕТР] Единое минимальное математическое ожидание (Edge в %), при котором бот войдет в сделку в ЛЮБОМ торговом режиме (ML, LightGBM, Combined).">Единый Мин. Edge для всех режимов (%)</label>
                                 <input type="number" step="0.1" min="0.5" max="50" id="MIN_EDGE" value="5">
                             </div>
 
@@ -608,11 +608,6 @@
                             <div class="form-group">
                                 <label for="NO_MIN_EDGE" title="Минимальное матожидание (Edge в %) для ставок на аутсайдера (стратегия OUTSIDER). Рекомендуется: 2–5%.">Мин. edge для аутсайдера — NO (%)</label>
                                 <input type="number" step="0.1" id="NO_MIN_EDGE" value="4">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="CRYPTO_MIN_EDGE" title="Минимальное матожидание (Edge в %) для стратегии LIGHTGBM_TREND (вход по движению цены криптовалюты).">Мин. edge для Crypto Trend (%)</label>
-                                <input type="number" step="0.1" min="0.1" max="30" id="CRYPTO_MIN_EDGE" value="5">
                             </div>
 
                             <div class="form-group">
