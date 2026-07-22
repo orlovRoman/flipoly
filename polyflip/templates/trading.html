@@ -441,15 +441,15 @@
 
 
                             <div class="form-group">
-                                <label for="TRADE_FLIP_THRESHOLD" title="[ДЛЯ ML-МОДЕЛЕЙ] Вероятность (%), выше которой ML модель считает, что аутсайдер выиграет, и бот поставит против толпы.">
-                                    Порог ПРОТИВ ТОЛПЫ — flip (%, выше — ставим на аутсайдера)
+                                <label for="FLIP_THRESHOLD" title="[ОСНОВНОЙ ПОРОГ] Порог вероятности флипа (в %, напр. 80%). Из него и ширины мёртвой зоны вычисляется коридор (lower, upper). При p_flip < lower — вход на фаворита, при p_flip >= upper — на аутсайдера. Применяется в режимах ML, Combined и LightGBM.">
+                                    Порог ФЛИПА / Против толпы — FLIP_THRESHOLD (%, выше — вход на аутсайдера)
                                 </label>
-                                <input type="number" step="0.1" max="100" min="0" id="TRADE_FLIP_THRESHOLD" value="85">
+                                <input type="number" step="0.1" max="100" min="0" id="FLIP_THRESHOLD" value="80">
                             </div>
                             
                             <div class="form-group">
-                                <label for="TRADE_NO_FLIP_THRESHOLD" title="[ДЛЯ ML-МОДЕЛЕЙ - Резервный] Используется, только если бот не может рассчитать мертвую зону от основного порога. Вероятность (%), ниже которой бот ставит по тренду." style="display:flex; justify-content:space-between; align-items:center;">
-                                    <span>Порог ПО ТРЕНДУ — no_flip (%, ниже — ставим на фаворита)</span>
+                                <label for="TRADE_NO_FLIP_THRESHOLD" title="Нижняя граница мёртвой зоны (в %, вычисляется как FLIP_THRESHOLD - DEAD_ZONE_WIDTH). При вероятности флипа ниже этого значения бот ставит на фаворита по тренду." style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span>Порог ПО ТРЕНДУ — lower bound (ниже — ставим на фаворита)</span>
                                     <button type="button" id="btn-apply-recommended-no-flip"
                                             style="font-size:0.75rem; padding:2px 10px; border-radius:12px;
                                                    background:rgba(0,255,136,0.1); border:1px solid #00ff88;
@@ -457,7 +457,7 @@
                                         ← Применить рекомендованное
                                     </button>
                                 </label>
-                                <input type="number" step="1" max="100" min="0" id="TRADE_NO_FLIP_THRESHOLD" value="45">
+                                <input type="number" step="1" max="100" min="0" id="TRADE_NO_FLIP_THRESHOLD" value="70">
                                 <small id="no-flip-hint" style="display:block; margin-top:0.4rem; color:#a0aec0;">
                                     <!-- Заполняется JS -->
                                 </small>
@@ -467,15 +467,15 @@
 
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem;">
                                 <input type="checkbox" id="AUTO_DEAD_ZONE" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                <label for="AUTO_DEAD_ZONE" title="Автоматически вычислять 'мертвую зону' (коридор вероятностей, где бот не делает ставки) на основе калибровки ML модели." style="margin: 0; cursor: pointer;">Автоматическая мёртвая зона (AUTO_DEAD_ZONE)</label>
+                                <label for="AUTO_DEAD_ZONE" title="Автоматически вычислять 'мертвую зону' на основе автокалибровки ML модели." style="margin: 0; cursor: pointer;">Автоматическая мёртвая зона (AUTO_DEAD_ZONE)</label>
                             </div>
 
                             <!-- AUTO_DEAD_ZONE_WIDTH удалён — единственный параметр ширины: DEAD_ZONE_WIDTH -->
                             <div class="form-group" id="dead-zone-width-group">
-                                <label for="DEAD_ZONE_WIDTH" title="Ширина 'мертвой зоны' (в %). Чем шире, тем меньше сделок, но выше их надежность.">Ширина мёртвой зоны (%)</label>
+                                <label for="DEAD_ZONE_WIDTH" title="Ширина 'мёртвой зоны' (в %, напр. 10%). Коридор между lower (по тренду) и upper (против толпы). При вероятности внутри этой зоны сделки пропускаются.">Ширина мёртвой зоны (%)</label>
                                 <input type="number" step="1" max="40" min="2" id="DEAD_ZONE_WIDTH" value="10">
                                 <small style="color: var(--text-muted, #888); margin-top: 4px; display: block;">
-                                    Используется в обоих режимах (AUTO и ручном). Рекомендуется: 8–15%.
+                                    Коридор пропускной зоны [FLIP_THRESHOLD - DEAD_ZONE_WIDTH, FLIP_THRESHOLD]. Рекомендуется: 5–15%.
                                 </small>
                             </div>
 
@@ -593,7 +593,7 @@
                             </div>
                             
                             <div class="form-group">
-                                <label for="FAVORITE_MIN_EDGE" title="[ДЛЯ ML TREND] Минимальное матожидание (Edge) для ставок на фаворита. Для уверенных моделей (BTC_decided) ставьте 1-2%, чтобы бот не браковал ставки из-за малого эджа. Можно ставить отрицательное (например -1.0%).">Мин Edge для Фаворита (%, напр. -1.0 = -1%)</label>
+                                <label for="FAVORITE_MIN_EDGE" title="Минимальный Edge для режима PURE_FAVORITE (без ML). В режимах ML/Combined этот параметр обходится автоматически, а фильтрация идет по единому 'Мин. Edge для ставки' (MIN_EDGE).">Мин Edge для PURE_FAVORITE (%)</label>
                                 <input type="number" step="0.1" id="FAVORITE_MIN_EDGE" value="-1.0" placeholder="-1.0" min="-20" max="50">
                             </div>
 
@@ -602,30 +602,24 @@
                             
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem;">
                                 <input type="checkbox" id="TRADE_ON_FLIP" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                <label for="TRADE_ON_FLIP" title="Торговать на разворот (стратегия Аутсайдера - когда модель предсказывает сильную вероятность разворота рынка) во всех режимах (ML, Combined)." style="margin: 0; cursor: pointer;">Включить ставки на аутсайдера (TRADE_ON_FLIP)</label>
+                                <label for="TRADE_ON_FLIP" title="Разрешить ставки против толпы (стратегия OUTSIDER), когда прогнозируется вероятный переворот фаворита." style="margin: 0; cursor: pointer;">Включить ставки на аутсайдера (TRADE_ON_FLIP)</label>
                             </div>
 
                             <div class="form-group">
-                                <label for="FLIP_THRESHOLD" title="[ДЛЯ LIGHTGBM РЕЖИМА (Crypto Trend)] Порог вероятности переворота рынка, выше которого бот ставит на Аутсайдера. В ML и Combined режимах бот ПОЛНОСТЬЮ ИГНОРИРУЕТ эту цифру.">Порог Флипа для NO (LightGBM Режим)</label>
-                                <input type="number" step="1" min="50" max="99" id="FLIP_THRESHOLD" value="70">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="NO_MIN_EDGE" title="Минимальное матожидание (Edge) для ставок на аутсайдера (обычно берется высокое, чтобы компенсировать риски).">Мин. edge для аутсайдера — NO (%)</label>
+                                <label for="NO_MIN_EDGE" title="Минимальное матожидание (Edge в %) для ставок на аутсайдера (стратегия OUTSIDER). Рекомендуется: 2–5%.">Мин. edge для аутсайдера — NO (%)</label>
                                 <input type="number" step="0.1" id="NO_MIN_EDGE" value="4">
                             </div>
 
                             <div class="form-group">
-                                <label for="CRYPTO_MIN_EDGE" title="Минимальное матожидание (Edge) для входа по стратегии Crypto Trend (торговля по скачкам Биткоина/Эфира).">Мин. edge для Crypto Trend (%)</label>
+                                <label for="CRYPTO_MIN_EDGE" title="Минимальное матожидание (Edge в %) для стратегии LIGHTGBM_TREND (вход по движению цены криптовалюты).">Мин. edge для Crypto Trend (%)</label>
                                 <input type="number" step="0.1" min="0.1" max="30" id="CRYPTO_MIN_EDGE" value="5">
                             </div>
 
                             <div class="form-group">
-                                <label for="OUTSIDER_MAX_PRICE" title="Максимальная цена покупки аутсайдера. Если аутсайдер стоит дороже - это уже не аутсайдер, пропускаем.">Макс. цена аутсайдера (NO и YES)</label>
+                                <label for="OUTSIDER_MAX_PRICE" title="Максимальная цена покупки токена аутсайдера. Если цена аутсайдера выше — рынок уже отыграл флип, вход прорускается.">Макс. цена аутсайдера (NO и YES)</label>
                                 <input type="number" step="0.01" min="0.01" max="0.99" id="OUTSIDER_MAX_PRICE" value="0.45">
                                 <small style="color: var(--text-muted, #888); margin-top: 4px; display: block;">
-                                    Единый потолок цены для покупки аутсайдера в обе стороны (NO если YES-фаворит и YES если NO-фаворит).
-                                    Рекомендуется: 0.35–0.45.
+                                    Единый потолок цены для покупки аутсайдера в обе стороны. Рекомендуется: 0.35–0.45.
                                 </small>
                             </div>
                         </div>
