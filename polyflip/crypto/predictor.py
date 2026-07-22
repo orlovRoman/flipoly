@@ -189,13 +189,13 @@ class CryptoPredictor:
             p33_row = (await db.execute(
                 select(RuntimeSettings).where(RuntimeSettings.key == p33_key)
             )).scalar_one_or_none()
-            self._vol_p33s[symbol] = float(p33_row.value) if p33_row else 0.5
+            self._vol_p33s[symbol] = float(p33_row.value) if p33_row else 0.8
 
             p67_key = f"CRYPTO_VOL_P67_{symbol}"
             p67_row = (await db.execute(
                 select(RuntimeSettings).where(RuntimeSettings.key == p67_key)
             )).scalar_one_or_none()
-            self._vol_p67s[symbol] = float(p67_row.value) if p67_row else 1.5
+            self._vol_p67s[symbol] = float(p67_row.value) if p67_row else 1.2
 
             fr_key = f"FUNDING_RATE_{symbol}"
             fr_row = (await db.execute(
