@@ -188,3 +188,110 @@ async def get_trading_stats(
     
     _stats_cache[cache_key] = {"time": current_time, "data": result}
     return result
+
+
+from polyflip.db.models import DecisionFunnelLog
+
+
+@router.get("/trading/funnel/stats")
+@router.get("/funnel/stats")
+async def get_funnel_stats(
+    hours: int = 24,
+    asset: Optional[str] = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Возвращает агрегированную статистику гейтов за последние N часов.
+    Формат: { "total": 150, "by_gate": { "g4_no_flip": {"blocked": 40, "pct": 26.7}, ... } }
+    """
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    q = select(DecisionFunnelLog).where(DecisionFunnelLog.created_at >= since)
+    if asset:
+        q = q.where(DecisionFunnelLog.asset == asset.upper())
+
+    rows = (await db.execute(q)).scalars().all()
+    total = len(rows)
+    if total == 0:
+        return {"total": 0, "traded": 0, "hours": hours, "by_gate": {}, "by_asset": {}}
+
+    gate_names = [
+        "g1_model_loaded", "g2_price_fetched", "g3_dead_zone",
+        "g4_no_flip", "g5_min_edge", "g6_price_range",
+        "g7_crypto_confirm", "g8_combined_vote"
+    ]
+
+    by_gate = {}
+    for gate in gate_names:
+        blocked = sum(1 for r in rows if getattr(r, gate) is False)
+        by_gate[gate] = {
+            "blocked": blocked,
+            "pct": round(blocked / total * 100, 1),
+        }
+
+    # Агрегация по asset
+    by_asset: dict = {}
+    for r in rows:
+        by_asset.setdefault(r.asset, {"total": 0, "traded": 0})
+        by_asset[r.asset]["total"] += 1
+        if r.final_action in ("BUY_YES", "BUY_NO"):
+            by_asset[r.asset]["traded"] += 1
+
+    return {
+        "total": total,
+        "traded": sum(1 for r in rows if r.final_action in ("BUY_YES", "BUY_NO")),
+        "hours": hours,
+        "by_gate": by_gate,
+        "by_asset": by_asset,
+    }
+
+
+@router.get("/trading/funnel/detail")
+@router.get("/funnel/detail")
+async def get_funnel_detail(
+    hours: int = 6,
+    asset: Optional[str] = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Детальный лог последних N записей для дебага конкретного рынка."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    q = (
+        select(DecisionFunnelLog)
+        .where(DecisionFunnelLog.created_at >= since)
+        .order_by(DecisionFunnelLog.created_at.desc())
+        .limit(limit)
+    )
+    if asset:
+        q = q.where(DecisionFunnelLog.asset == asset.upper())
+    rows = (await db.execute(q)).scalars().all()
+    return [
+        {
+            "id": r.id,
+            "created_at": r.created_at.isoformat(),
+            "asset": r.asset,
+            "market_id": r.market_id,
+            "trading_mode": r.trading_mode,
+            "used_model": r.used_model,
+            "p_flip": r.p_flip,
+            "edge": r.edge,
+            "fresh_price": r.fresh_price,
+            "thresholds": {
+                "lower": r.threshold_lower,
+                "upper": r.threshold_upper,
+                "min_edge": r.min_edge_used,
+            },
+            "gates": {
+                "g1_model_loaded": r.g1_model_loaded,
+                "g2_price_fetched": r.g2_price_fetched,
+                "g3_dead_zone": r.g3_dead_zone,
+                "g4_no_flip": r.g4_no_flip,
+                "g5_min_edge": r.g5_min_edge,
+                "g6_price_range": r.g6_price_range,
+                "g7_crypto_confirm": r.g7_crypto_confirm,
+                "g8_combined_vote": r.g8_combined_vote,
+            },
+            "final_action": r.final_action,
+            "skip_reason": r.skip_reason,
+        }
+        for r in rows
+    ]

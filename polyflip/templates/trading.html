@@ -259,6 +259,48 @@
                         <button class="btn outline-btn" id="btn-next" style="padding: 0.5rem 1rem;">Вперёд →</button>
                     </div>
                 </div>
+
+                <!-- Decision Funnel Widget -->
+                <div class="stat-card" id="funnel-card" style="margin-top: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3 style="margin: 0;">🔍 Decision Funnel (последние <span id="funnel-hours">24</span>ч)</h3>
+                        <div style="display: flex; gap: 10px;">
+                            <select id="funnel-asset-filter" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem;">
+                                <option value="">Все активы</option>
+                                <option value="BTC">BTC</option>
+                                <option value="ETH">ETH</option>
+                                <option value="SOL">SOL</option>
+                                <option value="DOGE">DOGE</option>
+                                <option value="XRP">XRP</option>
+                            </select>
+                            <select id="funnel-hours-select" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem;">
+                                <option value="6">6ч</option>
+                                <option value="24" selected>24ч</option>
+                                <option value="72">72ч</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 2rem; margin-bottom: 1rem; font-size: 0.95rem;">
+                        <div><strong id="funnel-total" style="color: #60a5fa;">—</strong> проверено</div>
+                        <div><strong id="funnel-traded" style="color: #4ade80;">—</strong> сделок</div>
+                        <div style="color: var(--text-muted);">conversion: <strong id="funnel-conv" style="color: white;">—</strong>%</div>
+                    </div>
+                    <div style="overflow-x: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 1rem; border: 1px solid var(--border-color);">
+                        <table class="data-table" id="funnel-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
+                                    <th style="padding: 8px;">Гейт</th>
+                                    <th style="padding: 8px;">Заблокировано</th>
+                                    <th style="padding: 8px;">% от total</th>
+                                    <th style="padding: 8px;">Статус</th>
+                                </tr>
+                            </thead>
+                            <tbody id="funnel-tbody">
+                                <!-- JS populated -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
                 
 
                 <!-- Trading Settings -->
@@ -622,5 +664,70 @@
     </div>
 
     <script src="{{ url_for('static', path='/js/trading.js') }}?v={{ timestamp }}" defer></script>
+    <script>
+    const GATE_LABELS = {
+      g1_model_loaded:   "G1: Модель загружена",
+      g2_price_fetched:  "G2: API цена получена",
+      g3_dead_zone:      "G3: Dead zone (p_flip в зоне неопределённости)",
+      g4_no_flip:        "G4: No-flip threshold (p_flip слишком высокий)",
+      g5_min_edge:       "G5: Min edge недостаточный",
+      g6_price_range:    "G6: Цена вне допустимого диапазона",
+      g7_crypto_confirm: "G7: Crypto Confirm veto (LightGBM)",
+      g8_combined_vote:  "G8: Combined vote заблокировал",
+    };
+
+    async function loadFunnel() {
+      try {
+        const hoursSelect = document.getElementById("funnel-hours-select");
+        const assetFilter = document.getElementById("funnel-asset-filter");
+        if (!hoursSelect || !assetFilter) return;
+
+        const hours = hoursSelect.value;
+        const asset = assetFilter.value;
+        document.getElementById("funnel-hours").textContent = hours;
+
+        const params = new URLSearchParams({ hours });
+        if (asset) params.set("asset", asset);
+
+        const res = await fetch(`/trading/funnel/stats?${params}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        document.getElementById("funnel-total").textContent = data.total ?? 0;
+        document.getElementById("funnel-traded").textContent = data.traded ?? 0;
+        const conv = data.total > 0 ? ((data.traded / data.total) * 100).toFixed(1) : "0.0";
+        document.getElementById("funnel-conv").textContent = conv;
+
+        const tbody = document.getElementById("funnel-tbody");
+        if (!tbody) return;
+        tbody.innerHTML = "";
+        if (!data.by_gate || Object.keys(data.by_gate).length === 0) {
+          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 12px; color: var(--text-muted);">Нет данных за выбранный период</td></tr>`;
+          return;
+        }
+        for (const [gate, label] of Object.entries(GATE_LABELS)) {
+          const g = data.by_gate[gate];
+          if (!g) continue;
+          const severity = g.pct > 30 ? "background: rgba(239,68,68,0.15);" : g.pct > 10 ? "background: rgba(245,158,11,0.15);" : "";
+          const statusBadge = g.pct > 20 ? "🔴 bottleneck" : g.pct > 5 ? "🟡" : "🟢 ok";
+          tbody.innerHTML += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05); ${severity}">
+            <td style="padding: 8px;">${label}</td>
+            <td style="padding: 8px;">${g.blocked}</td>
+            <td style="padding: 8px;">${g.pct}%</td>
+            <td style="padding: 8px;">${statusBadge}</td>
+          </tr>`;
+        }
+      } catch (err) {
+        console.error("Failed to load funnel stats:", err);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      document.getElementById("funnel-hours-select")?.addEventListener("change", loadFunnel);
+      document.getElementById("funnel-asset-filter")?.addEventListener("change", loadFunnel);
+      loadFunnel();
+      setInterval(loadFunnel, 30000);
+    });
+    </script>
 </body>
 </html>
