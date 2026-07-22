@@ -225,7 +225,8 @@ async def decide_ml_mode(
         local_config["MAX_EDGE_FILTER"] = str(cfg.max_edge_filter)
     local_config["NO_FLIP_THRESHOLD"] = str(lower)
     local_config["FLIP_THRESHOLD"] = str(upper)
-    local_config["FAVORITE_THRESHOLD"] = str(upper)
+    fav_thresh = raw_settings.get("FAVORITE_THRESHOLD", str(cfg.favorite_threshold))
+    local_config["FAVORITE_THRESHOLD"] = str(fav_thresh)
     # В ML_TREND режиме decide_favorite используется только для определения стороны (YES/NO),
     # но не для фильтрации по edge — это делает decide_ml_trend с MIN_EDGE.
     # Поэтому передаём заведомо низкий порог, чтобы favorite не заблокировал стороны
