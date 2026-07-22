@@ -26,8 +26,8 @@ async def test_crypto_predictor_flow():
     # 2. Мокаем сборку фичей build_crypto_features, возвращая полностью валидные 26 полей
     mock_features = MagicMock()
     mock_features.valid = True
-    # 33 значения (все поля Validator заполнены)
-    mock_features.features = [np.array([0.01]*33)]
+    # 23 значения (все поля Validator заполнены)
+    mock_features.features = [np.array([0.01]*23)]
 
     # Создаем фейковую свечу для страйка
     class FakeCandle:

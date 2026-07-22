@@ -94,7 +94,7 @@ def test_predictor_predict_missing_regime():
         mock_fv.valid = True
         from polyflip.crypto.feature_builder import CRYPTO_FEATURE_COLUMNS
         features_data = {col: 1.0 for col in CRYPTO_FEATURE_COLUMNS}
-        features_data["vol_ratio"] = 2.5  # vol_ratio > 1.0 -> high_vol
+        features_data["vol_trend"] = 2.5
         mock_fv.features = [[features_data[col] for col in CRYPTO_FEATURE_COLUMNS]]
         mock_bf.return_value = mock_fv
         # Создаем фейковую свечу для проброса close

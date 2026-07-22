@@ -220,6 +220,13 @@ def _fit_lgbm_and_serialize(
         col: int(imp)
         for col, imp in zip(X.columns, final_lgbm.feature_importances_)
     }
+    zero_imp = [f for f, v in fi.items() if v == 0]
+    if zero_imp:
+        logger.warning(
+            "features_with_zero_importance",
+            features=zero_imp,
+            hint="Consider removing these features in next refactor",
+        )
     logger.info("crypto_feature_importance", top5=dict(sorted(fi.items(), key=lambda x: -x[1])[:5]))
 
     return pickle.dumps(final_cal), val_auc, baseline_auc, optimal_threshold, ece, fi

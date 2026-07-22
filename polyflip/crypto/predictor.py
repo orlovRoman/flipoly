@@ -364,7 +364,7 @@ class CryptoPredictor:
             ece = (self._model_eces.get(symbol, {}).get(regime)
                    or next(iter(self._model_eces.get(symbol, {}).values()), 0.0))
 
-            fr = funding_rate if funding_rate != 0.0 else self._funding_rates.get(symbol, 0.0)
+            fr = funding_rate if (funding_rate is not None and funding_rate != 0.0) else (self._funding_rates.get(symbol) or 0.0)
             from polyflip.crypto.risk_guard import check_funding_veto
             veto = check_funding_veto(funding_rate=fr, direction=direction)
 
