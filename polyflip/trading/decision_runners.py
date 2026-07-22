@@ -558,6 +558,10 @@ async def decide_combined_mode(
         )
 
     g8_combined_vote = (vote.action != "SKIP")
+    _combined_lower = float(raw_settings.get("NO_FLIP_THRESHOLD", 0.35))
+    _combined_upper = float(raw_settings.get("FLIP_THRESHOLD", 0.65))
+    _combined_min_edge = float(raw_settings.get("MIN_EDGE", 0.0))
+
     await log_funnel(
         db_session,
         market_id=market.market_id,
@@ -567,9 +571,9 @@ async def decide_combined_mode(
         p_flip=ml_result.p_flip,
         edge=final_decision.edge if final_decision.edge is not None else ml_result.edge,
         fresh_price=ml_result.decision_obj.buy_price if ml_result and ml_result.decision_obj else None,
-        threshold_lower=None,
-        threshold_upper=None,
-        min_edge_used=None,
+        threshold_lower=_combined_lower,
+        threshold_upper=_combined_upper,
+        min_edge_used=_combined_min_edge,
         g1_model_loaded=True,
         g2_price_fetched=True,
         g8_combined_vote=g8_combined_vote,
