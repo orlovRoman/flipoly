@@ -353,7 +353,7 @@ class ModelTrainer:
             return False
         
         # 1. Сначала проверяем количество доступных сэмплов через быстрый COUNT(*)
-        from polyflip.services.settings_service import get_float, get_int, get_string
+        from polyflip.services.settings_service import get_float, get_int, get_setting
         min_time_min = await get_float(self.db, "LR_TRAIN_MIN_TIME_LEFT_MIN")
         max_time_min = await get_float(self.db, "LR_TRAIN_MAX_TIME_LEFT_MIN")
 
@@ -450,6 +450,10 @@ class ModelTrainer:
             self.status_messages[asset] = f"Ошибка: отсутствуют фичи {', '.join(missing_features)}"
             return False
             
+        # Гарантируем позиционные индексы — критично для корректной
+        # индексации sample_weight[train_idx] внутри _fit_and_serialize
+        df = df.reset_index(drop=True)
+
         X = df[active_features]
         y = df["target"]
         groups = df["market_id"]
@@ -458,7 +462,7 @@ class ModelTrainer:
         lr_min_features = await get_int(self.db, "LR_MIN_FEATURES")
         min_precision = await get_float(self.db, "LGBM_MIN_PRECISION_FOR_THRESHOLD")
         max_suspicious = await get_float(self.db, "LGBM_MAX_SUSPICIOUS_THRESHOLD")
-        weight_mode = await get_string(self.db, "LR_SAMPLE_WEIGHT_MODE")
+        weight_mode = await get_setting(self.db, "LR_SAMPLE_WEIGHT_MODE")
         weight_tau = await get_float(self.db, "LR_SAMPLE_WEIGHT_TAU")
 
         sample_weights = _compute_sample_weights(
