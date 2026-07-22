@@ -259,9 +259,15 @@ async def decide_ml_mode(
 
     if decision_obj.action == "SKIP" and cfg.trade_on_flip:
         trend_edge = decision_obj.edge
+        trend_reason = decision_obj.reason
         outsider_obj = decide_outsider(signal, p_flip, local_config, ece=ece)
-        if outsider_obj.action == "SKIP" and outsider_obj.edge is None and trend_edge is not None:
-            decision_obj = dataclasses.replace(outsider_obj, edge=trend_edge)
+        if outsider_obj.action == "SKIP":
+            final_edge = trend_edge if outsider_obj.edge is None else outsider_obj.edge
+            decision_obj = dataclasses.replace(
+                outsider_obj,
+                reason=f"Тренд: {trend_reason} | Флип: {outsider_obj.reason}",
+                edge=final_edge,
+            )
         else:
             decision_obj = outsider_obj
 
