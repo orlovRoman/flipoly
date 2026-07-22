@@ -241,10 +241,13 @@ async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = D
         key_full = (m.asset, m.version)
         key_base = (base_symbol, m.version)
 
-        # Если есть точные сделки по m.asset — берутся они, иначе статистика по версии
-        stats = trades_by_exact.get(key_full) or trades_by_norm.get(key_base) or {"total": 0, "wins": 0, "pnl": 0.0}
+        # Проверяем точные сделки по m.asset. Если их нет (total == 0), используем статистику по версии базового символа
+        stats = trades_by_exact.get(key_full)
+        if not stats or stats.get("total", 0) == 0:
+            stats = trades_by_norm.get(key_base, {"total": 0, "wins": 0, "pnl": 0.0})
 
         win_rate = round((stats["wins"] / stats["total"] * 100), 1) if stats["total"] > 0 else None
+
 
         result.append({
             "asset_full": m.asset,
