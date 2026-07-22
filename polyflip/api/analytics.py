@@ -212,41 +212,25 @@ async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = D
 
     trades = (await db.execute(trades_stmt)).scalars().all()
 
-    # Группируем сделки по (asset_full, version) и (base_symbol, version)
-    trades_by_exact = {}
-    trades_by_norm = {}
-
+    # Группируем сделки ТОЛЬКО по точному ключу (t.asset, t.model_version)
+    trades_by_exact: dict[tuple, dict] = {}
     for t in trades:
-        norm_asset = t.asset.split('_')[0].replace('USDT', '').upper()
-
-        k_exact = (t.asset, t.model_version)
-        if k_exact not in trades_by_exact:
-            trades_by_exact[k_exact] = {"total": 0, "wins": 0, "pnl": 0.0}
-        trades_by_exact[k_exact]["total"] += 1
+        k = (t.asset, t.model_version)
+        if k not in trades_by_exact:
+            trades_by_exact[k] = {"total": 0, "wins": 0, "pnl": 0.0}
+        trades_by_exact[k]["total"] += 1
         if t.pnl > 0:
-            trades_by_exact[k_exact]["wins"] += 1
-        trades_by_exact[k_exact]["pnl"] += float(t.pnl)
-
-        k_norm = (norm_asset, t.model_version)
-        if k_norm not in trades_by_norm:
-            trades_by_norm[k_norm] = {"total": 0, "wins": 0, "pnl": 0.0}
-        trades_by_norm[k_norm]["total"] += 1
-        if t.pnl > 0:
-            trades_by_norm[k_norm]["wins"] += 1
-        trades_by_norm[k_norm]["pnl"] += float(t.pnl)
+            trades_by_exact[k]["wins"] += 1
+        trades_by_exact[k]["pnl"] += float(t.pnl)
 
     result = []
     for m in models:
         base_symbol, sub_code, sub_label = get_model_subtype_info(m.asset)
         key_full = (m.asset, m.version)
-        key_base = (base_symbol, m.version)
-
-        # Проверяем точные сделки по m.asset. Если их нет (total == 0), используем статистику по версии базового символа
-        stats = trades_by_exact.get(key_full)
-        if not stats or stats.get("total", 0) == 0:
-            stats = trades_by_norm.get(key_base, {"total": 0, "wins": 0, "pnl": 0.0})
+        stats = trades_by_exact.get(key_full, {"total": 0, "wins": 0, "pnl": 0.0})
 
         win_rate = round((stats["wins"] / stats["total"] * 100), 1) if stats["total"] > 0 else None
+
 
 
         result.append({
