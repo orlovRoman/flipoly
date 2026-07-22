@@ -200,45 +200,61 @@ async def get_funnel_stats(
     asset: Optional[str] = None,
     db: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Возвращает агрегированную статистику гейтов за последние N часов.
-    Формат: { "total": 150, "by_gate": { "g4_no_flip": {"blocked": 40, "pct": 26.7}, ... } }
-    """
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    q = select(DecisionFunnelLog).where(DecisionFunnelLog.created_at >= since)
-    if asset:
-        q = q.where(DecisionFunnelLog.asset == asset.upper())
+    from sqlalchemy import and_
 
-    rows = (await db.execute(q)).scalars().all()
-    total = len(rows)
-    if total == 0:
-        return {"total": 0, "traded": 0, "hours": hours, "by_gate": {}, "by_asset": {}}
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    base_filter = [DecisionFunnelLog.created_at >= since]
+    if asset:
+        base_filter.append(DecisionFunnelLog.asset == asset.upper())
 
     gate_names = [
         "g1_model_loaded", "g2_price_fetched", "g3_dead_zone",
         "g4_no_flip", "g5_min_edge", "g6_price_range",
-        "g7_crypto_confirm", "g8_combined_vote"
+        "g7_crypto_confirm", "g8_combined_vote",
     ]
 
-    by_gate = {}
-    for gate in gate_names:
-        blocked = sum(1 for r in rows if getattr(r, gate) is False)
-        by_gate[gate] = {
-            "blocked": blocked,
-            "pct": round(blocked / total * 100, 1),
-        }
+    # Одним SQL-запросом: total, traded, и COUNT blocked по каждому гейту
+    gate_cols = [
+        func.count(
+            case((getattr(DecisionFunnelLog, g) == False, 1))  # noqa: E712
+        ).label(f"blocked_{g}")
+        for g in gate_names
+    ]
+    q = select(
+        func.count().label("total"),
+        func.count(
+            case((DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1))
+        ).label("traded"),
+        *gate_cols,
+    ).where(and_(*base_filter))
 
-    # Агрегация по asset
-    by_asset: dict = {}
-    for r in rows:
-        by_asset.setdefault(r.asset, {"total": 0, "traded": 0})
-        by_asset[r.asset]["total"] += 1
-        if r.final_action in ("BUY_YES", "BUY_NO"):
-            by_asset[r.asset]["traded"] += 1
+    row = (await db.execute(q)).one()
+    total = row.total
+    if total == 0:
+        return {"total": 0, "traded": 0, "hours": hours, "by_gate": {}, "by_asset": {}}
+
+    by_gate = {
+        g: {
+            "blocked": getattr(row, f"blocked_{g}"),
+            "pct": round(getattr(row, f"blocked_{g}") / total * 100, 1),
+        }
+        for g in gate_names
+    }
+
+    # by_asset — отдельный компактный GROUP BY запрос
+    asset_q = select(
+        DecisionFunnelLog.asset,
+        func.count().label("total"),
+        func.count(
+            case((DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1))
+        ).label("traded"),
+    ).where(and_(*base_filter)).group_by(DecisionFunnelLog.asset)
+    asset_rows = (await db.execute(asset_q)).all()
+    by_asset = {r.asset: {"total": r.total, "traded": r.traded} for r in asset_rows}
 
     return {
         "total": total,
-        "traded": sum(1 for r in rows if r.final_action in ("BUY_YES", "BUY_NO")),
+        "traded": row.traded,
         "hours": hours,
         "by_gate": by_gate,
         "by_asset": by_asset,
