@@ -342,20 +342,17 @@ class CryptoModelTrainer:
             p67=round(vol_p67, 4),
         )
 
-        now = datetime.now(timezone.utc)
-        # Сохраняем tertile-границы для предсказателя
-        for key, val in [(f"CRYPTO_VOL_P33_{symbol}", vol_p33), (f"CRYPTO_VOL_P67_{symbol}", vol_p67)]:
-            row = (await self.db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
-            if row:
-                row.value = str(round(val, 4))
-                row.updated_at = now
-                row.updated_by = "crypto_train_job"
-            else:
-                self.db.add(RuntimeSettings(key=key, value=str(round(val, 4)), updated_at=now, updated_by="crypto_train_job"))
+        # Определяем vol-режим по P33/P67 vol_trend
+        vol_p33 = float(df_filtered["vol_trend"].quantile(0.33))
+        vol_p67 = float(df_filtered["vol_trend"].quantile(0.67))
 
-        df_low  = df_filtered[df_filtered["vol_ratio"] <= vol_p33]
-        df_mid  = df_filtered[(df_filtered["vol_ratio"] > vol_p33) & (df_filtered["vol_ratio"] <= vol_p67)]
-        df_high = df_filtered[df_filtered["vol_ratio"] > vol_p67]
+        await _save_setting(self.db, f"VOL_P33_{symbol}", str(vol_p33))
+        await _save_setting(self.db, f"VOL_P67_{symbol}", str(vol_p67))
+
+        # Разбиваем датасет на 3 режима
+        df_low  = df_filtered[df_filtered["vol_trend"] <= vol_p33]
+        df_mid  = df_filtered[(df_filtered["vol_trend"] > vol_p33) & (df_filtered["vol_trend"] <= vol_p67)]
+        df_high = df_filtered[df_filtered["vol_trend"] > vol_p67]
 
         trained_any = False
         from polyflip.crypto.predictor import CryptoPredictor

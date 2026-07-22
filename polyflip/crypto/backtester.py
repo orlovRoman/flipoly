@@ -152,14 +152,14 @@ def run_backtest(
     if len(df_train) < 300 or len(available) == 0:
         return _empty_result(symbol, n_total, len(df_test), epsilon_val, pnl_mode)
 
-    vol_median = float(df_train["vol_ratio"].median()) if "vol_ratio" in df_train.columns else 1.0
+    vol_median = float(df_train["vol_trend"].median()) if "vol_trend" in df_train.columns else 1.0
     models: dict[str, Any] = {}
     train_aucs: list[float] = []
 
-    has_vol = "vol_ratio" in df_train.columns
+    has_vol = "vol_trend" in df_train.columns
     regime_masks = [
-        ("low_vol",  df_train["vol_ratio"] <= vol_median if has_vol else pd.Series(True, index=df_train.index)),
-        ("high_vol", df_train["vol_ratio"] >  vol_median if has_vol else pd.Series(False, index=df_train.index)),
+        ("low_vol",  df_train["vol_trend"] <= vol_median if has_vol else pd.Series(True, index=df_train.index)),
+        ("high_vol", df_train["vol_trend"] >  vol_median if has_vol else pd.Series(False, index=df_train.index)),
     ]
     for regime, mask in regime_masks:
         df_r = df_train[mask]
@@ -181,8 +181,8 @@ def run_backtest(
 
     X_test    = df_test[available]
     probas    = np.full(len(df_test), 0.5)
-    has_vol_test = "vol_ratio" in df_test.columns
-    low_mask  = df_test["vol_ratio"] <= vol_median if has_vol_test else pd.Series(True, index=df_test.index)
+    has_vol_test = "vol_trend" in df_test.columns
+    low_mask  = df_test["vol_trend"] <= vol_median if has_vol_test else pd.Series(True, index=df_test.index)
     high_mask = ~low_mask if has_vol_test else pd.Series(False, index=df_test.index)
 
     if "low_vol" in models and low_mask.any():

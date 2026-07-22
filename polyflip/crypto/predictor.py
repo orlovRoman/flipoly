@@ -311,13 +311,13 @@ class CryptoPredictor:
             fv_dict = dict(zip(CRYPTO_FEATURE_COLUMNS, feature_vector.features[0]))
             
             # Определяем режим волатильности
-            vol_ratio = fv_dict.get("vol_ratio", 1.0)
+            vol_trend = fv_dict.get("vol_trend", 1.0)
             vol_p33 = self._vol_p33s.get(symbol, 0.5)
             vol_p67 = self._vol_p67s.get(symbol, 1.5)
 
-            if vol_ratio <= vol_p33:
+            if vol_trend <= vol_p33:
                 regime = "low_vol"
-            elif vol_ratio <= vol_p67:
+            elif vol_trend <= vol_p67:
                 regime = "mid_vol"
             else:
                 regime = "high_vol"
