@@ -384,9 +384,7 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
     if key == "NO_MIN_EDGE":
         try:
             val = float(payload.value)
-            if not ((0.5 <= val <= 30.0) or (0.005 <= val <= 0.30)):
-                raise HTTPException(status_code=400, detail="NO_MIN_EDGE must be between 0.5% and 30% (or 0.005 and 0.30)")
-            if val > 0.30:
+            if val > 1.0:
                 payload.value = str(val / 100.0)
             else:
                 payload.value = str(val)
