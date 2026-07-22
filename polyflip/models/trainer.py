@@ -101,16 +101,56 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+def _compute_sample_weights(
+    time_left: np.ndarray,
+    mode: str,
+    tau: float = 5.0,
+) -> np.ndarray | None:
+    """
+    Возвращает массив весов для LogisticRegression.fit(model__sample_weight=...).
+    'uniform'    → None (sklearn использует равные веса)
+    'time_decay' → 1 / (time_left + 1)   — простой обратный вес
+    'exp_decay'  → exp(-time_left / tau)  — экспоненциальный с параметром tau
+    """
+    if mode == "uniform":
+        return None
+    if mode == "time_decay":
+        w = 1.0 / (time_left + 1.0)
+    elif mode == "exp_decay":
+        w = np.exp(-time_left / (tau + 1e-9))
+    else:
+        logger.warning("unknown_weight_mode", mode=mode, fallback="uniform")
+        return None
+    # Нормализуем: среднее = 1.0 (не меняет масштаб градиента)
+    w = w / (w.mean() + 1e-9)
+    return w.astype(np.float64)
+
+
 def _fit_and_serialize(
     X: pd.DataFrame,
     y: pd.Series,
     groups: pd.Series,
+    sample_weight: np.ndarray | None = None,
     lr_coef_threshold: float = 0.005,
     lr_min_features: int = 4,
     min_precision: float = 0.52,
     max_suspicious: float = 0.95,
 ):
     """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
+    if sample_weight is not None:
+        logger.info(
+            "sample_weights_distribution",
+            w_min=round(float(sample_weight.min()), 4),
+            w_max=round(float(sample_weight.max()), 4),
+            w_mean=round(float(sample_weight.mean()), 4),
+            w_p10=round(float(np.percentile(sample_weight, 10)), 4),
+            w_p90=round(float(np.percentile(sample_weight, 90)), 4),
+            ratio_p90_p10=round(
+                float(np.percentile(sample_weight, 90)) /
+                (float(np.percentile(sample_weight, 10)) + 1e-9), 2
+            ),
+        )
+
     # --- Grid search по C ---
     C_GRID = [0.05, 0.1, 0.5, 1.0, 2.0, 5.0]
     gkf_search = GroupKFold(n_splits=CV_N_SPLITS)
@@ -129,7 +169,8 @@ def _fit_and_serialize(
             if len(np.unique(y.iloc[tr_idx])) < 2 or len(np.unique(y.iloc[vl_idx])) < 2:
                 continue
             m = clone(probe)
-            m.fit(X.iloc[tr_idx], y.iloc[tr_idx])
+            m_weight = sample_weight[tr_idx] if sample_weight is not None else None
+            m.fit(X.iloc[tr_idx], y.iloc[tr_idx], model__sample_weight=m_weight)
             proba = m.predict_proba(X.iloc[vl_idx])[:, 1]
             probe_aucs.append(roc_auc_score(y.iloc[vl_idx], proba))
         if probe_aucs:
@@ -157,7 +198,8 @@ def _fit_and_serialize(
             continue
         
         fold_base = clone(base_model)
-        fold_base.fit(X_train, y_train)
+        tr_weight = sample_weight[train_index] if sample_weight is not None else None
+        fold_base.fit(X_train, y_train, model__sample_weight=tr_weight)
         
         from sklearn.frozen import FrozenEstimator
         fold_calibrated = CalibratedClassifierCV(
@@ -193,13 +235,15 @@ def _fit_and_serialize(
         # Fallback to uncalibrated model on entire dataset if split is invalid
         final_model = clone(base_model)
         try:
-            final_model.fit(X, y)
+            sw_all = sample_weight if sample_weight is not None else None
+            final_model.fit(X, y, model__sample_weight=sw_all)
         except Exception:
             return None # Impossible to fit
         final_base = final_model
     else:
         final_base = clone(base_model)
-        final_base.fit(X_train_cal, y_train_cal)
+        tr_cal_weight = sample_weight[train_idx] if sample_weight is not None else None
+        final_base.fit(X_train_cal, y_train_cal, model__sample_weight=tr_cal_weight)
         
         from sklearn.frozen import FrozenEstimator
         final_model = CalibratedClassifierCV(
@@ -309,17 +353,9 @@ class ModelTrainer:
             return False
         
         # 1. Сначала проверяем количество доступных сэмплов через быстрый COUNT(*)
-        min_time_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TRADE_MIN_TIME_LEFT_SEC")
-        max_time_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "TRADE_MAX_TIME_LEFT_SEC")
-
-        min_time_row = (await self.db.execute(min_time_stmt)).scalar_one_or_none()
-        max_time_row = (await self.db.execute(max_time_stmt)).scalar_one_or_none()
-
-        min_time_sec = int(min_time_row.value) if min_time_row else settings.TRADE_MIN_TIME_LEFT_SEC
-        max_time_sec = int(max_time_row.value) if max_time_row else settings.TRADE_MAX_TIME_LEFT_SEC
-
-        min_time_min = min_time_sec / 60.0
-        max_time_min = max_time_sec / 60.0
+        from polyflip.services.settings_service import get_float, get_int, get_string
+        min_time_min = await get_float(self.db, "LR_TRAIN_MIN_TIME_LEFT_MIN")
+        max_time_min = await get_float(self.db, "LR_TRAIN_MAX_TIME_LEFT_MIN")
 
         count_stmt = select(func.count(MarketSnapshot.id)).where(
             MarketSnapshot.asset == asset,
@@ -418,15 +454,23 @@ class ModelTrainer:
         y = df["target"]
         groups = df["market_id"]
 
-        from polyflip.services.settings_service import get_float, get_int
         lr_coef_threshold = await get_float(self.db, "LR_COEF_THRESHOLD")
         lr_min_features = await get_int(self.db, "LR_MIN_FEATURES")
         min_precision = await get_float(self.db, "LGBM_MIN_PRECISION_FOR_THRESHOLD")
         max_suspicious = await get_float(self.db, "LGBM_MAX_SUSPICIOUS_THRESHOLD")
+        weight_mode = await get_string(self.db, "LR_SAMPLE_WEIGHT_MODE")
+        weight_tau = await get_float(self.db, "LR_SAMPLE_WEIGHT_TAU")
+
+        sample_weights = _compute_sample_weights(
+            time_left=df["time_left_min"].values,
+            mode=weight_mode,
+            tau=weight_tau,
+        )
 
         # Выполняем CPU-bound обучение в отдельном потоке (BUG-A2 FIX)
         fit_res = await asyncio.to_thread(
             _fit_and_serialize, X, y, groups,
+            sample_weight=sample_weights,
             lr_coef_threshold=lr_coef_threshold,
             lr_min_features=lr_min_features,
             min_precision=min_precision,
