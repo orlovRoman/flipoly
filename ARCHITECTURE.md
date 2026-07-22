@@ -158,9 +158,10 @@ polyflip/
 ### 4.1 Базовая модель (Base LogReg — `polyflip/models/`)
 
 Оценивает вероятности на основе микроструктуры стакана Polymarket:
-* **Алгоритм**: `LogisticRegression` (scikit-learn) с 5-fold StratifiedKFold cross-validation.
+* **Алгоритм**: `LogisticRegression` (scikit-learn) с 5-fold StratifiedKFold cross-validation и калибровкой вероятностей (`CalibratedClassifierCV`).
 * **Признаки**: `time_left_min`, `mid_price`, `spread`, `volume_5min`, `price_velocity`, `hour_of_day`.
-* **Назначение**: Прогнозирует вероятность разворота `flip_vs_final` исходя из динамики стакана и цен токенов.
+* **Фильтрация выборки**: Ограничена параметрами `LR_TRAIN_MIN_TIME_LEFT_MIN` (0.5 мин) и `LR_TRAIN_MAX_TIME_LEFT_MIN` (15.0 мин), что полностью отсекает нерелевантные данные за 2–3 часа до экспирации.
+* **Взвешивание сэмплов**: Поддерживает режим `LR_SAMPLE_WEIGHT_MODE` (`time_decay` — $w = 1/(time\_left + 1)$, `exp_decay`, `uniform`). Более близкие к моменту закрытия рынка снапшоты получают наибольший вес при обучении.
 
 ---
 
