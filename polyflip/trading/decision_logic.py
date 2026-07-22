@@ -66,8 +66,16 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     YES-side out-of-bounds НЕ блокирует проверку NO-side.
     Если обе стороны подходят — выбирается с бо́льшим edge.
     """
-    threshold = float(config.get("FAVORITE_THRESHOLD", 0.55))
-    if "FAVORITE_THRESHOLD" not in config:
+    raw_fav = config.get("FAVORITE_THRESHOLD")
+    if raw_fav is None or str(raw_fav).strip() == "":
+        threshold = 0.55
+    else:
+        try:
+            threshold = float(raw_fav)
+        except ValueError:
+            threshold = 0.55
+            
+    if "FAVORITE_THRESHOLD" not in config or config.get("FAVORITE_THRESHOLD") == "":
         logger.warning(
             "favorite_threshold_default_used",
             threshold=threshold,
