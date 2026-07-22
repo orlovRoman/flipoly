@@ -6,7 +6,7 @@ from typing import Optional
 from datetime import datetime, time as dt_time, timezone, timedelta
 from fastapi import APIRouter, Request, Depends, Query
 
-from sqlalchemy import select, func, cast, Date, case
+from sqlalchemy import select, func, cast, Date, case as sa_case
 from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import TradeHistory, RuntimeSettings
@@ -216,14 +216,20 @@ async def get_funnel_stats(
     # Одним SQL-запросом: total, traded, и COUNT blocked по каждому гейту
     gate_cols = [
         func.count(
-            case((getattr(DecisionFunnelLog, g) == False, 1))  # noqa: E712
+            sa_case(
+                (getattr(DecisionFunnelLog, g) == False, 1),  # noqa: E712
+                else_=None
+            )
         ).label(f"blocked_{g}")
         for g in gate_names
     ]
     q = select(
         func.count().label("total"),
         func.count(
-            case((DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1))
+            sa_case(
+                (DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1),
+                else_=None
+            )
         ).label("traded"),
         *gate_cols,
     ).where(and_(*base_filter))
@@ -246,7 +252,10 @@ async def get_funnel_stats(
         DecisionFunnelLog.asset,
         func.count().label("total"),
         func.count(
-            case((DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1))
+            sa_case(
+                (DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1),
+                else_=None
+            )
         ).label("traded"),
     ).where(and_(*base_filter)).group_by(DecisionFunnelLog.asset)
     asset_rows = (await db.execute(asset_q)).all()
