@@ -15,6 +15,7 @@ from polyflip.trading.ml_inference import build_inference_dataframe, run_model_i
 from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.trading.utils import compute_dead_zone
+from polyflip.trading.funnel_logger import log_funnel
 
 logger = structlog.get_logger(__name__)
 
