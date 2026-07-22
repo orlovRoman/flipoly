@@ -37,6 +37,10 @@ _STATS_CACHE_TTL = 30  # 30 секунд кэша
 def invalidate_stats_cache():
     _stats_cache.clear()
 
+def _utc_cutoff(delta: timedelta) -> datetime:
+    """Возвращает naive UTC datetime для сравнения с TIMESTAMP WITHOUT TIME ZONE."""
+    return (datetime.now(timezone.utc) - delta).replace(tzinfo=None)
+
 @router.get("/api/trading/stats", dependencies=[Depends(verify_api_key)])
 async def get_trading_stats(
     timeframe: Optional[str] = Query("all"),
@@ -49,11 +53,11 @@ async def get_trading_stats(
 
     cutoff_dt = None
     if timeframe == "24h":
-        cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=24)
+        cutoff_dt = _utc_cutoff(timedelta(hours=24))
     elif timeframe == "7d":
-        cutoff_dt = datetime.now(timezone.utc) - timedelta(days=7)
+        cutoff_dt = _utc_cutoff(timedelta(days=7))
     elif timeframe == "30d":
-        cutoff_dt = datetime.now(timezone.utc) - timedelta(days=30)
+        cutoff_dt = _utc_cutoff(timedelta(days=30))
 
     async def fetch_settings():
         async with async_session() as s:
