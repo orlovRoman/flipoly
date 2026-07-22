@@ -173,10 +173,8 @@ def decide_ml_trend(
     edge = compute_edge(p_win, buy_price)
     
     min_edge = float(config.get("MIN_EDGE", 0.05))
-    # MAX_EDGE_FILTER как фильтр аномального edge (SKIP если edge > filter)
-    max_edge = float(config.get("MAX_EDGE_FILTER", config.get("MAX_BET_EDGE", 0.75)))
-    if edge < min_edge or edge > max_edge:
-        return TradeDecision("SKIP", 0, 0, f"Edge out of bounds (edge={edge:.4f})", "SKIP", p_flip=p_flip, edge=edge)
+    if edge < min_edge:
+        return TradeDecision("SKIP", 0, 0, f"Edge out of bounds (edge={edge:.4f} < min={min_edge:.4f})", "SKIP", p_flip=p_flip, edge=edge)
 
     bet = _resolve_final_bet(edge, signal.volume_5min, config)
     bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
@@ -295,7 +293,6 @@ def decide_crypto_trend(
         )
 
     min_edge = float(config.get("CRYPTO_MIN_EDGE", config.get("MIN_EDGE", 0.04)))
-    max_edge = float(config.get("MAX_BET_EDGE", config.get("MAX_EDGE_FILTER", 0.35)))
 
     if crypto.direction == "NONE" or crypto.edge < min_edge:
         return TradeDecision(
