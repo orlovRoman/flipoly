@@ -225,12 +225,10 @@ async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = D
     for m in models:
         base_symbol, sub_code, sub_label = get_model_subtype_info(m.asset)
         key_full = (m.asset, m.version)
-        key_base = (base_symbol, m.version)
-
-        # Сначала ищем по точному наименованию m.asset (например, BTCUSDT_low_vol), затем по base_symbol
-        stats = trades_by_asset_version.get(key_full) or trades_by_asset_version.get(key_base) or {"total": 0, "wins": 0, "pnl": 0.0}
+        stats = trades_by_asset_version.get(key_full, {"total": 0, "wins": 0, "pnl": 0.0})
 
         win_rate = round((stats["wins"] / stats["total"] * 100), 1) if stats["total"] > 0 else None
+
 
         result.append({
             "asset_full": m.asset,
