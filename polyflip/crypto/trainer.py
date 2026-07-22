@@ -40,7 +40,7 @@ CRYPTO_FEATURES = [
     # Volatility — только короткие
     "vol_6", "vol_24", "vol_trend",
     # Volume & CVD
-    "vol_z_1", "taker_buy_ratio", "cvd_1", "cvd_6", "cvd_trend",
+    "vol_z_1", "taker_buy_ratio", "cvd_1", "cvd_6",
     # Technical
     "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
     # Position vs extremes — только 24h

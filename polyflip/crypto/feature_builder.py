@@ -31,7 +31,6 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "taker_buy_ratio",  # taker_buy_volume / volume — давление покупателей (0..1)
     "cvd_1",            # нормализованная дельта за 1 свечу
     "cvd_6",            # накопленный дисбаланс за 6 свечей
-    "cvd_trend",        # нарастание/убывание давления (cvd_6 - cvd_1)
     # --- Technical Indicators ---
     "rsi_14",
     "ema_ratio_9_21",
@@ -120,7 +119,6 @@ def build_crypto_features(
     c6_sum    = float(np.sum(cvd_raw[-6:])) if len(cvd_raw) >= 6 else float(np.sum(cvd_raw))
     v6_sum    = float(np.sum(volume[-6:]))  if len(volume)  >= 6 else float(np.sum(volume))
     cvd_6     = float(c6_sum / (v6_sum + 1e-10))
-    cvd_trend = cvd_6 - cvd_1
 
     # ── 4. RSI(14) ───────────────────────────────────────────────
     diffs = np.diff(close[-15:]) if len(close) >= 15 else np.diff(close)
@@ -190,7 +188,7 @@ def build_crypto_features(
     vec = np.array([[
         ret_1, ret_3, ret_6,
         vol_6, vol_24, vol_trend,
-        vol_z_1, taker_buy_ratio, cvd_1, cvd_6, cvd_trend,
+        vol_z_1, taker_buy_ratio, cvd_1, cvd_6,
         rsi_14, ema_ratio_9_21, bb_width, bb_position,
         dist_h24, dist_l24,
         range_1, range_avg,
@@ -263,7 +261,6 @@ def build_features(
     out["cvd_6"] = cvd.rolling(6, min_periods=2).sum() / (
         volume.rolling(6, min_periods=2).sum() + 1e-10
     )
-    out["cvd_trend"] = out["cvd_6"] - out["cvd_1"]
 
     # ── RSI(14) ──────────────────────────────────────────────────
     delta = close.diff()
