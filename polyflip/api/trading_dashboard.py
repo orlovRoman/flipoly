@@ -114,11 +114,24 @@ async def get_trading_stats(
             ).where(*conds)
             return (await s.execute(stmt)).first()
 
-    settings_rows, assets_rows, daily_rows, params_row = await asyncio.gather(
+    async def fetch_all_time_totals():
+        async with async_session() as s:
+            stmt = select(
+                func.count(TradeHistory.id).label("total_trades"),
+                func.sum(TradeHistory.pnl).label("total_pnl"),
+                func.sum(case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
+            ).where(
+                TradeHistory.status == "SUCCESS",
+                TradeHistory.pnl.is_not(None)
+            )
+            return (await s.execute(stmt)).first()
+
+    settings_rows, assets_rows, daily_rows, params_row, totals_row = await asyncio.gather(
         fetch_settings(),
         fetch_assets(),
         fetch_daily(),
-        fetch_params()
+        fetch_params(),
+        fetch_all_time_totals()
     )
 
     initial_capital = settings.INITIAL_CAPITAL
@@ -127,9 +140,6 @@ async def get_trading_stats(
             initial_capital = float(row.value)
 
     asset_stats = {asset: {"pnl": 0.0, "trades": 0, "wins": 0} for asset in settings.asset_list}
-    total_pnl = 0.0
-    wins = 0
-    trades_count = 0
     for row in assets_rows:
         if row.asset in asset_stats:
             asset_stats[row.asset] = {
@@ -137,13 +147,14 @@ async def get_trading_stats(
                 "trades": int(row.total_trades or 0),
                 "wins": int(row.wins or 0)
             }
-        total_pnl += float(row.total_pnl or 0)
-        wins += int(row.wins or 0)
-        trades_count += int(row.total_trades or 0)
 
-    losses = trades_count - wins
-    capital = initial_capital + total_pnl
-    winrate = (wins / trades_count) * 100 if trades_count > 0 else 0
+    # Итоговые KPI карточки дашборда ВСЕГДА считаются за всё время
+    all_total_pnl = float(totals_row.total_pnl or 0) if totals_row else 0.0
+    all_wins = int(totals_row.wins or 0) if totals_row else 0
+    all_trades_count = int(totals_row.total_trades or 0) if totals_row else 0
+    all_losses = all_trades_count - all_wins
+    all_capital = initial_capital + all_total_pnl
+    all_winrate = (all_wins / all_trades_count) * 100 if all_trades_count > 0 else 0
 
     daily_pnl_map = {}
     for row in daily_rows:
@@ -161,12 +172,12 @@ async def get_trading_stats(
     avg_loss_prob = float(params_row.avg_loss_prob or 0) if params_row else 0
 
     result = {
-        "capital": round(capital, 2),
-        "overall_pnl": round(total_pnl, 2),
+        "capital": round(all_capital, 2),
+        "overall_pnl": round(all_total_pnl, 2),
         "daily_pnl": daily_pnl_map,
         "assets": asset_stats,
-        "winrate": round(winrate, 1),
-        "wins_vs_losses": {"wins": wins, "losses": losses},
+        "winrate": round(all_winrate, 1),
+        "wins_vs_losses": {"wins": all_wins, "losses": all_losses},
         "parameters": {
             "avg_win_price": round(avg_win_price, 3),
             "avg_loss_price": round(avg_loss_price, 3),
