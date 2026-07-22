@@ -40,7 +40,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const data = await response.json();
       updateUI(data);
-      loadActiveModels();
     } catch (error) {
       console.error("Ошибка при загрузке данных:", error);
     }
@@ -1051,27 +1050,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function loadActiveModels() {
-    try {
-      const res = await fetch(window.API_BASE + "/api/dashboard/status", {
-        headers: { "X-API-Key": apiKey },
-      });
-      const data = await res.json();
-      if (data.active_models) {
-        const badge = document.getElementById("active-models-badge");
-        if (badge) {
-          const modelsText = Object.entries(data.active_models)
-            .map(([asset, v]) => asset.includes("vol") ? `LightGBM ${asset} v${v}` : `${asset} v${v}`)
-            .join(", ");
-          badge.textContent = modelsText
-            ? `[Активные модели: ${modelsText}]`
-            : "[Нет активных моделей]";
-        }
-      }
-    } catch (e) {
-      console.error("Failed to load active models", e);
-    }
-  }
+
 
   const btnRefreshLogs = document.getElementById("btn-refresh-logs");
   if (btnRefreshLogs) {
@@ -1159,7 +1138,6 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchStats();
   loadSettings();
   loadLogs();
-  loadActiveModels();
   fetchDailyPnL();
 
   // Auto refresh every 5 min for stats, every 30 sec for logs (only if tab is active)
