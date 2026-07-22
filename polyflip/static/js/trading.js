@@ -27,23 +27,35 @@ document.addEventListener("DOMContentLoaded", () => {
   let totalPages = 1;
   const PAGE_SIZE = 25;
 
+  let _statsFetchToken = 0;
+
   async function fetchStats(tf) {
     const tfSelect = document.getElementById("asset-stats-tf-select");
     const timeframe = tf || (tfSelect ? tfSelect.value : "all");
+
+    const myToken = ++_statsFetchToken;
+    if (tfSelect) tfSelect.disabled = true;
+
     try {
-      const response = await fetch(`${window.API_BASE}/api/trading/stats?timeframe=${encodeURIComponent(timeframe)}`, {
-        headers: { "X-API-Key": apiKey },
-      });
+      const response = await fetch(
+        `${window.API_BASE}/api/trading/stats?timeframe=${encodeURIComponent(timeframe)}`,
+        { headers: { "X-API-Key": apiKey } }
+      );
       if (response.status === 401) {
         alert(
           "Неверный API ключ. Введите его на вкладке 'Настройки' в основном дашборде.",
         );
         return;
       }
+      if (myToken !== _statsFetchToken) return;
+
       const data = await response.json();
       updateUI(data);
     } catch (error) {
-      console.error("Ошибка при загрузке данных:", error);
+      if (myToken !== _statsFetchToken) return;
+      console.error("fetchStats error:", error);
+    } finally {
+      if (tfSelect) tfSelect.disabled = false;
     }
   }
 
