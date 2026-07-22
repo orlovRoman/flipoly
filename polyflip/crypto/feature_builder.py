@@ -43,8 +43,7 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "range_1",           # (high - low) / close текущей свечи
     "range_avg_24",      # средний range за 24 свечи
     # --- Consecutive candles ---
-    "consec_up",         # число подряд идущих up-свечей перед текущей
-    "consec_down",       # число подряд идущих down-свечей перед текущей
+    "consec_balance",    # баланс серий свечей (consec_up - consec_down)
     # --- Time (Cyclic) ---
     "hour_sin",          # sin(2*pi*hour/24)
     "hour_cos",          # cos(2*pi*hour/24)
@@ -176,6 +175,7 @@ def build_crypto_features(
             consec_down += 1
         else:
             break
+    consec_balance = float(consec_up - consec_down)
 
     # ── 10. Time (Cyclic) ────────────────────────────────────────
     last_dt  = df["open_time"].iloc[-1]
@@ -192,7 +192,7 @@ def build_crypto_features(
         rsi_14, ema_ratio_9_21, bb_width, bb_position,
         dist_h24, dist_l24,
         range_1, range_avg,
-        float(consec_up), float(consec_down),
+        consec_balance,
         hour_sin, hour_cos, dow_sin, dow_cos,
     ]], dtype=np.float64)
 
@@ -309,8 +309,7 @@ def build_features(
             cu = 0
         consec_up.append(cu)
         consec_dn.append(cd)
-    out["consec_up"]   = consec_up
-    out["consec_down"] = consec_dn
+    out["consec_balance"] = [float(u - d) for u, d in zip(consec_up, consec_dn)]
 
     # ── Time (Cyclic) ────────────────────────────────────────────
     dt = pd.to_datetime(df["open_time"])

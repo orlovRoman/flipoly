@@ -45,8 +45,7 @@ class CryptoFeaturesValidator(BaseModel):
     range_1: float
     range_avg_24: float
     # Consecutive
-    consec_up: float
-    consec_down: float
+    consec_balance: float
     # Time (Cyclic)
     hour_sin: float
     hour_cos: float

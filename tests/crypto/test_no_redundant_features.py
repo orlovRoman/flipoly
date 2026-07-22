@@ -16,5 +16,4 @@ def test_no_deterministic_derived_features():
 
 def test_feature_count_after_cvd_trim():
     from polyflip.crypto.feature_builder import CRYPTO_FEATURE_COLUMNS
-    # 25 - 1 (cvd_trend) = 24
-    assert len(CRYPTO_FEATURE_COLUMNS) == 24, f"Expected 24 features, got {len(CRYPTO_FEATURE_COLUMNS)}"
+    assert len(CRYPTO_FEATURE_COLUMNS) == 23, f"Expected 23 features, got {len(CRYPTO_FEATURE_COLUMNS)}"
