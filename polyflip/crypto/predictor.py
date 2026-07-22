@@ -297,9 +297,14 @@ class CryptoPredictor:
         candles: list[Any],
         symbol: str,
         funding_rate: float | None = None,
-        funding_rate_ma3: float | None = None,
     ) -> CryptoSignal:
-        """Синхронный инференс по нужной модели (в зависимости от vol_ratio)."""
+        """
+        Синхронный инференс по релевантной модели волатильности.
+
+        funding_rate — передаётся в check_funding_veto() для блокировки
+                       контртрендовых позиций при экстремальных ставках.
+                       НЕ используется в построении признаков ML (см. feature_builder.py).
+        """
         if symbol not in self._loaded_symbols:
             return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
 

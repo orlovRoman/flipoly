@@ -25,3 +25,10 @@ def test_vol_tertile_cold_start_defaults():
 
     vol_trend = 1.0
     assert vol_p33 < vol_trend <= vol_p67, "1.0 trend must fall into mid_vol default range"
+
+def test_predict_signature_no_funding_rate_ma3():
+    """predict() signature should not contain dead funding_rate_ma3 parameter."""
+    import inspect
+    sig = inspect.signature(CryptoPredictor.predict)
+    params = list(sig.parameters.keys())
+    assert "funding_rate_ma3" not in params
