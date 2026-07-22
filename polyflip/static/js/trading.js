@@ -1,4 +1,9 @@
 document.addEventListener("DOMContentLoaded", () => {
+  function parseFormattedFloat(val) {
+    if (val === null || val === undefined || val === "") return NaN;
+    return parseFloat(String(val).trim().replace(",", "."));
+  }
+
   let apiKey = "test-key";
   let currentMinEdge = 0.05;
   try {
@@ -805,28 +810,28 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsToSave.FAVORITE_MODE_ENTRY_SEC = settingsElements.favoriteEntrySecInput.value;
       }
       if (settingsElements.pollIntervalInput) settingsToSave.LIVE_POLL_INTERVAL_SECONDS = settingsElements.pollIntervalInput.value;
-      if (settingsElements.minEdge) settingsToSave.MIN_EDGE = parseFloat(settingsElements.minEdge.value) / 100;
-      if (settingsElements.maxEdge) settingsToSave.MAX_BET_EDGE = parseFloat(settingsElements.maxEdge.value) / 100;
-      if (settingsElements.maxEdgeFilter) settingsToSave.MAX_EDGE_FILTER = parseFloat(settingsElements.maxEdgeFilter.value) / 100;
-      if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFloat(settingsElements.favoriteThreshold.value);
+      if (settingsElements.minEdge) settingsToSave.MIN_EDGE = parseFormattedFloat(settingsElements.minEdge.value) / 100;
+      if (settingsElements.maxEdge) settingsToSave.MAX_BET_EDGE = parseFormattedFloat(settingsElements.maxEdge.value) / 100;
+      if (settingsElements.maxEdgeFilter) settingsToSave.MAX_EDGE_FILTER = parseFormattedFloat(settingsElements.maxEdgeFilter.value) / 100;
+      if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFormattedFloat(settingsElements.favoriteThreshold.value);
       if (settingsElements.tradeOnFavorite) settingsToSave.TRADE_ON_FAVORITE = settingsElements.tradeOnFavorite.checked ? "true" : "false";
       if (settingsElements.tradeOnFlip) settingsToSave.TRADE_ON_FLIP = settingsElements.tradeOnFlip.checked ? "true" : "false";
-      if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFloat(settingsElements.flipThreshold.value) / 100;
-      if (settingsElements.noMinEdge) settingsToSave.NO_MIN_EDGE = parseFloat(settingsElements.noMinEdge.value) / 100;
-      if (settingsElements.cryptoMinEdge) settingsToSave.CRYPTO_MIN_EDGE = parseFloat(settingsElements.cryptoMinEdge.value) / 100;
+      if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFormattedFloat(settingsElements.flipThreshold.value) / 100;
+      if (settingsElements.noMinEdge) settingsToSave.NO_MIN_EDGE = parseFormattedFloat(settingsElements.noMinEdge.value) / 100;
+      if (settingsElements.cryptoMinEdge) settingsToSave.CRYPTO_MIN_EDGE = parseFormattedFloat(settingsElements.cryptoMinEdge.value) / 100;
       if (settingsElements.autoDeadZone) settingsToSave.AUTO_DEAD_ZONE = settingsElements.autoDeadZone.checked ? "true" : "false";
-      if (settingsElements.autoDeadZoneWidth) settingsToSave.AUTO_DEAD_ZONE_WIDTH = parseFloat(settingsElements.autoDeadZoneWidth.value) / 100;
-      if (settingsElements.favoriteMinEdge) settingsToSave.FAVORITE_MIN_EDGE = parseFloat(settingsElements.favoriteMinEdge.value) / 100;
-      if (settingsElements.favoriteMinPrice) settingsToSave.FAVORITE_MIN_PRICE = parseFloat(settingsElements.favoriteMinPrice.value);
-      if (settingsElements.favoriteMaxPrice) settingsToSave.FAVORITE_MAX_PRICE = parseFloat(settingsElements.favoriteMaxPrice.value);
-      if (settingsElements.outsiderMaxPrice) settingsToSave.OUTSIDER_MAX_PRICE = parseFloat(settingsElements.outsiderMaxPrice.value);
+      if (settingsElements.autoDeadZoneWidth) settingsToSave.AUTO_DEAD_ZONE_WIDTH = parseFormattedFloat(settingsElements.autoDeadZoneWidth.value) / 100;
+      if (settingsElements.favoriteMinEdge) settingsToSave.FAVORITE_MIN_EDGE = parseFormattedFloat(settingsElements.favoriteMinEdge.value) / 100;
+      if (settingsElements.favoriteMinPrice) settingsToSave.FAVORITE_MIN_PRICE = parseFormattedFloat(settingsElements.favoriteMinPrice.value);
+      if (settingsElements.favoriteMaxPrice) settingsToSave.FAVORITE_MAX_PRICE = parseFormattedFloat(settingsElements.favoriteMaxPrice.value);
+      if (settingsElements.outsiderMaxPrice) settingsToSave.OUTSIDER_MAX_PRICE = parseFormattedFloat(settingsElements.outsiderMaxPrice.value);
       
       const bypassValue = settingsElements.bypassBetSizeCheck ? (settingsElements.bypassBetSizeCheck.checked ? "true" : "false") : null;
       
-      if (settingsElements.liquidityFraction) settingsToSave.LIQUIDITY_FRACTION = parseFloat(settingsElements.liquidityFraction.value);
-      if (settingsElements.maxPriceDrift) settingsToSave.MAX_PRICE_DRIFT = parseFloat(settingsElements.maxPriceDrift.value);
+      if (settingsElements.liquidityFraction) settingsToSave.LIQUIDITY_FRACTION = parseFormattedFloat(settingsElements.liquidityFraction.value);
+      if (settingsElements.maxPriceDrift) settingsToSave.MAX_PRICE_DRIFT = parseFormattedFloat(settingsElements.maxPriceDrift.value);
       if (settingsElements.combinedNoneBetMultiplier) {
-        settingsToSave.COMBINED_NONE_BET_MULTIPLIER = parseFloat(settingsElements.combinedNoneBetMultiplier.value);
+        settingsToSave.COMBINED_NONE_BET_MULTIPLIER = parseFormattedFloat(settingsElements.combinedNoneBetMultiplier.value);
       }
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
@@ -843,15 +848,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if (minEdgeInput) {
           const val = minEdgeInput.value.trim();
-          settingsToSave[`MIN_EDGE_${asset}`] = val !== "" ? parseFloat(val) / 100 : "";
+          settingsToSave[`MIN_EDGE_${asset}`] = val !== "" ? parseFormattedFloat(val) / 100 : "";
         }
         if (maxPriceInput) {
           const val = maxPriceInput.value.trim();
-          settingsToSave[`TRADE_MAX_PRICE_${asset}`] = val !== "" ? parseFloat(val) : "";
+          settingsToSave[`TRADE_MAX_PRICE_${asset}`] = val !== "" ? parseFormattedFloat(val) : "";
         }
         if (flipThresholdInput) {
           const val = flipThresholdInput.value.trim();
-          settingsToSave[`FLIP_THRESHOLD_${asset}`] = val !== "" ? parseFloat(val) / 100 : "";
+          settingsToSave[`FLIP_THRESHOLD_${asset}`] = val !== "" ? parseFormattedFloat(val) / 100 : "";
         }
       });
 

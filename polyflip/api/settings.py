@@ -252,23 +252,28 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
 
-    if key in ["MIN_EDGE", "MAX_BET_EDGE", "MAX_EDGE_FILTER"] or key.startswith("MIN_EDGE_"):
+    if key in ["MIN_EDGE", "MAX_BET_EDGE", "MAX_EDGE_FILTER", "CRYPTO_MIN_EDGE", "NO_MIN_EDGE", "FAVORITE_MIN_EDGE"] or key.startswith("MIN_EDGE_"):
         if key.startswith("MIN_EDGE_") and payload.value == "":
             pass
         else:
             try:
-                val = float(payload.value)
-                if val <= 0:
+                # В случае передачи строки с запятой (напр. "1,0") заменяем на точку
+                val = float(str(payload.value).replace(",", "."))
+                if key == "FAVORITE_MIN_EDGE" and val < 0:
+                    # FAVORITE_MIN_EDGE может быть отрицательным (напр. -1.0% = -0.01)
+                    if val < -100.0:
+                        raise HTTPException(status_code=400, detail=f"{key} must be ≥ -100%")
+                    payload.value = f"{val / 100.0:.6f}".rstrip('0').rstrip('.')
+                elif val <= 0:
                     raise HTTPException(status_code=400, detail=f"{key} must be positive")
-                if val > 1.0:
-                    # Введено как процент (напр. 5.0 → 0.05)
+                elif val >= 0.5:
+                    # Введено как процент (напр. 1.0% → 0.01, 5.0% → 0.05)
                     if val > 100.0:
                         raise HTTPException(status_code=400, detail=f"{key} must be ≤ 100%")
                     payload.value = f"{val / 100.0:.6f}".rstrip('0').rstrip('.')
                 else:
                     # Введено как доля (напр. 0.05 = 5%)
-                    if val < 0.005:
-                        raise HTTPException(status_code=400, detail=f"{key} as fraction must be ≥ 0.005 (0.5%)")
+                    payload.value = f"{val:.6f}".rstrip('0').rstrip('.')
                     
                 if key in ["MIN_EDGE", "MAX_BET_EDGE", "MAX_EDGE_FILTER"]:
                     # Cross-validation: MIN_EDGE < MAX_EDGE_FILTER ≤ MAX_BET_EDGE
