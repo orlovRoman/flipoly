@@ -27,9 +27,11 @@ document.addEventListener("DOMContentLoaded", () => {
   let totalPages = 1;
   const PAGE_SIZE = 25;
 
-  async function fetchStats() {
+  async function fetchStats(tf) {
+    const tfSelect = document.getElementById("asset-stats-tf-select");
+    const timeframe = tf || (tfSelect ? tfSelect.value : "all");
     try {
-      const response = await fetch(`${window.API_BASE}/api/trading/stats`, {
+      const response = await fetch(`${window.API_BASE}/api/trading/stats?timeframe=${encodeURIComponent(timeframe)}`, {
         headers: { "X-API-Key": apiKey },
       });
       if (response.status === 401) {
@@ -1131,6 +1133,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (currentPage < totalPages) {
         loadLogs(currentPage + 1);
       }
+    });
+  }
+
+  const assetStatsTfSelect = document.getElementById("asset-stats-tf-select");
+  if (assetStatsTfSelect) {
+    assetStatsTfSelect.addEventListener("change", () => {
+      fetchStats(assetStatsTfSelect.value);
     });
   }
 

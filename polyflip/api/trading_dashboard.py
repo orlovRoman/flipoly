@@ -2,10 +2,9 @@ import os
 import time
 import asyncio
 from fastapi.templating import Jinja2Templates
-from fastapi import APIRouter, Request, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, cast, Date, case
-from datetime import datetime, time as dt_time, timezone
+from typing import Optional
+from datetime import datetime, time as dt_time, timezone, timedelta
+from fastapi import APIRouter, Request, Depends, Query
 
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import TradeHistory, RuntimeSettings
@@ -38,10 +37,22 @@ def invalidate_stats_cache():
     _stats_cache.clear()
 
 @router.get("/api/trading/stats", dependencies=[Depends(verify_api_key)])
-async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
+async def get_trading_stats(
+    timeframe: Optional[str] = Query("all"),
+    db: AsyncSession = Depends(get_db_session)
+):
     current_time = time.time()
-    if "stats" in _stats_cache and current_time - _stats_cache["stats"]["time"] < _STATS_CACHE_TTL:
-        return _stats_cache["stats"]["data"]
+    cache_key = f"stats_{timeframe or 'all'}"
+    if cache_key in _stats_cache and current_time - _stats_cache[cache_key]["time"] < _STATS_CACHE_TTL:
+        return _stats_cache[cache_key]["data"]
+
+    cutoff_dt = None
+    if timeframe == "24h":
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=24)
+    elif timeframe == "7d":
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(days=7)
+    elif timeframe == "30d":
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(days=30)
 
     async def fetch_settings():
         async with async_session() as s:
@@ -51,41 +62,50 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
 
     async def fetch_assets():
         async with async_session() as s:
+            conds = [
+                TradeHistory.status == "SUCCESS",
+                TradeHistory.pnl.is_not(None)
+            ]
+            if cutoff_dt:
+                conds.append(TradeHistory.created_at >= cutoff_dt)
             stmt = select(
                 TradeHistory.asset,
                 func.count(TradeHistory.id).label("total_trades"),
                 func.sum(TradeHistory.pnl).label("total_pnl"),
                 func.sum(case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
-            ).where(
-                TradeHistory.status == "SUCCESS",
-                TradeHistory.pnl.is_not(None)
-            ).group_by(TradeHistory.asset)
+            ).where(*conds).group_by(TradeHistory.asset)
             return (await s.execute(stmt)).all()
 
     async def fetch_daily():
         async with async_session() as s:
+            conds = [
+                TradeHistory.status == "SUCCESS",
+                TradeHistory.pnl.is_not(None)
+            ]
+            if cutoff_dt:
+                conds.append(TradeHistory.created_at >= cutoff_dt)
             stmt = select(
                 cast(TradeHistory.created_at, Date).label("day"),
                 func.sum(TradeHistory.pnl).label("daily_pnl"),
                 func.sum(case((TradeHistory.pnl > 0, 1), else_=0)).label("wins"),
                 func.sum(case((TradeHistory.pnl <= 0, 1), else_=0)).label("losses")
-            ).where(
-                TradeHistory.status == "SUCCESS",
-                TradeHistory.pnl.is_not(None)
-            ).group_by(cast(TradeHistory.created_at, Date))
+            ).where(*conds).group_by(cast(TradeHistory.created_at, Date))
             return (await s.execute(stmt)).all()
 
     async def fetch_params():
         async with async_session() as s:
+            conds = [
+                TradeHistory.status == "SUCCESS",
+                TradeHistory.pnl.is_not(None)
+            ]
+            if cutoff_dt:
+                conds.append(TradeHistory.created_at >= cutoff_dt)
             stmt = select(
                 func.avg(case((TradeHistory.pnl > 0, TradeHistory.executed_price), else_=None)).label("avg_win_price"),
                 func.avg(case((TradeHistory.pnl <= 0, TradeHistory.executed_price), else_=None)).label("avg_loss_price"),
                 func.avg(case((TradeHistory.pnl > 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_win_prob"),
                 func.avg(case((TradeHistory.pnl <= 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_loss_prob")
-            ).where(
-                TradeHistory.status == "SUCCESS",
-                TradeHistory.pnl.is_not(None)
-            )
+            ).where(*conds)
             return (await s.execute(stmt)).first()
 
     settings_rows, assets_rows, daily_rows, params_row = await asyncio.gather(
@@ -149,5 +169,5 @@ async def get_trading_stats(db: AsyncSession = Depends(get_db_session)):
         }
     }
     
-    _stats_cache["stats"] = {"time": current_time, "data": result}
+    _stats_cache[cache_key] = {"time": current_time, "data": result}
     return result
