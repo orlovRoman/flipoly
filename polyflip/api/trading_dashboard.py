@@ -6,6 +6,7 @@ from typing import Optional
 from datetime import datetime, time as dt_time, timezone, timedelta
 from fastapi import APIRouter, Request, Depends, Query
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import TradeHistory, RuntimeSettings
 from polyflip.config import settings
