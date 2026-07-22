@@ -162,15 +162,17 @@ def build_crypto_features(
     # ── 9. Consecutive candles ───────────────────────────────────
     opens = df["open"].values
     dirs  = (close[:-1] >= opens[:-1])
+    dirs_list = list(reversed(dirs))
+
     consec_up = 0
-    for d in reversed(dirs):
+    for d in dirs_list:
         if d:
             consec_up += 1
         else:
             break
 
     consec_down = 0
-    for d in reversed(dirs):
+    for d in dirs_list:
         if not d:
             consec_down += 1
         else:
