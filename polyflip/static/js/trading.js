@@ -51,6 +51,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const data = await response.json();
       updateUI(data);
+
+      const chartsTfSelect = document.getElementById("charts-tf-select");
+      const chartsTimeframe = chartsTfSelect ? chartsTfSelect.value : "all";
+      if (chartsTimeframe === timeframe && data.daily_pnl) {
+        updateCharts(data.daily_pnl);
+      }
     } catch (error) {
       if (myToken !== _statsFetchToken) return;
       console.error("fetchStats error:", error);
@@ -1190,7 +1196,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initial fetch
   fetchStats();
-  fetchChartsData();
   loadSettings();
   loadLogs();
   fetchDailyPnL();
@@ -1203,6 +1208,11 @@ document.addEventListener("DOMContentLoaded", () => {
   window.statsIntervalId = setInterval(() => {
     if (document.hidden) return;
     fetchStats();
+    const assetTf = document.getElementById("asset-stats-tf-select")?.value ?? "all";
+    const chartsTf = document.getElementById("charts-tf-select")?.value ?? "all";
+    if (chartsTf !== assetTf) {
+      fetchChartsData();
+    }
   }, 5 * 60 * 1000);
   
   window.logsIntervalId = setInterval(() => {
