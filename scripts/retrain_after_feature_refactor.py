@@ -16,7 +16,7 @@ from polyflip.crypto.trainer import CryptoModelTrainer
 
 async def main():
     symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
-    async with get_db_session() as db:
+    async for db in get_db_session():
         print("1. Деактивация устаревших моделей в ModelRegistry...")
         await db.execute(
             text("UPDATE model_registry SET is_active = FALSE WHERE asset LIKE '%USDT%' OR asset = 'CRYPTO'")
@@ -30,6 +30,7 @@ async def main():
             print(f"\n2. Переобучение двухрежимных моделей для {symbol}...")
             res = await trainer.train(symbol)
             print(f"   Результат обучения {symbol}: {res}")
+        break
 
 if __name__ == "__main__":
     asyncio.run(main())
