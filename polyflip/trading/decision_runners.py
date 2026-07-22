@@ -281,6 +281,13 @@ async def decide_ml_mode(
                 decision_obj, reason=f"Ожидается флип (p_flip={p_flip:.2f} >= {upper:.2f})"
             )
 
+    g3_dead_zone = not (lower <= p_flip < upper)
+    g4_no_flip = p_flip < lower
+    _min_edge = float(local_config.get("MIN_EDGE", 0.0))
+    g5_min_edge = (decision_obj.edge is not None and decision_obj.edge >= _min_edge)
+    g6_price_range = not (decision_obj.action == "SKIP" and "price" in (decision_obj.reason or "").lower())
+    g7_crypto_confirm = None
+
     # Confirm Gate
     use_crypto_confirm = getattr(cfg, 'use_crypto_confirm', False)
     if decision_obj.action != "SKIP" and use_crypto_confirm and crypto_predictor:
@@ -306,6 +313,30 @@ async def decide_ml_mode(
                     decision_obj = dataclasses.replace(
                         decision_obj, action="SKIP", reason=f"Crypto confirm veto: direction is {crypto_sig.direction} vs market {market_direction}"
                     )
+        g7_crypto_confirm = (decision_obj.action != "SKIP")
+
+    await log_funnel(
+        db_session,
+        market_id=market.market_id,
+        asset=market.asset,
+        trading_mode="ML",
+        used_model=used_model,
+        p_flip=p_flip,
+        edge=decision_obj.edge if decision_obj else None,
+        fresh_price=fresh_yes_price,
+        threshold_lower=lower,
+        threshold_upper=upper,
+        min_edge_used=_min_edge,
+        g1_model_loaded=True,
+        g2_price_fetched=True,
+        g3_dead_zone=g3_dead_zone,
+        g4_no_flip=g4_no_flip,
+        g5_min_edge=g5_min_edge,
+        g6_price_range=g6_price_range,
+        g7_crypto_confirm=g7_crypto_confirm,
+        final_action=decision_obj.action if decision_obj else "SKIP",
+        skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None,
+    )
 
     return DecisionResult(
         decision_obj=decision_obj,
@@ -523,6 +554,26 @@ async def decide_combined_mode(
             original_bet=original_bet,
             reduced_bet=reduced_bet,
         )
+
+    g8_combined_vote = (vote.action != "SKIP")
+    await log_funnel(
+        db_session,
+        market_id=market.market_id,
+        asset=market.asset,
+        trading_mode="COMBINED",
+        used_model=ml_result.used_model_key,
+        p_flip=ml_result.p_flip,
+        edge=final_decision.edge if final_decision.edge is not None else ml_result.edge,
+        fresh_price=ml_result.decision_obj.buy_price if ml_result and ml_result.decision_obj else None,
+        threshold_lower=None,
+        threshold_upper=None,
+        min_edge_used=None,
+        g1_model_loaded=True,
+        g2_price_fetched=True,
+        g8_combined_vote=g8_combined_vote,
+        final_action=final_decision.action if final_decision else "SKIP",
+        skip_reason=_reason if vote.action == "SKIP" else None,
+    )
 
     return DecisionResult(
         decision_obj=final_decision,
