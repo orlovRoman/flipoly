@@ -301,13 +301,6 @@ def decide_crypto_trend(
             strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
         )
 
-    if crypto.edge > max_edge:
-        return TradeDecision(
-            action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
-            reason=f"crypto edge={crypto.edge:.4f} > max_edge={max_edge:.4f} (suspicious)",
-            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
-        )
-
     # Стандартизованный сайзинг ставок с подменой MIN_EDGE на CRYPTO_MIN_EDGE
     crypto_config = {**config, "MIN_EDGE": min_edge}
     bet = _resolve_final_bet(crypto.edge, volume_5min, crypto_config)
