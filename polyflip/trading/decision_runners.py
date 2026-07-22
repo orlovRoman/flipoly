@@ -225,9 +225,10 @@ async def decide_ml_mode(
         local_config["MAX_EDGE_FILTER"] = str(cfg.max_edge_filter)
     local_config["NO_FLIP_THRESHOLD"] = str(lower)
     local_config["FLIP_THRESHOLD"] = str(upper)
-    # FAVORITE_THRESHOLD = lower: YES когда mid >= lower, NO когда mid <= 1-lower
-    # is_in_dead_zone отсекает середину [lower, upper]
-    local_config["FAVORITE_THRESHOLD"] = str(lower)
+    fav_thresh = raw_settings.get("FAVORITE_THRESHOLD", "0.50")
+    if not fav_thresh or str(fav_thresh).strip() == "":
+        fav_thresh = "0.50"
+    local_config["FAVORITE_THRESHOLD"] = str(fav_thresh)
     # В ML_TREND режиме decide_favorite используется только для определения стороны (YES/NO),
     # но не для фильтрации по edge — это делает decide_ml_trend с MIN_EDGE.
     # Поэтому передаём заведомо низкий порог, чтобы favorite не заблокировал стороны
@@ -241,7 +242,7 @@ async def decide_ml_mode(
         "local_config_for_decision",
         asset=_asset_upper,
         flip_threshold=round(base_flip_threshold, 4),
-        favorite_threshold=round(lower, 4),
+        favorite_threshold=float(fav_thresh),
         no_flip_threshold=round(lower, 4),
         fav_min=local_config.get("FAVORITE_MIN_PRICE"),
         fav_max=local_config.get("FAVORITE_MAX_PRICE"),
