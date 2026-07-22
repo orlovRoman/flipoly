@@ -48,9 +48,11 @@ class CryptoFeaturesValidator(BaseModel):
     # Consecutive
     consec_up: float
     consec_down: float
-    # Time
-    hour_utc: float
-    dow: float
+    # Time (Cyclic)
+    hour_sin: float
+    hour_cos: float
+    dow_sin: float
+    dow_cos: float
     @field_validator("*", mode="before")
     @classmethod
     def check_nan_or_none(cls, v: Any) -> float:

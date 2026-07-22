@@ -46,9 +46,11 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     # --- Consecutive candles ---
     "consec_up",         # число подряд идущих up-свечей перед текущей
     "consec_down",       # число подряд идущих down-свечей перед текущей
-    # --- Time ---
-    "hour_utc",          # час открытия (0–23)
-    "dow",               # день недели (0=Mon, 6=Sun)
+    # --- Time (Cyclic) ---
+    "hour_sin",          # sin(2*pi*hour/24)
+    "hour_cos",          # cos(2*pi*hour/24)
+    "dow_sin",           # sin(2*pi*dow/7)
+    "dow_cos",           # cos(2*pi*dow/7)
 ]
 
 
@@ -177,10 +179,12 @@ def build_crypto_features(
         else:
             break
 
-    # ── 10. Time ─────────────────────────────────────────────────
+    # ── 10. Time (Cyclic) ────────────────────────────────────────
     last_dt  = df["open_time"].iloc[-1]
-    hour_utc = int(last_dt.hour)
-    dow      = int(last_dt.weekday())   # 0=Mon
+    hour_sin = float(np.sin(2 * np.pi * last_dt.hour / 24))
+    hour_cos = float(np.cos(2 * np.pi * last_dt.hour / 24))
+    dow_sin  = float(np.sin(2 * np.pi * last_dt.weekday() / 7))
+    dow_cos  = float(np.cos(2 * np.pi * last_dt.weekday() / 7))
 
     # ── 11. Сборка ───────────────────────────────────────────────
     vec = np.array([[
@@ -191,7 +195,7 @@ def build_crypto_features(
         dist_h24, dist_l24,
         range_1, range_avg,
         float(consec_up), float(consec_down),
-        float(hour_utc), float(dow),
+        hour_sin, hour_cos, dow_sin, dow_cos,
     ]], dtype=np.float64)
 
     vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
@@ -311,10 +315,12 @@ def build_features(
     out["consec_up"]   = consec_up
     out["consec_down"] = consec_dn
 
-    # ── Time ─────────────────────────────────────────────────────
+    # ── Time (Cyclic) ────────────────────────────────────────────
     dt = pd.to_datetime(df["open_time"])
-    out["hour_utc"] = dt.dt.hour.astype(float)
-    out["dow"]      = dt.dt.weekday.astype(float)
+    out["hour_sin"] = np.sin(2 * np.pi * dt.dt.hour / 24)
+    out["hour_cos"] = np.cos(2 * np.pi * dt.dt.hour / 24)
+    out["dow_sin"]  = np.sin(2 * np.pi * dt.dt.weekday / 7)
+    out["dow_cos"]  = np.cos(2 * np.pi * dt.dt.weekday / 7)
 
     # ── NaN → 0 (safety net) ────────────────────────────────────
     out = out.fillna(0.0)

@@ -49,8 +49,8 @@ CRYPTO_FEATURES = [
     "range_1", "range_avg_24",
     # Consecutive
     "consec_up", "consec_down",
-    # Time
-    "hour_utc", "dow",
+    # Time (Cyclic)
+    "hour_sin", "hour_cos", "dow_sin", "dow_cos",
 ]
 
 
