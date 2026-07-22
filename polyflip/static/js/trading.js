@@ -83,8 +83,6 @@ document.addEventListener("DOMContentLoaded", () => {
             `;
       elements.assetTable.appendChild(tr);
     }
-
-    updateCharts(data.daily_pnl);
   }
 
   function updateCharts(dailyData) {
@@ -1148,6 +1146,41 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  let _chartsFetchToken = 0;
+
+  async function fetchChartsData(tf) {
+    const tfSelect = document.getElementById("charts-tf-select");
+    const timeframe = tf || (tfSelect ? tfSelect.value : "all");
+    const myToken = ++_chartsFetchToken;
+    if (tfSelect) tfSelect.disabled = true;
+
+    try {
+      const response = await fetch(
+        `${window.API_BASE}/api/trading/stats?timeframe=${encodeURIComponent(timeframe)}`,
+        { headers: { "X-API-Key": apiKey } }
+      );
+      if (!response.ok) return;
+      if (myToken !== _chartsFetchToken) return;
+
+      const data = await response.json();
+      if (data.daily_pnl) {
+        updateCharts(data.daily_pnl);
+      }
+    } catch (e) {
+      if (myToken !== _chartsFetchToken) return;
+      console.error("fetchChartsData error:", e);
+    } finally {
+      if (tfSelect) tfSelect.disabled = false;
+    }
+  }
+
+  const chartsTfSelect = document.getElementById("charts-tf-select");
+  if (chartsTfSelect) {
+    chartsTfSelect.addEventListener("change", () => {
+      fetchChartsData(chartsTfSelect.value);
+    });
+  }
+
   const assetStatsTfSelect = document.getElementById("asset-stats-tf-select");
   if (assetStatsTfSelect) {
     assetStatsTfSelect.addEventListener("change", () => {
@@ -1157,6 +1190,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initial fetch
   fetchStats();
+  fetchChartsData();
   loadSettings();
   loadLogs();
   fetchDailyPnL();
