@@ -204,7 +204,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (elements.refreshBtn) {
-    elements.refreshBtn.addEventListener("click", fetchStats);
+    elements.refreshBtn.addEventListener("click", () => {
+      fetchStats();
+      const assetTf = document.getElementById("asset-stats-tf-select")?.value ?? "all";
+      const chartsTf = document.getElementById("charts-tf-select")?.value ?? "all";
+      if (chartsTf !== assetTf) {
+        fetchChartsData();
+      }
+    });
   }
 
   // ----------------------------------------------------
