@@ -259,24 +259,21 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
             try:
                 # В случае передачи строки с запятой (напр. "1,0") заменяем на точку
                 val = float(str(payload.value).replace(",", "."))
-                if key == "FAVORITE_MIN_EDGE" and val < 0:
-                    # FAVORITE_MIN_EDGE может быть отрицательным (напр. -1.0% = -0.01)
-                    if val < -100.0:
-                        raise HTTPException(status_code=400, detail=f"{key} must be ≥ -100%")
-                    payload.value = f"{val / 100.0:.6f}".rstrip('0').rstrip('.')
-                elif val <= 0:
+                if key != "FAVORITE_MIN_EDGE" and val <= 0:
                     raise HTTPException(status_code=400, detail=f"{key} must be positive")
-                elif val >= 0.5:
-                    # Введено как процент (напр. 1.0% → 0.01, 5.0% → 0.05)
-                    if val > 100.0:
+                if key == "FAVORITE_MIN_EDGE" and val < -100.0:
+                    raise HTTPException(status_code=400, detail=f"{key} must be ≥ -100%")
+                if abs(val) >= 0.5:
+                    # Введено как процент: 5 → 0.05, -1 → -0.01
+                    if abs(val) > 100.0:
                         raise HTTPException(status_code=400, detail=f"{key} must be ≤ 100%")
                     payload.value = f"{val / 100.0:.6f}".rstrip('0').rstrip('.')
                 else:
-                    # Введено как доля (напр. 0.05 = 5%)
+                    # Уже доля: 0.05 остаётся 0.05, -0.01 остаётся -0.01
                     payload.value = f"{val:.6f}".rstrip('0').rstrip('.')
                     
                 if key in ["MIN_EDGE", "MAX_BET_EDGE", "MAX_EDGE_FILTER"]:
-                    # Cross-validation: MIN_EDGE ≤ MAX_BET_EDGE
+                    # Cross-validation: MIN_EDGE ≤ MAX_BET_EDGE, MAX_EDGE_FILTER ≤ MAX_BET_EDGE
                     norm_val = float(payload.value)
                     async with SessionContext(db) as session:
                         if key == "MAX_BET_EDGE":
@@ -290,6 +287,12 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
                             current_max = float(max_edge_row.value) if max_edge_row else getattr(settings, 'MAX_BET_EDGE', 0.10)
                             if norm_val > current_max:
                                 raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be ≤ MAX_BET_EDGE ({current_max})")
+
+                        elif key == "MAX_EDGE_FILTER":
+                            max_bet_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE"))).scalar_one_or_none()
+                            current_max_bet = float(max_bet_edge_row.value) if max_bet_edge_row else getattr(settings, 'MAX_BET_EDGE', 0.10)
+                            if norm_val > current_max_bet:
+                                raise HTTPException(status_code=400, detail=f"MAX_EDGE_FILTER ({norm_val}) must be ≤ MAX_BET_EDGE ({current_max_bet})")
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"{key} must be a number")
 
