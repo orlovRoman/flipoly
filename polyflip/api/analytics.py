@@ -5,11 +5,12 @@ from typing import Dict, Any
 import pandas as pd
 import structlog
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.api.auth import verify_api_key
-from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
+from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings, TradeHistory
+
 from polyflip.config import settings
 from polyflip.models.trainer import ModelTrainer
 
@@ -157,6 +158,94 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
     await db.commit()
     await invalidate_analytics_cache()
     return {"status": "success", "active_version": version}
+
+
+def get_model_subtype_info(asset: str) -> tuple[str, str, str]:
+    """
+    Возвращает (base_symbol, subtype_code, subtype_label)
+    """
+    base_symbol = asset.split('_')[0].replace('USDT', '').upper()
+    if asset.endswith("_leaning"):
+        return (base_symbol, "leaning", "🟨 Колебания (Leaning)")
+    elif asset.endswith("_decided"):
+        return (base_symbol, "decided", "🟦 Определился (Decided)")
+    elif asset.endswith("_low_vol"):
+        return (base_symbol, "lightgbm_low", "🔷 LightGBM (Low Vol)")
+    elif asset.endswith("_mid_vol"):
+        return (base_symbol, "lightgbm_mid", "🔷 LightGBM (Mid Vol)")
+    elif asset.endswith("_high_vol"):
+        return (base_symbol, "lightgbm_high", "🔷 LightGBM (High Vol)")
+    else:
+        return (base_symbol, "base", "🟧 Базовая (Base LogReg)")
+
+
+@router.get("/analytics/active_models_summary")
+async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = Depends(get_db_session)):
+    """
+    Сводная статистика по всем АКТИВНЫМ моделям (Base, Leaning, Decided, LightGBM)
+    с расчетом PnL, WinRate и количества сделок за выбранный период.
+    """
+    now = datetime.now(timezone.utc)
+    if timeframe == "24h":
+        start_time = now - timedelta(hours=24)
+    elif timeframe == "7d":
+        start_time = now - timedelta(days=7)
+    elif timeframe == "30d":
+        start_time = now - timedelta(days=30)
+    else:
+        start_time = None
+
+    # 1. Запрашиваем активные модели из ModelRegistry
+    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active).order_by(ModelRegistry.asset)
+    models = (await db.execute(models_stmt)).scalars().all()
+
+    # 2. Запрашиваем успешные сделки
+    trades_stmt = select(TradeHistory).where(
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.pnl.is_not(None),
+        TradeHistory.model_version.is_not(None)
+    )
+    if start_time:
+        trades_stmt = trades_stmt.where(TradeHistory.created_at >= start_time)
+
+    trades = (await db.execute(trades_stmt)).scalars().all()
+
+    # Группируем сделки по (base_asset, version)
+    trades_by_version = {}
+    for t in trades:
+        norm_asset = t.asset.split('_')[0].replace('USDT', '').upper()
+        key = (norm_asset, t.model_version)
+        if key not in trades_by_version:
+            trades_by_version[key] = {"total": 0, "wins": 0, "pnl": 0.0}
+        trades_by_version[key]["total"] += 1
+        if t.pnl > 0:
+            trades_by_version[key]["wins"] += 1
+        trades_by_version[key]["pnl"] += float(t.pnl)
+
+    result = []
+    for m in models:
+        base_symbol, sub_code, sub_label = get_model_subtype_info(m.asset)
+        key = (base_symbol, m.version)
+        stats = trades_by_version.get(key, {"total": 0, "wins": 0, "pnl": 0.0})
+
+        win_rate = round((stats["wins"] / stats["total"] * 100), 1) if stats["total"] > 0 else None
+
+        result.append({
+            "asset_full": m.asset,
+            "base_symbol": base_symbol,
+            "subtype_code": sub_code,
+            "subtype_label": sub_label,
+            "version": m.version,
+            "accuracy": round(m.accuracy, 4) if m.accuracy is not None else None,
+            "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
+            "total_trades": stats["total"],
+            "win_rate": win_rate,
+            "pnl": round(stats["pnl"], 2),
+            "trained_at": m.trained_at.isoformat() if m.trained_at else None
+        })
+
+    return {"status": "success", "timeframe": timeframe, "data": result}
+
 
 
 @router.delete("/analytics/models/{asset}/{version}", dependencies=[Depends(verify_api_key)])

@@ -108,13 +108,41 @@
                         <h3>Процент флипов</h3>
                         <div class="stat-value highlight" id="stat-flips">Загрузка...</div>
                     </div>
-                    {% for asset in assets %}
-                    <div class="stat-card">
-                        <h3>Текущая модель ({{ asset }})</h3>
-                        <div class="stat-value" id="stat-model-{{ asset|lower }}">Загрузка...</div>
-                    </div>
-                    {% endfor %}
                 </div>
+
+                <div class="panel" style="margin-top: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+                        <h3 style="margin: 0; font-size: 1.15rem;">Активные ML-модели по активам (Base, Leaning, Decided, LightGBM)</h3>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label for="active-models-tf-select" style="font-size: 0.85rem; color: var(--text-muted);">Период PnL:</label>
+                            <select id="active-models-tf-select" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
+                                <option value="24h" selected>24 часа</option>
+                                <option value="7d">7 дней</option>
+                                <option value="30d">30 дней</option>
+                                <option value="all">За все время</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table class="data-table" id="active-models-table">
+                            <thead>
+                                <tr>
+                                    <th>Актив</th>
+                                    <th>Тип модели / Назначение</th>
+                                    <th>Версия</th>
+                                    <th>Качество (Accuracy / ECE)</th>
+                                    <th>Сделок</th>
+                                    <th>Win Rate</th>
+                                    <th>PnL (USDC)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1rem;">Загрузка активных моделей...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
 
                 <div style="margin-top: 1.5rem; margin-bottom: 2rem;">
                     <h2>Точность моделей (Accuracy) со временем</h2>

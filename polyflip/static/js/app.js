@@ -116,20 +116,8 @@ document.addEventListener("DOMContentLoaded", () => {
           : "0%";
       }
 
-      // Заполняем карточки активных моделей для всех активов
-      if (data.active_models) {
-        document.querySelectorAll("[id^='stat-model-']").forEach((el) => {
-          const asset = el.id.replace("stat-model-", "").toUpperCase();
-          const model = data.active_models[asset] || data.active_models[asset.toLowerCase()];
-          if (model) {
-            const version = model.version !== undefined ? model.version : model;
-            const accuracy = model.accuracy !== undefined ? ` (Acc: ${(model.accuracy * 100).toFixed(1)}%)` : '';
-            el.innerText = `v${version}${accuracy}`;
-          } else {
-            el.innerText = "Нет модели";
-          }
-        });
-      }
+      // Загружаем подробную таблицу активных моделей
+      fetchActiveModelsSummary();
 
       // Рендерим графики точности при наличии Chart.js
       if (data.model_history) {
@@ -143,11 +131,68 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     } catch (e) {
       console.error("[Summary] Failed to load summary", e);
-      if (retryCount < 3) {
-        setTimeout(() => loadSummary(retryCount + 1), 1500);
+    }
+
+  }
+
+  async function fetchActiveModelsSummary(tf) {
+    const tbody = document.querySelector("#active-models-table tbody");
+    if (!tbody) return;
+
+    const tfSelect = document.getElementById("active-models-tf-select");
+    const timeframe = tf || (tfSelect ? tfSelect.value : "24h");
+
+    try {
+      const res = await fetch(`${window.API_BASE}/api/analytics/active_models_summary?timeframe=${encodeURIComponent(timeframe)}`, {
+        headers: getHeaders()
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      if (!json.data || json.data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-muted); padding: 1rem;">Активные модели не найдены</td></tr>`;
+        return;
       }
+
+      const rows = json.data.map(m => {
+        const accuracyText = m.accuracy != null ? (m.accuracy * 100).toFixed(1) + "%" : "—";
+        const eceText = m.ece != null ? ` (ECE: ${m.ece.toFixed(4)})` : "";
+        const qualHtml = `${accuracyText}<span style="color: var(--text-muted); font-size: 0.8rem;">${eceText}</span>`;
+
+        let pnlHtml = '<span style="color: var(--text-muted);">—</span>';
+        let wrText = '—';
+        if (m.total_trades > 0) {
+          const pnlColor = m.pnl > 0 ? "var(--poly-green, #4ade80)" : m.pnl < 0 ? "#ff3366" : "inherit";
+          const sign = m.pnl > 0 ? "+" : "";
+          pnlHtml = `<span style="color:${pnlColor}; font-weight:600;">${sign}${m.pnl.toFixed(2)} USDC</span>`;
+          wrText = m.win_rate != null ? `${m.win_rate}%` : '—';
+        }
+
+        return `
+          <tr>
+            <td><strong>${escapeHtml(m.base_symbol)}</strong></td>
+            <td>${m.subtype_label}</td>
+            <td>v${m.version}</td>
+            <td>${qualHtml}</td>
+            <td>${m.total_trades}</td>
+            <td>${wrText}</td>
+            <td>${pnlHtml}</td>
+          </tr>
+        `;
+      });
+
+      tbody.innerHTML = rows.join("");
+    } catch (e) {
+      console.error("Failed to fetch active models summary", e);
     }
   }
+
+  const activeTfSelect = document.getElementById("active-models-tf-select");
+  if (activeTfSelect) {
+    activeTfSelect.addEventListener("change", () => {
+      fetchActiveModelsSummary(activeTfSelect.value);
+    });
+  }
+
   function renderAccuracyChart(historyData, asset) {
     if (typeof Chart === "undefined") {
       console.warn("Chart.js is not loaded yet or blocked, skipping chart render for " + asset);
