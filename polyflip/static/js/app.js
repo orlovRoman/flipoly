@@ -276,6 +276,18 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Hook up event listeners for chart loading
+  const btnLoadAnalytics = document.getElementById("btn-load-analytics");
+  if (btnLoadAnalytics) {
+    btnLoadAnalytics.addEventListener("click", () => {
+      const placeholderEl = document.getElementById("analytics-placeholder");
+      const containerEl = document.getElementById("analytics-heavy-container");
+      if (placeholderEl) placeholderEl.style.display = "none";
+      if (containerEl) containerEl.style.display = "block";
+      loadSummary();
+      loadCharts(true);
+    });
+  }
+
   const btnPlaceholder = document.getElementById("btn-load-charts-placeholder");
   if (btnPlaceholder) {
     btnPlaceholder.addEventListener("click", () => loadCharts(true));
@@ -1025,15 +1037,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // === Init ===
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
-      loadSummary();
-      loadCharts();
+      fetchActiveModelsSummary();
       loadSettings();
       loadParserStatus();
       loadModelsHistory();
     });
   } else {
-    loadSummary();
-    loadCharts();
+    fetchActiveModelsSummary();
     loadSettings();
     loadParserStatus();
     loadModelsHistory();

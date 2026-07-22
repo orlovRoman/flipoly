@@ -99,17 +99,6 @@
                     </script>
                 </header>
 
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <h3>Рынков обработано</h3>
-                        <div class="stat-value" id="stat-markets">Загрузка...</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Процент флипов</h3>
-                        <div class="stat-value highlight" id="stat-flips">Загрузка...</div>
-                    </div>
-                </div>
-
                 <div class="panel" style="margin-top: 1.5rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
                         <h3 style="margin: 0; font-size: 1.15rem;">Активные ML-модели по активам (Base, Leaning, Decided, LightGBM)</h3>
@@ -143,66 +132,78 @@
                     </div>
                 </div>
 
+                <div id="analytics-placeholder" style="background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 12px; padding: 2rem; text-align: center; margin-top: 1.5rem; margin-bottom: 2rem;">
+                    <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.95rem;">Общая статистика рынков, графики точности моделей и влияния параметров скрыты по умолчанию для максимального ускорения дашборда.</p>
+                    <button id="btn-load-analytics" class="btn primary-btn" style="padding: 0.6rem 1.4rem;">📊 Показать графики и полную статистику</button>
+                </div>
 
-                <div style="margin-top: 1.5rem; margin-bottom: 2rem;">
-                    <h2>Точность моделей (Accuracy) со временем</h2>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
-                        {% for asset in assets %}
-                        <div class="chart-box">
-                            <h3>{{ asset }}</h3>
-                            <canvas id="chart-model-accuracy-{{ asset|lower }}"></canvas>
+                <div id="analytics-heavy-container" style="display: none; margin-top: 1.5rem;">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>Рынков обработано</h3>
+                            <div class="stat-value" id="stat-markets">Загрузка...</div>
                         </div>
-                        {% endfor %}
+                        <div class="stat-card">
+                            <h3>Процент флипов</h3>
+                            <div class="stat-value highlight" id="stat-flips">Загрузка...</div>
+                        </div>
                     </div>
-                </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 15px; flex-wrap: wrap;">
-                    <h2>Влияние параметров на вероятность флипа</h2>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <button id="btn-load-charts" class="btn primary-btn" style="padding: 0.5rem 1rem; display: none;">Загрузить графики</button>
-                        <select id="asset-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; font-size: 1rem; cursor: pointer; display: none;">
+                    <div style="margin-top: 1.5rem; margin-bottom: 2rem;">
+                        <h2>Точность моделей (Accuracy) со временем</h2>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
                             {% for asset in assets %}
-                            <option value="{{ asset }}">{{ asset }}</option>
+                            <div class="chart-box">
+                                <h3>{{ asset }}</h3>
+                                <canvas id="chart-model-accuracy-{{ asset|lower }}"></canvas>
+                            </div>
                             {% endfor %}
-                        </select>
+                        </div>
                     </div>
-                </div>
 
-                <div id="charts-placeholder" style="background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 12px; padding: 3rem; text-align: center; margin-top: 1rem; margin-bottom: 2rem;">
-                    <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.95rem;">Графики влияния параметров на вероятность флипа не загружены по умолчанию для ускорения работы дашборда.</p>
-                    <button id="btn-load-charts-placeholder" class="btn primary-btn" style="padding: 0.6rem 1.2rem;">Показать графики аналитики</button>
-                </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 15px; flex-wrap: wrap;">
+                        <h2>Влияние параметров на вероятность флипа</h2>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <button id="btn-load-charts" class="btn primary-btn" style="padding: 0.5rem 1rem;">Обновить графики параметров</button>
+                            <select id="asset-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; font-size: 1rem; cursor: pointer;">
+                                {% for asset in assets %}
+                                <option value="{{ asset }}">{{ asset }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
 
-                <div class="charts-container" id="flip-charts-wrapper" style="display: none; grid-template-columns: 1fr; gap: 1.5rem;">
-                    <div class="chart-box">
-                        <h3>Время до конца</h3>
-                        <p class="chart-desc">Вероятность флипа от оставшегося времени (мин)</p>
-                        <canvas id="chart-time"></canvas>
-                    </div>
-                    <div class="chart-box">
-                        <h3>Текущая цена (mid_price)</h3>
-                        <p class="chart-desc">Зависимость от текущей цены на рынке</p>
-                        <canvas id="chart-price"></canvas>
-                    </div>
-                    <div class="chart-box">
-                        <h3>Спред (spread)</h3>
-                        <p class="chart-desc">Зависимость от разницы между Bid и Ask</p>
-                        <canvas id="chart-spread"></canvas>
-                    </div>
-                    <div class="chart-box">
-                        <h3>Объем (volume_5min)</h3>
-                        <p class="chart-desc">Зависимость от объема торгов за последние 5 минут (USDC)</p>
-                        <canvas id="chart-volume"></canvas>
-                    </div>
-                    <div class="chart-box">
-                        <h3>Скорость изменения цены</h3>
-                        <p class="chart-desc">Зависимость от изменения цены за 5 минут</p>
-                        <canvas id="chart-velocity"></canvas>
-                    </div>
-                    <div class="chart-box">
-                        <h3>Час дня</h3>
-                        <p class="chart-desc">Зависимость от времени суток (UTC)</p>
-                        <canvas id="chart-hour"></canvas>
+                    <div class="charts-container" id="flip-charts-wrapper" style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;">
+                        <div class="chart-box">
+                            <h3>Время до конца</h3>
+                            <p class="chart-desc">Вероятность флипа от оставшегося времени (мин)</p>
+                            <canvas id="chart-time"></canvas>
+                        </div>
+                        <div class="chart-box">
+                            <h3>Текущая цена (mid_price)</h3>
+                            <p class="chart-desc">Зависимость от текущей цены на рынке</p>
+                            <canvas id="chart-price"></canvas>
+                        </div>
+                        <div class="chart-box">
+                            <h3>Спред (spread)</h3>
+                            <p class="chart-desc">Зависимость от разницы между Bid и Ask</p>
+                            <canvas id="chart-spread"></canvas>
+                        </div>
+                        <div class="chart-box">
+                            <h3>Объем (volume_5min)</h3>
+                            <p class="chart-desc">Зависимость от объема торгов за последние 5 минут (USDC)</p>
+                            <canvas id="chart-volume"></canvas>
+                        </div>
+                        <div class="chart-box">
+                            <h3>Скорость изменения цены</h3>
+                            <p class="chart-desc">Зависимость от изменения цены за 5 минут</p>
+                            <canvas id="chart-velocity"></canvas>
+                        </div>
+                        <div class="chart-box">
+                            <h3>Час дня</h3>
+                            <p class="chart-desc">Зависимость от времени суток (UTC)</p>
+                            <canvas id="chart-hour"></canvas>
+                        </div>
                     </div>
                 </div>
             </section>
