@@ -15,8 +15,10 @@ document.addEventListener("DOMContentLoaded", () => {
     assetTable: document.querySelector("#asset-stats-table tbody"),
     dailyPnlTable: document.querySelector("#daily-pnl-table tbody"),
     dailyPnlLoader: document.getElementById("daily-pnl-loader"),
+    pnlTimeframeSelect: document.getElementById("pnl-timeframe-select"),
     refreshBtn: document.getElementById("btn-refresh-trading"),
   };
+
 
   let pnlChart = null;
   let wlChart = null;
@@ -1180,10 +1182,9 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchDailyPnL();
   }, 60000);
 
-  const timeframeSelect = document.getElementById("pnl-timeframe-select");
-  if (timeframeSelect) {
-    timeframeSelect.addEventListener("change", () => {
-      const tf = timeframeSelect.value;
+  if (elements.pnlTimeframeSelect) {
+    elements.pnlTimeframeSelect.addEventListener("change", () => {
+      const tf = elements.pnlTimeframeSelect.value;
       const titleEl = document.getElementById("pnl-analytics-title");
       if (titleEl) {
         const titles = {
@@ -1199,7 +1200,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function fetchDailyPnL(tf) {
-    const timeframe = tf || (timeframeSelect ? timeframeSelect.value : "24h");
+    const timeframe = tf || (elements.pnlTimeframeSelect ? elements.pnlTimeframeSelect.value : "24h");
     if (elements.dailyPnlLoader) {
       elements.dailyPnlLoader.style.display = "inline";
     }
@@ -1207,6 +1208,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const response = await fetch(`${window.API_BASE}/api/dashboard/daily_pnl?timeframe=${encodeURIComponent(timeframe)}`, {
         headers: { "X-API-Key": apiKey },
       });
+
       if (response.ok) {
         const result = await response.json();
         if (result.status === "success" && elements.dailyPnlTable) {

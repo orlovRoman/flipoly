@@ -576,9 +576,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const modelsPageSize = 15;
   let modelsSortField = "trained_at";
   let modelsSortAsc = false;
-  let modelsTypeFilter = "all";
+  let modelsTypeFilter = "logistic_regression";
   let rawModelsData = [];
   let rawModelsPnlData = {};
+
 
   function setupModelTypeFilter() {
     const filterContainer = document.getElementById("model-type-filter");

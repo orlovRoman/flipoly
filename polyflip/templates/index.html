@@ -30,11 +30,12 @@
             </div>
             <ul class="nav-links">
                 <li class="nav-item active" data-tab="analytics">Аналитика</li>
-                <li class="nav-item" data-tab="models">Регрессионные модели</li>
+                <li class="nav-item" data-tab="models">Модели Polymarket (LogReg)</li>
                 <li class="nav-item" data-tab="status">Статус Парсера</li>
                 <li class="nav-item" data-href="/trading">Торговля (PnL)</li>
                 <li class="nav-item" data-href="/backtest">Бэктест</li>
-                <li class="nav-item" data-href="/crypto">LightGBM 🪙</li>
+                <li class="nav-item" data-href="/crypto">Crypto-модели (LightGBM)</li>
+
             </ul>
         </nav>
 
@@ -181,10 +182,10 @@
             <!-- TAB: MODELS -->
             <div id="models" class="tab-content">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-                    <h2>Реестр ML-моделей (LightGBM & Logistic Regression)</h2>
+                    <h2>Управление моделями Polymarket (Logistic Regression)</h2>
                     <div style="display: flex; gap: 10px; flex-wrap: wrap;" id="train-buttons-container">
                         {% for asset in assets %}
-                        <button class="btn primary-btn btn-train-asset" data-asset="{{ asset }}">Обучить {{ asset }}</button>
+                        <button class="btn primary-btn btn-train-asset" data-asset="{{ asset }}">Обучить {{ asset }} (LogReg)</button>
                         {% endfor %}
                         <button class="btn" onclick="fetchTimeLeftStats()">📊 Распределение time_left</button>
                     </div>
@@ -192,13 +193,13 @@
                 <pre id="time-left-stats" style="margin-top: 10px; font-size: 0.9em; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 10px; display: none;"></pre>
                 <div class="panel">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-                        <p style="color: var(--text-muted); margin: 0;">История всех моделей в реестре с четким разделением архитектур.</p>
+                        <p style="color: var(--text-muted); margin: 0;">История регрессионных фазовых моделей (LogReg) для рынка Polymarket.</p>
                         <div style="display: flex; gap: 8px;" id="model-type-filter">
-                            <button class="btn btn-outline active" data-filter="all" style="padding: 4px 10px; font-size: 0.85rem;">Все типы</button>
-                            <button class="btn btn-outline" data-filter="lightgbm" style="padding: 4px 10px; font-size: 0.85rem; border-color: rgba(96, 165, 250, 0.4); color: #60a5fa;">🔷 LightGBM (Crypto)</button>
-                            <button class="btn btn-outline" data-filter="logistic_regression" style="padding: 4px 10px; font-size: 0.85rem; border-color: rgba(251, 146, 60, 0.4); color: #fb923c;">🟧 Logistic Regression (Phase)</button>
+                            <button class="btn btn-outline active" data-filter="logistic_regression" style="padding: 4px 10px; font-size: 0.85rem; border-color: rgba(251, 146, 60, 0.4); color: #fb923c;">🟧 LogReg (Polymarket)</button>
+                            <button class="btn btn-outline" data-filter="all" style="padding: 4px 10px; font-size: 0.85rem;">Все модели</button>
                         </div>
                     </div>
+
                     <div style="overflow-x: auto;">
                         <table class="data-table" id="models-table">
                             <thead>
