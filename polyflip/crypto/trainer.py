@@ -38,7 +38,7 @@ CRYPTO_FEATURES = [
     # Returns — только короткие горизонты
     "ret_1", "ret_3", "ret_6",
     # Volatility — только короткие
-    "vol_6", "vol_24",
+    "vol_6", "vol_24", "vol_trend",
     # Volume & CVD
     "vol_z_1", "taker_buy_ratio", "cvd_1", "cvd_6", "cvd_trend",
     # Technical
@@ -49,6 +49,8 @@ CRYPTO_FEATURES = [
     "range_1", "range_avg_24",
     # Consecutive
     "consec_up", "consec_down",
+    # Time
+    "hour_utc", "dow",
 ]
 
 

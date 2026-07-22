@@ -27,6 +27,7 @@ class CryptoFeaturesValidator(BaseModel):
     # Volatility — только короткие
     vol_6: float
     vol_24: float
+    vol_trend: float
     # Volume & CVD
     vol_z_1: float
     taker_buy_ratio: float
@@ -47,6 +48,9 @@ class CryptoFeaturesValidator(BaseModel):
     # Consecutive
     consec_up: float
     consec_down: float
+    # Time
+    hour_utc: float
+    dow: float
     @field_validator("*", mode="before")
     @classmethod
     def check_nan_or_none(cls, v: Any) -> float:
