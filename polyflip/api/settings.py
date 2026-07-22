@@ -276,20 +276,20 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
                     payload.value = f"{val:.6f}".rstrip('0').rstrip('.')
                     
                 if key in ["MIN_EDGE", "MAX_BET_EDGE", "MAX_EDGE_FILTER"]:
-                    # Cross-validation: MIN_EDGE < MAX_EDGE_FILTER ≤ MAX_BET_EDGE
+                    # Cross-validation: MIN_EDGE ≤ MAX_BET_EDGE
                     norm_val = float(payload.value)
                     async with SessionContext(db) as session:
                         if key == "MAX_BET_EDGE":
                             min_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE"))).scalar_one_or_none()
                             current_min = float(min_edge_row.value) if min_edge_row else settings.MIN_EDGE
-                            if norm_val <= current_min:
-                                raise HTTPException(status_code=400, detail=f"MAX_BET_EDGE ({norm_val}) must be greater than MIN_EDGE ({current_min})")
+                            if norm_val < current_min:
+                                raise HTTPException(status_code=400, detail=f"MAX_BET_EDGE ({norm_val}) must be ≥ MIN_EDGE ({current_min})")
                             
                         elif key == "MIN_EDGE":
                             max_edge_row = (await session.execute(select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE"))).scalar_one_or_none()
                             current_max = float(max_edge_row.value) if max_edge_row else getattr(settings, 'MAX_BET_EDGE', 0.10)
-                            if norm_val >= current_max:
-                                raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be less than MAX_BET_EDGE ({current_max})")
+                            if norm_val > current_max:
+                                raise HTTPException(status_code=400, detail=f"MIN_EDGE ({norm_val}) must be ≤ MAX_BET_EDGE ({current_max})")
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"{key} must be a number")
 
@@ -409,15 +409,6 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
         if payload.value.lower() not in ("true", "false"):
             raise HTTPException(status_code=400, detail="AUTO_DEAD_ZONE must be 'true' or 'false'")
         payload.value = payload.value.lower()
-
-    if key == "MAX_EDGE_FILTER":
-        try:
-            val = float(payload.value)
-            if not (0.05 <= val <= 1.0):
-                raise HTTPException(status_code=400, detail="MAX_EDGE_FILTER must be 0.05..1.0")
-            payload.value = str(val)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="MAX_EDGE_FILTER must be a number")
 
     if key == "LIVE_POLL_INTERVAL_SECONDS":
         try:
