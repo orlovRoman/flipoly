@@ -197,3 +197,50 @@ class CryptoCandle(Base):
         Index("idx_crypto_candles_symbol_interval", "symbol", "interval"),
         Index("idx_crypto_candles_open_time", "open_time"),
     )
+
+
+class DecisionFunnelLog(Base):
+    """
+    Одна запись = один проход через decide_ml_mode / decide_combined_mode.
+    Каждый гейт: True = прошёл, False = заблокировал, None = не применялся.
+    """
+    __tablename__ = "decision_funnel_log"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    created_at   = Column(DateTime(timezone=True), nullable=False)
+
+    # Контекст рынка
+    market_id    = Column(String(128), nullable=False)
+    asset        = Column(String(32),  nullable=False)
+    trading_mode = Column(String(32),  nullable=False)  # ML, COMBINED, CRYPTO, FAVORITE
+    used_model   = Column(String(64),  nullable=True)   # "BTC_contested", "ETH" и т.д.
+
+    # ML-метрики
+    p_flip       = Column(Float, nullable=True)
+    edge         = Column(Float, nullable=True)
+    fresh_price  = Column(Float, nullable=True)
+
+    # Пороги, применявшиеся в этом прогоне (для дебага изменений настроек)
+    threshold_lower = Column(Float, nullable=True)   # NO_FLIP_THRESHOLD (lower)
+    threshold_upper = Column(Float, nullable=True)   # FLIP_THRESHOLD (upper)
+    min_edge_used   = Column(Float, nullable=True)
+
+    # Гейты (True=passed, False=blocked, None=not_reached)
+    g1_model_loaded     = Column(Boolean, nullable=True)  # модель в кеше
+    g2_price_fetched    = Column(Boolean, nullable=True)  # API цена получена
+    g3_dead_zone        = Column(Boolean, nullable=True)  # НЕ в dead zone → True
+    g4_no_flip          = Column(Boolean, nullable=True)  # p_flip < lower (тренд)
+    g5_min_edge         = Column(Boolean, nullable=True)  # edge >= MIN_EDGE
+    g6_price_range      = Column(Boolean, nullable=True)  # цена в [MIN_PRICE, MAX_PRICE]
+    g7_crypto_confirm   = Column(Boolean, nullable=True)  # LightGBM согласен
+    g8_combined_vote    = Column(Boolean, nullable=True)  # финальный голос COMBINED
+
+    # Итог
+    final_action = Column(String(16), nullable=False)   # BUY_YES, BUY_NO, SKIP
+    skip_reason  = Column(String(256), nullable=True)   # краткая причина если SKIP
+
+    __table_args__ = (
+        Index("idx_funnel_asset_created", "asset", "created_at"),
+        Index("idx_funnel_market_id",     "market_id"),
+        Index("idx_funnel_trading_mode",  "trading_mode", "created_at"),
+    )
