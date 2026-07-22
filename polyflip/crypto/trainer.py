@@ -331,9 +331,9 @@ class CryptoModelTrainer:
         if missing:
             logger.warning("missing_features", missing=list(missing))
 
-        # Определяем vol-режим по P33/P67 vol_ratio
-        vol_p33 = float(df_filtered["vol_ratio"].quantile(0.33))
-        vol_p67 = float(df_filtered["vol_ratio"].quantile(0.67))
+        # Определяем vol-режим по P33/P67 vol_trend
+        vol_p33 = float(df_filtered["vol_trend"].quantile(0.33))
+        vol_p67 = float(df_filtered["vol_trend"].quantile(0.67))
 
         logger.info(
             "vol_regime_tertiles",
@@ -341,10 +341,6 @@ class CryptoModelTrainer:
             p33=round(vol_p33, 4),
             p67=round(vol_p67, 4),
         )
-
-        # Определяем vol-режим по P33/P67 vol_trend
-        vol_p33 = float(df_filtered["vol_trend"].quantile(0.33))
-        vol_p67 = float(df_filtered["vol_trend"].quantile(0.67))
 
         await _save_setting(self.db, f"VOL_P33_{symbol}", str(vol_p33))
         await _save_setting(self.db, f"VOL_P67_{symbol}", str(vol_p67))
