@@ -228,6 +228,7 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
             f"TRADING_MODE_{asset_upper}", 
             f"MIN_EDGE_{asset_upper}", 
             f"TRADE_MAX_PRICE_{asset_upper}",
+            f"FLIP_THRESHOLD_{asset_upper}",
             f"TRADE_FLIP_THRESHOLD_{asset_upper}"
         ]:
             is_per_asset_key = True
@@ -237,16 +238,19 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
     # Валидация и нормализация порогов вероятности флипа и мертвой зоны
-    if key in ["TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH"]:
-        try:
-            val = float(payload.value)
-            if val < 0.0 or val > 100.0:
-                raise HTTPException(status_code=400, detail=f"Value for {key} must be between 0 and 100")
-            # Если прислали проценты (больше 1.0), автоматически переводим в доли для хранения в БД
-            if val > 1.0:
-                payload.value = str(val / 100.0)
-        except ValueError:
-            raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
+    if key in ["FLIP_THRESHOLD", "TRADE_FLIP_THRESHOLD", "TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH"] or key.startswith("FLIP_THRESHOLD_") or key.startswith("TRADE_FLIP_THRESHOLD_"):
+        if (key.startswith("FLIP_THRESHOLD_") or key.startswith("TRADE_FLIP_THRESHOLD_")) and payload.value == "":
+            pass
+        else:
+            try:
+                val = float(payload.value)
+                if val < 0.0 or val > 100.0:
+                    raise HTTPException(status_code=400, detail=f"Value for {key} must be between 0 and 100")
+                # Если прислали проценты (больше 1.0), автоматически переводим в доли для хранения в БД (например 80 -> 0.8)
+                if val > 1.0:
+                    payload.value = str(round(val / 100.0, 4))
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
 
     if key in ["MIN_EDGE", "MAX_BET_EDGE", "MAX_EDGE_FILTER"] or key.startswith("MIN_EDGE_"):
         if key.startswith("MIN_EDGE_") and payload.value == "":

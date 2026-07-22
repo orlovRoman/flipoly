@@ -235,6 +235,18 @@ async def decide_ml_mode(
     # NOTE: MAX_BET_EDGE intentionally not overridden here (prevents disabling bet scaling)
     local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 
+    logger.info(
+        "local_config_for_decision",
+        asset=_asset_upper,
+        flip_threshold=round(base_flip_threshold, 4),
+        favorite_threshold=round(upper, 4),
+        no_flip_threshold=round(lower, 4),
+        fav_min=local_config.get("FAVORITE_MIN_PRICE"),
+        fav_max=local_config.get("FAVORITE_MAX_PRICE"),
+        dead_zone=local_config.get("DEAD_ZONE_WIDTH"),
+        no_min_edge=local_config.get("NO_MIN_EDGE"),
+    )
+
     ece = getattr(models_cache, "eces", {}).get(used_model, 0.0)
 
     if cfg.trade_on_favorite:
