@@ -81,6 +81,10 @@ class CryptoPredictor:
     _instances: list[weakref.ref] = []
 
     def __init__(self) -> None:
+        # Очищаем мёртвые ссылки при создании нового инстанса
+        CryptoPredictor._instances = [
+            ref for ref in CryptoPredictor._instances if ref() is not None
+        ]
         self._models: dict[str, dict[str, Any]] = {}
         self._model_versions: dict[str, dict[str, int]] = {}
         self._model_intervals: dict[str, dict[str, str]] = {}
@@ -310,8 +314,8 @@ class CryptoPredictor:
             
             # Определяем режим волатильности
             vol_trend = fv_dict.get("vol_trend", 1.0)
-            vol_p33 = self._vol_p33s.get(symbol, 0.5)
-            vol_p67 = self._vol_p67s.get(symbol, 1.5)
+            vol_p33 = self._vol_p33s.get(symbol, 0.8)
+            vol_p67 = self._vol_p67s.get(symbol, 1.2)
 
             if vol_trend <= vol_p33:
                 regime = "low_vol"
