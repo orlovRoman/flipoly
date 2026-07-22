@@ -179,7 +179,7 @@ def get_model_subtype_info(asset: str) -> tuple[str, str, str]:
         return (base_symbol, "base", "🟧 Базовая (Base LogReg)")
 
 
-@router.get("/analytics/active_models_summary")
+@router.get("/analytics/active_models_summary", dependencies=[Depends(verify_api_key)])
 async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = Depends(get_db_session)):
     """
     Сводная статистика по всем АКТИВНЫМ моделям (Base, Leaning, Decided, LightGBM)
@@ -210,23 +210,25 @@ async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = D
 
     trades = (await db.execute(trades_stmt)).scalars().all()
 
-    # Группируем сделки по (base_asset, version)
-    trades_by_version = {}
+    # Группируем сделки по (asset_full, version) для предотвращения коллизий ключей
+    trades_by_asset_version = {}
     for t in trades:
-        norm_asset = t.asset.split('_')[0].replace('USDT', '').upper()
-        key = (norm_asset, t.model_version)
-        if key not in trades_by_version:
-            trades_by_version[key] = {"total": 0, "wins": 0, "pnl": 0.0}
-        trades_by_version[key]["total"] += 1
+        key = (t.asset, t.model_version)
+        if key not in trades_by_asset_version:
+            trades_by_asset_version[key] = {"total": 0, "wins": 0, "pnl": 0.0}
+        trades_by_asset_version[key]["total"] += 1
         if t.pnl > 0:
-            trades_by_version[key]["wins"] += 1
-        trades_by_version[key]["pnl"] += float(t.pnl)
+            trades_by_asset_version[key]["wins"] += 1
+        trades_by_asset_version[key]["pnl"] += float(t.pnl)
 
     result = []
     for m in models:
         base_symbol, sub_code, sub_label = get_model_subtype_info(m.asset)
-        key = (base_symbol, m.version)
-        stats = trades_by_version.get(key, {"total": 0, "wins": 0, "pnl": 0.0})
+        key_full = (m.asset, m.version)
+        key_base = (base_symbol, m.version)
+
+        # Сначала ищем по точному наименованию m.asset (например, BTCUSDT_low_vol), затем по base_symbol
+        stats = trades_by_asset_version.get(key_full) or trades_by_asset_version.get(key_base) or {"total": 0, "wins": 0, "pnl": 0.0}
 
         win_rate = round((stats["wins"] / stats["total"] * 100), 1) if stats["total"] > 0 else None
 
@@ -245,6 +247,7 @@ async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = D
         })
 
     return {"status": "success", "timeframe": timeframe, "data": result}
+
 
 
 
