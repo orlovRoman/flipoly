@@ -49,8 +49,6 @@ CRYPTO_FEATURES = [
     "range_1", "range_avg_24",
     # Consecutive
     "consec_up", "consec_down",
-    # Funding Rate
-    "funding_rate", "funding_rate_ma3", "funding_extreme",
 ]
 
 

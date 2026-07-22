@@ -47,12 +47,6 @@ class CryptoFeaturesValidator(BaseModel):
     # Consecutive
     consec_up: float
     consec_down: float
-    # Funding Rate
-    funding_rate: float
-    funding_rate_ma3: float
-    funding_extreme: float
-
-
     @field_validator("*", mode="before")
     @classmethod
     def check_nan_or_none(cls, v: Any) -> float:
@@ -76,6 +70,7 @@ class CryptoSignal:
     model_version: int       # Версия модели из реестра
     features_ok: bool        # False, если не прошли Pydantic-валидацию
     ece: float = 0.0         # BUG-AO
+    stake_multiplier: float = 1.0
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
@@ -365,6 +360,26 @@ class CryptoPredictor:
             ece = (self._model_eces.get(symbol, {}).get(regime)
                    or next(iter(self._model_eces.get(symbol, {}).values()), 0.0))
 
+            fr = funding_rate if funding_rate != 0.0 else self._funding_rates.get(symbol, 0.0)
+            from polyflip.crypto.risk_guard import check_funding_veto
+            veto = check_funding_veto(funding_rate=fr, direction=direction)
+
+            if veto.vetoed:
+                return CryptoSignal(
+                    symbol=symbol,
+                    p_up=p_up,
+                    p_down=p_down,
+                    direction="NONE",
+                    edge=0.0,
+                    strike=strike,
+                    threshold_up=th_up,
+                    threshold_down=th_down,
+                    model_version=version,
+                    features_ok=True,
+                    ece=ece,
+                    stake_multiplier=0.0,
+                )
+
             logger.debug(
                 "crypto_signal",
                 symbol=symbol, regime=regime,
@@ -384,7 +399,8 @@ class CryptoPredictor:
                 threshold_down=th_down,
                 model_version=version,
                 features_ok=True,
-                ece=ece # BUG-AO
+                ece=ece,
+                stake_multiplier=veto.stake_multiplier,
             )
         except Exception as e:
             logger.exception("crypto_inference_failed", symbol=symbol, error=str(e))
