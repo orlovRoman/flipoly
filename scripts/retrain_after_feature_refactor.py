@@ -12,7 +12,7 @@ sys.path.insert(0, "/app")
 
 from sqlalchemy import text
 from polyflip.db.connection import get_db_session
-from polyflip.crypto.trainer import train_crypto_regime_models
+from polyflip.crypto.trainer import CryptoModelTrainer
 
 async def main():
     symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
@@ -24,10 +24,11 @@ async def main():
         await db.commit()
 
         os.makedirs("artifacts", exist_ok=True)
+        trainer = CryptoModelTrainer(db)
 
         for symbol in symbols:
             print(f"\n2. Переобучение двухрежимных моделей для {symbol}...")
-            res = await train_crypto_regime_models(symbol, db)
+            res = await trainer.train(symbol)
             print(f"   Результат обучения {symbol}: {res}")
 
 if __name__ == "__main__":
