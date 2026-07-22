@@ -166,9 +166,11 @@ def get_model_subtype_info(asset: str) -> tuple[str, str, str]:
     """
     base_symbol = asset.split('_')[0].replace('USDT', '').upper()
     if asset.endswith("_leaning"):
-        return (base_symbol, "leaning", "🟨 Колебания (Leaning)")
+        return (base_symbol, "leaning", "🟨 Фаза колебаний (Leaning LogReg)")
     elif asset.endswith("_decided"):
-        return (base_symbol, "decided", "🟦 Определился (Decided)")
+        return (base_symbol, "decided", "🟦 Определившийся рынок (Decided LogReg)")
+    elif asset.endswith("_contested"):
+        return (base_symbol, "contested", "🔴 Острая борьба (Contested LogReg)")
     elif asset.endswith("_low_vol"):
         return (base_symbol, "lightgbm_low", "🔷 LightGBM (Low Vol)")
     elif asset.endswith("_mid_vol"):
@@ -176,13 +178,13 @@ def get_model_subtype_info(asset: str) -> tuple[str, str, str]:
     elif asset.endswith("_high_vol"):
         return (base_symbol, "lightgbm_high", "🔷 LightGBM (High Vol)")
     else:
-        return (base_symbol, "base", "🟧 Базовая (Base LogReg)")
+        return (base_symbol, "base", "🟧 Базовая модель (Base LogReg)")
 
 
 @router.get("/analytics/active_models_summary", dependencies=[Depends(verify_api_key)])
 async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = Depends(get_db_session)):
     """
-    Сводная статистика по всем АКТИВНЫМ моделям (Base, Leaning, Decided, LightGBM)
+    Сводная статистика по всем АКТИВНЫМ моделям (Base, Leaning, Decided, Contested, LightGBM)
     с расчетом PnL, WinRate и количества сделок за выбранный период.
     """
     now = datetime.now(timezone.utc)
@@ -210,25 +212,39 @@ async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = D
 
     trades = (await db.execute(trades_stmt)).scalars().all()
 
-    # Группируем сделки по (asset_full, version) для предотвращения коллизий ключей
-    trades_by_asset_version = {}
+    # Группируем сделки по (asset_full, version) и (base_symbol, version)
+    trades_by_exact = {}
+    trades_by_norm = {}
+
     for t in trades:
-        key = (t.asset, t.model_version)
-        if key not in trades_by_asset_version:
-            trades_by_asset_version[key] = {"total": 0, "wins": 0, "pnl": 0.0}
-        trades_by_asset_version[key]["total"] += 1
+        norm_asset = t.asset.split('_')[0].replace('USDT', '').upper()
+
+        k_exact = (t.asset, t.model_version)
+        if k_exact not in trades_by_exact:
+            trades_by_exact[k_exact] = {"total": 0, "wins": 0, "pnl": 0.0}
+        trades_by_exact[k_exact]["total"] += 1
         if t.pnl > 0:
-            trades_by_asset_version[key]["wins"] += 1
-        trades_by_asset_version[key]["pnl"] += float(t.pnl)
+            trades_by_exact[k_exact]["wins"] += 1
+        trades_by_exact[k_exact]["pnl"] += float(t.pnl)
+
+        k_norm = (norm_asset, t.model_version)
+        if k_norm not in trades_by_norm:
+            trades_by_norm[k_norm] = {"total": 0, "wins": 0, "pnl": 0.0}
+        trades_by_norm[k_norm]["total"] += 1
+        if t.pnl > 0:
+            trades_by_norm[k_norm]["wins"] += 1
+        trades_by_norm[k_norm]["pnl"] += float(t.pnl)
 
     result = []
     for m in models:
         base_symbol, sub_code, sub_label = get_model_subtype_info(m.asset)
         key_full = (m.asset, m.version)
-        stats = trades_by_asset_version.get(key_full, {"total": 0, "wins": 0, "pnl": 0.0})
+        key_base = (base_symbol, m.version)
+
+        # Если есть точные сделки по m.asset — берутся они, иначе статистика по версии
+        stats = trades_by_exact.get(key_full) or trades_by_norm.get(key_base) or {"total": 0, "wins": 0, "pnl": 0.0}
 
         win_rate = round((stats["wins"] / stats["total"] * 100), 1) if stats["total"] > 0 else None
-
 
         result.append({
             "asset_full": m.asset,
@@ -245,6 +261,7 @@ async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = D
         })
 
     return {"status": "success", "timeframe": timeframe, "data": result}
+
 
 
 
