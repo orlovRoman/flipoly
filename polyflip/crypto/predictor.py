@@ -301,9 +301,7 @@ class CryptoPredictor:
 
         try:
             # 1. Сборка вектора признаков
-            fr = funding_rate if funding_rate is not None else self._funding_rates.get(symbol, 0.0)
-            fr_ma3 = funding_rate_ma3 if funding_rate_ma3 is not None else self._funding_rate_ma3s.get(symbol, 0.0)
-            feature_vector = build_crypto_features(candles, funding_rate=fr, funding_rate_ma3=fr_ma3)
+            feature_vector = build_crypto_features(candles)
 
             if not feature_vector.valid:
                 return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)

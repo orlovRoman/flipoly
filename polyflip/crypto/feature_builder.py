@@ -63,8 +63,6 @@ class CryptoFeatureVector:
 def build_crypto_features(
     candles: Sequence | pd.DataFrame,
     min_candles: int = 100,
-    funding_rate: float = 0.0,
-    funding_rate_ma3: float = 0.0,
 ) -> CryptoFeatureVector:
     if isinstance(candles, pd.DataFrame):
         df = candles.copy()

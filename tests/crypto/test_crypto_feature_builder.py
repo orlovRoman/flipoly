@@ -56,3 +56,10 @@ def test_no_nans_in_features():
     numeric_cols = [c for c in CRYPTO_FEATURE_COLUMNS if c in df.columns]
     assert not df[numeric_cols].isnull().any().any()
     assert not np.isinf(df[numeric_cols].values).any()
+
+def test_signature_no_funding_params():
+    """build_crypto_features signature should not have funding parameters."""
+    import inspect
+    sig = inspect.signature(build_crypto_features)
+    assert "funding_rate" not in sig.parameters
+    assert "funding_rate_ma3" not in sig.parameters
