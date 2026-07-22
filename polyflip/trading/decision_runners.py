@@ -258,7 +258,12 @@ async def decide_ml_mode(
         decision_obj = TradeDecision(action="SKIP", buy_price=0.0, bet_size_usdc=0.0, strategy_type="ML_TREND", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)", edge=0.0)
 
     if decision_obj.action == "SKIP" and cfg.trade_on_flip:
-        decision_obj = decide_outsider(signal, p_flip, local_config, ece=ece)
+        trend_edge = decision_obj.edge
+        outsider_obj = decide_outsider(signal, p_flip, local_config, ece=ece)
+        if outsider_obj.action == "SKIP" and outsider_obj.edge is None and trend_edge is not None:
+            decision_obj = dataclasses.replace(outsider_obj, edge=trend_edge)
+        else:
+            decision_obj = outsider_obj
 
     if decision_obj.action == "SKIP" and decision_obj.reason != "Favorite trades disabled (TRADE_ON_FAVORITE=False)":
         if lower <= p_flip < upper:

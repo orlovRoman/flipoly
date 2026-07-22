@@ -149,25 +149,27 @@ def decide_ml_trend(
     # NOTE: default должен совпадать с BacktestConfig.no_flip_threshold (0.35)
     # Если меняешь дефолт — меняй в обоих местах.
 
+    p_flip_calibrated = apply_ece_correction(p_flip, ece)
+    p_win = 1.0 - p_flip_calibrated
+    fav_ask = signal.yes_ask if signal.mid_price >= 0.50 else signal.no_ask
+    trend_edge = compute_edge(p_win, fav_ask) if fav_ask > 0 else None
+
     if p_flip >= no_flip_thresh:
         return TradeDecision("SKIP", 0, 0,
             f"p_flip={p_flip:.3f} >= threshold={no_flip_thresh:.3f}", "SKIP",
-            p_flip=p_flip)
+            p_flip=p_flip, edge=trend_edge)
 
     # Логика выбора стороны такая же как у PURE_FAVORITE,
     # но стратегия помечается как ML_TREND
     decision = decide_favorite(signal, config)
     if decision.action == "SKIP":
-        return TradeDecision("SKIP", 0, 0, decision.reason, "SKIP", p_flip=p_flip)
+        return TradeDecision("SKIP", 0, 0, decision.reason, "SKIP", p_flip=p_flip, edge=trend_edge)
 
     ECE_WARN_THRESHOLD = 0.07
     if ece and ece > ECE_WARN_THRESHOLD:
         logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
 
-    p_flip_calibrated = apply_ece_correction(p_flip, ece)
-    p_win = 1.0 - p_flip_calibrated
     buy_price = decision.buy_price
-
     edge = compute_edge(p_win, buy_price)
     
     min_edge = float(config.get("MIN_EDGE", 0.05))
@@ -204,10 +206,14 @@ def decide_outsider(
     """
     flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
 
+    p_flip_calibrated = apply_ece_correction(p_flip, ece)
+    outsider_ask = signal.no_ask if signal.mid_price >= FLIP_MIDPOINT else signal.yes_ask
+    outsider_edge = compute_edge(p_flip_calibrated, outsider_ask) if outsider_ask > 0 else None
+
     if p_flip < flip_thresh:
         return TradeDecision("SKIP", 0, 0,
             f"p_flip={p_flip:.3f} < threshold={flip_thresh:.3f}", "SKIP",
-            p_flip=p_flip)
+            p_flip=p_flip, edge=outsider_edge)
 
     max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", 0.45))
     min_edge = float(config.get("NO_MIN_EDGE", config.get("MIN_EDGE", 0.04)))
@@ -215,49 +221,47 @@ def decide_outsider(
     dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
 
     if is_in_dead_zone(signal.mid_price, dead_zone):
-        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip)
+        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip, edge=outsider_edge)
 
     # Аутсайдер: если YES дорогой — покупаем NO, и наоборот
     if signal.mid_price >= FLIP_MIDPOINT:
         # YES — фаворит, покупаем NO (аутсайдера)
+        edge = compute_edge(p_flip_calibrated, signal.no_ask)
         if signal.no_ask > max_outsider_price:
             return TradeDecision("SKIP", 0, 0,
                 f"NO ask {signal.no_ask:.3f} > max_outsider_price {max_outsider_price}", "SKIP",
-                p_flip=p_flip)
+                p_flip=p_flip, edge=edge)
         ECE_WARN_THRESHOLD = 0.07
         if ece and ece > ECE_WARN_THRESHOLD:
             logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
-        p_flip_calibrated = apply_ece_correction(p_flip, ece)
-        edge = compute_edge(p_flip_calibrated, signal.no_ask)
         if edge < min_edge:
-            return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
+            return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip, edge=edge)
 
         bet = _resolve_final_bet(edge, signal.volume_5min, config)
         bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
         if bet <= 0 and not bypass:
-            return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip)
+            return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
         return TradeDecision("BUY_NO", signal.no_ask, bet,
             f"outsider NO, p_flip={p_flip:.3f}", "OUTSIDER",
             p_flip=p_flip, edge=edge)
     else:
         # NO — фаворит, покупаем YES (аутсайдера)
+        edge = compute_edge(p_flip_calibrated, signal.yes_ask)
         if signal.yes_ask > max_outsider_price:
             return TradeDecision("SKIP", 0, 0,
                 f"YES ask {signal.yes_ask:.3f} > max_outsider_price {max_outsider_price}", "SKIP",
-                p_flip=p_flip)
+                p_flip=p_flip, edge=edge)
         ECE_WARN_THRESHOLD = 0.07
         if ece and ece > ECE_WARN_THRESHOLD:
             logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
-        p_flip_calibrated = apply_ece_correction(p_flip, ece)
-        edge = compute_edge(p_flip_calibrated, signal.yes_ask)
         if edge < min_edge:
-            return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip)
+            return TradeDecision("SKIP", 0, 0, f"edge {edge:.3f} < min", "SKIP", p_flip=p_flip, edge=edge)
 
         bet = _resolve_final_bet(edge, signal.volume_5min, config)
         bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
         if bet <= 0 and not bypass:
-            return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip)
+            return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
         return TradeDecision("BUY_YES", signal.yes_ask, bet,
             f"outsider YES, p_flip={p_flip:.3f}", "OUTSIDER",
