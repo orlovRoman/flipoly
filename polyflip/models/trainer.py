@@ -471,6 +471,13 @@ class ModelTrainer:
             tau=weight_tau,
         )
 
+        if sample_weights is not None:
+            assert len(sample_weights) == len(X), (
+                f"sample_weights size mismatch: "
+                f"{len(sample_weights)} != {len(X)}. "
+                f"Убедись что df.reset_index(drop=True) вызван перед X = df[FEATURE_COLS]"
+            )
+
         # Выполняем CPU-bound обучение в отдельном потоке (BUG-A2 FIX)
         fit_res = await asyncio.to_thread(
             _fit_and_serialize, X, y, groups,
