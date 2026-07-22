@@ -105,13 +105,21 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
             
     return _summary_cache
 
+def get_model_type(asset: str) -> tuple[str, str]:
+    if any(asset.endswith(s) for s in ["_low_vol", "_mid_vol", "_high_vol"]):
+        return ("lightgbm", "LightGBM (Crypto)")
+    return ("logistic_regression", "Logistic Regression (Phase)")
+
+
 @router.get("/analytics/models")
 async def list_models(db: AsyncSession = Depends(get_db_session)):
-    """Получение истории всех моделей"""
+    """Получение истории всех моделей с четким разделением на LightGBM и Logistic Regression"""
     stmt = select(ModelRegistry).order_by(ModelRegistry.asset, ModelRegistry.version.desc())
     models = (await db.execute(stmt)).scalars().all()
-    return [
-        {
+    result = []
+    for m in models:
+        m_type, algo_label = get_model_type(m.asset)
+        result.append({
             "asset": m.asset,
             "version": m.version,
             "accuracy": round(m.accuracy, 4),
@@ -119,10 +127,12 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
             "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
             "features": m.features or "",
             "is_active": m.is_active,
-            "trained_at": m.trained_at.isoformat() if m.trained_at else None
-        }
-        for m in models
-    ]
+            "trained_at": m.trained_at.isoformat() if m.trained_at else None,
+            "model_type": m_type,
+            "algorithm": algo_label
+        })
+    return result
+
 
 @router.post("/analytics/models/{asset}/activate/{version}", dependencies=[Depends(verify_api_key)])
 async def activate_model(asset: str, version: int, db: AsyncSession = Depends(get_db_session)):

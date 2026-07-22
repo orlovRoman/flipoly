@@ -488,8 +488,15 @@ async def get_daily_pnl(
     return {"status": "success", "data": response_data}
 
 
+def _normalize_model_asset(asset: str) -> str:
+    if not asset:
+        return ""
+    return asset.split('_')[0].split('USDT')[0].upper()
+
+
 @router.get("/api/dashboard/model_pnl", dependencies=[Depends(verify_api_key)])
 async def get_model_pnl(db: AsyncSession = Depends(get_db_session)):
+
     """
     Возвращает PnL, число сделок и win-rate для каждой версии модели
     за период её активности (с trained_at до trained_at следующей версии).
@@ -552,19 +559,23 @@ async def get_model_pnl(db: AsyncSession = Depends(get_db_session)):
     ).where(*where_conditions)
     trades_rows = (await db.execute(trades_stmt)).all()
 
-    # Группируем сделки по (asset, model_version)
+    # Группируем сделки по (normalized_asset, model_version)
+
     trades_by_model = defaultdict(list)
     for row in trades_rows:
         created_at = row.created_at
         if created_at and created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
-        trades_by_model[(row.asset, row.model_version)].append((row.pnl, created_at))
+        norm_asset = _normalize_model_asset(row.asset)
+        trades_by_model[(norm_asset, row.model_version)].append((row.pnl, created_at))
 
     # 3. Агрегируем результаты для каждого периода
     result_map = {}
     for asset, version, since, until in periods:
         key = f"{asset}_v{version}"
-        model_trades = trades_by_model.get((asset, version), [])
+        norm_asset = _normalize_model_asset(asset)
+        model_trades = trades_by_model.get((norm_asset, version), [])
+
         
         # Фильтруем по временному окну [since, until)
         valid_trades = [

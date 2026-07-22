@@ -181,7 +181,7 @@
             <!-- TAB: MODELS -->
             <div id="models" class="tab-content">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-                    <h2>Управление регрессионными моделями</h2>
+                    <h2>Реестр ML-моделей (LightGBM & Logistic Regression)</h2>
                     <div style="display: flex; gap: 10px; flex-wrap: wrap;" id="train-buttons-container">
                         {% for asset in assets %}
                         <button class="btn primary-btn btn-train-asset" data-asset="{{ asset }}">Обучить {{ asset }}</button>
@@ -191,22 +191,31 @@
                 </div>
                 <pre id="time-left-stats" style="margin-top: 10px; font-size: 0.9em; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 10px; display: none;"></pre>
                 <div class="panel">
-                    <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Здесь отображается история всех обученных моделей. Вы можете переключаться между ними в один клик.</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+                        <p style="color: var(--text-muted); margin: 0;">История всех моделей в реестре с четким разделением архитектур.</p>
+                        <div style="display: flex; gap: 8px;" id="model-type-filter">
+                            <button class="btn btn-outline active" data-filter="all" style="padding: 4px 10px; font-size: 0.85rem;">Все типы</button>
+                            <button class="btn btn-outline" data-filter="lightgbm" style="padding: 4px 10px; font-size: 0.85rem; border-color: rgba(96, 165, 250, 0.4); color: #60a5fa;">🔷 LightGBM (Crypto)</button>
+                            <button class="btn btn-outline" data-filter="logistic_regression" style="padding: 4px 10px; font-size: 0.85rem; border-color: rgba(251, 146, 60, 0.4); color: #fb923c;">🟧 Logistic Regression (Phase)</button>
+                        </div>
+                    </div>
                     <div style="overflow-x: auto;">
                         <table class="data-table" id="models-table">
                             <thead>
                                 <tr>
                                     <th data-sort="asset" style="cursor: pointer; user-select: none;">Актив <span class="sort-icon"></span></th>
+                                    <th data-sort="algorithm" style="cursor: pointer; user-select: none;">Тип алгоритма <span class="sort-icon"></span></th>
                                     <th data-sort="version" style="cursor: pointer; user-select: none;">Версия <span class="sort-icon"></span></th>
                                     <th data-sort="accuracy" style="cursor: pointer; user-select: none;">Точность <span class="sort-icon"></span></th>
                                     <th data-sort="baseline" style="cursor: pointer; user-select: none;">Бейзлайн <span class="sort-icon"></span></th>
                                     <th data-sort="ece" style="cursor: pointer; user-select: none;">ECE (Ошибка) <span class="sort-icon"></span></th>
-                                                                        <th data-sort="trained_at" style="cursor: pointer; user-select: none;">Дата обучения <span class="sort-icon"></span></th>
+                                    <th data-sort="trained_at" style="cursor: pointer; user-select: none;">Дата обучения <span class="sort-icon"></span></th>
                                     <th data-sort="pnl" style="cursor: pointer; user-select: none; white-space: nowrap;">PnL (за период) <span class="sort-icon"></span></th>
                                     <th data-sort="status" style="cursor: pointer; user-select: none;">Статус <span class="sort-icon"></span></th>
                                     <th>Действие</th>
                                 </tr>
                             </thead>
+
                             <tbody>
                                 <!-- JS will populate this -->
                             </tbody>

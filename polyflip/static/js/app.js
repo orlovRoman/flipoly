@@ -576,11 +576,29 @@ document.addEventListener("DOMContentLoaded", () => {
   const modelsPageSize = 15;
   let modelsSortField = "trained_at";
   let modelsSortAsc = false;
+  let modelsTypeFilter = "all";
   let rawModelsData = [];
   let rawModelsPnlData = {};
 
+  function setupModelTypeFilter() {
+    const filterContainer = document.getElementById("model-type-filter");
+    if (!filterContainer || filterContainer.hasAttribute("data-bound")) return;
+    filterContainer.setAttribute("data-bound", "true");
+
+    filterContainer.querySelectorAll("button[data-filter]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        filterContainer.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        modelsTypeFilter = btn.getAttribute("data-filter");
+        modelsCurrentPage = 1;
+        renderModelsTable();
+      });
+    });
+  }
+
   async function loadModelsHistory() {
     try {
+      setupModelTypeFilter();
       const [resModels, resPnl] = await Promise.all([
         fetch(window.API_BASE + "/api/analytics/models", { headers: getHeaders() }),
         fetch(window.API_BASE + "/api/dashboard/model_pnl", { headers: getHeaders() })
@@ -608,18 +626,33 @@ document.addEventListener("DOMContentLoaded", () => {
     tbody.innerHTML = "";
 
     if (!rawModelsData || rawModelsData.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color: var(--text-muted);">Нет сохраненных моделей</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: var(--text-muted);">Нет сохраненных моделей</td></tr>`;
+      return;
+    }
+
+    let filteredData = rawModelsData;
+    if (modelsTypeFilter !== "all") {
+      filteredData = rawModelsData.filter(m => {
+        const isLgbm = m.model_type === "lightgbm" || ["_low_vol", "_mid_vol", "_high_vol"].some(s => m.asset.endsWith(s));
+        return modelsTypeFilter === "lightgbm" ? isLgbm : !isLgbm;
+      });
+    }
+
+
+    if (filteredData.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: var(--text-muted);">Нет моделей выбранного типа</td></tr>`;
       return;
     }
 
     const bestAccuracy = {};
-    rawModelsData.forEach((m) => {
+    filteredData.forEach((m) => {
       if (!bestAccuracy[m.asset] || m.accuracy > bestAccuracy[m.asset]) {
         bestAccuracy[m.asset] = m.accuracy;
       }
     });
 
-    const sortedData = [...rawModelsData].sort((a, b) => {
+    const sortedData = [...filteredData].sort((a, b) => {
+
       let valA, valB;
       const keyA = `${a.asset}_v${a.version}`;
       const keyB = `${b.asset}_v${b.version}`;
@@ -748,9 +781,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
+      const isLgbm = m.model_type === "lightgbm" || ["_low_vol", "_mid_vol", "_high_vol"].some(s => m.asset.endsWith(s));
+      const algoBadge = isLgbm
+        ? `<span style="background: rgba(96, 165, 250, 0.15); color: #60a5fa; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(96, 165, 250, 0.3); font-size: 0.78rem; font-weight: 500;">🔷 LightGBM</span>`
+        : `<span style="background: rgba(251, 146, 60, 0.15); color: #fb923c; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(251, 146, 60, 0.3); font-size: 0.78rem; font-weight: 500;">🟧 LogReg</span>`;
+
       rows.push(`
                   <tr>
                       <td><strong>${escapeHtml(m.asset)}</strong></td>
+                      <td>${algoBadge}</td>
                       <td>v${m.version}</td>
                       <td>${accuracyText}</td>
                       <td>${baselineText}</td>
@@ -761,6 +800,7 @@ document.addEventListener("DOMContentLoaded", () => {
                       <td>${actionHtml}</td>
                   </tr>
               `);
+
     });
 
     tbody.innerHTML = rows.join("");
