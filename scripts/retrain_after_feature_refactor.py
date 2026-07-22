@@ -7,6 +7,9 @@
 import asyncio
 import json
 import os
+import sys
+sys.path.insert(0, "/app")
+
 from sqlalchemy import text
 from polyflip.db.engine import get_db_session
 from polyflip.crypto.trainer import train_crypto_regime_models
