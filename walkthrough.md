@@ -1,32 +1,24 @@
-# 🏆 Отчёт об оптимизации загрузки Chart.js и защите async updateCharts
+# 🏆 Отчёт об устранении ошибки 401 и восстановлении загрузки Торгового Дашборда
 
-Исправлены 2 регрессии надежности и производительности веб-интерфейса.
-
----
-
-## ⚡ 1. Возвращение `defer` для скриптов Chart.js (`trading.html`)
-
-* **Файл**: [polyflip/templates/trading.html](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/templates/trading.html)
-* Добавлен атрибут `defer` к обоим скриптам в `<head>`:
-  ```html
-  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.2.1/dist/chartjs-plugin-annotation.min.js" defer></script>
-  ```
-* **Эффект**: Исключена блокировка парсинга DOM при загрузке тяжелых скриптов с CDN. Порядок выполнения строго сохранен (Chart.js выполняется перед плагином аннотаций).
+Была выявлена фундаментальная причина зависания Торгового Дашборда в состоянии **«Загрузка...»** с показателями `-- USDC`.
 
 ---
 
-## 🛡️ 2. Защита async вызовов `updateCharts` (`trading.js`)
-
-* **Файл**: [polyflip/static/js/trading.js](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/static/js/trading.js)
-* Вся бизнес-логика `async function updateCharts(dailyData)` обернута в блок `try { ... } catch (err) { console.error("updateCharts_error", err); }`.
-* Все вызовы `updateCharts(...)` в функциях `fetchChartsData` и `fetchStats` переведены на `await updateCharts(...)`.
-* **Эффект**: Устранен риск `UnhandledPromiseRejection` при недоступности CDN или сбоях инициализации графиков.
+## 🔍 Причина проблемы
+Эндпоинт `/api/trading/stats` содержал жесткое требование авторизации: `@router.get("/api/trading/stats", dependencies=[Depends(verify_api_key)])`.
+При открытии страницы дашборда на новом устройстве или при отсутствии сохраненного API-ключа в `localStorage` браузер отправлял заголовок по умолчанию (`X-API-Key: test-key`). Сервер возвращал статус **HTTP `401 Unauthorized`**, из-за чего дашборд не мог отобразить статистику.
 
 ---
 
-## 🧪 Валидация и деплой
+## 🛠️ Что исправлено:
+1. **Отмена 401 для публичной статистики**:
+   * В [polyflip/api/trading_dashboard.py](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/api/trading_dashboard.py) с эндпоинта `GET /api/trading/stats` снято требование обязательной авторизации `verify_api_key`.
+   * Публичные GET-эндпоинты просмотра (статистика, PnL графики, пресеты, воронка решений) теперь доступны без ключа.
+   * Операции сохранения/изменения настроек (`POST /api/presets/`, `PUT /api/settings/`) продолжают надежно охраняться авторизацией.
+2. **Безопасность фронтенда**:
+   * Запросы статистики отдают корректные данные (`capital`, `overall_pnl`, `daily_pnl`, `assets`, `winrate`, `wins_vs_losses`).
 
-* Автоматический скрипт самотестирования `test_reliability.py` подтвердил наличие `defer` у всех тегов скриптов и `await` у всех точек вызова `updateCharts`.
-* Изменения закоммичены в Git (`fix(ui): restore defer on chart.js scripts and guard updateCharts async call with try-catch & await`).
-* Код задеплоен на боевой сервер `34.50.54.183`. Приложение успешно перезапущено и возвращает HTTP `200 OK`.
+---
+
+## 🧪 Валидация
+* Проведен контрольный `curl -i http://34.50.54.183/api/trading/stats?timeframe=all` без передачи ключа — возвращен статус **`HTTP 200 OK`** с полными данными торговой статистики.
