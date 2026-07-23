@@ -89,8 +89,18 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     fav_min  = float(config.get("FAVORITE_MIN_PRICE", 0.55))
     fav_max  = float(config.get("FAVORITE_MAX_PRICE", 0.95))
     global_min = float(config.get("MIN_EDGE", 0.05))
-    fav_override = float(config.get("FAVORITE_MIN_EDGE", -0.01))
+    fav_raw = config.get("FAVORITE_MIN_EDGE")
+    fav_override = float(fav_raw) if fav_raw is not None and str(fav_raw).strip() != "" else -0.01
     min_edge = max(global_min, fav_override) if fav_override >= 0 else global_min
+
+    if fav_override >= 0 and fav_override < global_min:
+        logger.warning(
+            "favorite_min_edge_overridden_by_global_min",
+            favorite_min_edge=fav_override,
+            global_min_edge=global_min,
+            effective_min_edge=min_edge,
+            note="FAVORITE_MIN_EDGE in DB is below global MIN_EDGE floor — using global MIN_EDGE"
+        )
 
     candidates: list[TradeDecision] = []
 
@@ -225,7 +235,10 @@ def decide_outsider(
     outsider_ask = signal.no_ask if is_yes_fav else signal.yes_ask
     outsider_action: ActionType = "BUY_NO" if is_yes_fav else "BUY_YES"
 
-    outsider_edge = compute_edge(p_flip_calibrated, outsider_ask) if outsider_ask > 0 else None
+    if outsider_ask <= 0:
+        return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip)
+
+    outsider_edge = compute_edge(p_flip_calibrated, outsider_ask)
 
     # 2. Потом проверяем порог p_flip
     if p_flip_calibrated < flip_thresh:
@@ -235,13 +248,20 @@ def decide_outsider(
 
     max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", 0.45))
     global_min = float(config.get("MIN_EDGE", 0.05))
-    no_min = float(config.get("NO_MIN_EDGE", 0.0))
+    no_min_raw = config.get("NO_MIN_EDGE")
+    no_min = float(no_min_raw) if no_min_raw is not None and str(no_min_raw).strip() != "" else 0.0
     min_edge = max(global_min, no_min)
 
-    if outsider_ask <= 0:
-        return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip)
+    if no_min_raw is not None and str(no_min_raw).strip() != "" and float(no_min_raw) < global_min:
+        logger.warning(
+            "no_min_edge_overridden_by_global_min",
+            no_min_edge=no_min,
+            global_min_edge=global_min,
+            effective_min_edge=min_edge,
+            note="NO_MIN_EDGE in DB is below global MIN_EDGE floor — using global MIN_EDGE"
+        )
 
-    edge = compute_edge(p_flip_calibrated, outsider_ask)
+    edge = outsider_edge
 
     if outsider_ask > max_outsider_price:
         return TradeDecision("SKIP", 0, 0,
