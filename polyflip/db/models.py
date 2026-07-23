@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint, Text
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -125,6 +125,7 @@ class TradeHistory(Base):
     take_profit_sell_price = Column(Float, nullable=True)
     
     created_at = Column(DateTime(timezone=True), nullable=False)
+    config_snapshot = Column(Text, nullable=True)   # JSON паспорт настроек на момент сделки
     
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),
@@ -243,4 +244,28 @@ class DecisionFunnelLog(Base):
         Index("idx_funnel_asset_created", "asset", "created_at"),
         Index("idx_funnel_market_id",     "market_id"),
         Index("idx_funnel_trading_mode",  "trading_mode", "created_at"),
+    )
+
+
+class ConfigPreset(Base):
+    """
+    Слепок всех параметров торгового движка на момент сохранения.
+    preset_type: 'manual' | 'ath_capital' | 'ath_pnl'
+    """
+    __tablename__ = "config_presets"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    name            = Column(String(128), nullable=False)          # "BTC_Profitable_July10"
+    description     = Column(String(512), nullable=True)
+    preset_type     = Column(String(32),  nullable=False, default="manual")
+    snapshot        = Column(Text, nullable=False)                 # JSON-дамп всех RuntimeSettings
+    capital_at_save = Column(Float, nullable=True)            # баланс на момент сохранения
+    pnl_at_save     = Column(Float, nullable=True)            # суммарный PnL на момент
+    created_at      = Column(DateTime(timezone=True), nullable=False)
+    created_by      = Column(String(64), nullable=False, default="user")
+    is_active       = Column(Boolean, nullable=False, default=True)  # False = удалён
+
+    __table_args__ = (
+        Index("idx_config_presets_created_at", "created_at"),
+        Index("idx_config_presets_type",       "preset_type"),
     )
