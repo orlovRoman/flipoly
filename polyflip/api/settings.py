@@ -260,13 +260,13 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
                     raise HTTPException(status_code=400, detail=f"{key} must be positive")
                 if key == "FAVORITE_MIN_EDGE" and val < -100.0:
                     raise HTTPException(status_code=400, detail=f"{key} must be ≥ -100%")
-                if abs(val) >= 0.5:
-                    # Введено как процент: 5 → 0.05, -1 → -0.01
+                if abs(val) > 1.0:
+                    # Введено как процент: 50 → 0.5, 5 → 0.05, -10 → -0.1
                     if abs(val) > 100.0:
                         raise HTTPException(status_code=400, detail=f"{key} must be ≤ 100%")
                     payload.value = f"{val / 100.0:.6f}".rstrip('0').rstrip('.')
                 else:
-                    # Уже доля: 0.05 остаётся 0.05, -0.01 остаётся -0.01
+                    # Уже доля: 0.5 остаётся 0.5 (50%), 0.05 остаётся 0.05 (5%)
                     payload.value = f"{val:.6f}".rstrip('0').rstrip('.')
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"{key} must be a number")
