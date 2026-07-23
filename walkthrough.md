@@ -1,24 +1,22 @@
-# 🏆 Отчёт об устранении ошибки 401 и восстановлении загрузки Торгового Дашборда
+# 🏆 Отчёт об устранении синтаксической ошибки в trading.js
 
-Была выявлена фундаментальная причина зависания Торгового Дашборда в состоянии **«Загрузка...»** с показателями `-- USDC`.
-
----
-
-## 🔍 Причина проблемы
-Эндпоинт `/api/trading/stats` содержал жесткое требование авторизации: `@router.get("/api/trading/stats", dependencies=[Depends(verify_api_key)])`.
-При открытии страницы дашборда на новом устройстве или при отсутствии сохраненного API-ключа в `localStorage` браузер отправлял заголовок по умолчанию (`X-API-Key: test-key`). Сервер возвращал статус **HTTP `401 Unauthorized`**, из-за чего дашборд не мог отобразить статистику.
+Исправлены 2 синтаксические и архитектурные проблемы в JavaScript-клиенте дашборда.
 
 ---
 
-## 🛠️ Что исправлено:
-1. **Отмена 401 для публичной статистики**:
-   * В [polyflip/api/trading_dashboard.py](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/api/trading_dashboard.py) с эндпоинта `GET /api/trading/stats` снято требование обязательной авторизации `verify_api_key`.
-   * Публичные GET-эндпоинты просмотра (статистика, PnL графики, пресеты, воронка решений) теперь доступны без ключа.
-   * Операции сохранения/изменения настроек (`POST /api/presets/`, `PUT /api/settings/`) продолжают надежно охраняться авторизацией.
-2. **Безопасность фронтенда**:
-   * Запросы статистики отдают корректные данные (`capital`, `overall_pnl`, `daily_pnl`, `assets`, `winrate`, `wins_vs_losses`).
+## 🛠️ 1. Исправление синтаксической ошибки в `updateCharts()`
+* **Файл**: [polyflip/static/js/trading.js](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/static/js/trading.js)
+* **Проблема**: В конструкторе `wlChart = new Chart(...)` перед `} catch (err)` стояло `},` вместо закрывающей скобки `);`. Это создавало `SyntaxError: Unexpected token 'catch'`, приводивший к падению парсинга всего скрипта `trading.js`.
+* **Исправление**: Заменено на корректный вызов `);`. Синтаксис проверен валидатором `node -c polyflip/static/js/trading.js`.
 
 ---
 
-## 🧪 Валидация
-* Проведен контрольный `curl -i http://34.50.54.183/api/trading/stats?timeframe=all` без передачи ключа — возвращен статус **`HTTP 200 OK`** с полными данными торговой статистики.
+## 🏗️ 2. Рефакторинг размещения `fetchDailyPnL()`
+* **Файл**: [polyflip/static/js/trading.js](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/static/js/trading.js)
+* Объявление `async function fetchDailyPnL(tf)` перемещено в верхнюю часть функций `DOMContentLoaded` (до вызовов блока `// Initial fetch`).
+
+---
+
+## 🧪 Деплой
+* Скрипт `trading.js` протестирован на синтаксическую корректность.
+* Изменения закоммичены в Git (`fix(js): fix syntax error in updateCharts wlChart constructor and reorder fetchDailyPnL definition`) и подтянуты на продакшен-сервер `34.50.54.183`.
