@@ -1,22 +1,15 @@
-# 🏆 Отчёт об устранении синтаксической ошибки в trading.js
+# 🏆 Отчёт об адаптации времени к часовому поясу Нячанга (UTC+7)
 
-Исправлены 2 синтаксические и архитектурные проблемы в JavaScript-клиенте дашборда.
-
----
-
-## 🛠️ 1. Исправление синтаксической ошибки в `updateCharts()`
-* **Файл**: [polyflip/static/js/trading.js](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/static/js/trading.js)
-* **Проблема**: В конструкторе `wlChart = new Chart(...)` перед `} catch (err)` стояло `},` вместо закрывающей скобки `);`. Это создавало `SyntaxError: Unexpected token 'catch'`, приводивший к падению парсинга всего скрипта `trading.js`.
-* **Исправление**: Заменено на корректный вызов `);`. Синтаксис проверен валидатором `node -c polyflip/static/js/trading.js`.
+Группировка статистики и данных по календарным дням переведена в часовой пояс **Asia/Ho_Chi_Minh (Нячанг, UTC+7)**.
 
 ---
 
-## 🏗️ 2. Рефакторинг размещения `fetchDailyPnL()`
-* **Файл**: [polyflip/static/js/trading.js](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/static/js/trading.js)
-* Объявление `async function fetchDailyPnL(tf)` перемещено в верхнюю часть функций `DOMContentLoaded` (до вызовов блока `// Initial fetch`).
+## 🛠️ Что изменено:
 
----
+1. **Группировка по календарным дням в БД (`trading_dashboard.py`)**:
+   * **Раньше**: `cast(TradeHistory.created_at, Date)` приводила метку времени к дате по системному времени UTC (отставание на 7 часов от Нячанга). Полночь наступала в 07:00 утра по местному времени.
+   * **Теперь**: Используется `cast(func.timezone('Asia/Ho_Chi_Minh', TradeHistory.created_at), Date)`.
+   * **Результат**: Календарный день на графиках (сделки за день, Win Rate и PnL) теперь сменяется ровно в 00:00:00 по местному времени Нячанга.
 
-## 🧪 Деплой
-* Скрипт `trading.js` протестирован на синтаксическую корректность.
-* Изменения закоммичены в Git (`fix(js): fix syntax error in updateCharts wlChart constructor and reorder fetchDailyPnL definition`) и подтянуты на продакшен-сервер `34.50.54.183`.
+2. **Деплой**:
+   * Изменения закоммичены и развернуты на сервере `34.50.54.183`.
