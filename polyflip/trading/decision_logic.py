@@ -88,7 +88,9 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
 
     fav_min  = float(config.get("FAVORITE_MIN_PRICE", 0.55))
     fav_max  = float(config.get("FAVORITE_MAX_PRICE", 0.95))
-    min_edge = float(config.get("FAVORITE_MIN_EDGE", config.get("MIN_EDGE", -0.01)))
+    global_min = float(config.get("MIN_EDGE", 0.05))
+    fav_override = float(config.get("FAVORITE_MIN_EDGE", -0.01))
+    min_edge = max(global_min, fav_override) if fav_override >= 0 else global_min
 
     candidates: list[TradeDecision] = []
 
@@ -232,7 +234,9 @@ def decide_outsider(
             p_flip=p_flip, edge=outsider_edge)
 
     max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", 0.45))
-    min_edge = float(config.get("NO_MIN_EDGE", config.get("MIN_EDGE", 0.04)))
+    global_min = float(config.get("MIN_EDGE", 0.05))
+    no_min = float(config.get("NO_MIN_EDGE", 0.0))
+    min_edge = max(global_min, no_min)
 
     if outsider_ask <= 0:
         return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip)

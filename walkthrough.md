@@ -1,26 +1,30 @@
-# 🏆 Отчёт об устранении крайних ошибок в торговой логике
+# 🏆 Отчёт об устранении обхода Единого MIN_EDGE
 
-Успешно исправлены 3 узких места и скрытые рантайм-ошибки в торговом движке.
-
----
-
-## 🛠️ Детали исправлений:
-
-### 1. **Баг 1 — Устранение TypeError в `decide_favorite` (NO-side)**
-* В `polyflip/trading/decision_logic.py` на стороне NO вызов `_resolve_final_bet(edge, signal.no_ask)` содержал 2 аргумента вместо 3.
-* Исправлено на `_resolve_final_bet(edge, signal.volume_5min, config)`. Устранена угроза падения процесса при выборе NO-сторон фаворита.
-
-### 2. **Баг 2 — Порядок проверки `dead zone` в `decide_outsider`**
-* Проверка `is_in_dead_zone(signal.mid_price, dead_zone)` перенесена в начало функции `decide_outsider` до проверки `p_flip_calibrated < flip_thresh`.
-* Приведено к единому стандарту с `decide_ml_trend`.
-
-### 3. **Баг 3 — Заполнение `applied_lower` и `applied_upper` в `DecisionResult`**
-* В `polyflip/trading/decision_runners.py` при создании `DecisionResult` в `decide_ml_mode` переданы вычисленные значения порогов `applied_lower=lower` и `applied_upper=upper`.
-* Теперь воронка `log_funnel` гарантированно регистрирует реальные пороги в логах и дашборде.
+Причина совершения сделки по ETH с Edge 42.9% при выключенном пороге 60.0% полностью найдена и устранена.
 
 ---
 
-## 🧪 Деплой
-* Все тесты самопроверки пройдены.
-* Коммит и пуш отправлены в Git (`fix: resolve TypeError in decide_favorite NO-side, fix dead_zone order, populate applied_lower/upper`).
-* Приложение пересобрано и перезапущено на сервере `34.50.54.183`.
+## 🔍 Причина проблемы:
+1. В базе данных в `runtime_settings` оставался устаревший параметр `NO_MIN_EDGE = 0.3` (30%).
+2. Функция `decide_outsider` использовала выражение `config.get("NO_MIN_EDGE", ...)` с безусловным приоритетом над `MIN_EDGE`.
+3. При выставлении `MIN_EDGE = 0.60` (60%) в UI, бэкенд сохранял 60%, но при сделках на Аутсайдера подхватывал `NO_MIN_EDGE = 0.30` (30%), из-за чего сделки с Edge `0.429` (42.9%) успешно совершались (`0.429 >= 0.30`).
+
+---
+
+## 🛠️ Что сделано:
+
+1. **Строгий приоритет глобального `MIN_EDGE` в торговой логике (`polyflip/trading/decision_logic.py`)**:
+   * Для `decide_outsider` и `decide_favorite` расчет порога изменен на:
+     `min_edge = max(global_min, no_min)`
+   * Теперь выставленный `MIN_EDGE` является нерушимым нижним порогом для всех типов стратегий.
+
+2. **Очистка БД на сервере**:
+   * Из таблицы `runtime_settings` удалены устаревшие конфликтующие ключи `NO_MIN_EDGE`, `FAVORITE_MIN_EDGE`, `CRYPTO_MIN_EDGE`.
+   * Теперь в БД содержится только чистый `MIN_EDGE = 0.6` (60%).
+
+---
+
+## 🧪 Результаты проверки:
+* Запущен тест: при `mid_price = 0.65`, `executed_price = 0.35` (Edge = 42.9%) и выставленном `MIN_EDGE = 60%`, функция выдает:
+  `SKIP edge=0.429 < min=0.600`
+* Изменения задеплоены на рабочий сервер `34.50.54.183`.
