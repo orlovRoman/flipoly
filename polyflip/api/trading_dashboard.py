@@ -345,7 +345,7 @@ async def get_pnl_markers(
 
     grouped = defaultdict(list)
     for r in cfg_rows:
-        ts_key = r.changed_at.isoformat()
+        ts_key = r.changed_at.strftime("%Y-%m-%dT%H:%M:00+00:00")
         grouped[ts_key].append({
             "key": r.key,
             "old_value": r.old_value,
