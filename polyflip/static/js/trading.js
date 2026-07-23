@@ -1295,3 +1295,126 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
 });
+
+
+// --- Управление пресетами (Config Presets) ---
+
+async function loadPresetsListUI() {
+  const container = document.getElementById("presets-container");
+  if (!container) return;
+
+  try {
+    const res = await fetch(`${window.API_BASE}/api/presets/`);
+    if (!res.ok) return;
+    const presets = await res.json();
+
+    if (!presets || presets.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; margin:0;">Нет сохраненных пресетов</p>';
+      return;
+    }
+
+    container.innerHTML = presets.map(p => `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px;">
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <div style="font-weight:600; font-size:0.9rem; color:#fff; display:flex; align-items:center; gap:6px;">
+            <span>${p.preset_type === 'manual' ? '📌' : '🏆'}</span>
+            <span>${p.name}</span>
+            <span style="font-size:0.75rem; padding:1px 6px; border-radius:4px; background:rgba(255,255,255,0.1); color:#aaa;">${p.param_count} params</span>
+          </div>
+          <div style="font-size:0.75rem; color:var(--text-muted);">
+            ${new Date(p.created_at).toLocaleString()} ${p.capital_at_save ? `· Capital: $${p.capital_at_save.toFixed(2)}` : ''} ${p.pnl_at_save ? `· PnL: $${p.pnl_at_save.toFixed(2)}` : ''}
+          </div>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button type="button" onclick="showPresetDiffUI(${p.id})" style="padding:4px 8px; font-size:0.75rem; border-radius:4px; background:rgba(255,255,255,0.1); border:none; color:#fff; cursor:pointer;">Diff</button>
+          <button type="button" onclick="restorePresetUI(${p.id}, '${p.name}')" style="padding:4px 10px; font-size:0.75rem; border-radius:4px; background:#4f46e5; border:none; color:#fff; cursor:pointer; font-weight:600;">Применить</button>
+          <button type="button" onclick="deletePresetUI(${p.id})" style="padding:4px 8px; font-size:0.75rem; border-radius:4px; background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.4); color:#ef4444; cursor:pointer;">✕</button>
+        </div>
+      </div>
+    `).join("");
+  } catch (err) {
+    console.error("failed_to_load_presets_ui", err);
+  }
+}
+
+async function savePresetFromUI() {
+  const nameInput = document.getElementById("preset-name-input");
+  const name = nameInput ? nameInput.value.trim() : "";
+  if (!name) {
+    alert("Введите имя пресета!");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${window.API_BASE}/api/presets/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Ошибка сохранения: ${err.detail || 'Не удалось сохранить'}`);
+      return;
+    }
+    const data = await res.json();
+    if (nameInput) nameInput.value = "";
+    loadPresetsListUI();
+  } catch (err) {
+    alert(`Ошибка подключения: ${err.message}`);
+  }
+}
+
+async function restorePresetUI(presetId, presetName) {
+  if (!confirm(`Вы действительно хотите применить пресет "${presetName}"?\nТекущие настраиваемые параметры торговли будут заменены.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`${window.API_BASE}/api/presets/${presetId}/restore`, {
+      method: "POST"
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Ошибка применения: ${err.detail || 'Не удалось применить'}`);
+      return;
+    }
+    const data = await res.json();
+    alert(`✅ Пресет "${presetName}" успешно применен!\nОбновлено параметров: ${data.changed_keys}`);
+    window.location.reload();
+  } catch (err) {
+    alert(`Ошибка восстановления: ${err.message}`);
+  }
+}
+
+async function showPresetDiffUI(presetId) {
+  try {
+    const res = await fetch(`${window.API_BASE}/api/presets/${presetId}/diff`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data.diff_count === 0) {
+      alert("Пресет полностью совпадает с текущими настройками!");
+      return;
+    }
+
+    const lines = Object.entries(data.diff).map(([k, v]) => `${k}:\n  В пресете: ${v.preset}\n  Сейчас:    ${v.current}`).join("\n\n");
+    alert(`Различий: ${data.diff_count}\n\n${lines}`);
+  } catch (err) {
+    alert(`Ошибка загрузки diff: ${err.message}`);
+  }
+}
+
+async function deletePresetUI(presetId) {
+  if (!confirm("Удалить этот пресет?")) return;
+  try {
+    await fetch(`${window.API_BASE}/api/presets/${presetId}`, { method: "DELETE" });
+    loadPresetsListUI();
+  } catch (err) {
+    console.error("failed_to_delete_preset", err);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadPresetsListUI();
+});
+

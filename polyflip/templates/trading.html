@@ -654,6 +654,28 @@
                                     Единый потолок цены для покупки аутсайдера в обе стороны. Рекомендуется: 0.35–0.45.
                                 </small>
                             </div>
+
+                            <hr style="border:0; border-top:1px solid var(--border-color); margin: 1.5rem 0;">
+                            <div class="settings-group" style="background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.2);">
+                                <h4 style="margin-top:0; color:#818cf8; display:flex; align-items:center; gap:8px;">
+                                    <span>📸 Снимки настроек &amp; Пресеты</span>
+                                </h4>
+                                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">
+                                    Сохраняйте успешные конфигурации системы в 1 клик и сравнивайте текущие параметры с историческими снимками.
+                                </p>
+
+                                <div style="display:flex; gap:10px; margin-bottom:1rem; align-items:center;">
+                                    <input type="text" id="preset-name-input" placeholder="Имя пресета (напр. BTC_Profitable_July10)" 
+                                           style="flex:1; padding:8px 12px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:#fff;">
+                                    <button type="button" onclick="savePresetFromUI()" class="btn-primary" style="padding:8px 16px; white-space:nowrap; cursor:pointer;">
+                                        💾 Сохранить пресет
+                                    </button>
+                                </div>
+
+                                <div id="presets-container" style="display:flex; flex-direction:column; gap:8px;">
+                                    <!-- Заполняется JS -->
+                                </div>
+                            </div>
                         </div>
 
                     </form>
