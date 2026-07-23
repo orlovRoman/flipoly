@@ -96,7 +96,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function updateCharts(dailyData) {
+  async function updateCharts(dailyData) {
     const sortedDates = Object.keys(dailyData).sort();
 
     let cumulativePnl = 0;
@@ -126,6 +126,60 @@ document.addEventListener("DOMContentLoaded", () => {
         lossData.push(null);
       }
     }
+
+    // Загрузка маркеров событий для наложения на PnL график
+    let annotations = {};
+    try {
+      const markersRes = await fetch(`${window.API_BASE}/api/trading/pnl-markers?hours=720`);
+      if (markersRes.ok) {
+        const markersData = await markersRes.json();
+        (markersData.markers || []).forEach((m, idx) => {
+          const dateStr = m.timestamp.split("T")[0];
+          if (displayDates.includes(dateStr)) {
+            annotations[`marker_${idx}`] = {
+              type: 'line',
+              xMin: dateStr,
+              xMax: dateStr,
+              borderColor: m.marker_type === 'ath' ? '#f59e0b' : '#818cf8',
+              borderWidth: m.marker_type === 'ath' ? 2 : 1,
+              borderDash: [4, 4],
+              label: {
+                display: true,
+                content: m.label,
+                position: 'start',
+                font: { size: 10, weight: 'bold' },
+                backgroundColor: m.marker_type === 'ath' ? 'rgba(245, 158, 11, 0.85)' : 'rgba(99, 102, 241, 0.85)',
+                color: '#ffffff',
+                padding: 4,
+                borderRadius: 4
+              }
+            };
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("pnl_markers_fetch_error", err);
+    }
+
+    const pnlOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, labels: { color: "white" } },
+        annotation: { annotations }
+      },
+      scales: {
+        x: {
+          offset: true,
+          ticks: { color: "rgba(255, 255, 255, 0.7)" },
+          grid: { color: "rgba(255, 255, 255, 0.1)" },
+        },
+        y: {
+          ticks: { color: "rgba(255, 255, 255, 0.7)" },
+          grid: { color: "rgba(255, 255, 255, 0.1)" },
+        },
+      },
+    };
 
     const commonOptions = {
       responsive: true,
@@ -162,7 +216,7 @@ document.addEventListener("DOMContentLoaded", () => {
             },
           ],
         },
-        options: commonOptions,
+        options: pnlOptions,
       },
     );
 
@@ -1314,21 +1368,23 @@ async function loadPresetsListUI() {
     }
 
     container.innerHTML = presets.map(p => `
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px;">
-        <div style="display:flex; flex-direction:column; gap:2px;">
-          <div style="font-weight:600; font-size:0.9rem; color:#fff; display:flex; align-items:center; gap:6px;">
-            <span>${p.preset_type === 'manual' ? '📌' : '🏆'}</span>
-            <span>${p.name}</span>
-            <span style="font-size:0.75rem; padding:1px 6px; border-radius:4px; background:rgba(255,255,255,0.1); color:#aaa;">${p.param_count} params</span>
-          </div>
-          <div style="font-size:0.75rem; color:var(--text-muted);">
-            ${new Date(p.created_at).toLocaleString()} ${p.capital_at_save ? `· Capital: $${p.capital_at_save.toFixed(2)}` : ''} ${p.pnl_at_save ? `· PnL: $${p.pnl_at_save.toFixed(2)}` : ''}
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+        <div style="display:flex; align-items:center; gap:16px;">
+          <span style="font-size:1.2rem;">${p.preset_type === 'manual' ? '📌' : '🏆'}</span>
+          <div>
+            <div style="font-weight:600; font-size:0.95rem; color:#fff; display:flex; align-items:center; gap:8px;">
+              <span>${p.name}</span>
+              <span style="font-size:0.75rem; padding:2px 8px; border-radius:12px; background:rgba(255,255,255,0.1); color:#cbd5e1; font-weight:500;">${p.param_count} параметров</span>
+            </div>
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
+              Сохранён: ${new Date(p.created_at).toLocaleString()} ${p.capital_at_save ? `· Капитал: $${p.capital_at_save.toFixed(2)}` : ''} ${p.pnl_at_save ? `· PnL: $${p.pnl_at_save.toFixed(2)}` : ''}
+            </div>
           </div>
         </div>
-        <div style="display:flex; gap:6px;">
-          <button type="button" onclick="showPresetDiffUI(${p.id})" style="padding:4px 8px; font-size:0.75rem; border-radius:4px; background:rgba(255,255,255,0.1); border:none; color:#fff; cursor:pointer;">Diff</button>
-          <button type="button" onclick="restorePresetUI(${p.id}, '${p.name}')" style="padding:4px 10px; font-size:0.75rem; border-radius:4px; background:#4f46e5; border:none; color:#fff; cursor:pointer; font-weight:600;">Применить</button>
-          <button type="button" onclick="deletePresetUI(${p.id})" style="padding:4px 8px; font-size:0.75rem; border-radius:4px; background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.4); color:#ef4444; cursor:pointer;">✕</button>
+        <div style="display:flex; gap:8px;">
+          <button type="button" onclick="showPresetDiffUI(${p.id})" style="padding:6px 12px; font-size:0.82rem; border-radius:6px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#fff; cursor:pointer; font-weight:500;">Diff</button>
+          <button type="button" onclick="restorePresetUI(${p.id}, '${p.name}')" style="padding:6px 14px; font-size:0.82rem; border-radius:6px; background:#4f46e5; border:none; color:#fff; cursor:pointer; font-weight:600;">Применить</button>
+          <button type="button" onclick="deletePresetUI(${p.id})" style="padding:6px 10px; font-size:0.82rem; border-radius:6px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ef4444; cursor:pointer;">✕</button>
         </div>
       </div>
     `).join("");
