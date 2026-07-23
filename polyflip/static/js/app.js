@@ -501,46 +501,132 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Save Settings
-  const btnSaveSettings = document.getElementById("btn-save-ml-settings");
-  if (btnSaveSettings) {
-    btnSaveSettings.addEventListener("click", async (e) => {
-      e.preventDefault();
+  const FEATURE_DESCRIPTIONS = {
+    time_left_min: { name: "Время до конца", category: "Рыночный сигнал", desc: "Минут до закрытия рынка" },
+    mid_price: { name: "Текущая цена (mid_price)", category: "Рыночный сигнал", desc: "Средняя цена стакана YES" },
+    spread: { name: "Спред", category: "Рыночный сигнал", desc: "best_ask - best_bid" },
+    volume_5min: { name: "Объем (5 мин)", category: "Рыночный сигнал", desc: "Торговый объем за 5 минут" },
+    price_velocity: { name: "Скорость цены", category: "Рыночный сигнал", desc: "Изменение mid_price за шаг" },
+    hour_of_day: { name: "Час суток (UTC)", category: "Рыночный сигнал", desc: "Час времени 0..23" },
+    day_of_week: { name: "День недели", category: "Динамика/Лаги", desc: "День недели 0..6" },
+    price_distance_from_max: { name: "Дистанция от max", category: "Динамика/Лаги", desc: "Отклонение цены от макс. цен рынка" },
+    price_velocity_lag1: { name: "Скорость цены (lag-1)", category: "Динамика/Лаги", desc: "Скорость 5 минут назад" },
+    price_momentum: { name: "Импульс цены (15 мин)", category: "Динамика/Лаги", desc: "Изменение цены за 15 минут" },
+    spread_trend: { name: "Тренд спреда (30 мин)", category: "Динамика/Лаги", desc: "Отношение спреда к 30 мин назад" },
+    volume_trend: { name: "Тренд объёма (15 мин)", category: "Динамика/Лаги", desc: "Отношение объёма к 15 мин назад" },
+    price_deviation: { name: "Отклонение цены от 0.50", category: "Математика", desc: "|mid_price - 0.50|" },
+    deviation_x_time: { name: "Отклонение × Время", category: "Математика", desc: "Взаимодействие величины отклонения со временем" },
+    price_deviation_sq: { name: "Квадрат отклонения", category: "Математика", desc: "Нелинейность уверенности стакана (dev²)" },
+    spread_pct: { name: "Спред в % от цены", category: "Математика", desc: "Относительная величина спреда" },
+    log_time_left: { name: "Логарифм времени", category: "Математика", desc: "log1p(time_left_min)" },
+    time_phase: { name: "Фаза времени рынка", category: "Математика", desc: "Доля прошедшего времени (0.0..1.0)" },
+    is_final_phase: { name: "Флаг финала (≤20%)", category: "Математика", desc: "1.0 если осталось ≤20% времени" },
+    high_price_final: { name: "Высокая цена на финише", category: "Математика", desc: "deviation × (1 - time_phase)" },
+    velocity_x_phase: { name: "Скорость × Фаза", category: "Математика", desc: "velocity × (1 - time_phase)" },
+    dev_sq_x_phase: { name: "Квадрат отклонения × Фаза", category: "Математика", desc: "dev² × (1 - time_phase)" },
+  };
 
-      // Сбор фичей
-      const activeFeatures = Array.from(
-        document.querySelectorAll(
-          '#ml-features input[type="checkbox"]:checked',
-        ),
-      )
-        .map((cb) => cb.value)
-        .join(",");
+  function updateFeatureWeightsSelect() {
+    const select = document.getElementById("feature-weights-model-select");
+    if (!select || !rawModelsData || rawModelsData.length === 0) return;
 
-      const settingsToSave = {
-        ACTIVE_FEATURES: activeFeatures,
-      };
+    if (!select.dataset.changeSetup) {
+      select.dataset.changeSetup = "true";
+      select.addEventListener("change", () => renderSelectedModelWeights());
+    }
 
-      let allOk = true;
+    const currentVal = select.value;
+    select.innerHTML = "";
 
-      for (const [key, val] of Object.entries(settingsToSave)) {
-        try {
-          const res = await fetch(window.API_BASE + `/api/settings/${key}`, {
-            method: "PUT",
-            headers: getHeaders(),
-            body: JSON.stringify({ value: String(val) }),
-          });
-          if (!res.ok) allOk = false;
-        } catch (err) {
-          allOk = false;
-        }
-      }
-
-      if (allOk) {
-        alert("Настройки успешно сохранены!");
-      } else {
-        alert("Ошибка при сохранении части настроек. Проверьте API Key.");
-      }
+    rawModelsData.forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = `${m.asset}_v${m.version}`;
+      opt.textContent = `${m.asset} (v${m.version}${m.is_active ? ' • Активна' : ''})`;
+      select.appendChild(opt);
     });
+
+    if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) {
+      select.value = currentVal;
+    } else if (select.options.length > 0) {
+      select.value = select.options[0].value;
+    }
+
+    renderSelectedModelWeights();
+  }
+
+  function renderSelectedModelWeights() {
+    const select = document.getElementById("feature-weights-model-select");
+    const tbody = document.querySelector("#feature-weights-table tbody");
+    if (!select || !tbody) return;
+
+    const modelKey = select.value;
+    if (!modelKey) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Модель не выбрана</td></tr>`;
+      return;
+    }
+
+    const lastUnderscore = modelKey.lastIndexOf("_v");
+    const asset = modelKey.substring(0, lastUnderscore);
+    const version = parseInt(modelKey.substring(lastUnderscore + 2));
+
+    const model = rawModelsData.find(m => m.asset === asset && m.version === version);
+
+    if (!model || !model.coefficients || Object.keys(model.coefficients).length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Для данной модели нет записанных весовых коэффициентов (или это LightGBM/архивная модель)</td></tr>`;
+      return;
+    }
+
+    const coefs = model.coefficients;
+    const sortedEntries = Object.entries(coefs).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    const maxAbsCoef = Math.max(...sortedEntries.map(e => Math.abs(e[1]))) || 1.0;
+
+    const rowsHtml = sortedEntries.map(([featKey, coefVal]) => {
+      const info = FEATURE_DESCRIPTIONS[featKey] || { name: featKey, category: "Инженерная", desc: featKey };
+      const absRatio = Math.min(Math.abs(coefVal) / maxAbsCoef * 100, 100);
+
+      let impactBadge = "";
+      let barColor = "";
+      if (coefVal > 0.0001) {
+        impactBadge = `<span style="color: var(--poly-green, #4ade80); font-weight: 600;">🟢 Повышает P(flip)</span>`;
+        barColor = "var(--poly-green, #4ade80)";
+      } else if (coefVal < -0.0001) {
+        impactBadge = `<span style="color: #ff3366; font-weight: 600;">🔴 Снижает P(flip)</span>`;
+        barColor = "#ff3366";
+      } else {
+        impactBadge = `<span style="color: var(--text-muted); font-weight: 500;">⚪ Нейтральный (0.0)</span>`;
+        barColor = "var(--text-muted)";
+      }
+
+      let categoryBadge = "";
+      if (info.category === "Рыночный сигнал") {
+        categoryBadge = `<span style="background: rgba(96, 165, 250, 0.15); color: #60a5fa; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem;">📊 Рыночный</span>`;
+      } else if (info.category === "Динамика/Лаги") {
+        categoryBadge = `<span style="background: rgba(168, 85, 247, 0.15); color: #c084fc; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem;">📈 Динамика</span>`;
+      } else {
+        categoryBadge = `<span style="background: rgba(52, 211, 153, 0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem;">🧮 Математика</span>`;
+      }
+
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(info.name)}</strong>
+            <br><small style="color: var(--text-muted); font-size: 0.78rem;">${escapeHtml(featKey)} — ${escapeHtml(info.desc)}</small>
+          </td>
+          <td>${categoryBadge}</td>
+          <td style="text-align: right; font-family: monospace; font-weight: 600; font-size: 0.95rem; color: ${coefVal >= 0 ? '#4ade80' : '#ff3366'}">
+            ${coefVal > 0 ? '+' : ''}${coefVal.toFixed(4)}
+          </td>
+          <td>${impactBadge}</td>
+          <td style="vertical-align: middle;">
+            <div style="background: rgba(255,255,255,0.08); border-radius: 4px; height: 8px; width: 100%; overflow: hidden;">
+              <div style="background: ${barColor}; width: ${absRatio.toFixed(1)}%; height: 100%; border-radius: 4px;"></div>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    tbody.innerHTML = rowsHtml;
   }
 
   // 4. Fetch Parser Status
@@ -862,6 +948,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     tbody.innerHTML = rows.join("");
+    updateFeatureWeightsSelect();
 
     // Пагинация под таблицей
     let paginationContainer = document.getElementById("models-pagination");

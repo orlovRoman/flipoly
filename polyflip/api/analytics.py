@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Integer, update
 from typing import Dict, Any
+import pickle
 import pandas as pd
 import structlog
 import json
@@ -112,6 +113,37 @@ def get_model_type(asset: str) -> tuple[str, str]:
     return ("logistic_regression", "Logistic Regression (Phase)")
 
 
+def extract_coefficients_from_blob(model_blob: bytes, features_str: str) -> dict:
+    """Извлекает весовые коэффициенты признаков из сериализованного sklearn объекта (Pipeline / CalibratedClassifierCV)."""
+    if not model_blob or not features_str:
+        return {}
+    
+    feature_names = [f.strip() for f in features_str.split(",") if f.strip()]
+    if not feature_names:
+        return {}
+
+    try:
+        model_obj = pickle.loads(model_blob)
+        base_estimator = model_obj
+        
+        if hasattr(model_obj, "calibrated_classifiers_") and model_obj.calibrated_classifiers_:
+            cc = model_obj.calibrated_classifiers_[0]
+            base_estimator = getattr(cc, "estimator", cc)
+            if hasattr(base_estimator, "estimator"):
+                base_estimator = base_estimator.estimator
+
+        if hasattr(base_estimator, "named_steps") and "model" in base_estimator.named_steps:
+            lr_model = base_estimator.named_steps["model"]
+            if hasattr(lr_model, "coef_"):
+                coefs = lr_model.coef_[0]
+                if len(coefs) == len(feature_names):
+                    return {f: round(float(c), 4) for f, c in zip(feature_names, coefs)}
+    except Exception as e:
+        logger.warning("failed_to_extract_coefficients", error=str(e))
+
+    return {}
+
+
 @router.get("/analytics/models")
 async def list_models(db: AsyncSession = Depends(get_db_session)):
     """Получение истории всех моделей с четким разделением на LightGBM и Logistic Regression"""
@@ -120,6 +152,7 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
     result = []
     for m in models:
         m_type, algo_label = get_model_type(m.asset)
+        coefs = extract_coefficients_from_blob(m.model_blob, m.features)
         result.append({
             "asset": m.asset,
             "version": m.version,
@@ -127,6 +160,7 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
             "baseline": round(m.baseline, 4) if m.baseline is not None else None,
             "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
             "features": m.features or "",
+            "coefficients": coefs,
             "is_active": m.is_active,
             "trained_at": m.trained_at.isoformat() if m.trained_at else None,
             "model_type": m_type,

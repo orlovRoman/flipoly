@@ -247,24 +247,51 @@
                 </div>
 
                 <div class="panel" style="margin-top: 1.5rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <h3 style="margin: 0;">Выбор параметров для ML-модели</h3>
-                        <button id="btn-save-ml-settings" class="btn primary-btn">Сохранить</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <h3 style="margin: 0; font-size: 1.15rem;">📊 Анализ признаков и весов (Feature Importance)</h3>
+                            <p style="margin: 4px 0 0 0; color: var(--text-muted, #8F9BB3); font-size: 0.85rem;">Все 22 признака модели, весовые коэффициенты ($\beta$) и направление их влияния на вероятность флипа</p>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label for="feature-weights-model-select" style="font-size: 0.88rem; color: var(--text-muted, #8F9BB3);">Модель:</label>
+                            <select id="feature-weights-model-select" class="form-control" style="background: rgba(0,0,0,0.3); color: #fff; border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 6px; font-size: 0.88rem; min-width: 180px;">
+                                <option value="">Загрузка моделей...</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="checkbox-group" id="ml-features">
-                        <label><input type="checkbox" value="time_left_min"> Время до конца (мин)</label>
-                        <label><input type="checkbox" value="mid_price"> Текущая цена (mid_price)</label>
-                        <label><input type="checkbox" value="spread"> Спред</label>
-                        <label><input type="checkbox" value="volume_5min"> Объем за 5 минут</label>
-                        <label><input type="checkbox" value="price_velocity"> Скорость изменения цены</label>
-                        <label><input type="checkbox" value="hour_of_day"> Час дня</label>
-                        <label><input type="checkbox" value="day_of_week"> День недели</label>
-                        <label><input type="checkbox" value="price_distance_from_max"> Расстояние от максимума</label>
-                        <label><input type="checkbox" value="price_velocity_lag1"> Скорость цены (5 мин назад)</label>
-                        <label><input type="checkbox" value="price_momentum"> Импульс цены (15 мин)</label>
-                        <label><input type="checkbox" value="spread_trend"> Тренд спреда (30 мин)</label>
-                        <label><input type="checkbox" value="volume_trend"> Тренд объёма (15 мин)</label>
-                        <small>Включите только нужные параметры и нажмите "Сохранить", затем "Запустить переобучение" на вкладке Аналитика.</small>
+
+                    <!-- Сводная сводка категорий признаков -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 1.2rem;">
+                        <div style="background: rgba(96, 165, 250, 0.08); border: 1px solid rgba(96, 165, 250, 0.2); border-radius: 8px; padding: 10px 14px;">
+                            <div style="color: #60a5fa; font-weight: 600; font-size: 0.85rem; margin-bottom: 2px;">📊 Рыночные сигналы (6)</div>
+                            <div style="color: var(--text-muted); font-size: 0.78rem;">Сценарий стакана: mid_price, spread, volume, velocity, time_left, hour</div>
+                        </div>
+                        <div style="background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 8px; padding: 10px 14px;">
+                            <div style="color: #c084fc; font-weight: 600; font-size: 0.85rem; margin-bottom: 2px;">📈 Динамика & Лаги (6)</div>
+                            <div style="color: var(--text-muted); font-size: 0.78rem;">Тренды & История: velocity_lag1, momentum, spread_trend, volume_trend</div>
+                        </div>
+                        <div style="background: rgba(52, 211, 153, 0.08); border: 1px solid rgba(52, 211, 153, 0.2); border-radius: 8px; padding: 10px 14px;">
+                            <div style="color: #34d399; font-weight: 600; font-size: 0.85rem; margin-bottom: 2px;">🧮 Математика (10)</div>
+                            <div style="color: var(--text-muted); font-size: 0.78rem;">Нелинейности: deviation, dev_sq, time_phase, velocity_x_phase</div>
+                        </div>
+                    </div>
+
+                    <!-- Таблица весов выбранной модели -->
+                    <div style="overflow-x: auto;">
+                        <table class="data-table" id="feature-weights-table" style="width: 100%; text-align: left; font-size: 0.88rem;">
+                            <thead>
+                                <tr>
+                                    <th>Признак (Feature)</th>
+                                    <th>Категория</th>
+                                    <th style="text-align: right;">Коэффициент ($\beta$)</th>
+                                    <th>Влияние на P(flip)</th>
+                                    <th style="width: 25%;">Сила воздействия</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Выберите модель для просмотра весов</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
