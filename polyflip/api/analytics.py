@@ -115,7 +115,7 @@ def get_model_type(asset: str) -> tuple[str, str]:
 @router.get("/analytics/models")
 async def list_models(db: AsyncSession = Depends(get_db_session)):
     """Получение истории всех моделей с четким разделением на LightGBM и Logistic Regression"""
-    stmt = select(ModelRegistry).order_by(ModelRegistry.asset, ModelRegistry.version.desc())
+    stmt = select(ModelRegistry).order_by(ModelRegistry.trained_at.desc(), ModelRegistry.version.desc())
     models = (await db.execute(stmt)).scalars().all()
     result = []
     for m in models:
