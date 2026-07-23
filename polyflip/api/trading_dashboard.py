@@ -320,3 +320,74 @@ async def get_funnel_detail(
         }
         for r in rows
     ]
+
+
+@router.get("/pnl-markers")
+async def get_pnl_markers(
+    hours: int = Query(default=168, ge=1, le=720),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Возвращает маркеры событий (изменения параметров в strategy_config и рекорды ATH в config_presets)
+    для наложения на график PnL.
+    """
+    from polyflip.db.models import StrategyConfig, ConfigPreset
+    from collections import defaultdict
+    from sqlalchemy import and_
+
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    cfg_rows = (await db.execute(
+        select(StrategyConfig)
+        .where(StrategyConfig.changed_at >= since)
+        .order_by(StrategyConfig.changed_at.asc())
+    )).scalars().all()
+
+    grouped = defaultdict(list)
+    for r in cfg_rows:
+        ts_key = r.changed_at.isoformat()
+        grouped[ts_key].append({
+            "key": r.key,
+            "old_value": r.old_value,
+            "new_value": r.new_value,
+            "changed_by": r.changed_by,
+        })
+
+    markers = []
+    for ts, changes in grouped.items():
+        tooltip_lines = [f"{c['key']}: {c['old_value']} ➔ {c['new_value']}" for c in changes[:5]]
+        if len(changes) > 5:
+            tooltip_lines.append(f"... и ещё {len(changes)-5} параметров")
+
+        markers.append({
+            "timestamp": ts,
+            "label": f"⚙️ {len(changes)} param(s)",
+            "marker_type": "setting_change",
+            "changes": changes,
+            "tooltip": "\n".join(tooltip_lines),
+        })
+
+    ath_rows = (await db.execute(
+        select(ConfigPreset)
+        .where(
+            and_(
+                ConfigPreset.preset_type.in_(["ath_capital", "ath_pnl"]),
+                ConfigPreset.created_at >= since,
+                ConfigPreset.is_active == True,  # noqa: E712
+            )
+        )
+        .order_by(ConfigPreset.created_at.asc())
+    )).scalars().all()
+
+    for a in ath_rows:
+        markers.append({
+            "timestamp": a.created_at.isoformat(),
+            "label": f"🏆 {a.name}",
+            "marker_type": "ath",
+            "changes": [],
+            "tooltip": f"Capital: ${a.capital_at_save:.2f} | PnL: ${a.pnl_at_save:.2f}" if a.capital_at_save else a.name,
+        })
+
+    markers.sort(key=lambda x: x["timestamp"])
+    return {"count": len(markers), "markers": markers}
+
