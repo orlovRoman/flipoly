@@ -18,6 +18,8 @@ from polyflip.config import settings
 from polyflip.constants import (
     CV_N_SPLITS,
     CV_RANDOM_STATE,
+    MODEL_THRESHOLD_MIN,
+    MODEL_THRESHOLD_MAX,
 )
 
 logger = structlog.get_logger(__name__)
@@ -520,10 +522,13 @@ class ModelTrainer:
                 passed_quality_gate = False
                 gate_reasons.append(f"Accuracy degraded vs active model v{active_model.version}: {acc_diff:+.4f} < -0.02")
 
-        # Ограничиваем оптимальный порог безопасным диапазоном [0.45, 0.65]
-        if optimal_threshold < 0.45 or optimal_threshold > 0.65:
-            logger.warning("optimal_threshold_out_of_bounds", original=optimal_threshold, asset=asset)
-            optimal_threshold = max(0.45, min(0.65, optimal_threshold))
+        if optimal_threshold < MODEL_THRESHOLD_MIN or optimal_threshold > MODEL_THRESHOLD_MAX:
+            clipped = max(MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, optimal_threshold))
+            passed_quality_gate = False
+            gate_reasons.append(
+                f"Threshold {optimal_threshold:.4f} outside safe bounds [{MODEL_THRESHOLD_MIN}, {MODEL_THRESHOLD_MAX}], clipped to {clipped:.4f}"
+            )
+            optimal_threshold = clipped
 
         should_activate = passed_quality_gate
         if not passed_quality_gate:

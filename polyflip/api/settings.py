@@ -265,6 +265,11 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
                     if abs(val) > 100.0:
                         raise HTTPException(status_code=400, detail=f"{key} must be ≤ 100%")
                     payload.value = f"{val / 100.0:.6f}".rstrip('0').rstrip('.')
+                elif abs(val) == 1.0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{key} = 1.0 is ambiguous: enter as fraction (0.01) or percent (1)"
+                    )
                 else:
                     # Уже доля: 0.5 остаётся 0.5 (50%), 0.05 остаётся 0.05 (5%)
                     payload.value = f"{val:.6f}".rstrip('0').rstrip('.')

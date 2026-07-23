@@ -52,6 +52,10 @@ INVALID_EDGE_SENTINEL = -1.0   # возврат compute_edge при buy_price <=
 # Если ECE > этого значения — вероятности модели ненадёжны
 ECE_WARN_THRESHOLD: float = 0.07
 
+# Quality Gate: безопасный диапазон порогов модели
+MODEL_THRESHOLD_MIN: float = 0.45
+MODEL_THRESHOLD_MAX: float = 0.65
+
 # --- Кросс-валидация (алгоритмические параметры) ---
 CV_N_SPLITS     = 5            # кол-во фолдов кросс-валидации
 CV_RANDOM_STATE = 42           # seed для воспроизводимости

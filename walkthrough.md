@@ -1,15 +1,29 @@
-# 🏆 Отчёт об устранении ошибки NameError в analytics.py
+# 🏆 Отчет о дополнительном согласовании порогов и валидации настроек
 
-Устранена мелкая синтаксическая ошибка при формировании списка моделей в API `/api/analytics/models`.
+Успешно выполнены 3 дополнительных исправления для максимальной точности и безопасности алгоритма.
 
 ---
 
-## 🛠️ Что было сделано:
-* Восстановлена строка `coefs = extract_coefficients_from_blob(...)` в функции `list_models` модуля `polyflip/api/analytics.py`.
-* Проверены все вызовы API на сервере — эндпоинт `/api/analytics/models` возвращает HTTP 200 OK с корректно рассчитанными `lift`, `accuracy` и `coefficients`.
+## 🛠️ Что сделано:
+
+### 1. Единый источник правды для порогов моделей (`polyflip/constants.py`)
+* В модуль `polyflip/constants.py` внесены единые глобальные константы безопасного диапазона порогов моделей:
+  ```python
+  MODEL_THRESHOLD_MIN: float = 0.45
+  MODEL_THRESHOLD_MAX: float = 0.65
+  ```
+
+### 2. Интеграция проверки порогов в `Model Quality Gate` (`trainer.py` & `crypto/trainer.py`)
+* В `polyflip/models/trainer.py` и `polyflip/crypto/trainer.py` выходы порога `optimal_threshold` за пределы `[0.45, 0.65]` перенесены **внутрь** `Model Quality Gate`.
+* Если порог модели оказывается выходящим за пределы (например, `0.80`), модель теперь **бракуется** (`passed_quality_gate = False`) с фиксированием причины `Threshold 0.8000 outside safe bounds [0.45, 0.65], clipped to 0.6500`, а клиппированный порог сохраняется для истории.
+
+### 3. Устранение двусмысленности `MIN_EDGE = 1.0` (`polyflip/api/settings.py`)
+* В `polyflip/api/settings.py` добавлена обработка пограничного значения `abs(val) == 1.0`.
+* При попытке сохранить `1.0` система выбрасывает информативную ошибку `400 Bad Request` с подсказкой указывать доли (например, `0.01` для 1%) или явно проценты (`1`).
 
 ---
 
 ## 🧪 Деплой
-* Изменения проверены и отправлены в Git (`fix(analytics): restore coefs variable in list_models`).
-* Контейнеры на сервере `34.50.54.183` перезапущены и находятся в статусе Healthy.
+* Все синтаксические проверки и авто-скрипты пройдены.
+* Коммиты отправлены в Git (`fix: unify model threshold bounds in Quality Gate and resolve MIN_EDGE 1.0 ambiguity`).
+* Контейнеры на сервере `34.50.54.183` перезапущены.

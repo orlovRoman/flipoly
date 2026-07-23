@@ -22,6 +22,7 @@ from sklearn.metrics import roc_auc_score, precision_recall_curve
 from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from polyflip.constants import MODEL_THRESHOLD_MIN, MODEL_THRESHOLD_MAX
 
 from polyflip.constants import (
     CV_N_SPLITS,
@@ -448,9 +449,13 @@ class CryptoModelTrainer:
                         passed_quality_gate = False
                         gate_reasons.append(f"Accuracy degraded vs active model v{active_crypto_model.version}: {acc_diff:+.4f} < -0.02")
 
-                if threshold < 0.40 or threshold > 0.65:
-                    logger.warning("crypto_threshold_out_of_bounds", original=threshold, regime_asset=regime_asset)
-                    threshold = max(0.40, min(0.65, threshold))
+                if threshold < MODEL_THRESHOLD_MIN or threshold > MODEL_THRESHOLD_MAX:
+                    clipped = max(MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, threshold))
+                    passed_quality_gate = False
+                    gate_reasons.append(
+                        f"Threshold {threshold:.4f} outside safe bounds [{MODEL_THRESHOLD_MIN}, {MODEL_THRESHOLD_MAX}], clipped to {clipped:.4f}"
+                    )
+                    threshold = clipped
 
                 should_activate = passed_quality_gate
                 if not passed_quality_gate:
