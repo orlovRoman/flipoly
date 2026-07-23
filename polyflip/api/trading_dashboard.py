@@ -90,12 +90,13 @@ async def get_trading_stats(
             ]
             if cutoff_dt:
                 conds.append(TradeHistory.created_at >= cutoff_dt)
+            local_date = cast(func.timezone('Asia/Ho_Chi_Minh', TradeHistory.created_at), Date)
             stmt = select(
-                cast(TradeHistory.created_at, Date).label("day"),
+                local_date.label("day"),
                 func.sum(TradeHistory.pnl).label("daily_pnl"),
                 func.sum(sa_case((TradeHistory.pnl > 0, 1), else_=0)).label("wins"),
                 func.sum(sa_case((TradeHistory.pnl <= 0, 1), else_=0)).label("losses")
-            ).where(*conds).group_by(cast(TradeHistory.created_at, Date))
+            ).where(*conds).group_by(local_date)
             return (await s.execute(stmt)).all()
 
     async def fetch_params():
