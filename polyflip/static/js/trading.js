@@ -60,7 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const chartsTfSelect = document.getElementById("charts-tf-select");
       const chartsTimeframe = chartsTfSelect ? chartsTfSelect.value : "all";
       if (chartsTimeframe === timeframe && data.daily_pnl) {
-        updateCharts(data.daily_pnl);
+        await updateCharts(data.daily_pnl);
       }
     } catch (error) {
       if (myToken !== _statsFetchToken) return;
@@ -97,169 +97,172 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function updateCharts(dailyData) {
-    const sortedDates = Object.keys(dailyData).sort();
-
-    let cumulativePnl = 0;
-    const pnlData = [];
-    const winData = [];
-    const lossData = [];
-
-    for (const date of sortedDates) {
-      cumulativePnl += dailyData[date].pnl;
-      pnlData.push(cumulativePnl);
-      winData.push(dailyData[date].wins);
-      lossData.push(dailyData[date].losses);
-    }
-
-    const displayDates = [...sortedDates];
-    // Если дат слишком мало (меньше 7), дополняем будущими днями, чтобы первый день отображался слева, а не растягивался
-    if (displayDates.length > 0 && displayDates.length < 7) {
-      const lastDateStr = displayDates[displayDates.length - 1];
-      const lastDate = new Date(lastDateStr);
-      const lastPnl = pnlData[pnlData.length - 1] ?? 0;
-      while (displayDates.length < 7) {
-        lastDate.setUTCDate(lastDate.getUTCDate() + 1);
-        const nextDateStr = lastDate.toISOString().split("T")[0];
-        displayDates.push(nextDateStr);
-        pnlData.push(lastPnl);
-        winData.push(null);
-        lossData.push(null);
-      }
-    }
-
-    // Загрузка маркеров событий для наложения на PnL график
-    let annotations = {};
     try {
-      const markersRes = await fetch(`${window.API_BASE}/api/trading/pnl-markers?hours=720`);
-      if (markersRes.ok) {
-        const markersData = await markersRes.json();
-        (markersData.markers || []).forEach((m, idx) => {
-          const dateStr = m.timestamp.split("T")[0];
-          if (displayDates.includes(dateStr)) {
-            annotations[`marker_${idx}`] = {
-              type: 'line',
-              xMin: dateStr,
-              xMax: dateStr,
-              borderColor: m.marker_type === 'ath' ? '#f59e0b' : '#818cf8',
-              borderWidth: m.marker_type === 'ath' ? 2 : 1,
-              borderDash: [4, 4],
-              label: {
-                display: true,
-                content: m.label,
-                position: 'start',
-                font: { size: 10, weight: 'bold' },
-                backgroundColor: m.marker_type === 'ath' ? 'rgba(245, 158, 11, 0.85)' : 'rgba(99, 102, 241, 0.85)',
-                color: '#ffffff',
-                padding: 4,
-                borderRadius: 4
-              }
-            };
-          }
-        });
+      const sortedDates = Object.keys(dailyData).sort();
+
+      let cumulativePnl = 0;
+      const pnlData = [];
+      const winData = [];
+      const lossData = [];
+
+      for (const date of sortedDates) {
+        cumulativePnl += dailyData[date].pnl;
+        pnlData.push(cumulativePnl);
+        winData.push(dailyData[date].wins);
+        lossData.push(dailyData[date].losses);
       }
-    } catch (err) {
-      console.warn("pnl_markers_fetch_error", err);
-    }
 
-    const pnlOptions = {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: true, labels: { color: "white" } },
-        annotation: { annotations }
-      },
-      scales: {
-        x: {
-          offset: true,
-          ticks: { color: "rgba(255, 255, 255, 0.7)" },
-          grid: { color: "rgba(255, 255, 255, 0.1)" },
-        },
-        y: {
-          ticks: { color: "rgba(255, 255, 255, 0.7)" },
-          grid: { color: "rgba(255, 255, 255, 0.1)" },
-        },
-      },
-    };
+      const displayDates = [...sortedDates];
+      // Если дат слишком мало (меньше 7), дополняем будущими днями, чтобы первый день отображался слева, а не растягивался
+      if (displayDates.length > 0 && displayDates.length < 7) {
+        const lastDateStr = displayDates[displayDates.length - 1];
+        const lastDate = new Date(lastDateStr);
+        const lastPnl = pnlData[pnlData.length - 1] ?? 0;
+        while (displayDates.length < 7) {
+          lastDate.setUTCDate(lastDate.getUTCDate() + 1);
+          const nextDateStr = lastDate.toISOString().split("T")[0];
+          displayDates.push(nextDateStr);
+          pnlData.push(lastPnl);
+          winData.push(null);
+          lossData.push(null);
+        }
+      }
 
-    const commonOptions = {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: true, labels: { color: "white" } } },
-      scales: {
-        x: {
-          offset: true,
-          ticks: { color: "rgba(255, 255, 255, 0.7)" },
-          grid: { color: "rgba(255, 255, 255, 0.1)" },
-        },
-        y: {
-          ticks: { color: "rgba(255, 255, 255, 0.7)" },
-          grid: { color: "rgba(255, 255, 255, 0.1)" },
-        },
-      },
-    };
-
-    if (pnlChart) pnlChart.destroy();
-    pnlChart = new Chart(
-      document.getElementById("chart-daily-pnl").getContext("2d"),
-      {
-        type: "line",
-        data: {
-          labels: displayDates,
-          datasets: [
-            {
-              label: "Кумулятивный PnL (USDC)",
-              data: pnlData,
-              borderColor: "#4facfe",
-              backgroundColor: "rgba(79, 172, 254, 0.2)",
-              fill: true,
-              tension: 0.4,
-            },
-          ],
-        },
-        options: pnlOptions,
-      },
-    );
-
-    if (wlChart) wlChart.destroy();
-    wlChart = new Chart(
-      document.getElementById("chart-daily-wl").getContext("2d"),
-      {
-        type: "bar",
-        data: {
-          labels: displayDates,
-          datasets: [
-            {
-              label: "Выигрыши",
-              data: winData,
-              backgroundColor: "#2ecc71",
-              maxBarThickness: 30,
-            },
-            {
-              label: "Проигрыши",
-              data: lossData,
-              backgroundColor: "#e74c3c",
-              maxBarThickness: 30,
-            },
-          ],
-        },
-        options: {
-          ...commonOptions,
-          scales: {
-            x: {
-              stacked: true,
-              offset: true,
-              ticks: { color: "rgba(255, 255, 255, 0.7)" },
-              grid: { color: "rgba(255, 255, 255, 0.1)" },
-            },
-            y: {
-              stacked: true,
-              ticks: { color: "rgba(255, 255, 255, 0.7)" },
-              grid: { color: "rgba(255, 255, 255, 0.1)" },
+      // Загрузка маркеров событий для наложения на PnL график
+      let annotations = {};
+      try {
+        const markersRes = await fetch(`${window.API_BASE}/api/trading/pnl-markers?hours=720`);
+        if (markersRes.ok) {
+          const markersData = await markersRes.json();
+          (markersData.markers || []).forEach((m, idx) => {
+            const dateStr = m.timestamp.split("T")[0];
+            if (displayDates.includes(dateStr)) {
+              annotations[`marker_${idx}`] = {
+                type: 'line',
+                xMin: dateStr,
+                xMax: dateStr,
+                borderColor: m.marker_type === 'ath' ? '#f59e0b' : '#818cf8',
+                borderWidth: m.marker_type === 'ath' ? 2 : 1,
+                borderDash: [4, 4],
+                label: {
+                  display: true,
+                  content: m.label,
+                  position: 'start',
+                  font: { size: 10, weight: 'bold' },
+                  backgroundColor: m.marker_type === 'ath' ? 'rgba(245, 158, 11, 0.85)' : 'rgba(99, 102, 241, 0.85)',
+                  color: '#ffffff',
+                  padding: 4,
+                  borderRadius: 4
+                }
+              };
             }
-          }
+          });
+        }
+      } catch (err) {
+        console.warn("pnl_markers_fetch_error", err);
+      }
+
+      const pnlOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, labels: { color: "white" } },
+          annotation: { annotations }
         },
-      },
-    );
+        scales: {
+          x: {
+            offset: true,
+            ticks: { color: "rgba(255, 255, 255, 0.7)" },
+            grid: { color: "rgba(255, 255, 255, 0.1)" },
+          },
+          y: {
+            ticks: { color: "rgba(255, 255, 255, 0.7)" },
+            grid: { color: "rgba(255, 255, 255, 0.1)" },
+          },
+        },
+      };
+
+      const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: true, labels: { color: "white" } } },
+        scales: {
+          x: {
+            offset: true,
+            ticks: { color: "rgba(255, 255, 255, 0.7)" },
+            grid: { color: "rgba(255, 255, 255, 0.1)" },
+          },
+          y: {
+            ticks: { color: "rgba(255, 255, 255, 0.7)" },
+            grid: { color: "rgba(255, 255, 255, 0.1)" },
+          },
+        },
+      };
+
+      if (pnlChart) pnlChart.destroy();
+      pnlChart = new Chart(
+        document.getElementById("chart-daily-pnl").getContext("2d"),
+        {
+          type: "line",
+          data: {
+            labels: displayDates,
+            datasets: [
+              {
+                label: "Кумулятивный PnL (USDC)",
+                data: pnlData,
+                borderColor: "#4facfe",
+                backgroundColor: "rgba(79, 172, 254, 0.2)",
+                fill: true,
+                tension: 0.4,
+              },
+            ],
+          },
+          options: pnlOptions,
+        },
+      );
+
+      if (wlChart) wlChart.destroy();
+      wlChart = new Chart(
+        document.getElementById("chart-daily-wl").getContext("2d"),
+        {
+          type: "bar",
+          data: {
+            labels: displayDates,
+            datasets: [
+              {
+                label: "Выигрыши",
+                data: winData,
+                backgroundColor: "#2ecc71",
+                maxBarThickness: 30,
+              },
+              {
+                label: "Проигрыши",
+                data: lossData,
+                backgroundColor: "#e74c3c",
+                maxBarThickness: 30,
+              },
+            ],
+          },
+          options: {
+            ...commonOptions,
+            scales: {
+              x: {
+                stacked: true,
+                offset: true,
+                ticks: { color: "rgba(255, 255, 255, 0.7)" },
+                grid: { color: "rgba(255, 255, 255, 0.1)" },
+              },
+              y: {
+                stacked: true,
+                ticks: { color: "rgba(255, 255, 255, 0.7)" },
+                grid: { color: "rgba(255, 255, 255, 0.1)" },
+              }
+            }
+          },
+        },
+    } catch (err) {
+      console.error("updateCharts_error", err);
+    }
   }
 
   if (elements.refreshBtn) {
@@ -1236,7 +1239,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const data = await response.json();
       if (data.daily_pnl) {
-        updateCharts(data.daily_pnl);
+        await updateCharts(data.daily_pnl);
       }
     } catch (e) {
       if (myToken !== _chartsFetchToken) return;
