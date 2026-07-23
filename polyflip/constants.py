@@ -48,6 +48,10 @@ def get_price_phase(mid_price: float) -> str:
 FLIP_MIDPOINT         = 0.5    # нейтральная вероятность
 INVALID_EDGE_SENTINEL = -1.0   # возврат compute_edge при buy_price <= 0
 
+# Порог предупреждения о плохой калибровке модели (ECE)
+# Если ECE > этого значения — вероятности модели ненадёжны
+ECE_WARN_THRESHOLD: float = 0.07
+
 # --- Кросс-валидация (алгоритмические параметры) ---
 CV_N_SPLITS     = 5            # кол-во фолдов кросс-валидации
 CV_RANDOM_STATE = 42           # seed для воспроизводимости

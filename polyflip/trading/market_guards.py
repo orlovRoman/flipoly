@@ -44,19 +44,27 @@ async def check_market_guards(
     """
     Выполняет все предварительные проверки рынка (guards) перед принятием решения.
     """
+    # 1. СНАЧАЛА ищем existing_skipped запись (нужна во всех последующих return)
+    skipped_check = select(TradeHistory).where(
+        TradeHistory.market_id == market.market_id,
+        TradeHistory.status == "SKIPPED"
+    ).limit(1)
+    skipped_res = await db_session.execute(skipped_check)
+    existing_skipped = skipped_res.scalar_one_or_none()
+
     if time_left_sec <= 0:
-        return GuardResult(passed=False, skip_reason="Time left <= 0", existing_skipped=None)
+        return GuardResult(passed=False, skip_reason="Time left <= 0", existing_skipped=existing_skipped)
         
     if asset_mode == TRADING_MODE_FAVORITE:
         window_min = cfg.entry_sec
         window_max = cfg.entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC
         if not (window_min <= time_left_sec <= window_max):
-            return GuardResult(passed=False, skip_reason="Outside time window", existing_skipped=None)
+            return GuardResult(passed=False, skip_reason="Outside time window", existing_skipped=existing_skipped)
     else:
         if not (cfg.min_time_left <= time_left_sec <= cfg.max_time_left):
-            return GuardResult(passed=False, skip_reason="Outside time window", existing_skipped=None)
+            return GuardResult(passed=False, skip_reason="Outside time window", existing_skipped=existing_skipped)
             
-    # Проверяем дубликаты сделок без TRADE_CHECK_LIMIT=5 (BUG-AP)
+    # 2. Проверяем дубликаты сделок — existing_skipped уже доступен
     trade_check = select(TradeHistory).where(
         TradeHistory.market_id == market.market_id,
         TradeHistory.status.in_(["SUCCESS", "LIVE", "FAILED"])
@@ -64,16 +72,8 @@ async def check_market_guards(
     result = await db_session.execute(trade_check)
     already_traded = result.scalars().first() is not None
     if already_traded:
-        return GuardResult(passed=False, skip_reason="Trade already exists", existing_skipped=None)
-        
-    # Ищем SKIPPED запись для обновления, если есть
-    skipped_check = select(TradeHistory).where(
-        TradeHistory.market_id == market.market_id,
-        TradeHistory.status == "SKIPPED"
-    ).limit(1)
-    skipped_res = await db_session.execute(skipped_check)
-    existing_skipped = skipped_res.scalar_one_or_none()
-    
+        return GuardResult(passed=False, skip_reason="Trade already exists", existing_skipped=existing_skipped)
+
     if market.asset not in cfg.trade_assets:
         return GuardResult(passed=False, skip_reason="Asset not in TRADE_ASSETS", existing_skipped=existing_skipped)
         

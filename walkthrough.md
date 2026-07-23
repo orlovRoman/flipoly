@@ -1,37 +1,41 @@
-# 🏆 Отчёт о внедрении Model Quality Gate и защиты от деградации моделей
+# 🏆 Отчёт о выполнении Атомарного плана исправлений (7 шагов)
 
-Успешно реализован механизм **Model Quality Gate** для предотвращения автоматической активации некачественных или деградировавших моделей после переобучения.
-
----
-
-## 🛠️ Что сделано:
-
-### 1. Откат деградировавших версий в базе данных
-* Слабая модель `BTC` v35 (`accuracy` = 0.7503, `baseline` = 0.7585, `lift` = **-0.0082**, `ece` = **0.2283**) была деактивирована в `model_registry`.
-* Восстановлены здоровые проверенные версии моделей с положительным Lift.
-
-### 2. Внедрение `Model Quality Gate` (`trainer.py` & `crypto/trainer.py`)
-Новообученные модели активируются (`is_active=True`) **ТОЛЬКО при прохождении проверки качества**:
-
-1. **Baseline Lift Guard**: `accuracy >= baseline - 0.005` (accuracy не должна сливать бейзлайну большинства).
-2. **Degradation Protection**: `accuracy >= current_active.accuracy - 0.02` (новая модель не должна быть хуже текущей активной более чем на 2%).
-3. **Calibration Guard**: `ece <= 0.15` (защита от раздутого ECE, при котором вероятности сжимаются в тупик 0.50).
-4. **Threshold Bounding**: Оптимальный порог усекается строго в рамки `[0.45, 0.65]`.
-
-> Если модель не проходит Quality Gate:
-> * Сохраняется в базе со статусом `is_active=False` (для истории).
-> * Текущая работающая активная модель **сохраняет свой активный статус**.
-> * В лог пишется предостережение `model_quality_gate_failed`.
-
-### 3. Отображение метрики Lift в дашборде (`analytics.py` & `app.js`)
-* В API `/api/analytics/models` добавлено вычисление относительного прироста точности `lift` (`accuracy - baseline`).
-* В дашборде модели в столбце точности рядом с Accuracy отображается цветная метрика `Lift`:
-  * 🟩 **Зеленый** при `Lift > 0` (модель работает лучше бейзлайна).
-  * 🟥 **Красный** при `Lift < 0` (сигнал деградации).
+Все 7 шагов критических и оптимизационных исправлений успешно выполнены и проверены.
 
 ---
 
-## 🧪 Деплой
-* Синтаксис проверен (`py_compile`, `node -c`).
-* Изменения отправлены в Git (`feat: implement Model Quality Gate and Lift visualization in dashboard`).
-* Приложение успешно перезапущено на сервере `34.50.54.183`.
+## 🛠️ Что было реализовано:
+
+### 1. **Шаг 1 — Порядок проверок в `polyflip/trading/market_guards.py`**
+* Запрос `existing_skipped` вынесен в самое начало функции `check_market_guards()`.
+* Во всех `GuardResult` при любом выходе (ранний `return`) теперь возвращается объект `existing_skipped`, устраняя `existing_skipped=None`.
+
+### 2. **Шаг 2 — Устранение двойного Edge в `decide_ml_trend` (`polyflip/trading/decision_logic.py`)**
+* Из `decide_ml_trend` убран зависимый промежуточный вызов `decide_favorite()`.
+* Определение стороны входа (`BUY_YES` / `BUY_NO`) и цены `buy_price` производится напрямую по стакану с проверкой коридора `FAVORITE_MIN_PRICE <= price <= FAVORITE_MAX_PRICE`.
+* Расчет Edge производятся исключительно по **ML-вероятностям** (`compute_edge(p_win, buy_price)`).
+
+### 3. **Шаг 3 — Откалиброванный `p_flip` в `decide_outsider` (`polyflip/trading/decision_logic.py`)**
+* Сравнение с порогом `FLIP_THRESHOLD` переведено на откалиброванное значение `p_flip_calibrated < flip_thresh`.
+* Лог `reason` обновлён для точной отладки `p_flip_calibrated`.
+
+### 4. **Шаг 4 — Упрощение `decide_outsider` (`polyflip/trading/decision_logic.py`)**
+* Избыточные продублированные 20-строчные блоки для YES и NO веток объединены в единый чистый поток управления через `is_yes_fav = signal.mid_price >= FLIP_MIDPOINT`.
+
+### 5. **Шаг 5 — Вынос `ECE_WARN_THRESHOLD` (`polyflip/constants.py`)**
+* Константа `ECE_WARN_THRESHOLD: float = 0.07` вынесена в единый модуль констант `polyflip/constants.py` и импортирована в `decision_logic.py`.
+
+### 6. **Шаг 6 — Исправление парсинга `FAVORITE_THRESHOLD` (`polyflip/trading/decision_logic.py`)**
+* Логика разбора `FAVORITE_THRESHOLD` в `decide_favorite` объединена в чистый `try-except` блок с явным логированием `favorite_threshold_invalid` при некорректных строковых значениях.
+
+### 7. **Шаг 7 — Логирование актуальных порогов воронки (`polyflip/trading/decision_runners.py`)**
+* В `DecisionResult` добавлены поля `applied_lower` и `applied_upper`.
+* В `log_funnel` задействованы реальные пересчитанные значения порогов `ml_result.applied_lower` / `applied_upper` вместо устаревших сырых настроек БД.
+
+---
+
+## 🧪 Верификация и Деплой
+* Создан unit-тест `tests/test_fix_7_steps.py`.
+* Синтаксис проверен (`python -m py_compile`).
+* Коммит и пуш отправлены в Git (`feat: implement 7-step atomic fixes for trading engine and market guards`).
+* Контейнеры на сервере `34.50.54.183` перезапущены.

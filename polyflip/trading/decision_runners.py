@@ -43,6 +43,8 @@ class DecisionResult:
     skip_reason: Optional[str]
     lgbm_metadata: Optional[str] = None
     used_model_key: Optional[str] = None
+    applied_lower: Optional[float] = None
+    applied_upper: Optional[float] = None
 
 async def decide_favorite_mode(
     market: LiveMarket,
@@ -556,8 +558,8 @@ async def decide_combined_mode(
         )
 
     g8_combined_vote = (vote.action != "SKIP")
-    _combined_lower = float(raw_settings.get("NO_FLIP_THRESHOLD", 0.35))
-    _combined_upper = float(raw_settings.get("FLIP_THRESHOLD", 0.65))
+    _combined_lower = ml_result.applied_lower if (ml_result and ml_result.applied_lower is not None) else float(raw_settings.get("NO_FLIP_THRESHOLD", 0.35))
+    _combined_upper = ml_result.applied_upper if (ml_result and ml_result.applied_upper is not None) else float(raw_settings.get("FLIP_THRESHOLD", 0.65))
     _combined_min_edge = float(raw_settings.get("MIN_EDGE", 0.0))
 
     await log_funnel(
@@ -565,9 +567,9 @@ async def decide_combined_mode(
         market_id=market.market_id,
         asset=market.asset,
         trading_mode="COMBINED",
-        used_model=ml_result.used_model_key,
-        p_flip=ml_result.p_flip,
-        edge=final_decision.edge if final_decision.edge is not None else ml_result.edge,
+        used_model=ml_result.used_model_key if ml_result else None,
+        p_flip=ml_result.p_flip if ml_result else 0.0,
+        edge=final_decision.edge if final_decision and final_decision.edge is not None else (ml_result.edge if ml_result else None),
         fresh_price=ml_result.decision_obj.buy_price if ml_result and ml_result.decision_obj else None,
         threshold_lower=_combined_lower,
         threshold_upper=_combined_upper,
