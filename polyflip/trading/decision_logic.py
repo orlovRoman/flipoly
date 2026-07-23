@@ -111,7 +111,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             no_prob = 1.0 - signal.mid_price
             edge = compute_edge(no_prob, signal.no_ask)
             if edge >= min_edge:
-                bet = _resolve_final_bet(edge, signal.no_ask)
+                bet = _resolve_final_bet(edge, signal.volume_5min, config)
                 candidates.append(TradeDecision(
                     "BUY_NO", signal.no_ask, bet,
                     f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
@@ -212,7 +212,12 @@ def decide_outsider(
     Если P(flip) >= flip_threshold → рынок флипнет → покупаем аутсайдера.
     """
     flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
+    dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
     p_flip_calibrated = apply_ece_correction(p_flip, ece)
+
+    # 1. Сначала проверяем dead zone
+    if is_in_dead_zone(signal.mid_price, dead_zone):
+        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip)
 
     is_yes_fav = signal.mid_price >= FLIP_MIDPOINT
     outsider_ask = signal.no_ask if is_yes_fav else signal.yes_ask
@@ -220,6 +225,7 @@ def decide_outsider(
 
     outsider_edge = compute_edge(p_flip_calibrated, outsider_ask) if outsider_ask > 0 else None
 
+    # 2. Потом проверяем порог p_flip
     if p_flip_calibrated < flip_thresh:
         return TradeDecision("SKIP", 0, 0,
             f"p_flip_calibrated={p_flip_calibrated:.3f} < threshold={flip_thresh:.3f}", "SKIP",
@@ -227,10 +233,6 @@ def decide_outsider(
 
     max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", 0.45))
     min_edge = float(config.get("NO_MIN_EDGE", config.get("MIN_EDGE", 0.04)))
-    dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
-
-    if is_in_dead_zone(signal.mid_price, dead_zone):
-        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip, edge=outsider_edge)
 
     if outsider_ask <= 0:
         return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip)

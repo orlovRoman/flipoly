@@ -347,6 +347,8 @@ async def decide_ml_mode(
         edge=decision_obj.edge if decision_obj else None,
         skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None,
         used_model_key=used_model,
+        applied_lower=lower,
+        applied_upper=upper,
     )
 
 async def decide_crypto_mode(
