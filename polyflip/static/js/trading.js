@@ -319,7 +319,6 @@ document.addEventListener("DOMContentLoaded", () => {
     tradingModeBadge: document.getElementById('trading-mode-badge'),
     pollIntervalInput: document.getElementById("LIVE_POLL_INTERVAL_SECONDS"),
     minEdge: document.getElementById("MIN_EDGE"),
-    maxEdge: document.getElementById("MAX_BET_EDGE"),
     maxEdgeFilter: document.getElementById("MAX_EDGE_FILTER"),
     favoriteThreshold: document.getElementById("FAVORITE_THRESHOLD"),
     tradeOnFavorite: document.getElementById("TRADE_ON_FAVORITE"),
@@ -659,10 +658,6 @@ document.addEventListener("DOMContentLoaded", () => {
         currentMinEdge = val;
         settingsElements.minEdge.value = (val * 100).toFixed(1);
       }
-      if (settingsElements.maxEdge && data.MAX_BET_EDGE !== undefined) {
-        let val = parseFloat(data.MAX_BET_EDGE);
-        settingsElements.maxEdge.value = val > 1 ? val : (val * 100).toFixed(1);
-      }
       if (settingsElements.maxEdgeFilter && data.MAX_EDGE_FILTER !== undefined) {
         let val = parseFloat(data.MAX_EDGE_FILTER);
         settingsElements.maxEdgeFilter.value = val > 1 ? val : (val * 100).toFixed(1);
@@ -879,7 +874,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (settingsElements.pollIntervalInput) settingsToSave.LIVE_POLL_INTERVAL_SECONDS = settingsElements.pollIntervalInput.value;
       if (settingsElements.minEdge) settingsToSave.MIN_EDGE = parseFormattedFloat(settingsElements.minEdge.value) / 100;
-      if (settingsElements.maxEdge) settingsToSave.MAX_BET_EDGE = parseFormattedFloat(settingsElements.maxEdge.value) / 100;
       if (settingsElements.maxEdgeFilter) settingsToSave.MAX_EDGE_FILTER = parseFormattedFloat(settingsElements.maxEdgeFilter.value) / 100;
       if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFormattedFloat(settingsElements.favoriteThreshold.value);
       if (settingsElements.tradeOnFavorite) settingsToSave.TRADE_ON_FAVORITE = settingsElements.tradeOnFavorite.checked ? "true" : "false";

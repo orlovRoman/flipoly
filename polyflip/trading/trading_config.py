@@ -45,7 +45,6 @@ class TradingConfig:
     no_min_edge: float
     entry_sec: int
     min_edge: float
-    max_bet_edge: float
     max_edge_filter: float
     favorite_threshold: float
     trade_assets: list[str]
@@ -91,7 +90,6 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         no_min_edge=_parse_float(raw.get("NO_MIN_EDGE"), getattr(settings, "NO_MIN_EDGE", 0.03)),
         entry_sec=_parse_int(raw.get("FAVORITE_MODE_ENTRY_SEC"), getattr(settings, "FAVORITE_MODE_ENTRY_SEC", 120)),
         min_edge=_parse_float(raw.get("MIN_EDGE"), getattr(settings, "MIN_EDGE", 0.05)),
-        max_bet_edge=_parse_float(raw.get("MAX_BET_EDGE"), getattr(settings, "MAX_BET_EDGE", 0.30)),
         max_edge_filter=_parse_float(raw.get("MAX_EDGE_FILTER"), getattr(settings, "MAX_EDGE_FILTER", 0.99)),
         favorite_threshold=_parse_float(raw.get("FAVORITE_THRESHOLD"), getattr(settings, "FAVORITE_THRESHOLD", 0.70)),
         trade_assets=trade_assets,

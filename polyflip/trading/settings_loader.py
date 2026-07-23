@@ -27,7 +27,6 @@ async def load_trading_settings(
         "TRADING_MODE",
         "FAVORITE_MODE_ENTRY_SEC",
         "MIN_EDGE",
-        "MAX_BET_EDGE",
         "MAX_EDGE_FILTER",
         "FAVORITE_THRESHOLD",
         "TRADE_ON_FAVORITE",

@@ -74,7 +74,6 @@ async def decide_favorite_mode(
         "FAVORITE_MAX_PRICE": str(cfg.favorite_max_price),
         "TRADE_BET_SIZE_USDC": str(cfg.bet_size),
         "MAX_BET_SIZE_USDC": str(cfg.max_bet_size_usdc),
-        "MAX_BET_EDGE": str(cfg.max_bet_edge),
         "MIN_EDGE": str(asset_min_edge),
         "TRADE_MAX_PRICE": str(asset_max_price),
         "LIQUIDITY_FRACTION": str(cfg.liquidity_fraction),
@@ -236,7 +235,6 @@ async def decide_ml_mode(
     # из-за своего edge-фильтра. Итоговый edge проверяется в decide_ml_trend.
     ML_MODE_BYPASS_FAV_EDGE = -100.0
     local_config["FAVORITE_MIN_EDGE"] = str(ML_MODE_BYPASS_FAV_EDGE)
-    # NOTE: MAX_BET_EDGE intentionally not overridden here (prevents disabling bet scaling)
     local_config["BYPASS_BET_SIZE_CHECK"] = "true"
 
     logger.info(

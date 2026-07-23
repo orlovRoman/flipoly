@@ -35,8 +35,6 @@ class Settings(BaseSettings):
     TRADING_MODE: str = "ml"
     FAVORITE_MODE_ENTRY_SEC: int = 180
     FAVORITE_THRESHOLD: float = 0.55
-    # MAX_BET_EDGE = потолок масштабирования ставки (не фильтр аномалий)
-    MAX_BET_EDGE: float = 0.40
     # MAX_EDGE_FILTER = фильтр "подозрительный edge → SKIP"
     MAX_EDGE_FILTER: float = 0.20
     
