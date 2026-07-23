@@ -71,28 +71,36 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function updateUI(data) {
+    if (!data) return;
     // Update KPIs
-    elements.capital.textContent = `${data.capital.toFixed(2)} USDC`;
-    elements.pnl.textContent = `${data.overall_pnl > 0 ? "+" : ""}${data.overall_pnl.toFixed(2)} USDC`;
-    elements.pnl.style.color = data.overall_pnl >= 0 ? "#00ff88" : "#ff3366";
+    if (elements.capital) elements.capital.textContent = `${(data.capital ?? 0).toFixed(2)} USDC`;
+    if (elements.pnl) {
+      const pnlVal = data.overall_pnl ?? 0;
+      elements.pnl.textContent = `${pnlVal > 0 ? "+" : ""}${pnlVal.toFixed(2)} USDC`;
+      elements.pnl.style.color = pnlVal >= 0 ? "#00ff88" : "#ff3366";
+    }
 
-    elements.winrate.textContent = `${data.winrate}%`;
-    elements.wl.textContent = `${data.wins_vs_losses.wins} / ${data.wins_vs_losses.losses}`;
+    if (elements.winrate) elements.winrate.textContent = `${data.winrate ?? 0}%`;
+    if (elements.wl && data.wins_vs_losses) {
+      elements.wl.textContent = `${data.wins_vs_losses.wins ?? 0} / ${data.wins_vs_losses.losses ?? 0}`;
+    }
 
     // Update Asset Table
-    elements.assetTable.innerHTML = "";
-    for (const [asset, stat] of Object.entries(data.assets)) {
-      const winrate =
-        stat.trades > 0 ? ((stat.wins / stat.trades) * 100).toFixed(1) : 0;
-      const pnlColor = stat.pnl >= 0 ? "#00ff88" : "#ff3366";
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-                <td>${asset}</td>
-                <td>${stat.trades}</td>
-                <td>${winrate}%</td>
-                <td style="color: ${pnlColor}">${stat.pnl > 0 ? "+" : ""}${stat.pnl.toFixed(2)}</td>
-            `;
-      elements.assetTable.appendChild(tr);
+    if (elements.assetTable && data.assets) {
+      elements.assetTable.innerHTML = "";
+      for (const [asset, stat] of Object.entries(data.assets)) {
+        const winrate =
+          stat.trades > 0 ? ((stat.wins / stat.trades) * 100).toFixed(1) : 0;
+        const pnlColor = stat.pnl >= 0 ? "#00ff88" : "#ff3366";
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+                  <td>${asset}</td>
+                  <td>${stat.trades}</td>
+                  <td>${winrate}%</td>
+                  <td style="color: ${pnlColor}">${stat.pnl > 0 ? "+" : ""}${stat.pnl.toFixed(2)}</td>
+              `;
+        elements.assetTable.appendChild(tr);
+      }
     }
   }
 
@@ -333,8 +341,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateDeadZoneInfo() {
     if (!settingsElements.autoDeadZone) return;
-    const width = parseFloat(settingsElements.deadZoneWidth.value) / 100 || 0.10;
-    const noFlip = parseFloat(settingsElements.noFlipThreshold.value) / 100 || 0.45;
+    const widthVal = settingsElements.deadZoneWidth ? settingsElements.deadZoneWidth.value : "10";
+    const noFlipVal = settingsElements.noFlipThreshold ? settingsElements.noFlipThreshold.value : "45";
+    const width = parseFloat(widthVal) / 100 || 0.10;
+    const noFlip = parseFloat(noFlipVal) / 100 || 0.45;
     
     // Два записа "auto-dead-zone-width-group" больше нет — всегда показываем dead-zone-width-group
     const zoneGroup = document.getElementById("dead-zone-width-group");
@@ -1263,11 +1273,12 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Initial fetch
-  fetchStats();
-  loadSettings();
-  loadLogs();
-  fetchDailyPnL();
+  // Initial fetch (isolated try-catch for complete fault tolerance)
+  try { fetchStats(); } catch (e) { console.error("fetchStats_init_error", e); }
+  try { loadSettings(); } catch (e) { console.error("loadSettings_init_error", e); }
+  try { loadLogs(); } catch (e) { console.error("loadLogs_init_error", e); }
+  try { fetchDailyPnL(); } catch (e) { console.error("fetchDailyPnL_init_error", e); }
+  try { if (typeof loadPresetsListUI === 'function') loadPresetsListUI(); } catch (e) { console.error("loadPresetsListUI_init_error", e); }
 
   // Auto refresh every 5 min for stats, every 30 sec for logs (only if tab is active)
   if (window.statsIntervalId) clearInterval(window.statsIntervalId);
