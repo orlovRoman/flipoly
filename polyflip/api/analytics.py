@@ -152,12 +152,13 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
     result = []
     for m in models:
         m_type, algo_label = get_model_type(m.asset)
-        coefs = extract_coefficients_from_blob(m.model_blob, m.features)
+        lift_val = round(m.accuracy - m.baseline, 4) if (m.accuracy is not None and m.baseline is not None) else None
         result.append({
             "asset": m.asset,
             "version": m.version,
             "accuracy": round(m.accuracy, 4),
             "baseline": round(m.baseline, 4) if m.baseline is not None else None,
+            "lift": lift_val,
             "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
             "features": m.features or "",
             "coefficients": coefs,

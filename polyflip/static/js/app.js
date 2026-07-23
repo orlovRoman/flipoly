@@ -930,12 +930,21 @@ document.addEventListener("DOMContentLoaded", () => {
         ? `<span style="background: rgba(96, 165, 250, 0.15); color: #60a5fa; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(96, 165, 250, 0.3); font-size: 0.78rem; font-weight: 500;">🔷 LightGBM</span>`
         : `<span style="background: rgba(251, 146, 60, 0.15); color: #fb923c; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(251, 146, 60, 0.3); font-size: 0.78rem; font-weight: 500;">🟧 LogReg</span>`;
 
+      const liftVal = (m.lift !== null && m.lift !== undefined) ? m.lift : ((m.accuracy != null && m.baseline != null) ? (m.accuracy - m.baseline) : null);
+      let liftHtml = '<span style="color: var(--text-muted);">—</span>';
+      if (liftVal !== null) {
+        const liftPct = (liftVal * 100).toFixed(1);
+        const sign = liftVal > 0 ? "+" : "";
+        const color = liftVal > 0 ? "var(--poly-green, #4ade80)" : liftVal < 0 ? "#ff3366" : "var(--text-muted)";
+        liftHtml = `<span style="color:${color}; font-weight:600;">${sign}${liftPct}%</span>`;
+      }
+
       rows.push(`
                   <tr>
                       <td><strong>${escapeHtml(m.asset)}</strong></td>
                       <td>${algoBadge}</td>
                       <td>v${m.version}</td>
-                      <td>${accuracyText}</td>
+                      <td>${accuracyText} (Lift: ${liftHtml})</td>
                       <td>${baselineText}</td>
                       <td>${eceHtml}</td>
                       <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>

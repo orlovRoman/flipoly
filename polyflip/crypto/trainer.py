@@ -419,12 +419,60 @@ class CryptoModelTrainer:
 
                 regime_asset = f"{symbol}_{regime}"
 
-                # Деактивируем старые записи
-                await self.db.execute(
-                    update(ModelRegistry)
-                    .where(ModelRegistry.asset == regime_asset)
-                    .values(is_active=False)
+                # --- Crypto Model Quality Gate Check ---
+                lift = val_auc - baseline_auc
+                max_lift_loss = -0.005
+
+                active_crypto_stmt = (
+                    select(ModelRegistry)
+                    .where(ModelRegistry.asset == regime_asset, ModelRegistry.is_active == True)
+                    .limit(1)
                 )
+                active_res = await self.db.execute(active_crypto_stmt)
+                active_crypto_model = active_res.scalar_one_or_none()
+
+                passed_quality_gate = True
+                gate_reasons = []
+
+                if lift < max_lift_loss:
+                    passed_quality_gate = False
+                    gate_reasons.append(f"Negative lift vs baseline: {lift:+.4f} (accuracy={val_auc:.4f}, baseline={baseline_auc:.4f})")
+
+                if ece > 0.15:
+                    passed_quality_gate = False
+                    gate_reasons.append(f"Excessive ECE calibration error: {ece:.4f} > 0.15")
+
+                if active_crypto_model is not None and active_crypto_model.accuracy is not None:
+                    acc_diff = val_auc - active_crypto_model.accuracy
+                    if acc_diff < -0.02:
+                        passed_quality_gate = False
+                        gate_reasons.append(f"Accuracy degraded vs active model v{active_crypto_model.version}: {acc_diff:+.4f} < -0.02")
+
+                if threshold < 0.40 or threshold > 0.65:
+                    logger.warning("crypto_threshold_out_of_bounds", original=threshold, regime_asset=regime_asset)
+                    threshold = max(0.40, min(0.65, threshold))
+
+                should_activate = passed_quality_gate
+                if not passed_quality_gate:
+                    logger.warning(
+                        "crypto_model_quality_gate_failed",
+                        asset=regime_asset,
+                        reasons=gate_reasons,
+                        val_auc=val_auc,
+                        baseline=baseline_auc,
+                        ece=ece,
+                        action="Crypto model saved as is_active=False. Retaining current active model."
+                    )
+                else:
+                    logger.info("crypto_model_quality_gate_passed", asset=regime_asset, val_auc=val_auc, baseline=baseline_auc)
+
+                # Деактивируем старые записи только если новая модель прошла Quality Gate
+                if should_activate:
+                    await self.db.execute(
+                        update(ModelRegistry)
+                        .where(ModelRegistry.asset == regime_asset)
+                        .values(is_active=False)
+                    )
 
                 # Версионирование
                 v_res = await self.db.execute(
@@ -452,17 +500,18 @@ class CryptoModelTrainer:
                     quality=threshold_quality,
                 )
 
-                if thr_row:
-                    thr_row.value = str(round(threshold, 4))
-                    thr_row.updated_at = now
-                    thr_row.updated_by = "crypto_train_job"
-                else:
-                    self.db.add(RuntimeSettings(
-                        key=thr_key,
-                        value=str(round(threshold, 4)),
-                        updated_at=now,
-                        updated_by="crypto_train_job",
-                    ))
+                if should_activate or not thr_row:
+                    if thr_row:
+                        thr_row.value = str(round(threshold, 4))
+                        thr_row.updated_at = now
+                        thr_row.updated_by = "crypto_train_job"
+                    else:
+                        self.db.add(RuntimeSettings(
+                            key=thr_key,
+                            value=str(round(threshold, 4)),
+                            updated_at=now,
+                            updated_by="crypto_train_job",
+                        ))
 
                 # Сохраняем feature importance в RuntimeSettings
                 fi_key = f"CRYPTO_FI_{regime_asset}"
@@ -490,7 +539,7 @@ class CryptoModelTrainer:
                     baseline=baseline_auc,
                     features=",".join(available),
                     ece=ece,
-                    is_active=True,
+                    is_active=should_activate,
                     interval=interval,
                     trained_at=now,
                 ))

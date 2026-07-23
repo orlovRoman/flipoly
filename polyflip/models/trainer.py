@@ -491,12 +491,61 @@ class ModelTrainer:
 
         logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc, ece=ece)
 
-        # Деактивируем предыдущие модели
-        await self.db.execute(
-            update(ModelRegistry)
-            .where(ModelRegistry.asset == asset)
-            .values(is_active=False)
+        # --- Model Quality Gate Check ---
+        lift = val_acc - baseline_acc
+        max_lift_loss = -0.005  # accuracy не должна быть ниже baseline более чем на 0.5%
+
+        active_model_stmt = (
+            select(ModelRegistry)
+            .where(ModelRegistry.asset == asset, ModelRegistry.is_active == True)
+            .limit(1)
         )
+        active_res = await self.db.execute(active_model_stmt)
+        active_model = active_res.scalar_one_or_none()
+
+        passed_quality_gate = True
+        gate_reasons = []
+
+        if lift < max_lift_loss:
+            passed_quality_gate = False
+            gate_reasons.append(f"Negative lift vs baseline: {lift:+.4f} (accuracy={val_acc:.4f}, baseline={baseline_acc:.4f})")
+
+        if ece > 0.15:
+            passed_quality_gate = False
+            gate_reasons.append(f"Excessive ECE calibration error: {ece:.4f} > 0.15")
+
+        if active_model is not None and active_model.accuracy is not None:
+            acc_diff = val_acc - active_model.accuracy
+            if acc_diff < -0.02:
+                passed_quality_gate = False
+                gate_reasons.append(f"Accuracy degraded vs active model v{active_model.version}: {acc_diff:+.4f} < -0.02")
+
+        # Ограничиваем оптимальный порог безопасным диапазоном [0.45, 0.65]
+        if optimal_threshold < 0.45 or optimal_threshold > 0.65:
+            logger.warning("optimal_threshold_out_of_bounds", original=optimal_threshold, asset=asset)
+            optimal_threshold = max(0.45, min(0.65, optimal_threshold))
+
+        should_activate = passed_quality_gate
+        if not passed_quality_gate:
+            logger.warning(
+                "model_quality_gate_failed",
+                asset=asset,
+                reasons=gate_reasons,
+                val_auc=val_acc,
+                baseline_auc=baseline_acc,
+                ece=ece,
+                action="Model saved as is_active=False. Retaining current active model."
+            )
+        else:
+            logger.info("model_quality_gate_passed", asset=asset, val_auc=val_acc, baseline_auc=baseline_acc)
+
+        # Если модель прошла проверку, деактивируем старые записи
+        if should_activate:
+            await self.db.execute(
+                update(ModelRegistry)
+                .where(ModelRegistry.asset == asset)
+                .values(is_active=False)
+            )
 
         # Получаем следующий номер версии
         version_stmt = select(ModelRegistry.version).where(ModelRegistry.asset == asset).order_by(ModelRegistry.version.desc()).limit(1)
@@ -504,21 +553,22 @@ class ModelTrainer:
         last_v = v_result.scalar_one_or_none()
         next_version = (last_v or 0) + 1
 
-        # Сохраняем калиброванный порог в RuntimeSettings
+        # Сохраняем калиброванный порог в RuntimeSettings только если модель активируется или если нет настроек
         threshold_key = f"AUTO_FLIP_THRESHOLD_{asset}"
         existing = await self.db.execute(
             select(RuntimeSettings).where(RuntimeSettings.key == threshold_key)
         )
         existing_row = existing.scalar_one_or_none()
-        if existing_row:
-            existing_row.value = str(round(optimal_threshold, 4))
-        else:
-            self.db.add(RuntimeSettings(
-                key=threshold_key,
-                value=str(round(optimal_threshold, 4)),
-                updated_at=datetime.now(timezone.utc),
-                updated_by="train_job"
-            ))
+        if should_activate or not existing_row:
+            if existing_row:
+                existing_row.value = str(round(optimal_threshold, 4))
+            else:
+                self.db.add(RuntimeSettings(
+                    key=threshold_key,
+                    value=str(round(optimal_threshold, 4)),
+                    updated_at=datetime.now(timezone.utc),
+                    updated_by="train_job"
+                ))
 
         # 7. Сохраняем новую модель
         new_model_record = ModelRegistry(
@@ -529,7 +579,7 @@ class ModelTrainer:
             baseline=baseline_acc,
             features=",".join(active_features),
             ece=ece,
-            is_active=True,
+            is_active=should_activate,
             interval="15m",
             trained_at=datetime.now(timezone.utc)
         )
