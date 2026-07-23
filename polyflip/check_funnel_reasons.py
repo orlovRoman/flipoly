@@ -8,7 +8,7 @@ async def main():
         stmt = select(DecisionFunnelLog).order_by(DecisionFunnelLog.id.desc()).limit(10)
         res = await s.execute(stmt)
         for r in res.scalars().all():
-            print(f"ID: {r.id:5} | Asset: {r.asset:5} | Action: {r.final_action:8} | BlockedBy: {r.gate_blocked_by:15} | Reason: {r.reason}")
+            print(f"ID: {r.id:5} | Asset: {r.asset:5} | Action: {r.final_action:8} | Reason: {r.reason}")
 
 if __name__ == "__main__":
     asyncio.run(main())
