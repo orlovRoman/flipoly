@@ -1,31 +1,32 @@
-# 🏆 Отчёт о редизайне блока пресетов и отображении маркеров PnL
+# 🏆 Отчёт об оптимизации загрузки Chart.js и защите async updateCharts
 
-Завершены работы по улучшению UI Торгового Дашборда и включению графических аннотаций событий на PnL-графике.
-
----
-
-## 🎨 1. Перенос и редизайн блока «Снимки настроек & Пресеты»
-
-* **Новое расположение**: Карточка пресетов перенесена из сжатой правой колонки настроек в основную (левую) аналитическую секцию — **строго под блок графиков PnL**.
-* **Широкая карточка (`stat-card`)**:
-  * Четкий заголовок `📸 Снимки настроек & Пресеты (Config Presets)` с пояснительным подзаголовком.
-  * Верхняя форма создания пресета с полноразмерным полем ввода и кнопкой `💾 Сохранить пресет`.
-  * Просторный список пресетов с бейджами типа пресета (`📌`, `🏆`), количеством параметров, датой сохранения, капиталом, PnL и комфортными кнопками **Diff**, **Применить** и **Удалить**.
+Исправлены 2 регрессии надежности и производительности веб-интерфейса.
 
 ---
 
-## 📈 2. Включение маркеров событий на графике PnL
+## ⚡ 1. Возвращение `defer` для скриптов Chart.js (`trading.html`)
 
-* **Файлы**: [polyflip/templates/trading.html](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/templates/trading.html), [polyflip/static/js/trading.js](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/static/js/trading.js)
-* Подключена библиотека `chartjs-plugin-annotation.min.js`.
-* При построении графика PnL параллельно запрашивается эндпоинт `/api/trading/pnl-markers?hours=720`.
-* На график PnL наносятся вертикальные пунктирные аннотации:
-  * **Фиолетовые линии (`#818cf8`)** — маркеры `⚙️ N param(s)` (изменения параметров).
-  * **Золотые линии (`#f59e0b`)** — маркеры `🏆 ATH` (обновление рекордов капитала).
+* **Файл**: [polyflip/templates/trading.html](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/templates/trading.html)
+* Добавлен атрибут `defer` к обоим скриптам в `<head>`:
+  ```html
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.2.1/dist/chartjs-plugin-annotation.min.js" defer></script>
+  ```
+* **Эффект**: Исключена блокировка парсинга DOM при загрузке тяжелых скриптов с CDN. Порядок выполнения строго сохранен (Chart.js выполняется перед плагином аннотаций).
 
 ---
 
-## 🧪 Деплой и проверка
+## 🛡️ 2. Защита async вызовов `updateCharts` (`trading.js`)
 
-* Изменения закоммичены в Git (`fix(ui): move Presets section under PnL charts and enable PnL chart event annotations`).
-* Код подтянут на сервер `34.50.54.183`, контейнер `api` успешно перезапущен и возвращает статус `200 OK`.
+* **Файл**: [polyflip/static/js/trading.js](file:///C:/Users/orlov/.gemini/antigravity/scratch/flipoly/polyflip/static/js/trading.js)
+* Вся бизнес-логика `async function updateCharts(dailyData)` обернута в блок `try { ... } catch (err) { console.error("updateCharts_error", err); }`.
+* Все вызовы `updateCharts(...)` в функциях `fetchChartsData` и `fetchStats` переведены на `await updateCharts(...)`.
+* **Эффект**: Устранен риск `UnhandledPromiseRejection` при недоступности CDN или сбоях инициализации графиков.
+
+---
+
+## 🧪 Валидация и деплой
+
+* Автоматический скрипт самотестирования `test_reliability.py` подтвердил наличие `defer` у всех тегов скриптов и `await` у всех точек вызова `updateCharts`.
+* Изменения закоммичены в Git (`fix(ui): restore defer on chart.js scripts and guard updateCharts async call with try-catch & await`).
+* Код задеплоен на боевой сервер `34.50.54.183`. Приложение успешно перезапущено и возвращает HTTP `200 OK`.
