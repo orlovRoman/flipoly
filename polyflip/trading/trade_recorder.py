@@ -142,6 +142,24 @@ async def execute_and_record(
     if existing_skipped:
         await db_session.delete(existing_skipped)
 
+    # Снимаем паспорт настроек на момент совершения сделки
+    try:
+        import json
+        from polyflip.services.preset_service import PresetService
+        config_snap = await PresetService.capture_snapshot(db_session)
+        config_snap["_trade_context"] = {
+            "time_left_min": getattr(market, "time_left_min", None),
+            "current_spread": getattr(market, "spread", None),
+            "edge_at_entry": round(edge, 4) if edge is not None else None,
+            "p_flip_at_entry": round(p_flip, 4) if p_flip is not None else None,
+            "buy_price": buy_price,
+            "recorded_at_utc": start_time.isoformat(),
+        }
+        config_snapshot_json = json.dumps(config_snap, ensure_ascii=False)
+    except Exception as exc_snap:
+        logger.warning("trade_config_snapshot_failed", error=str(exc_snap))
+        config_snapshot_json = None
+
     history = TradeHistory(
         market_id=market.market_id,
         asset=market.asset,
@@ -158,6 +176,7 @@ async def execute_and_record(
         mode=trade_res.get("mode", "PAPER"),
         edge=round(edge, 4) if edge is not None else None,
         lgbm_metadata=lgbm_metadata,
+        config_snapshot=config_snapshot_json,
         created_at=start_time
     )
     db_session.add(history)
