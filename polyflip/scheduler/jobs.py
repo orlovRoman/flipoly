@@ -14,7 +14,7 @@ from polyflip.collector.client import PolymarketClient
 from polyflip.db.connection import async_session
 from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.config import settings
-from sqlalchemy import select, and_, delete
+from sqlalchemy import select, and_, delete, func
 import os
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
@@ -49,9 +49,34 @@ async def resolver_job():
         await resolve_pending_markets(session)
     logger.info("finished_resolver_job")
 
+async def _check_ath_checkpoint(session: AsyncSession):
+    try:
+        from polyflip.services.preset_service import PresetService
+        
+        pnl_stmt = select(func.sum(TradeHistory.pnl)).where(
+            TradeHistory.status == "SUCCESS",
+            TradeHistory.pnl.is_not(None)
+        )
+        total_pnl = (await session.execute(pnl_stmt)).scalar() or 0.0
+        
+        init_cap_row = (await session.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == "INITIAL_CAPITAL")
+        )).scalar_one_or_none()
+        initial_capital = float(init_cap_row.value) if init_cap_row else settings.INITIAL_CAPITAL
+        current_capital = initial_capital + total_pnl
+        
+        ath_preset = await PresetService.check_and_save_ath(
+            session, current_capital=current_capital, current_pnl=total_pnl
+        )
+        if ath_preset:
+            logger.info("ath_checkpoint_auto_saved", preset_id=ath_preset.id, name=ath_preset.name, capital=current_capital, pnl=total_pnl)
+    except Exception as e:
+        logger.warning("ath_checkpoint_check_failed", error=str(e))
+
 async def trade_job(trader, api_client):
     async with async_session() as session:
         await trade_worker_cycle(session, trader, api_client)
+        await _check_ath_checkpoint(session)
 
 async def stoploss_job(trader, api_client):
     try:
