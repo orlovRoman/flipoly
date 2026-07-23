@@ -42,7 +42,7 @@ def _utc_cutoff(delta: timedelta) -> datetime:
     """Возвращает naive UTC datetime для сравнения с TIMESTAMP WITHOUT TIME ZONE."""
     return (datetime.now(timezone.utc) - delta).replace(tzinfo=None)
 
-@router.get("/api/trading/stats", dependencies=[Depends(verify_api_key)])
+@router.get("/api/trading/stats")
 async def get_trading_stats(
     timeframe: Optional[str] = Query("all"),
     db: AsyncSession = Depends(get_db_session)
