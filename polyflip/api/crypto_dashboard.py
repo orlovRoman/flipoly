@@ -85,7 +85,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
 
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
-        allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
+        allowed_assets.extend([f"{s}_low_vol", f"{s}_mid_vol", f"{s}_high_vol", s])
 
     stmt = select(ModelRegistry).where(
         ModelRegistry.asset.in_(allowed_assets),

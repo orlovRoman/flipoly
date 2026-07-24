@@ -843,9 +843,17 @@
                     return;
                 }
 
-                // Запоминаем текущие версии фазовых моделей
-                const oldLow = statusData?.models?.[`${symbol}_low_vol`]?.version || 0;
-                const oldHigh = statusData?.models?.[`${symbol}_high_vol`]?.version || 0;
+                const getLatest = (models, asset) => {
+                    if (!models) return null;
+                    return Object.values(models).filter(m => m.asset === asset && m.is_active).sort((a,b) => b.version - a.version)[0] || null;
+                };
+
+                const oldLowM = getLatest(statusData?.models, `${symbol}_low_vol`);
+                const oldMidM = getLatest(statusData?.models, `${symbol}_mid_vol`);
+                const oldHighM = getLatest(statusData?.models, `${symbol}_high_vol`);
+                const oldLow = oldLowM ? oldLowM.version : 0;
+                const oldMid = oldMidM ? oldMidM.version : 0;
+                const oldHigh = oldHighM ? oldHighM.version : 0;
                 
                 // Запускаем опрос статуса каждые 2 секунды
                 const MAX_POLLS = 300; // 10 минут макс
@@ -856,15 +864,24 @@
                     await loadStatus();
                     
                     const isStillTraining = !!localActiveTrainings[symbol];
-                    const newLow = statusData?.models?.[`${symbol}_low_vol`]?.version || 0;
-                    const newHigh = statusData?.models?.[`${symbol}_high_vol`]?.version || 0;
+                    const newLowM = getLatest(statusData?.models, `${symbol}_low_vol`);
+                    const newMidM = getLatest(statusData?.models, `${symbol}_mid_vol`);
+                    const newHighM = getLatest(statusData?.models, `${symbol}_high_vol`);
+                    const newLow = newLowM ? newLowM.version : 0;
+                    const newMid = newMidM ? newMidM.version : 0;
+                    const newHigh = newHighM ? newHighM.version : 0;
                     
-                    if (!isStillTraining || newLow > oldLow || newHigh > oldHigh) {
+                    if (!isStillTraining || newLow > oldLow || newHigh > oldHigh || newMid > oldMid) {
                         clearInterval(intervalId);
                         delete localActiveTrainings[symbol];
                         updateTrainButtonsAndBanner(localActiveTrainings);
                         
-                        const msg = `Модель для ${symbol} успешно обновлена!\nLow Vol: v${newLow} (было v${oldLow})\nHigh Vol: v${newHigh} (было v${oldHigh})`;
+                        let msgLines = [`Модель для ${symbol} успешно обновлена!`];
+                        if (newLowM) msgLines.push(`Low: v${newLow} (было v${oldLow}) | AUC: ${newLowM.auc || '?'} | Thr: ${newLowM.threshold || '?'}`);
+                        if (newMidM) msgLines.push(`Mid: v${newMid} (было v${oldMid}) | AUC: ${newMidM.auc || '?'} | Thr: ${newMidM.threshold || '?'}`);
+                        if (newHighM) msgLines.push(`High: v${newHigh} (было v${oldHigh}) | AUC: ${newHighM.auc || '?'} | Thr: ${newHighM.threshold || '?'}`);
+                        const msg = msgLines.join('\\n');
+
                         showNotification(`✅ Обучение ${symbol} завершено`, msg);
                         alert(msg);
                     } else if (pollCount >= MAX_POLLS) {
