@@ -544,6 +544,15 @@ class ModelTrainer:
         else:
             logger.info("model_quality_gate_passed", asset=asset, val_auc=val_acc, baseline_auc=baseline_acc)
 
+        # Получаем предыдущую активную модель для сравнения AUC
+        prev_auc_res = await self.db.execute(
+            select(ModelRegistry.accuracy)
+            .where(ModelRegistry.asset == asset, ModelRegistry.is_active == True)
+            .order_by(ModelRegistry.version.desc())
+            .limit(1)
+        )
+        prev_auc = prev_auc_res.scalar_one_or_none()
+
         # Если модель прошла проверку, деактивируем старые записи
         if should_activate:
             await self.db.execute(
@@ -613,7 +622,18 @@ class ModelTrainer:
         await self.db.commit()
 
         logger.info("model_saved_to_db", asset=asset, version=next_version, threshold=optimal_threshold)
-        self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.2f})"
+        
+        diff_str = ""
+        if prev_auc is not None:
+            diff = val_acc - prev_auc
+            if diff > 0.0001:
+                diff_str = f" (+{diff:.4f} 🟢 лучше)"
+            elif diff < -0.0001:
+                diff_str = f" ({diff:.4f} 🔴 хуже)"
+            else:
+                diff_str = " (= без изм.)"
+
+        self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.4f}{diff_str})"
 
         # --- Шаг 3: Price-Phase Split ---
         from polyflip.constants import PRICE_PHASE_BOUNDARIES, CV_N_SPLITS
