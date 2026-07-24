@@ -52,7 +52,7 @@ deploy_to_production:
     - chmod 700 ~/.ssh
     - ssh-keyscan -H 34.50.54.183 >> ~/.ssh/known_hosts
   script:
-    - ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732@34.50.54.183 "cd /home/orlovrp/flipoly && git pull gitlab main && sudo docker compose restart api"
+    - ssh -o StrictHostKeyChecking=no orlov@34.50.54.183 "cd /home/orlovrp/flipoly && git pull gitlab main && sudo docker compose restart api"
   environment:
     name: production
     url: http://34.50.54.183:8001
