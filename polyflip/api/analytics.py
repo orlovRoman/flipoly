@@ -221,12 +221,33 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
         .values(is_active=True)
     )
     
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Model not found")
-        
     await db.commit()
+    invalidate_models_cache()
     await invalidate_analytics_cache()
     return {"status": "success", "active_version": version}
+
+
+@router.delete("/analytics/models/{asset}/{version}", dependencies=[Depends(verify_api_key)])
+async def delete_model(asset: str, version: int, db: AsyncSession = Depends(get_db_session)):
+    """Удаление архивной модели"""
+    check_stmt = select(ModelRegistry.is_active).where(
+        ModelRegistry.asset == asset, ModelRegistry.version == version
+    )
+    is_active = (await db.execute(check_stmt)).scalar_one_or_none()
+    if is_active is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if is_active:
+        raise HTTPException(status_code=400, detail="Cannot delete active model. Activate another model first.")
+
+    from sqlalchemy import delete
+    del_stmt = delete(ModelRegistry).where(
+        ModelRegistry.asset == asset, ModelRegistry.version == version
+    )
+    await db.execute(del_stmt)
+    await db.commit()
+    invalidate_models_cache()
+    await invalidate_analytics_cache()
+    return {"status": "success", "message": f"Model {asset} v{version} deleted"}
 
 
 def get_model_subtype_info(asset: str) -> tuple[str, str, str]:
