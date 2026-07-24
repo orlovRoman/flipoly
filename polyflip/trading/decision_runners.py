@@ -22,15 +22,17 @@ logger = structlog.get_logger(__name__)
 def _get_float_setting(raw_settings: dict, key: str) -> Optional[float]:
     """
     Читает float из raw_settings.
-    Возвращает None если ключ отсутствует, пустой или равен "0"/"0.0".
-    НЕ нормализует значения — если в дашборде введено 80, вернёт 80.0.
-    Все пороги должны храниться в БД как десятичные дроби (0.8, не 80).
+    Автоматически нормализует процентные значения > 1.0 (например 40 или 80) к долям (0.40, 0.80).
     """
     val = raw_settings.get(key)
     if val is None or str(val).strip() == "":
         return None
     try:
-        return float(val)
+        f = float(val)
+        if f > 1.0 and ("THRESHOLD" in key or "EDGE" in key):
+            logger.warning("normalizing_percent_setting", key=key, raw=f, normalized=f / 100.0)
+            f = f / 100.0
+        return f
     except ValueError:
         return None
 
@@ -276,6 +278,16 @@ async def decide_ml_mode(
     if decision_obj.action == "SKIP" and cfg.trade_on_flip:
         trend_edge = decision_obj.edge
         trend_reason = decision_obj.reason
+        logger.info(
+            "decide_outsider_actual_threshold",
+            asset=signal.asset,
+            p_flip=round(p_flip, 4),
+            flip_threshold_in_local_config=float(local_config.get("FLIP_THRESHOLD", 0.0)),
+            resolved_key=_resolved_key,
+            base_flip_threshold=round(base_flip_threshold, 4),
+            applied_upper=round(upper, 4),
+            auto_dead_zone=cfg.auto_dead_zone,
+        )
         outsider_obj = decide_outsider(signal, p_flip, local_config, ece=ece)
         if outsider_obj.action == "SKIP":
             final_edge = trend_edge if outsider_obj.edge is None else outsider_obj.edge
