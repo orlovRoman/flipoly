@@ -52,21 +52,33 @@ class MarketSignal:
     time_left_min: float      # минут до закрытия рынка
     market_duration_min: float = 60.0  # полная длительность рынка в минутах (default 60.0)
 
-    # Симулированные цены (вычисляются из mid_price и spread)
+    yes_bid_raw: float | None = None
+    yes_ask_raw: float | None = None
+    no_bid_raw: float | None = None
+    no_ask_raw: float | None = None
+
     @property
     def yes_ask(self) -> float:
+        if self.yes_ask_raw is not None and self.yes_ask_raw > 0:
+            return self.yes_ask_raw
         return min(self.mid_price + self.spread / 2, 0.99)
 
     @property
     def yes_bid(self) -> float:
+        if self.yes_bid_raw is not None and self.yes_bid_raw > 0:
+            return self.yes_bid_raw
         return max(self.mid_price - self.spread / 2, 0.01)
 
     @property
     def no_ask(self) -> float:
+        if self.no_ask_raw is not None and self.no_ask_raw > 0:
+            return self.no_ask_raw
         return min((1.0 - self.mid_price) + self.spread / 2, 0.99)
 
     @property
     def no_bid(self) -> float:
+        if self.no_bid_raw is not None and self.no_bid_raw > 0:
+            return self.no_bid_raw
         return max((1.0 - self.mid_price) - self.spread / 2, 0.01)
 
 
