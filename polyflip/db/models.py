@@ -41,6 +41,7 @@ class ModelRegistry(Base):
     ece = Column(Float, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     interval = Column(String(5), nullable=False, server_default='15m')
+    dataset_fingerprint = Column(String(32), nullable=True)
     trained_at = Column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (

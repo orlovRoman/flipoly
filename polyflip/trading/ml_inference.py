@@ -119,6 +119,7 @@ def build_inference_dataframe(
             "hour_of_day": getattr(snap, "hour_of_day", 0),
             "market_id": getattr(snap, "market_id", ""),
             "recorded_at": getattr(snap, "recorded_at", None),
+            "market_duration_min": float(getattr(snap, "market_duration_min", 60.0) or 60.0),
         })
         
     rows.append({
@@ -130,6 +131,7 @@ def build_inference_dataframe(
         "hour_of_day": start_time.hour,
         "market_id": getattr(market, "market_id", ""),
         "recorded_at": start_time,
+        "market_duration_min": float(getattr(market, "market_duration_min", 60.0) or 60.0),
     })
     
     from polyflip.models.trainer import add_derived_features

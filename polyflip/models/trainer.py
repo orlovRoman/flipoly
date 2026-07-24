@@ -75,18 +75,20 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df["price_distance_from_max"] = 0.0
 
-    if "market_id" in df.columns and "time_left_min" in df.columns:
+    if "market_duration_min" in df.columns:
+        denominator = df["market_duration_min"].clip(lower=15.0)
+        df["time_phase"] = (df["time_left_min"] / (denominator + 1e-6)).clip(0, 1)
+    elif "market_id" in df.columns and "time_left_min" in df.columns:
         if len(df) > df["market_id"].nunique():
-            # Тренинг: несколько снапшотов на рынок, вычисляем реальную длину жизни
-            df["time_phase"] = (
-                df["time_left_min"] / 
-                (df.groupby("market_id")["time_left_min"].transform("max") + 1e-6)
-            ).clip(0, 1)
+            denominator = (
+                df.groupby("market_id")["time_left_min"].transform("max")
+                .clip(lower=15.0)
+            )
+            df["time_phase"] = (df["time_left_min"] / (denominator + 1e-6)).clip(0, 1)
         else:
-            # Инференс: один снапшот на рынок, используем дефолт 15.0 минут
-            df["time_phase"] = (df["time_left_min"] / 15.0).clip(0, 1)
+            df["time_phase"] = (df["time_left_min"] / 60.0).clip(0, 1)
     elif "time_left_min" in df.columns:
-        df["time_phase"] = (df["time_left_min"] / 15.0).clip(0, 1)
+        df["time_phase"] = (df["time_left_min"] / 60.0).clip(0, 1)
     else:
         import structlog
         structlog.get_logger(__name__).warning("time_phase_fallback", reason="no time_left_min, using 1.0")
@@ -429,7 +431,7 @@ class ModelTrainer:
                     active_features.append(feat)
             logger.info("derived_features_added", features=DERIVED_FEATURES, asset=asset)
             
-            # Синхронизируем расширенный список с БД RuntimeSettings
+            # Синхронизируем расширенный список с БД RuntimeSettings (без принудительной молчаливой перезаписи)
             derived_setting = await self.db.execute(
                 select(RuntimeSettings).where(RuntimeSettings.key == "ACTIVE_FEATURES")
             )
@@ -437,7 +439,20 @@ class ModelTrainer:
             if derived_row:
                 new_value = ",".join(active_features)
                 if derived_row.value != new_value:
-                    derived_row.value = new_value
+                    op_features = set(derived_row.value.split(","))
+                    trainer_features = set(new_value.split(","))
+                    silently_added = trainer_features - op_features
+                    silently_removed = op_features - trainer_features
+                    logger.warning(
+                        "active_features_operator_setting_preserved",
+                        asset=asset,
+                        silently_added=sorted(silently_added),
+                        silently_removed=sorted(silently_removed),
+                        note=(
+                            "Trainer wanted to change ACTIVE_FEATURES but operator setting "
+                            "was preserved. Update via dashboard if needed."
+                        ),
+                    )
         
         # Базовая проверка на разнообразие классов
         if len(df["target"].unique()) < 2:
@@ -459,6 +474,13 @@ class ModelTrainer:
         X = df[active_features]
         y = df["target"]
         groups = df["market_id"]
+
+        import hashlib
+        max_rec_str = str(df["recorded_at"].max()) if "recorded_at" in df.columns else "unknown"
+        time_min_str = f"{df['time_left_min'].min():.1f}-{df['time_left_min'].max():.1f}" if "time_left_min" in df.columns else "unknown"
+        dataset_fingerprint = hashlib.md5(
+            f"{asset}|n={len(df)}|max_rec={max_rec_str}|features={','.join(sorted(active_features))}|time_range={time_min_str}".encode()
+        ).hexdigest()
 
         lr_coef_threshold = await get_float(self.db, "LR_COEF_THRESHOLD")
         lr_min_features = await get_int(self.db, "LR_MIN_FEATURES")
@@ -517,10 +539,23 @@ class ModelTrainer:
             gate_reasons.append(f"Excessive ECE calibration error: {ece:.4f} > 0.15")
 
         if active_model is not None and active_model.accuracy is not None:
-            acc_diff = val_acc - active_model.accuracy
-            if acc_diff < -0.02:
-                passed_quality_gate = False
-                gate_reasons.append(f"Accuracy degraded vs active model v{active_model.version}: {acc_diff:+.4f} < -0.02")
+            same_dataset = (
+                hasattr(active_model, "dataset_fingerprint")
+                and active_model.dataset_fingerprint == dataset_fingerprint
+            )
+            if same_dataset:
+                acc_diff = val_acc - active_model.accuracy
+                if acc_diff < -0.02:
+                    passed_quality_gate = False
+                    gate_reasons.append(f"Accuracy degraded vs active model v{active_model.version}: {acc_diff:+.4f} < -0.02 (same dataset)")
+            else:
+                logger.warning(
+                    "quality_gate_dataset_changed",
+                    asset=asset,
+                    old_fingerprint=getattr(active_model, "dataset_fingerprint", "none"),
+                    new_fingerprint=dataset_fingerprint,
+                    note="AUC comparison skipped — dataset changed. Using baseline check only."
+                )
 
         if optimal_threshold < MODEL_THRESHOLD_MIN or optimal_threshold > MODEL_THRESHOLD_MAX:
             clipped = max(MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, optimal_threshold))
@@ -552,6 +587,27 @@ class ModelTrainer:
             .limit(1)
         )
         prev_auc = prev_auc_res.scalar_one_or_none()
+
+        # ШАГ 1.1 FIX: проверка min_auc ДО каких-либо изменений в БД
+        from polyflip.services.settings_service import get_float
+
+        min_auc_row = (await self.db.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == f"MIN_AUC_{asset}")
+        )).scalar_one_or_none()
+        min_auc = float(min_auc_row.value) if min_auc_row else await get_float(self.db, "LR_MIN_AUC_FOR_DEPLOY")
+
+        if val_acc < min_auc:
+            logger.warning(
+                "model_quality_below_threshold",
+                asset=asset,
+                val_auc=round(val_acc, 4),
+                min_auc_required=min_auc,
+            )
+            self.status_messages[asset] = (
+                f"Пропущено: AUC {val_acc:.3f} < min_auc {min_auc:.2f} — "
+                f"модель не задеплоена, используется предыдущая версия"
+            )
+            return False
 
         # Если модель прошла проверку, деактивируем старые записи
         if should_activate:
@@ -595,29 +651,10 @@ class ModelTrainer:
             ece=ece,
             is_active=should_activate,
             interval="15m",
+            dataset_fingerprint=dataset_fingerprint,
             trained_at=datetime.now(timezone.utc)
         )
 
-        from polyflip.services.settings_service import get_float
-
-        min_auc_row = (await self.db.execute(
-            select(RuntimeSettings).where(RuntimeSettings.key == f"MIN_AUC_{asset}")
-        )).scalar_one_or_none()
-        min_auc = float(min_auc_row.value) if min_auc_row else await get_float(self.db, "LR_MIN_AUC_FOR_DEPLOY")
-
-        if val_acc < min_auc:
-            logger.warning(
-                "model_quality_below_threshold",
-                asset=asset,
-                val_auc=round(val_acc, 4),
-                min_auc_required=min_auc,
-            )
-            self.status_messages[asset] = (
-                f"Пропущено: AUC {val_acc:.3f} < min_auc {min_auc:.2f} — "
-                f"модель не задеплоена, используется предыдущая версия"
-            )
-            return False
-            
         self.db.add(new_model_record)
         await self.db.commit()
 
@@ -676,14 +713,27 @@ class ModelTrainer:
                 phase_results[phase_name] = f"skipped ({n_unique_markets} markets < {CV_N_SPLITS} folds)"
                 continue
 
-            X_phase  = df_phase[active_features]
-            y_phase  = df_phase["target"]
-            grp_phase = df_phase["market_id"]
-            phase_asset = f"{asset}_{phase_name}"
+            phase_weights = (
+                _compute_sample_weights(
+                    df_phase["time_left_min"].values,
+                    mode=weight_mode,
+                    tau=weight_tau,
+                )
+                if weight_mode != "uniform"
+                else None
+            )
 
             try:
                 fit_res_phase = await asyncio.to_thread(
-                    _fit_and_serialize, X_phase, y_phase, grp_phase
+                    _fit_and_serialize,
+                    X_phase,
+                    y_phase,
+                    grp_phase,
+                    sample_weight=phase_weights,
+                    lr_coef_threshold=lr_coef_threshold,
+                    lr_min_features=lr_min_features,
+                    min_precision=min_precision,
+                    max_suspicious=max_suspicious,
                 )
             except Exception as e:
                 logger.error("price_phase_fit_failed", asset=asset, phase=phase_name, error=str(e))

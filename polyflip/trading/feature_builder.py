@@ -50,6 +50,7 @@ class MarketSignal:
     hour_of_day: int          # час дня в UTC (0–23); намеренно UTC — зафиксировано как стандарт.
                               # Переход на ET (UTC-5/UTC-4) отложен до v2.x: потребует переобучения моделей.
     time_left_min: float      # минут до закрытия рынка
+    market_duration_min: float = 60.0  # полная длительность рынка в минутах (default 60.0)
 
     # Симулированные цены (вычисляются из mid_price и spread)
     @property
@@ -69,7 +70,11 @@ class MarketSignal:
         return max((1.0 - self.mid_price) - self.spread / 2, 0.01)
 
 
-def build_feature_vector(signal: MarketSignal) -> np.ndarray:
+def build_feature_vector(
+    signal: MarketSignal,
+    lag_history: list[dict] | None = None,
+    price_max_observed: float | None = None,
+) -> np.ndarray:
     """
     Возвращает numpy array shape (1, N) для model.predict_proba().
     Порядок колонок строго соответствует FEATURE_COLUMNS.
@@ -79,7 +84,9 @@ def build_feature_vector(signal: MarketSignal) -> np.ndarray:
     from polyflip.models.trainer import add_derived_features
     from polyflip.models.feature_lags import add_lag_features
 
-    df = pd.DataFrame([{
+    current_duration = getattr(signal, "market_duration_min", 60.0) or 60.0
+
+    current_row = {
         "market_id": signal.asset,
         "recorded_at": datetime.now(timezone.utc),
         "time_left_min": signal.time_left_min,
@@ -88,20 +95,35 @@ def build_feature_vector(signal: MarketSignal) -> np.ndarray:
         "volume_5min": signal.volume_5min,
         "price_velocity": signal.price_velocity,
         "hour_of_day": signal.hour_of_day,
-    }])
-    
-    df = add_derived_features(df)
-    # Используем fallback 0.02 вместо 0.0 для предотвращения train-test skew при отсутствии истории (BUG-AQ)
-    df["price_distance_from_max"] = 0.02
-    df = add_lag_features(df)
-    
+        "market_duration_min": current_duration,
+    }
+
+    if lag_history:
+        rows = lag_history[-6:] + [current_row]
+        df = pd.DataFrame(rows)
+        df = add_derived_features(df)
+        if price_max_observed is not None:
+            df["price_distance_from_max"] = (price_max_observed - df["mid_price"]).clip(lower=0.0)
+        else:
+            df["price_distance_from_max"] = 0.02
+        df = add_lag_features(df)
+        df = df.tail(1).reset_index(drop=True)
+    else:
+        df = pd.DataFrame([current_row])
+        df = add_derived_features(df)
+        if price_max_observed is not None:
+            df["price_distance_from_max"] = max(price_max_observed - signal.mid_price, 0.0)
+        else:
+            df["price_distance_from_max"] = 0.02
+        df = add_lag_features(df)
+
     # Заполняем NaN в лагах или других колонках нулями для совместимости с формой
     for col in FEATURE_COLUMNS:
         if col not in df.columns:
             df[col] = 0.0
         else:
             df[col] = df[col].fillna(0.0)
-            
+
     return df[FEATURE_COLUMNS].to_numpy()
 
 
@@ -118,4 +140,5 @@ def signal_from_snapshot_row(row) -> MarketSignal:
         price_velocity=float(row.price_velocity) if row.price_velocity else 0.0,
         hour_of_day=int(row.hour_of_day) if row.hour_of_day is not None else 0,
         time_left_min=float(row.time_left_min) if row.time_left_min else 0.0,
+        market_duration_min=float(getattr(row, "market_duration_min", 60.0) or 60.0),
     )
