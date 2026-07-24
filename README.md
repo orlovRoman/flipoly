@@ -1,5 +1,7 @@
 # PolyFlip — Аналитический Микросервис для Polymarket 15m Рынков
 
+[![GitLab CI/CD Pipeline](https://gitlab.com/orlovRoman/flipoly/badges/main/pipeline.svg)](https://gitlab.com/orlovRoman/flipoly/-/pipelines)
+
 > Самодостаточный сервис, который собирает исторические данные по 15-минутным рынкам Polymarket,
 > обучает модели P(flip | features, asset) и отдаёт предсказания через REST API + встроенный дашборд.
 
