@@ -294,22 +294,20 @@ def build_features(
     out["range_avg_24"]  = out["range_1"].rolling(24, min_periods=6).mean()
 
     # ── Consecutive candles ──────────────────────────────────────
-    direction = (close >= df["open"]).astype(int)
-    direction_shifted = direction.shift(1).fillna(0).astype(int)
-    consec_up = []
-    consec_dn = []
-    cu = 0
-    cd = 0
-    for d in direction_shifted:
-        if d == 1:
-            cu += 1
-            cd = 0
-        else:
-            cd += 1
-            cu = 0
-        consec_up.append(cu)
-        consec_dn.append(cd)
-    out["consec_balance"] = [float(u - d) for u, d in zip(consec_up, consec_dn)]
+    dirs = (close >= df["open"]).astype(int).values
+    result = []
+    for i in range(len(dirs)):
+        # смотрим назад от i (не включая i — нет lookahead)
+        cu = 0
+        for j in range(i - 1, -1, -1):
+            if dirs[j] == 1: cu += 1
+            else: break
+        cd = 0
+        for j in range(i - 1, -1, -1):
+            if dirs[j] == 0: cd += 1
+            else: break
+        result.append(float(cu - cd))
+    out["consec_balance"] = result
 
     # ── Time (Cyclic) ────────────────────────────────────────────
     dt = pd.to_datetime(df["open_time"])

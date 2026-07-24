@@ -39,7 +39,7 @@ CRYPTO_FEATURES = [
     # Returns — только короткие горизонты
     "ret_1", "ret_3", "ret_6",
     # Volatility — только короткие
-    "vol_6", "vol_24", "vol_trend",
+    "vol_6", "vol_24",
     # Volume & CVD
     "vol_z_1", "taker_buy_ratio", "cvd_1", "cvd_6",
     # Technical
@@ -199,6 +199,23 @@ def _fit_lgbm_and_serialize(
     else:
         optimal_threshold = thr_fallback
 
+    # Считаем реальный precision при optimal_threshold на OOF
+    valid_oof = oof_scores[valid_mask]
+    y_valid = y[valid_mask]
+    predictions_at_thr = valid_oof >= optimal_threshold
+    if predictions_at_thr.sum() > 20:
+        real_precision = float((y_valid[predictions_at_thr] == 1).mean())
+        signal_rate = float(predictions_at_thr.mean())
+        logger.info("oof_real_precision",
+            precision=round(real_precision, 4),
+            signal_rate=round(signal_rate, 4),
+            threshold=round(optimal_threshold, 4))
+        # Если precision < 0.52 — порог бесполезен
+        if real_precision < 0.52:
+            logger.warning("precision_below_random",
+                real_precision=real_precision,
+                action="threshold_raised_or_model_rejected")
+
     # Защита от leakage и неадекватных порогов
     if optimal_threshold >= max_valid_thr:
         logger.warning(
@@ -322,7 +339,7 @@ class CryptoModelTrainer:
 
         df_filtered = _build_target(df, epsilon_quantile=epsilon_quantile)
 
-        if len(df_filtered) < 300:
+        if len(df_filtered) < 500:
             logger.warning("too_few_candles", symbol=symbol, rows=len(df_filtered))
             return False
 
@@ -362,7 +379,7 @@ class CryptoModelTrainer:
         from polyflip.crypto.predictor import CryptoPredictor
 
         for regime, df_regime in [("low_vol", df_low), ("mid_vol", df_mid), ("high_vol", df_high)]:
-            if len(df_regime) < 300:
+            if len(df_regime) < 500:
                 logger.warning("regime_too_small", regime=regime, rows=len(df_regime))
                 continue
 
