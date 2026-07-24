@@ -115,7 +115,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "CRYPTO_LGBM_N_ESTIMATORS", "CRYPTO_LGBM_LEARNING_RATE", "CRYPTO_LGBM_NUM_LEAVES",
         "CRYPTO_LGBM_MAX_DEPTH", "CRYPTO_LGBM_MIN_CHILD_SAMPLES", "CRYPTO_LGBM_SUBSAMPLE",
         "CRYPTO_LGBM_COLSAMPLE_BYTREE", "CRYPTO_LGBM_REG_ALPHA", "CRYPTO_LGBM_REG_LAMBDA",
-        "BACKTEST_MIN_EDGE"
+        "BACKTEST_MIN_EDGE", "LGBM_EPSILON_QUANTILE"
     ]
     set_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     set_rows = (await db.execute(set_stmt)).scalars().all()
@@ -133,6 +133,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "reg_alpha": float(db_settings.get("CRYPTO_LGBM_REG_ALPHA", defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1"))),
         "reg_lambda": float(db_settings.get("CRYPTO_LGBM_REG_LAMBDA", defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0"))),
         "min_edge": float(db_settings.get("BACKTEST_MIN_EDGE", defs.get("BACKTEST_MIN_EDGE", "0.04"))),
+        "epsilon_quantile": float(db_settings.get("LGBM_EPSILON_QUANTILE", defs.get("LGBM_EPSILON_QUANTILE", "0.6"))),
     }
 
     models_info = {}
@@ -182,6 +183,7 @@ async def save_crypto_settings(
         "reg_alpha": "CRYPTO_LGBM_REG_ALPHA",
         "reg_lambda": "CRYPTO_LGBM_REG_LAMBDA",
         "min_edge": "BACKTEST_MIN_EDGE",
+        "epsilon_quantile": "LGBM_EPSILON_QUANTILE",
     }
 
     for key, db_key in keys_map.items():
