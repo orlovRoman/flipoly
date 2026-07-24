@@ -574,9 +574,15 @@ document.addEventListener("DOMContentLoaded", () => {
     let coefs = {};
     try {
       const res = await fetch(window.API_BASE + `/api/analytics/models/${asset}/${version}/coefficients`, { headers: getHeaders() });
-      coefs = await res.json();
+      if (!res.ok) {
+        console.error("Coefficients fetch failed:", res.status, res.statusText);
+        coefs = {};
+      } else {
+        coefs = await res.json();
+      }
     } catch (e) {
       console.error("Failed to fetch model coefficients", e);
+      coefs = {};
     }
 
     if (!coefs || Object.keys(coefs).length === 0) {

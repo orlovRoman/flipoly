@@ -146,9 +146,11 @@ def extract_coefficients_from_blob(model_blob: bytes, features_str: str) -> dict
 
 from sqlalchemy.orm import defer
 import time
+import asyncio
 
 _models_cache = {}
 _MODELS_CACHE_TTL = 10.0
+_models_cache_lock = asyncio.Lock()
 
 def invalidate_models_cache():
     _models_cache.clear()
@@ -160,37 +162,41 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
     if "data" in _models_cache and now - _models_cache.get("time", 0) < _MODELS_CACHE_TTL:
         return _models_cache["data"]
 
-    stmt = (
-        select(ModelRegistry)
-        .options(defer(ModelRegistry.model_blob))
-        .order_by(ModelRegistry.trained_at.desc(), ModelRegistry.version.desc())
-    )
-    models = (await db.execute(stmt)).scalars().all()
+    async with _models_cache_lock:
+        if "data" in _models_cache and time.time() - _models_cache.get("time", 0) < _MODELS_CACHE_TTL:
+            return _models_cache["data"]
 
-    result = []
-    for m in models:
-        m_type, algo_label = get_model_type(m.asset)
-        lift_val = round(m.accuracy - m.baseline, 4) if (m.accuracy is not None and m.baseline is not None) else None
-        result.append({
-            "asset": m.asset,
-            "version": m.version,
-            "accuracy": round(m.accuracy, 4) if m.accuracy is not None else None,
-            "baseline": round(m.baseline, 4) if m.baseline is not None else None,
-            "lift": lift_val,
-            "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
-            "features": m.features or "",
-            "is_active": m.is_active,
-            "trained_at": m.trained_at.isoformat() if m.trained_at else None,
-            "model_type": m_type,
-            "algorithm": algo_label
-        })
+        stmt = (
+            select(ModelRegistry)
+            .options(defer(ModelRegistry.model_blob))
+            .order_by(ModelRegistry.trained_at.desc(), ModelRegistry.version.desc())
+        )
+        models = (await db.execute(stmt)).scalars().all()
 
-    _models_cache["time"] = now
-    _models_cache["data"] = result
-    return result
+        result = []
+        for m in models:
+            m_type, algo_label = get_model_type(m.asset)
+            lift_val = round(m.accuracy - m.baseline, 4) if (m.accuracy is not None and m.baseline is not None) else None
+            result.append({
+                "asset": m.asset,
+                "version": m.version,
+                "accuracy": round(m.accuracy, 4) if m.accuracy is not None else None,
+                "baseline": round(m.baseline, 4) if m.baseline is not None else None,
+                "lift": lift_val,
+                "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
+                "features": m.features or "",
+                "is_active": m.is_active,
+                "trained_at": m.trained_at.isoformat() if m.trained_at else None,
+                "model_type": m_type,
+                "algorithm": algo_label
+            })
+
+        _models_cache["time"] = time.time()
+        _models_cache["data"] = result
+        return result
 
 
-@router.get("/analytics/models/{asset}/{version}/coefficients")
+@router.get("/analytics/models/{asset}/{version}/coefficients", dependencies=[Depends(verify_api_key)])
 async def get_model_coefficients(asset: str, version: int, db: AsyncSession = Depends(get_db_session)):
     """Ленивая загрузка весовых коэффициентов для выбранной модели"""
     stmt = (
@@ -220,6 +226,9 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
         .where(ModelRegistry.asset == asset, ModelRegistry.version == version)
         .values(is_active=True)
     )
+
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Model not found")
     
     await db.commit()
     invalidate_models_cache()
