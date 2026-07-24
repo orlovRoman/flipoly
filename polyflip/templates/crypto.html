@@ -880,11 +880,34 @@
                         delete localActiveTrainings[symbol];
                         updateTrainButtonsAndBanner(localActiveTrainings);
                         
+                        const formatMetricDiff = (newObj, oldObj) => {
+                            if (!newObj) return '';
+                            let versionStr = `v${newObj.version}`;
+                            if (oldObj && oldObj.version !== newObj.version) {
+                                versionStr += ` (было v${oldObj.version})`;
+                            }
+                            
+                            let aucStr = `AUC: ${newObj.auc ?? '?'}`;
+                            if (newObj?.auc != null && oldObj?.auc != null) {
+                                const diff = newObj.auc - oldObj.auc;
+                                if (diff > 0.0001) {
+                                    aucStr += ` (+${diff.toFixed(4)} 🟢 лучше)`;
+                                } else if (diff < -0.0001) {
+                                    aucStr += ` (${diff.toFixed(4)} 🔴 хуже)`;
+                                } else {
+                                    aucStr += ` (= без изм.)`;
+                                }
+                            }
+                            
+                            let thrStr = `Thr: ${newObj.threshold ?? '?'}`;
+                            return `${versionStr} | ${aucStr} | ${thrStr}`;
+                        };
+
                         let msgLines = [`Модель для ${symbol} успешно обновлена!`];
-                        if (newLowM) msgLines.push(`Low: v${newLow} (было v${oldLow}) | AUC: ${newLowM.auc || '?'} | Thr: ${newLowM.threshold || '?'}`);
-                        if (newMidM) msgLines.push(`Mid: v${newMid} (было v${oldMid}) | AUC: ${newMidM.auc || '?'} | Thr: ${newMidM.threshold || '?'}`);
-                        if (newHighM) msgLines.push(`High: v${newHigh} (было v${oldHigh}) | AUC: ${newHighM.auc || '?'} | Thr: ${newHighM.threshold || '?'}`);
-                        const msg = msgLines.join('\\n');
+                        if (newLowM) msgLines.push(`Low: ${formatMetricDiff(newLowM, oldLowM)}`);
+                        if (newMidM) msgLines.push(`Mid: ${formatMetricDiff(newMidM, oldMidM)}`);
+                        if (newHighM) msgLines.push(`High: ${formatMetricDiff(newHighM, oldHighM)}`);
+                        const msg = msgLines.join('\n');
 
                         showNotification(`✅ Обучение ${symbol} завершено`, msg);
                         alert(msg);
