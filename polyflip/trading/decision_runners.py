@@ -160,7 +160,7 @@ async def decide_ml_mode(
     history_snaps = snapshots_res.scalars().all()
 
     from datetime import timedelta
-    cutoff_time = start_time - timedelta(minutes=cfg.max_time_min)
+    cutoff_time = start_time - timedelta(seconds=cfg.max_time_left)
     filtered_prices = [
         float(s.mid_price) for s in history_snaps
         if s.recorded_at >= cutoff_time
