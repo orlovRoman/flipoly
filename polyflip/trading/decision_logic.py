@@ -66,10 +66,13 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     YES-side out-of-bounds НЕ блокирует проверку NO-side.
     Если обе стороны подходят — выбирается с бо́льшим edge.
     """
-    spread_pct = (signal.yes_ask - signal.yes_bid) / signal.mid_price if signal.mid_price > 0 else 1.0
-    max_spread = float(config.get("MAX_SPREAD_PCT", 0.05))
-    if spread_pct > max_spread:
-        return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
+    yes_bid = getattr(signal, "yes_bid", None)
+    yes_ask = getattr(signal, "yes_ask", None)
+    if yes_bid is not None and yes_bid > 0 and yes_ask is not None and signal.mid_price > 0:
+        spread_pct = (yes_ask - yes_bid) / signal.mid_price
+        max_spread = float(config.get("MAX_SPREAD_PCT", 0.05))
+        if spread_pct > max_spread:
+            return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
 
     raw_fav = str(config.get("FAVORITE_THRESHOLD", "")).strip()
     if not raw_fav:
