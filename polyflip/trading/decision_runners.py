@@ -386,7 +386,13 @@ async def decide_crypto_mode(
         
     fresh_yes_price = fresh_yes_prices["current_yes_price"]
 
-    decision_obj = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, raw_settings)
+    no_ask = None
+    if crypto_sig.direction == "DOWN" and getattr(market, "no_token_id", None):
+        no_prices = await api_client.get_market_prices(market.no_token_id)
+        if no_prices and no_prices.get("best_ask") is not None:
+            no_ask = float(no_prices["best_ask"])
+
+    decision_obj = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, raw_settings, no_ask=no_ask)
     if not cfg.trade_on_favorite:
         decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
     

@@ -66,6 +66,11 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     YES-side out-of-bounds НЕ блокирует проверку NO-side.
     Если обе стороны подходят — выбирается с бо́льшим edge.
     """
+    spread_pct = (signal.yes_ask - signal.yes_bid) / signal.mid_price if signal.mid_price > 0 else 1.0
+    max_spread = float(config.get("MAX_SPREAD_PCT", 0.05))
+    if spread_pct > max_spread:
+        return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
+
     raw_fav = str(config.get("FAVORITE_THRESHOLD", "")).strip()
     if not raw_fav:
         threshold = 0.55
@@ -84,23 +89,16 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
 
     if is_in_dead_zone(signal.mid_price, dead_zone):
-        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP")
+        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", edge=0.0)
 
     fav_min  = float(config.get("FAVORITE_MIN_PRICE", 0.55))
     fav_max  = float(config.get("FAVORITE_MAX_PRICE", 0.95))
     global_min = float(config.get("MIN_EDGE", 0.05))
     fav_raw = config.get("FAVORITE_MIN_EDGE")
-    fav_override = float(fav_raw) if fav_raw is not None and str(fav_raw).strip() != "" else -0.01
-    min_edge = max(global_min, fav_override) if fav_override >= 0 else global_min
-
-    if fav_override >= 0 and fav_override < global_min:
-        logger.warning(
-            "favorite_min_edge_overridden_by_global_min",
-            favorite_min_edge=fav_override,
-            global_min_edge=global_min,
-            effective_min_edge=min_edge,
-            note="FAVORITE_MIN_EDGE in DB is below global MIN_EDGE floor — using global MIN_EDGE"
-        )
+    if fav_raw is not None and str(fav_raw).strip() != "":
+        min_edge = float(fav_raw)
+    else:
+        min_edge = global_min
 
     candidates: list[TradeDecision] = []
 
@@ -137,9 +135,11 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             reason = f"NO price {signal.no_ask:.3f} out of bounds [{fav_min},{fav_max}]"
         else:
             reason = "no clear favorite"
-        return TradeDecision("SKIP", 0.0, 0.0, reason, "SKIP")
+        return TradeDecision("SKIP", 0.0, 0.0, reason, "SKIP", edge=0.0)
 
-    return max(candidates, key=lambda d: d.edge or 0.0)
+    # Выбираем кандидата с наибольшим edge
+    best_candidate = max(candidates, key=lambda c: c.edge if c.edge is not None else -999.0)
+    return best_candidate
 
 
 def decide_ml_trend(
@@ -164,13 +164,13 @@ def decide_ml_trend(
     # 1. Проверяем dead zone
     dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
     if is_in_dead_zone(signal.mid_price, dead_zone):
-        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip)
+        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip, edge=0.0)
 
     # 2. Порог P(flip) < no_flip_threshold
     if p_flip_calibrated >= no_flip_thresh:
         return TradeDecision("SKIP", 0, 0,
             f"p_flip_calibrated={p_flip_calibrated:.3f} >= threshold={no_flip_thresh:.3f}", "SKIP",
-            p_flip=p_flip)
+            p_flip=p_flip, edge=0.0)
 
     fav_min = float(config.get("FAVORITE_MIN_PRICE", 0.55))
     fav_max = float(config.get("FAVORITE_MAX_PRICE", 0.95))
@@ -181,13 +181,13 @@ def decide_ml_trend(
         buy_price = signal.yes_ask
         if not (fav_min <= buy_price <= fav_max):
             return TradeDecision("SKIP", 0, 0,
-                f"YES price {buy_price:.3f} out of [{fav_min},{fav_max}]", "SKIP", p_flip=p_flip)
+                f"YES price {buy_price:.3f} out of [{fav_min},{fav_max}]", "SKIP", p_flip=p_flip, edge=0.0)
     else:
         action: ActionType = "BUY_NO"
         buy_price = signal.no_ask
         if not (fav_min <= buy_price <= fav_max):
             return TradeDecision("SKIP", 0, 0,
-                f"NO price {buy_price:.3f} out of [{fav_min},{fav_max}]", "SKIP", p_flip=p_flip)
+                f"NO price {buy_price:.3f} out of [{fav_min},{fav_max}]", "SKIP", p_flip=p_flip, edge=0.0)
 
     if ece and ece > ECE_WARN_THRESHOLD:
         logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
@@ -229,14 +229,14 @@ def decide_outsider(
 
     # 1. Сначала проверяем dead zone
     if is_in_dead_zone(signal.mid_price, dead_zone):
-        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip)
+        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip, edge=0.0)
 
     is_yes_fav = signal.mid_price >= FLIP_MIDPOINT
     outsider_ask = signal.no_ask if is_yes_fav else signal.yes_ask
     outsider_action: ActionType = "BUY_NO" if is_yes_fav else "BUY_YES"
 
     if outsider_ask <= 0:
-        return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip)
+        return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip, edge=0.0)
 
     outsider_edge = compute_edge(p_flip_calibrated, outsider_ask)
 
@@ -292,6 +292,7 @@ def decide_crypto_trend(
     entry_price: float,       # Текущая цена YES токена Polymarket рынка
     volume_5min: float,
     config: dict,
+    no_ask: Optional[float] = None,
 ) -> TradeDecision:
     """
     Торговая логика для LIGHTGBM_TREND.
@@ -303,14 +304,14 @@ def decide_crypto_trend(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason=f"entry_price={entry_price} invalid",
             strategy_type="LIGHTGBM_TREND",
-            p_up=crypto.p_up, strike=crypto.strike
+            p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
 
     if not crypto.features_ok:
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
             reason="Invalid crypto features", strategy_type="LIGHTGBM_TREND", 
-            p_up=crypto.p_up, strike=crypto.strike
+            p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
 
     min_edge = float(config.get("MIN_EDGE", 0.05))
@@ -332,7 +333,10 @@ def decide_crypto_trend(
         )
 
     action: ActionType = "BUY_YES" if crypto.direction == "UP" else "BUY_NO"
-    actual_buy_price = entry_price if action == "BUY_YES" else round(1.0 - entry_price, 4)
+    if action == "BUY_YES":
+        actual_buy_price = entry_price
+    else:
+        actual_buy_price = no_ask if no_ask is not None and no_ask > 0 else round(1.0 - entry_price, 4)
     
     return TradeDecision(
         action=action,
