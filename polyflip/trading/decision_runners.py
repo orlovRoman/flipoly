@@ -159,8 +159,13 @@ async def decide_ml_mode(
     snapshots_res = await db_session.execute(snapshots_stmt)
     history_snaps = snapshots_res.scalars().all()
 
-    all_prices = [float(snap.mid_price) for snap in history_snaps] + [fresh_yes_price]
-    global_max = max(all_prices) if all_prices else fresh_yes_price
+    from datetime import timedelta
+    cutoff_time = start_time - timedelta(minutes=cfg.max_time_min)
+    filtered_prices = [
+        float(s.mid_price) for s in history_snaps
+        if s.recorded_at >= cutoff_time
+    ] + [fresh_yes_price]
+    global_max = max(filtered_prices) if filtered_prices else fresh_yes_price
 
     df = build_inference_dataframe(
         market=market,
@@ -548,8 +553,8 @@ async def decide_combined_mode(
     if 0.0 < vote.bet_size_multiplier < 1.0:
         original_bet = final_decision.bet_size_usdc
         reduced_bet = round(original_bet * vote.bet_size_multiplier, 2)
-        min_bet = cfg.bet_size
-        reduced_bet = max(reduced_bet, min_bet)
+        effective_min = round(cfg.bet_size * vote.bet_size_multiplier, 2)
+        reduced_bet = max(reduced_bet, effective_min)
         final_decision = dataclasses.replace(final_decision, bet_size_usdc=reduced_bet)
         logger.info(
             "combined_bet_reduced",
@@ -557,6 +562,7 @@ async def decide_combined_mode(
             multiplier=vote.bet_size_multiplier,
             original_bet=original_bet,
             reduced_bet=reduced_bet,
+            effective_min=effective_min,
         )
 
     g8_combined_vote = (vote.action != "SKIP")

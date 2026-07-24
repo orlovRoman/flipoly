@@ -22,6 +22,13 @@ def compute_bet_size_edge_scaled(
     """
     if edge <= 0:
         return 0.0
+    if max_edge <= min_edge:
+        import structlog
+        structlog.get_logger(__name__).warning(
+            "degenerate_edge_config_zero_division_guard",
+            min_edge=min_edge, max_edge=max_edge
+        )
+        return max_bet_usdc if edge >= max_edge else min_bet_usdc
     t = min(max((edge - min_edge) / (max_edge - min_edge), 0.0), 1.0)
     raw = min_bet_usdc + t * (max_bet_usdc - min_bet_usdc)
     return round(raw, 2)
