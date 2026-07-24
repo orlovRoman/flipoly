@@ -48,6 +48,7 @@ def invalidate_dashboard_cache():
 
 _logs_cache = {}
 _LOGS_CACHE_TTL = 10  # 10 секунд кэша для логов торговли
+_logs_cache_lock = asyncio.Lock()
 
 @router.get("/api/dashboard/status", dependencies=[Depends(verify_api_key)])
 async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):

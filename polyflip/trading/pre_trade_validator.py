@@ -41,6 +41,9 @@ async def validate_pre_trade(
     if decision_obj.action == "SKIP":
         return PreTradeValidation(valid=False, buy_price=0.0, actual_bet_size=0.0, edge=0.0, skip_reason=decision_obj.reason)
 
+    edge: float = decision_obj.edge or 0.0
+    current_min_edge: float = asset_min_edge
+
     decision = decision_obj.action.replace("BUY_", "")
     buy_price = decision_obj.buy_price
     actual_bet_size = decision_obj.bet_size_usdc

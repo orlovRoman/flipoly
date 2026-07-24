@@ -124,9 +124,6 @@ async def decide_ml_mode(
     from polyflip.constants import get_price_phase
     phase = get_price_phase(fresh_yes_price)
     phase_asset = f"{market.asset.upper()}_{phase}"
-    
-    from polyflip.trading.ml_inference import populate_models_cache
-    await populate_models_cache(db_session)
 
     if phase_asset in models_cache.models:
         model = models_cache.models[phase_asset]
@@ -152,15 +149,17 @@ async def decide_ml_mode(
     if not model:
         return DecisionResult(None, 0.0, None, None, f"No active model found for {market.asset.upper()}")
         
-    # Загружаем историю снапшотов для правильного расчета лагов и глобального максимума (BUG-AQ)
+    # Загружаем историю снапшотов для правильного расчета лагов и глобального максимума (BUG-3 fix: cutoff_time filter)
+    from datetime import timedelta
+    cutoff_time = start_time - timedelta(seconds=cfg.max_time_left)
+
     snapshots_stmt = select(MarketSnapshot).where(
-        MarketSnapshot.market_id == market.market_id
+        MarketSnapshot.market_id == market.market_id,
+        MarketSnapshot.recorded_at >= cutoff_time
     ).order_by(MarketSnapshot.recorded_at.asc())
     snapshots_res = await db_session.execute(snapshots_stmt)
     history_snaps = snapshots_res.scalars().all()
 
-    from datetime import timedelta
-    cutoff_time = start_time - timedelta(seconds=cfg.max_time_left)
     filtered_prices = [
         float(s.mid_price) for s in history_snaps
         if s.recorded_at >= cutoff_time

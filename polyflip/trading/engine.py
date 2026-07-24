@@ -20,15 +20,19 @@ from polyflip.trading.decision_logic import decide_crypto_trend
 logger = structlog.get_logger(__name__)
 
 _crypto_predictor = None
+_crypto_predictor_initialized = False
 
 def _get_crypto_predictor():
-    global _crypto_predictor
-    if _crypto_predictor is None:
+    global _crypto_predictor, _crypto_predictor_initialized
+    if not _crypto_predictor_initialized:
         try:
             from polyflip.crypto.predictor import CryptoPredictor
             _crypto_predictor = CryptoPredictor()
-        except ImportError:
+        except Exception as e:
+            logger.error("crypto_predictor_init_failed", error=str(e))
             _crypto_predictor = None
+        finally:
+            _crypto_predictor_initialized = True
     return _crypto_predictor
 
 
@@ -51,9 +55,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             return
 
         for market in markets:
-            asset_mode = raw_settings.get(f"TRADING_MODE_{market.asset.upper()}")
-            if not asset_mode or asset_mode.strip() == "":
-                asset_mode = cfg.trading_mode
+            raw_mode = raw_settings.get(f"TRADING_MODE_{market.asset.upper()}")
+            if raw_mode and raw_mode.strip():
+                asset_mode = raw_mode.strip().lower()
+            else:
+                asset_mode = cfg.trading_mode.lower() if cfg.trading_mode else ""
                 
             val_min_edge = raw_settings.get(f"MIN_EDGE_{market.asset.upper()}")
             if val_min_edge is not None and val_min_edge.strip() != "":
@@ -108,8 +114,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                         decision_res = await decide_crypto_mode(
                             db_session, api_client, market, cfg, raw_settings, _get_crypto_predictor(), start_time, time_left_sec
                         )
-                    except ImportError:
-                        pass
+                    except ImportError as e:
+                        logger.error("decide_crypto_mode_import_error", error=str(e))
+                        await save_or_update_skipped_trade(
+                            db_session, market, f"ImportError: {e}", 0.0, None, start_time, existing_skipped
+                        )
                 elif asset_mode == TRADING_MODE_COMBINED:
                     from polyflip.trading.decision_runners import decide_combined_mode
                     from polyflip.trading.ml_inference import get_models_cache, populate_models_cache
