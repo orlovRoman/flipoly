@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, cast, Integer, update
+from sqlalchemy import select, func, cast, Integer, update, delete
 from typing import Dict, Any
 import pickle
 import pandas as pd
