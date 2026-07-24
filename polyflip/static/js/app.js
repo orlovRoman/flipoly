@@ -554,7 +554,7 @@ document.addEventListener("DOMContentLoaded", () => {
     renderSelectedModelWeights();
   }
 
-  function renderSelectedModelWeights() {
+  async function renderSelectedModelWeights() {
     const select = document.getElementById("feature-weights-model-select");
     const tbody = document.querySelector("#feature-weights-table tbody");
     if (!select || !tbody) return;
@@ -569,14 +569,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const asset = modelKey.substring(0, lastUnderscore);
     const version = parseInt(modelKey.substring(lastUnderscore + 2));
 
-    const model = rawModelsData.find(m => m.asset === asset && m.version === version);
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Загрузка весов...</td></tr>`;
 
-    if (!model || !model.coefficients || Object.keys(model.coefficients).length === 0) {
+    let coefs = {};
+    try {
+      const res = await fetch(window.API_BASE + `/api/analytics/models/${asset}/${version}/coefficients`, { headers: getHeaders() });
+      coefs = await res.json();
+    } catch (e) {
+      console.error("Failed to fetch model coefficients", e);
+    }
+
+    if (!coefs || Object.keys(coefs).length === 0) {
       tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Для данной модели нет записанных весовых коэффициентов (или это LightGBM/архивная модель)</td></tr>`;
       return;
     }
 
-    const coefs = model.coefficients;
     const sortedEntries = Object.entries(coefs).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
     const maxAbsCoef = Math.max(...sortedEntries.map(e => Math.abs(e[1]))) || 1.0;
 
@@ -716,7 +723,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 5. Fetch Models History
   let modelsCurrentPage = 1;
-  const modelsPageSize = 15;
+  const modelsPageSize = 50;
   let modelsSortField = "trained_at";
   let modelsSortAsc = false;
   let modelsTypeFilter = "logistic_regression";

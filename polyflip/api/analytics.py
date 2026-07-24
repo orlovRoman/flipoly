@@ -145,34 +145,31 @@ def extract_coefficients_from_blob(model_blob: bytes, features_str: str) -> dict
 
 
 from sqlalchemy.orm import defer
+import time
+
+_models_cache = {}
+_MODELS_CACHE_TTL = 10.0
+
+def invalidate_models_cache():
+    _models_cache.clear()
 
 @router.get("/analytics/models")
 async def list_models(db: AsyncSession = Depends(get_db_session)):
-    """Получение истории всех моделей с оптимизированной загрузкой без выборки тяжелых model_blob"""
+    """Получение истории ВСЕХ моделей с мгновенной загрузкой метаданных без скачивания model_blob"""
+    now = time.time()
+    if "data" in _models_cache and now - _models_cache.get("time", 0) < _MODELS_CACHE_TTL:
+        return _models_cache["data"]
+
     stmt = (
         select(ModelRegistry)
         .options(defer(ModelRegistry.model_blob))
         .order_by(ModelRegistry.trained_at.desc(), ModelRegistry.version.desc())
-        .limit(100)
     )
     models = (await db.execute(stmt)).scalars().all()
-
-    # Загружаем model_blob только для активных моделей и топ-15 свежих моделей
-    active_ids = {m.id for m in models if m.is_active}
-    top_ids = {m.id for m in models[:15]}
-    ids_needing_coefs = active_ids.union(top_ids)
-
-    blob_map = {}
-    if ids_needing_coefs:
-        blob_stmt = select(ModelRegistry.id, ModelRegistry.model_blob, ModelRegistry.features).where(ModelRegistry.id.in_(ids_needing_coefs))
-        blob_rows = (await db.execute(blob_stmt)).all()
-        for r_id, r_blob, r_feats in blob_rows:
-            blob_map[r_id] = extract_coefficients_from_blob(r_blob, r_feats)
 
     result = []
     for m in models:
         m_type, algo_label = get_model_type(m.asset)
-        coefs = blob_map.get(m.id, {})
         lift_val = round(m.accuracy - m.baseline, 4) if (m.accuracy is not None and m.baseline is not None) else None
         result.append({
             "asset": m.asset,
@@ -182,13 +179,29 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
             "lift": lift_val,
             "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
             "features": m.features or "",
-            "coefficients": coefs,
             "is_active": m.is_active,
             "trained_at": m.trained_at.isoformat() if m.trained_at else None,
             "model_type": m_type,
             "algorithm": algo_label
         })
+
+    _models_cache["time"] = now
+    _models_cache["data"] = result
     return result
+
+
+@router.get("/analytics/models/{asset}/{version}/coefficients")
+async def get_model_coefficients(asset: str, version: int, db: AsyncSession = Depends(get_db_session)):
+    """Ленивая загрузка весовых коэффициентов для выбранной модели"""
+    stmt = (
+        select(ModelRegistry.model_blob, ModelRegistry.features)
+        .where(ModelRegistry.asset == asset, ModelRegistry.version == version)
+        .limit(1)
+    )
+    row = (await db.execute(stmt)).first()
+    if not row or not row.model_blob:
+        return {}
+    return extract_coefficients_from_blob(row.model_blob, row.features)
 
 
 @router.post("/analytics/models/{asset}/activate/{version}", dependencies=[Depends(verify_api_key)])
