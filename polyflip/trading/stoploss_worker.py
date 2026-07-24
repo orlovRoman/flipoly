@@ -174,7 +174,9 @@ async def stoploss_worker_cycle(
             await _process_single_stoploss(db_session, trader, api_client, trade, fee_rate, now)
         except Exception as e:
             logger.exception("stoploss_worker_error", trade_id=trade.id, error=str(e))
-            # Откатываем грязное состояние сессии перед следующим трейдом
-            await db_session.rollback()
+            try:
+                await db_session.rollback()
+            except Exception:
+                pass
 
     await db_session.commit()

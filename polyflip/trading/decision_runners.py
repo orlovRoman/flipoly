@@ -67,7 +67,11 @@ async def decide_favorite_mode(
         volume_5min=market.volume_5min or 0.0,
         price_velocity=market.price_velocity or 0.0,
         hour_of_day=start_time.hour,
-        time_left_min=time_left_sec / 60.0
+        time_left_min=time_left_sec / 60.0,
+        yes_bid_raw=getattr(market, "current_yes_bid", None),
+        yes_ask_raw=getattr(market, "current_yes_ask", None),
+        no_bid_raw=getattr(market, "current_no_bid", None),
+        no_ask_raw=getattr(market, "current_no_ask", None),
     )
     
     local_fav_config = {
@@ -187,7 +191,11 @@ async def decide_ml_mode(
         volume_5min=market.volume_5min or 0.0,
         price_velocity=market.price_velocity or 0.0,
         hour_of_day=start_time.hour,
-        time_left_min=time_left_sec / 60.0
+        time_left_min=time_left_sec / 60.0,
+        yes_bid_raw=getattr(market, "current_yes_bid", None),
+        yes_ask_raw=getattr(market, "current_yes_ask", None),
+        no_bid_raw=getattr(market, "current_no_bid", None),
+        no_ask_raw=getattr(market, "current_no_ask", None),
     )
 
     _asset_upper = market.asset.upper()
