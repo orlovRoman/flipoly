@@ -126,43 +126,45 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
 
     # --- YES side ---
     if signal.mid_price >= threshold:
-        if fav_min <= signal.yes_ask <= fav_max:
-            yes_bid_val = getattr(signal, "yes_bid", None)
-            if yes_bid_val is not None and float(yes_bid_val) > 0:
-                p_win_yes = float(yes_bid_val)
+        eff_yes_ask = signal.get_yes_ask()
+        if fav_min <= eff_yes_ask <= fav_max:
+            if signal.yes_bid is not None and float(signal.yes_bid) > 0:
+                p_win_yes = float(signal.yes_bid)
             else:
-                p_win_yes = signal.mid_price - (signal.yes_ask - signal.mid_price)
-            edge = compute_edge(p_win_yes, signal.yes_ask)
+                p_win_yes = signal.mid_price - (eff_yes_ask - signal.mid_price)
+            edge = compute_edge(p_win_yes, eff_yes_ask)
             if edge >= min_edge:
                 bet = _resolve_final_bet(edge, signal.volume_5min, config)
                 candidates.append(TradeDecision(
-                    "BUY_YES", signal.yes_ask, bet,
+                    "BUY_YES", eff_yes_ask, bet,
                     f"favorite YES edge={edge:.4f}", "PURE_FAVORITE",
                     edge=edge, p_up=p_win_yes,
                 ))
 
     # --- NO side --- проверяется НЕЗАВИСИМО от YES-side
     if signal.mid_price <= (1.0 - threshold):
-        if fav_min <= signal.no_ask <= fav_max:
-            no_bid_val = getattr(signal, "no_bid", None)
-            if no_bid_val is not None and float(no_bid_val) > 0:
-                no_prob = float(no_bid_val)
+        eff_no_ask = signal.get_no_ask()
+        if fav_min <= eff_no_ask <= fav_max:
+            if signal.no_bid is not None and float(signal.no_bid) > 0:
+                no_prob = float(signal.no_bid)
             else:
-                no_prob = (1.0 - signal.mid_price) - (signal.no_ask - (1.0 - signal.mid_price))
-            edge = compute_edge(no_prob, signal.no_ask)
+                no_prob = (1.0 - signal.mid_price) - (eff_no_ask - (1.0 - signal.mid_price))
+            edge = compute_edge(no_prob, eff_no_ask)
             if edge >= min_edge:
                 bet = _resolve_final_bet(edge, signal.volume_5min, config)
                 candidates.append(TradeDecision(
-                    "BUY_NO", signal.no_ask, bet,
+                    "BUY_NO", eff_no_ask, bet,
                     f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
                     edge=edge, p_up=1.0 - no_prob,
                 ))
 
     if not candidates:
-        if signal.mid_price >= threshold and not (fav_min <= signal.yes_ask <= fav_max):
-            reason = f"YES price {signal.yes_ask:.3f} out of bounds [{fav_min},{fav_max}]"
-        elif signal.mid_price <= (1.0 - threshold) and not (fav_min <= signal.no_ask <= fav_max):
-            reason = f"NO price {signal.no_ask:.3f} out of bounds [{fav_min},{fav_max}]"
+        eff_yes = signal.get_yes_ask()
+        eff_no = signal.get_no_ask()
+        if signal.mid_price >= threshold and not (fav_min <= eff_yes <= fav_max):
+            reason = f"YES price {eff_yes:.3f} out of bounds [{fav_min},{fav_max}]"
+        elif signal.mid_price <= (1.0 - threshold) and not (fav_min <= eff_no <= fav_max):
+            reason = f"NO price {eff_no:.3f} out of bounds [{fav_min},{fav_max}]"
         else:
             reason = "no clear favorite"
         return TradeDecision("SKIP", 0.0, 0.0, reason, "SKIP", edge=0.0)
@@ -208,13 +210,13 @@ def decide_ml_trend(
     # 3. Определяем сторону и цену входа по фавориту
     if signal.mid_price >= FLIP_MIDPOINT:
         action: ActionType = "BUY_YES"
-        buy_price = signal.yes_ask
+        buy_price = signal.get_yes_ask()
         if not (fav_min <= buy_price <= fav_max):
             return TradeDecision("SKIP", 0, 0,
                 f"YES price {buy_price:.3f} out of [{fav_min},{fav_max}]", "SKIP", p_flip=p_flip, edge=0.0)
     else:
         action: ActionType = "BUY_NO"
-        buy_price = signal.no_ask
+        buy_price = signal.get_no_ask()
         if not (fav_min <= buy_price <= fav_max):
             return TradeDecision("SKIP", 0, 0,
                 f"NO price {buy_price:.3f} out of [{fav_min},{fav_max}]", "SKIP", p_flip=p_flip, edge=0.0)
@@ -262,7 +264,7 @@ def decide_outsider(
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip, edge=0.0)
 
     is_yes_fav = signal.mid_price >= FLIP_MIDPOINT
-    outsider_ask = signal.no_ask if is_yes_fav else signal.yes_ask
+    outsider_ask = signal.get_no_ask() if is_yes_fav else signal.get_yes_ask()
     outsider_action: ActionType = "BUY_NO" if is_yes_fav else "BUY_YES"
 
     if outsider_ask <= 0:

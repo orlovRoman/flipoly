@@ -52,33 +52,29 @@ class MarketSignal:
     time_left_min: float      # минут до закрытия рынка
     market_duration_min: float = 60.0  # полная длительность рынка в минутах (default 60.0)
 
-    yes_bid_raw: float | None = None
-    yes_ask_raw: float | None = None
-    no_bid_raw: float | None = None
-    no_ask_raw: float | None = None
+    yes_bid: float | None = None
+    yes_ask: float | None = None
+    no_bid: float | None = None
+    no_ask: float | None = None
 
-    @property
-    def yes_ask(self) -> float:
-        if self.yes_ask_raw is not None and self.yes_ask_raw > 0:
-            return self.yes_ask_raw
+    def get_yes_ask(self) -> float:
+        if self.yes_ask is not None and self.yes_ask > 0:
+            return self.yes_ask
         return min(self.mid_price + self.spread / 2, 0.99)
 
-    @property
-    def yes_bid(self) -> float:
-        if self.yes_bid_raw is not None and self.yes_bid_raw > 0:
-            return self.yes_bid_raw
+    def get_yes_bid(self) -> float:
+        if self.yes_bid is not None and self.yes_bid > 0:
+            return self.yes_bid
         return max(self.mid_price - self.spread / 2, 0.01)
 
-    @property
-    def no_ask(self) -> float:
-        if self.no_ask_raw is not None and self.no_ask_raw > 0:
-            return self.no_ask_raw
+    def get_no_ask(self) -> float:
+        if self.no_ask is not None and self.no_ask > 0:
+            return self.no_ask
         return min((1.0 - self.mid_price) + self.spread / 2, 0.99)
 
-    @property
-    def no_bid(self) -> float:
-        if self.no_bid_raw is not None and self.no_bid_raw > 0:
-            return self.no_bid_raw
+    def get_no_bid(self) -> float:
+        if self.no_bid is not None and self.no_bid > 0:
+            return self.no_bid
         return max((1.0 - self.mid_price) - self.spread / 2, 0.01)
 
 
