@@ -76,7 +76,18 @@ async def validate_pre_trade(
             p_win = 1.0 - p_flip if decision_obj.strategy_type == "ML_TREND" else p_flip
             current_min_edge = asset_min_edge
         else: # FAVORITE
-            fresh_p_win = fresh_ask if decision == "YES" else (1.0 - fresh_ask)
+            if decision == "YES":
+                fresh_bid = fresh_prices.get("best_bid")
+                if fresh_bid and float(fresh_bid) > 0:
+                    fresh_p_win = float(fresh_bid)
+                else:
+                    fresh_p_win = float(fresh_ask) * 0.98
+            else:
+                fresh_bid_no = fresh_prices.get("best_bid")
+                if fresh_bid_no and float(fresh_bid_no) > 0:
+                    fresh_p_win = float(fresh_bid_no)
+                else:
+                    fresh_p_win = float(fresh_ask) * 0.98
             stale_p_win = market.current_yes_price if decision == "YES" else (1.0 - market.current_yes_price)
             stale_drift = abs(fresh_p_win - stale_p_win)
             if stale_drift > 0.03:

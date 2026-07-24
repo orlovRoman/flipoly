@@ -27,7 +27,7 @@ def _get_float_setting(raw_settings: dict, key: str) -> Optional[float]:
     Все пороги должны храниться в БД как десятичные дроби (0.8, не 80).
     """
     val = raw_settings.get(key)
-    if val is None or str(val).strip() in ("", "0", "0.0"):
+    if val is None or str(val).strip() == "":
         return None
     try:
         return float(val)
@@ -256,6 +256,17 @@ async def decide_ml_mode(
     )
 
     ece = getattr(models_cache, "eces", {}).get(used_model, 0.0)
+    from polyflip.trading.position_sizing import apply_ece_correction
+    calibrated = apply_ece_correction(p_flip, ece)
+    logger.info(
+        "ml_ece_diagnostics",
+        asset=market.asset,
+        ece=round(ece, 4),
+        p_flip_raw=round(p_flip, 4),
+        p_flip_calibrated=round(calibrated, 4),
+        calibration_shift=round(abs(p_flip - calibrated), 4),
+        warn=(ece > 0.05),
+    )
 
     if cfg.trade_on_favorite:
         decision_obj = decide_ml_trend(signal, p_flip, local_config, ece=ece)
@@ -275,16 +286,6 @@ async def decide_ml_mode(
             )
         else:
             decision_obj = outsider_obj
-
-    if decision_obj.action == "SKIP" and decision_obj.reason != "Favorite trades disabled (TRADE_ON_FAVORITE=False)":
-        if lower <= p_flip < upper:
-            decision_obj = dataclasses.replace(
-                decision_obj, reason=f"Мёртвая зона (p_flip={p_flip:.2f} в [{lower:.2f}, {upper:.2f}])"
-            )
-        elif not cfg.trade_on_flip and p_flip >= upper:
-            decision_obj = dataclasses.replace(
-                decision_obj, reason=f"Ожидается флип (p_flip={p_flip:.2f} >= {upper:.2f})"
-            )
 
     g3_dead_zone = not (lower <= p_flip < upper)
     g4_no_flip = p_flip < lower
@@ -510,7 +511,8 @@ async def decide_combined_mode(
     else:
         none_bet_multiplier = 0.5
 
-    vote = combine_votes(ml_action, ml_edge, crypto_proxy, asset_upper, none_bet_multiplier=none_bet_multiplier)
+    ml_skip_reason = ml_result.skip_reason or (ml_result.decision_obj.reason if ml_result.decision_obj else "")
+    vote = combine_votes(ml_action, ml_edge, crypto_proxy, asset_upper, none_bet_multiplier=none_bet_multiplier, ml_skip_reason=ml_skip_reason)
 
     logger.info(
         "combined_vote_result",

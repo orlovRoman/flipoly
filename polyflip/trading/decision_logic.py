@@ -70,7 +70,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     yes_ask = getattr(signal, "yes_ask", None)
     if yes_bid is not None and yes_bid > 0 and yes_ask is not None and signal.mid_price > 0:
         spread_pct = (yes_ask - yes_bid) / signal.mid_price
-        max_spread = float(config.get("MAX_SPREAD_PCT", 0.05))
+        max_spread = float(config.get("MAX_SPREAD_PCT", 0.08))
         if spread_pct > max_spread:
             return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
 
@@ -108,7 +108,11 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     # --- YES side ---
     if signal.mid_price >= threshold:
         if fav_min <= signal.yes_ask <= fav_max:
-            p_win_yes = signal.mid_price
+            yes_bid_val = getattr(signal, "yes_bid", None)
+            if yes_bid_val is not None and float(yes_bid_val) > 0:
+                p_win_yes = float(yes_bid_val)
+            else:
+                p_win_yes = signal.mid_price - (signal.yes_ask - signal.mid_price)
             edge = compute_edge(p_win_yes, signal.yes_ask)
             if edge >= min_edge:
                 bet = _resolve_final_bet(edge, signal.volume_5min, config)
@@ -121,7 +125,11 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     # --- NO side --- проверяется НЕЗАВИСИМО от YES-side
     if signal.mid_price <= (1.0 - threshold):
         if fav_min <= signal.no_ask <= fav_max:
-            no_prob = 1.0 - signal.mid_price
+            no_bid_val = getattr(signal, "no_bid", None)
+            if no_bid_val is not None and float(no_bid_val) > 0:
+                no_prob = float(no_bid_val)
+            else:
+                no_prob = (1.0 - signal.mid_price) - (signal.no_ask - (1.0 - signal.mid_price))
             edge = compute_edge(no_prob, signal.no_ask)
             if edge >= min_edge:
                 bet = _resolve_final_bet(edge, signal.volume_5min, config)
@@ -241,7 +249,18 @@ def decide_outsider(
     if outsider_ask <= 0:
         return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip, edge=0.0)
 
-    outsider_edge = compute_edge(p_flip_calibrated, outsider_ask)
+    outsider_pwin_discount = float(config.get("OUTSIDER_PWIN_DISCOUNT", 0.65))
+    p_win_outsider = p_flip_calibrated * outsider_pwin_discount
+    outsider_edge = compute_edge(p_win_outsider, outsider_ask)
+
+    logger.debug(
+        "outsider_p_win_calc",
+        p_flip_calibrated=round(p_flip_calibrated, 4),
+        discount=outsider_pwin_discount,
+        p_win_adjusted=round(p_win_outsider, 4),
+        outsider_ask=outsider_ask,
+        edge=round(outsider_edge, 4),
+    )
 
     # 2. Потом проверяем порог p_flip
     if p_flip_calibrated < flip_thresh:

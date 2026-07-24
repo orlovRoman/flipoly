@@ -46,9 +46,11 @@ def combine_votes(
     crypto_sig: CryptoSignalProxy,
     asset: str,
     none_bet_multiplier: float = 0.5,
+    ml_skip_reason: str = "",
 ) -> VotingResult:
     """
-    Основная таблица голосования с поддержкой уменьшенного размера ставки при NONE.
+    Основная таблица голосования с поддержкой уменьшенного размера ставки при NONE
+    и автономной торговлей LightGBM при мягких пропусках ML (Soft SKIP).
     """
     if not crypto_sig.features_ok:
         # LightGBM-фичи недоступны → fallback на ML-решение без вето
@@ -64,9 +66,27 @@ def combine_votes(
         )
 
     if ml_action == "SKIP":
+        # Soft SKIP = технические причины (зона, цена вне диапазона)
+        # LightGBM может торговать автономно с 50% ставкой
+        SOFT_SKIP_PATTERNS = ("dead zone", "price out of", "out of bounds", "мёртвая зона")
+        skip_reason_lower = (ml_skip_reason or "").lower()
+        is_soft = any(p in skip_reason_lower for p in SOFT_SKIP_PATTERNS)
+
+        if is_soft and crypto_sig.features_ok and crypto_sig.direction not in (None, "NONE"):
+            lgbm_action = "BUY_YES" if crypto_sig.direction == "UP" else "BUY_NO"
+            return VotingResult(
+                action=lgbm_action,
+                reason=f"ML soft-SKIP ({ml_skip_reason}), LightGBM autonomous",
+                confidence=0.35,
+                ml_action=ml_action,
+                lgbm_direction=crypto_sig.direction,
+                lgbm_features_ok=True,
+                bet_size_multiplier=0.5,
+            )
+
         return VotingResult(
             action="SKIP",
-            reason="ML (in Combined mode) voted SKIP",
+            reason=f"ML hard-SKIP: {ml_skip_reason or 'ML voted SKIP'}",
             confidence=0.0,
             ml_action=ml_action,
             lgbm_direction=crypto_sig.direction,
