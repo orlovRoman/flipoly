@@ -1,0 +1,58 @@
+stages:
+  - test
+  - security
+  - deploy
+
+variables:
+  PYTHON_VERSION: "3.12"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip/
+
+# 1. Unit-тесты приложения
+pytest_suite:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - apt-get update && apt-get install -y gcc g++ git
+    - pip install --no-cache-dir -r requirements.txt
+    - pytest tests/test_decision_logic.py tests/test_new_bugs.py tests/test_preset_service.py tests/test_bug_fixes.py -v
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# 2. Сканирование уязвимостей (GitLab Security + Pip Audit)
+include:
+  - template: Security/Dependency-Scanning.gitlab-ci.yml
+  - template: Security/SAST.gitlab-ci.yml
+
+pip_security_audit:
+  stage: security
+  image: python:3.12-slim
+  script:
+    - pip install pip-audit
+    - pip-audit -r requirements.txt || true
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+
+# 3. Автоматический деплой на GCP Сервер 34.50.54.183
+deploy_to_production:
+  stage: deploy
+  image: ubuntu:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  before_script:
+    - 'which ssh-agent || ( apt-get update -y && apt-get install -y openssh-client )'
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -H 34.50.54.183 >> ~/.ssh/known_hosts
+  script:
+    - ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732@34.50.54.183 "cd /home/orlovrp/flipoly && git pull gitlab main && sudo docker compose restart api"
+  environment:
+    name: production
+    url: http://34.50.54.183:8001
