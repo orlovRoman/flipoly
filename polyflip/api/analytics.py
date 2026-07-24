@@ -144,20 +144,40 @@ def extract_coefficients_from_blob(model_blob: bytes, features_str: str) -> dict
     return {}
 
 
+from sqlalchemy.orm import defer
+
 @router.get("/analytics/models")
 async def list_models(db: AsyncSession = Depends(get_db_session)):
-    """Получение истории всех моделей с четким разделением на LightGBM и Logistic Regression"""
-    stmt = select(ModelRegistry).order_by(ModelRegistry.trained_at.desc(), ModelRegistry.version.desc())
+    """Получение истории всех моделей с оптимизированной загрузкой без выборки тяжелых model_blob"""
+    stmt = (
+        select(ModelRegistry)
+        .options(defer(ModelRegistry.model_blob))
+        .order_by(ModelRegistry.trained_at.desc(), ModelRegistry.version.desc())
+        .limit(100)
+    )
     models = (await db.execute(stmt)).scalars().all()
+
+    # Загружаем model_blob только для активных моделей и топ-15 свежих моделей
+    active_ids = {m.id for m in models if m.is_active}
+    top_ids = {m.id for m in models[:15]}
+    ids_needing_coefs = active_ids.union(top_ids)
+
+    blob_map = {}
+    if ids_needing_coefs:
+        blob_stmt = select(ModelRegistry.id, ModelRegistry.model_blob, ModelRegistry.features).where(ModelRegistry.id.in_(ids_needing_coefs))
+        blob_rows = (await db.execute(blob_stmt)).all()
+        for r_id, r_blob, r_feats in blob_rows:
+            blob_map[r_id] = extract_coefficients_from_blob(r_blob, r_feats)
+
     result = []
     for m in models:
         m_type, algo_label = get_model_type(m.asset)
-        coefs = extract_coefficients_from_blob(m.model_blob, m.features)
+        coefs = blob_map.get(m.id, {})
         lift_val = round(m.accuracy - m.baseline, 4) if (m.accuracy is not None and m.baseline is not None) else None
         result.append({
             "asset": m.asset,
             "version": m.version,
-            "accuracy": round(m.accuracy, 4),
+            "accuracy": round(m.accuracy, 4) if m.accuracy is not None else None,
             "baseline": round(m.baseline, 4) if m.baseline is not None else None,
             "lift": lift_val,
             "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
