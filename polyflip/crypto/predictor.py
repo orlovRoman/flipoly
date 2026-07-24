@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import pickle
 import weakref
 from dataclasses import dataclass
@@ -95,6 +96,7 @@ class CryptoPredictor:
         self._funding_rates: dict[str, float] = {}
         self._funding_rate_ma3s: dict[str, float] = {}
         self._loaded_symbols: set[str] = set()
+        self._loading_locks: dict[str, asyncio.Lock] = {}
         CryptoPredictor._instances.append(weakref.ref(self))
 
     @classmethod
@@ -117,6 +119,7 @@ class CryptoPredictor:
                 inst._vol_p67s.pop(symbol, None)
                 inst._funding_rates.pop(symbol, None)
                 inst._funding_rate_ma3s.pop(symbol, None)
+                inst._loading_locks.pop(symbol, None)
                 alive.append(ref)
         cls._instances = alive
         logger.info("predictor_cache_invalidated", symbol=symbol, instances=len(alive))
@@ -133,7 +136,14 @@ class CryptoPredictor:
         self._vol_p67s.pop(symbol, None)
         self._funding_rates.pop(symbol, None)
         self._funding_rate_ma3s.pop(symbol, None)
+        self._loading_locks.pop(symbol, None)
 
+
+
+    def _get_lock(self, symbol: str) -> asyncio.Lock:
+        if symbol not in self._loading_locks:
+            self._loading_locks[symbol] = asyncio.Lock()
+        return self._loading_locks[symbol]
 
     def get_interval(self, symbol: str) -> str:
         """Возвращает интервал обучения для моделей указанного символа (по умолчанию '15m')."""
@@ -183,114 +193,119 @@ class CryptoPredictor:
             if symbol in self._loaded_symbols:
                 return True
 
-        try:
-            # 1. Загружаем квантили волатильности и ставки финансирования из RuntimeSettings
-            p33_key = f"CRYPTO_VOL_P33_{symbol}"
-            p33_row = (await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == p33_key)
-            )).scalar_one_or_none()
-            self._vol_p33s[symbol] = float(p33_row.value) if p33_row else 0.8
+        async with self._get_lock(symbol):
+            if symbol in self._loaded_symbols:
+                return True
 
-            p67_key = f"CRYPTO_VOL_P67_{symbol}"
-            p67_row = (await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == p67_key)
-            )).scalar_one_or_none()
-            self._vol_p67s[symbol] = float(p67_row.value) if p67_row else 1.2
+            try:
+                # 1. Загружаем квантили волатильности и ставки финансирования из RuntimeSettings
+                p33_key = f"CRYPTO_VOL_P33_{symbol}"
+                p33_row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == p33_key)
+                )).scalar_one_or_none()
+                self._vol_p33s[symbol] = float(p33_row.value) if p33_row else 0.8
 
-            fr_key = f"FUNDING_RATE_{symbol}"
-            fr_row = (await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
-            )).scalar_one_or_none()
-            self._funding_rates[symbol] = float(fr_row.value) if fr_row else 0.0
+                p67_key = f"CRYPTO_VOL_P67_{symbol}"
+                p67_row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == p67_key)
+                )).scalar_one_or_none()
+                self._vol_p67s[symbol] = float(p67_row.value) if p67_row else 1.2
 
-            fr_ma3_key = f"FUNDING_RATE_MA3_{symbol}"
-            fr_ma3_row = (await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
-            )).scalar_one_or_none()
-            self._funding_rate_ma3s[symbol] = float(fr_ma3_row.value) if fr_ma3_row else 0.0
+                fr_key = f"FUNDING_RATE_{symbol}"
+                fr_row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
+                )).scalar_one_or_none()
+                self._funding_rates[symbol] = float(fr_row.value) if fr_row else 0.0
+
+                fr_ma3_key = f"FUNDING_RATE_MA3_{symbol}"
+                fr_ma3_row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
+                )).scalar_one_or_none()
+                self._funding_rate_ma3s[symbol] = float(fr_ma3_row.value) if fr_ma3_row else 0.0
 
 
-            self._models[symbol] = {}
-            self._model_versions[symbol] = {}
-            self._model_intervals[symbol] = {}
-            self._model_eces[symbol] = {}
-            self._thresholds[symbol] = {}
+                self._models[symbol] = {}
+                self._model_versions[symbol] = {}
+                self._model_intervals[symbol] = {}
+                self._model_eces[symbol] = {}
+                self._thresholds[symbol] = {}
 
-            for regime in ["low_vol", "mid_vol", "high_vol"]:
-                regime_asset = f"{symbol}_{regime}"
-                stmt = select(ModelRegistry).where(
-                    ModelRegistry.asset == regime_asset,
-                    ModelRegistry.is_active.is_(True)
-                )
-                row = (await db.execute(stmt)).scalars().first()
-                
-                # Обратная совместимость: если нет двухрежимной модели, ищем старую общую по "CRYPTO"
-                if not row:
-                    logger.warning("no_active_regime_model_found", asset=regime_asset)
-                    fallback_stmt = select(ModelRegistry).where(
-                        ModelRegistry.asset == "CRYPTO",
+                for regime in ["low_vol", "mid_vol", "high_vol"]:
+                    regime_asset = f"{symbol}_{regime}"
+                    stmt = select(ModelRegistry).where(
+                        ModelRegistry.asset == regime_asset,
                         ModelRegistry.is_active.is_(True)
                     )
-                    row = (await db.execute(fallback_stmt)).scalars().first()
+                    row = (await db.execute(stmt)).scalars().first()
                     
-                if not row:
-                    logger.error("no_fallback_model_found", symbol=symbol)
-                    # ВАЖНО: при неудаче не добавляем в loaded_symbols и очищаем частично загруженное
-                    self.invalidate(symbol)
-                    return False
-
-                self._models[symbol][regime] = pickle.loads(row.model_blob)
-                self._model_versions[symbol][regime] = row.version
-                self._model_intervals[symbol][regime] = getattr(row, 'interval', '15m')
-                self._model_eces[symbol][regime] = row.ece or 0.0 # BUG-AO
-
-                # Пороги: берем CRYPTO_THRESHOLD_BTCUSDT_low_vol или общие CRYPTO_THRESHOLD_UP_BTC / DOWN_BTC
-                thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
-                thr_row = (await db.execute(
-                    select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
-                )).scalar_one_or_none()
-
-                from polyflip.services.settings_service import get_float
-                min_valid_thresh = await get_float(db, "LGBM_MIN_VALID_THRESHOLD")
-                max_valid_thresh = await get_float(db, "LGBM_MAX_VALID_THRESHOLD")
-                threshold_fallback = await get_float(db, "LGBM_THRESHOLD_FALLBACK")
-
-                if thr_row:
-                    threshold = float(thr_row.value)
-                    if not (min_valid_thresh <= threshold <= max_valid_thresh):
-                        logger.error(
-                            "invalid_threshold_in_db_using_fallback",
-                            key=thr_key,
-                            invalid=round(threshold, 4),
-                            fallback=threshold_fallback,
+                    # Обратная совместимость: если нет двухрежимной модели, ищем старую общую по "CRYPTO"
+                    if not row:
+                        logger.warning("no_active_regime_model_found", asset=regime_asset)
+                        fallback_stmt = select(ModelRegistry).where(
+                            ModelRegistry.asset == "CRYPTO",
+                            ModelRegistry.is_active.is_(True)
                         )
-                        threshold = threshold_fallback
-                    th_up = threshold
-                    th_down = 1.0 - threshold
-                else:
-                    coin_prefix = symbol.replace("USDT", "")
-                    up_key = f"CRYPTO_THRESHOLD_UP_{coin_prefix}"
-                    down_key = f"CRYPTO_THRESHOLD_DOWN_{coin_prefix}"
-                    rows = (await db.execute(
-                        select(RuntimeSettings).where(RuntimeSettings.key.in_([up_key, down_key]))
-                    )).scalars().all()
-                    settings = {r.key: float(r.value) for r in rows}
-                    th_up = settings.get(up_key, 0.55)
-                    th_down = settings.get(down_key, 0.45)
+                        row = (await db.execute(fallback_stmt)).scalars().first()
+                        
+                    if not row:
+                        logger.error("no_fallback_model_found", symbol=symbol)
+                        # ВАЖНО: при неудаче не добавляем в loaded_symbols и очищаем частично загруженное
+                        self.invalidate(symbol)
+                        return False
 
-                self._thresholds[symbol][regime] = (th_up, th_down)
-                logger.info(
-                    "crypto_regime_model_loaded",
-                    symbol=symbol, regime=regime, version=row.version,
-                    th_up=th_up, th_down=th_down, vol_p33=self._vol_p33s[symbol], vol_p67=self._vol_p67s[symbol]
-                )
+                    self._models[symbol][regime] = pickle.loads(row.model_blob)
+                    self._model_versions[symbol][regime] = row.version
+                    self._model_intervals[symbol][regime] = getattr(row, 'interval', '15m')
+                    self._model_eces[symbol][regime] = row.ece or 0.0 # BUG-AO
 
-            self._loaded_symbols.add(symbol)
-            return True
-        except Exception as e:
-            logger.exception("failed_to_load_crypto_models", error=str(e))
-            self.invalidate(symbol)
-            return False
+                    # Пороги: берем CRYPTO_THRESHOLD_BTCUSDT_low_vol или общие CRYPTO_THRESHOLD_UP_BTC / DOWN_BTC
+                    thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
+                    thr_row = (await db.execute(
+                        select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+                    )).scalar_one_or_none()
+
+                    from polyflip.services.settings_service import get_float
+                    min_valid_thresh = await get_float(db, "LGBM_MIN_VALID_THRESHOLD")
+                    max_valid_thresh = await get_float(db, "LGBM_MAX_VALID_THRESHOLD")
+                    threshold_fallback = await get_float(db, "LGBM_THRESHOLD_FALLBACK")
+
+                    if thr_row:
+                        threshold = float(thr_row.value)
+                        if not (min_valid_thresh <= threshold <= max_valid_thresh):
+                            logger.error(
+                                "invalid_threshold_in_db_using_fallback",
+                                key=thr_key,
+                                invalid=round(threshold, 4),
+                                fallback=threshold_fallback,
+                            )
+                            threshold = threshold_fallback
+                        th_up = threshold
+                        th_down = 1.0 - threshold
+                    else:
+                        coin_prefix = symbol.replace("USDT", "")
+                        up_key = f"CRYPTO_THRESHOLD_UP_{coin_prefix}"
+                        down_key = f"CRYPTO_THRESHOLD_DOWN_{coin_prefix}"
+                        rows = (await db.execute(
+                            select(RuntimeSettings).where(RuntimeSettings.key.in_([up_key, down_key]))
+                        )).scalars().all()
+                        settings = {r.key: float(r.value) for r in rows}
+                        th_up = settings.get(up_key, 0.55)
+                        th_down = settings.get(down_key, 0.45)
+
+                    self._thresholds[symbol][regime] = (th_up, th_down)
+                    logger.info(
+                        "crypto_regime_model_loaded",
+                        symbol=symbol, regime=regime, version=row.version,
+                        th_up=th_up, th_down=th_down, vol_p33=self._vol_p33s[symbol], vol_p67=self._vol_p67s[symbol]
+                    )
+
+                self._loaded_symbols.add(symbol)
+                return True
+            except Exception as e:
+                logger.exception("failed_to_load_crypto_models", error=str(e))
+                self.invalidate(symbol)
+                return False
+
 
     def predict(
         self,
