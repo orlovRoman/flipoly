@@ -52,7 +52,7 @@ class PresetService:
         db: AsyncSession,
         preset_id: int,
         restored_by: str = "user",
-    ) -> int:
+    ) -> tuple[int, Dict[str, str]]:
         """
         Применяет параметры из слепка.
         БЕЗОПАСНОСТЬ: Применяются ТОЛЬКО редактируемые торговые ключи из editable_keys().
@@ -66,6 +66,7 @@ class PresetService:
         valid_editable_keys = set(editable_keys())
         now = datetime.now(timezone.utc)
         changed = 0
+        updated_params = {}
 
         for key, value in params.items():
             # Безопасность: восстанавливаем только ключи из editable_keys()
@@ -79,6 +80,7 @@ class PresetService:
                     row.updated_at = now
                     row.updated_by = f"preset_restore:{preset_id}:{restored_by}"
                     changed += 1
+                    updated_params[key] = str(value)
             else:
                 db.add(RuntimeSettings(
                     key=key,
@@ -87,10 +89,11 @@ class PresetService:
                     updated_by=f"preset_restore:{preset_id}:{restored_by}",
                 ))
                 changed += 1
+                updated_params[key] = str(value)
 
         await db.commit()
         logger.info("preset_restored", id=preset_id, changed_keys=changed, restored_by=restored_by)
-        return changed
+        return changed, updated_params
 
     @staticmethod
     async def check_and_save_ath(

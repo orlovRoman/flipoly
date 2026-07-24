@@ -87,10 +87,15 @@ async def save_preset(req: SavePresetRequest, db: AsyncSession = Depends(get_db_
 async def restore_preset(preset_id: int, db: AsyncSession = Depends(get_db_session)):
     """Применяет параметры из указанного пресета к RuntimeSettings."""
     try:
-        changed = await PresetService.restore_preset(db, preset_id, restored_by="user_ui")
+        changed_count, updated_params = await PresetService.restore_preset(db, preset_id, restored_by="user_ui")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    return {"ok": True, "preset_id": preset_id, "changed_keys": changed}
+    return {
+        "ok": True,
+        "preset_id": preset_id,
+        "changed_keys": changed_count,
+        "updated_params": updated_params,
+    }
 
 @router.get("/{preset_id}/diff")
 async def diff_preset(preset_id: int, db: AsyncSession = Depends(get_db_session)):

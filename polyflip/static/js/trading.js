@@ -1444,7 +1444,16 @@ async function restorePresetUI(presetId, presetName) {
       return;
     }
     const data = await res.json();
-    alert(`✅ Пресет "${presetName}" успешно применен!\nОбновлено параметров: ${data.changed_keys}`);
+    let msg = `✅ Пресет "${presetName}" успешно применен!\n`;
+    if (data.updated_params && Object.keys(data.updated_params).length > 0) {
+      const paramLines = Object.entries(data.updated_params)
+        .map(([k, v]) => `• ${k}: ${v}`)
+        .join("\n");
+      msg += `\nИзменённые параметры (${data.changed_keys}):\n${paramLines}`;
+    } else {
+      msg += `\nОбновлено параметров: ${data.changed_keys || 0}`;
+    }
+    alert(msg);
     window.location.reload();
   } catch (err) {
     alert(`Ошибка восстановления: ${err.message}`);
