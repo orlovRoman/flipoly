@@ -89,6 +89,8 @@ REGISTRY: list[SettingDef] = [
     # --- Edge ---
     SettingDef("MIN_EDGE", "0.05",
                description="Мин. edge для входа в сделку"),
+    SettingDef("MAX_BET_EDGE", "0.40",
+               description="Edge при котором достигается макс. размер ставки при scaled-режиме"),
     SettingDef("MAX_EDGE_FILTER", "0.20",
                description="Фильтр аномального edge: SKIP если edge > этого значения"),
 
@@ -204,6 +206,12 @@ REGISTRY: list[SettingDef] = [
                description="Мин. edge для сигнала в бэктесте"),
     SettingDef("BACKTEST_TRAIN_RATIO", "0.70",
                description="Доля обучающей выборки при walk-forward бэктесте (0.70 = 70%)"),
+    SettingDef("BACKTEST_FEE_PER_TRADE", "0.02",
+               description="Комиссия за сделку в бэктесте (0.02 = 2%)"),
+    SettingDef("BACKTEST_MIN_TRADES", "10",
+               description="Мин. кол-во сделок в бэктесте для успешного обучения"),
+    SettingDef("BACKTEST_MIN_PNL", "0.0",
+               description="Мин. PnL в бэктесте для успешного обучения"),
 
     # --- Hyperparameters LightGBM Crypto ---
     SettingDef("CRYPTO_LGBM_N_ESTIMATORS", "300",
