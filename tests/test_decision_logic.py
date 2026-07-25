@@ -326,10 +326,44 @@ def test_decide_crypto_trend_buy_no():
         symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", edge=0.15,
         strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
     )
-    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG)
+    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG, p_flip_ml=0.65)
     assert d.action == "BUY_NO"
     assert d.strategy_type == "LIGHTGBM_TREND"
     assert d.p_up == 0.25
+
+def test_outsider_flip_threshold_40_as_percent():
+    config = {"FLIP_THRESHOLD": "40", "MIN_EDGE": 0.05, "DEAD_ZONE_WIDTH": 0.10}
+    signal = _signal(mid=0.30)
+    # p_flip=0.261 < 0.40 -> SKIP
+    result = decide_outsider(signal, p_flip=0.261, config=config)
+    assert result.action == "SKIP"
+    assert "0.400" in result.reason
+
+def test_crypto_trend_down_blocked_without_p_flip_ml():
+    crypto = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", edge=0.15,
+        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+    )
+    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "40"}, p_flip_ml=None)
+    assert result.action == "SKIP"
+    assert "p_flip_ml not provided" in result.reason
+
+def test_crypto_trend_down_passes_flip_threshold():
+    crypto = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", edge=0.15,
+        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+    )
+    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "40"}, p_flip_ml=0.261)
+    assert result.action == "SKIP"
+    assert "0.40" in result.reason
+
+def test_crypto_trend_down_passes_above_threshold():
+    crypto = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", edge=0.15,
+        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+    )
+    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "40"}, p_flip_ml=0.50)
+    assert result.action == "BUY_NO"
 
 def test_decide_crypto_trend_skip_dead_zone():
     # direction = NONE
