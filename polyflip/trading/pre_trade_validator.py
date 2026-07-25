@@ -102,10 +102,10 @@ async def validate_pre_trade(
             
         edge = compute_edge(p_win, buy_price)
         
-        if edge < current_min_edge or edge > cfg.max_edge_filter:
+        if edge < current_min_edge:
             return PreTradeValidation(
                 valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
-                skip_reason=f"Edge out of bounds (edge={edge:.4f})"
+                skip_reason=f"Edge below minimum (edge={edge:.4f} < min={current_min_edge:.4f})"
             )
 
     if not (cfg.trade_min_price <= buy_price <= asset_max_price):

@@ -35,8 +35,6 @@ class Settings(BaseSettings):
     TRADING_MODE: str = "ml"
     FAVORITE_MODE_ENTRY_SEC: int = 180
     FAVORITE_THRESHOLD: float = 0.55
-    # MAX_EDGE_FILTER = фильтр "подозрительный edge → SKIP"
-    MAX_EDGE_FILTER: float = 0.20
     
     # Unified Fallbacks
     BET_SIZING_MODE: str = "scaled"

@@ -171,13 +171,11 @@ class TestDecideMlTrend:
         expected_edge = round(0.90 / 0.70 - 1.0, 4)
         assert d.edge == pytest.approx(expected_edge, abs=1e-3)
 
-    def test_skip_when_edge_exceeds_max(self):
-        # p_flip=0.01 → p_win=0.99, yes_ask=0.60 → edge≈0.65 > MAX_BET_EDGE_FILTER=0.20
-        # mid=0.72, yes_ask=0.60 -> spread=-0.24
+    def test_high_edge_buys_yes_without_filter(self):
+        # p_flip=0.01 → p_win=0.99, yes_ask=0.60 → high edge → buys YES without MAX_EDGE_FILTER
         sig = _signal(mid=0.72, spread=-0.24, vol=1000.0)
         d = decide_ml_trend(sig, p_flip=0.01, config=BASE_CONFIG)
-        assert d.action == "SKIP"
-        assert "out of bounds" in d.reason.lower() or "Edge" in d.reason
+        assert d.action == "BUY_YES"
 
     def test_skip_when_favorite_fails_price_bounds(self):
         # mid=0.72, yes_ask=0.97 -> spread=0.50

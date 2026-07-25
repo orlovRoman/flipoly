@@ -234,11 +234,6 @@ def decide_ml_trend(
         return TradeDecision("SKIP", 0, 0,
             f"Edge={edge:.4f} < min={min_edge:.4f}", "SKIP", p_flip=p_flip, edge=edge)
 
-    max_edge = float(config.get("MAX_EDGE_FILTER", config.get("MAX_BET_EDGE", config.get("MAX_EDGE", 1.0))))
-    if edge > max_edge:
-        return TradeDecision("SKIP", 0, 0,
-            f"Edge={edge:.4f} > max={max_edge:.4f}", "SKIP", p_flip=p_flip, edge=edge)
-
     # 5. Ставка на основе ML-edge
     bet = _resolve_final_bet(edge, signal.volume_5min, config)
     bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"

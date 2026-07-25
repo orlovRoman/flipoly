@@ -29,7 +29,6 @@ class BacktestRunner:
         self.max_bet = float(config.get("MAX_BET_SIZE_USDC", 50.0))
         self.min_edge = float(config.get("MIN_EDGE", -0.05))
         self.max_edge = 0.40
-        self.max_edge_filter = float(config.get("MAX_EDGE_FILTER", 0.20))
 
     def _predict_flip(self, signal) -> float:
         """Получает P(flip) от модели для данного тика (оптимизировано без Pandas)."""
@@ -99,11 +98,6 @@ class BacktestRunner:
             if decision.action == "SKIP" and self.trade_on_flip:
                 decision = decide_outsider(signal, p_flip, self.config)
         
-        if decision.action != "SKIP" and decision.edge is not None:
-            if decision.edge > self.max_edge_filter:
-                from polyflip.trading.decision_logic import TradeDecision
-                decision = TradeDecision("SKIP", 0, decision.edge, f"Edge {decision.edge:.3f} > max_edge_filter {self.max_edge_filter:.3f}", "SKIP")
-
         return decision, p_flip, signal
 
     def run_market(self, replay: MarketReplay) -> None:

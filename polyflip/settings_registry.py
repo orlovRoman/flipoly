@@ -91,8 +91,6 @@ REGISTRY: list[SettingDef] = [
                description="Мин. edge для входа в сделку"),
     SettingDef("MAX_BET_EDGE", "0.40",
                description="Edge при котором достигается макс. размер ставки при scaled-режиме"),
-    SettingDef("MAX_EDGE_FILTER", "0.40",
-               description="Фильтр аномального edge: SKIP если edge > этого значения"),
 
     # --- Фаворит ---
     SettingDef("FAVORITE_THRESHOLD", "0.55",

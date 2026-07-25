@@ -242,8 +242,6 @@ async def decide_ml_mode(
     )
 
     local_config = {**raw_settings}
-    if hasattr(cfg, "max_edge_filter") and cfg.max_edge_filter is not None:
-        local_config["MAX_EDGE_FILTER"] = str(cfg.max_edge_filter)
     local_config["NO_FLIP_THRESHOLD"] = str(lower)
     local_config["FLIP_THRESHOLD"] = str(upper)
     # В ML_TREND режиме FAVORITE_THRESHOLD фиксирован в 0.50:
