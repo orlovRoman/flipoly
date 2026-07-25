@@ -28,16 +28,16 @@ def test_feature_vector_order():
 
 def test_yes_ask_capped_at_099():
     signal = make_signal(mid_price=0.98, spread=0.05)
-    assert signal.yes_ask == 0.99
+    assert signal.get_yes_ask() == 0.99
 
 def test_no_ask_floored():
     signal = make_signal(mid_price=0.99, spread=0.001)
-    assert signal.no_ask <= 0.99
-    assert signal.no_bid >= 0.01
+    assert signal.get_no_ask() <= 0.99
+    assert signal.get_no_bid() >= 0.01
 
 def test_spread_zero_fallback():
     signal = make_signal(spread=0.0)
-    assert signal.yes_ask == signal.yes_bid == signal.mid_price
+    assert signal.get_yes_ask() == signal.get_yes_bid() == signal.mid_price
 
 
 def test_build_feature_vector_no_nan():

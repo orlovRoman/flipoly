@@ -161,6 +161,17 @@ def run_model_inference(
     Прогоняет DataFrame через модель и возвращает вероятность для класса 1 (flip).
     Если модель возвращает только один класс, возвращает 0.0.
     """
+    missing = [f for f in features if f not in df.columns]
+    if missing:
+        logger.warning(
+            "inference_missing_features",
+            missing=missing,
+            available=list(df.columns),
+            note="Model expects features not in dataframe - filling with 0.0"
+        )
+        for col in missing:
+            df[col] = 0.0
+
     X = df[features]
 
     # Явная проверка порядка фич

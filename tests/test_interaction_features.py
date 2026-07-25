@@ -13,7 +13,7 @@ def test_interaction_features_no_nan():
     })
     result = add_derived_features(df)
 
-    for feat in ["is_final_phase", "high_price_final", "velocity_x_phase", "dev_sq_x_phase"]:
+    for feat in ["is_final_phase", "high_price_final"]:
         assert feat in result.columns, f"Missing feature: {feat}"
         assert result[feat].isna().sum() == 0, f"NaN in {feat}"
 
@@ -29,7 +29,5 @@ def test_time_phase_values():
         "market_id": ["m1", "m2"], # Инференс (нет дубликатов)
     })
     result = add_derived_features(df)
-    assert abs(result["time_phase"].iloc[0] - 0.20) < 1e-4  # 3/15
-    assert abs(result["time_phase"].iloc[1] - 1.00) < 1e-4  # 15/15
     assert result["is_final_phase"].iloc[0] == 1.0   # <= 0.20
     assert result["is_final_phase"].iloc[1] == 0.0

@@ -53,10 +53,6 @@ def test_add_lag_features_basic():
     
     r = add_lag_features(df)
     
-    # price_velocity_lag1: shift(1)
-    assert r.iloc[1]["price_velocity_lag1"] == 0.0
-    assert r.iloc[2]["price_velocity_lag1"] == 0.02
-    
     # price_momentum: shift(3)
     # i=3: mid_price=0.55, lag3 (i=0) = 0.50 => 0.05
     assert abs(r.iloc[3]["price_momentum"] - 0.05) < 1e-6

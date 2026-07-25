@@ -13,9 +13,6 @@ def test_values():
 
     assert r.loc[0, "price_deviation"]    == pytest.approx(0.0)
     assert r.loc[1, "price_deviation"]    == pytest.approx(0.4)
-    assert r.loc[1, "deviation_x_time"]   == pytest.approx(0.4 * 2.0)   # 0.8
-    assert r.loc[2, "deviation_x_time"]   == pytest.approx(0.4 * 14.0)  # 5.6
-    assert r.loc[1, "price_deviation_sq"] == pytest.approx(0.16)
     assert r.loc[1, "spread_pct"]         == pytest.approx(0.01 / 0.9, rel=1e-3)
     assert r.loc[0, "log_time_left"]      == pytest.approx(np.log1p(7.0))
 

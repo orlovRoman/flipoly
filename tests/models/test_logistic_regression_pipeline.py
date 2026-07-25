@@ -75,16 +75,16 @@ class TestDerivedFeatures:
 
     def test_all_derived_columns_present(self, df_with_derived):
         base_derived = [
-            "price_deviation", "deviation_x_time", "price_deviation_sq",
-            "spread_pct", "log_time_left", "price_distance_from_max", "time_phase"
+            "price_deviation", "is_final_phase", "high_price_final",
+            "spread_pct", "log_time_left", "price_distance_from_max"
         ]
         for col in base_derived:
             assert col in df_with_derived.columns
 
     def test_no_nan_in_derived(self, df_with_derived):
         base_derived = [
-            "price_deviation", "deviation_x_time", "price_deviation_sq",
-            "spread_pct", "log_time_left", "price_distance_from_max", "time_phase"
+            "price_deviation", "is_final_phase", "high_price_final",
+            "spread_pct", "log_time_left", "price_distance_from_max"
         ]
         nan_counts = df_with_derived[base_derived].isna().sum()
         assert nan_counts.sum() == 0
@@ -114,7 +114,7 @@ class TestLagFeatures:
 
     def test_lag_features_imputed_for_first_rows(self, df_with_lags):
         first_rows = df_with_lags.groupby("market_id").head(1)
-        assert not first_rows["price_velocity_lag1"].isna().any()
+        assert not first_rows["price_momentum"].isna().any()
 
     def test_spread_trend_clipped(self, df_with_lags):
         assert (df_with_lags["spread_trend"] <= 10.0 + 1e-9).all()

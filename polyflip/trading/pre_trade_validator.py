@@ -110,12 +110,12 @@ async def validate_pre_trade(
 
     ANOMALY_EDGE_WARN = 0.60
     if edge > ANOMALY_EDGE_WARN:
-        derived_p_win = p_win if 'p_win' in locals() else min(1.0, buy_price + edge)
+        derived_p_win = round((edge + 1.0) * buy_price, 4)
         logger.warning(
             "anomalous_edge_detected",
             asset=market.asset,
             edge=round(edge, 4),
-            win_prob=round(derived_p_win, 4),
+            derived_p_win=derived_p_win,
             buy_price=buy_price,
             note="possible stale data or API price error"
         )

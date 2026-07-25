@@ -21,18 +21,13 @@ FEATURE_COLUMNS: list[str] = [
     # Новые статические
     "day_of_week",
     "price_distance_from_max",
-    "time_phase",
     "price_deviation",
-    "deviation_x_time",
-    "price_deviation_sq",
     "spread_pct",
     "log_time_left",
     "is_final_phase",
     "high_price_final",
-    "velocity_x_phase",
-    "dev_sq_x_phase",
     # Лаговые (динамические)
-    *LAG_FEATURE_NAMES,   # price_velocity_lag1, price_momentum, spread_trend, volume_trend
+    *LAG_FEATURE_NAMES,   # price_momentum, spread_trend, volume_trend
 ]
 
 @dataclass(frozen=True)

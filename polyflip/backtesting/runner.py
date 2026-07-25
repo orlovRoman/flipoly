@@ -46,8 +46,6 @@ class BacktestRunner:
             "price_velocity": signal.price_velocity,
             "hour_of_day": signal.hour_of_day,
             "price_deviation": price_dev,
-            "deviation_x_time": price_dev * signal.time_left_min,
-            "price_deviation_sq": price_dev ** 2,
             "spread_pct": min(signal.spread / (signal.mid_price + 1e-6), 10.0),
             "log_time_left": math.log1p(signal.time_left_min),
         }
