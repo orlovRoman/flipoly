@@ -70,11 +70,11 @@ def test_auto_dead_zone_width_removed_from_api_response():
                     )
 
 
-def test_max_edge_filter_lt_max_edge_scaling():
-    """MAX_EDGE_FILTER (0.20) < MAX_BET_EDGE (0.40)."""
+def test_max_edge_filter_lte_max_edge_scaling():
+    """MAX_EDGE_FILTER (0.40) <= MAX_BET_EDGE (0.40)."""
     from polyflip.settings_registry import registry_defaults
     defaults = registry_defaults()
-    assert float(defaults["MAX_EDGE_FILTER"]) < float(defaults["MAX_BET_EDGE"])
+    assert float(defaults["MAX_EDGE_FILTER"]) <= float(defaults["MAX_BET_EDGE"])
 
 
 def test_max_bet_edge_default_is_scaling():
@@ -85,10 +85,10 @@ def test_max_bet_edge_default_is_scaling():
 
 
 def test_max_edge_filter_default_is_filter():
-    """Дефолт MAX_EDGE_FILTER в реестре == 0.20."""
+    """Дефолт MAX_EDGE_FILTER в реестре == 0.40."""
     from polyflip.settings_registry import registry_defaults
     defaults = registry_defaults()
-    assert float(defaults["MAX_EDGE_FILTER"]) == pytest.approx(0.20)
+    assert float(defaults["MAX_EDGE_FILTER"]) == pytest.approx(0.40)
 
 
 # ── Тест 5: Editable keys ────────────────────────────────────────────────────

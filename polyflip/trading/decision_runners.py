@@ -22,16 +22,13 @@ logger = structlog.get_logger(__name__)
 def _get_float_setting(raw_settings: dict, key: str) -> Optional[float]:
     """
     Читает float из raw_settings.
-    Возвращает None, если значение отсутствует, пустое или <= 0.0.
+    Возвращает None, если значение отсутствует или пустое.
     """
     val = raw_settings.get(key)
     if val is None or str(val).strip() == "":
         return None
     try:
-        f = float(val)
-        if f <= 0.0:
-            return None
-        return f
+        return float(val)
     except ValueError:
         return None
 
