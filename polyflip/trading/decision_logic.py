@@ -100,14 +100,14 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     fav_raw = config.get("FAVORITE_MIN_EDGE")
     if fav_raw is not None and str(fav_raw).strip() != "":
         fav_override = float(fav_raw)
-        if 0.0 <= fav_override < global_min:
+        if fav_override < global_min:
             logger.warning(
                 "favorite_min_edge_below_global_floor",
-                fav_override=fav_override,
+                favorite_min_edge=fav_override,
                 global_min=global_min,
-                effective_min_edge=max(fav_override, global_min),
+                note="FAVORITE_MIN_EDGE < global MIN_EDGE — using global floor"
             )
-            min_edge = max(fav_override, global_min)
+            min_edge = max(global_min, fav_override)
         else:
             min_edge = fav_override
     else:
@@ -116,11 +116,13 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     # ── Spread check ────────────────────────────────────────────────────────
     yes_bid = signal.yes_bid
     yes_ask = signal.yes_ask
-    if yes_bid is not None and yes_ask is not None and yes_bid > 0 and signal.mid_price > 0:
-        spread_pct = (yes_ask - yes_bid) / signal.mid_price
-        max_spread = float(config.get("MAX_SPREAD_PCT", 0.08))
-        if spread_pct > max_spread:
-            return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide ({spread_pct:.2%})", "SKIP", edge=0.0)
+    if yes_bid is None or yes_bid <= 0 or yes_ask is None or signal.mid_price <= 0:
+        return TradeDecision("SKIP", 0.0, 0.0, "spread data unavailable", "SKIP", edge=0.0)
+        
+    spread_pct = (yes_ask - yes_bid) / signal.mid_price
+    max_spread = float(config.get("MAX_SPREAD_PCT", 0.05))
+    if spread_pct > max_spread:
+        return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
 
     candidates: list[TradeDecision] = []
 

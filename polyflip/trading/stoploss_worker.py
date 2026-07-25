@@ -33,8 +33,7 @@ async def _process_single_stoploss(
         if market_end.tzinfo is None:
             market_end = market_end.replace(tzinfo=timezone.utc)
         if now >= market_end:
-            async with db_session.begin_nested():
-                trade.stop_loss_status = "EXPIRED"
+            trade.stop_loss_status = "EXPIRED"
             logger.info("stoploss_market_expired", trade_id=trade.id,
                         market_end=market_end.isoformat())
             return
@@ -44,8 +43,7 @@ async def _process_single_stoploss(
     )
     market = mkt_result.scalar_one_or_none()
     if not market:
-        async with db_session.begin_nested():
-            trade.stop_loss_status = "EXPIRED"
+        trade.stop_loss_status = "EXPIRED"
         logger.warning("stoploss_market_not_in_live", trade_id=trade.id,
                        market_id=trade.market_id)
         return
@@ -61,8 +59,7 @@ async def _process_single_stoploss(
     current_bid = float(prices["best_bid"])
 
     if trade.stop_loss_pct is None:
-        async with db_session.begin_nested():
-            trade.stop_loss_status = "EXPIRED"
+        trade.stop_loss_status = "EXPIRED"
         logger.warning("stoploss_missing_pct", trade_id=trade.id)
         return
 
@@ -96,33 +93,31 @@ async def _process_single_stoploss(
 
     executed_price = sell_res.get("executed_price", current_bid)
 
-    # ── Фаза 2: запись результата в БД (savepoint только для записи) ─────────
-    async with db_session.begin_nested():
-        trade.stop_loss_status    = "TRIGGERED"
-        trade.stop_loss_hit_at    = now
-        trade.stop_loss_sell_price = executed_price
-        net_sell = executed_price * shares_held * (1.0 - fee_rate)
-        trade.pnl = round(net_sell - trade.amount_usdc, 4)
+    trade.stop_loss_status    = "TRIGGERED"
+    trade.stop_loss_hit_at    = now
+    trade.stop_loss_sell_price = executed_price
+    net_sell = executed_price * shares_held * (1.0 - fee_rate)
+    trade.pnl = round(net_sell - trade.amount_usdc, 4)
 
-        slip      = round(current_bid - executed_price, 6)
-        slip_pct  = round(slip / current_bid * 100, 4) if current_bid > 0 else 0.0
-        slip_cost = round(slip * shares_held, 4)
+    slip      = round(current_bid - executed_price, 6)
+    slip_pct  = round(slip / current_bid * 100, 4) if current_bid > 0 else 0.0
+    slip_cost = round(slip * shares_held, 4)
 
-        slippage_record = SlippageLog(
-            trade_id=trade.id,
-            market_id=trade.market_id,
-            asset=trade.asset,
-            outcome_bought=trade.outcome_bought,
-            expected_price=current_bid,
-            executed_price=executed_price,
-            slippage=slip,
-            slippage_pct=slip_pct,
-            bet_size_usdc=trade.amount_usdc,
-            slippage_cost_usdc=slip_cost,
-            mode=sell_res.get("mode", "PAPER"),
-            created_at=now,
-        )
-        db_session.add(slippage_record)
+    slippage_record = SlippageLog(
+        trade_id=trade.id,
+        market_id=trade.market_id,
+        asset=trade.asset,
+        outcome_bought=trade.outcome_bought,
+        expected_price=current_bid,
+        executed_price=executed_price,
+        slippage=slip,
+        slippage_pct=slip_pct,
+        bet_size_usdc=trade.amount_usdc,
+        slippage_cost_usdc=slip_cost,
+        mode=sell_res.get("mode", "PAPER"),
+        created_at=now,
+    )
+    db_session.add(slippage_record)
 
     logger.info(
         "stoploss_executed",
@@ -172,11 +167,7 @@ async def stoploss_worker_cycle(
     for trade in open_trades:
         try:
             await _process_single_stoploss(db_session, trader, api_client, trade, fee_rate, now)
+            await db_session.commit()
         except Exception as e:
             logger.exception("stoploss_worker_error", trade_id=trade.id, error=str(e))
-            try:
-                await db_session.rollback()
-            except Exception:
-                pass
-
-    await db_session.commit()
+            await db_session.rollback()
