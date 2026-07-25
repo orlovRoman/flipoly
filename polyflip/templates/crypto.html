@@ -848,9 +848,15 @@
                     return Object.values(models).filter(m => m.asset === asset && m.is_active).sort((a,b) => b.version - a.version)[0] || null;
                 };
 
-                const oldLowM = getLatest(statusData?.models, `${symbol}_low_vol`);
-                const oldMidM = getLatest(statusData?.models, `${symbol}_mid_vol`);
-                const oldHighM = getLatest(statusData?.models, `${symbol}_high_vol`);
+                const makeSnapshot = (m) => m ? { version: m.version, auc: m.auc, threshold: m.threshold } : null;
+
+                if (!statusData || !statusData.models) {
+                    await loadStatus();
+                }
+
+                const oldLowM = makeSnapshot(getLatest(statusData?.models, `${symbol}_low_vol`));
+                const oldMidM = makeSnapshot(getLatest(statusData?.models, `${symbol}_mid_vol`));
+                const oldHighM = makeSnapshot(getLatest(statusData?.models, `${symbol}_high_vol`));
                 const oldLow = oldLowM ? oldLowM.version : 0;
                 const oldMid = oldMidM ? oldMidM.version : 0;
                 const oldHigh = oldHighM ? oldHighM.version : 0;
@@ -869,11 +875,11 @@
                         
                         const isStillTraining = !!localActiveTrainings[symbol];
                         const newLowM = getLatest(statusData?.models, `${symbol}_low_vol`);
-                    const newMidM = getLatest(statusData?.models, `${symbol}_mid_vol`);
-                    const newHighM = getLatest(statusData?.models, `${symbol}_high_vol`);
-                    const newLow = newLowM ? newLowM.version : 0;
-                    const newMid = newMidM ? newMidM.version : 0;
-                    const newHigh = newHighM ? newHighM.version : 0;
+                        const newMidM = getLatest(statusData?.models, `${symbol}_mid_vol`);
+                        const newHighM = getLatest(statusData?.models, `${symbol}_high_vol`);
+                        const newLow = newLowM ? newLowM.version : 0;
+                        const newMid = newMidM ? newMidM.version : 0;
+                        const newHigh = newHighM ? newHighM.version : 0;
                     
                     if (!isStillTraining || newLow > oldLow || newHigh > oldHigh || newMid > oldMid) {
                         clearInterval(intervalId);
@@ -889,17 +895,22 @@
                             
                             let aucStr = `AUC: ${newObj.auc ?? '?'}`;
                             if (newObj?.auc != null && oldObj?.auc != null) {
-                                const diff = newObj.auc - oldObj.auc;
+                                const diff = Number((newObj.auc - oldObj.auc).toFixed(4));
                                 if (diff > 0.0001) {
-                                    aucStr += ` (+${diff.toFixed(4)} 🟢 лучше)`;
+                                    aucStr += ` (+${diff.toFixed(4)} 📈 🟢 лучше)`;
                                 } else if (diff < -0.0001) {
-                                    aucStr += ` (${diff.toFixed(4)} 🔴 хуже)`;
+                                    aucStr += ` (${diff.toFixed(4)} 📉 🔴 хуже)`;
                                 } else {
-                                    aucStr += ` (= без изм.)`;
+                                    aucStr += ` (= ⚖️ без изм.)`;
                                 }
+                            } else if (!oldObj) {
+                                aucStr += ` (✨ новая)`;
                             }
                             
                             let thrStr = `Thr: ${newObj.threshold ?? '?'}`;
+                            if (newObj?.threshold != null && oldObj?.threshold != null && newObj.threshold !== oldObj.threshold) {
+                                thrStr += ` (было ${oldObj.threshold})`;
+                            }
                             return `${versionStr} | ${aucStr} | ${thrStr}`;
                         };
 
