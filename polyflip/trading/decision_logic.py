@@ -116,13 +116,16 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     # ── Spread check ────────────────────────────────────────────────────────
     yes_bid = signal.yes_bid
     yes_ask = signal.yes_ask
-    if yes_bid is None or yes_bid <= 0 or yes_ask is None or signal.mid_price <= 0:
-        return TradeDecision("SKIP", 0.0, 0.0, "spread data unavailable", "SKIP", edge=0.0)
-        
-    spread_pct = (yes_ask - yes_bid) / signal.mid_price
-    max_spread = float(config.get("MAX_SPREAD_PCT", 0.05))
+    if yes_bid is not None and yes_ask is not None and yes_bid > 0 and signal.mid_price > 0:
+        spread_pct = (yes_ask - yes_bid) / signal.mid_price
+    elif signal.mid_price > 0 and getattr(signal, "spread", None) is not None:
+        spread_pct = signal.spread / signal.mid_price
+    else:
+        spread_pct = 0.0
+
+    max_spread = float(config.get("MAX_SPREAD_PCT", 0.08))
     if spread_pct > max_spread:
-        return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
+        return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide ({spread_pct:.2%})", "SKIP", edge=0.0)
 
     candidates: list[TradeDecision] = []
 

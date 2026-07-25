@@ -22,16 +22,15 @@ logger = structlog.get_logger(__name__)
 def _get_float_setting(raw_settings: dict, key: str) -> Optional[float]:
     """
     Читает float из raw_settings.
-    Автоматически нормализует процентные значения > 1.0 (например 40 или 80) к долям (0.40, 0.80).
+    Возвращает None, если значение отсутствует, пустое или <= 0.0.
     """
     val = raw_settings.get(key)
     if val is None or str(val).strip() == "":
         return None
     try:
         f = float(val)
-        if f > 1.0 and ("THRESHOLD" in key or "EDGE" in key):
-            logger.warning("normalizing_percent_setting", key=key, raw=f, normalized=f / 100.0)
-            f = f / 100.0
+        if f <= 0.0:
+            return None
         return f
     except ValueError:
         return None
