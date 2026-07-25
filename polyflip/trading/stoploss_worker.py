@@ -82,6 +82,10 @@ async def _process_single_stoploss(
         current_bid=current_bid,
     )
 
+    # Атомарно фиксируем намерение исполнения до вызова биржи для защиты от повторных продаж
+    trade.stop_loss_status = "TRIGGERING"
+    await db_session.commit()
+
     shares_held = round(trade.amount_usdc / trade.executed_price, 4)
     sell_res = await trader.execute_trade(
         market_id=trade.market_id,

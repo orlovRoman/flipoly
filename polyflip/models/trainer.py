@@ -285,12 +285,10 @@ def _fit_and_serialize(
         tr_cal_weight = sample_weight[train_idx] if sample_weight is not None else None
         final_base.fit(X_train_cal, y_train_cal, model__sample_weight=tr_cal_weight)
         
-        from sklearn.frozen import FrozenEstimator
-        cal_split = [(np.arange(len(X_cal)), np.arange(len(X_cal)))]
         final_model = CalibratedClassifierCV(
-            estimator=FrozenEstimator(final_base),
+            estimator=final_base,
             method="sigmoid",
-            cv=cal_split
+            cv="prefit"
         )
         final_model.fit(X_cal, y_cal)
     
@@ -452,6 +450,7 @@ class ModelTrainer:
                 "price_velocity": s.price_velocity,
                 "volume_5min": s.volume_5min,
                 "hour_of_day": s.hour_of_day,
+                "day_of_week": float(s.recorded_at.weekday()) if s.recorded_at else 0.0,
                 "target": 1 if s.flip_vs_final else 0
             })
             
