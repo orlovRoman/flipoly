@@ -113,19 +113,6 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     else:
         min_edge = global_min
 
-    # ── Spread check ────────────────────────────────────────────────────────
-    yes_bid = signal.yes_bid
-    yes_ask = signal.yes_ask
-    if yes_bid is not None and yes_ask is not None and yes_bid > 0 and signal.mid_price > 0:
-        spread_pct = (yes_ask - yes_bid) / signal.mid_price
-    elif signal.mid_price > 0 and getattr(signal, "spread", None) is not None:
-        spread_pct = signal.spread / signal.mid_price
-    else:
-        spread_pct = 0.0
-
-    max_spread = float(config.get("MAX_SPREAD_PCT", 0.08))
-    if spread_pct > max_spread:
-        return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide ({spread_pct:.2%})", "SKIP", edge=0.0)
 
     candidates: list[TradeDecision] = []
 
@@ -136,7 +123,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             if signal.yes_bid is not None and float(signal.yes_bid) > 0:
                 p_win_yes = float(signal.yes_bid)
             else:
-                p_win_yes = signal.mid_price - (eff_yes_ask - signal.mid_price)
+                p_win_yes = signal.mid_price
             edge = compute_edge(p_win_yes, eff_yes_ask)
             if edge >= min_edge:
                 bet = _resolve_final_bet(edge, signal.volume_5min, config)
@@ -153,7 +140,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             if signal.no_bid is not None and float(signal.no_bid) > 0:
                 no_prob = float(signal.no_bid)
             else:
-                no_prob = (1.0 - signal.mid_price) - (eff_no_ask - (1.0 - signal.mid_price))
+                no_prob = 1.0 - signal.mid_price
             edge = compute_edge(no_prob, eff_no_ask)
             if edge >= min_edge:
                 bet = _resolve_final_bet(edge, signal.volume_5min, config)
@@ -166,13 +153,24 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     if not candidates:
         eff_yes = signal.get_yes_ask()
         eff_no = signal.get_no_ask()
-        if signal.mid_price >= threshold and not (fav_min <= eff_yes <= fav_max):
-            reason = f"YES price {eff_yes:.3f} out of bounds [{fav_min},{fav_max}]"
-        elif signal.mid_price <= (1.0 - threshold) and not (fav_min <= eff_no <= fav_max):
-            reason = f"NO price {eff_no:.3f} out of bounds [{fav_min},{fav_max}]"
+        skipped_edge = 0.0
+        if signal.mid_price >= threshold:
+            if not (fav_min <= eff_yes <= fav_max):
+                reason = f"YES price {eff_yes:.3f} out of bounds [{fav_min},{fav_max}]"
+            else:
+                p_win_yes = float(signal.yes_bid) if signal.yes_bid is not None and float(signal.yes_bid) > 0 else signal.mid_price
+                skipped_edge = compute_edge(p_win_yes, eff_yes)
+                reason = f"favorite YES edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
+        elif signal.mid_price <= (1.0 - threshold):
+            if not (fav_min <= eff_no <= fav_max):
+                reason = f"NO price {eff_no:.3f} out of bounds [{fav_min},{fav_max}]"
+            else:
+                no_prob = float(signal.no_bid) if signal.no_bid is not None and float(signal.no_bid) > 0 else (1.0 - signal.mid_price)
+                skipped_edge = compute_edge(no_prob, eff_no)
+                reason = f"favorite NO edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
         else:
             reason = "no clear favorite"
-        return TradeDecision("SKIP", 0.0, 0.0, reason, "SKIP", edge=0.0)
+        return TradeDecision("SKIP", 0.0, 0.0, reason, "SKIP", edge=skipped_edge)
 
     # Выбираем кандидата с наибольшим edge
     best_candidate = max(candidates, key=lambda c: c.edge if c.edge is not None else -999.0)
@@ -235,6 +233,11 @@ def decide_ml_trend(
     if edge < min_edge:
         return TradeDecision("SKIP", 0, 0,
             f"Edge={edge:.4f} < min={min_edge:.4f}", "SKIP", p_flip=p_flip, edge=edge)
+
+    max_edge = float(config.get("MAX_EDGE_FILTER", config.get("MAX_BET_EDGE", config.get("MAX_EDGE", 1.0))))
+    if edge > max_edge:
+        return TradeDecision("SKIP", 0, 0,
+            f"Edge={edge:.4f} > max={max_edge:.4f}", "SKIP", p_flip=p_flip, edge=edge)
 
     # 5. Ставка на основе ML-edge
     bet = _resolve_final_bet(edge, signal.volume_5min, config)
@@ -313,7 +316,7 @@ def decide_outsider(
 
     if outsider_ask > max_outsider_price:
         return TradeDecision("SKIP", 0, 0,
-            f"{outsider_action} ask {outsider_ask:.3f} > max {max_outsider_price}", "SKIP",
+            f"{outsider_action} ask {outsider_ask:.3f} > max_outsider {max_outsider_price}", "SKIP",
             p_flip=p_flip, edge=edge)
 
     if ece and ece > ECE_WARN_THRESHOLD:
