@@ -100,7 +100,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     fav_raw = config.get("FAVORITE_MIN_EDGE")
     if fav_raw is not None and str(fav_raw).strip() != "":
         fav_override = float(fav_raw)
-        if fav_override < global_min:
+        if 0.0 <= fav_override < global_min:
             logger.warning(
                 "favorite_min_edge_below_global_floor",
                 favorite_min_edge=fav_override,
