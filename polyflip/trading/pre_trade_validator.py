@@ -108,6 +108,18 @@ async def validate_pre_trade(
                 skip_reason=f"Edge below minimum (edge={edge:.4f} < min={current_min_edge:.4f})"
             )
 
+    ANOMALY_EDGE_WARN = 0.60
+    if edge > ANOMALY_EDGE_WARN:
+        derived_p_win = p_win if 'p_win' in locals() else min(1.0, buy_price + edge)
+        logger.warning(
+            "anomalous_edge_detected",
+            asset=market.asset,
+            edge=round(edge, 4),
+            win_prob=round(derived_p_win, 4),
+            buy_price=buy_price,
+            note="possible stale data or API price error"
+        )
+
     if not (cfg.trade_min_price <= buy_price <= asset_max_price):
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
