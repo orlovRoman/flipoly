@@ -847,6 +847,10 @@ document.addEventListener("DOMContentLoaded", () => {
           valA = a.trained_at ? (Date.parse(a.trained_at) || 0) : 0;
           valB = b.trained_at ? (Date.parse(b.trained_at) || 0) : 0;
           break;
+        case "backtest_pnl":
+          valA = a.backtest_pnl !== null ? a.backtest_pnl : -999999;
+          valB = b.backtest_pnl !== null ? b.backtest_pnl : -999999;
+          break;
         case "pnl":
           valA = (pnlA && pnlA.total_trades > 0) ? pnlA.pnl : -999999;
           valB = (pnlB && pnlB.total_trades > 0) ? pnlB.pnl : -999999;
@@ -949,6 +953,18 @@ document.addEventListener("DOMContentLoaded", () => {
         liftHtml = `<span style="color:${color}; font-weight:600;">${sign}${liftPct}%</span>`;
       }
 
+      let backtestHtml = '<td style="color: var(--text-muted);">—</td>';
+      if (m.backtest_pnl !== null && m.backtest_pnl !== undefined) {
+        const bpnl = m.backtest_pnl;
+        const color = bpnl > 0 ? "var(--poly-green, #4ade80)" : bpnl < 0 ? "#ff3366" : "var(--text-muted)";
+        const sign = bpnl > 0 ? "+" : "";
+        const wr = m.backtest_wr !== null ? ` (${(m.backtest_wr * 100).toFixed(1)}% WR, ${m.backtest_trades} сд.)` : "";
+        backtestHtml = `<td style="color:${color}; font-weight:600; white-space:nowrap;">
+          ${sign}${bpnl.toFixed(2)} USDC<br/>
+          <span style="color:var(--text-muted);font-size:0.8rem;font-weight:normal;">${wr}</span>
+        </td>`;
+      }
+
       rows.push(`
                   <tr>
                       <td><strong>${escapeHtml(m.asset)}</strong></td>
@@ -957,6 +973,7 @@ document.addEventListener("DOMContentLoaded", () => {
                       <td>${baselineText}</td>
                       <td>${eceHtml}</td>
                       <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>
+                      ${backtestHtml}
                       ${pnlHtml}
                       <td>${statusHtml}</td>
                       <td>${actionHtml}</td>

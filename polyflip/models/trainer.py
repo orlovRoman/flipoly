@@ -130,15 +130,59 @@ def _compute_sample_weights(
     return w.astype(np.float64)
 
 
+def _compute_backtest_pnl(
+    oof_scores: np.ndarray,
+    y: pd.Series,
+    mid_prices: pd.Series,
+    threshold: float,
+    fee_per_trade: float = 0.02,
+    stake: float = 1.0,
+) -> dict:
+    signals = oof_scores >= threshold
+    if signals.sum() == 0:
+        return {
+            "total_pnl": 0.0,
+            "n_trades": 0,
+            "win_rate": 0.0,
+            "avg_trade_pnl": 0.0,
+            "sharpe": None,
+        }
+    
+    prices = mid_prices.values[signals]
+    targets = y.values[signals]
+    trade_pnl = np.where(
+        targets == 1,
+        (1.0 - prices) * stake - fee_per_trade,
+        -prices * stake - fee_per_trade,
+    )
+    total_pnl = float(trade_pnl.sum())
+    n_trades = int(signals.sum())
+    win_rate = float((trade_pnl > 0).mean())
+    avg_pnl = float(trade_pnl.mean())
+    if n_trades > 1 and trade_pnl.std() > 1e-9:
+        sharpe = float(trade_pnl.mean() / trade_pnl.std() * np.sqrt(n_trades))
+    else:
+        sharpe = None
+    return {
+        "total_pnl": round(total_pnl, 4),
+        "n_trades": n_trades,
+        "win_rate": round(win_rate, 4),
+        "avg_trade_pnl": round(avg_pnl, 4),
+        "sharpe": round(sharpe, 4) if sharpe else None,
+    }
+
+
 def _fit_and_serialize(
     X: pd.DataFrame,
     y: pd.Series,
     groups: pd.Series,
+    mid_prices: pd.Series,
     sample_weight: np.ndarray | None = None,
     lr_coef_threshold: float = 0.005,
     lr_min_features: int = 4,
     min_precision: float = 0.52,
     max_suspicious: float = 0.95,
+    fee_per_trade: float = 0.02,
 ):
     """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
     if sample_weight is not None:
@@ -318,7 +362,24 @@ def _fit_and_serialize(
 
     # Сериализуем модель (Pipeline сохраняет скейлер внутри)
     model_bytes = pickle.dumps(final_model)
-    return model_bytes, val_acc, baseline_acc, optimal_threshold, ece
+    
+    backtest = _compute_backtest_pnl(
+        oof_scores=oof_scores,
+        y=y,
+        mid_prices=mid_prices,
+        threshold=optimal_threshold,
+        fee_per_trade=fee_per_trade,
+    )
+
+    logger.info(
+        "backtest_pnl_result",
+        total_pnl=backtest["total_pnl"],
+        n_trades=backtest["n_trades"],
+        win_rate=backtest["win_rate"],
+        sharpe=backtest["sharpe"],
+    )
+
+    return model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest
 
 class ModelTrainer:
     def __init__(self, db_session: AsyncSession):
@@ -495,15 +556,18 @@ class ModelTrainer:
             )
 
         # Выполняем CPU-bound обучение в отдельном потоке (BUG-A2 FIX)
+        fee_per_trade = await get_float(self.db, "BACKTEST_FEE_PER_TRADE")
         fit_res = await asyncio.to_thread(
             _fit_and_serialize, X, y, groups,
+            mid_prices=df["mid_price"],
             sample_weight=sample_weights,
             lr_coef_threshold=lr_coef_threshold,
             lr_min_features=lr_min_features,
             min_precision=min_precision,
             max_suspicious=max_suspicious,
+            fee_per_trade=fee_per_trade,
         )
-        model_bytes, val_acc, baseline_acc, optimal_threshold, ece = fit_res
+        model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest = fit_res
 
         logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc, ece=ece)
 
@@ -556,6 +620,25 @@ class ModelTrainer:
                 f"Threshold {optimal_threshold:.4f} outside safe bounds [{MODEL_THRESHOLD_MIN}, {MODEL_THRESHOLD_MAX}], clipped to {clipped:.4f}"
             )
             optimal_threshold = clipped
+
+        # Новая проверка: backtested PnL
+        MIN_BACKTEST_TRADES = await get_int(self.db, "BACKTEST_MIN_TRADES")
+        MIN_BACKTEST_PNL = await get_float(self.db, "BACKTEST_MIN_PNL")
+        if backtest["n_trades"] >= MIN_BACKTEST_TRADES:
+            if backtest["total_pnl"] < MIN_BACKTEST_PNL:
+                passed_quality_gate = False
+                gate_reasons.append(
+                    f"Backtest PnL negative: {backtest['total_pnl']:.4f} "
+                    f"on {backtest['n_trades']} trades "
+                    f"(WR={backtest['win_rate']:.1%})"
+                )
+        else:
+            logger.warning(
+                "backtest_gate_skipped",
+                asset=asset,
+                n_trades=backtest["n_trades"],
+                min_required=MIN_BACKTEST_TRADES,
+            )
 
         should_activate = passed_quality_gate
         if not passed_quality_gate:
@@ -644,7 +727,10 @@ class ModelTrainer:
             is_active=should_activate,
             interval="15m",
             dataset_fingerprint=dataset_fingerprint,
-            trained_at=datetime.now(timezone.utc)
+            trained_at=datetime.now(timezone.utc),
+            backtest_pnl=backtest["total_pnl"],
+            backtest_trades=backtest["n_trades"],
+            backtest_wr=backtest["win_rate"],
         )
 
         self.db.add(new_model_record)
@@ -721,11 +807,13 @@ class ModelTrainer:
                     X_phase,
                     y_phase,
                     grp_phase,
+                    mid_prices=df_phase["mid_price"],
                     sample_weight=phase_weights,
                     lr_coef_threshold=lr_coef_threshold,
                     lr_min_features=lr_min_features,
                     min_precision=min_precision,
                     max_suspicious=max_suspicious,
+                    fee_per_trade=fee_per_trade,
                 )
             except Exception as e:
                 logger.error("price_phase_fit_failed", asset=asset, phase=phase_name, error=str(e))
@@ -735,7 +823,7 @@ class ModelTrainer:
             if not fit_res_phase:
                 continue
 
-            model_bytes_p, val_acc_p, baseline_acc_p, threshold_p, ece_p = fit_res_phase
+            model_bytes_p, val_acc_p, baseline_acc_p, threshold_p, ece_p, backtest_p = fit_res_phase
 
             if val_acc_p < min_auc:
                 logger.warning("price_phase_auc_too_low", asset=asset, phase=phase_name,
@@ -771,6 +859,9 @@ class ModelTrainer:
                 baseline=baseline_acc_p, features=",".join(active_features),
                 ece=ece_p, is_active=True, interval="15m",
                 trained_at=datetime.now(timezone.utc),
+                backtest_pnl=backtest_p["total_pnl"],
+                backtest_trades=backtest_p["n_trades"],
+                backtest_wr=backtest_p["win_rate"],
             ))
             phase_results[phase_name] = f"ok (AUC {val_acc_p:.3f}, n={n_phase})"
 
