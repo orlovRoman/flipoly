@@ -19,7 +19,6 @@ LAG_3 = 3   # ~15 мин
 LAG_6 = 6   # ~30 мин
 
 LAG_FEATURE_NAMES = [
-    "price_velocity_lag1",
     "price_momentum",
     "spread_trend",
     "volume_trend",
@@ -44,9 +43,6 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
 
     grp = df.groupby("market_id", sort=False)
 
-    # ── price_velocity_lag1: скорость цены 5 минут назад ──────────────────
-    df["price_velocity_lag1"] = grp["price_velocity"].shift(LAG_1)
-
     # ── price_momentum: импульс mid_price за LAG_3 снапшота ───────────────
     df["price_momentum"] = df["mid_price"] - grp["mid_price"].shift(LAG_3)
 
@@ -61,8 +57,7 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     df["volume_trend"] = df["volume_trend"].clip(upper=10.0)
 
     # ── Imputation: NaN (первые LAG_N строк каждого рынка) → медиана ─────
-    lag_cols = ["price_velocity_lag1", "price_momentum", "spread_trend", "volume_trend"]
-    for col in lag_cols:
+    for col in LAG_FEATURE_NAMES:
         median_val = df[col].median()
         fill_val = 0.0 if pd.isna(median_val) else float(median_val)
         df[col] = df[col].fillna(fill_val)

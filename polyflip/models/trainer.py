@@ -28,25 +28,18 @@ from polyflip.models.feature_lags import add_lag_features, LAG_FEATURE_NAMES
 
 DERIVED_FEATURES = [
     "price_deviation",
-    "deviation_x_time",
-    "price_deviation_sq",
     "spread_pct",
     "log_time_left",
     "day_of_week",
     "price_distance_from_max",
-    "time_phase",
     "is_final_phase",
     "high_price_final",
-    "velocity_x_phase",
-    "dev_sq_x_phase",
     *LAG_FEATURE_NAMES,
 ]
 
 def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["price_deviation"]     = (df["mid_price"] - 0.5).abs()
-    df["deviation_x_time"]    = df["price_deviation"] * df["time_left_min"]
-    df["price_deviation_sq"]  = df["price_deviation"] ** 2
     df["spread_pct"]          = (df["spread"] / (df["mid_price"] + 1e-6)).clip(upper=10.0)
     df["log_time_left"]       = np.log1p(df["time_left_min"])
 
@@ -77,31 +70,24 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
 
     if "market_duration_min" in df.columns:
         denominator = df["market_duration_min"].clip(lower=15.0)
-        df["time_phase"] = (df["time_left_min"] / (denominator + 1e-6)).clip(0, 1)
+        time_phase = (df["time_left_min"] / (denominator + 1e-6)).clip(0, 1)
     elif "market_id" in df.columns and "time_left_min" in df.columns:
         if len(df) > df["market_id"].nunique():
             denominator = (
                 df.groupby("market_id")["time_left_min"].transform("max")
                 .clip(lower=15.0)
             )
-            df["time_phase"] = (df["time_left_min"] / (denominator + 1e-6)).clip(0, 1)
+            time_phase = (df["time_left_min"] / (denominator + 1e-6)).clip(0, 1)
         else:
-            df["time_phase"] = (df["time_left_min"] / 60.0).clip(0, 1)
+            time_phase = (df["time_left_min"] / 60.0).clip(0, 1)
     elif "time_left_min" in df.columns:
-        df["time_phase"] = (df["time_left_min"] / 60.0).clip(0, 1)
+        time_phase = (df["time_left_min"] / 60.0).clip(0, 1)
     else:
-        import structlog
-        structlog.get_logger(__name__).warning("time_phase_fallback", reason="no time_left_min, using 1.0")
-        df["time_phase"] = 1.0
+        time_phase = 1.0
 
     # --- Interaction Features ---
-    df["is_final_phase"] = (df["time_phase"] <= 0.20).astype(float)
-    df["high_price_final"] = df["price_deviation"] * (1.0 - df["time_phase"])
-    if "price_velocity" in df.columns:
-        df["velocity_x_phase"] = df["price_velocity"] * (1.0 - df["time_phase"])
-    else:
-        df["velocity_x_phase"] = 0.0
-    df["dev_sq_x_phase"] = df["price_deviation_sq"] * (1.0 - df["time_phase"])
+    df["is_final_phase"] = (time_phase <= 0.20).astype(float)
+    df["high_price_final"] = df["price_deviation"] * (1.0 - time_phase)
 
     return df
 

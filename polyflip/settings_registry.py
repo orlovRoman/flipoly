@@ -157,7 +157,7 @@ REGISTRY: list[SettingDef] = [
     # --- Активы ---
     SettingDef("TRADE_ASSETS", "BTC,ETH",
                description="Список торгуемых активов (через запятую)"),
-    SettingDef("ACTIVE_FEATURES", "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day",
+    SettingDef("ACTIVE_FEATURES", "mid_price,spread_pct,volume_5min,log_time_left,is_final_phase,price_deviation,high_price_final,price_velocity,price_momentum,spread_trend,volume_trend,price_distance_from_max,day_of_week",
                description="Список признаков для ML-модели"),
 
     # --- Крипто ---
