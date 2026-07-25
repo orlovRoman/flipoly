@@ -143,6 +143,7 @@ def build_inference_dataframe(
     df = add_lag_features(df)
     
     if "recorded_at" in df.columns:
+        df["day_of_week"] = pd.to_datetime(df["recorded_at"]).dt.dayofweek.astype(float)
         df = df.sort_values("recorded_at").reset_index(drop=True)
         df = df.drop(columns=["recorded_at"], errors="ignore")
     if "market_id" in df.columns:

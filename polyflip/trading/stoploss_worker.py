@@ -152,6 +152,32 @@ async def stoploss_worker_cycle(
     # Загружаем POLYMARKET_FEE_RATE из RuntimeSettings через settings_service
     fee_rate = await get_float(db_session, "POLYMARKET_FEE_RATE")
 
+    # ── Восстановление: обработать зависшие TRIGGERING позиции ──────────
+    stuck_stmt = select(TradeHistory).where(
+        and_(
+            TradeHistory.stop_loss_status == "TRIGGERING",
+            TradeHistory.stop_loss_hit_at.is_(None),
+        )
+    )
+    stuck_trades = (await db_session.execute(stuck_stmt)).scalars().all()
+    for t in stuck_trades:
+        mkt_res = await db_session.execute(
+            select(LiveMarket).where(LiveMarket.market_id == t.market_id)
+        )
+        mkt = mkt_res.scalar_one_or_none()
+        token_id = (mkt.yes_token_id if t.outcome_bought == "YES" else mkt.no_token_id) if mkt else None
+
+        positions = await api_client.get_positions(t.market_id) if token_id else None
+        if not positions or positions.get("size", 0) == 0:
+            t.stop_loss_status = "TRIGGERED"
+            t.stop_loss_hit_at = datetime.now(timezone.utc)
+            logger.warning("stoploss_recovering_triggering", trade_id=t.id)
+        else:
+            t.stop_loss_status = "ACTIVE"
+            logger.warning("stoploss_reset_to_active", trade_id=t.id)
+    if stuck_trades:
+        await db_session.commit()
+
     # 2. Загружаем ACTIVE позиции с выставленным stop_loss_price
     stmt = select(TradeHistory).where(
         and_(
