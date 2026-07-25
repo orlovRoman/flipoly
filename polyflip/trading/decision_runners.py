@@ -384,7 +384,8 @@ async def decide_crypto_mode(
     raw_settings: dict,
     crypto_predictor: Any,
     start_time: datetime,
-    time_left_sec: float
+    time_left_sec: float,
+    models_cache: Optional[Any] = None,
 ) -> DecisionResult:
     from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
     binance_symbol = ASSET_TO_BINANCE_SYMBOL.get(market.asset.upper())
@@ -407,13 +408,32 @@ async def decide_crypto_mode(
         
     fresh_yes_price = fresh_yes_prices["current_yes_price"]
 
+    p_flip_ml = None
+    if models_cache and getattr(models_cache, "models", None) and market.asset.upper() in models_cache.models:
+        try:
+            model = models_cache.models.get(market.asset.upper())
+            active_features = models_cache.features.get(market.asset.upper(), [])
+            if model and active_features:
+                snaps_res = await db_session.execute(
+                    select(MarketSnapshot)
+                    .where(MarketSnapshot.market_id == market.market_id)
+                    .order_by(MarketSnapshot.recorded_at.desc())
+                    .limit(10)
+                )
+                snaps = list(reversed(snaps_res.scalars().all()))
+                if snaps:
+                    df_inf = build_inference_dataframe(snaps)
+                    p_flip_ml = run_model_inference(model, df_inf, active_features)
+        except Exception as e:
+            logger.warning("crypto_mode_ml_pflip_error", asset=market.asset, error=str(e))
+
     no_ask = None
     if crypto_sig.direction == "DOWN" and getattr(market, "no_token_id", None):
         no_prices = await api_client.get_market_prices(market.no_token_id)
         if no_prices and no_prices.get("best_ask") is not None:
             no_ask = float(no_prices["best_ask"])
 
-    decision_obj = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, raw_settings, no_ask=no_ask)
+    decision_obj = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, raw_settings, no_ask=no_ask, p_flip_ml=p_flip_ml)
     if not cfg.trade_on_favorite:
         decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
     

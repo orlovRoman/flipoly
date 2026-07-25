@@ -111,8 +111,13 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 elif asset_mode == TRADING_MODE_LIGHTGBM:
                     try:
                         from polyflip.trading.decision_runners import decide_crypto_mode
+                        from polyflip.trading.ml_inference import get_models_cache, populate_models_cache
+                        models_cache = get_models_cache()
+                        if not models_cache.models:
+                            await populate_models_cache(db_session)
+                            models_cache = get_models_cache()
                         decision_res = await decide_crypto_mode(
-                            db_session, api_client, market, cfg, raw_settings, _get_crypto_predictor(), start_time, time_left_sec
+                            db_session, api_client, market, cfg, raw_settings, _get_crypto_predictor(), start_time, time_left_sec, models_cache
                         )
                     except ImportError as e:
                         logger.error("decide_crypto_mode_import_error", error=str(e))

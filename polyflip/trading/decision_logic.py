@@ -338,6 +338,7 @@ def decide_crypto_trend(
     volume_5min: float,
     config: dict,
     no_ask: Optional[float] = None,
+    p_flip_ml: Optional[float] = None,
 ) -> TradeDecision:
     """
     Торговая логика для LIGHTGBM_TREND.
@@ -358,6 +359,18 @@ def decide_crypto_trend(
             reason="Invalid crypto features", strategy_type="LIGHTGBM_TREND", 
             p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
+
+    flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
+    if flip_thresh > 1.0:
+        flip_thresh = flip_thresh / 100.0
+
+    if p_flip_ml is not None and crypto.direction == "DOWN":
+        if p_flip_ml < flip_thresh:
+            return TradeDecision(
+                action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
+                reason=f"p_flip={p_flip_ml:.3f} < FLIP_THRESHOLD ({flip_thresh:.2f})",
+                strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+            )
 
     min_edge = float(config.get("MIN_EDGE", 0.05))
 

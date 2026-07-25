@@ -235,17 +235,25 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
     # Валидация и нормализация порогов вероятности флипа и мертвой зоны
-    if key in ["FLIP_THRESHOLD", "TRADE_FLIP_THRESHOLD", "TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH"] or key.startswith("FLIP_THRESHOLD_") or key.startswith("TRADE_FLIP_THRESHOLD_"):
-        if (key.startswith("FLIP_THRESHOLD_") or key.startswith("TRADE_FLIP_THRESHOLD_")) and payload.value == "":
+    is_threshold_key = (
+        "THRESHOLD" in key or
+        key in ["FLIP_THRESHOLD", "TRADE_FLIP_THRESHOLD", "NO_FLIP_THRESHOLD", "TRADE_NO_FLIP_THRESHOLD", "DEAD_ZONE_WIDTH"] or
+        key.startswith("FLIP_THRESHOLD_") or key.startswith("TRADE_FLIP_THRESHOLD_") or key.startswith("NO_FLIP_THRESHOLD_") or key.startswith("TRADE_NO_FLIP_THRESHOLD_") or key.startswith("AUTO_FLIP_THRESHOLD_")
+    )
+    if is_threshold_key:
+        if (key.startswith("FLIP_THRESHOLD_") or key.startswith("TRADE_FLIP_THRESHOLD_") or key.startswith("NO_FLIP_THRESHOLD_") or key.startswith("TRADE_NO_FLIP_THRESHOLD_") or key.startswith("AUTO_FLIP_THRESHOLD_")) and payload.value == "":
             pass
         else:
             try:
                 val = float(payload.value)
-                if val < 0.0 or val > 100.0:
+                if val <= 0.0 or val >= 100.0:
                     raise HTTPException(status_code=400, detail=f"Value for {key} must be between 0 and 100")
-                # Если прислали проценты (больше 1.0), автоматически переводим в доли для хранения в БД (например 80 -> 0.8)
+                # Если прислали проценты (больше 1.0), автоматически переводим в доли для хранения в БД (например 40 -> 0.40)
                 if val > 1.0:
-                    payload.value = str(round(val / 100.0, 4))
+                    val = val / 100.0
+                if not (0.0 < val < 1.0):
+                    raise HTTPException(status_code=400, detail=f"Value for {key} must be between 0.0 and 1.0")
+                payload.value = str(round(val, 4))
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
 
