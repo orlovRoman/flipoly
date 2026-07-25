@@ -264,6 +264,8 @@ def decide_outsider(
     Если P(flip) >= flip_threshold → рынок флипнет → покупаем аутсайдера.
     """
     flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
+    if flip_thresh > 1.0:
+        flip_thresh = flip_thresh / 100.0
     dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
     p_flip_calibrated = apply_ece_correction(p_flip, ece)
 
@@ -370,7 +372,13 @@ def decide_crypto_trend(
     if flip_thresh > 1.0:
         flip_thresh = flip_thresh / 100.0
 
-    if p_flip_ml is not None and crypto.direction == "DOWN":
+    if crypto.direction == "DOWN":
+        if p_flip_ml is None:
+            return TradeDecision(
+                action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
+                reason="DOWN trade blocked: p_flip_ml not provided",
+                strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+            )
         if p_flip_ml < flip_thresh:
             return TradeDecision(
                 action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
