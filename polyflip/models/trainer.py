@@ -205,15 +205,7 @@ def _fit_and_serialize(
         tr_weight = sample_weight[train_index] if sample_weight is not None else None
         fold_base.fit(X_train, y_train, model__sample_weight=tr_weight)
         
-        from sklearn.frozen import FrozenEstimator
-        fold_calibrated = CalibratedClassifierCV(
-            estimator=FrozenEstimator(fold_base),
-            method="sigmoid",
-            cv=[([], np.arange(len(y_val)))]
-        )
-        fold_calibrated.fit(X_val, y_val)
-        
-        y_proba = fold_calibrated.predict_proba(X_val)[:, 1]
+        y_proba = fold_base.predict_proba(X_val)[:, 1]
         oof_scores[val_index] = y_proba
         aucs.append(roc_auc_score(y_val, y_proba))
         
@@ -250,10 +242,11 @@ def _fit_and_serialize(
         final_base.fit(X_train_cal, y_train_cal, model__sample_weight=tr_cal_weight)
         
         from sklearn.frozen import FrozenEstimator
+        cal_split = [(np.arange(len(X_cal)), np.arange(len(X_cal)))]
         final_model = CalibratedClassifierCV(
             estimator=FrozenEstimator(final_base),
             method="sigmoid",
-            cv=[([], np.arange(len(y_cal)))]
+            cv=cal_split
         )
         final_model.fit(X_cal, y_cal)
     
@@ -398,7 +391,6 @@ class ModelTrainer:
                 "price_velocity": s.price_velocity,
                 "volume_5min": s.volume_5min,
                 "hour_of_day": s.hour_of_day,
-                "day_of_week": s.recorded_at.weekday(),
                 "target": 1 if s.flip_vs_final else 0
             })
             

@@ -143,6 +143,7 @@ def build_inference_dataframe(
     df = add_lag_features(df)
     
     if "recorded_at" in df.columns:
+        df = df.sort_values("recorded_at").reset_index(drop=True)
         df = df.drop(columns=["recorded_at"], errors="ignore")
     if "market_id" in df.columns:
         df = df.drop(columns=["market_id"], errors="ignore")
@@ -160,6 +161,27 @@ def run_model_inference(
     Если модель возвращает только один класс, возвращает 0.0.
     """
     X = df[features]
+
+    # Явная проверка порядка фич
+    expected_features = None
+    if hasattr(model, "feature_names_in_"):
+        expected_features = list(model.feature_names_in_)
+    elif hasattr(model, "calibrated_classifiers_") and model.calibrated_classifiers_:
+        base = getattr(model.calibrated_classifiers_[0], "estimator", None)
+        if base and hasattr(base, "feature_names_in_"):
+            expected_features = list(base.feature_names_in_)
+
+    if expected_features is not None:
+        actual_features = list(X.columns)
+        if expected_features != actual_features:
+            logger.error(
+                "feature_order_mismatch",
+                expected=expected_features,
+                actual=actual_features,
+                diff_missing=[f for f in expected_features if f not in actual_features],
+            )
+            raise ValueError(f"Feature order mismatch: expected {expected_features}, got {actual_features}")
+
     proba = model.predict_proba(X)
     
     try:
