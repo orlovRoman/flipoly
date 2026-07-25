@@ -376,3 +376,30 @@ def test_decide_crypto_trend_skip_dead_zone():
     assert d.strategy_type == "LIGHTGBM_TREND"
     assert "edge" in d.reason
 
+def test_combine_votes_flip_threshold_veto():
+    from polyflip.trading.combined_voting import combine_votes, CryptoSignalProxy
+    proxy = CryptoSignalProxy(direction="DOWN", features_ok=True)
+    vote = combine_votes(
+        ml_action="SKIP",
+        ml_edge=0.0,
+        crypto_sig=proxy,
+        asset="SOL",
+        ml_skip_reason="p_flip_calibrated=0.2490 < threshold=0.4005"
+    )
+    assert vote.action == "SKIP"
+    assert "FLIP_THRESHOLD veto" in vote.reason
+
+def test_combine_votes_soft_skip_allows_lgbm():
+    from polyflip.trading.combined_voting import combine_votes, CryptoSignalProxy
+    proxy = CryptoSignalProxy(direction="DOWN", features_ok=True)
+    vote = combine_votes(
+        ml_action="SKIP",
+        ml_edge=0.0,
+        crypto_sig=proxy,
+        asset="SOL",
+        ml_skip_reason="p_flip 0.41 in dead zone [0.35, 0.45]"
+    )
+    assert vote.action == "BUY_NO"
+    assert "LightGBM autonomous" in vote.reason
+
+

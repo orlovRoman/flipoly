@@ -66,10 +66,32 @@ def combine_votes(
         )
 
     if ml_action == "SKIP":
+        skip_reason_lower = (ml_skip_reason or "").lower()
+
+        # Soft SKIP = технические причины (зона, цена вне диапазона)
+        # LightGBM может торговать автономно с 50% ставкой
+        SOFT_SKIP_PATTERNS = ("dead zone", "dead_zone", "price out of", "out of bounds", "мёртвая зона", "мёртвая")
+        is_soft = any(p in skip_reason_lower for p in SOFT_SKIP_PATTERNS)
+
+        # Если ML скипнул из-за FLIP_THRESHOLD / p_flip (и не из-за dead zone) — Hard Veto
+        flip_threshold_veto = (
+            ("threshold" in skip_reason_lower or "p_flip" in skip_reason_lower) and not is_soft
+        )
+
+        if flip_threshold_veto:
+            return VotingResult(
+                action="SKIP",
+                reason=f"FLIP_THRESHOLD veto: {ml_skip_reason or 'p_flip failed threshold'}",
+                confidence=0.0,
+                ml_action=ml_action,
+                lgbm_direction=crypto_sig.direction,
+                lgbm_features_ok=True,
+                bet_size_multiplier=0.0,
+            )
+
         # Soft SKIP = технические причины (зона, цена вне диапазона)
         # LightGBM может торговать автономно с 50% ставкой
         SOFT_SKIP_PATTERNS = ("dead zone", "price out of", "out of bounds", "мёртвая зона")
-        skip_reason_lower = (ml_skip_reason or "").lower()
         is_soft = any(p in skip_reason_lower for p in SOFT_SKIP_PATTERNS)
 
         if is_soft and crypto_sig.features_ok and crypto_sig.direction not in (None, "NONE"):

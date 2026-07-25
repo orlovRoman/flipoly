@@ -221,6 +221,15 @@ async def decide_ml_mode(
         base_flip_threshold = cfg.no_flip_threshold + cfg.dead_zone
         _resolved_key = "system_default"
 
+    if base_flip_threshold > 1.0:
+        logger.warning(
+            "flip_threshold_normalized_from_percent",
+            resolved_key=_resolved_key,
+            original=base_flip_threshold,
+            normalized=base_flip_threshold / 100.0,
+        )
+        base_flip_threshold /= 100.0
+
     logger.info(
         "flip_threshold_resolved",
         asset=_asset_upper,
@@ -386,6 +395,16 @@ async def decide_crypto_mode(
     time_left_sec: float,
     models_cache: Optional[Any] = None,
 ) -> DecisionResult:
+    raw_settings = dict(raw_settings)
+    _raw_ft = raw_settings.get("FLIP_THRESHOLD")
+    if _raw_ft is not None:
+        try:
+            _ft_val = float(_raw_ft)
+            if _ft_val > 1.0:
+                raw_settings["FLIP_THRESHOLD"] = str(_ft_val / 100.0)
+        except ValueError:
+            pass
+
     from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
     binance_symbol = ASSET_TO_BINANCE_SYMBOL.get(market.asset.upper())
     if not binance_symbol:
