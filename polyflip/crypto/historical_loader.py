@@ -90,3 +90,24 @@ async def load_history_all(
                 logger.exception("historical_load_error", symbol=symbol, interval=interval)
                 results[key] = -1   # -1 = ошибка, не путать с 0 (уже загружено)
     return results
+
+if __name__ == "__main__":
+    import argparse
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    import os
+
+    parser = argparse.ArgumentParser(description="Загрузка исторических свечей из Binance.")
+    parser.add_argument("--days", type=int, default=30, help="Количество дней истории (default: 30)")
+    args = parser.parse_args()
+
+    async def main():
+        db_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///polyflip.db")
+        engine = create_async_engine(db_url)
+        SessionLocal = async_sessionmaker(engine)
+        async with SessionLocal() as session:
+            logger.info("historical_load_cli_start", days=args.days, db=db_url)
+            res = await load_history_all(session, days_back=args.days)
+            logger.info("historical_load_cli_done", results=res)
+            await session.commit()
+    
+    asyncio.run(main())
