@@ -3,6 +3,7 @@
 Endpoint: GET /fapi/v1/fundingRate
 Частота обновления: каждые 8 часов (00:00, 08:00, 16:00 UTC)
 """
+import asyncio
 import httpx
 import structlog
 from datetime import datetime, timezone
@@ -22,16 +23,27 @@ async def fetch_and_store_funding_rate(db: AsyncSession, symbol: str) -> float |
                 f"{BINANCE_FUTURES_URL}/fapi/v1/fundingRate",
                 params={"symbol": symbol, "limit": 3}
             )
+            await asyncio.sleep(0.2)  # rate_limit_pause=0.2
+
+            if resp.status_code in (429, 500, 502, 503, 504):
+                logger.warning("funding_rate_fetch_temporary_error", symbol=symbol, status=resp.status_code)
+                return None
+                
             resp.raise_for_status()
             data = resp.json()
 
-        if not data:
+        if not isinstance(data, list) or not data:
             return None
 
-        # Последние 3 значения → MA3
-        rates = [float(r["fundingRate"]) for r in data[-3:]]
-        current_rate = rates[-1]
-        ma3_rate = sum(rates) / len(rates)
+        try:
+            rates = [float(r["fundingRate"]) for r in data[-3:]]
+            if not rates:
+                return None
+            current_rate = rates[-1]
+            ma3_rate = sum(rates) / len(rates)
+        except (KeyError, ValueError, TypeError) as e:
+            logger.warning("funding_rate_invalid_data", symbol=symbol, error=str(e), data=data)
+            return None
 
         now = datetime.now(timezone.utc)
         for key, val in [
