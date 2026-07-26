@@ -135,6 +135,16 @@ async def infer_flip_for_market(
     
     return float(run_model_inference(df, model, active_features))
 
+async def _get_funding_rate(db_session: AsyncSession, binance_symbol: str) -> float:
+    from sqlalchemy import select
+    from polyflip.db.models import RuntimeSettings
+    fr_key = f"FUNDING_RATE_{binance_symbol}"
+    try:
+        row = (await db_session.execute(select(RuntimeSettings).where(RuntimeSettings.key == fr_key))).scalar_one_or_none()
+        return float(row.value) if row else 0.0
+    except Exception:
+        return 0.0
+
 async def decide_ml_mode(
     db_session: AsyncSession,
     api_client: Any,
@@ -353,7 +363,8 @@ async def decide_ml_mode(
             await crypto_predictor.load(db_session, binance_symbol)
             model_interval = crypto_predictor.get_interval(binance_symbol)
             candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
-            crypto_sig = crypto_predictor.predict(candles, binance_symbol)
+            fr = await _get_funding_rate(db_session, binance_symbol)
+            crypto_sig = crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
             
             if not crypto_sig.features_ok:
                 decision_obj = dataclasses.replace(
@@ -435,7 +446,8 @@ async def decide_crypto_mode(
     
     model_interval = crypto_predictor.get_interval(binance_symbol)
     candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
-    crypto_sig = crypto_predictor.predict(candles, binance_symbol)
+    fr = await _get_funding_rate(db_session, binance_symbol)
+    crypto_sig = crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
     
     if not crypto_sig.features_ok:
         return DecisionResult(None, 0.0, crypto_sig.model_version, None, "Invalid crypto features")
@@ -506,15 +518,17 @@ async def _fetch_lgbm_signal(
         await crypto_predictor.load(db_session, binance_symbol)
         interval = crypto_predictor.get_interval(binance_symbol)
         candles = await get_recent_candles(db_session, binance_symbol, interval=interval, limit=MIN_CANDLES_REQUIRED)
-        raw_sig = crypto_predictor.predict(candles, binance_symbol)
+        fr = await _get_funding_rate(db_session, binance_symbol)
+        raw_sig = crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
         return CryptoSignalProxy(
             direction=raw_sig.direction,
             features_ok=raw_sig.features_ok,
             model_version=getattr(raw_sig, "model_version", None),
+            risk_vetoed=getattr(raw_sig, "risk_vetoed", False),
         )
     except Exception as exc:
         logger.error("combined_lgbm_error_fallback", asset=asset_upper, error=str(exc))
-        return CryptoSignalProxy(direction=None, features_ok=False)
+        return CryptoSignalProxy(direction=None, features_ok=False, risk_vetoed=False)
 
 async def decide_combined_mode(
     db_session: AsyncSession,
@@ -578,7 +592,7 @@ async def decide_combined_mode(
         ml_result, crypto_proxy = await asyncio.gather(ml_task, lgbm_task)
     else:
         ml_result = await ml_task
-        crypto_proxy = CryptoSignalProxy(direction=None, features_ok=False)
+        crypto_proxy = CryptoSignalProxy(direction=None, features_ok=False, risk_vetoed=False)
         logger.warning("combined_no_crypto_predictor", asset=asset_upper)
 
     elapsed = time.monotonic() - t0

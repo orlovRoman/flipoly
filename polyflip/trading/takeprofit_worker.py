@@ -34,10 +34,10 @@ async def takeprofit_worker_cycle(
     # 2. Загружаем ACTIVE позиции с выставленным take_profit_price
     stmt = select(TradeHistory).where(
         and_(
-            TradeHistory.status == "SUCCESS",
+            TradeHistory.position_status.in_(["OPEN", "EXIT_FAILED"]),
+            TradeHistory.exit_attempts < 10,
             TradeHistory.take_profit_status == "ACTIVE",
             TradeHistory.take_profit_price.is_not(None),
-            TradeHistory.pnl.is_(None),  # позиция ещё не закрыта
         )
     )
     open_trades = (await db_session.execute(stmt)).scalars().all()
@@ -100,56 +100,26 @@ async def takeprofit_worker_cycle(
                 continue
 
             # Триггер: продаём
+            from polyflip.trading.position_closer import claim_position_for_exit, execute_position_exit
+            claimed = await claim_position_for_exit(db_session, trade.id, "TAKE_PROFIT")
+            if not claimed:
+                logger.warning("takeprofit_failed_to_claim", trade_id=trade.id)
+                continue
+
+            # После успешного захвата меняем статус тейк-профита
+            trade.take_profit_status = "TRIGGERED"
+            trade.take_profit_hit_at = now
+            trade.take_profit_sell_price = decision.tp_price
+            await db_session.commit()
+            
+            # Выполняем ордер и финализируем состояние
+            await execute_position_exit(db_session, trader, trade, market, current_bid, fee_rate)
+
             logger.info(
-                "takeprofit_triggered",
+                "takeprofit_execute_initiated",
                 trade_id=trade.id,
-                market_id=trade.market_id,
-                entry=trade.executed_price,
-                tp_price=decision.tp_price,
-                current_bid=current_bid,
+                sell_price=current_bid
             )
-
-            shares_held = round(trade.amount_usdc / trade.executed_price, 2)
-            trade.take_profit_sell_size = shares_held
-            sell_res = await trader.execute_trade(
-                market_id=trade.market_id,
-                token_id=token_id,
-                side="SELL",
-                price=current_bid,
-                size=shares_held,
-            )
-
-            executed_price = sell_res.get("executed_price", current_bid)
-
-            # PnL с вычетом комиссии Polymarket
-            gross = executed_price * shares_held
-            net   = gross * (1.0 - fee_rate)
-            trade.pnl = round(net - trade.amount_usdc, 4)
-
-            # Обновляем поля тейк-профита (status сделки остаётся "SUCCESS")
-            trade.take_profit_status    = "TRIGGERED"
-            trade.take_profit_hit_at    = now
-            trade.take_profit_sell_price = executed_price
-
-            # Записываем проскальзывание
-            slip      = round(current_bid - executed_price, 6)
-            slip_pct  = round(slip / current_bid * 100, 4) if current_bid > 0 else 0.0
-            slip_cost = round(slip * shares_held, 4)
-
-            db_session.add(SlippageLog(
-                trade_id=trade.id,
-                market_id=trade.market_id,
-                asset=trade.asset,
-                outcome_bought=trade.outcome_bought,
-                expected_price=current_bid,
-                executed_price=executed_price,
-                slippage=slip,
-                slippage_pct=slip_pct,
-                bet_size_usdc=trade.amount_usdc,
-                slippage_cost_usdc=slip_cost,
-                mode=sell_res.get("mode", "PAPER"),
-                created_at=now,
-            ))
 
             await db_session.commit()
 
@@ -157,8 +127,7 @@ async def takeprofit_worker_cycle(
                 "takeprofit_executed",
                 trade_id=trade.id,
                 pnl=trade.pnl,
-                sell_price=executed_price,
-                slippage=slip,
+                sell_price=trade.close_price,
             )
 
         except Exception as e:

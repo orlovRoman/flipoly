@@ -69,44 +69,27 @@ async def validate_pre_trade(
     buy_price = fresh_ask
     
     # Пересчет edge по реальной цене
-    if asset_mode in (TRADING_MODE_LIGHTGBM, TRADING_MODE_COMBINED):
-        edge = decision_obj.edge or 0.0
-        actual_bet_size = decision_obj.bet_size_usdc
+    if decision_obj.p_win_effective is not None:
+        p_win = decision_obj.p_win_effective
     else:
+        # Fallback to older logic if missing (should not happen with updated decision_logic)
         if asset_mode == TRADING_MODE_ML:
             p_win = 1.0 - p_flip if decision_obj.strategy_type == "ML_TREND" else p_flip
-            current_min_edge = asset_min_edge
-        else: # FAVORITE
-            if decision == "YES":
-                fresh_bid = fresh_prices.get("best_bid")
-                if fresh_bid and float(fresh_bid) > 0:
-                    fresh_p_win = float(fresh_bid)
-                else:
-                    fresh_p_win = float(fresh_ask) * 0.98
-            else:
-                fresh_bid_no = fresh_prices.get("best_bid")
-                if fresh_bid_no and float(fresh_bid_no) > 0:
-                    fresh_p_win = float(fresh_bid_no)
-                else:
-                    fresh_p_win = float(fresh_ask) * 0.98
-            stale_p_win = market.current_yes_price if decision == "YES" else (1.0 - market.current_yes_price)
-            stale_drift = abs(fresh_p_win - stale_p_win)
-            if stale_drift > 0.03:
-                logger.warning("stale_p_win_drift",
-                    market_id=market.market_id,
-                    stale=round(stale_p_win, 4),
-                    fresh=round(fresh_p_win, 4),
-                    drift=round(stale_drift, 4),
-                )
-            p_win = fresh_p_win
-            current_min_edge = cfg.favorite_min_edge if cfg.favorite_min_edge is not None else asset_min_edge
-            edge = compute_economic_edge(p_win, buy_price, cfg.fee_rate, cfg.slippage_rate)
-        
-        if edge < current_min_edge:
-            return PreTradeValidation(
-                valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
-                skip_reason=f"Edge below minimum (edge={edge:.4f} < min={current_min_edge:.4f})"
-            )
+        elif decision_obj.p_up is not None:
+            p_win = decision_obj.p_up
+        else:
+            p_win = p_flip
+
+    current_min_edge = cfg.favorite_min_edge if (asset_mode == TRADING_MODE_FAVORITE and cfg.favorite_min_edge is not None) else asset_min_edge
+    
+    # Считаем новый edge
+    edge = compute_economic_edge(p_win, buy_price, cfg.fee_rate, cfg.slippage_rate)
+    
+    if edge < current_min_edge:
+        return PreTradeValidation(
+            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
+            skip_reason=f"Edge below minimum (edge={edge:.4f} < min={current_min_edge:.4f})"
+        )
 
     ANOMALY_EDGE_WARN = 0.60
     if edge > ANOMALY_EDGE_WARN:
@@ -126,16 +109,23 @@ async def validate_pre_trade(
             skip_reason=f"Price out of bounds: {buy_price:.3f} [{cfg.trade_min_price}, {asset_max_price}]"
         )
         
+    # Рассчитываем новую ставку (если не фикс)
     if cfg.bet_sizing_mode == "fixed":
         actual_bet_size = cfg.bet_size
-    elif asset_mode not in (TRADING_MODE_LIGHTGBM, TRADING_MODE_COMBINED):
-        actual_bet_size = compute_bet_size_edge_scaled(
+    else:
+        newly_calculated_bet_size = compute_bet_size_edge_scaled(
             edge=edge,
             min_bet_usdc=cfg.bet_size,
             max_bet_usdc=cfg.max_bet_size_usdc,
             min_edge=current_min_edge,
             max_edge=cfg.max_bet_edge
         )
+        # Запрет увеличения ставки на финальной проверке
+        if decision_obj.bet_size_usdc > 0:
+            actual_bet_size = min(decision_obj.bet_size_usdc, newly_calculated_bet_size)
+        else:
+            actual_bet_size = newly_calculated_bet_size
+            
         if asset_mode == TRADING_MODE_FAVORITE and actual_bet_size < cfg.bet_size:
             actual_bet_size = cfg.bet_size
 

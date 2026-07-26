@@ -55,6 +55,9 @@ class TradeDecision:
     edge: Optional[float] = None
     p_up: Optional[float] = None
     strike: Optional[float] = None
+    p_win_effective: Optional[float] = None
+    p_win_raw: Optional[float] = None
+    probability_adjustment: Optional[str] = None
 
 
 
@@ -132,6 +135,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
                     "BUY_YES", eff_yes_ask, bet,
                     f"favorite YES edge={edge:.4f}", "PURE_FAVORITE",
                     edge=edge, p_up=p_win_yes,
+                    p_win_effective=p_win_yes, p_win_raw=p_win_yes
                 ))
 
     # --- NO side --- проверяется НЕЗАВИСИМО от YES-side
@@ -149,6 +153,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
                     "BUY_NO", eff_no_ask, bet,
                     f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
                     edge=edge, p_up=1.0 - no_prob,
+                    p_win_effective=no_prob, p_win_raw=no_prob
                 ))
 
     if not candidates:
@@ -434,7 +439,8 @@ def decide_crypto_trend(
         return TradeDecision(
             action="SKIP", buy_price=actual_buy_price, bet_size_usdc=0.0,
             reason=f"economic edge={economic_edge:.4f} < min_edge={min_edge:.4f}",
-            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge,
+            p_win_effective=p_win, p_win_raw=p_win
         )
 
     bet = _resolve_final_bet(economic_edge, volume_5min, config)
@@ -443,7 +449,8 @@ def decide_crypto_trend(
         return TradeDecision(
             action="SKIP", buy_price=actual_buy_price, bet_size_usdc=0.0, 
             reason="Bet size 0", strategy_type="LIGHTGBM_TREND", 
-            p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge
+            p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge,
+            p_win_effective=p_win, p_win_raw=p_win
         )
 
     return TradeDecision(
@@ -454,7 +461,9 @@ def decide_crypto_trend(
         strategy_type="LIGHTGBM_TREND",
         p_up=crypto.p_up,
         strike=crypto.strike,
-        edge=economic_edge
+        edge=economic_edge,
+        p_win_effective=p_win,
+        p_win_raw=p_win
     )
 
 

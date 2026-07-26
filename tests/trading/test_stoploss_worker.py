@@ -211,7 +211,7 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
     trader_mock.execute_trade.return_value = {
         "status": "SUCCESS",
         "mode": "PAPER",
-        "executed_price": 0.20
+        "executed_price": 0.20, "executed_usdc": 4.0
     }
     
     api_mock = AsyncMock()
@@ -229,7 +229,7 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
         size=20.0
     )
     assert trade.pnl == pytest.approx(-6.008, abs=1e-3)
-    assert trade.stop_loss_sell_price == 0.20
+    assert trade.close_price == 0.20
 
     # Проверим, что SlippageLog был создан
     res = await db_session.execute(select(SlippageLog).where(SlippageLog.trade_id == trade.id))
@@ -280,3 +280,4 @@ async def test_worker_skips_trade_with_missing_stop_loss_pct(db_session):
     await db_session.refresh(trade)
     assert trade.stop_loss_status == "EXPIRED"
     trader_mock.execute_trade.assert_not_called()
+

@@ -129,6 +129,14 @@ class TradeHistory(Base):
     take_profit_hit_at     = Column(DateTime(timezone=True), nullable=True)
     take_profit_sell_price = Column(Float, nullable=True)
     
+    # --- Unified Exit Status ---
+    position_status = Column(String(32), nullable=False, default="OPEN")
+    exit_reason     = Column(String(32), nullable=True)
+    exit_order_id   = Column(String(128), nullable=True)
+    exit_attempts   = Column(Integer, nullable=False, default=0)
+    closed_at       = Column(DateTime(timezone=True), nullable=True)
+    close_price     = Column(Float, nullable=True)
+    
     created_at = Column(DateTime(timezone=True), nullable=False)
     config_snapshot = Column(Text, nullable=True)   # JSON паспорт настроек на момент сделки
     

@@ -74,8 +74,8 @@ class CryptoSignal:
     threshold_down: float    # Порог для шорта (BUY_DOWN)
     model_version: int       # Версия модели из реестра
     features_ok: bool        # False, если не прошли Pydantic-валидацию
+    risk_vetoed: bool = False # Флаг: вето из-за риска наложено предторговой проверкой модели
     ece: float = 0.0         # BUG-AO
-    stake_multiplier: float = 1.0
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
@@ -395,15 +395,15 @@ class CryptoPredictor:
                     symbol=symbol,
                     p_up=p_up,
                     p_down=p_down,
-                    direction="NONE",
-                    signal_strength=0.0,
+                    direction=direction,
+                    signal_strength=signal_strength,
                     strike=strike,
                     threshold_up=th_up,
                     threshold_down=th_down,
                     model_version=version,
+                    risk_vetoed=True,
                     features_ok=True,
                     ece=ece,
-                    stake_multiplier=0.0,
                 )
 
             logger.debug(
@@ -426,9 +426,8 @@ class CryptoPredictor:
                 model_version=version,
                 features_ok=True,
                 ece=ece,
-                stake_multiplier=veto.stake_multiplier,
             )
         except Exception as e:
             logger.exception("crypto_inference_failed", symbol=symbol, error=str(e))
-            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
+            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, 0.0)
 

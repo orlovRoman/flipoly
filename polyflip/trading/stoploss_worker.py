@@ -83,52 +83,25 @@ async def _process_single_stoploss(
     )
 
     # Атомарно фиксируем намерение исполнения до вызова биржи для защиты от повторных продаж
-    trade.stop_loss_status = "TRIGGERING"
+    from polyflip.trading.position_closer import claim_position_for_exit, execute_position_exit
+    claimed = await claim_position_for_exit(db_session, trade.id, "STOP_LOSS")
+    if not claimed:
+        logger.warning("stoploss_failed_to_claim", trade_id=trade.id)
+        return
+
+    # После успешного захвата меняем статус стоп-лосса
+    trade.stop_loss_status = "TRIGGERED"
+    trade.stop_loss_hit_at = now
+    trade.stop_loss_sell_price = decision.stop_price
     await db_session.commit()
 
-    shares_held = round(trade.amount_usdc / trade.executed_price, 4)
-    sell_res = await trader.execute_trade(
-        market_id=trade.market_id,
-        token_id=token_id,
-        side="SELL",
-        price=current_bid,
-        size=shares_held,
-    )
-
-    executed_price = sell_res.get("executed_price", current_bid)
-
-    trade.stop_loss_status    = "TRIGGERED"
-    trade.stop_loss_hit_at    = now
-    trade.stop_loss_sell_price = executed_price
-    net_sell = executed_price * shares_held * (1.0 - fee_rate)
-    trade.pnl = round(net_sell - trade.amount_usdc, 4)
-
-    slip      = round(current_bid - executed_price, 6)
-    slip_pct  = round(slip / current_bid * 100, 4) if current_bid > 0 else 0.0
-    slip_cost = round(slip * shares_held, 4)
-
-    slippage_record = SlippageLog(
-        trade_id=trade.id,
-        market_id=trade.market_id,
-        asset=trade.asset,
-        outcome_bought=trade.outcome_bought,
-        expected_price=current_bid,
-        executed_price=executed_price,
-        slippage=slip,
-        slippage_pct=slip_pct,
-        bet_size_usdc=trade.amount_usdc,
-        slippage_cost_usdc=slip_cost,
-        mode=sell_res.get("mode", "PAPER"),
-        created_at=now,
-    )
-    db_session.add(slippage_record)
-
+    # Выполняем ордер и финализируем состояние
+    await execute_position_exit(db_session, trader, trade, market, current_bid, fee_rate)
+    
     logger.info(
-        "stoploss_executed",
+        "stoploss_execute_initiated",
         trade_id=trade.id,
-        pnl=trade.pnl,
-        sell_price=executed_price,
-        slippage=slip
+        sell_price=current_bid
     )
 
 
@@ -181,10 +154,10 @@ async def stoploss_worker_cycle(
     # 2. Загружаем ACTIVE позиции с выставленным stop_loss_price
     stmt = select(TradeHistory).where(
         and_(
-            TradeHistory.status == "SUCCESS",
+            TradeHistory.position_status.in_(["OPEN", "EXIT_FAILED"]),
+            TradeHistory.exit_attempts < 10,
             TradeHistory.stop_loss_status == "ACTIVE",
             TradeHistory.stop_loss_price.is_not(None),
-            TradeHistory.pnl.is_(None),  # позиция ещё не закрыта
         )
     )
     open_trades = (await db_session.execute(stmt)).scalars().all()

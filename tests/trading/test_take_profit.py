@@ -72,7 +72,7 @@ async def test_tp_worker_triggers_when_price_reached(db_session):
 
     trader_mock = AsyncMock()
     trader_mock.execute_trade = AsyncMock(return_value={
-        "status": "SUCCESS", "executed_price": 0.82, "mode": "PAPER", "error_msg": None
+        "status": "SUCCESS", "executed_price": 0.82, "executed_usdc": 8.2, "mode": "PAPER", "error_msg": None
     })
     api_mock = AsyncMock()
     api_mock.get_market_prices = AsyncMock(return_value={
@@ -87,7 +87,7 @@ async def test_tp_worker_triggers_when_price_reached(db_session):
     t = result.scalar_one()
     assert t.take_profit_status == "TRIGGERED"
     assert t.status == "SUCCESS"          # основной статус не меняется!
-    assert t.take_profit_sell_price == 0.82
+    assert t.close_price == 0.82
     assert t.pnl is not None and t.pnl > 0
 
     # SlippageLog должен быть создан

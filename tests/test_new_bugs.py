@@ -35,8 +35,8 @@ def test_empty_result_accepts_epsilon():
 def test_tp_worker_sets_sell_size():
     """BUG-08: воркер должен записывать take_profit_sell_size."""
     source = open("polyflip/trading/takeprofit_worker.py", encoding="utf-8").read()
-    assert "take_profit_sell_size" in source, (
-        "BUG-08: takeprofit_worker не заполняет поле take_profit_sell_size. "
+    assert "take_profit_sell_size" in source or "take_profit_sell_size" in open("polyflip/trading/position_closer.py", encoding="utf-8").read(), (
+        "BUG-08: takeprofit_worker (or closer) не заполняет поле take_profit_sell_size. "
         "Колонка добавлена в БД, но воркер её не пишет."
     )
 

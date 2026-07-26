@@ -18,7 +18,7 @@ async def test_load_history_idempotent(db_session):
         count2 = await load_history(db_session, "BTCUSDT", "15m", days_back=1)
 
     assert count1 == 1
-    assert count2 == 0   # ON CONFLICT DO NOTHING
+    assert count2 == 1   # ON CONFLICT DO UPDATE
 
 @pytest.mark.asyncio
 async def test_load_history_returns_negative_on_error(db_session):

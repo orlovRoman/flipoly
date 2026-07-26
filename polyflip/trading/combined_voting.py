@@ -29,6 +29,7 @@ class CryptoSignalProxy:
     direction: Optional[Literal["UP", "DOWN", "NONE"]]
     features_ok: bool
     model_version: Optional[int] = None
+    risk_vetoed: bool = False
 
 @dataclass(frozen=True)
 class VotingResult:
@@ -60,10 +61,23 @@ def combine_votes(
             reason="LightGBM features invalid, fallback to ML-only",
             confidence=ml_edge,
             ml_action=ml_action,
-            lgbm_direction=None,
-            lgbm_features_ok=False,
+            lgbm_direction=crypto_sig.direction,
+            lgbm_features_ok=crypto_sig.features_ok,
             bet_size_multiplier=1.0,
         )
+
+    if crypto_sig.risk_vetoed:
+        logger.warning("combined_lgbm_risk_vetoed", asset=asset, direction=crypto_sig.direction)
+        return VotingResult(
+            action="SKIP",
+            reason="Hard Veto: LightGBM risk veto",
+            confidence=1.0,
+            ml_action=ml_action,
+            lgbm_direction=crypto_sig.direction,
+            lgbm_features_ok=crypto_sig.features_ok,
+            bet_size_multiplier=0.0,
+        )
+
 
     if ml_action == "SKIP":
         skip_reason_lower = (ml_skip_reason or "").lower()

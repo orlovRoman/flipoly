@@ -2,7 +2,7 @@ import pytest
 from polyflip.trading.decision_logic import (
     decide_favorite, decide_ml_trend, decide_outsider, decide_crypto_trend
 )
-from polyflip.crypto.edge import compute_crypto_edge
+from polyflip.crypto.edge import compute_crypto_signal_strength
 from polyflip.crypto.predictor import CryptoSignal
 
 from polyflip.trading.feature_builder import MarketSignal
@@ -291,40 +291,40 @@ def test_backtest_schema_new_keys():
 # ─────────────────────────────────────────
 
 def test_crypto_edge_up():
-    edge, direction = compute_crypto_edge(p_up=0.75, threshold_up=0.65, threshold_down=0.35)
+    edge, direction = compute_crypto_signal_strength(p_up=0.75, threshold_up=0.65, threshold_down=0.35)
     assert direction == "UP"
     assert edge == pytest.approx(0.10)
 
 def test_crypto_edge_down():
-    edge, direction = compute_crypto_edge(p_up=0.25, threshold_up=0.65, threshold_down=0.35)
+    edge, direction = compute_crypto_signal_strength(p_up=0.25, threshold_up=0.65, threshold_down=0.35)
     assert direction == "DOWN"
     assert edge == pytest.approx(0.10)
 
 def test_crypto_edge_dead_zone():
-    edge, direction = compute_crypto_edge(p_up=0.50, threshold_up=0.65, threshold_down=0.35)
+    edge, direction = compute_crypto_signal_strength(p_up=0.50, threshold_up=0.65, threshold_down=0.35)
     assert direction == "NONE"
     assert edge == 0.0
 
 def test_decide_crypto_trend_buy_yes():
     # p_up = 0.75 -> UP, edge = 0.15 > CRYPTO_MIN_EDGE (0.05)
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.75, p_down=0.25, direction="UP", edge=0.15,
+        symbol="BTCUSDT", p_up=0.75, p_down=0.25, direction="UP", signal_strength=0.15,
         strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
     )
-    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG)
+    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG, p_flip_ml=0.20)
     assert d.action == "BUY_YES"
     assert d.strategy_type == "LIGHTGBM_TREND"
     assert d.p_up == 0.75
     assert d.strike == 60000.0
-    assert d.edge == 0.15
+    assert d.edge == pytest.approx(0.1538, abs=1e-3)
 
 def test_decide_crypto_trend_buy_no():
     # p_up = 0.25 -> DOWN, edge = 0.15 > CRYPTO_MIN_EDGE (0.05)
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", edge=0.15,
+        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", signal_strength=0.15,
         strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
     )
-    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG, p_flip_ml=0.65)
+    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG, p_flip_ml=0.65, no_ask=0.35)
     assert d.action == "BUY_NO"
     assert d.strategy_type == "LIGHTGBM_TREND"
     assert d.p_up == 0.25
@@ -339,40 +339,40 @@ def test_outsider_flip_threshold_40_as_percent():
 
 def test_crypto_trend_down_blocked_without_p_flip_ml():
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", edge=0.15,
+        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", signal_strength=0.15,
         strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
     )
-    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "40"}, p_flip_ml=None)
+    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "40"}, p_flip_ml=None, no_ask=0.30)
     assert result.action == "SKIP"
     assert "p_flip_ml not provided" in result.reason
 
 def test_crypto_trend_down_passes_flip_threshold():
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", edge=0.15,
+        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", signal_strength=0.15,
         strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
     )
-    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "40"}, p_flip_ml=0.261)
+    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "40"}, p_flip_ml=0.261, no_ask=0.30)
     assert result.action == "SKIP"
     assert "0.40" in result.reason
 
 def test_crypto_trend_down_passes_above_threshold():
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", edge=0.15,
+        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", signal_strength=0.15,
         strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
     )
-    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "40"}, p_flip_ml=0.50)
+    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "0.40"}, p_flip_ml=0.50, no_ask=0.30)
     assert result.action == "BUY_NO"
 
 def test_decide_crypto_trend_skip_dead_zone():
     # direction = NONE
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.50, p_down=0.50, direction="NONE", edge=0.0,
+        symbol="BTCUSDT", p_up=0.50, p_down=0.50, direction="NONE", signal_strength=0.0,
         strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
     )
-    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG)
+    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG, p_flip_ml=0.65)
     assert d.action == "SKIP"
     assert d.strategy_type == "LIGHTGBM_TREND"
-    assert "edge" in d.reason
+    assert "crypto signal_strength" in d.reason
 
 def test_combine_votes_flip_threshold_veto():
     from polyflip.trading.combined_voting import combine_votes, CryptoSignalProxy
@@ -399,5 +399,7 @@ def test_combine_votes_soft_skip_allows_lgbm():
     )
     assert vote.action == "BUY_NO"
     assert "LightGBM autonomous" in vote.reason
+
+
 
 

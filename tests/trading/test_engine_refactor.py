@@ -657,6 +657,7 @@ class TestStep6PreTradeValidator:
         return TradeDecision(
             action=action, buy_price=buy_price, bet_size_usdc=bet,
             strategy_type="ML_TREND", reason="test", edge=edge,
+            p_win_effective=0.8, p_win_raw=0.8
         )
 
     @pytest.mark.asyncio
@@ -753,7 +754,8 @@ class TestStep7TradeRecorder:
         from polyflip.trading.decision_logic import TradeDecision
         return TradeDecision(
             action=action, buy_price=buy_price, bet_size_usdc=10.0,
-            strategy_type="ML_TREND", reason="test", edge=edge
+            strategy_type="ML_TREND", reason="test", edge=edge,
+            p_win_effective=0.8, p_win_raw=0.8
         )
 
     @pytest.mark.asyncio

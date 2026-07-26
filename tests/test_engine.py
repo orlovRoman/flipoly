@@ -531,8 +531,8 @@ async def test_skipped_crypto_trade_has_active_features_set(db_session):
          mock_predictor.load = AsyncMock()
          mock_predictor.get_interval.return_value = "15m"
          mock_predictor.predict.return_value = CryptoSignal(
-             symbol="BTCUSDT", p_up=0.51, p_down=0.49, direction="UP", edge=0.01,
-             strike=60000.0, threshold_up=0.50, threshold_down=0.50, model_version=1, features_ok=True
+             symbol="BTCUSDT", p_up=0.51, p_down=0.49, direction="UP", signal_strength=0.01,
+                 strike=60000.0, threshold_up=0.50, threshold_down=0.50, model_version=1, features_ok=True
          )
          
          from polyflip.trading.decision_logic import TradeDecision
@@ -554,3 +554,5 @@ async def test_skipped_crypto_trade_has_active_features_set(db_session):
          assert trade.status == "SKIPPED"
          assert trade.active_features != "", "active_features должны быть заполнены даже для skipped крипто-сделок"
          assert "lightgbm" in trade.active_features.lower()
+
+
