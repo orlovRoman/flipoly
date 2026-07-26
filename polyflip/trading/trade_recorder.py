@@ -137,7 +137,23 @@ async def execute_and_record(
         )
     except Exception as e:
         logger.exception("execute_trade_error", error=str(e))
-        trade_res = {"status": "FAILED", "error_msg": str(e), "executed_price": buy_price, "executed_usdc": actual_bet_size, "mode": "PAPER"}
+        trade_res = None
+        error_msg = str(e)
+
+    if trade_res is None:
+        exec_status = "FAILED"
+        exec_error = error_msg
+        exec_mode = "PAPER" if trader.get_client() is None else "LIVE"
+        exec_usdc = float(actual_bet_size)
+        exec_price = float(buy_price)
+        filled_shares = 0.0
+    else:
+        exec_status = "SUCCESS" if trade_res.status in ("FILLED", "PAPER_FILLED") else trade_res.status
+        exec_error = trade_res.error_message
+        exec_mode = "PAPER" if trade_res.order_type == "PAPER" else "LIVE"
+        exec_usdc = float(trade_res.net_quote_usdc) if trade_res.net_quote_usdc is not None else float(actual_bet_size)
+        exec_price = float(trade_res.average_price) if trade_res.average_price is not None else float(buy_price)
+        filled_shares = float(trade_res.filled_shares) if trade_res.filled_shares is not None else 0.0
 
     if existing_skipped:
         await db_session.delete(existing_skipped)
@@ -165,29 +181,33 @@ async def execute_and_record(
         market_id=market.market_id,
         asset=market.asset,
         outcome_bought=decision,
-        amount_usdc=trade_res.get("executed_usdc", actual_bet_size),
-        executed_price=trade_res.get("executed_price", buy_price),
+        amount_usdc=exec_usdc,
+        executed_price=exec_price,
         predicted_flip_prob=p_flip,
         p_up=decision_obj.p_up,
         strike=decision_obj.strike,
         active_features=_get_trade_active_features(asset_mode, active_features, decision_obj, market.asset),
         model_version=model_ver,
-        status=trade_res.get("status", "FAILED"),
-        error_msg=trade_res.get("error_msg"),
-        mode=trade_res.get("mode", "PAPER"),
+        status=exec_status,
+        error_msg=exec_error,
+        mode=exec_mode,
         edge=round(edge, 4) if edge is not None else None,
         lgbm_metadata=lgbm_metadata,
         config_snapshot=config_snapshot_json,
-        created_at=start_time
+        created_at=start_time,
+        entry_filled_shares=filled_shares,
+        entry_cost_usdc=exec_usdc,
+        remaining_shares=filled_shares,
+        realized_pnl_usdc=0.0,
+        position_status="OPEN" if exec_status == "SUCCESS" else "CLOSED"
     )
     db_session.add(history)
     await db_session.flush()
 
-    if trade_res.get("status") == "SUCCESS":
-        exec_p = trade_res.get("executed_price", buy_price)
-        slip = round(exec_p - buy_price, 6)
+    if exec_status == "SUCCESS":
+        slip = round(exec_price - buy_price, 6)
         slip_pct = round(slip / buy_price * 100, 4) if buy_price > 0 else 0.0
-        slip_cost = round(slip * (actual_bet_size / exec_p), 4) if exec_p > 0 else 0.0
+        slip_cost = round(slip * (actual_bet_size / exec_price), 4) if exec_price > 0 else 0.0
 
         slippage_record = SlippageLog(
             trade_id=history.id,
@@ -195,12 +215,12 @@ async def execute_and_record(
             asset=market.asset,
             outcome_bought=decision,
             expected_price=buy_price,
-            executed_price=exec_p,
+            executed_price=exec_price,
             slippage=slip,
             slippage_pct=slip_pct,
             bet_size_usdc=actual_bet_size,
             slippage_cost_usdc=slip_cost,
-            mode=trade_res.get("mode", "PAPER"),
+            mode=exec_mode,
             created_at=start_time,
         )
         db_session.add(slippage_record)

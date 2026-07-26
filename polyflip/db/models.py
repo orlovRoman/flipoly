@@ -1,4 +1,4 @@
-﻿from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint, Text, CheckConstraint, Numeric, SmallInteger
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint, Text, CheckConstraint, Numeric, SmallInteger
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 
@@ -137,7 +137,7 @@ class TradeHistory(Base):
     entry_filled_shares = Column(Numeric(38, 18), nullable=True)
     entry_cost_usdc = Column(Numeric(38, 18), nullable=True)
     remaining_shares = Column(Numeric(38, 18), nullable=True)
-    realized_pnl_usdc = Column(Numeric(38, 18), nullable=False, default=0)
+    realized_pnl_usdc = Column(Numeric(38, 18), nullable=True)
     
     # --- Unified Exit Status ---
     position_status = Column(String(32), nullable=False, default="OPEN")
@@ -157,7 +157,7 @@ class TradeHistory(Base):
         Index("idx_trade_history_market_id", "market_id"),
         Index("idx_trade_history_model_version", "asset", "model_version", "status", "created_at"),
         CheckConstraint(
-            "position_accounting_version = 0 OR (remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
+            "position_accounting_version = 0 OR (entry_filled_shares IS NOT NULL AND entry_cost_usdc IS NOT NULL AND remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
             name="ck_trade_position_accounting_initialized",
         ),
     )
@@ -302,14 +302,4 @@ class ConfigPreset(Base):
         Index("idx_config_presets_type",       "preset_type"),
     )
 
-class ChainTransaction(Base):
-    __tablename__ = "chain_transactions"
-    
-    tx_hash = Column(String(128), primary_key=True)
-    attempt_id = Column(UUID(as_uuid=True), nullable=True)
-    operation = Column(String(32), nullable=False)  # APPROVE, SPLIT, MERGE, REDEEM, SETTLEMENT
-    network = Column(String(32), nullable=False)
-    gas_paid_native = Column(Numeric(38, 18), nullable=True)
-    gas_paid_usdc = Column(Numeric(38, 18), nullable=True)
-    paid_by = Column(String(16), nullable=False)  # USER, RELAYER, UNKNOWN
-    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+

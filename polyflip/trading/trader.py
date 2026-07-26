@@ -87,7 +87,7 @@ class PolyTrader:
             fee_source="ESTIMATED"
         )
         
-        if self.mode == "PAPER":
+        if self.get_client() is None:
             logger.info("paper_trade_executed", market_id=market_id, side=side, price=price, size=size)
             return TradeExecution(
                 attempt_id=attempt_id,
@@ -248,7 +248,7 @@ class PolyTrader:
 
     async def get_balance(self, token_id: str) -> BalanceResult:
         """Получает текущий баланс токена."""
-        if self.mode == "PAPER":
+        if self.get_client() is None:
             return BalanceResult(
                 status="PAPER",
                 wallet_address="PAPER_WALLET",
