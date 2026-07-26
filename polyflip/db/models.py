@@ -189,6 +189,8 @@ class CryptoCandle(Base):
     symbol     = Column(String(32), nullable=False)   # 'BTCUSDT', 'ETHUSDT'
     interval   = Column(String(8),  nullable=False)   # '15m', '1h', etc.
     open_time  = Column(DateTime(timezone=True), nullable=False)
+    close_time = Column(DateTime(timezone=True), nullable=True) # Добавлено для Stage 2
+    is_closed  = Column(Boolean, nullable=True)                 # Добавлено для Stage 2
     open       = Column(Float, nullable=False)
     high       = Column(Float, nullable=False)
     low        = Column(Float, nullable=False)

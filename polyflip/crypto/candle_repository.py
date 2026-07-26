@@ -32,6 +32,8 @@ async def upsert_candles(
             "symbol":           symbol,
             "interval":         interval,
             "open_time":        c["open_time"],
+            "close_time":       c.get("close_time"),
+            "is_closed":        c.get("is_closed"),
             "open":             c["open"],
             "high":             c["high"],
             "low":              c["low"],
@@ -50,7 +52,17 @@ async def upsert_candles(
         stmt = (
             pg_insert(CryptoCandle)
             .values(batch)
-            .on_conflict_do_nothing(constraint="uix_crypto_candle")
+            .on_conflict_do_update(
+                constraint="uix_crypto_candle",
+                set_={
+                    "is_closed": pg_insert(CryptoCandle).excluded.is_closed,
+                    "close": pg_insert(CryptoCandle).excluded.close,
+                    "high": pg_insert(CryptoCandle).excluded.high,
+                    "low": pg_insert(CryptoCandle).excluded.low,
+                    "volume": pg_insert(CryptoCandle).excluded.volume,
+                    "taker_buy_volume": pg_insert(CryptoCandle).excluded.taker_buy_volume,
+                }
+            )
         )
         result = await session.execute(stmt)
         total_inserted += result.rowcount
@@ -71,6 +83,7 @@ async def get_recent_candles(
         .where(
             CryptoCandle.symbol == symbol,
             CryptoCandle.interval == interval,
+            (CryptoCandle.is_closed.is_(True)) | (CryptoCandle.is_closed.is_(None))
         )
         .order_by(desc(CryptoCandle.open_time))
         .limit(limit)

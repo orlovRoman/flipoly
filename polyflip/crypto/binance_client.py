@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 import httpx
 from httpx import HTTPTransport
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Iterator
 
 BINANCE_BASE = "https://data-api.binance.vision"
@@ -47,7 +47,7 @@ def fetch_klines(
     end_ms:   конец диапазона в UTC milliseconds (включительно)
 
     Возвращает список словарей с ключами:
-      open_time, open, high, low, close, volume, taker_buy_volume
+      open_time, close_time, is_closed, open, high, low, close, volume, taker_buy_volume
     """
     params: dict = {"symbol": symbol, "interval": interval, "limit": limit}
     if start_ms is not None:
@@ -64,13 +64,18 @@ def fetch_klines(
 
     raw: list[list] = resp.json()
 
+    now_utc = datetime.now(timezone.utc)
     candles = []
     for row in raw:
+        close_time_dt = datetime.fromtimestamp(row[6] / 1000, tz=timezone.utc)
+        is_closed = close_time_dt <= now_utc - timedelta(seconds=2)
         candles.append({
             "open_time":        datetime.fromtimestamp(row[0] / 1000, tz=timezone.utc),
+            "close_time":       close_time_dt,
+            "is_closed":        is_closed,
             "open":             float(row[1]),
             "high":             float(row[2]),
-            "low":             float(row[3]),
+            "low":              float(row[3]),
             "close":            float(row[4]),
             "volume":           float(row[5]),
             "taker_buy_volume": float(row[9]),

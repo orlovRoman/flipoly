@@ -36,7 +36,7 @@ async def collect_new_candles(session: AsyncSession) -> dict[str, int]:
     Для каждого символа и интервала:
       1. Читает open_time последней свечи из БД.
       2. Запрашивает у Binance свечи начиная с этого времени.
-      3. Вставляет только новые (upsert ON CONFLICT DO NOTHING).
+      3. Вставляет свечи с перезаписью существующих (upsert ON CONFLICT DO UPDATE).
       4. Обновляет ставки финансирования (funding rate).
 
     Принимает готовую session — как все jobs в scheduler/jobs.py.
@@ -49,18 +49,16 @@ async def collect_new_candles(session: AsyncSession) -> dict[str, int]:
             latest = await get_latest_open_time(session, symbol, interval)
 
             if latest:
-                # Берём с момента последней свечи — Binance вернёт её саму и всё новее
-                start_ms = int(latest.timestamp() * 1000)
+                # Берём с небольшим перекрытием (на 1 свечу назад), чтобы обновить незакрытую свечу
+                interval_minutes = int(interval[:-1]) if interval.endswith("m") else int(interval[:-1]) * 60
+                overlap = timedelta(minutes=interval_minutes)
+                start_ms = int((latest - overlap).timestamp() * 1000)
             else:
                 # Без backfill: берём стандартный lookback для интервала
                 lookback = timedelta(hours=4) if interval == "5m" else timedelta(hours=12)
                 start_ms = int((datetime.now(timezone.utc) - lookback).timestamp() * 1000)
 
             candles = fetch_klines(symbol, interval, start_ms=start_ms)
-
-            # Фильтруем: исключаем свечу с open_time == latest (она уже есть)
-            if latest:
-                candles = [c for c in candles if c["open_time"] > latest]
 
             inserted = await upsert_candles(session, symbol, interval, candles)
             log.info("candle_collector_done", symbol=symbol, interval=interval, inserted=inserted)
