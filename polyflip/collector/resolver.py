@@ -10,6 +10,46 @@ from polyflip.db.models import MarketSnapshot
 logger = structlog.get_logger(__name__)
 
 def extract_final_outcome(market_data: dict) -> str | None:
+    answer = market_data.get("answer") or market_data.get("winnerOutcome")
+    
+    if not answer:
+        # Check outcomePrices if no explicit answer
+        prices = market_data.get("outcomePrices", [])
+        outcomes = market_data.get("outcomes", [])
+        
+        if isinstance(outcomes, str):
+            import json
+            try:
+                outcomes = json.loads(outcomes)
+            except:
+                pass
+        if isinstance(prices, str):
+            import json
+            try:
+                prices = json.loads(prices)
+            except:
+                pass
+                
+        if prices and len(prices) >= 2 and outcomes and len(outcomes) >= 2:
+            try:
+                max_price = max(float(p) for p in prices)
+                if max_price >= 0.95:
+                    idx = [float(p) for p in prices].index(max_price)
+                    answer = outcomes[idx]
+            except Exception:
+                pass
+
+    if not answer:
+        return None
+
+    answer_upper = answer.upper()
+    if answer_upper in ("YES", "UP"):
+        return "YES"
+    elif answer_upper in ("NO", "DOWN"):
+        return "NO"
+    elif answer_upper == "INVALID":
+        return "INVALID"
+    
     return None
 
 async def resolve_pending_markets(db_session: AsyncSession):
