@@ -3,10 +3,10 @@ import asyncio
 import json
 import uuid
 from sqlalchemy import text
-from polyflip.db.session import SessionLocal
+from polyflip.db.connection import async_session
 
 async def reconstruct_reservations(apply: bool):
-    async with SessionLocal() as session:
+    async with async_session() as session:
         async with session.begin():
             # Apply advisory lock to prevent concurrent modifications
             await session.execute(text("SELECT pg_advisory_xact_lock(1001)"))
