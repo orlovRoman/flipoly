@@ -85,6 +85,8 @@ async def decide_favorite_mode(
     }
     
     decision_obj = decide_favorite(signal, local_fav_config)
+    if not decision_obj.decision_details:
+        decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "FAVORITE"})
     if not cfg.trade_on_favorite:
         decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
     
@@ -326,8 +328,10 @@ async def decide_ml_mode(
 
     if cfg.trade_on_favorite:
         decision_obj = decide_ml_trend(signal, p_flip, local_config, ece=ece)
+        if decision_obj.action == "SKIP" and not decision_obj.decision_details:
+            decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "FAVORITE"})
     else:
-        decision_obj = TradeDecision(action="SKIP", buy_price=0.0, bet_size_usdc=0.0, strategy_type="ML_TREND", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)", edge=0.0)
+        decision_obj = TradeDecision(action="SKIP", buy_price=0.0, bet_size_usdc=0.0, strategy_type="ML_TREND", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)", edge=0.0, decision_details={"market_role": "FAVORITE"})
 
     if decision_obj.action == "SKIP" and cfg.trade_on_flip:
         trend_edge = decision_obj.edge
@@ -350,6 +354,10 @@ async def decide_ml_mode(
                 reason=f"Тренд: {trend_reason} | Флип: {outsider_obj.reason}",
                 edge=final_edge,
             )
+            if not decision_obj.decision_details:
+                decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "OUTSIDER"})
+            else:
+                decision_obj.decision_details["market_role"] = "OUTSIDER"
         else:
             decision_obj = outsider_obj
 
@@ -500,6 +508,8 @@ async def decide_crypto_mode(
             return DecisionResult(None, 0.0, crypto_sig.model_version, None, "No NO ask price available")
 
     decision_obj = decide_crypto_trend(crypto_sig, yes_ask or fresh_yes_price, market.volume_5min or 0.0, raw_settings, no_ask=no_ask, p_flip_ml=p_flip_ml)
+    if decision_obj.action == "SKIP" and not decision_obj.decision_details:
+        decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "OUTSIDER" if (yes_ask or fresh_yes_price) < 0.50 else "FAVORITE"})
     if not cfg.trade_on_favorite:
         decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
     

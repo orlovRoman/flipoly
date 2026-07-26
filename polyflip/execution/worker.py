@@ -283,6 +283,14 @@ async def rebuild_trade_accounting(session, trade_id: int):
     elif trade.remaining_shares > Decimal("0"):
         trade.position_status = "OPEN"
         
+    if open_shares > Decimal("0") or close_shares > Decimal("0"):
+        trade.status = "SUCCESS"
+    else:
+        # Check if all requests are in a terminal failed state
+        all_failed = all(r.state in ("REJECTED", "FAILED") for r in reqs)
+        if all_failed and reqs:
+            trade.status = "FAILED"
+            
     trade.position_accounting_version = (trade.position_accounting_version or 0) + 1
     await session.commit()
 

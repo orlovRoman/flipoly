@@ -152,11 +152,13 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                     p_flip = decision_res.p_flip if decision_res else 0.0
                     edge = decision_res.edge if decision_res else None
                     model_ver = decision_res.model_ver if decision_res else None
+                    skip_role = decision_res.decision_obj.decision_details.get("market_role") if (decision_res and decision_res.decision_obj and decision_res.decision_obj.decision_details) else None
                     from polyflip.trading.trade_recorder import _get_trade_active_features
                     await save_or_update_skipped_trade(
                         db_session, market, skip_reason or "SKIP", p_flip, model_ver, start_time, existing_skipped, edge,
                         active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj if decision_res else None, market.asset),
-                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
+                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None,
+                        market_role=skip_role
                     )
                     continue
 

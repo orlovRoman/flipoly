@@ -52,7 +52,8 @@ async def save_or_update_skipped_trade(
     existing_skipped: Optional[TradeHistory] = None,
     edge: Optional[float] = None,
     active_features: str = "",
-    lgbm_metadata: Optional[str] = None
+    lgbm_metadata: Optional[str] = None,
+    market_role: Optional[str] = None
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
     if existing_skipped:
@@ -60,7 +61,8 @@ async def save_or_update_skipped_trade(
             existing_skipped.predicted_flip_prob != p_flip_val or 
             existing_skipped.edge != edge or
             existing_skipped.active_features != active_features or
-            existing_skipped.lgbm_metadata != lgbm_metadata):
+            existing_skipped.lgbm_metadata != lgbm_metadata or
+            (market_role and existing_skipped.market_role != market_role)):
             existing_skipped.error_msg = reason
             existing_skipped.predicted_flip_prob = p_flip_val
             existing_skipped.model_version = model_version
@@ -68,6 +70,8 @@ async def save_or_update_skipped_trade(
             if active_features:
                 existing_skipped.active_features = active_features
             existing_skipped.lgbm_metadata = lgbm_metadata
+            if market_role:
+                existing_skipped.market_role = market_role
             existing_skipped.updated_at = start_time
     else:
         history = TradeHistory(
@@ -81,6 +85,7 @@ async def save_or_update_skipped_trade(
             model_version=model_version,
             status="SKIPPED",
             error_msg=reason,
+            market_role=market_role or "FAVORITE",
             mode="LIVE" if bool(os.getenv("POLYGON_PRIVATE_KEY") and os.getenv("POLYGON_ADDRESS")) else "PAPER",
             edge=edge,
             lgbm_metadata=lgbm_metadata,
