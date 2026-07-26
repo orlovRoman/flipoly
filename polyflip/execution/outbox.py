@@ -9,6 +9,7 @@ from polyflip.db.models import TradeHistory
 from polyflip.db.execution_models import ExecutionRequest
 from polyflip.execution.config import ExecutionMode
 from decimal import Decimal
+from datetime import datetime, timezone
 
 ACTIVE_CLOSE_STATES = (
     "READY",
@@ -32,6 +33,7 @@ async def enqueue_open_request(
     requested_mode: ExecutionMode,
 ) -> UUID | None:
     request_id = uuid.uuid4()
+    now_utc = datetime.now(timezone.utc)
     dialect_name = db.bind.dialect.name
     insert_func = sqlite_insert if dialect_name == 'sqlite' else pg_insert
     
@@ -54,6 +56,8 @@ async def enqueue_open_request(
             max_slippage_pct=2.0,
             ttl_seconds=60,
             state="READY",
+            created_at=now_utc,
+            updated_at=now_utc,
         )
         .on_conflict_do_nothing(
             index_elements=["market_id"],
@@ -97,6 +101,7 @@ async def enqueue_close_request(
         return None
 
     request_id = uuid.uuid4()
+    now_utc = datetime.now(timezone.utc)
     
     dialect_name = db.bind.dialect.name
     insert_func = sqlite_insert if dialect_name == 'sqlite' else pg_insert
@@ -118,6 +123,8 @@ async def enqueue_close_request(
             max_slippage_pct=2.0,
             ttl_seconds=60,
             state="READY",
+            created_at=now_utc,
+            updated_at=now_utc,
         )
         .on_conflict_do_nothing(
             index_elements=["trade_history_id"],
