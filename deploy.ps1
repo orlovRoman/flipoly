@@ -1,27 +1,27 @@
-# РЎРєСЂРёРїС‚ РґР»СЏ РґРµРїР»РѕСЏ
-echo "рџљЂ Р—Р°РїСѓСЃРєР°РµРј pre-flight checks (С‚РµСЃС‚С‹)..."
+# Script for deployment
+echo "?? Запускаем pre-flight checks (тесты)..."
 $env:PYTHONPATH="."
-python -m pytest tests\
+python -m pytest tests
 if ($LASTEXITCODE -ne 0) {
-    echo "вќЊ РўРµСЃС‚С‹ СѓРїР°Р»Рё! Р”РµРїР»РѕР№ РѕС‚РјРµРЅРµРЅ."
+    echo "? Тесты упали! Деплой отменен."
     exit $LASTEXITCODE
 }
 
-echo "вњ… РўРµСЃС‚С‹ РїСЂРѕР№РґРµРЅС‹. РќР°С‡РёРЅР°РµРј РґРµРїР»РѕР№..."
-echo "рџљЂ Р—Р°РїСѓСЃРєР°РµРј РїСЂРѕС†РµСЃСЃ РґРµРїР»РѕСЏ..."
+echo "? Тесты пройдены. Начинаем деплой..."
+echo "?? Запускаем процесс деплоя..."
 
-echo "1пёЏвѓЈ РћС‚РїСЂР°РІРєР° РёР·РјРµРЅРµРЅРёР№ РІ GitHub..."
+echo "1?? Отправка изменений в GitHub..."
 git push origin main
 if ($LASTEXITCODE -ne 0) {
-    echo "вќЊ РћС€РёР±РєР° РїСЂРё РѕС‚РїСЂР°РІРєРµ РІ GitHub"
+    echo "? Ошибка при отправке в GitHub"
     exit $LASTEXITCODE
 }
 
-echo "2пёЏвѓЈ РџРѕРґРєР»СЋС‡РµРЅРёРµ Рє СЃРµСЂРІРµСЂСѓ Рё РґРµРїР»РѕР№..."
-ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732 "cd flipoly && git pull origin main && docker compose up -d --build"
+echo "2?? Подключение к серверу и деплой..."
+ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732 'cd flipoly && git pull origin main && docker compose up -d --build'
 if ($LASTEXITCODE -ne 0) {
-    echo "вќЊ РћС€РёР±РєР° РїСЂРё РґРµРїР»РѕРµ РЅР° СЃРµСЂРІРµСЂ"
+    echo "? Ошибка при деплое на сервер"
     exit $LASTEXITCODE
 }
 
-echo "вњ… Р”РµРїР»РѕР№ СѓСЃРїРµС€РЅРѕ Р·Р°РІРµСЂС€РµРЅ!"
+echo "? Деплой успешно завершен!"
