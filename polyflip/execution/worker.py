@@ -71,22 +71,24 @@ async def process_ready_requests():
             rt_set = rt_res.scalar_one_or_none()
             if rt_set and rt_set.value.lower() == "true":
                 is_live_allowed = True
+            
+            if is_live_allowed or req.intent == "CLOSE":
                 if settings.execution_mode == ExecutionMode.LIVE:
                     mode_str = "LIVE"
                 
         elif req.requested_mode == "SHADOW" and settings.execution_mode in (ExecutionMode.SHADOW, ExecutionMode.LIVE):
             mode_str = "SHADOW"
 
-        # LIVE mode must never be executed via fake gateway. If LIVE is requested but kill switch is off, block the request.
-        if req.requested_mode == "LIVE" and not is_live_allowed:
+        # LIVE mode must never be executed via fake gateway. If LIVE is requested but kill switch is off, block OPEN requests.
+        if req.requested_mode == "LIVE" and not is_live_allowed and req.intent == "OPEN":
             req.state = "REJECTED"
             req.error_reason = "LIVE trading kill switch is off"
             req.updated_at = datetime.now(timezone.utc)
             await session.commit()
-            if req.trade_history_id and req.intent == "OPEN":
+            if req.trade_history_id:
                 from polyflip.db.execution_models import ExposureReservation
-                from sqlalchemy import delete
-                await session.execute(delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id))
+                from sqlalchemy import update
+                await session.execute(update(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id).values(released_at=datetime.now(timezone.utc)))
                 await session.commit()
             return
             
@@ -100,8 +102,8 @@ async def process_ready_requests():
             await session.commit()
             if req.trade_history_id and req.intent == "OPEN":
                 from polyflip.db.execution_models import ExposureReservation
-                from sqlalchemy import delete
-                await session.execute(delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id))
+                from sqlalchemy import update
+                await session.execute(update(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id).values(released_at=datetime.now(timezone.utc)))
                 await session.commit()
             return
         
@@ -117,8 +119,8 @@ async def process_ready_requests():
             await session.commit()
             if req.trade_history_id and req.intent == "OPEN":
                 from polyflip.db.execution_models import ExposureReservation
-                from sqlalchemy import delete
-                await session.execute(delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id))
+                from sqlalchemy import update
+                await session.execute(update(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id).values(released_at=datetime.now(timezone.utc)))
                 await session.commit()
             return
             
@@ -160,6 +162,22 @@ async def process_ready_requests():
             requested_shares=req.requested_shares or Decimal("0"),
             max_spend_usdc=max_spend_usdc
         )
+        
+        from polyflip.execution.risk_checks import check_risk_limits
+        risk_error = await check_risk_limits(session, req.intent, max_spend_usdc, req.requested_mode)
+        if risk_error:
+            logger.warning("risk_limit_breached", request_id=str(req.id), reason=risk_error)
+            req.state = "REJECTED"
+            req.error_reason = f"Risk limit: {risk_error}"
+            req.updated_at = datetime.now(timezone.utc)
+            await session.commit()
+            
+            if req.trade_history_id and req.intent == "OPEN":
+                from polyflip.db.execution_models import ExposureReservation
+                from sqlalchemy import update
+                await session.execute(update(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id).values(released_at=datetime.now(timezone.utc)))
+                await session.commit()
+            return
         
         try:
             sub_res = await gateway.submit(order)
@@ -206,9 +224,9 @@ async def process_ready_requests():
             # Clean up ExposureReservation if it exists
             if req.trade_history_id and req.intent == "OPEN" and req.state in ("FILLED", "REJECTED"):
                 from polyflip.db.execution_models import ExposureReservation
-                from sqlalchemy import delete
+                from sqlalchemy import update
                 await session.execute(
-                    delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id)
+                    update(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id).values(released_at=datetime.now(timezone.utc))
                 )
                 await session.commit()
             
@@ -241,11 +259,16 @@ async def rebuild_trade_accounting(session, trade_id: int):
     )
     reqs = reqs_result.scalars().all()
     
+    if not reqs and trade.position_status in ("OPEN", "CLOSED", "PARTIALLY_CLOSED"):
+        # Legacy trade with no execution requests, skip rebuild to prevent zeroing
+        return
+    
     open_shares = Decimal("0")
     open_cost = Decimal("0")
     close_shares = Decimal("0")
     close_revenue = Decimal("0")
     total_fees = Decimal("0")
+    latest_close_time = None
     
     for req in reqs:
         # Load attempts and fills
@@ -267,21 +290,42 @@ async def rebuild_trade_accounting(session, trade_id: int):
                 elif req.intent == "CLOSE":
                     close_shares += fill.shares
                     close_revenue += (fill.gross_quote_usdc or fill.shares * fill.price)
+                    if latest_close_time is None or fill.timestamp > latest_close_time:
+                        latest_close_time = fill.timestamp
+
+    # Synthetic entry for legacy trades being closed
+    if open_shares == Decimal("0") and trade.entry_filled_shares and trade.entry_filled_shares > 0:
+        open_shares = Decimal(str(trade.entry_filled_shares))
+        open_cost = Decimal(str(trade.entry_cost_usdc or trade.amount_usdc or "0"))
 
     avg_entry_price = open_cost / open_shares if open_shares > Decimal("0") else Decimal("0")
     realized_pnl = close_revenue - (close_shares * avg_entry_price) - total_fees
+    avg_close_price = close_revenue / close_shares if close_shares > Decimal("0") else Decimal("0")
 
-    trade.entry_filled_shares = open_shares
-    trade.entry_cost_usdc = open_cost
-    trade.remaining_shares = open_shares - close_shares
-    trade.realized_pnl_usdc = realized_pnl
+    trade.entry_filled_shares = float(open_shares)
+    trade.entry_cost_usdc = float(open_cost)
+    trade.amount_usdc = float(open_cost)
+    trade.remaining_shares = float(open_shares - close_shares)
+    trade.realized_pnl_usdc = float(realized_pnl)
+    trade.pnl = float(realized_pnl)
     
-    if trade.entry_filled_shares > 0 and trade.remaining_shares <= Decimal("0"):
+    if close_shares > Decimal("0"):
+        trade.close_price = float(avg_close_price)
+    
+    if trade.entry_filled_shares > 0 and trade.remaining_shares <= 0:
         trade.position_status = "CLOSED"
-    elif trade.remaining_shares > Decimal("0") and trade.remaining_shares < trade.entry_filled_shares:
+        if latest_close_time:
+            trade.closed_at = latest_close_time
+    elif trade.remaining_shares > 0 and trade.remaining_shares < trade.entry_filled_shares:
         trade.position_status = "PARTIALLY_CLOSED"
-    elif trade.remaining_shares > Decimal("0"):
+    elif trade.remaining_shares > 0:
         trade.position_status = "OPEN"
+        
+    if trade.position_status in ("OPEN", "PARTIALLY_CLOSED") and trade.entry_filled_shares > 0:
+        if trade.stop_loss_pct is not None and trade.stop_loss_status not in ("TRIGGERED", "ACTIVE"):
+            trade.stop_loss_status = "ACTIVE"
+        if trade.take_profit_enabled and trade.take_profit_status not in ("TRIGGERED", "ACTIVE"):
+            trade.take_profit_status = "ACTIVE"
         
     if open_shares > Decimal("0") or close_shares > Decimal("0"):
         trade.status = "SUCCESS"
@@ -364,9 +408,9 @@ async def reconcile_active_requests():
                     # Clean up ExposureReservation if it exists
                     if req.trade_history_id and req.intent == "OPEN":
                         from polyflip.db.execution_models import ExposureReservation
-                        from sqlalchemy import delete
+                        from sqlalchemy import update
                         await session.execute(
-                            delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id)
+                            update(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id).values(released_at=datetime.now(timezone.utc))
                         )
                         await session.commit()
                         
@@ -381,9 +425,9 @@ async def reconcile_active_requests():
                     # Clean up ExposureReservation if it exists
                     if req.trade_history_id and req.intent == "OPEN":
                         from polyflip.db.execution_models import ExposureReservation
-                        from sqlalchemy import delete
+                        from sqlalchemy import update
                         await session.execute(
-                            delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id)
+                            update(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id).values(released_at=datetime.now(timezone.utc))
                         )
                         await session.commit()
                 else:
@@ -395,6 +439,10 @@ async def reconcile_active_requests():
 
 async def execution_worker_loop():
     logger.info("execution_worker_started")
+    settings = ExecutionSettings()
+    if settings.execution_mode == ExecutionMode.SHADOW:
+        raise RuntimeError("SHADOW execution mode is not supported by the gateway factory yet")
+        
     while True:
         try:
             await process_ready_requests()
