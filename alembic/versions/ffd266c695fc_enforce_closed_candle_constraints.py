@@ -18,7 +18,10 @@ depends_on = None
 
 def upgrade() -> None:
     # Add check constraint: a closed candle MUST have a close_time.
-    # is_closed = false OR is_closed IS NULL OR close_time IS NOT NULL
+    # Fix existing rows that might violate the constraint
+    conn = op.get_bind()
+    conn.execute(sa.text("UPDATE crypto_candles SET close_time = timestamp WHERE is_closed = true AND close_time IS NULL"))
+
     with op.batch_alter_table('crypto_candles') as batch_op:
         batch_op.create_check_constraint(
             'ck_crypto_candles_close_time',
