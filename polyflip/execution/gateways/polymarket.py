@@ -6,8 +6,7 @@ from datetime import datetime, timezone
 import asyncio
 
 from polymarket import AsyncSecureClient
-from polyflip.execution.contracts import GatewayOrder, TradeExecution, ProviderOrderState, SubmissionResult
-from polyflip.execution.gateways.base import GatewayUnavailable
+from polyflip.execution.contracts import GatewayOrder, TradeExecution, ProviderOrderState, SubmissionResult, GatewayUnavailable
 
 logger = structlog.get_logger(__name__)
 
@@ -48,32 +47,39 @@ class PolymarketExecutionGateway:
             raise GatewayUnavailable("Polymarket client not initialized")
             
         try:
-            amount = float(order.max_spend_usdc) if order.side.upper() == "BUY" and order.max_spend_usdc else float(order.requested_shares)
-            
-            # Using post_order_with_allowance_recovery which automatically handles collateral allowances
-            resp = await client.post_order_with_allowance_recovery(
-                token_id=order.token_id,
-                price=float(order.limit_price),
-                side=order.side.upper(),
-                size=amount,
-            )
-            
-            if resp and isinstance(resp, dict) and resp.get("success"):
-                return SubmissionResult(
-                    provider_order_id=resp.get("orderID", ""),
-                    status="SUBMITTED"
+            if order.side.upper() == "BUY":
+                amount_limit = float(order.max_spend_usdc) if order.max_spend_usdc else 0.0
+                resp = await client.place_market_order(
+                    token_id=order.token_id,
+                    side="BUY",
+                    amount=amount_limit,
+                    max_spend=amount_limit,
+                    max_price=float(order.limit_price),
+                    order_type="FAK",
                 )
-            elif resp and hasattr(resp, "success") and getattr(resp, "success"):
-                return SubmissionResult(
-                    provider_order_id=getattr(resp, "orderID", ""),
-                    status="SUBMITTED"
+            else:
+                resp = await client.place_market_order(
+                    token_id=order.token_id,
+                    side="SELL",
+                    shares=float(order.requested_shares),
+                    min_price=float(order.limit_price),
+                    order_type="FAK",
                 )
             
-            err = getattr(resp, "errorMsg", None) or (resp.get("errorMsg") if isinstance(resp, dict) else "Unknown API error")
+            if not getattr(resp, "ok", False):
+                return SubmissionResult(
+                    provider_order_id="",
+                    status="REJECTED",
+                    rejection_code=getattr(resp, "code", ""),
+                    error_message=getattr(resp, "message", "Unknown rejection"),
+                )
+                
             return SubmissionResult(
-                provider_order_id="",
-                status=f"REJECTED: {err}"
+                provider_order_id=getattr(resp, "order_id", ""),
+                status=getattr(resp, "status", "UNKNOWN").upper(),
+                provider_trade_ids=getattr(resp, "trade_ids", [])
             )
+            
         except Exception as e:
             return SubmissionResult(
                 provider_order_id="",
@@ -86,7 +92,7 @@ class PolymarketExecutionGateway:
             raise GatewayUnavailable("Polymarket client not initialized")
             
         try:
-            resp = await client.get_order(provider_order_id)
+            resp = await client.get_order(order_id=provider_order_id)
             if not resp:
                 return SubmissionResult(
                     provider_order_id=provider_order_id,
@@ -141,15 +147,25 @@ class PolymarketExecutionGateway:
         if not client:
             return Decimal("0")
         try:
-            # Assuming get_balance_allowance returns a dict or list similar to old py-clob-client
-            resp = await client.get_balance_allowance()
+            # Need asset_type="COLLATERAL"
+            resp = await client.get_balance_allowance(asset_type="COLLATERAL")
+            
+            # It returns the raw token amount (with 6 decimals). We convert it to standard USDC units.
+            # Assuming the client returns basic units, we must divide by 10**6
+            raw_balance = Decimal("0")
+            
             if isinstance(resp, list):
                 for b in resp:
-                    if b.get("asset_type", "") == "collateral":
-                        return Decimal(str(b.get("balance", 0)))
+                    if str(b.get("asset_type", "")).lower() == "collateral":
+                        raw_balance = Decimal(str(b.get("balance", 0)))
             elif isinstance(resp, dict):
-                return Decimal(str(resp.get("balance", 0)))
-            return Decimal("0")
+                raw_balance = Decimal(str(resp.get("balance", 0)))
+            elif hasattr(resp, "balance"):
+                raw_balance = Decimal(str(getattr(resp, "balance", 0)))
+                
+            # Polymarket USDC is 6 decimals.
+            return raw_balance
+            
         except Exception as e:
             logger.error("polymarket_gateway_balance_error", error=str(e))
             return Decimal("0")

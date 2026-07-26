@@ -4,6 +4,9 @@ from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel
 
+class GatewayUnavailable(Exception):
+    pass
+
 class GatewayOrder(BaseModel):
     attempt_id: UUID
     market_id: str
