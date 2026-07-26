@@ -6,7 +6,8 @@ import structlog
 from polyflip.db.models import LiveMarket
 from polyflip.trading.trading_config import TradingConfig
 from polyflip.trading.decision_logic import TradeDecision
-from polyflip.trading.position_sizing import compute_edge, compute_bet_size_edge_scaled
+from polyflip.trading.position_sizing import compute_bet_size_edge_scaled
+from polyflip.crypto.edge import compute_economic_edge
 from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
 
 logger = structlog.get_logger(__name__)
@@ -99,8 +100,7 @@ async def validate_pre_trade(
                 )
             p_win = fresh_p_win
             current_min_edge = cfg.favorite_min_edge if cfg.favorite_min_edge is not None else asset_min_edge
-            
-        edge = compute_edge(p_win, buy_price)
+            edge = compute_economic_edge(p_win, buy_price, cfg.fee_rate, cfg.slippage_rate)
         
         if edge < current_min_edge:
             return PreTradeValidation(

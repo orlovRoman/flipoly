@@ -19,7 +19,7 @@ async def test_symmetric_flip_rules():
             p_up=0.8 if direction == "UP" else 0.2,
             p_down=0.2 if direction == "UP" else 0.8,
             direction=direction,
-            edge=0.1,
+            signal_strength=0.1,
             strike=60000.0,
             threshold_up=0.55,
             threshold_down=0.45,

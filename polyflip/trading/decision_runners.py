@@ -446,6 +446,9 @@ async def decide_crypto_mode(
         return DecisionResult(None, 0.0, crypto_sig.model_version, None, f"No fresh yes price: {error_detail}")
         
     fresh_yes_price = fresh_yes_prices["current_yes_price"]
+    yes_ask = fresh_yes_prices.get("best_ask")
+    if yes_ask is None and crypto_sig.direction == "UP":
+        return DecisionResult(None, 0.0, crypto_sig.model_version, None, "No YES ask price available")
 
     p_flip_ml = None
     if models_cache and getattr(models_cache, "models", None) and market.asset.upper() in models_cache.models:
@@ -469,12 +472,15 @@ async def decide_crypto_mode(
             return DecisionResult(None, 0.0, crypto_sig.model_version, None, "flip inference failed")
 
     no_ask = None
-    if crypto_sig.direction == "DOWN" and getattr(market, "no_token_id", None):
-        no_prices = await api_client.get_market_prices(market.no_token_id)
-        if no_prices and no_prices.get("best_ask") is not None:
-            no_ask = float(no_prices["best_ask"])
+    if crypto_sig.direction == "DOWN":
+        if getattr(market, "no_token_id", None):
+            no_prices = await api_client.get_market_prices(market.no_token_id)
+            if no_prices and no_prices.get("best_ask") is not None:
+                no_ask = float(no_prices["best_ask"])
+        if no_ask is None:
+            return DecisionResult(None, 0.0, crypto_sig.model_version, None, "No NO ask price available")
 
-    decision_obj = decide_crypto_trend(crypto_sig, fresh_yes_price, market.volume_5min or 0.0, raw_settings, no_ask=no_ask, p_flip_ml=p_flip_ml)
+    decision_obj = decide_crypto_trend(crypto_sig, yes_ask or fresh_yes_price, market.volume_5min or 0.0, raw_settings, no_ask=no_ask, p_flip_ml=p_flip_ml)
     if not cfg.trade_on_favorite:
         decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
     

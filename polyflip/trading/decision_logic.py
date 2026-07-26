@@ -12,7 +12,8 @@ from polyflip.crypto.predictor import CryptoSignal
 
 from polyflip.trading.position_sizing import (
     compute_bet_size_edge_scaled,
-    compute_edge, is_in_dead_zone,
+    compute_edge,
+    is_in_dead_zone,
     apply_ece_correction
 )
 from polyflip.constants import FLIP_MIDPOINT, ECE_WARN_THRESHOLD
@@ -397,39 +398,63 @@ def decide_crypto_trend(
                 strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
             )
 
-    min_edge = float(config.get("MIN_EDGE", 0.05))
+    min_edge = float(config.get("CRYPTO_MIN_EDGE", config.get("MIN_EDGE", 0.05)))
+    fee_rate = float(config.get("FEE_RATE", 0.0))
+    slippage_rate = float(config.get("SLIPPAGE_RATE", 0.0))
 
-    if crypto.direction == "NONE" or crypto.edge < min_edge:
+    if crypto.direction == "NONE" or crypto.signal_strength <= 0.0:
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
-            reason=f"crypto edge={crypto.edge:.4f} < min_edge={min_edge:.4f}",
-            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
+            reason=f"crypto signal_strength={crypto.signal_strength:.4f} <= 0",
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
 
-    bet = _resolve_final_bet(crypto.edge, volume_5min, config)
+    if crypto.direction == "UP":
+        actual_buy_price = entry_price
+        p_win = crypto.p_up
+        action: ActionType = "BUY_YES"
+    elif crypto.direction == "DOWN":
+        actual_buy_price = no_ask if no_ask is not None else 0.0
+        p_win = crypto.p_down
+        action = "BUY_NO"
+    else:
+        return TradeDecision("SKIP", 0.0, 0.0, "Invalid direction", "SKIP", edge=0.0)
+
+    if actual_buy_price is None or actual_buy_price <= 0.0:
+        return TradeDecision(
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
+            reason="actual_buy_price is not available",
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+        )
+
+    from polyflip.crypto.edge import compute_economic_edge
+    economic_edge = compute_economic_edge(p_win, actual_buy_price, fee_rate, slippage_rate)
+
+    if economic_edge < min_edge:
+        return TradeDecision(
+            action="SKIP", buy_price=actual_buy_price, bet_size_usdc=0.0,
+            reason=f"economic edge={economic_edge:.4f} < min_edge={min_edge:.4f}",
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge
+        )
+
+    bet = _resolve_final_bet(economic_edge, volume_5min, config)
     bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
     if bet <= 0 and not bypass:
         return TradeDecision(
-            action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
+            action="SKIP", buy_price=actual_buy_price, bet_size_usdc=0.0, 
             reason="Bet size 0", strategy_type="LIGHTGBM_TREND", 
-            p_up=crypto.p_up, strike=crypto.strike, edge=crypto.edge
+            p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge
         )
 
-    action: ActionType = "BUY_YES" if crypto.direction == "UP" else "BUY_NO"
-    if action == "BUY_YES":
-        actual_buy_price = entry_price
-    else:
-        actual_buy_price = no_ask if no_ask is not None and no_ask > 0 else round(1.0 - entry_price, 4)
-    
     return TradeDecision(
         action=action,
         buy_price=actual_buy_price,
         bet_size_usdc=bet,
-        reason=f"LIGHTGBM_TREND {crypto.symbol} p_up={crypto.p_up:.3f} edge={crypto.edge:.4f}",
+        reason=f"LIGHTGBM_TREND {crypto.symbol} p_win={p_win:.3f} eco_edge={economic_edge:.4f}",
         strategy_type="LIGHTGBM_TREND",
         p_up=crypto.p_up,
         strike=crypto.strike,
-        edge=crypto.edge
+        edge=economic_edge
     )
 
 

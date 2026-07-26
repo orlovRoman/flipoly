@@ -12,7 +12,7 @@ import structlog
 
 from polyflip.db.models import ModelRegistry, RuntimeSettings
 from polyflip.crypto.feature_builder import build_crypto_features, CRYPTO_FEATURE_COLUMNS
-from polyflip.crypto.edge import compute_crypto_edge
+from polyflip.crypto.edge import compute_crypto_signal_strength
 from polyflip.crypto.trainer import CRYPTO_FEATURES
 
 logger = structlog.get_logger(__name__)
@@ -68,7 +68,7 @@ class CryptoSignal:
     p_up: float              # Вероятность роста [0, 1]
     p_down: float            # = 1 - p_up
     direction: str           # "UP" | "DOWN" | "NONE"
-    edge: float              # Сила сигнала относительно порога
+    signal_strength: float   # Сила сигнала относительно порога
     strike: float            # close-цена последней закрытой свечи Binance
     threshold_up: float      # Порог для лонга (BUY_UP)
     threshold_down: float    # Порог для шорта (BUY_DOWN)
@@ -378,7 +378,7 @@ class CryptoPredictor:
                     hint="Model likely trained on different feature set — retrain required",
                 )
             
-            edge, direction = compute_crypto_edge(p_up, th_up, th_down)
+            signal_strength, direction = compute_crypto_signal_strength(p_up, th_up, th_down)
             
             # Страйк (цена последней закрытой свечи)
             strike = float(candles[-1].close)
@@ -396,7 +396,7 @@ class CryptoPredictor:
                     p_up=p_up,
                     p_down=p_down,
                     direction="NONE",
-                    edge=0.0,
+                    signal_strength=0.0,
                     strike=strike,
                     threshold_up=th_up,
                     threshold_down=th_down,
@@ -411,7 +411,7 @@ class CryptoPredictor:
                 symbol=symbol, regime=regime,
                 p_up=round(p_up, 4), direction=direction,
                 th_up=round(th_up, 4), th_down=round(th_down, 4),
-                edge=round(edge, 4),
+                signal_strength=round(signal_strength, 4),
             )
 
             return CryptoSignal(
@@ -419,7 +419,7 @@ class CryptoPredictor:
                 p_up=p_up,
                 p_down=p_down,
                 direction=direction,
-                edge=edge,
+                signal_strength=signal_strength,
                 strike=strike,
                 threshold_up=th_up,
                 threshold_down=th_down,
