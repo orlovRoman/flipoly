@@ -45,27 +45,19 @@ async def upsert_candles(
         for c in candles
     ]
 
-    total_inserted = 0
-    batch_size = 100
-    for i in range(0, len(rows), batch_size):
-        batch = rows[i:i+batch_size]
-        stmt = (
-            pg_insert(CryptoCandle)
-            .values(batch)
-            .on_conflict_do_update(
-                constraint="uix_crypto_candle",
-                set_={
-                    "is_closed": pg_insert(CryptoCandle).excluded.is_closed,
-                    "close": pg_insert(CryptoCandle).excluded.close,
-                    "high": pg_insert(CryptoCandle).excluded.high,
-                    "low": pg_insert(CryptoCandle).excluded.low,
-                    "volume": pg_insert(CryptoCandle).excluded.volume,
-                    "taker_buy_volume": pg_insert(CryptoCandle).excluded.taker_buy_volume,
-                }
-            )
-        )
-        result = await session.execute(stmt)
-        total_inserted += result.rowcount
+    stmt = pg_insert(CryptoCandle).on_conflict_do_update(
+        constraint="uix_crypto_candle",
+        set_={
+            "is_closed": pg_insert(CryptoCandle).excluded.is_closed,
+            "close": pg_insert(CryptoCandle).excluded.close,
+            "high": pg_insert(CryptoCandle).excluded.high,
+            "low": pg_insert(CryptoCandle).excluded.low,
+            "volume": pg_insert(CryptoCandle).excluded.volume,
+            "taker_buy_volume": pg_insert(CryptoCandle).excluded.taker_buy_volume,
+        }
+    )
+    await session.execute(stmt, rows)
+    total_inserted = len(rows)
 
     await session.commit()
     return total_inserted
