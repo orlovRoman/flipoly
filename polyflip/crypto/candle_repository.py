@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Sequence
 
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -45,22 +45,25 @@ async def upsert_candles(
         for c in candles
     ]
 
-    stmt = pg_insert(CryptoCandle).on_conflict_do_update(
+    stmt = pg_insert(CryptoCandle).values(rows)
+    stmt = stmt.on_conflict_do_update(
         constraint="uix_crypto_candle",
         set_={
-            "is_closed": pg_insert(CryptoCandle).excluded.is_closed,
-            "close": pg_insert(CryptoCandle).excluded.close,
-            "high": pg_insert(CryptoCandle).excluded.high,
-            "low": pg_insert(CryptoCandle).excluded.low,
-            "volume": pg_insert(CryptoCandle).excluded.volume,
-            "taker_buy_volume": pg_insert(CryptoCandle).excluded.taker_buy_volume,
+            "is_closed": case(
+                (CryptoCandle.is_closed.is_(True), True),
+                else_=stmt.excluded.is_closed
+            ),
+            "close_time": stmt.excluded.close_time,
+            "close": stmt.excluded.close,
+            "high": stmt.excluded.high,
+            "low": stmt.excluded.low,
+            "volume": stmt.excluded.volume,
+            "taker_buy_volume": stmt.excluded.taker_buy_volume,
         }
     )
-    await session.execute(stmt, rows)
-    total_inserted = len(rows)
-
+    result = await session.execute(stmt)
     await session.commit()
-    return total_inserted
+    return result.rowcount
 
 
 async def get_recent_candles(
@@ -75,7 +78,7 @@ async def get_recent_candles(
         .where(
             CryptoCandle.symbol == symbol,
             CryptoCandle.interval == interval,
-            (CryptoCandle.is_closed.is_(True)) | (CryptoCandle.is_closed.is_(None))
+            CryptoCandle.is_closed.is_(True)
         )
         .order_by(desc(CryptoCandle.open_time))
         .limit(limit)

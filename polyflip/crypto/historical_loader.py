@@ -101,15 +101,21 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     async def main():
-        db_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///polyflip.db")
+        db_url = os.environ.get("DATABASE_URL")
+        if not db_url:
+            print("ERROR: DATABASE_URL environment variable is not set.")
+            import sys
+            sys.exit(1)
+            
         engine = create_async_engine(db_url)
         SessionLocal = async_sessionmaker(engine)
-        async with SessionLocal() as session:
-            logger.info("historical_load_cli_start", days=args.days, db=db_url)
-            res = await load_history_all(session, days_back=args.days)
-            logger.info("historical_load_cli_done", results=res)
-            await session.commit()
-        await engine.dispose()()
+        try:
+            async with SessionLocal() as session:
+                logger.info("historical_load_cli_start", days=args.days, db=db_url)
+                res = await load_history_all(session, days_back=args.days)
+                logger.info("historical_load_cli_done", results=res)
+                await session.commit()
+        finally:
+            await engine.dispose()
     
     asyncio.run(main())
-

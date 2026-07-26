@@ -19,8 +19,9 @@ def upgrade() -> None:
     op.add_column('crypto_candles', sa.Column('is_closed', sa.Boolean(), nullable=True))
     
     # Update existing records to is_closed = True (assuming old ones are historical and closed)
-    op.execute("UPDATE crypto_candles SET is_closed = true WHERE is_closed IS NULL")
+    # Leave old candles as NULL until re-fetched from Binance
 
 def downgrade() -> None:
     op.drop_column('crypto_candles', 'is_closed')
     op.drop_column('crypto_candles', 'close_time')
+
