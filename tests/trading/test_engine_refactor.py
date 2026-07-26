@@ -743,6 +743,35 @@ class TestStep6PreTradeValidator:
 class TestStep7TradeRecorder:
     """Контракт для execute_and_record(...) → запись TradeHistory."""
 
+from polyflip.trading.schemas import TradeExecution, ExecutionFees
+import uuid
+from decimal import Decimal
+from datetime import datetime, timezone
+
+def _make_mock_exec(price):
+    return TradeExecution(
+        attempt_id=uuid.uuid4(),
+        provider_order_id="test",
+        provider_status="FILLED",
+        status="FILLED",
+        side="BUY",
+        order_type="PAPER",
+        token_id="test",
+        original_requested_shares=Decimal("100"),
+        submitted_shares=Decimal("100"),
+        filled_shares=Decimal("100"),
+        net_position_delta_shares=Decimal("100"),
+        average_price=Decimal(str(price)),
+        gross_quote_usdc=Decimal("10.0"),
+        net_quote_usdc=Decimal("10.0"),
+        liquidity_role="UNKNOWN",
+        fees=ExecutionFees(platform_fee_usdc=None, builder_fee_usdc=None, network_fee_native=None, network_fee_symbol=None, network_fee_usdc=None, fee_source="UNKNOWN"),
+        trade_ids=tuple(),
+        transaction_hashes=tuple(),
+        submitted_at=datetime.now(timezone.utc),
+        observed_at=datetime.now(timezone.utc),
+    )
+
     def _make_validation(self, buy_price=0.60, bet=10.0, edge=0.12):
         from polyflip.trading.pre_trade_validator import PreTradeValidation
         return PreTradeValidation(
@@ -768,10 +797,7 @@ class TestStep7TradeRecorder:
         from polyflip.constants import TRADING_MODE_ML
 
         trader_mock = AsyncMock()
-        trader_mock.execute_trade = AsyncMock(return_value={
-            "status": "SUCCESS", "executed_price": 0.61,
-            "executed_usdc": 10.0, "mode": "PAPER"
-        })
+        trader_mock.execute_trade = AsyncMock(return_value=_make_mock_exec(0.61))
         market = _make_market(market_id="rec_m1", asset="BTC")
         cfg = parse_trading_settings(_make_raw_settings())
 
@@ -803,10 +829,7 @@ class TestStep7TradeRecorder:
 
         exec_price, buy_price = 0.63, 0.60
         trader_mock = AsyncMock()
-        trader_mock.execute_trade = AsyncMock(return_value={
-            "status": "SUCCESS", "executed_price": exec_price,
-            "executed_usdc": 10.0, "mode": "PAPER"
-        })
+        trader_mock.execute_trade = AsyncMock(return_value=_make_mock_exec(exec_price))
         market = _make_market(market_id="slip_m1", asset="BTC")
         cfg = parse_trading_settings(_make_raw_settings())
 
@@ -837,10 +860,7 @@ class TestStep7TradeRecorder:
         from polyflip.constants import TRADING_MODE_ML
 
         trader_mock = AsyncMock()
-        trader_mock.execute_trade = AsyncMock(return_value={
-            "status": "SUCCESS", "executed_price": 0.60,
-            "executed_usdc": 10.0, "mode": "PAPER"
-        })
+        trader_mock.execute_trade = AsyncMock(return_value=_make_mock_exec(0.60))
         market = _make_market(market_id="sl_m1", asset="BTC")
         cfg = parse_trading_settings(_make_raw_settings({
             "STOP_LOSS_ENABLED": "true", "STOP_LOSS_PCT_FAVORITE": "40.0",
@@ -874,10 +894,7 @@ class TestStep7TradeRecorder:
         from polyflip.constants import TRADING_MODE_ML
 
         trader_mock = AsyncMock()
-        trader_mock.execute_trade = AsyncMock(return_value={
-            "status": "SUCCESS", "executed_price": 0.50,
-            "executed_usdc": 10.0, "mode": "PAPER"
-        })
+        trader_mock.execute_trade = AsyncMock(return_value=_make_mock_exec(0.50))
         market = _make_market(market_id="tp_m1", asset="BTC")
         cfg = parse_trading_settings(_make_raw_settings({
             "TAKE_PROFIT_ENABLED": "true", "TAKE_PROFIT_MULTIPLIER": "2.0",
@@ -923,10 +940,7 @@ class TestStep7TradeRecorder:
         await db_session.refresh(existing)
 
         trader_mock = AsyncMock()
-        trader_mock.execute_trade = AsyncMock(return_value={
-            "status": "SUCCESS", "executed_price": 0.62,
-            "executed_usdc": 10.0, "mode": "PAPER"
-        })
+        trader_mock.execute_trade = AsyncMock(return_value=_make_mock_exec(0.62))
         market = _make_market(market_id="del_m1", asset="BTC")
         cfg = parse_trading_settings(_make_raw_settings())
 
