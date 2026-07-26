@@ -1,0 +1,34 @@
+"""
+Central definition of execution state machine.
+"""
+
+ACTIVE_REQUEST_STATES = frozenset({
+    "READY",
+    "CLAIMED",
+    "SUBMITTING",
+    "ACCEPTED",
+    "UNKNOWN",
+    "RECONCILING",
+})
+
+SUCCESS_TERMINAL_STATES = frozenset({
+    "FILLED",
+    "PARTIALLY_FILLED_FINAL",
+})
+
+FAILURE_TERMINAL_STATES = frozenset({
+    "REJECTED",
+    "EXPIRED",
+    "CANCELED",
+    "MANUAL_REVIEW_FAILED",
+})
+
+TERMINAL_REQUEST_STATES = SUCCESS_TERMINAL_STATES | FAILURE_TERMINAL_STATES
+
+ACTIVE_POSITION_STATES = frozenset({
+    "OPENING",
+    "OPEN",
+    "PARTIALLY_CLOSED",
+    "EXIT_REQUESTED",
+    "CLOSING",
+})

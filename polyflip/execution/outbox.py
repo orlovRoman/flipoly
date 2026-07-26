@@ -1,25 +1,25 @@
 import uuid
 from typing import Literal
 from uuid import UUID
-from sqlalchemy import select, text
+from dataclasses import dataclass
+from sqlalchemy import select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.models import TradeHistory
-from polyflip.db.execution_models import ExecutionRequest
+from polyflip.db.execution_models import ExecutionRequest, ExposureReservation, ExecutionEvent
 from polyflip.execution.config import ExecutionMode
+from polyflip.execution.states import (
+    TERMINAL_REQUEST_STATES, 
+    FAILURE_TERMINAL_STATES
+)
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 
-ACTIVE_CLOSE_STATES = (
-    "READY",
-    "CLAIMED",
-    "SUBMITTING",
-    "ACCEPTED",
-    "UNKNOWN",
-    "PARTIALLY_FILLED",
-    "RECONCILING",
-)
+@dataclass(frozen=True)
+class EnqueueResult:
+    request_id: UUID
+    created: bool
 
 async def enqueue_open_request(
     db: AsyncSession,
@@ -31,7 +31,7 @@ async def enqueue_open_request(
     target_amount_usdc: float,
     limit_price: float,
     requested_mode: ExecutionMode,
-) -> UUID | None:
+) -> EnqueueResult | None:
     request_id = uuid.uuid4()
     now_utc = datetime.now(timezone.utc)
     dialect_name = db.bind.dialect.name
@@ -73,19 +73,24 @@ async def enqueue_open_request(
         .returning(ExecutionRequest.id)
     )
     created_id = (await db.execute(statement)).scalar_one_or_none()
-    if created_id is None:
-        created_id = (
-            await db.execute(
-                select(ExecutionRequest.id)
-                .where(ExecutionRequest.market_id == market_id)
-                .where(ExecutionRequest.intent == "OPEN")
-                .where(ExecutionRequest.state.in_([
-                    "READY", "CLAIMED", "SUBMITTING", "ACCEPTED",
-                    "UNKNOWN", "PARTIALLY_FILLED", "RECONCILING"
-                ]))
-            )
-        ).scalar_one_or_none()
-    return created_id
+    if created_id is not None:
+        return EnqueueResult(request_id=created_id, created=True)
+        
+    existing_id = (
+        await db.execute(
+            select(ExecutionRequest.id)
+            .where(ExecutionRequest.market_id == market_id)
+            .where(ExecutionRequest.intent == "OPEN")
+            .where(ExecutionRequest.state.in_([
+                "READY", "CLAIMED", "SUBMITTING", "ACCEPTED",
+                "UNKNOWN", "PARTIALLY_FILLED", "RECONCILING"
+            ]))
+        )
+    ).scalar_one_or_none()
+    
+    if existing_id is not None:
+        return EnqueueResult(request_id=existing_id, created=False)
+    return None
 
 async def enqueue_close_request(
     db: AsyncSession,
@@ -94,13 +99,7 @@ async def enqueue_close_request(
     trigger_reason: Literal["STOP_LOSS", "TAKE_PROFIT", "MANUAL", "RECOVERY", "STRATEGY"],
     limit_price: float,
     requested_mode: ExecutionMode,
-) -> UUID | None:
-    
-    # Nested transaction is used because we don't want to rollback the whole parent transaction
-    # just in case something fails here, but here we actually rely on ON CONFLICT.
-    # However, since this modifies position_status, we probably do want it committed alongside
-    # parent transaction. We'll just execute it without explicit begin if it's already in transaction?
-    # Let's just do it directly. We assume db session is already active or handled by caller.
+) -> EnqueueResult | None:
     
     trade = (
         await db.execute(
@@ -156,24 +155,77 @@ async def enqueue_close_request(
     )
 
     created_id = (await db.execute(statement)).scalar_one_or_none()
-
-    if created_id is None:
-        # Fetch the existing request
-        created_id = (
-            await db.execute(
-                select(ExecutionRequest.id)
-                .where(ExecutionRequest.trade_history_id == trade.id)
-                .where(ExecutionRequest.intent == "CLOSE")
-                .where(ExecutionRequest.state.in_([
-                    "READY", "CLAIMED", "SUBMITTING", "ACCEPTED",
-                    "UNKNOWN", "PARTIALLY_FILLED", "RECONCILING"
-                ]))
-            )
-        ).scalar_one_or_none()
-
     if created_id is not None:
         trade.position_status = "EXIT_REQUESTED"
         trade.exit_reason = trigger_reason
-        return created_id
+        return EnqueueResult(request_id=created_id, created=True)
+
+    existing_id = (
+        await db.execute(
+            select(ExecutionRequest.id)
+            .where(ExecutionRequest.trade_history_id == trade.id)
+            .where(ExecutionRequest.intent == "CLOSE")
+            .where(ExecutionRequest.state.in_([
+                "READY", "CLAIMED", "SUBMITTING", "ACCEPTED",
+                "UNKNOWN", "PARTIALLY_FILLED", "RECONCILING"
+            ]))
+        )
+    ).scalar_one_or_none()
+
+    if existing_id is not None:
+        trade.position_status = "EXIT_REQUESTED"
+        trade.exit_reason = trigger_reason
+        return EnqueueResult(request_id=existing_id, created=False)
 
     return None
+
+async def finalize_request(
+    session: AsyncSession,
+    req: ExecutionRequest,
+    *,
+    state: str,
+    error: str | None = None,
+) -> None:
+    now = datetime.now(timezone.utc)
+    req.state = state
+    req.error_reason = error
+    req.updated_at = now
+    
+    if req.intent == "OPEN" and state in TERMINAL_REQUEST_STATES:
+        await session.execute(
+            update(ExposureReservation)
+            .where(
+                ExposureReservation.request_id == req.id,
+                ExposureReservation.released_at.is_(None),
+            )
+            .values(released_at=now)
+        )
+        
+    trade = await session.get(
+        TradeHistory, req.trade_history_id, with_for_update=True,
+    )
+    if not trade:
+        return
+        
+    if state in FAILURE_TERMINAL_STATES and req.filled_shares == 0:
+        if req.intent == "OPEN":
+            trade.status = "FAILED"
+            trade.position_status = "ENTRY_FAILED"
+            trade.error_msg = error
+        else:
+            trade.position_status = (
+                "PARTIALLY_CLOSED" 
+                if Decimal(trade.remaining_shares or 0) < Decimal(trade.entry_filled_shares or 0) 
+                else "OPEN"
+            )
+            trade.last_exit_error = error
+            trade.exit_attempts = (trade.exit_attempts or 0) + 1
+            
+    session.add(ExecutionEvent(
+        level="ERROR" if error else "INFO",
+        event_type=f"REQUEST_{state}",
+        message=error or f"Request transitioned to {state}",
+        source="execution_worker",
+        request_id=req.id,
+        trade_history_id=req.trade_history_id,
+    ))

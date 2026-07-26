@@ -81,11 +81,8 @@ class PolymarketExecutionGateway:
             )
             
         except Exception as e:
-            return SubmissionResult(
-                accepted=False,
-                provider_status="ERROR",
-                error_message=str(e)
-            )
+            logger.error("polymarket_submit_error", error=str(e))
+            raise GatewayUnavailable(f"Transport/Network error during submit: {e}")
 
     async def get_order(self, provider_order_id: str) -> SubmissionResult:
         client = await self.get_client()
@@ -110,11 +107,8 @@ class PolymarketExecutionGateway:
                 provider_status=status
             )
         except Exception as e:
-            return SubmissionResult(
-                accepted=False,
-                provider_order_id=provider_order_id,
-                provider_status=f"ERROR: {str(e)}"
-            )
+            logger.error("polymarket_get_order_error", error=str(e))
+            raise GatewayUnavailable(f"Transport/Network error during get_order: {e}")
 
     async def fetch_order_fills(self, provider_order_id: str, token_id: str, after: str = "0") -> tuple[TradeExecution, ...]:
         client = await self.get_client()
@@ -152,6 +146,7 @@ class PolymarketExecutionGateway:
                     )
         except Exception as e:
             logger.error("failed_to_fetch_order_fills", error=str(e), order_id=provider_order_id)
+            raise GatewayUnavailable(f"Failed to fetch fills: {e}")
             
         return tuple(result)
 
