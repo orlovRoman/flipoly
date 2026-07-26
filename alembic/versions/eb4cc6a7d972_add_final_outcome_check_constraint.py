@@ -14,8 +14,31 @@ down_revision = 'ea2cc6a7d971'
 branch_labels = None
 depends_on = None
 
+from sqlalchemy.sql import text
+
 def upgrade() -> None:
-    # Adding CheckConstraint to market_snapshots.final_outcome
+    # 1. Alter flip_vs_final to be nullable
+    op.alter_column('market_snapshots', 'flip_vs_final',
+               existing_type=sa.BOOLEAN(),
+               nullable=True)
+
+    # 2. Normalize existing data
+    conn = op.get_bind()
+    
+    # YES / UP -> YES
+    conn.execute(text("UPDATE market_snapshots SET final_outcome = 'YES' WHERE final_outcome IN ('YES', 'UP')"))
+    # NO / DOWN -> NO
+    conn.execute(text("UPDATE market_snapshots SET final_outcome = 'NO' WHERE final_outcome IN ('NO', 'DOWN')"))
+    # INVALID -> INVALID
+    conn.execute(text("UPDATE market_snapshots SET final_outcome = 'INVALID' WHERE final_outcome = 'INVALID'"))
+    
+    # Unknowns -> PENDING
+    conn.execute(text("UPDATE market_snapshots SET final_outcome = 'PENDING' WHERE final_outcome NOT IN ('YES', 'NO', 'INVALID', 'PENDING')"))
+
+    # PENDING / INVALID -> flip_vs_final = NULL
+    conn.execute(text("UPDATE market_snapshots SET flip_vs_final = NULL WHERE final_outcome IN ('PENDING', 'INVALID')"))
+
+    # 3. Add constraint
     op.create_check_constraint(
         'ck_market_snapshot_outcome',
         'market_snapshots',
@@ -24,3 +47,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_constraint('ck_market_snapshot_outcome', 'market_snapshots', type_='check')
+    
+    op.alter_column('market_snapshots', 'flip_vs_final',
+               existing_type=sa.BOOLEAN(),
+               nullable=False)

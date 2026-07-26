@@ -17,8 +17,8 @@ class MarketSnapshot(Base):
     volume_5min = Column(Float, nullable=False)
     price_velocity = Column(Float, nullable=False)
     hour_of_day = Column(Integer, nullable=False)
-    final_outcome = Column(String(16), nullable=False)  # "YES", "NO", "INVALID"
-    flip_vs_final = Column(Boolean, nullable=False)
+    final_outcome = Column(String(16), nullable=False)  # "YES", "NO", "INVALID", "PENDING"
+    flip_vs_final = Column(Boolean, nullable=True)
     recorded_at = Column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (

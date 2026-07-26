@@ -12,44 +12,41 @@ logger = structlog.get_logger(__name__)
 def extract_final_outcome(market_data: dict) -> str | None:
     answer = market_data.get("answer") or market_data.get("winnerOutcome")
     
-    if not answer:
-        # Check outcomePrices if no explicit answer
+    def normalize(val: any) -> str | None:
+        if not val: return None
+        val_str = str(val).upper()
+        if val_str in ("YES", "UP"): return "YES"
+        if val_str in ("NO", "DOWN"): return "NO"
+        if val_str == "INVALID": return "INVALID"
+        return None
+
+    norm_answer = normalize(answer)
+    if norm_answer:
+        return norm_answer
+
+    # Fallback to terminal prices if answer is missing or unknown, but ONLY if market is closed
+    if market_data.get("closed"):
         prices = market_data.get("outcomePrices", [])
         outcomes = market_data.get("outcomes", [])
         
         if isinstance(outcomes, str):
             import json
-            try:
-                outcomes = json.loads(outcomes)
-            except:
-                pass
+            try: outcomes = json.loads(outcomes)
+            except: pass
         if isinstance(prices, str):
             import json
-            try:
-                prices = json.loads(prices)
-            except:
-                pass
+            try: prices = json.loads(prices)
+            except: pass
                 
-        if prices and len(prices) >= 2 and outcomes and len(outcomes) >= 2:
+        if isinstance(prices, list) and isinstance(outcomes, list) and len(prices) >= 2 and len(outcomes) >= 2:
             try:
-                max_price = max(float(p) for p in prices)
-                if max_price >= 0.95:
-                    idx = [float(p) for p in prices].index(max_price)
-                    answer = outcomes[idx]
+                float_prices = [float(p) for p in prices]
+                winners = [i for i, p in enumerate(float_prices) if p >= 0.95]
+                if len(winners) == 1:
+                    return normalize(outcomes[winners[0]])
             except Exception:
                 pass
 
-    if not answer:
-        return None
-
-    answer_upper = answer.upper()
-    if answer_upper in ("YES", "UP"):
-        return "YES"
-    elif answer_upper in ("NO", "DOWN"):
-        return "NO"
-    elif answer_upper == "INVALID":
-        return "INVALID"
-    
     return None
 
 async def resolve_pending_markets(db_session: AsyncSession):
