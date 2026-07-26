@@ -30,7 +30,7 @@ async def test_trade_recorder_creates_execution_request(db_session):
     await db_session.commit()
 
     decision = TradeDecision(action="BUY_YES", p_up=0.6, strike=0.5, strategy_type="ML", buy_price=0.5, bet_size_usdc=10.0, reason="test")
-    validation = PreTradeValidation(valid=True, buy_price=0.5, actual_bet_size=10.0, edge=0.1, skip_reason=None)
+    validation = PreTradeValidation(valid=True, buy_price=0.5, actual_bet_size=10.0, edge=0.1, skip_reason=None, market_role="FAVORITE")
     from unittest.mock import MagicMock
     cfg = MagicMock()
     cfg.stop_loss_enabled = False

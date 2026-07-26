@@ -334,7 +334,6 @@ async def verify_resolves(db: AsyncSession = Depends(get_db_session)):
                     answer = (
                         market_data.get("answer")
                         or market_data.get("winnerOutcome")
-                        or market_data.get("resolvedBy")
                     )
                     
                     if not answer and closed:

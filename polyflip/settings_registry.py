@@ -43,9 +43,15 @@ REGISTRY: list[SettingDef] = [
     SettingDef("DAILY_LOSS_LIMIT_USDC", "-100.0",
                description="Дневной стоп-лосс в USDC (отрицательное число)"),
     SettingDef("MAX_OPEN_POSITIONS", "5",
-               description="Максимальное количество одновременно открытых позиций."),
-    SettingDef("MAX_TOTAL_EXPOSURE_USDC", "250.0",
-               description="Максимальная общая сумма открытых позиций в USDC."),
+               description="Максимальное количество одновременно открытых позиций"),
+    SettingDef("MAX_TOTAL_EXPOSURE_USDC", "50.0",
+               description="Общий лимит риска по всем позициям и заявкам"),
+    SettingDef("MAX_SINGLE_ORDER_USDC", "1.0",
+               description="Максимальная сумма одной сделки"),
+    SettingDef("CONFIRM_THRESHOLD_USDC", "5.0",
+               description="Порог ручного подтверждения крупной ставки"),
+    SettingDef("EXECUTION_COOLDOWN_SEC", "10",
+               description="Задержка перед новой попыткой при ошибке (сек)"),
     SettingDef("INITIAL_CAPITAL", "1000.0",
                description="Начальный капитал для расчёта финрезультата"),
 
@@ -81,8 +87,6 @@ REGISTRY: list[SettingDef] = [
     SettingDef("TRADE_MIN_TIME_LEFT_SEC", "10"),
     SettingDef("TRADE_MAX_TIME_LEFT_SEC", "360"),
     SettingDef("TRADE_EXECUTION_TIME_SEC", "30"),
-    SettingDef("EXECUTION_COOLDOWN_SEC", "1.0",
-               description="Колдаун (сек) между запросами на исполнение для предотвращения спама"),
 
     # --- Сайзинг ---
     SettingDef("TRADE_BET_SIZE_USDC", "5.0",

@@ -9,13 +9,14 @@ from polyflip.execution.contracts import GatewayOrder
 @pytest.mark.asyncio
 async def test_gateway_uses_supported_sdk_methods():
     # Setup
-    gateway = PolymarketExecutionGateway()
+    gateway = PolymarketExecutionGateway("dummy_key", "0xDummyAddress", "https://clob.polymarket.com")
     client_mock = AsyncMock()
     
     # Mocking SDK methods
     client_mock.place_market_order = AsyncMock(return_value=MagicMock(ok=True, order_id="123", status="FILLED"))
     client_mock.get_order = AsyncMock(return_value={"status": "FILLED", "size_matched": "100", "price": "0.5"})
-    client_mock.get_balance_allowance = AsyncMock(return_value=[{"asset_type": "collateral", "balance": "1000000000"}])
+    client_mock.get_balance_allowance = AsyncMock(return_value=MagicMock(balance="1000000000", allowances={"clob": "1000000"}))
+    client_mock.setup_trading_approvals = AsyncMock(return_value=MagicMock(ok=True))
     
     # Bypass get_client
     gateway.get_client = AsyncMock(return_value=client_mock)
@@ -28,18 +29,17 @@ async def test_gateway_uses_supported_sdk_methods():
         max_spend_usdc=Decimal("5"), limit_price=Decimal("0.5")
     )
     res = await gateway.submit(order)
-    assert res.status == "FILLED"
+    assert res.provider_status == "FILLED"
     client_mock.place_market_order.assert_called_once_with(
-        token_id="0x123", side="BUY", amount=5.0, max_spend=5.0, max_price=0.5, order_type="FAK"
+        token_id="0x123", side="BUY", amount="5", max_spend="5", max_price="0.5", order_type="FAK"
     )
     
     # Test get_order
     res_order = await gateway.get_order("123")
-    assert res_order.status == "FILLED"
-    assert len(res_order.fills) == 1
+    assert res_order.provider_status == "FILLED"
+    assert len(res_order.provider_trade_ids) == 0
     client_mock.get_order.assert_called_once_with(order_id="123")
     
-    # Test balance
-    bal = await gateway.get_balance()
-    assert bal == Decimal("1000000000")
-    client_mock.get_balance_allowance.assert_called_once_with(asset_type="COLLATERAL")
+    # Test readiness
+    readiness = await gateway.get_readiness()
+    assert readiness.ready == True

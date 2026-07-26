@@ -36,8 +36,8 @@ async def check_risk_limits(session: AsyncSession, intent: str, max_spend_usdc: 
             open_count = (await session.execute(open_count_stmt)).scalar_one()
             if open_count >= max_open:
                 return f"Max open positions limit reached ({max_open})"
-        except ValueError:
-            pass
+        except (ValueError, TypeError) as exc:
+            return f"Invalid risk configuration: {exc}"
 
     # Check total exposure
     max_exp_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "MAX_TOTAL_EXPOSURE_USDC")
@@ -61,7 +61,7 @@ async def check_risk_limits(session: AsyncSession, intent: str, max_spend_usdc: 
             
             if Decimal(str(current_exp)) + Decimal(str(res_exp)) + max_spend_usdc > max_exp:
                 return f"Max total exposure limit reached ({max_exp} USDC)"
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as exc:
+            return f"Invalid risk configuration: {exc}"
 
     return None

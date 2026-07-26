@@ -20,6 +20,9 @@ class FakeExecutionGateway:
             provider_status="MATCHED"
         )
         
+    async def get_balance_allowance(self, asset_type: str = "COLLATERAL", token_id: str | None = None) -> Decimal:
+        return Decimal("1000000.0")
+        
     async def fetch_order_fills(self, provider_order_id: str, token_id: str, after: str = "0") -> tuple[TradeExecution, ...]:
         from polyflip.db.connection import async_session
         from sqlalchemy import select

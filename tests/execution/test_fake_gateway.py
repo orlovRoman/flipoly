@@ -21,24 +21,19 @@ async def test_fake_execution_gateway_submit():
     )
     
     res = await gateway.submit(order)
-    assert res.status == "MATCHED"
+    assert res.provider_status == "MATCHED"
     assert res.provider_order_id == f"PAPER:{attempt_id}"
-    assert len(res.fills) == 1
-    
-    fill = res.fills[0]
-    assert fill.price == Decimal("0.5")
-    assert fill.shares == Decimal("100.0")
-    assert fill.fee_usdc == Decimal("0")
+    assert len(res.provider_trade_ids) == 1
     
 @pytest.mark.asyncio
 async def test_fake_execution_gateway_get_order():
     gateway = FakeExecutionGateway()
     res = await gateway.get_order("PAPER:123")
-    assert res.status == "MATCHED"
+    assert res.provider_status == "MATCHED"
     assert res.provider_order_id == "PAPER:123"
 
 @pytest.mark.asyncio
-async def test_fake_execution_gateway_get_balance():
+async def test_fake_execution_gateway_get_balance_allowance():
     gateway = FakeExecutionGateway()
-    bal = await gateway.get_balance()
+    bal = await gateway.get_balance_allowance("COLLATERAL")
     assert bal == Decimal("1000000.0")
