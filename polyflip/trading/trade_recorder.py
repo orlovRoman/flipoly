@@ -223,7 +223,8 @@ async def execute_and_record(
     from polyflip.db.execution_models import ExposureReservation
     from datetime import timedelta
     reservation = ExposureReservation(
-        trade_id=str(history.id),
+        request_id=request_id,
+        trade_history_id=history.id,
         market_id=market.market_id,
         amount_usdc=actual_bet_size,
         expires_at=start_time + timedelta(hours=1)

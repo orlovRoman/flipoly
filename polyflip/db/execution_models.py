@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Float, DateTime, Index, Text, Numeric, ForeignKey, JSON, text, CheckConstraint, func
+from sqlalchemy import Column, Integer, String, Float, DateTime, Index, Text, Numeric, ForeignKey, JSON, text, CheckConstraint, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from polyflip.db.models import Base
 
@@ -85,6 +85,15 @@ class ExecutionAttempt(Base):
     error_msg = Column(Text, nullable=True)
     raw_response = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
 
+    __table_args__ = (
+        UniqueConstraint(
+            "request_id", "attempt_no", name="uq_execution_attempt_number"
+        ),
+        UniqueConstraint(
+            "gateway", "provider_order_id", name="uq_execution_provider_order"
+        ),
+    )
+
 class ExecutionFill(Base):
     __tablename__ = "execution_fills"
 
@@ -97,6 +106,12 @@ class ExecutionFill(Base):
     fee_usdc = Column(Numeric(38, 18), nullable=False, default=0)
     gross_quote_usdc = Column(Numeric(38, 18), nullable=True)
     timestamp = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "gateway", "provider_trade_id", name="uq_execution_provider_trade"
+        ),
+    )
 
 class ExecutionApproval(Base):
     __tablename__ = "execution_approvals"
@@ -122,11 +137,17 @@ class ExposureReservation(Base):
     __tablename__ = "exposure_reservations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    trade_id = Column(String(128), index=True, nullable=True) # ID intended trade or random string
+    request_id = Column(
+        UUID(as_uuid=True), ForeignKey("execution_requests.id", ondelete="RESTRICT"), nullable=True, unique=True
+    )
+    trade_history_id = Column(
+        Integer, ForeignKey("trade_history.id", ondelete="RESTRICT"), nullable=True
+    )
     market_id = Column(String(128), index=True, nullable=False)
     amount_usdc = Column(Numeric(38, 18), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), default=func.now())
+    released_at = Column(DateTime(timezone=True), nullable=True)
 
 class ChainTransaction(Base):
     __tablename__ = "chain_transactions"

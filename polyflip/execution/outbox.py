@@ -47,7 +47,7 @@ async def enqueue_open_request(
             requested_mode=requested_mode.value,
             intent="OPEN",
             trigger_reason="STRATEGY",
-            trade_history_id=None,
+            trade_history_id=trade_id,
             market_id=market_id,
             asset=asset,
             outcome_to_buy=outcome_to_buy,
