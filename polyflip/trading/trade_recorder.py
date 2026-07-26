@@ -235,13 +235,13 @@ async def execute_and_record(
             
             history.market_end_time = getattr(market, "end_time_est", None)
             history.stop_loss_pct = stop_pct
-            history.stop_loss_price = compute_stop_price(exec_p, stop_pct)
+            history.stop_loss_price = compute_stop_price(exec_price, stop_pct)
             history.stop_loss_status = "ACTIVE"
 
         if cfg.take_profit_enabled:
             history.take_profit_enabled    = True
             history.take_profit_multiplier = cfg.take_profit_multiplier
-            history.take_profit_price      = compute_take_profit_price(exec_p, cfg.take_profit_multiplier)
+            history.take_profit_price      = compute_take_profit_price(exec_price, cfg.take_profit_multiplier)
             history.take_profit_status     = "ACTIVE"
         else:
             history.take_profit_enabled = False
