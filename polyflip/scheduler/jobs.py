@@ -178,9 +178,9 @@ async def resolve_trades_job():
     logger.info("starting_resolve_trades_job")
     try:
         async with async_session() as session:
-            # Ищем сделки без PnL, которые были SUCCESS или PAPER
+            # Ищем сделки, которые еще не закрыты (OPEN, OPENING) и имеют статус SUCCESS или PAPER
             stmt = select(TradeHistory).where(
-                and_(TradeHistory.pnl.is_(None), TradeHistory.status.in_(["SUCCESS", "PAPER"]))
+                and_(TradeHistory.position_status.in_(["OPEN", "OPENING"]), TradeHistory.status.in_(["SUCCESS", "PAPER"]))
             )
             trades = (await session.execute(stmt)).scalars().all()
             

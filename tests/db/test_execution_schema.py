@@ -54,8 +54,24 @@ async def test_new_trade_requires_accounting_initialization(db_session):
 
 @pytest.mark.asyncio
 async def test_duplicate_active_open_request_is_rejected(db_session):
+    trade = TradeHistory(
+        market_id="dup_open_market",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=100.0, remaining_shares=200.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.6,
+        active_features="test",
+        status="PENDING",
+        position_accounting_version=0,
+        created_at=datetime.now(timezone.utc)
+    )
+    db_session.add(trade)
+    await db_session.commit()
+
     req1 = ExecutionRequest(
         intent="OPEN",
+        trade_history_id=trade.id,
         market_id="dup_open_market",
         asset="BTC",
         outcome_to_buy="YES",
@@ -71,6 +87,7 @@ async def test_duplicate_active_open_request_is_rejected(db_session):
 
     req2 = ExecutionRequest(
         intent="OPEN",
+        trade_history_id=trade.id,
         market_id="dup_open_market",
         asset="BTC",
         outcome_to_buy="YES",
@@ -143,8 +160,24 @@ async def test_two_active_close_requests_are_rejected(db_session):
 
 @pytest.mark.asyncio
 async def test_completed_request_allows_new_request(db_session):
+    trade = TradeHistory(
+        market_id="seq_market",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=100.0, remaining_shares=200.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.6,
+        active_features="test",
+        status="PENDING",
+        position_accounting_version=0,
+        created_at=datetime.now(timezone.utc)
+    )
+    db_session.add(trade)
+    await db_session.commit()
+
     req1 = ExecutionRequest(
         intent="OPEN",
+        trade_history_id=trade.id,
         market_id="seq_market",
         asset="BTC",
         outcome_to_buy="YES",
@@ -158,8 +191,24 @@ async def test_completed_request_allows_new_request(db_session):
     db_session.add(req1)
     await db_session.commit()
 
+    trade2 = TradeHistory(
+        market_id="seq_market_2",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=100.0, remaining_shares=200.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.6,
+        active_features="test",
+        status="PENDING",
+        position_accounting_version=0,
+        created_at=datetime.now(timezone.utc)
+    )
+    db_session.add(trade2)
+    await db_session.commit()
+
     req2 = ExecutionRequest(
         intent="OPEN",
+        trade_history_id=trade2.id,
         market_id="seq_market",
         asset="BTC",
         outcome_to_buy="YES",
@@ -178,8 +227,24 @@ async def test_completed_request_allows_new_request(db_session):
 async def test_execution_financial_columns_use_numeric(db_session):
     # SQLite does not support true Decimal precision and casts to float.
     # Postgres handles Numeric correctly. Test what is returned without strictly enforcing full 18-place accuracy on SQLite.
+    trade = TradeHistory(
+        market_id="numeric_market",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=100.0, remaining_shares=200.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.6,
+        active_features="test",
+        status="PENDING",
+        position_accounting_version=0,
+        created_at=datetime.now(timezone.utc)
+    )
+    db_session.add(trade)
+    await db_session.commit()
+
     req = ExecutionRequest(
         intent="OPEN",
+        trade_history_id=trade.id,
         market_id="numeric_market",
         asset="BTC",
         outcome_to_buy="YES",
@@ -231,7 +296,8 @@ async def test_stoploss_and_takeprofit_create_one_close_request(engine, db_sessi
                 session,
                 trade_id=trade.id,
                 trigger_reason=trigger,
-                requested_mode=ExecutionMode.PAPER
+                requested_mode=ExecutionMode.PAPER,
+                limit_price=0.5
             )
             await session.commit()
             return res
@@ -242,7 +308,7 @@ async def test_stoploss_and_takeprofit_create_one_close_request(engine, db_sessi
     )
     
     successful_ids = [r for r in results if r is not None]
-    assert len(successful_ids) == 1, "Only one close request should succeed"
+    assert len(set(successful_ids)) == 1, "Only one unique close request ID should be returned"
 
     stmt = select(func.count()).where(
         ExecutionRequest.trade_history_id == trade.id,

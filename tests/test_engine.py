@@ -16,9 +16,8 @@ class MockModel:
 
 @pytest.mark.asyncio
 async def test_engine_skips_when_trading_disabled(db_session):
-    trader_mock = AsyncMock()
     api_client_mock = AsyncMock()
-    await trade_worker_cycle(db_session, trader_mock, api_client_mock)
+    await trade_worker_cycle(db_session, api_client_mock)
     res = await db_session.execute(select(TradeHistory))
     assert len(res.scalars().all()) == 0
 

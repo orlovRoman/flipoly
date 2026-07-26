@@ -2,7 +2,29 @@ from typing import Protocol, Tuple
 from decimal import Decimal
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+class BalanceResult(BaseModel):
+    balance_usdc: Decimal
+    collateral_allowances: dict[str, Decimal] = Field(default_factory=dict)
+    conditional_allowances_checked: int = 0
+    conditional_allowance_ready: bool | None = None
+    checked_at: datetime
+    raw_asset_type: str = "COLLATERAL"
+
+class GatewayReadiness(BaseModel):
+    ready: bool
+    gateway: str
+    wallet_address: str | None
+    balance: BalanceResult | None
+    credentials_loaded: bool
+    client_initialized: bool
+    collateral_allowance_ready: bool
+    conditional_allowance_ready: bool | None
+    error_code: str | None = None
+    error_message: str | None = None
+    checked_at: datetime
+
 
 class GatewayUnavailable(Exception):
     pass
@@ -61,6 +83,8 @@ class ExecutionGateway(Protocol):
         """Fetch the latest status and fills for an order."""
         ...
 
-    async def get_balance(self) -> Decimal:
-        """Get the current USDC balance available for trading."""
+    async def get_readiness(
+        self, conditional_token_ids: tuple[str, ...] = (),
+    ) -> GatewayReadiness:
+        """Get the current readiness status of the gateway."""
         ...

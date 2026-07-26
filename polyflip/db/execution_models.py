@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Float, DateTime, Index, Text, Numeric, ForeignKey, JSON, text, CheckConstraint, func, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, Index, Text, Numeric, ForeignKey, JSON, text, CheckConstraint, func, UniqueConstraint, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from polyflip.db.models import Base
 
@@ -128,10 +128,58 @@ class ExecutionEvent(Base):
     __tablename__ = "execution_events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    request_id = Column(UUID(as_uuid=True), ForeignKey("execution_requests.id"), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+    level = Column(String(16), nullable=False, default="INFO")
     event_type = Column(String(64), nullable=False)
-    payload = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    message = Column(Text, nullable=False)
+    source = Column(String(32), nullable=False)
+    trade_history_id = Column(
+        Integer, ForeignKey("trade_history.id", ondelete="SET NULL"), nullable=True,
+    )
+    request_id = Column(
+        UUID(as_uuid=True), ForeignKey("execution_requests.id", ondelete="SET NULL"), nullable=True,
+    )
+    attempt_id = Column(
+        UUID(as_uuid=True), ForeignKey("execution_attempts.id", ondelete="SET NULL"), nullable=True,
+    )
+    payload = Column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')",
+            name="ck_execution_event_level",
+        ),
+        Index("ix_execution_events_created_at", "created_at"),
+        Index(
+            "ix_execution_events_request_time", "request_id", "created_at",
+        ),
+        Index(
+            "ix_execution_events_trade_time", "trade_history_id", "created_at",
+        ),
+        Index(
+            "ix_execution_events_type_time", "event_type", "created_at",
+        ),
+    )
+
+class ExecutionWorkerStatus(Base):
+    __tablename__ = "execution_worker_status"
+    worker_id = Column(String(100), primary_key=True)
+    execution_mode = Column(String(16), nullable=False)
+    heartbeat_at = Column(DateTime(timezone=True), nullable=False)
+    gateway_ready = Column(Boolean, nullable=False, default=False)
+    credentials_loaded = Column(Boolean, nullable=False, default=False)
+    wallet_address = Column(String(64), nullable=True)
+    balance_usdc = Column(Numeric(38, 18), nullable=True)
+    collateral_allowance_ready = Column(Boolean, nullable=True)
+    conditional_allowance_ready = Column(Boolean, nullable=True)
+    last_error_code = Column(String(64), nullable=True)
+    last_error_message = Column(Text, nullable=True)
+    details = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+
 
 class ExposureReservation(Base):
     __tablename__ = "exposure_reservations"

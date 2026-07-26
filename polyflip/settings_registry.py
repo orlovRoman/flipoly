@@ -68,6 +68,8 @@ REGISTRY: list[SettingDef] = [
                description="Режим: ml | favorite | lightgbm | combined"),
     SettingDef("TRADING_ENABLED", "false", editable=False,
                description="Управляется только через UI toggle, не через general settings API"),
+    SettingDef("LIVE_TRADING_ENABLED", "false", editable=False,
+               description="Управляется только через специальный API (kill-switch)"),
 
     # --- Таймеры / опрос ---
     SettingDef("FAVORITE_MODE_ENTRY_SEC", str(FAVORITE_MODE_ENTRY_SEC)),
@@ -75,6 +77,8 @@ REGISTRY: list[SettingDef] = [
     SettingDef("TRADE_MIN_TIME_LEFT_SEC", "10"),
     SettingDef("TRADE_MAX_TIME_LEFT_SEC", "360"),
     SettingDef("TRADE_EXECUTION_TIME_SEC", "30"),
+    SettingDef("EXECUTION_COOLDOWN_SEC", "1.0",
+               description="Колдаун (сек) между запросами на исполнение для предотвращения спама"),
 
     # --- Сайзинг ---
     SettingDef("TRADE_BET_SIZE_USDC", "5.0",

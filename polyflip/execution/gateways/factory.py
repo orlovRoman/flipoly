@@ -9,6 +9,10 @@ def build_execution_gateway(settings: ExecutionSettings):
             raise NotImplementedError("Shadow execution gateway is not implemented yet")
         case ExecutionMode.LIVE:
             from polyflip.execution.gateways.polymarket import PolymarketExecutionGateway
-            return PolymarketExecutionGateway()
+            return PolymarketExecutionGateway(
+                private_key=settings.polygon_private_key, # type: ignore
+                wallet_address=settings.polygon_address, # type: ignore
+                host=settings.polymarket_host
+            )
         case _:
             raise RuntimeError(f"Unsupported execution mode: {settings.execution_mode}")
