@@ -23,6 +23,7 @@ class PreTradeValidation:
     actual_bet_size: float
     edge: float
     skip_reason: Optional[str]
+    market_role: Optional[str] = None
 
 
 async def validate_pre_trade(
@@ -54,23 +55,7 @@ async def validate_pre_trade(
     actual_bet_size = decision_obj.bet_size_usdc
     token_to_buy = market.yes_token_id if decision == "YES" else market.no_token_id
     
-    # 0. Validate Market Role invariants
-    selected_mid = market.current_yes_price if decision == "YES" else market.current_no_price
-    actual_role = "FAVORITE" if selected_mid >= 0.5 else "OUTSIDER"
-
-    if decision_obj.strategy_type == "OUTSIDER" and actual_role != "OUTSIDER":
-        return PreTradeValidation(
-            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
-            skip_reason="OUTSIDER strategy selected a favorite token"
-        )
-
-    if decision_obj.strategy_type in {"ML_TREND", "PURE_FAVORITE", "LIGHTGBM_TREND"}:
-        if actual_role != "FAVORITE":
-            return PreTradeValidation(
-                valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
-                skip_reason=f"{decision_obj.strategy_type} selected an outsider token"
-            )
-    
+    # Fetch fresh prices first
     fresh_prices = await api_client.get_market_prices(token_to_buy)
     if not fresh_prices or fresh_prices.get("best_ask") is None:
         return PreTradeValidation(
@@ -78,7 +63,36 @@ async def validate_pre_trade(
             skip_reason=f"No fresh prices from API for {asset_mode} ({decision})"
         )
 
-    fresh_ask = fresh_prices["best_ask"]
+    fresh_ask = float(fresh_prices["best_ask"])
+    fresh_bid = fresh_prices.get("best_bid")
+
+    if fresh_bid is not None:
+        fresh_mid = (float(fresh_bid) + fresh_ask) / 2
+    else:
+        fresh_mid = fresh_ask
+
+    actual_role = "OUTSIDER" if fresh_mid < 0.50 else "FAVORITE"
+
+    # Validate Market Role invariants using fresh prices
+    if decision_obj.strategy_type == "OUTSIDER" and actual_role != "OUTSIDER":
+        return PreTradeValidation(
+            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
+            skip_reason="OUTSIDER strategy selected a favorite token"
+        )
+
+    if decision_obj.strategy_type in {"ML_TREND", "PURE_FAVORITE"}:
+        if actual_role != "FAVORITE":
+            return PreTradeValidation(
+                valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
+                skip_reason=f"{decision_obj.strategy_type} selected an outsider token"
+            )
+
+    if decision_obj.strategy_type == "LIGHTGBM_TREND" and actual_role == "OUTSIDER" and p_flip < cfg.flip_threshold:
+        return PreTradeValidation(
+            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
+            skip_reason=f"LightGBM outsider blocked: p_flip={p_flip:.3f} < {cfg.flip_threshold:.3f}"
+        )
+
     price_drift = abs(fresh_ask - buy_price)
     
     if price_drift > cfg.max_price_drift:
@@ -206,5 +220,6 @@ async def validate_pre_trade(
         buy_price=buy_price,
         actual_bet_size=actual_bet_size,
         edge=edge,
-        skip_reason=None
+        skip_reason=None,
+        market_role=actual_role
     )

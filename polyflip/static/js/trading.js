@@ -1050,13 +1050,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
-        let betTypeHtml = `<span style="color: #00ff88; font-weight: 500;">Ставка по тренду</span>`;
-        const isOutsider = log.market_role === "OUTSIDER" || (log.active_features && (log.active_features.includes("outsider") || log.active_features.includes("OUTSIDER"))) || (log.error_msg && (log.error_msg.includes("TRADE_ON_FLIP") || log.error_msg.includes("Ожидается флип") || log.error_msg.includes("outsider")));
+        const isOutsider =
+          log.market_role === "OUTSIDER" ||
+          (
+            !log.market_role &&
+            Number(log.executed_price) > 0 &&
+            Number(log.executed_price) < 0.5
+          );
+
+        const isLightGBM =
+          log.strategy_type === "LIGHTGBM_TREND" ||
+          (log.active_features && log.active_features.includes("LIGHTGBM"));
+
+        let betTypeHtml = "";
         if (isOutsider) {
-          betTypeHtml = `<span style="color: #ffb020; font-weight: 500;">Ставка против тренда (Аутсайдер)</span>`;
-          if (log.strategy_type === "COMBINED") {
-            betTypeHtml += ` <span style="font-size: 0.8em; color: #aaa;">(LightGBM подтверждает)</span>`;
-          }
+          betTypeHtml = isLightGBM
+            ? `<span class="bet-outsider" style="color: #ffb020; font-weight: 500;">
+                 Ставка на аутсайдера
+                 <small style="font-size: 0.8em; color: #aaa;">(сигнал LightGBM)</small>
+               </span>`
+            : `<span class="bet-outsider" style="color: #ffb020; font-weight: 500;">
+                 Ставка на аутсайдера
+               </span>`;
+        } else {
+          betTypeHtml = isLightGBM
+            ? `<span class="bet-favorite" style="color: #00ff88; font-weight: 500;">
+                 Ставка на фаворита
+                 <small style="font-size: 0.8em; color: #aaa;">(сигнал LightGBM)</small>
+               </span>`
+            : `<span class="bet-favorite" style="color: #00ff88; font-weight: 500;">
+                 Ставка на фаворита
+               </span>`;
         }
 
         let outcomeBadge = "";

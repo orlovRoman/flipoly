@@ -490,17 +490,39 @@ def decide_crypto_trend(
             p_win_effective=p_win, p_win_raw=p_win
         )
 
+    market_role = (
+        "OUTSIDER"
+        if actual_buy_price < 0.50
+        else "FAVORITE"
+    )
+
+    signal_type = (
+        "FLIP"
+        if market_role == "OUTSIDER"
+        else "TREND"
+    )
+
     return TradeDecision(
         action=action,
         buy_price=actual_buy_price,
         bet_size_usdc=bet,
-        reason=f"LIGHTGBM_TREND {crypto.symbol} p_win={p_win:.3f} eco_edge={economic_edge:.4f}",
+        reason=(
+            f"LIGHTGBM_TREND {crypto.symbol} "
+            f"role={market_role} "
+            f"p_win={p_win:.3f} "
+            f"eco_edge={economic_edge:.4f}"
+        ),
         strategy_type="LIGHTGBM_TREND",
         p_up=crypto.p_up,
         strike=crypto.strike,
         edge=economic_edge,
         p_win_effective=p_win,
-        p_win_raw=p_win
+        p_win_raw=p_win,
+        decision_details={
+            "market_role": market_role,
+            "signal_type": signal_type,
+            "p_flip_effective": p_flip_ml,
+        },
     )
 
 
