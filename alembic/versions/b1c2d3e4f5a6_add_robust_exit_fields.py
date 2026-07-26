@@ -1,10 +1,10 @@
-﻿\"\"\"add robust exit fields
+"""add robust exit fields
 
 Revision ID: b1c2d3e4f5a6
 Revises: a1b2c3d4e5f6
 Create Date: 2026-07-26 18:59:00.000000
 
-\"\"\"
+"""
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
@@ -67,11 +67,11 @@ def upgrade() -> None:
 
     # 5. Fix corrupted candles
     op.execute(
-        \"\"\"
+        """
         UPDATE crypto_candles
         SET is_closed = false, close_time = NULL
         WHERE is_closed = true AND close_time = open_time;
-        \"\"\"
+        """
     )
 
 def downgrade() -> None:
