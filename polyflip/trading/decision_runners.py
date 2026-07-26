@@ -135,15 +135,22 @@ async def infer_flip_for_market(
     
     return float(run_model_inference(df, model, active_features))
 
-async def _get_funding_rate(db_session: AsyncSession, binance_symbol: str) -> float:
+async def _get_funding_rate(db_session: AsyncSession, binance_symbol: str) -> float | None:
     from sqlalchemy import select
     from polyflip.db.models import RuntimeSettings
+    from datetime import datetime, timezone, timedelta
     fr_key = f"FUNDING_RATE_{binance_symbol}"
     try:
         row = (await db_session.execute(select(RuntimeSettings).where(RuntimeSettings.key == fr_key))).scalar_one_or_none()
-        return float(row.value) if row else 0.0
+        if not row:
+            return None
+        if row.updated_at and row.updated_at.tzinfo is None:
+            row.updated_at = row.updated_at.replace(tzinfo=timezone.utc)
+        if row.updated_at and datetime.now(timezone.utc) - row.updated_at > timedelta(hours=12):
+            return None
+        return float(row.value)
     except Exception:
-        return 0.0
+        return None
 
 async def decide_ml_mode(
     db_session: AsyncSession,

@@ -19,7 +19,7 @@ class RiskVeto:
         return self.vetoed
 
 
-def check_funding_veto(funding_rate: float, direction: str) -> RiskVeto:
+def check_funding_veto(funding_rate: float | None, direction: str) -> RiskVeto:
     """
     Внешнее ВЕТО на основе funding rate.
     direction: "UP" | "DOWN"
@@ -30,6 +30,13 @@ def check_funding_veto(funding_rate: float, direction: str) -> RiskVeto:
     - Экстремально отрицательный фандинг → толпа в шортах → ожидается лонг-сквиз.
       Ставка DOWN (с толпой) = ЗАПРЕТ. Ставка UP (против толпы) = снизить.
     """
+    if funding_rate is None:
+        return RiskVeto(
+            vetoed=True,
+            reason="stale_or_missing_funding",
+            stake_multiplier=0.0,
+        )
+
     abs_fr = abs(funding_rate)
 
     if abs_fr < FUNDING_HIGH_THRESHOLD:

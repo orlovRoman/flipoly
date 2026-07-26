@@ -75,6 +75,9 @@ class CryptoSignal:
     model_version: int       # Версия модели из реестра
     features_ok: bool        # False, если не прошли Pydantic-валидацию
     risk_vetoed: bool = False # Флаг: вето из-за риска наложено предторговой проверкой модели
+    risk_reason: str = ""    # Причина вето (если vetoed=True)
+    stake_multiplier: float = 1.0 # Множитель размера ставки на основе фандинга
+    funding_rate: float = 0.0     # Значение ставки финансирования, использованное для расчета
     ece: float = 0.0         # BUG-AO
 
 class CryptoPredictor:
@@ -321,14 +324,14 @@ class CryptoPredictor:
                        НЕ используется в построении признаков ML (см. feature_builder.py).
         """
         if symbol not in self._loaded_symbols:
-            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
+            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0)
 
         try:
             # 1. Сборка вектора признаков
             feature_vector = build_crypto_features(candles)
 
             if not feature_vector.valid:
-                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
+                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0)
 
             fv_dict = dict(zip(CRYPTO_FEATURE_COLUMNS, feature_vector.features[0]))
             
@@ -362,7 +365,7 @@ class CryptoPredictor:
 
             if model is None:
                 logger.warning("no_model_available_for_predict", symbol=symbol, regime=regime)
-                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, 0.0)
+                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0)
 
             # 3. Инференс
             p_up = float(model.predict_proba([fv_array])[0][1])
@@ -386,7 +389,13 @@ class CryptoPredictor:
             ece = (self._model_eces.get(symbol, {}).get(regime)
                    or next(iter(self._model_eces.get(symbol, {}).values()), 0.0))
 
-            fr = funding_rate if (funding_rate is not None and funding_rate != 0.0) else (self._funding_rates.get(symbol) or 0.0)
+            # Фандинг
+            # Если funding_rate явно передан None, считаем его stale, иначе используем значение.
+            # Если не передан (оставлен по умолчанию None), используем кэшированное fallback значение.
+            # Но подождите: сигнатура predict(..., funding_rate: float | None = None).
+            # В вызывающем коде (decision_runners.py) мы всегда передаём funding_rate.
+            # Если он не смог получить, он может передать 0.0, но подождите, мы хотим отличать stale.
+            fr = funding_rate if funding_rate is not None else self._funding_rates.get(symbol)
             from polyflip.crypto.risk_guard import check_funding_veto
             veto = check_funding_veto(funding_rate=fr, direction=direction)
 
@@ -402,6 +411,9 @@ class CryptoPredictor:
                     threshold_down=th_down,
                     model_version=version,
                     risk_vetoed=True,
+                    risk_reason=veto.reason,
+                    stake_multiplier=veto.stake_multiplier,
+                    funding_rate=fr or 0.0,
                     features_ok=True,
                     ece=ece,
                 )
@@ -424,10 +436,14 @@ class CryptoPredictor:
                 threshold_up=th_up,
                 threshold_down=th_down,
                 model_version=version,
+                risk_vetoed=False,
+                risk_reason=veto.reason,
+                stake_multiplier=veto.stake_multiplier,
+                funding_rate=fr or 0.0,
                 features_ok=True,
                 ece=ece,
             )
         except Exception as e:
             logger.exception("crypto_inference_failed", symbol=symbol, error=str(e))
-            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, 0.0)
+            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, str(e), 1.0, 0.0, 0.0)
 

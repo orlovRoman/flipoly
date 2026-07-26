@@ -371,6 +371,13 @@ def decide_crypto_trend(
             p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
 
+    if crypto.risk_vetoed:
+        return TradeDecision(
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
+            reason=f"Risk Veto: {crypto.risk_reason} (funding={crypto.funding_rate:.5f})", strategy_type="LIGHTGBM_TREND", 
+            p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+        )
+
     flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
     if flip_thresh > 1.0:
         flip_thresh = flip_thresh / 100.0
@@ -446,11 +453,14 @@ def decide_crypto_trend(
         )
 
     bet = _resolve_final_bet(economic_edge, volume_5min, config)
+    if hasattr(crypto, "stake_multiplier"):
+        bet *= crypto.stake_multiplier
+
     bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
     if bet <= 0 and not bypass:
         return TradeDecision(
             action="SKIP", buy_price=actual_buy_price, bet_size_usdc=0.0, 
-            reason="Bet size 0", strategy_type="LIGHTGBM_TREND", 
+            reason="Bet size 0 (or stake multiplier 0)", strategy_type="LIGHTGBM_TREND", 
             p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge,
             p_win_effective=p_win, p_win_raw=p_win
         )
