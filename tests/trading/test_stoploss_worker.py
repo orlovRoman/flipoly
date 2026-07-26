@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy import select
@@ -207,12 +207,9 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
     db_session.add_all([trade, market])
     await db_session.flush()
 
+    from tests.helpers import make_dummy_execution
     trader_mock = AsyncMock()
-    trader_mock.execute_trade.return_value = {
-        "status": "SUCCESS",
-        "mode": "PAPER",
-        "executed_price": 0.20, "executed_usdc": 4.0
-    }
+    trader_mock.execute_trade.return_value = make_dummy_execution(mode="PAPER", executed_price=0.20, executed_usdc=4.0)
     
     api_mock = AsyncMock()
     api_mock.get_market_prices.return_value = {"best_bid": 0.20}

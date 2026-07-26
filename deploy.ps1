@@ -1,27 +1,27 @@
 ﻿# Script for deployment
-echo "🚀 Запускаем pre-flight checks (тесты)..."
+echo "?? ��������� pre-flight checks (�����)..."
 $env:PYTHONPATH="."
 python -m pytest tests
 if ($LASTEXITCODE -ne 0) {
-    echo "❌ Тесты упали! Деплой отменен."
+    echo "? ����� �����! ������ �������."
     exit $LASTEXITCODE
 }
 
-echo "✅ Тесты пройдены. Начинаем деплой..."
-echo "🚀 Запускаем процесс деплоя..."
+echo "? ����� ��������. �������� ������..."
+echo "?? ��������� ������� ������..."
 
-echo "1️⃣ Отправка изменений в GitHub..."
+echo "1?? �������� ��������� � GitHub..."
 git push origin main
 if ($LASTEXITCODE -ne 0) {
-    echo "❌ Ошибка при отправке в GitHub"
+    echo "? ������ ��� �������� � GitHub"
     exit $LASTEXITCODE
 }
 
-echo "2️⃣ Подключение к серверу и деплой..."
-ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732 'cd flipoly && git pull origin main && docker compose up -d --build && docker compose exec -T api alembic upgrade head'
+echo "2?? ����������� � ������� � ������..."
+ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732 'cd flipoly && git pull origin main && docker compose build && docker compose stop scheduler api && docker compose run --rm api alembic upgrade head && docker compose up -d api scheduler'
 if ($LASTEXITCODE -ne 0) {
-    echo "❌ Ошибка при деплое на сервер"
+    echo "? ������ ��� ������ �� ������"
     exit $LASTEXITCODE
 }
 
-echo "✅ Деплой успешно завершен!"
+echo "? ������ ������� ��������!"

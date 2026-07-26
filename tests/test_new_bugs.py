@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 # ── BUG-05: engine.py — нет AttributeError при crypto_sig=None ──────────────
@@ -71,10 +71,11 @@ async def test_tp_worker_sell_size_written_to_db(db_session):
     db_session.add(trade)
     await db_session.commit()
 
+    from tests.helpers import make_dummy_execution
     trader_mock = AsyncMock()
-    trader_mock.execute_trade = AsyncMock(return_value={
-        "status": "SUCCESS", "executed_price": 0.85, "mode": "PAPER"
-    })
+    trader_mock.execute_trade = AsyncMock(return_value=make_dummy_execution(
+        mode="PAPER", executed_price=0.85, filled_shares=25.0
+    ))
     api_mock = AsyncMock()
     api_mock.get_market_prices = AsyncMock(return_value={"best_bid": 0.85})
 

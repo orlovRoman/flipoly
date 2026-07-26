@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 import pickle
 from unittest.mock import AsyncMock, patch
 from datetime import datetime, timezone, timedelta
@@ -70,10 +70,11 @@ async def test_tp_worker_triggers_when_price_reached(db_session):
     db_session.add(trade)
     await db_session.commit()
 
+    from tests.helpers import make_dummy_execution
     trader_mock = AsyncMock()
-    trader_mock.execute_trade = AsyncMock(return_value={
-        "status": "SUCCESS", "executed_price": 0.82, "executed_usdc": 8.2, "mode": "PAPER", "error_msg": None
-    })
+    trader_mock.execute_trade = AsyncMock(return_value=make_dummy_execution(
+        mode="PAPER", executed_price=0.82, executed_usdc=8.2
+    ))
     api_mock = AsyncMock()
     api_mock.get_market_prices = AsyncMock(return_value={
         "best_bid": 0.82, "current_yes_price": 0.82, "current_spread": 0.01

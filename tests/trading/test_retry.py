@@ -10,6 +10,7 @@ from sqlalchemy import select, update
 from polyflip.db.models import TradeHistory, LiveMarket, RuntimeSettings
 from polyflip.trading.position_closer import execute_position_exit
 from polyflip.trading.stoploss_worker import stoploss_worker_cycle
+from polyflip.trading.recovery_worker import recovery_worker_cycle
 
 @pytest_asyncio.fixture
 async def prep_exit_failed_trade(db_session: AsyncSession):
@@ -68,8 +69,11 @@ async def test_step8_exit_failed_and_retry(db_session: AsyncSession, prep_exit_f
     trade = prep_exit_failed_trade
     
     # Мокаем трейдера, чтобы он бросал ошибку (или возвращал FAILED)
+    from tests.helpers import make_dummy_execution
     trader_mock = AsyncMock()
-    trader_mock.execute_trade = AsyncMock(return_value={"status": "FAILED", "error_msg": "Timeout", "mode": "PAPER"})
+    trader_mock.execute_trade = AsyncMock(return_value=make_dummy_execution(
+        mode="PAPER", status="REJECTED", error_msg="Timeout"
+    ))
     
     api_mock = AsyncMock()
     api_mock.get_market_prices = AsyncMock(return_value={"best_bid": 0.35}) # trigger stoploss
@@ -89,10 +93,22 @@ async def test_step8_exit_failed_and_retry(db_session: AsyncSession, prep_exit_f
         assert trade.exit_attempts == 1
         assert trader_mock.execute_trade.call_count == 1
         
-        # Цикл 2: Воркер должен снова подхватить позицию, т.к. она EXIT_FAILED
-        trader_mock.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "executed_price": 0.35, "executed_usdc": 7.0, "mode": "PAPER"})
+        # Цикл 2: Воркер (recovery) должен подхватить позицию, т.к. она EXIT_FAILED
+        trader_mock.execute_trade = AsyncMock(return_value=make_dummy_execution(
+            mode="PAPER", status="FILLED", executed_price=0.35, executed_usdc=7.0
+        ))
         
-        await stoploss_worker_cycle(db_session, trader_mock, api_mock)
+        balance_mock = MagicMock()
+        balance_mock.status = "PAPER"
+        balance_mock.available_shares = 20.0
+        trader_mock.get_balance = AsyncMock(return_value=balance_mock)
+        
+        # Advance time so recovery worker considers it stale
+        from datetime import timedelta
+        trade.exit_claimed_at = trade.exit_claimed_at - timedelta(minutes=10)
+        await db_session.commit()
+        
+        await recovery_worker_cycle(db_session, trader_mock, api_mock)
         await db_session.refresh(trade)
         
         assert trade.position_status == "CLOSED"

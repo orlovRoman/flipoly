@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 import pytest_asyncio
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
@@ -82,9 +82,10 @@ async def test_step7_competition_stoploss_and_takeprofit(db_session: AsyncSessio
     
     trader_mock = AsyncMock()
     # Adding a small sleep to simulate network delay, which maximizes chance of race condition
+    from tests.helpers import make_dummy_execution
     async def mock_execute_trade(*args, **kwargs):
         await asyncio.sleep(0.1)
-        return {"status": "SUCCESS", "executed_price": 0.55, "executed_usdc": 11.0, "mode": "PAPER"}
+        return make_dummy_execution(mode="PAPER", executed_price=0.55, executed_usdc=11.0)
     trader_mock.execute_trade = AsyncMock(side_effect=mock_execute_trade)
     
     api_mock = AsyncMock()
