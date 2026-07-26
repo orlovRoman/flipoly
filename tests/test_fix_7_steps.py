@@ -40,7 +40,7 @@ def test_step3_outsider_threshold_uses_calibrated_p_flip():
     # p_flip=0.61 (raw), ECE=0.10 -> calibrated = 0.5 + (0.61 - 0.5) * (1 - 0.10) = 0.599 < 0.60 -> SKIP
     decision = decide_outsider(signal, p_flip=0.61, config=config, ece=0.10)
     assert decision.action == "SKIP"
-    assert "p_flip_calibrated" in decision.reason
+    assert "p_flip_effective" in decision.reason
 
 def test_step4_outsider_direction():
     """Шаг 4: Рефактор decide_outsider — проверка правильности вычисления результирующих действий"""

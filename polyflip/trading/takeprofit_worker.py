@@ -1,5 +1,5 @@
-"""Фоновый воркер: мониторит открытые позиции и триггерит тейк-профит."""
-from datetime import datetime, timezone
+﻿"""Фоновый воркер: мониторит открытые позиции и триггерит тейк-профит."""
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 import structlog
@@ -101,8 +101,9 @@ async def takeprofit_worker_cycle(
 
             # Триггер: продаём
             from polyflip.trading.position_closer import claim_position_for_exit, execute_position_exit
-            claimed = await claim_position_for_exit(db_session, trade.id, "TAKE_PROFIT")
-            if not claimed:
+            stale_before = now - timedelta(minutes=10)
+            attempt_id = await claim_position_for_exit(db_session, trade.id, "TAKE_PROFIT", stale_before)
+            if not attempt_id:
                 logger.warning("takeprofit_failed_to_claim", trade_id=trade.id)
                 continue
 
@@ -113,7 +114,7 @@ async def takeprofit_worker_cycle(
             await db_session.commit()
             
             # Выполняем ордер и финализируем состояние
-            await execute_position_exit(db_session, trader, trade, market, current_bid, fee_rate)
+            await execute_position_exit(db_session, trader, trade, market, current_bid, fee_rate, attempt_id)
 
             logger.info(
                 "takeprofit_execute_initiated",

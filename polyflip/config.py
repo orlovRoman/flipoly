@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     NO_MIN_EDGE: float = 0.04
     FAVORITE_MIN_EDGE: float = -0.01
     CRYPTO_MIN_EDGE: float = 0.05
-    COMBINED_NONE_BET_MULTIPLIER: float = 0.5
+    COMBINED_NONE_BET_MULTIPLIER: float = 0.0
 
     @property
     def asset_list(self) -> List[str]:

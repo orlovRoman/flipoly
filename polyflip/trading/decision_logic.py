@@ -58,6 +58,7 @@ class TradeDecision:
     p_win_effective: Optional[float] = None
     p_win_raw: Optional[float] = None
     probability_adjustment: Optional[str] = None
+    decision_details: Optional[dict] = None
 
 
 
@@ -200,7 +201,8 @@ def decide_ml_trend(
     no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", 0.35))
 
     p_flip_calibrated = apply_ece_correction(p_flip, ece)
-    p_win = 1.0 - p_flip_calibrated
+    p_flip_effective = max(p_flip, p_flip_calibrated)
+    p_win = 1.0 - p_flip_effective
 
     # 1. Проверяем dead zone
     dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
@@ -208,9 +210,9 @@ def decide_ml_trend(
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip, edge=0.0)
 
     # 2. Порог P(flip) < no_flip_threshold
-    if p_flip_calibrated >= no_flip_thresh:
+    if p_flip_effective >= no_flip_thresh:
         return TradeDecision("SKIP", 0, 0,
-            f"p_flip_calibrated={p_flip_calibrated:.3f} >= threshold={no_flip_thresh:.3f}", "SKIP",
+            f"p_flip_effective={p_flip_effective:.3f} >= threshold={no_flip_thresh:.3f}", "SKIP",
             p_flip=p_flip, edge=0.0)
 
     fav_min = float(config.get("FAVORITE_MIN_PRICE", 0.55))
@@ -246,12 +248,21 @@ def decide_ml_trend(
     if bet <= 0 and not bypass:
         return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
+    decision_details = {
+        "p_flip_raw": round(p_flip, 4),
+        "p_flip_effective": round(p_flip_effective, 4),
+        "ece_used": round(ece, 4),
+        "threshold_upper_applied": round(no_flip_thresh, 4),
+        "bet_size_before_multiplier": round(bet, 4),
+    }
+
     return TradeDecision(
         action, buy_price, bet,
-        f"ML_TREND p_flip={p_flip:.3f} < {no_flip_thresh:.3f}",
+        f"ML_TREND p_flip_effective={p_flip_effective:.3f} < {no_flip_thresh:.3f}",
         "ML_TREND",
         p_flip=p_flip, edge=edge,
-        p_win_effective=p_win, p_win_raw=p_win
+        p_win_effective=p_win, p_win_raw=1.0 - p_flip,
+        decision_details=decision_details
     )
 
 
@@ -270,6 +281,7 @@ def decide_outsider(
         flip_thresh = flip_thresh / 100.0
     dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
     p_flip_calibrated = apply_ece_correction(p_flip, ece)
+    p_flip_effective = min(p_flip, p_flip_calibrated)
 
     # 1. Сначала проверяем dead zone
     if is_in_dead_zone(signal.mid_price, dead_zone):
@@ -283,12 +295,12 @@ def decide_outsider(
         return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip, edge=0.0)
 
     outsider_pwin_discount = float(config.get("OUTSIDER_PWIN_DISCOUNT", 0.65))
-    p_win_outsider = p_flip_calibrated * outsider_pwin_discount
+    p_win_outsider = p_flip_effective * outsider_pwin_discount
     outsider_edge = compute_edge(p_win_outsider, outsider_ask)
 
     logger.debug(
         "outsider_p_win_calc",
-        p_flip_calibrated=round(p_flip_calibrated, 4),
+        p_flip_effective=round(p_flip_effective, 4),
         discount=outsider_pwin_discount,
         p_win_adjusted=round(p_win_outsider, 4),
         outsider_ask=outsider_ask,
@@ -296,9 +308,9 @@ def decide_outsider(
     )
 
     # 2. Потом проверяем порог p_flip
-    if p_flip_calibrated < flip_thresh:
+    if p_flip_effective < flip_thresh:
         return TradeDecision("SKIP", 0, 0,
-            f"p_flip_calibrated={p_flip_calibrated:.3f} < threshold={flip_thresh:.3f}", "SKIP",
+            f"p_flip_effective={p_flip_effective:.3f} < threshold={flip_thresh:.3f}", "SKIP",
             p_flip=p_flip, edge=outsider_edge)
 
     max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", 0.45))
@@ -335,11 +347,21 @@ def decide_outsider(
     if bet <= 0 and not bypass:
         return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
+    decision_details = {
+        "p_flip_raw": round(p_flip, 4),
+        "p_flip_effective": round(p_flip_effective, 4),
+        "ece_used": round(ece, 4),
+        "threshold_upper_applied": round(flip_thresh, 4),
+        "bet_size_before_multiplier": round(bet, 4),
+    }
+
     return TradeDecision(
         outsider_action, outsider_ask, bet,
-        f"outsider {outsider_action.split('_')[1]}, p_flip={p_flip:.3f}", "OUTSIDER",
+        f"OUTSIDER p_flip_effective={p_flip_effective:.3f} >= {flip_thresh:.3f}",
+        "TRADE_ON_FLIP",
         p_flip=p_flip, edge=edge,
-        p_win_effective=p_win_outsider, p_win_raw=p_win_outsider
+        p_win_effective=p_win_outsider, p_win_raw=p_flip * outsider_pwin_discount,
+        decision_details=decision_details
     )
 
 

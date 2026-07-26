@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint, Text, CheckConstraint
+﻿from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint, Text, CheckConstraint, Numeric, SmallInteger
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -120,7 +121,7 @@ class TradeHistory(Base):
     stop_loss_status     = Column(String(20), nullable=True, default="ACTIVE")
     stop_loss_hit_at     = Column(DateTime(timezone=True), nullable=True)
     stop_loss_sell_price = Column(Float, nullable=True)
-    stop_loss_sell_size  = Column(Float, nullable=True)
+    stop_loss_sell_size  = Column(Numeric(38, 18), nullable=True)
     
     # --- Take Profit ---
     take_profit_enabled    = Column(Boolean, nullable=True, default=False)
@@ -129,12 +130,22 @@ class TradeHistory(Base):
     take_profit_status     = Column(String(20), nullable=True, default="ACTIVE")
     take_profit_hit_at     = Column(DateTime(timezone=True), nullable=True)
     take_profit_sell_price = Column(Float, nullable=True)
-    take_profit_sell_size  = Column(Float, nullable=True)
+    take_profit_sell_size  = Column(Numeric(38, 18), nullable=True)
+    
+    # --- Financial Fields & Accounting ---
+    position_accounting_version = Column(SmallInteger, nullable=False, server_default="0")
+    entry_filled_shares = Column(Numeric(38, 18), nullable=True)
+    entry_cost_usdc = Column(Numeric(38, 18), nullable=True)
+    remaining_shares = Column(Numeric(38, 18), nullable=True)
+    realized_pnl_usdc = Column(Numeric(38, 18), nullable=False, default=0)
     
     # --- Unified Exit Status ---
     position_status = Column(String(32), nullable=False, default="OPEN")
     exit_reason     = Column(String(32), nullable=True)
     exit_order_id   = Column(String(128), nullable=True)
+    exit_attempt_id = Column(UUID(as_uuid=True), nullable=True)
+    exit_claimed_at = Column(DateTime(timezone=True), nullable=True)
+    last_exit_error = Column(Text, nullable=True)
     exit_attempts   = Column(Integer, nullable=False, default=0)
     closed_at       = Column(DateTime(timezone=True), nullable=True)
     close_price     = Column(Float, nullable=True)
@@ -145,6 +156,10 @@ class TradeHistory(Base):
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),
         Index("idx_trade_history_model_version", "asset", "model_version", "status", "created_at"),
+        CheckConstraint(
+            "position_accounting_version = 0 OR (remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
+            name="ck_trade_position_accounting_initialized",
+        ),
     )
 
 class SlippageLog(Base):
@@ -286,3 +301,15 @@ class ConfigPreset(Base):
         Index("idx_config_presets_created_at", "created_at"),
         Index("idx_config_presets_type",       "preset_type"),
     )
+
+class ChainTransaction(Base):
+    __tablename__ = "chain_transactions"
+    
+    tx_hash = Column(String(128), primary_key=True)
+    attempt_id = Column(UUID(as_uuid=True), nullable=True)
+    operation = Column(String(32), nullable=False)  # APPROVE, SPLIT, MERGE, REDEEM, SETTLEMENT
+    network = Column(String(32), nullable=False)
+    gas_paid_native = Column(Numeric(38, 18), nullable=True)
+    gas_paid_usdc = Column(Numeric(38, 18), nullable=True)
+    paid_by = Column(String(16), nullable=False)  # USER, RELAYER, UNKNOWN
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)

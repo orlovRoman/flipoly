@@ -2,11 +2,15 @@ import os
 import structlog
 import time
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
+from decimal import Decimal
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs, OrderType
 from py_clob_client.constants import POLYGON
+from polyflip.trading.schemas import BalanceResult, BalanceStatus, TradeExecution, ExecutionFees, ExecutionStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -64,56 +68,172 @@ class PolyTrader:
         self, 
         market_id: str, 
         token_id: str, 
-        side: str, # "BUY" or "SELL"
+        side: Literal["BUY", "SELL"],
         price: float, 
         size: float
-    ) -> Dict[str, Any]:
-        """
-        Отправляет лимитный ордер (FOK - Fill or Kill) в стакан.
-        """
+    ) -> TradeExecution:
+        """Отправляет лимитный ордер (FOK) и возвращает TradeExecution."""
         logger.info("executing_trade", market_id=market_id, side=side, price=price, size=size)
         
-        client = self.get_client()
+        attempt_id = uuid4()
+        now = datetime.now(timezone.utc)
         
-        if not client:
+        fees = ExecutionFees(
+            platform_fee_usdc=Decimal("0"),
+            builder_fee_usdc=Decimal("0"),
+            network_fee_native=None,
+            network_fee_symbol=None,
+            network_fee_usdc=None,
+            fee_source="ESTIMATED"
+        )
+        
+        if self.mode == "PAPER":
             logger.info("paper_trade_executed", market_id=market_id, side=side, price=price, size=size)
-            return {"status": "SUCCESS", "mode": "PAPER", "error_msg": None, "executed_usdc": round(size * price, 2), "executed_price": price}
+            return TradeExecution(
+                attempt_id=attempt_id,
+                provider_order_id="PAPER_" + str(attempt_id),
+                provider_status="PAPER",
+                status="PAPER_FILLED",
+                side=side,
+                order_type="PAPER",
+                token_id=token_id,
+                original_requested_shares=Decimal(str(size)),
+                submitted_shares=Decimal(str(size)),
+                filled_shares=Decimal(str(size)),
+                net_position_delta_shares=Decimal(str(size)) if side == "BUY" else -Decimal(str(size)),
+                average_price=Decimal(str(price)),
+                gross_quote_usdc=Decimal(str(size * price)),
+                net_quote_usdc=Decimal(str(size * price)),
+                liquidity_role="UNKNOWN",
+                fees=fees,
+                trade_ids=tuple(),
+                transaction_hashes=tuple(),
+                submitted_at=now,
+                observed_at=now,
+                error_code=None,
+                error_message=None
+            )
             
-        # BUG-T02 FIX: Retry logic с fallback на size/2
-        max_retries = 3
-        current_size = size
-        
-        for attempt in range(1, max_retries + 1):
-            try:
-                order_args = OrderArgs(
-                    price=price,
-                    size=current_size,
+        client = self.get_client()
+        if not client:
+            return TradeExecution(
+                attempt_id=attempt_id,
+                provider_order_id=None,
+                provider_status=None,
+                status="REJECTED",
+                side=side,
+                order_type="FOK",
+                token_id=token_id,
+                original_requested_shares=Decimal(str(size)),
+                submitted_shares=Decimal("0"),
+                filled_shares=Decimal("0"),
+                net_position_delta_shares=Decimal("0"),
+                average_price=None,
+                gross_quote_usdc=None,
+                net_quote_usdc=None,
+                liquidity_role="UNKNOWN",
+                fees=fees,
+                trade_ids=tuple(),
+                transaction_hashes=tuple(),
+                submitted_at=now,
+                observed_at=now,
+                error_code="CLIENT_INIT_FAILED",
+                error_message="Polymarket client not initialized"
+            )
+            
+        try:
+            order_args = OrderArgs(
+                price=price,
+                size=size,
+                side=side,
+                token_id=token_id
+            )
+            
+            resp = client.create_and_post_order(order_args, order_type=OrderType.FOK)
+            observed = datetime.now(timezone.utc)
+            
+            if resp and resp.get("success"):
+                order_id = resp.get("orderID")
+                logger.info("trade_success", order_id=order_id, size=size)
+                # Возвращаем UNKNOWN, так как ордер только ПРИНЯТ
+                return TradeExecution(
+                    attempt_id=attempt_id,
+                    provider_order_id=order_id,
+                    provider_status="LIVE",
+                    status="UNKNOWN",
                     side=side,
-                    token_id=token_id
+                    order_type="FOK",
+                    token_id=token_id,
+                    original_requested_shares=Decimal(str(size)),
+                    submitted_shares=Decimal(str(size)),
+                    filled_shares=Decimal("0"),
+                    net_position_delta_shares=None,
+                    average_price=None,
+                    gross_quote_usdc=None,
+                    net_quote_usdc=None,
+                    liquidity_role="UNKNOWN",
+                    fees=fees,
+                    trade_ids=tuple(),
+                    transaction_hashes=tuple(),
+                    submitted_at=now,
+                    observed_at=observed,
+                    error_code=None,
+                    error_message=None
                 )
-                
-                resp = client.create_and_post_order(order_args, order_type=OrderType.FOK)
-                
-                if resp and resp.get("success"):
-                    order_id = resp.get("orderID")
-                    logger.info("trade_success", order_id=order_id, attempt=attempt, size=current_size)
-                    return {"status": "SUCCESS", "mode": "LIVE", "error_msg": None, "executed_usdc": round(current_size * price, 2), "executed_price": price, "order_id": order_id, "requested_size": current_size}
-                
-                err = resp.get("errorMsg") if resp else "Unknown error"
-                logger.warning("trade_failed_attempt", attempt=attempt, error=err, size=current_size)
-                
-                if attempt < max_retries:
-                    await asyncio.sleep(0.5)
-                    # Если первый фейл — пробуем уменьшить размер в 2 раза
-                    if attempt == 1:
-                        current_size = round(current_size / 2, 2)
-                        logger.info("fallback_trade_size", new_size=current_size)
-                        
-            except Exception as e:
-                logger.warning("trade_exception_attempt", attempt=attempt, error=str(e))
-                if attempt < max_retries:
-                    await asyncio.sleep(0.5)
-        return {"status": "FAILED", "mode": "LIVE", "error_msg": "Max retries exceeded", "executed_usdc": 0.0, "executed_price": 0.0}
+            
+            err = resp.get("errorMsg") if resp else "Unknown API error"
+            logger.warning("trade_rejected", error=err, size=size)
+            return TradeExecution(
+                attempt_id=attempt_id,
+                provider_order_id=None,
+                provider_status=None,
+                status="REJECTED",
+                side=side,
+                order_type="FOK",
+                token_id=token_id,
+                original_requested_shares=Decimal(str(size)),
+                submitted_shares=Decimal(str(size)),
+                filled_shares=Decimal("0"),
+                net_position_delta_shares=Decimal("0"),
+                average_price=None,
+                gross_quote_usdc=None,
+                net_quote_usdc=None,
+                liquidity_role="UNKNOWN",
+                fees=fees,
+                trade_ids=tuple(),
+                transaction_hashes=tuple(),
+                submitted_at=now,
+                observed_at=observed,
+                error_code="REJECTED",
+                error_message=err
+            )
+                    
+        except Exception as e:
+            logger.exception("trade_exception", error=str(e))
+            return TradeExecution(
+                attempt_id=attempt_id,
+                provider_order_id=None,
+                provider_status=None,
+                status="UNKNOWN",
+                side=side,
+                order_type="FOK",
+                token_id=token_id,
+                original_requested_shares=Decimal(str(size)),
+                submitted_shares=Decimal(str(size)),
+                filled_shares=Decimal("0"),
+                net_position_delta_shares=None,
+                average_price=None,
+                gross_quote_usdc=None,
+                net_quote_usdc=None,
+                liquidity_role="UNKNOWN",
+                fees=fees,
+                trade_ids=tuple(),
+                transaction_hashes=tuple(),
+                submitted_at=now,
+                observed_at=datetime.now(timezone.utc),
+                error_code="NETWORK_EXCEPTION",
+                error_message=str(e)
+            )
 
     async def get_order(self, order_id: str) -> Optional[Dict[str, Any]]:
         """Получает статус ордера по ID."""
@@ -126,26 +246,89 @@ class PolyTrader:
             logger.error("get_order_exception", order_id=order_id, error=str(e))
             return None
 
-    async def get_balance(self, token_id: str) -> float | None:
+    async def get_balance(self, token_id: str) -> BalanceResult:
         """Получает текущий баланс токена."""
+        if self.mode == "PAPER":
+            return BalanceResult(
+                status="PAPER",
+                wallet_address="PAPER_WALLET",
+                token_id=token_id,
+                available_shares=Decimal("0"),
+                total_shares=Decimal("0"),
+                locked_shares=Decimal("0"),
+                observed_at=datetime.now(timezone.utc),
+                source="PAPER_TRADER"
+            )
+
         client = self.get_client()
         if not client:
-            return None
+            return BalanceResult(
+                status="TRANSPORT_ERROR",
+                wallet_address="UNKNOWN",
+                token_id=token_id,
+                available_shares=None,
+                total_shares=None,
+                locked_shares=None,
+                observed_at=datetime.now(timezone.utc),
+                source="PY_CLOB_CLIENT",
+                error_message="Client not initialized"
+            )
+            
         try:
             from py_clob_client.clob_types import BalanceAllowanceParams
             resp = client.get_balance_allowance(BalanceAllowanceParams(asset_type="conditional"))
-            # resp is likely a dict or list
-            # Wait, py_clob_client might return something else.
-            # actually we can just query all balances and find the one with token_id.
+            
+            wallet_addr = getattr(client, 'address', "UNKNOWN")
+            now = datetime.now(timezone.utc)
+
             if isinstance(resp, list):
                 for b in resp:
                     if b.get("asset_id") == token_id or b.get("token_id") == token_id:
-                        return float(b.get("balance", 0))
-            elif isinstance(resp, dict):
-                # if it's a dict keyed by token_id
-                # This is highly dependent on py_clob_client implementation.
-                pass
-            return 0.0
+                        balance_val = Decimal(str(b.get("balance", 0)))
+                        return BalanceResult(
+                            status="OK",
+                            wallet_address=wallet_addr,
+                            token_id=token_id,
+                            available_shares=balance_val,
+                            total_shares=balance_val,
+                            locked_shares=Decimal("0"),
+                            observed_at=now,
+                            source="PY_CLOB_CLIENT"
+                        )
+                return BalanceResult(
+                    status="TOKEN_NOT_FOUND",
+                    wallet_address=wallet_addr,
+                    token_id=token_id,
+                    available_shares=None,
+                    total_shares=None,
+                    locked_shares=None,
+                    observed_at=now,
+                    source="PY_CLOB_CLIENT",
+                    error_message=f"Token {token_id} not found in balance list"
+                )
+            
+            return BalanceResult(
+                status="PARSE_ERROR",
+                wallet_address=wallet_addr,
+                token_id=token_id,
+                available_shares=None,
+                total_shares=None,
+                locked_shares=None,
+                observed_at=now,
+                source="PY_CLOB_CLIENT",
+                error_message=f"Unexpected response format: {type(resp)}"
+            )
+
         except Exception as e:
             logger.error("get_balance_exception", token_id=token_id, error=str(e))
-            return None
+            return BalanceResult(
+                status="TRANSPORT_ERROR",
+                wallet_address="UNKNOWN",
+                token_id=token_id,
+                available_shares=None,
+                total_shares=None,
+                locked_shares=None,
+                observed_at=datetime.now(timezone.utc),
+                source="PY_CLOB_CLIENT",
+                error_message=str(e)
+            )

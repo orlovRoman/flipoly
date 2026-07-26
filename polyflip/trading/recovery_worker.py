@@ -21,6 +21,7 @@ async def _process_single_recovery(
     trade: TradeHistory,
     fee_rate: float,
     now: datetime,
+    attempt_id,
 ) -> None:
     """
     Проверяет реальный баланс на бирже и закрывает остатки позиции.
@@ -36,12 +37,12 @@ async def _process_single_recovery(
     token_id = market.yes_token_id if trade.outcome_bought == "YES" else market.no_token_id
 
     actual_balance = await trader.get_balance(token_id)
-    if actual_balance is None:
-        logger.error("recovery_balance_error", trade_id=trade.id, token_id=token_id)
+    if actual_balance.status != "OK" and actual_balance.status != "PAPER":
+        logger.error("recovery_balance_error", trade_id=trade.id, token_id=token_id, error=actual_balance.error_message)
         return
 
-    if actual_balance <= 0.01: # Мелкие пылинки игнорируем
-        # Баланс нулевой, значит позиция полностью закрыта
+    if actual_balance.available_shares is not None and float(actual_balance.available_shares) <= 0.01: # Мелкие пылинки игнорируем
+        # Баланс нулевой, значит позиция полностью закрытазакрыта
         logger.info("recovery_balance_zero_closing", trade_id=trade.id)
         trade.position_status = "CLOSED"
         trade.closed_at = now
@@ -68,7 +69,7 @@ async def _process_single_recovery(
     # Давайте просто вызовем execute_position_exit, а в нём подправим логику.
     
     # Но для начала, давайте просто передадим. execute_position_exit мы изменим чтобы он принимал optional size.
-    await execute_position_exit(db_session, trader, trade, market, current_bid, fee_rate, actual_size=actual_balance)
+    await execute_position_exit(db_session, trader, trade, market, current_bid, fee_rate, attempt_id, actual_size=float(actual_balance.available_shares) if actual_balance.available_shares else None)
 
 
 async def recovery_worker_cycle(
@@ -83,6 +84,7 @@ async def recovery_worker_cycle(
     from datetime import timedelta
     now = datetime.now(timezone.utc)
     stuck_threshold = now - timedelta(minutes=5)
+    stale_before = now - timedelta(minutes=10)
 
     stmt = select(TradeHistory).where(
         and_(
@@ -101,11 +103,11 @@ async def recovery_worker_cycle(
     for trade in stuck_trades:
         try:
             # Атомарный захват позиции
-            claimed = await claim_position_for_exit(db_session, trade.id, "RECOVERY", allowed_statuses=["EXIT_FAILED", "PARTIALLY_CLOSED", "CLOSING"])
-            if not claimed:
+            attempt_id = await claim_position_for_exit(db_session, trade.id, "RECOVERY", stale_before)
+            if not attempt_id:
                 continue
                 
-            await _process_single_recovery(db_session, trader, api_client, trade, fee_rate, now)
+            await _process_single_recovery(db_session, trader, api_client, trade, fee_rate, now, attempt_id)
             await db_session.commit()
         except Exception as e:
             logger.exception("recovery_worker_error", trade_id=trade.id, error=str(e))

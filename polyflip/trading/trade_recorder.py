@@ -154,6 +154,7 @@ async def execute_and_record(
             "p_flip_at_entry": round(p_flip, 4) if p_flip is not None else None,
             "buy_price": buy_price,
             "recorded_at_utc": start_time.isoformat(),
+            "decision_details": getattr(decision_obj, "decision_details", None)
         }
         config_snapshot_json = json.dumps(config_snap, ensure_ascii=False)
     except Exception as exc_snap:
