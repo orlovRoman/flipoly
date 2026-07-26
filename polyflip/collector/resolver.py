@@ -9,6 +9,9 @@ from polyflip.db.models import MarketSnapshot
 
 logger = structlog.get_logger(__name__)
 
+def extract_final_outcome(market_data: dict) -> str | None:
+    return None
+
 async def resolve_pending_markets(db_session: AsyncSession):
     """
     Находит закрытые рынки со статусом PENDING и обновляет их исход.
