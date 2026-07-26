@@ -187,19 +187,26 @@
 
                 // Update worker status
                 const workerStatus = document.getElementById('worker-status');
-                const isOnline = data.worker_online;
+                let isOnline = false;
+                if (data.worker_status && data.worker_status.heartbeat_at) {
+                    const hbTime = new Date(data.worker_status.heartbeat_at + "Z").getTime();
+                    if (Date.now() - hbTime < 60000) isOnline = true; // 1 min tolerance
+                }
                 workerStatus.textContent = isOnline ? 'Работает' : 'Остановлен';
                 workerStatus.className = isOnline ? 'worker-online' : 'worker-offline';
                 
                 // Update balance
+                const balance = data.worker_status ? data.worker_status.balance_usdc : null;
                 document.getElementById('wallet-balance').textContent = 
-                    data.wallet_balance !== null ? `$${parseFloat(data.wallet_balance).toFixed(2)}` : '--';
+                    balance !== null ? `$${parseFloat(balance).toFixed(2)}` : '--';
                 
                 // Update kill switch
-                toggleSwitch.checked = data.live_enabled;
-                if (!isOnline && !data.live_enabled) {
+                toggleSwitch.checked = data.live_trading_enabled;
+                if (!isOnline && !data.live_trading_enabled) {
                     // Cannot enable LIVE if worker is offline
                     toggleSwitch.title = "Воркер остановлен. Запустите воркер перед включением LIVE.";
+                } else if (data.worker_status && !data.worker_status.gateway_ready && !data.live_trading_enabled) {
+                    toggleSwitch.title = "Gateway не готов: " + (data.worker_status.last_error_message || "");
                 } else {
                     toggleSwitch.title = "Включить/выключить реальные сделки";
                 }

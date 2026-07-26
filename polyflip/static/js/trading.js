@@ -1307,8 +1307,14 @@ document.addEventListener("DOMContentLoaded", () => {
             result.data.forEach(item => {
               const tr = document.createElement("tr");
               const pnlColor = item.pnl > 0 ? "#00ff88" : (item.pnl < 0 ? "#ff3366" : "inherit");
+              let modeBadge = "";
+              if (item.mode === "LIVE") {
+                  modeBadge = `<span style="background: rgba(255, 51, 102, 0.2); color: #ff3366; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; margin-left: 5px;">LIVE</span>`;
+              } else {
+                  modeBadge = `<span style="background: rgba(0, 255, 136, 0.2); color: #00ff88; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; margin-left: 5px;">PAPER</span>`;
+              }
               tr.innerHTML = `
-                <td>${item.asset} <span style="opacity:0.7;font-size:0.9em;margin-left:0.5rem">${item.strategy}</span></td>
+                <td>${item.asset} <span style="opacity:0.7;font-size:0.9em;margin-left:0.5rem">${item.strategy}</span>${modeBadge}</td>
                 <td>${item.trades}</td>
                 <td>${item.win_rate}%</td>
                 <td style="color: ${pnlColor}">${item.pnl > 0 ? "+" : ""}${item.pnl.toFixed(2)}</td>

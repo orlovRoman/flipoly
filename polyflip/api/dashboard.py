@@ -104,14 +104,14 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
             seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
             stmt = select(
                 TradeHistory.asset,
+                TradeHistory.mode,
                 func.count(TradeHistory.id).label("total"),
                 func.sum(case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
             ).where(
                 TradeHistory.created_at >= seven_days_ago,
-                TradeHistory.status == "SUCCESS",
-                TradeHistory.pnl.is_not(None),
-                TradeHistory.pnl != 0.0
-            ).group_by(TradeHistory.asset)
+                TradeHistory.position_status == "CLOSED",
+                TradeHistory.pnl.is_not(None)
+            ).group_by(TradeHistory.asset, TradeHistory.mode)
             return (await s.execute(stmt)).all()
 
     async def fetch_settings_dict():
@@ -184,9 +184,11 @@ async def get_dashboard_status(db: AsyncSession = Depends(get_db_session)):
         total = int(row.total or 0)
         wins = int(row.wins or 0)
         if total > 0:
-            rolling_accuracy[row.asset] = {
+            key = f"{row.asset}_{row.mode}"
+            rolling_accuracy[key] = {
                 "accuracy": round(wins / total, 4),
-                "total_trades": total
+                "total_trades": total,
+                "mode": row.mode
             }
             
 
@@ -417,7 +419,7 @@ async def get_daily_pnl(
     now = datetime.now(timezone.utc)
     
     where_clause = [
-        TradeHistory.status.in_(["SUCCESS", "FAILED"]),
+        TradeHistory.position_status == "CLOSED",
         TradeHistory.pnl.is_not(None)
     ]
     
@@ -441,7 +443,8 @@ async def get_daily_pnl(
         TradeHistory.active_features,
         TradeHistory.pnl,
         TradeHistory.amount_usdc,
-        TradeHistory.executed_price
+        TradeHistory.executed_price,
+        TradeHistory.mode
     ).where(*where_clause)
     
     result = await db.execute(stmt)
@@ -465,11 +468,13 @@ async def get_daily_pnl(
         else:
             strategy = 'Другое'
             
-        key = f"{asset}_{strategy}"
+        mode = getattr(row, "mode", "PAPER")
+        key = f"{asset}_{strategy}_{mode}"
         if key not in aggregated:
             aggregated[key] = {
                 "asset": asset,
                 "strategy": strategy,
+                "mode": mode,
                 "trades": 0,
                 "wins": 0,
                 "pnl": 0.0,
@@ -488,6 +493,7 @@ async def get_daily_pnl(
         response_data.append({
             "asset": data["asset"],
             "strategy": data["strategy"],
+            "mode": data["mode"],
             "trades": data["trades"],
             "win_rate": round(wr, 1),
             "pnl": round(data["pnl"], 2),
@@ -559,7 +565,7 @@ async def get_model_pnl(db: AsyncSession = Depends(get_db_session)):
 
     # 2. Выполняем батч-запрос к TradeHistory с фильтром по времени (BUG-G fix)
     where_conditions = [
-        TradeHistory.status == "SUCCESS",
+        TradeHistory.position_status == "CLOSED",
         TradeHistory.pnl.is_not(None),
         TradeHistory.model_version.is_not(None),
     ]
