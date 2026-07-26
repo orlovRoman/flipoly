@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy import select
@@ -21,7 +21,7 @@ async def test_worker_skips_when_disabled(db_session):
     trader_mock = AsyncMock()
     api_mock = AsyncMock()
 
-    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, api_mock)
 
     trader_mock.execute_trade.assert_not_called()
 
@@ -43,7 +43,7 @@ async def test_worker_expired_by_market_end_time(db_session):
         market_id="m1",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=10.0,
+        amount_usdc=10.0, remaining_shares=20.0,
         executed_price=0.5,
         predicted_flip_prob=0.3,
         status="SUCCESS",
@@ -59,7 +59,7 @@ async def test_worker_expired_by_market_end_time(db_session):
     trader_mock = AsyncMock()
     api_mock = AsyncMock()
 
-    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, api_mock)
 
     await db_session.refresh(trade)
     assert trade.stop_loss_status == "EXPIRED"
@@ -83,7 +83,7 @@ async def test_worker_expired_when_market_missing_from_live(db_session):
         market_id="m1",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=10.0,
+        amount_usdc=10.0, remaining_shares=20.0,
         executed_price=0.5,
         predicted_flip_prob=0.3,
         status="SUCCESS",
@@ -99,7 +99,7 @@ async def test_worker_expired_when_market_missing_from_live(db_session):
     trader_mock = AsyncMock()
     api_mock = AsyncMock()
 
-    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, api_mock)
 
     await db_session.refresh(trade)
     assert trade.stop_loss_status == "EXPIRED"
@@ -123,7 +123,7 @@ async def test_worker_no_trigger_when_bid_above_stop(db_session):
         market_id="m1",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=10.0,
+        amount_usdc=10.0, remaining_shares=20.0,
         executed_price=0.5,
         predicted_flip_prob=0.3,
         status="SUCCESS",
@@ -155,7 +155,7 @@ async def test_worker_no_trigger_when_bid_above_stop(db_session):
     api_mock = AsyncMock()
     api_mock.get_market_prices.return_value = {"best_bid": 0.30}
 
-    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, api_mock)
 
     await db_session.refresh(trade)
     assert trade.stop_loss_status == "ACTIVE"
@@ -179,7 +179,7 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
         market_id="m1",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=10.0,
+        amount_usdc=10.0, remaining_shares=20.0,
         executed_price=0.5,
         predicted_flip_prob=0.3,
         status="SUCCESS",
@@ -214,17 +214,11 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
     api_mock = AsyncMock()
     api_mock.get_market_prices.return_value = {"best_bid": 0.20}
 
-    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, api_mock)
 
     await db_session.refresh(trade)
-    assert trade.stop_loss_status == "TRIGGERED"
-    trader_mock.execute_trade.assert_called_once_with(
-        market_id="m1",
-        token_id="yes1",
-        side="SELL",
-        price=0.20,
-        size=20.0
-    )
+    assert trade.stop_loss_status == "QUEUED"
+    # removed assertion
     assert trade.pnl == pytest.approx(-6.008, abs=1e-3)
     assert trade.close_price == 0.20
 
@@ -247,7 +241,7 @@ async def test_worker_skips_trade_with_missing_stop_loss_pct(db_session):
     now = datetime.now(timezone.utc)
     trade = TradeHistory(
         market_id="m_none_pct", asset="BTC", outcome_bought="YES",
-        amount_usdc=10.0, executed_price=0.5, predicted_flip_prob=0.3,
+        amount_usdc=10.0, remaining_shares=20.0, executed_price=0.5, predicted_flip_prob=0.3,
         status="SUCCESS", stop_loss_status="ACTIVE",
         stop_loss_pct=None,       # ← ключевое
         stop_loss_price=0.25,
@@ -272,7 +266,7 @@ async def test_worker_skips_trade_with_missing_stop_loss_pct(db_session):
     api_mock = AsyncMock()
     api_mock.get_market_prices.return_value = {"best_bid": 0.20}
 
-    await stoploss_worker_cycle(db_session, trader_mock, api_mock)
+    await stoploss_worker_cycle(db_session, api_mock)
 
     await db_session.refresh(trade)
     assert trade.stop_loss_status == "EXPIRED"

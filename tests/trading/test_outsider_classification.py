@@ -12,20 +12,30 @@ def test_outsider_decision_has_correct_strategy_type():
     signal_mock.get_yes_ask.return_value = 0.20
     signal_mock.get_no_ask.return_value = 0.80
     signal_mock.volume_5min = 1000.0
+    
+    config = {
+        "FLIP_THRESHOLD": 0.50,
+        "OUTSIDER_PWIN_DISCOUNT": 0.65,
+        "DEAD_ZONE_WIDTH": 0.05,
+        "BET_SIZING_MODE": "fixed",
+        "TRADE_BET_SIZE_USDC": 10.0,
+        "OUTSIDER_MAX_PRICE": 0.45,
+        "MIN_EDGE": 0.05
+    }
+    
     decision = decide_outsider(
         signal=signal_mock,
         p_flip=0.55,
-        config={"FLIP_THRESHOLD": 0.50, "outsider_pwin_discount": 1.0, "DEAD_ZONE_WIDTH": 0.05, "bet_sizing_mode": "fixed", "BET_SIZE": 10.0},
+        config=config,
         ece=0.01,
     )
-    # the function internally handles computing p_flip_effective = 0.45+0.01=0.46, 
-    # but wait, decide_outsider actually computes it. 
-    # I should just mock the decision_logic attributes directly or pass valid args.
-
-    # Instead of full realistic simulation, let's just make it return an OUTSIDER decision
-    # Wait, decide_outsider doesn't take those kwargs anymore. 
-    # Let me just check the new signature of decide_outsider. It only takes signal, p_flip, config, ece.
-    pass
+    
+    assert decision.action == "BUY_YES"
+    assert decision.strategy_type == "OUTSIDER"
+    assert decision.decision_details["market_role"] == "OUTSIDER"
+    # p_flip_effective is min(0.55, 0.55+0.01) = 0.55
+    # p_win_effective = 0.55 * 0.65 = 0.3575
+    assert decision.p_win_effective == pytest.approx(decision.decision_details["p_flip_effective"] * 0.65)
 
 @pytest.mark.asyncio
 async def test_pre_trade_validator_blocks_outsider_on_favorite_token():

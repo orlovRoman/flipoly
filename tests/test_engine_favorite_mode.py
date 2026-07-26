@@ -102,7 +102,7 @@ async def test_pure_favorite_buys_yes_when_yes_is_favorite():
     api_client = AsyncMock()
     api_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.70, "best_bid": 0.68})
     
-    await trade_worker_cycle(db_session, trader, api_client)
+    await trade_worker_cycle(db_session, api_client)
     
     trader.execute_trade.assert_called_once()
     call_kwargs = trader.execute_trade.call_args.kwargs
@@ -164,7 +164,7 @@ async def test_pure_favorite_buys_no_when_no_is_favorite():
     api_client = AsyncMock()
     api_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.70, "best_bid": 0.68})
     
-    await trade_worker_cycle(db_session, trader, api_client)
+    await trade_worker_cycle(db_session, api_client)
     
     trader.execute_trade.assert_called_once()
     call_kwargs = trader.execute_trade.call_args.kwargs
@@ -211,7 +211,7 @@ async def test_pure_favorite_skips_when_outside_time_window():
     trader = AsyncMock()
     api_client = AsyncMock()
     
-    await trade_worker_cycle(db_session, trader, api_client)
+    await trade_worker_cycle(db_session, api_client)
     
     trader.execute_trade.assert_not_called()
 
@@ -254,7 +254,7 @@ async def test_pure_favorite_skips_duplicate_trade():
     trader = AsyncMock()
     api_client = AsyncMock()
     
-    await trade_worker_cycle(db_session, trader, api_client)
+    await trade_worker_cycle(db_session, api_client)
     
     trader.execute_trade.assert_not_called()
 
@@ -299,7 +299,7 @@ async def test_pure_favorite_skips_when_price_exactly_05():
     trader = AsyncMock()
     api_client = AsyncMock()
     
-    await trade_worker_cycle(db_session, trader, api_client)
+    await trade_worker_cycle(db_session, api_client)
     
     trader.execute_trade.assert_not_called()
     
@@ -360,7 +360,7 @@ async def test_ml_mode_unchanged_when_trading_mode_is_ml():
     api_client = AsyncMock()
     api_client.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.70, "current_spread": 0.02})
 
-    await trade_worker_cycle(db_session, trader, api_client)
+    await trade_worker_cycle(db_session, api_client)
 
     # execute_trade не должен быть вызван, т.к. нет моделей
     trader.execute_trade.assert_not_called()
@@ -417,7 +417,7 @@ async def test_pure_favorite_skips_no_when_yes_becomes_favorite():
     # Мокаем цену NO-токена равной 0.30 (т.е. NO теперь аутсайдер, YES = 0.70)
     api_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.30, "best_bid": 0.28})
     
-    await trade_worker_cycle(db_session, trader, api_client)
+    await trade_worker_cycle(db_session, api_client)
     
     trader.execute_trade.assert_not_called()
     

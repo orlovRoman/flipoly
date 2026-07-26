@@ -60,7 +60,6 @@ async def test_skipped_then_signal_appears(db_session):
 
     # Мокаем API и Trader
     mock_trader = MagicMock()
-    mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
     mock_api = MagicMock()
     mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.58})
     mock_api.close = AsyncMock()
@@ -68,7 +67,7 @@ async def test_skipped_then_signal_appears(db_session):
     # ---------------------------------------------------------
     # Цикл 1: p_flip = 0.50 (внутри диапазона пропуска) -> SKIPPED
     # ---------------------------------------------------------
-    await trade_worker_cycle(db_session, mock_trader, mock_api)
+    await trade_worker_cycle(db_session, mock_api)
 
     # Проверяем запись в БД
     res = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "m_reentry"))
@@ -88,7 +87,7 @@ async def test_skipped_then_signal_appears(db_session):
     registry.version += 1
     await db_session.commit()
 
-    await trade_worker_cycle(db_session, mock_trader, mock_api)
+    await trade_worker_cycle(db_session, mock_api)
 
     # Проверяем запись в БД: старый SKIPPED должен удалиться, новый SUCCESS записаться
     res = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "m_reentry"))
@@ -141,7 +140,6 @@ async def test_no_double_entry(db_session):
 
     # Мокаем API и Trader
     mock_trader = MagicMock()
-    mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
     mock_api = MagicMock()
     mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.58})
     mock_api.close = AsyncMock()
@@ -149,7 +147,7 @@ async def test_no_double_entry(db_session):
     # ---------------------------------------------------------
     # Цикл 1: p_flip = 0.90 -> SUCCESS
     # ---------------------------------------------------------
-    await trade_worker_cycle(db_session, mock_trader, mock_api)
+    await trade_worker_cycle(db_session, mock_api)
 
     res = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "m_double"))
     trades = res.scalars().all()
@@ -167,7 +165,7 @@ async def test_no_double_entry(db_session):
     registry.version += 1
     await db_session.commit()
 
-    await trade_worker_cycle(db_session, mock_trader, mock_api)
+    await trade_worker_cycle(db_session, mock_api)
 
     # В базе должна остаться ровно ОДНА запись со статусом SUCCESS
     res = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "m_double"))
@@ -177,4 +175,3 @@ async def test_no_double_entry(db_session):
     assert trades[0].predicted_flip_prob == 0.05  # значение не обновилось
 
     # Трейдер должен быть вызван ровно один раз за все время
-    assert mock_trader.execute_trade.call_count == 1

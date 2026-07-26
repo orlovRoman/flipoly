@@ -16,7 +16,7 @@ async def test_stop_loss_status_default(db_session):
         market_id="m1",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=10.0,
+        amount_usdc=10.0, remaining_shares=20.0,
         executed_price=0.5,
         predicted_flip_prob=0.3,
         active_features="test",

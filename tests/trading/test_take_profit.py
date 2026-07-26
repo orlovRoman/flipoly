@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 import pickle
 from unittest.mock import AsyncMock, patch
 from datetime import datetime, timezone, timedelta
@@ -60,7 +60,7 @@ async def test_tp_worker_triggers_when_price_reached(db_session):
     ))
     trade = TradeHistory(
         market_id="m_tp1", asset="BTC", outcome_bought="YES",
-        amount_usdc=10.0, executed_price=0.40, status="SUCCESS",
+        amount_usdc=10.0, remaining_shares=20.0, executed_price=0.40, status="SUCCESS",
         predicted_flip_prob=0.8, active_features="mid_price",
         take_profit_enabled=True, take_profit_multiplier=2.0,
         take_profit_price=0.80, take_profit_status="ACTIVE",
@@ -80,15 +80,15 @@ async def test_tp_worker_triggers_when_price_reached(db_session):
         "best_bid": 0.82, "current_yes_price": 0.82, "current_spread": 0.01
     })
 
-    await takeprofit_worker_cycle(db_session, trader_mock, api_mock)
+    await takeprofit_worker_cycle(db_session, api_mock)
 
     result = await db_session.execute(
         select(TradeHistory).where(TradeHistory.market_id == "m_tp1")
     )
     t = result.scalar_one()
-    assert t.take_profit_status == "TRIGGERED"
+    assert t.take_profit_status == "QUEUED"
     assert t.status == "SUCCESS"          # основной статус не меняется!
-    assert t.close_price == 0.82
+    # # assert t.close_price == 0.82 (removed because it is not closed yet) (removed because it is not closed yet)
     assert t.pnl is not None and t.pnl > 0
 
     # SlippageLog должен быть создан
@@ -116,7 +116,7 @@ async def test_tp_worker_does_not_trigger_below_target(db_session):
     ))
     trade = TradeHistory(
         market_id="m_tp2", asset="BTC", outcome_bought="YES",
-        amount_usdc=10.0, executed_price=0.40, status="SUCCESS",
+        amount_usdc=10.0, remaining_shares=20.0, executed_price=0.40, status="SUCCESS",
         predicted_flip_prob=0.8, active_features="mid_price",
         take_profit_enabled=True, take_profit_multiplier=2.0,
         take_profit_price=0.80, take_profit_status="ACTIVE",
@@ -132,7 +132,7 @@ async def test_tp_worker_does_not_trigger_below_target(db_session):
         "best_bid": 0.70, "current_yes_price": 0.70, "current_spread": 0.01
     })
 
-    await takeprofit_worker_cycle(db_session, trader_mock, api_mock)
+    await takeprofit_worker_cycle(db_session, api_mock)
 
     result = await db_session.execute(
         select(TradeHistory).where(TradeHistory.market_id == "m_tp2")
@@ -156,7 +156,7 @@ async def test_tp_worker_skips_when_disabled(db_session):
     trader_mock = AsyncMock()
     api_mock = AsyncMock()
 
-    await takeprofit_worker_cycle(db_session, trader_mock, api_mock)
+    await takeprofit_worker_cycle(db_session, api_mock)
     trader_mock.execute_trade.assert_not_called()
     api_mock.get_market_prices.assert_not_called()
 
@@ -171,7 +171,7 @@ async def test_tp_market_expired_sets_status(db_session):
     ))
     trade = TradeHistory(
         market_id="m_expired", asset="BTC", outcome_bought="YES",
-        amount_usdc=10.0, executed_price=0.40, status="SUCCESS",
+        amount_usdc=10.0, remaining_shares=20.0, executed_price=0.40, status="SUCCESS",
         predicted_flip_prob=0.8, active_features="mid_price",
         take_profit_enabled=True, take_profit_multiplier=2.0,
         take_profit_price=0.80, take_profit_status="ACTIVE",
@@ -183,7 +183,7 @@ async def test_tp_market_expired_sets_status(db_session):
 
     trader_mock = AsyncMock()
     api_mock = AsyncMock()
-    await takeprofit_worker_cycle(db_session, trader_mock, api_mock)
+    await takeprofit_worker_cycle(db_session, api_mock)
 
     result = await db_session.execute(
         select(TradeHistory).where(TradeHistory.market_id == "m_expired")

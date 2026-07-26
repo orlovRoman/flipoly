@@ -180,7 +180,7 @@ async def resolve_trades_job():
         async with async_session() as session:
             # Ищем сделки без PnL, которые были SUCCESS или PAPER
             stmt = select(TradeHistory).where(
-                and_(TradeHistory.pnl.is_(None), TradeHistory.status == "SUCCESS")
+                and_(TradeHistory.pnl.is_(None), TradeHistory.status.in_(["SUCCESS", "PAPER"]))
             )
             trades = (await session.execute(stmt)).scalars().all()
             
@@ -194,12 +194,16 @@ async def resolve_trades_job():
             outcomes = (await session.execute(outcomes_stmt)).all()
             market_outcomes = {r.market_id: r.final_outcome for r in outcomes}
             
+            from decimal import Decimal
+            
             for t in trades:
                 outcome = market_outcomes.get(t.market_id)
                 if outcome:
                     if outcome == "INVALID":
                         t.pnl = 0.0
                         t.status = "INVALID"
+                        t.position_status = "CLOSED"
+                        t.remaining_shares = Decimal("0")
                     else:
                         outcome_map = {"1": "YES", "0": "NO", "YES": "YES", "NO": "NO"}
                         normalized_outcome = outcome_map.get(str(outcome).upper())
@@ -212,15 +216,19 @@ async def resolve_trades_job():
                             
                         is_win = (t.outcome_bought.upper() == normalized_outcome)
                         
-                        if is_win:
-                            if t.executed_price > 0:
-                                gross_payout = t.amount_usdc / t.executed_price
-                                net_payout = gross_payout * (1.0 - 0.002)  # Polymarket fee 0.2%
-                                t.pnl = round(net_payout - t.amount_usdc, 4)
-                            else:
-                                t.pnl = 0.0
-                        else:
-                            t.pnl = -t.amount_usdc
+                        remaining = t.remaining_shares or Decimal("0")
+                        realized = t.realized_pnl_usdc or Decimal("0")
+                        cost = t.entry_cost_usdc or Decimal("0")
+                        
+                        if is_win and remaining > 0:
+                            gross_payout = float(remaining)
+                            net_payout = gross_payout * (1.0 - 0.002)  # Polymarket fee 0.2%
+                            realized += Decimal(str(net_payout))
+                            t.realized_pnl_usdc = realized
+                        
+                        t.pnl = float(realized - cost)
+                        t.position_status = "CLOSED"
+                        t.remaining_shares = Decimal("0")
                         
             await session.commit()
             logger.info("finished_resolve_trades_job", resolved=len(trades))

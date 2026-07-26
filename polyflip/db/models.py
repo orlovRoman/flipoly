@@ -53,6 +53,8 @@ class ModelRegistry(Base):
         Index("idx_model_registry_asset_active", "asset", "is_active"),
     )
 
+
+
 class CollectorStatus(Base):
     __tablename__ = "collector_status"
 
@@ -139,6 +141,7 @@ class TradeHistory(Base):
     
     # --- Financial Fields & Accounting ---
     position_accounting_version = Column(SmallInteger, nullable=False, server_default="0")
+    position_version = Column(Integer, nullable=False, default=1, server_default="1")
     entry_filled_shares = Column(Numeric(38, 18), nullable=True)
     entry_cost_usdc = Column(Numeric(38, 18), nullable=True)
     remaining_shares = Column(Numeric(38, 18), nullable=True)

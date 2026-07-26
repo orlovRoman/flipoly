@@ -205,7 +205,7 @@ async def execute_and_record(
     db_session.add(history)
     await db_session.flush()
 
-    await enqueue_open_request(
+    request_id = await enqueue_open_request(
         db_session,
         trade_id=history.id,
         market_id=market.market_id,
@@ -215,6 +215,21 @@ async def execute_and_record(
         limit_price=buy_price,
         requested_mode=exec_settings.execution_mode,
     )
+    
+    if request_id is None:
+        raise ValueError(f"ActiveExecutionConflict: Market {market.market_id} already has an active OPEN request.")
+
+    # Create ExposureReservation
+    from polyflip.db.execution_models import ExposureReservation
+    from datetime import timedelta
+    reservation = ExposureReservation(
+        trade_id=str(history.id),
+        market_id=market.market_id,
+        amount_usdc=actual_bet_size,
+        expires_at=start_time + timedelta(hours=1)
+    )
+    db_session.add(reservation)
+
     
     invalidate_stats_cache()
     invalidate_dashboard_cache()

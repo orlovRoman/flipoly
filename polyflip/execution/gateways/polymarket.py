@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs, OrderType, BalanceAllowanceParams
 from py_clob_client.constants import POLYGON
-from polyflip.execution.contracts import GatewayOrder, ProviderFill, SubmissionResult
+from polyflip.execution.contracts import GatewayOrder, TradeExecution, ProviderOrderState, SubmissionResult
+from polyflip.execution.gateways.base import GatewayUnavailable
 
 logger = structlog.get_logger(__name__)
 
@@ -63,20 +64,21 @@ class PolymarketExecutionGateway:
     async def submit(self, order: GatewayOrder) -> SubmissionResult:
         client = self.get_client()
         if not client:
-            return SubmissionResult(
-                provider_order_id="",
-                status="ERROR: Client not initialized"
-            )
+            raise GatewayUnavailable("Polymarket client not initialized")
             
         try:
-            order_args = OrderArgs(
+            from py_clob_client.clob_types import MarketOrderArgs
+            
+            amount = float(order.max_spend_usdc) if order.side.upper() == "BUY" and order.max_spend_usdc else float(order.requested_shares)
+            
+            order_args = MarketOrderArgs(
                 price=float(order.limit_price),
-                size=float(order.requested_shares),
-                side=order.side,
+                amount=amount,
+                side=order.side.upper(),
                 token_id=order.token_id
             )
             
-            resp = client.create_and_post_order(order_args, order_type=OrderType.FOK)
+            resp = client.create_market_order(order_args)
             if resp and resp.get("success"):
                 return SubmissionResult(
                     provider_order_id=resp.get("orderID", ""),
@@ -97,10 +99,7 @@ class PolymarketExecutionGateway:
     async def get_order(self, provider_order_id: str) -> SubmissionResult:
         client = self.get_client()
         if not client:
-            return SubmissionResult(
-                provider_order_id=provider_order_id,
-                status="ERROR: Client not initialized"
-            )
+            raise GatewayUnavailable("Polymarket client not initialized")
             
         try:
             resp = client.get_order(provider_order_id)
@@ -117,17 +116,31 @@ class PolymarketExecutionGateway:
                 filled_shares = Decimal(str(resp.get("size_matched", 0)))
                 avg_price = Decimal(str(resp.get("price", 0)))
                 if filled_shares > 0:
-                    fills.append(ProviderFill(
+                    fills.append(TradeExecution(
                         provider_trade_id=provider_order_id,
+                        gateway=self.name,
+                        gross_quote_usdc=filled_shares * avg_price,
                         price=avg_price,
                         shares=filled_shares,
                         fee_usdc=Decimal("0"),
                         matched_at=datetime.now(timezone.utc)
                     ))
             
+            state = ProviderOrderState(
+                provider_order_id=provider_order_id,
+                status=status,
+                filled_shares=Decimal(str(resp.get("size_matched", 0))),
+                filled_usdc=Decimal(str(resp.get("size_matched", 0))) * Decimal(str(resp.get("price", 0))),
+                remaining_shares=Decimal("0"), # API doesn't return this directly for filled
+                fee_usdc=Decimal("0"),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
+            )
+            
             return SubmissionResult(
                 provider_order_id=provider_order_id,
                 status=status,
+                state=state,
                 fills=tuple(fills)
             )
         except Exception as e:

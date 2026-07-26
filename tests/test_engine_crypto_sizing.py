@@ -125,20 +125,16 @@ async def test_engine_crypto_standalone_bet_size(db_session):
     mock_features.valid = True
     mock_features.features = [np.array([0.01]*22)]
 
-    with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
-         patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls, \
+    with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls, \
          patch("pickle.loads", return_value=mock_model), \
          patch("polyflip.crypto.predictor.build_crypto_features", return_value=mock_features), \
          patch("polyflip.trading.decision_runners.get_recent_candles", AsyncMock(return_value=fake_candles)):
-
-         mock_trader = mock_trader_cls.return_value
-         mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
 
          mock_api = mock_api_cls.return_value
          mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.61})
          mock_api.close = AsyncMock()
 
-         await trade_worker_cycle(db_session, mock_trader, mock_api)
+         await trade_worker_cycle(db_session, mock_api)
 
          res = await db_session.execute(select(TradeHistory))
          trades = res.scalars().all()

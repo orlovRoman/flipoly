@@ -13,6 +13,7 @@ class GatewayOrder(BaseModel):
     side: str
     limit_price: Decimal
     requested_shares: Decimal
+    max_spend_usdc: Decimal | None = None
 
 class ProviderFill(BaseModel):
     provider_trade_id: str
@@ -21,10 +22,30 @@ class ProviderFill(BaseModel):
     fee_usdc: Decimal
     matched_at: datetime
 
+class ProviderOrderState(BaseModel):
+    provider_order_id: str
+    status: str
+    filled_shares: Decimal = Decimal("0")
+    filled_usdc: Decimal = Decimal("0")
+    remaining_shares: Decimal = Decimal("0")
+    fee_usdc: Decimal = Decimal("0")
+    created_at: datetime
+    updated_at: datetime
+
+class TradeExecution(BaseModel):
+    provider_trade_id: str
+    gateway: str
+    gross_quote_usdc: Decimal
+    price: Decimal
+    shares: Decimal
+    fee_usdc: Decimal
+    matched_at: datetime
+
 class SubmissionResult(BaseModel):
     provider_order_id: str
     status: str
-    fills: Tuple[ProviderFill, ...] = ()
+    state: ProviderOrderState | None = None
+    fills: Tuple[TradeExecution, ...] = ()
 
 class ExecutionGateway(Protocol):
     name: str

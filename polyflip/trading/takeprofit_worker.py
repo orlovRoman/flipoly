@@ -102,11 +102,13 @@ async def takeprofit_worker_cycle(
             from polyflip.execution.config import ExecutionSettings
             
             exec_settings = ExecutionSettings()
+            sell_floor = max(0.01, current_bid - 0.01)
+            
             request_id = await enqueue_close_request(
                 db_session,
                 trade_id=trade.id,
                 trigger_reason="TAKE_PROFIT",
-                limit_price=decision.take_profit_price,
+                limit_price=sell_floor,
                 requested_mode=exec_settings.execution_mode
             )
             if not request_id:
@@ -114,7 +116,7 @@ async def takeprofit_worker_cycle(
                 continue
 
             # После успешной постановки меняем статус тейк-профита
-            trade.take_profit_status = "TRIGGERED"
+            trade.take_profit_status = "QUEUED"
             trade.take_profit_hit_at = now
             trade.take_profit_sell_price = decision.tp_price
             await db_session.commit()

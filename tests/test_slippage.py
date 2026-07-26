@@ -62,17 +62,13 @@ async def test_slippage_logged_after_successful_trade(db_session):
     db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
     
-    with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
-         patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         
-         mock_trader = mock_trader_cls.return_value
+    with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
          # Buy price was 0.61 (best_ask), but executed_price is 0.63 -> slippage = +0.02
-         mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "executed_usdc": 10.0, "executed_price": 0.63, "mode": "PAPER"})
          
          mock_api = mock_api_cls.return_value
          mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.61})
          
-         await trade_worker_cycle(db_session, mock_trader, mock_api)
+         await trade_worker_cycle(db_session, mock_api)
          
          trades = (await db_session.execute(select(TradeHistory))).scalars().all()
          assert len(trades) == 1

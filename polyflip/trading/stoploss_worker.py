@@ -84,11 +84,13 @@ async def _process_single_stoploss(
     from polyflip.execution.config import ExecutionSettings
     
     exec_settings = ExecutionSettings()
+    sell_floor = max(0.01, current_bid - 0.01)
+    
     request_id = await enqueue_close_request(
         db_session,
         trade_id=trade.id,
         trigger_reason="STOP_LOSS",
-        limit_price=decision.stop_price,
+        limit_price=sell_floor,
         requested_mode=exec_settings.execution_mode
     )
     if not request_id:
@@ -96,7 +98,7 @@ async def _process_single_stoploss(
         return
 
     # После успешной постановки меняем статус стоп-лосса
-    trade.stop_loss_status = "TRIGGERED"
+    trade.stop_loss_status = "QUEUED"
     trade.stop_loss_hit_at = now
     trade.stop_loss_sell_price = decision.stop_price
     await db_session.commit()

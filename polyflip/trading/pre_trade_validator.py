@@ -153,19 +153,52 @@ async def validate_pre_trade(
         )
         
     # Check max exposure (only for LIVE trades)
+    from polyflip.db.execution_models import ExposureReservation
+    from sqlalchemy import and_, or_
+    import datetime
+
+    # Global max exposure
     exposure_res = await db_session.execute(
         select(func.sum(TradeHistory.amount_usdc)).where(
             TradeHistory.mode == 'LIVE',
             TradeHistory.position_status.in_(['OPEN', 'CLOSING', 'PARTIALLY_CLOSED'])
         )
     )
-    current_exposure = exposure_res.scalar() or 0.0
-    max_exposure = cfg.capital * (cfg.max_exposure_pct / 100.0)
+    current_global_exposure = exposure_res.scalar() or 0.0
+    max_global_exposure = cfg.capital * (cfg.max_exposure_pct / 100.0)
     
-    if current_exposure + actual_bet_size > max_exposure:
+    if current_global_exposure + actual_bet_size > max_global_exposure:
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
-            skip_reason=f"Max exposure exceeded: current {current_exposure:.2f} + new {actual_bet_size:.2f} > max {max_exposure:.2f}"
+            skip_reason=f"Global max exposure exceeded: current {current_global_exposure:.2f} + new {actual_bet_size:.2f} > max {max_global_exposure:.2f}"
+        )
+
+    # Per-market max exposure (limit 50 USDC per market)
+    MAX_MARKET_EXPOSURE = 50.0
+
+    market_exposure_res = await db_session.execute(
+        select(func.sum(TradeHistory.entry_cost_usdc)).where(
+            TradeHistory.market_id == market.market_id,
+            TradeHistory.mode == 'LIVE',
+            TradeHistory.position_status.in_(['OPEN', 'CLOSING', 'PARTIALLY_CLOSED'])
+        )
+    )
+    current_market_exposure = market_exposure_res.scalar() or 0.0
+
+    # Also sum active reservations for this market
+    reservations_res = await db_session.execute(
+        select(func.sum(ExposureReservation.amount_usdc)).where(
+            ExposureReservation.market_id == market.market_id,
+            ExposureReservation.expires_at > datetime.datetime.now(datetime.timezone.utc)
+        )
+    )
+    reserved_market_exposure = float(reservations_res.scalar() or 0.0)
+
+    total_market_exposure = float(current_market_exposure) + reserved_market_exposure
+    if total_market_exposure + actual_bet_size > MAX_MARKET_EXPOSURE:
+        return PreTradeValidation(
+            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
+            skip_reason=f"Market max exposure exceeded: current {float(current_market_exposure):.2f} + reserved {reserved_market_exposure:.2f} + new {actual_bet_size:.2f} > max {MAX_MARKET_EXPOSURE:.2f}"
         )
 
     return PreTradeValidation(

@@ -18,6 +18,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pandas as pd
 import pytest
 import pytest_asyncio
+import polyflip.db.execution_models  # Ensure execution tables are registered
+
 
 
 # ==============================================================================
@@ -259,7 +261,7 @@ class TestStep3LoadEligibleMarkets:
         # Создаём сделку с убытком -150, лимит -100
         db_session.add(TradeHistory(
             market_id="m_loss", asset="BTC",
-            outcome_bought="YES", amount_usdc=50.0,
+            outcome_bought="YES", amount_usdc=50.0, remaining_shares=20.0,
             executed_price=0.60, predicted_flip_prob=0.7,
             active_features="mid_price", status="SUCCESS",
             pnl=-150.0, mode="PAPER", created_at=now,
@@ -376,7 +378,7 @@ class TestStep4MarketGuards:
         now = datetime.now(timezone.utc)
         db_session.add(TradeHistory(
             market_id="dup_market", asset="BTC",
-            outcome_bought="YES", amount_usdc=10.0,
+            outcome_bought="YES", amount_usdc=10.0, remaining_shares=20.0,
             executed_price=0.60, predicted_flip_prob=0.7,
             active_features="mid_price", status="SUCCESS",
             mode="PAPER", created_at=now,
@@ -431,7 +433,7 @@ class TestStep4MarketGuards:
         now = datetime.now(timezone.utc)
         db_session.add(TradeHistory(
             market_id="skip_market", asset="BTC",
-            outcome_bought="NONE", amount_usdc=0.0,
+            outcome_bought="NONE", amount_usdc=0.0, remaining_shares=20.0,
             executed_price=0.0, predicted_flip_prob=0.0,
             active_features="", status="SKIPPED",
             error_msg="No signal", mode="PAPER", created_at=now,
@@ -930,7 +932,7 @@ def _make_mock_exec(price):
         now = datetime.now(timezone.utc)
         existing = TradeHistory(
             market_id="del_m1", asset="BTC",
-            outcome_bought="NONE", amount_usdc=0.0,
+            outcome_bought="NONE", amount_usdc=0.0, remaining_shares=20.0,
             executed_price=0.0, predicted_flip_prob=0.0,
             active_features="", status="SKIPPED",
             error_msg="old skip", mode="PAPER", created_at=now,
@@ -977,12 +979,12 @@ class TestStep8Orchestrator:
         assert inspect.iscoroutinefunction(trade_worker_cycle)
 
     def test_step8_trade_worker_cycle_signature(self):
-        """Сигнатура trade_worker_cycle(db_session, trader, api_client) не изменилась."""
+        """Сигнатура trade_worker_cycle(db_session, api_client) не изменилась."""
         from polyflip.trading.engine import trade_worker_cycle
         sig = inspect.signature(trade_worker_cycle)
         params = list(sig.parameters.keys())
         assert "db_session" in params
-        assert "trader" in params
+        assert "trader" not in params
         assert "api_client" in params
 
     @pytest.mark.asyncio
@@ -1002,7 +1004,7 @@ class TestStep8Orchestrator:
             side_effect=AssertionError("Не должен торговать")
         )
 
-        await trade_worker_cycle(db_session, trader_mock, api_mock)
+        await trade_worker_cycle(db_session, api_mock)
         trader_mock.execute_trade.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1020,7 +1022,7 @@ class TestStep8Orchestrator:
         api_mock = AsyncMock()
         trader_mock.execute_trade = AsyncMock()
 
-        await trade_worker_cycle(db_session, trader_mock, api_mock)
+        await trade_worker_cycle(db_session, api_mock)
         trader_mock.execute_trade.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1040,7 +1042,7 @@ class TestStep8Orchestrator:
         with patch("polyflip.trading.engine.load_eligible_markets",
                    AsyncMock(side_effect=RuntimeError("DB down"))):
             try:
-                await trade_worker_cycle(db_session, trader_mock, api_mock)
+                await trade_worker_cycle(db_session, api_mock)
             except RuntimeError:
                 pytest.fail(
                     "trade_worker_cycle должен поглощать исключения, а не пробрасывать"

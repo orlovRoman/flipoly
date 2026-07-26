@@ -51,11 +51,7 @@ async def test_no_trade_when_flip_threshold_met(db_session):
     db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
     
-    with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
-         patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         
-         mock_trader = mock_trader_cls.return_value
-         mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "executed_usdc": 10.0, "executed_price": 0.32, "mode": "PAPER"})
+    with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
          
          mock_api = mock_api_cls.return_value
          mock_api.get_market_prices = AsyncMock(side_effect=lambda token_id: {
@@ -68,7 +64,7 @@ async def test_no_trade_when_flip_threshold_met(db_session):
              "best_bid": 0.30
          })
          
-         await trade_worker_cycle(db_session, mock_trader, mock_api)
+         await trade_worker_cycle(db_session, mock_api)
          
          res = await db_session.execute(select(TradeHistory))
          trades = res.scalars().all()
@@ -115,10 +111,7 @@ async def test_no_trade_skipped_when_price_exceeds_max(db_session):
     db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
     
-    with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
-         patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         
-         mock_trader = mock_trader_cls.return_value
+    with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
          mock_api = mock_api_cls.return_value
          mock_api.get_market_prices = AsyncMock(side_effect=lambda token_id: {
              "current_yes_price": 0.60,
@@ -130,7 +123,7 @@ async def test_no_trade_skipped_when_price_exceeds_max(db_session):
              "best_bid": 0.63
          })
          
-         await trade_worker_cycle(db_session, mock_trader, mock_api)
+         await trade_worker_cycle(db_session, mock_api)
          
          res = await db_session.execute(select(TradeHistory))
          trades = res.scalars().all()
@@ -180,11 +173,7 @@ async def test_no_trade_skipped_when_flip_prob_too_small(db_session):
     db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
     await db_session.commit()
     
-    with patch("polyflip.trading.engine.PolyTrader") as mock_trader_cls, \
-         patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         
-         mock_trader = mock_trader_cls.return_value
-         mock_trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "error_msg": None})
+    with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
          mock_api = mock_api_cls.return_value
          mock_api.get_market_prices = AsyncMock(side_effect=lambda token_id: {
              "current_yes_price": 0.70,
@@ -196,7 +185,7 @@ async def test_no_trade_skipped_when_flip_prob_too_small(db_session):
              "best_bid": 0.29
          })
          
-         await trade_worker_cycle(db_session, mock_trader, mock_api)
+         await trade_worker_cycle(db_session, mock_api)
          
          res = await db_session.execute(select(TradeHistory))
          trades = res.scalars().all()

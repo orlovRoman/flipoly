@@ -202,7 +202,7 @@ class TestDecideOutsider:
         sig = _signal(mid=0.72, spread=0.04, vol=1000.0)
         d = decide_outsider(sig, p_flip=0.70, config=BASE_CONFIG)
         assert d.action == "BUY_NO"
-        assert d.strategy_type == "TRADE_ON_FLIP"
+        assert d.strategy_type == "OUTSIDER"
 
     def test_skip_outsider_no_ask_too_high(self):
         # no_ask=0.50 > OUTSIDER_MAX_PRICE=0.45

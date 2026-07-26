@@ -81,7 +81,7 @@ async def test_resolve_trades_job_invalid(db_session):
     # Создаем успешную сделку SUCCESS на YES без PnL
     trade = TradeHistory(
         market_id="test_m_inv", asset="BTC", outcome_bought="YES",
-        amount_usdc=10.0, executed_price=0.5, predicted_flip_prob=0.1,
+        amount_usdc=10.0, remaining_shares=20.0, executed_price=0.5, predicted_flip_prob=0.1,
         active_features="mid_price", status="SUCCESS", pnl=None,
         created_at=datetime.now(timezone.utc)
     )

@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Float, DateTime, Index, Text, Numeric, ForeignKey, JSON, text, CheckConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, Index, Text, Numeric, ForeignKey, JSON, text, CheckConstraint, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from polyflip.db.models import Base
 
@@ -21,11 +21,18 @@ class ExecutionRequest(Base):
     target_amount_usdc = Column(Numeric(38, 18), nullable=False)
     max_slippage_pct = Column(Float, nullable=False)
     ttl_seconds = Column(Integer, nullable=False, default=60)
+    limit_price = Column(Numeric(38, 18), nullable=True)
+    max_spend_usdc = Column(Numeric(38, 18), nullable=True)
     
     # State tracking
     state = Column(String(32), nullable=False, default='READY')
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    claimed_by = Column(String(100), nullable=True)
+    position_version_snapshot = Column(Integer, nullable=True)
     error_reason = Column(Text, nullable=True)
     
     # Outcome tracking
@@ -67,9 +74,13 @@ class ExecutionAttempt(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     request_id = Column(UUID(as_uuid=True), ForeignKey("execution_requests.id"), nullable=False)
     gateway = Column(String(32), nullable=False) # 'POLYMARKET', 'SHADOW', 'FAKE'
+    attempt_no = Column(Integer, nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=False)
     finished_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(String(32), nullable=False, default='IN_PROGRESS') # 'SUCCESS', 'FAILED', 'UNKNOWN'
+    provider_status = Column(String(50), nullable=True)
+    provider_order_id = Column(String(255), nullable=True)
+    submission_key = Column(String(255), nullable=True)
     tx_hash = Column(String(128), nullable=True)
     error_msg = Column(Text, nullable=True)
     raw_response = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
@@ -79,9 +90,12 @@ class ExecutionFill(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     attempt_id = Column(UUID(as_uuid=True), ForeignKey("execution_attempts.id"), nullable=False)
+    provider_trade_id = Column(String(255), nullable=True)
+    gateway = Column(String(50), nullable=True)
     price = Column(Numeric(38, 18), nullable=False)
     shares = Column(Numeric(38, 18), nullable=False)
     fee_usdc = Column(Numeric(38, 18), nullable=False, default=0)
+    gross_quote_usdc = Column(Numeric(38, 18), nullable=True)
     timestamp = Column(DateTime(timezone=True), nullable=False)
 
 class ExecutionApproval(Base):
@@ -108,11 +122,11 @@ class ExposureReservation(Base):
     __tablename__ = "exposure_reservations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    asset = Column(String(32), nullable=False)
+    trade_id = Column(String(128), index=True, nullable=True) # ID intended trade or random string
+    market_id = Column(String(128), index=True, nullable=False)
     amount_usdc = Column(Numeric(38, 18), nullable=False)
-    reserved_at = Column(DateTime(timezone=True), nullable=False)
-    released_at = Column(DateTime(timezone=True), nullable=True)
-    request_id = Column(UUID(as_uuid=True), ForeignKey("execution_requests.id"), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=func.now())
 
 class ChainTransaction(Base):
     __tablename__ = "chain_transactions"

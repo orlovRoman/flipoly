@@ -1,13 +1,15 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from polyflip.execution.contracts import GatewayOrder, ProviderFill, SubmissionResult
+from polyflip.execution.contracts import GatewayOrder, TradeExecution, SubmissionResult
 
 class FakeExecutionGateway:
     name = "FAKE"
     
     async def submit(self, order: GatewayOrder) -> SubmissionResult:
-        fill = ProviderFill(
+        fill = TradeExecution(
             provider_trade_id=f"PAPER:{order.attempt_id}",
+            gateway="FAKE",
+            gross_quote_usdc=order.limit_price * order.requested_shares,
             price=order.limit_price,
             shares=order.requested_shares,
             fee_usdc=Decimal("0"),
