@@ -5,15 +5,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from polyflip.trading.trade_recorder import enqueue_open_request
 from polyflip.db.models import TradeHistory
-from polyflip.db.execution_models import ExecutionRequest, ExecutionIntent
+from polyflip.db.execution_models import ExecutionRequest
 
 
 @pytest.mark.asyncio
 async def test_concurrent_enqueue_open(db_session: AsyncSession):
     now = datetime.now(timezone.utc)
     trade = TradeHistory(
+        market_id="test_market",
         asset="ETH",
-        direction="UP",
+        outcome_bought="Yes",
+        executed_price=0.0,
         strategy_type="LIGHTGBM_TREND",
         predicted_flip_prob=0.8,
         market_role="FAVORITE",
@@ -22,11 +24,19 @@ async def test_concurrent_enqueue_open(db_session: AsyncSession):
         amount_usdc=10.0,
         position_accounting_version=1,
         position_version=1,
+        active_features="LIGHTGBM_TREND",
+        mode="PAPER",
+        entry_filled_shares=0.0,
+        entry_cost_usdc=0.0,
+        remaining_shares=0.0,
+        realized_pnl_usdc=0.0,
+        created_at=now,
     )
     db_session.add(trade)
     await db_session.flush()
     await db_session.commit()
 
+    from polyflip.execution.config import ExecutionMode
     async def worker_enqueue():
         # Each worker needs its own session to test concurrency properly,
         # but for this simple outbox test, we are just verifying idempotency key
@@ -35,9 +45,11 @@ async def test_concurrent_enqueue_open(db_session: AsyncSession):
             db_session,
             trade_id=trade.id,
             market_id="test_market",
-            token_id="test_token",
-            bet_size_usdc=10.0,
+            asset="ETH",
+            outcome_to_buy="Yes",
+            target_amount_usdc=10.0,
             limit_price=0.5,
+            requested_mode=ExecutionMode.PAPER,
         )
 
     # Attempt to enqueue simultaneously
@@ -56,4 +68,4 @@ async def test_concurrent_enqueue_open(db_session: AsyncSession):
     )
     requests = res.scalars().all()
     assert len(requests) == 1
-    assert requests[0].intent == ExecutionIntent.OPEN
+    assert requests[0].intent == "OPEN"

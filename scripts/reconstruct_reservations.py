@@ -2,61 +2,44 @@ import argparse
 import asyncio
 import json
 import uuid
-from sqlalchemy import text
+from sqlalchemy import text, select, update, func, or_
 from polyflip.db.connection import async_session
+from polyflip.db.execution_models import ExecutionRequest, ExposureReservation
+from polyflip.db.models import TradeHistory
 
 async def reconstruct_reservations(apply: bool):
     async with async_session() as session:
         async with session.begin():
-            # Apply advisory lock to prevent concurrent modifications
-            await session.execute(text("SELECT pg_advisory_xact_lock(1001)"))
-            
             # Step 1: Link trade_history_id
-            update_trade_id_sql = """
-            UPDATE exposure_reservations r
-            SET trade_history_id = r.trade_id::integer
-            WHERE r.trade_history_id IS NULL
-              AND r.trade_id ~ '^[0-9]+$'
-              AND EXISTS (
-                  SELECT 1
-                  FROM trade_history th
-                  WHERE th.id = r.trade_id::integer
-              )
-            RETURNING id;
-            """
+            # SQLite does not have regex easily available in UPDATE, so we fetch all rows and update them.
+            res = await session.execute(
+                select(ExposureReservation).where(ExposureReservation.trade_history_id == None)
+            )
+            unlinked = res.scalars().all()
+            linked_trade_ids_count = 0
+            for r in unlinked:
+                if r.trade_id and r.trade_id.isdigit():
+                    trade = await session.get(TradeHistory, int(r.trade_id))
+                    if trade:
+                        if apply:
+                            r.trade_history_id = trade.id
+                        linked_trade_ids_count += 1
             
             if apply:
-                res = await session.execute(text(update_trade_id_sql))
-                linked_trade_ids_count = len(res.fetchall())
-            else:
-                # Dry run for trade_id linkage
-                check_sql = """
-                SELECT count(*)
-                FROM exposure_reservations r
-                WHERE r.trade_history_id IS NULL
-                  AND r.trade_id ~ '^[0-9]+$'
-                  AND EXISTS (
-                      SELECT 1
-                      FROM trade_history th
-                      WHERE th.id = r.trade_id::integer
-                  )
-                """
-                res = await session.execute(text(check_sql))
-                linked_trade_ids_count = res.scalar()
+                await session.flush()
                 
             # Step 2: Check for ambiguous request mapping
-            check_ambiguous_sql = """
-            SELECT r.id, COUNT(er.id) AS matches
-            FROM exposure_reservations r
-            LEFT JOIN execution_requests er
-              ON er.intent = 'OPEN'
-             AND er.trade_history_id = r.trade_history_id
-             AND er.idempotency_key = 'OPEN:' || r.trade_history_id::text
-            WHERE r.trade_history_id IS NOT NULL
-            GROUP BY r.id
-            HAVING COUNT(er.id) <> 1
-            """
-            res = await session.execute(text(check_ambiguous_sql))
+            res = await session.execute(
+                select(ExposureReservation.id, func.count(ExecutionRequest.id).label("matches"))
+                .select_from(ExposureReservation)
+                .outerjoin(ExecutionRequest, 
+                           (ExecutionRequest.intent == 'OPEN') &
+                           (ExecutionRequest.trade_history_id == ExposureReservation.trade_history_id) &
+                           (ExecutionRequest.idempotency_key == 'OPEN:' + func.cast(ExposureReservation.trade_history_id, text("VARCHAR"))))
+                .where(ExposureReservation.trade_history_id != None)
+                .group_by(ExposureReservation.id)
+                .having(func.count(ExecutionRequest.id) != 1)
+            )
             ambiguous_rows = res.fetchall()
             
             if ambiguous_rows:
@@ -67,45 +50,37 @@ async def reconstruct_reservations(apply: bool):
                     raise RuntimeError("Ambiguous rows detected. Aborting reconstruction.")
             
             # Step 3: Link request_id
-            update_request_id_sql = """
-            UPDATE exposure_reservations r
-            SET request_id = er.id
-            FROM execution_requests er
-            WHERE r.request_id IS NULL
-              AND r.trade_history_id IS NOT NULL
-              AND er.intent = 'OPEN'
-              AND er.trade_history_id = r.trade_history_id
-              AND er.idempotency_key = 'OPEN:' || r.trade_history_id::text
-            RETURNING r.id;
-            """
-            
+            res = await session.execute(
+                select(ExposureReservation, ExecutionRequest.id)
+                .join(ExecutionRequest,
+                           (ExecutionRequest.intent == 'OPEN') &
+                           (ExecutionRequest.trade_history_id == ExposureReservation.trade_history_id) &
+                           (ExecutionRequest.idempotency_key == 'OPEN:' + func.cast(ExposureReservation.trade_history_id, text("VARCHAR"))))
+                .where(ExposureReservation.request_id == None)
+                .where(ExposureReservation.trade_history_id != None)
+            )
+            to_link_requests = res.all()
+            linked_request_ids_count = 0
+            for r, req_id in to_link_requests:
+                if apply:
+                    r.request_id = req_id
+                linked_request_ids_count += 1
+                
             if apply:
-                res = await session.execute(text(update_request_id_sql))
-                linked_request_ids_count = len(res.fetchall())
-            else:
-                check_sql2 = """
-                SELECT count(*)
-                FROM exposure_reservations r
-                JOIN execution_requests er
-                  ON er.intent = 'OPEN'
-                 AND er.trade_history_id = r.trade_history_id
-                 AND er.idempotency_key = 'OPEN:' || r.trade_history_id::text
-                WHERE r.request_id IS NULL
-                  AND r.trade_history_id IS NOT NULL
-                """
-                res = await session.execute(text(check_sql2))
-                linked_request_ids_count = res.scalar()
+                await session.flush()
 
             # Step 4: Final checks
-            unrecoverable_sql = """
-            SELECT count(*)
-            FROM exposure_reservations
-            WHERE request_id IS NULL
-               OR trade_history_id IS NULL
-               OR market_id IS NULL
-               OR expires_at IS NULL
-            """
-            res = await session.execute(text(unrecoverable_sql))
+            res = await session.execute(
+                select(func.count(ExposureReservation.id))
+                .where(
+                    or_(
+                        ExposureReservation.request_id == None,
+                        ExposureReservation.trade_history_id == None,
+                        ExposureReservation.market_id == None,
+                        ExposureReservation.expires_at == None
+                    )
+                )
+            )
             unrecoverable_count = res.scalar()
 
             report = {

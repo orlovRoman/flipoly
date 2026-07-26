@@ -9,7 +9,7 @@ class ExecutionRequest(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     idempotency_key = Column(String(128), unique=True, nullable=True)
     requested_mode = Column(String(32), nullable=False, default="PAPER")
-    trade_history_id = Column(Integer, ForeignKey("trade_history.id", ondelete="RESTRICT"), nullable=True)
+    trade_history_id = Column(Integer, ForeignKey("trade_history.id", ondelete="RESTRICT"), nullable=False)
     intent = Column(String(32), nullable=False) # 'OPEN', 'CLOSE'
     trigger_reason = Column(String(32), nullable=True) # 'STRATEGY', 'STOP_LOSS', 'TAKE_PROFIT', 'MANUAL', 'RECOVERY'
     market_id = Column(String(128), nullable=False)
@@ -55,7 +55,7 @@ class ExecutionRequest(Base):
             sqlite_where=text("intent = 'CLOSE' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING')")
         ),
         CheckConstraint(
-            "(intent = 'OPEN' AND trade_history_id IS NULL) OR (intent = 'CLOSE' AND trade_history_id IS NOT NULL)",
+            "intent IN ('OPEN', 'CLOSE') AND trade_history_id IS NOT NULL",
             name="ck_execution_request_trade_reference",
         ),
         CheckConstraint(
@@ -138,15 +138,15 @@ class ExposureReservation(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     request_id = Column(
-        UUID(as_uuid=True), ForeignKey("execution_requests.id", ondelete="RESTRICT"), nullable=True, unique=True
+        UUID(as_uuid=True), ForeignKey("execution_requests.id", ondelete="RESTRICT"), nullable=False, unique=True
     )
     trade_history_id = Column(
-        Integer, ForeignKey("trade_history.id", ondelete="RESTRICT"), nullable=True
+        Integer, ForeignKey("trade_history.id", ondelete="RESTRICT"), nullable=False
     )
     market_id = Column(String(128), index=True, nullable=False)
     amount_usdc = Column(Numeric(38, 18), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), default=func.now())
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     released_at = Column(DateTime(timezone=True), nullable=True)
 
 class ChainTransaction(Base):

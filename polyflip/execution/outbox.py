@@ -71,7 +71,20 @@ async def enqueue_open_request(
         )
         .returning(ExecutionRequest.id)
     )
-    return (await db.execute(statement)).scalar_one_or_none()
+    created_id = (await db.execute(statement)).scalar_one_or_none()
+    if created_id is None:
+        created_id = (
+            await db.execute(
+                select(ExecutionRequest.id)
+                .where(ExecutionRequest.market_id == market_id)
+                .where(ExecutionRequest.intent == "OPEN")
+                .where(ExecutionRequest.state.in_([
+                    "READY", "CLAIMED", "SUBMITTING", "ACCEPTED",
+                    "UNKNOWN", "PARTIALLY_FILLED", "RECONCILING"
+                ]))
+            )
+        ).scalar_one_or_none()
+    return created_id
 
 async def enqueue_close_request(
     db: AsyncSession,
@@ -141,6 +154,20 @@ async def enqueue_close_request(
     )
 
     created_id = (await db.execute(statement)).scalar_one_or_none()
+
+    if created_id is None:
+        # Fetch the existing request
+        created_id = (
+            await db.execute(
+                select(ExecutionRequest.id)
+                .where(ExecutionRequest.trade_history_id == trade.id)
+                .where(ExecutionRequest.intent == "CLOSE")
+                .where(ExecutionRequest.state.in_([
+                    "READY", "CLAIMED", "SUBMITTING", "ACCEPTED",
+                    "UNKNOWN", "PARTIALLY_FILLED", "RECONCILING"
+                ]))
+            )
+        ).scalar_one_or_none()
 
     if created_id is not None:
         trade.position_status = "EXIT_REQUESTED"
