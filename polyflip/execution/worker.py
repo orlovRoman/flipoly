@@ -86,7 +86,7 @@ async def process_ready_requests():
             if req.trade_history_id and req.intent == "OPEN":
                 from polyflip.db.execution_models import ExposureReservation
                 from sqlalchemy import delete
-                await session.execute(delete(ExposureReservation).where(ExposureReservation.trade_id == str(req.trade_history_id)))
+                await session.execute(delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id))
                 await session.commit()
             return
             
@@ -101,7 +101,7 @@ async def process_ready_requests():
             if req.trade_history_id and req.intent == "OPEN":
                 from polyflip.db.execution_models import ExposureReservation
                 from sqlalchemy import delete
-                await session.execute(delete(ExposureReservation).where(ExposureReservation.trade_id == str(req.trade_history_id)))
+                await session.execute(delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id))
                 await session.commit()
             return
         
@@ -118,7 +118,7 @@ async def process_ready_requests():
             if req.trade_history_id and req.intent == "OPEN":
                 from polyflip.db.execution_models import ExposureReservation
                 from sqlalchemy import delete
-                await session.execute(delete(ExposureReservation).where(ExposureReservation.trade_id == str(req.trade_history_id)))
+                await session.execute(delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id))
                 await session.commit()
             return
             
@@ -208,7 +208,7 @@ async def process_ready_requests():
                 from polyflip.db.execution_models import ExposureReservation
                 from sqlalchemy import delete
                 await session.execute(
-                    delete(ExposureReservation).where(ExposureReservation.trade_id == str(req.trade_history_id))
+                    delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id)
                 )
                 await session.commit()
             
