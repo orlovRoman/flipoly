@@ -42,24 +42,8 @@ def upgrade() -> None:
     # 4. Add position_version to trade_history
     op.add_column('trade_history', sa.Column('position_version', sa.Integer(), server_default='1', nullable=False))
 
-    # 5. Backfill trade_history_id in execution_requests for OPEN intents
-    conn = op.get_bind()
-    
-    # Check for invalid ones first
-    res = conn.execute(sa.text("SELECT id, idempotency_key, trade_history_id FROM execution_requests WHERE intent = 'OPEN'")).fetchall()
-    for row in res:
-        req_id, idemp_key, th_id = row[0], row[1], row[2]
-        if th_id is None:
-            if not idemp_key or not idemp_key.startswith("OPEN:"):
-                raise RuntimeError(f"Cannot backfill OPEN request {req_id}: invalid idempotency_key '{idemp_key}'")
-            try:
-                extracted_th_id = int(idemp_key.split(":")[1])
-                conn.execute(
-                    sa.text("UPDATE execution_requests SET trade_history_id = :th_id WHERE id = :req_id"),
-                    {"th_id": extracted_th_id, "req_id": req_id}
-                )
-            except Exception as e:
-                raise RuntimeError(f"Cannot backfill OPEN request {req_id}: failed to parse idempotency_key '{idemp_key}'") from e
+    # The backfill logic was moved to d1e2f3g4h5i6_fix_exposure_reservations_and_backfill.py
+    pass
 
 
 def downgrade() -> None:
