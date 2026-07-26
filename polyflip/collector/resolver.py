@@ -89,42 +89,11 @@ async def resolve_pending_markets(db_session: AsyncSession):
                 if not market_data.get("closed"):
                     continue # Еще не закрыт
                 
-                # Обычно Polymarket возвращает answer или winning_outcome для закрытых рынков
-                # Если их нет, но рынок закрыт, возможно он INVALID.
-                # Для 15m рынков обычно ответ "Yes" или "No" (соответствует outcomes)
-                # Поищем поле "answer" или сымитируем через prices, если он жестко зафиксирован на 1 или 0
-                answer = (
-                    market_data.get("answer")
-                    or market_data.get("winnerOutcome")
-                    or market_data.get("resolvedBy")
-                )
+                final_outcome = extract_final_outcome(market_data)
                 
-                # Если явного ответа нет, но токены залочены (один стоит 1, другой 0)
-                if not answer:
-                    prices = market_data.get("outcomePrices", [])
-                    outcomes = market_data.get("outcomes", ["Yes", "No"])
-                    
-                    if isinstance(outcomes, str):
-                        outcomes = json.loads(outcomes)
-                    if isinstance(prices, str):
-                        prices = json.loads(prices)
-                        
-                    if prices and len(prices) >= 2 and outcomes and len(outcomes) >= 2:
-                        try:
-                            max_price = max(float(p) for p in prices)
-                            if max_price >= 0.95:
-                                idx = [float(p) for p in prices].index(max_price)
-                                answer = outcomes[idx]
-                        except Exception:
-                            pass
-
-                if not answer:
+                if final_outcome is None:
                     logger.warning("market_closed_but_no_answer", market_id=market_id)
                     continue
-                
-                # Нормализуем UP/DOWN в YES/NO для корректного расчета флипа (BUG-005)
-                outcome_map = {"UP": "YES", "DOWN": "NO", "YES": "YES", "NO": "NO"}
-                final_outcome = outcome_map.get(answer.upper(), answer.upper()) # "YES" или "NO"
                 
                 # Теперь обновляем все снепшоты этого рынка (BUG-AK)
                 try:
@@ -136,12 +105,15 @@ async def resolve_pending_markets(db_session: AsyncSession):
                         for snap in snapshots:
                             snap.final_outcome = final_outcome
                             
-                            if snap.mid_price == 0.5:
-                                snap.flip_vs_final = False
+                            if final_outcome in ("YES", "NO"):
+                                if snap.mid_price == 0.5:
+                                    snap.flip_vs_final = False
+                                else:
+                                    market_believed_yes = snap.mid_price > 0.5
+                                    actual_is_yes = (final_outcome == "YES")
+                                    snap.flip_vs_final = (market_believed_yes != actual_is_yes)
                             else:
-                                market_believed_yes = snap.mid_price > 0.5
-                                actual_is_yes = (final_outcome == "YES")
-                                snap.flip_vs_final = (market_believed_yes != actual_is_yes)
+                                snap.flip_vs_final = None
                     any_resolved = True
                     logger.info("market_prepared_to_resolve", market_id=market_id, outcome=final_outcome)
                 except Exception as exc:
