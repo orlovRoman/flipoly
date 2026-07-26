@@ -46,7 +46,7 @@ async def upsert_candles(
     ]
 
     total_inserted = 0
-    batch_size = 500
+    batch_size = 100
     for i in range(0, len(rows), batch_size):
         batch = rows[i:i+batch_size]
         stmt = (
