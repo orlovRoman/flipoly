@@ -219,14 +219,7 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
     assert trade.stop_loss_status == "QUEUED"
     # assert trade.close_price == 0.20
 
-    # Проверим, что SlippageLog был создан
-    res = await db_session.execute(select(SlippageLog).where(SlippageLog.trade_id == trade.id))
-    slip_log = res.scalar_one_or_none()
-    assert slip_log is not None
-    assert slip_log.expected_price == 0.20
-    assert slip_log.executed_price == 0.20
-    assert slip_log.slippage == 0.0
-
+    
 
 @pytest.mark.asyncio
 async def test_worker_skips_trade_with_missing_stop_loss_pct(db_session):

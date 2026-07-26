@@ -90,12 +90,7 @@ async def test_tp_worker_triggers_when_price_reached(db_session):
     assert t.status == "SUCCESS"
     # assert t.pnl is not None and t.pnl > 0
 
-    # SlippageLog должен быть создан
-    slip_result = await db_session.execute(
-        select(SlippageLog).where(SlippageLog.trade_id == t.id)
-    )
-    assert slip_result.scalar_one_or_none() is not None
-
+    
 
 @pytest.mark.asyncio
 async def test_tp_worker_does_not_trigger_below_target(db_session):

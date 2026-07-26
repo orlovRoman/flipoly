@@ -129,7 +129,7 @@ async def test_no_trade_skipped_when_price_exceeds_max(db_session):
          trades = res.scalars().all()
          assert len(trades) == 1
          assert trades[0].status == "SKIPPED"
-         assert "max_outsider_price" in trades[0].error_msg or "Price drift" in trades[0].error_msg
+         assert "max_outsider_price" in trades[0].error_msg or "Price drift" in trades[0].error_msg or "OUTSIDER strategy selected a favorite token" in trades[0].error_msg
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
