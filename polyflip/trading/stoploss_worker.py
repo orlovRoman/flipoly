@@ -7,7 +7,6 @@ import structlog
 
 from polyflip.db.models import TradeHistory, RuntimeSettings, LiveMarket, SlippageLog
 from polyflip.services.settings_service import get_float
-from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.stoploss import evaluate_stop_loss
 
@@ -16,7 +15,6 @@ logger = structlog.get_logger(__name__)
 
 async def _process_single_stoploss(
     db_session: AsyncSession,
-    trader: PolyTrader,
     api_client: PolymarketClient,
     trade: TradeHistory,
     fee_rate: float,
@@ -82,33 +80,37 @@ async def _process_single_stoploss(
         current_bid=current_bid,
     )
 
-    # Атомарно фиксируем намерение исполнения до вызова биржи для защиты от повторных продаж
-    from polyflip.trading.position_closer import claim_position_for_exit, execute_position_exit
-    stale_before = now - timedelta(minutes=10)
-    attempt_id = await claim_position_for_exit(db_session, trade.id, "STOP_LOSS", stale_before)
-    if not attempt_id:
-        logger.warning("stoploss_failed_to_claim", trade_id=trade.id)
+    from polyflip.execution.outbox import enqueue_close_request
+    from polyflip.execution.config import ExecutionSettings
+    
+    exec_settings = ExecutionSettings()
+    request_id = await enqueue_close_request(
+        db_session,
+        trade_id=trade.id,
+        trigger_reason="STOP_LOSS",
+        limit_price=decision.stop_price,
+        requested_mode=exec_settings.execution_mode
+    )
+    if not request_id:
+        logger.warning("stoploss_failed_to_enqueue_close", trade_id=trade.id)
         return
 
-    # После успешного захвата меняем статус стоп-лосса
+    # После успешной постановки меняем статус стоп-лосса
     trade.stop_loss_status = "TRIGGERED"
     trade.stop_loss_hit_at = now
     trade.stop_loss_sell_price = decision.stop_price
     await db_session.commit()
 
-    # Выполняем ордер и финализируем состояние
-    await execute_position_exit(db_session, trader, trade, market, current_bid, fee_rate, attempt_id)
-    
     logger.info(
-        "stoploss_execute_initiated",
+        "stoploss_outbox_request_created",
         trade_id=trade.id,
-        sell_price=current_bid
+        sell_price=current_bid,
+        request_id=str(request_id)
     )
 
 
 async def stoploss_worker_cycle(
     db_session: AsyncSession,
-    trader: PolyTrader,
     api_client: PolymarketClient,
 ) -> None:
     """Один цикл проверки стоп-лоссов."""
@@ -170,7 +172,7 @@ async def stoploss_worker_cycle(
 
     for trade in open_trades:
         try:
-            await _process_single_stoploss(db_session, trader, api_client, trade, fee_rate, now)
+            await _process_single_stoploss(db_session, api_client, trade, fee_rate, now)
             await db_session.commit()
         except Exception as e:
             logger.exception("stoploss_worker_error", trade_id=trade.id, error=str(e))

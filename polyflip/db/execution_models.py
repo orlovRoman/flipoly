@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Float, DateTime, Index, Text, Numeric, ForeignKey, JSON, text
+from sqlalchemy import Column, Integer, String, Float, DateTime, Index, Text, Numeric, ForeignKey, JSON, text, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from polyflip.db.models import Base
 
@@ -7,13 +7,17 @@ class ExecutionRequest(Base):
     __tablename__ = "execution_requests"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    trade_history_id = Column(Integer, nullable=True)  # Nullable for OPEN intents initially
-    intent = Column(String(32), nullable=False) # 'OPEN', 'CLOSE', 'STOP_LOSS', 'TAKE_PROFIT'
+    idempotency_key = Column(String(128), unique=True, nullable=True)
+    requested_mode = Column(String(32), nullable=False, default="PAPER")
+    trade_history_id = Column(Integer, ForeignKey("trade_history.id", ondelete="RESTRICT"), nullable=True)
+    intent = Column(String(32), nullable=False) # 'OPEN', 'CLOSE'
+    trigger_reason = Column(String(32), nullable=True) # 'STRATEGY', 'STOP_LOSS', 'TAKE_PROFIT', 'MANUAL', 'RECOVERY'
     market_id = Column(String(128), nullable=False)
     asset = Column(String(32), nullable=False)
     
     # Order parameters
     outcome_to_buy = Column(String(16), nullable=False)
+    requested_shares = Column(Numeric(38, 18), nullable=True)
     target_amount_usdc = Column(Numeric(38, 18), nullable=False)
     max_slippage_pct = Column(Float, nullable=False)
     ttl_seconds = Column(Integer, nullable=False, default=60)
@@ -33,15 +37,27 @@ class ExecutionRequest(Base):
             "uq_active_open_request",
             "market_id",
             unique=True,
-            postgresql_where=text("intent = 'OPEN' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'UNKNOWN')"),
-            sqlite_where=text("intent = 'OPEN' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'UNKNOWN')")
+            postgresql_where=text("intent = 'OPEN' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING')"),
+            sqlite_where=text("intent = 'OPEN' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING')")
         ),
         Index(
             "uq_active_close_request",
             "trade_history_id",
             unique=True,
-            postgresql_where=text("intent = 'CLOSE' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'UNKNOWN')"),
-            sqlite_where=text("intent = 'CLOSE' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'UNKNOWN')")
+            postgresql_where=text("intent = 'CLOSE' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING')"),
+            sqlite_where=text("intent = 'CLOSE' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING')")
+        ),
+        CheckConstraint(
+            "(intent = 'OPEN' AND trade_history_id IS NULL) OR (intent = 'CLOSE' AND trade_history_id IS NOT NULL)",
+            name="ck_execution_request_trade_reference",
+        ),
+        CheckConstraint(
+            "requested_mode IN ('PAPER', 'SHADOW', 'LIVE')",
+            name="ck_execution_request_mode",
+        ),
+        CheckConstraint(
+            "requested_shares IS NULL OR requested_shares > 0",
+            name="ck_execution_request_positive_shares",
         ),
     )
 

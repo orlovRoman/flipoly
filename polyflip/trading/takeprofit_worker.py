@@ -1,4 +1,4 @@
-﻿"""Фоновый воркер: мониторит открытые позиции и триггерит тейк-профит."""
+"""Фоновый воркер: мониторит открытые позиции и триггерит тейк-профит."""
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -6,7 +6,6 @@ import structlog
 
 from polyflip.db.models import TradeHistory, RuntimeSettings, LiveMarket, SlippageLog
 from polyflip.services.settings_service import get_float
-from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.trading.takeprofit import evaluate_take_profit
 
@@ -15,7 +14,6 @@ logger = structlog.get_logger(__name__)
 
 async def takeprofit_worker_cycle(
     db_session: AsyncSession,
-    trader: PolyTrader,
     api_client: PolymarketClient,
 ) -> None:
     """Один цикл проверки тейк-профитов."""
@@ -100,35 +98,32 @@ async def takeprofit_worker_cycle(
                 continue
 
             # Триггер: продаём
-            from polyflip.trading.position_closer import claim_position_for_exit, execute_position_exit
-            stale_before = now - timedelta(minutes=10)
-            attempt_id = await claim_position_for_exit(db_session, trade.id, "TAKE_PROFIT", stale_before)
-            if not attempt_id:
-                logger.warning("takeprofit_failed_to_claim", trade_id=trade.id)
+            from polyflip.execution.outbox import enqueue_close_request
+            from polyflip.execution.config import ExecutionSettings
+            
+            exec_settings = ExecutionSettings()
+            request_id = await enqueue_close_request(
+                db_session,
+                trade_id=trade.id,
+                trigger_reason="TAKE_PROFIT",
+                limit_price=decision.take_profit_price,
+                requested_mode=exec_settings.execution_mode
+            )
+            if not request_id:
+                logger.warning("takeprofit_failed_to_enqueue_close", trade_id=trade.id)
                 continue
 
-            # После успешного захвата меняем статус тейк-профита
+            # После успешной постановки меняем статус тейк-профита
             trade.take_profit_status = "TRIGGERED"
             trade.take_profit_hit_at = now
             trade.take_profit_sell_price = decision.tp_price
             await db_session.commit()
             
-            # Выполняем ордер и финализируем состояние
-            await execute_position_exit(db_session, trader, trade, market, current_bid, fee_rate, attempt_id)
-
             logger.info(
-                "takeprofit_execute_initiated",
+                "takeprofit_outbox_request_created",
                 trade_id=trade.id,
-                sell_price=current_bid
-            )
-
-            await db_session.commit()
-
-            logger.info(
-                "takeprofit_executed",
-                trade_id=trade.id,
-                pnl=trade.pnl,
-                sell_price=trade.close_price,
+                sell_price=current_bid,
+                request_id=str(request_id)
             )
 
         except Exception as e:

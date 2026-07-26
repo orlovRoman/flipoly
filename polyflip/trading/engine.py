@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from polyflip.collector.client import PolymarketClient
-from polyflip.trading.trader import PolyTrader
+from polyflip.collector.client import PolymarketClient
 from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
 
 from polyflip.trading.settings_loader import load_trading_settings
@@ -37,7 +37,7 @@ def _get_crypto_predictor():
 
 _ACTIVE_MARKETS = set()
 
-async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_client: PolymarketClient):
+async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketClient):
     """
     Фоновый процесс торгового движка (оркестратор).
     """
@@ -177,7 +177,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     continue
 
                 await execute_and_record(
-                    db_session, trader, market, decision_res.decision_obj, validation,
+                    db_session, market, decision_res.decision_obj, validation,
                     asset_mode, cfg.active_features_str, decision_res.p_flip, decision_res.model_ver,
                     cfg, existing_skipped, start_time,
                     lgbm_metadata=decision_res.lgbm_metadata if decision_res else None

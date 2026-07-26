@@ -9,8 +9,7 @@ from polyflip.collector.resolver import resolve_pending_markets
 from polyflip.trading.engine import trade_worker_cycle
 from polyflip.trading.stoploss_worker import stoploss_worker_cycle
 from polyflip.trading.takeprofit_worker import takeprofit_worker_cycle
-from polyflip.trading.recovery_worker import recovery_worker_cycle
-from polyflip.trading.trader import PolyTrader
+from polyflip.collector.client import PolymarketClient
 from polyflip.collector.client import PolymarketClient
 from polyflip.db.connection import async_session
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,32 +73,25 @@ async def _check_ath_checkpoint(session: AsyncSession):
     except Exception as e:
         logger.warning("ath_checkpoint_check_failed", error=str(e))
 
-async def trade_job(trader, api_client):
+async def trade_job(api_client):
     async with async_session() as session:
-        await trade_worker_cycle(session, trader, api_client)
+        await trade_worker_cycle(session, api_client)
         await _check_ath_checkpoint(session)
 
-async def stoploss_job(trader, api_client):
+async def stoploss_job(api_client):
     try:
         async with async_session() as session:
-            await stoploss_worker_cycle(session, trader, api_client)
+            await stoploss_worker_cycle(session, api_client)
     except Exception as e:
         logger.exception("stoploss_job_error", error=str(e))
 
-async def takeprofit_job(trader, api_client):
+async def takeprofit_job(api_client):
     try:
         async with async_session() as session:
-            await takeprofit_worker_cycle(session, trader, api_client)
+            await takeprofit_worker_cycle(session, api_client)
     except Exception as e:
         logger.exception("takeprofit_worker_failed", error=str(e))
 
-async def recovery_job(trader, api_client):
-    """Обертка для запуска recovery_worker_cycle с инъекцией БД-сессии."""
-    try:
-        async with async_session() as session:
-            await recovery_worker_cycle(session, trader, api_client)
-    except Exception as e:
-        logger.exception("recovery_worker_failed", error=str(e))
 
 async def backup_job():
     logger.info("starting_backup_job")
@@ -384,7 +376,6 @@ async def main():
     logger.info("scheduler_starting", interval=poll_interval, stoploss_interval=stoploss_interval, takeprofit_interval=takeprofit_interval)
     
     # Инициализируем общие клиенты для переиспользования соединений
-    trader = PolyTrader()
     api_client = PolymarketClient()
     # Вызов одноразового backfill свечей и обновления ставок финансирования при старте
     try:
@@ -411,7 +402,7 @@ async def main():
         replace_existing=True,
         max_instances=1,
         misfire_grace_time=10,
-        kwargs={"trader": trader, "api_client": api_client}
+        kwargs={"api_client": api_client}
     )
     
     # Запускаем воркер тейк-профита с передачей общих клиентов
@@ -422,7 +413,7 @@ async def main():
         replace_existing=True,
         max_instances=1,
         misfire_grace_time=10,
-        kwargs={"trader": trader, "api_client": api_client}
+        kwargs={"api_client": api_client}
     )
     
     # Проверяем настройки интервала каждые 10 секунд
@@ -435,17 +426,7 @@ async def main():
         kwargs={"scheduler": scheduler}
     )
     
-    # Запускаем recovery-воркер каждые 10 секунд
-    scheduler.add_job(
-        recovery_job,
-        trigger=IntervalTrigger(seconds=10),
-        id="recovery_job",
-        replace_existing=True,
-        max_instances=1,
-        misfire_grace_time=10,
-        kwargs={"trader": trader, "api_client": api_client}
-    )
-    
+
     # Запускаем резолвер каждые 2 минуты (120 сек)
     scheduler.add_job(
         resolver_job,
@@ -505,7 +486,7 @@ async def main():
         replace_existing=True,
         max_instances=1,
         misfire_grace_time=3,
-        kwargs={"trader": trader, "api_client": api_client}
+        kwargs={"api_client": api_client}
     )
     
     # Ежедневный бэкап базы данных (раз в 24 часа)

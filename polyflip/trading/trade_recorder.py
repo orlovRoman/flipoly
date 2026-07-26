@@ -12,6 +12,8 @@ from polyflip.trading.stoploss import compute_stop_price
 from polyflip.trading.takeprofit import compute_take_profit_price
 from polyflip.api.trading_dashboard import invalidate_stats_cache
 from polyflip.api.dashboard import invalidate_dashboard_cache
+from polyflip.execution.outbox import enqueue_open_request
+from polyflip.execution.config import ExecutionSettings
 import os
 from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
 
@@ -90,7 +92,6 @@ async def save_or_update_skipped_trade(
 
 async def execute_and_record(
     db_session: AsyncSession,
-    trader: Any,
     market: LiveMarket,
     decision_obj: TradeDecision,
     validation: PreTradeValidation,
@@ -110,8 +111,6 @@ async def execute_and_record(
     buy_price = validation.buy_price
     actual_bet_size = validation.actual_bet_size
     edge = validation.edge
-    num_shares = round(actual_bet_size / buy_price, 2)
-    token_to_buy = market.yes_token_id if decision == "YES" else market.no_token_id
     
     logger.info(
         "trade_decision",
@@ -126,34 +125,6 @@ async def execute_and_record(
         strategy=decision_obj.strategy_type,
         bet_size=actual_bet_size
     )
-
-    try:
-        trade_res = await trader.execute_trade(
-            market_id=market.market_id,
-            token_id=token_to_buy,
-            side="BUY",
-            price=buy_price,
-            size=num_shares
-        )
-    except Exception as e:
-        logger.exception("execute_trade_error", error=str(e))
-        trade_res = None
-        error_msg = str(e)
-
-    if trade_res is None:
-        exec_status = "FAILED"
-        exec_error = error_msg
-        exec_mode = "PAPER" if trader.get_client() is None else "LIVE"
-        exec_usdc = float(actual_bet_size)
-        exec_price = float(buy_price)
-        filled_shares = 0.0
-    else:
-        exec_status = "SUCCESS" if trade_res.status in ("FILLED", "PAPER_FILLED") else trade_res.status
-        exec_error = trade_res.error_message
-        exec_mode = "PAPER" if trade_res.order_type == "PAPER" else "LIVE"
-        exec_usdc = float(trade_res.net_quote_usdc) if trade_res.net_quote_usdc is not None else float(actual_bet_size)
-        exec_price = float(trade_res.average_price) if trade_res.average_price is not None else float(buy_price)
-        filled_shares = float(trade_res.filled_shares) if trade_res.filled_shares is not None else 0.0
 
     if existing_skipped:
         await db_session.delete(existing_skipped)
@@ -177,75 +148,66 @@ async def execute_and_record(
         logger.warning("trade_config_snapshot_failed", error=str(exc_snap))
         config_snapshot_json = None
 
+    exec_settings = ExecutionSettings()
     history = TradeHistory(
         market_id=market.market_id,
         asset=market.asset,
         outcome_bought=decision,
-        amount_usdc=exec_usdc,
-        executed_price=exec_price,
+        amount_usdc=0.0, # wait for fill
+        executed_price=0.0,
         predicted_flip_prob=p_flip,
         p_up=decision_obj.p_up,
         strike=decision_obj.strike,
         active_features=_get_trade_active_features(asset_mode, active_features, decision_obj, market.asset),
         model_version=model_ver,
-        status=exec_status,
-        error_msg=exec_error,
-        mode=exec_mode,
+        status="PENDING",
+        error_msg=None,
+        mode=exec_settings.execution_mode.value,
         edge=round(edge, 4) if edge is not None else None,
         lgbm_metadata=lgbm_metadata,
         config_snapshot=config_snapshot_json,
         created_at=start_time,
-        entry_filled_shares=filled_shares,
-        entry_cost_usdc=exec_usdc,
-        remaining_shares=filled_shares,
+        entry_filled_shares=0.0,
+        entry_cost_usdc=0.0,
+        remaining_shares=0.0,
         realized_pnl_usdc=0.0,
-        position_status="OPEN" if exec_status == "SUCCESS" else "CLOSED"
+        position_status="OPENING"
     )
+    
+    if cfg.stop_loss_enabled:
+        is_outsider = (
+            hasattr(decision_obj, 'strategy_type')
+            and isinstance(decision_obj.strategy_type, str)
+            and decision_obj.strategy_type.upper() == "OUTSIDER"
+        )
+        stop_pct = cfg.stop_loss_pct_outsider if is_outsider else cfg.stop_loss_pct_favorite
+        
+        history.market_end_time = getattr(market, "end_time_est", None)
+        history.stop_loss_pct = stop_pct
+        # Price is unknown, will be set on fill
+        history.stop_loss_status = "PENDING_FILL"
+
+    if cfg.take_profit_enabled:
+        history.take_profit_enabled    = True
+        history.take_profit_multiplier = cfg.take_profit_multiplier
+        history.take_profit_status     = "PENDING_FILL"
+    else:
+        history.take_profit_enabled = False
+        history.take_profit_status  = "SKIPPED"
+
     db_session.add(history)
     await db_session.flush()
 
-    if exec_status == "SUCCESS":
-        slip = round(exec_price - buy_price, 6)
-        slip_pct = round(slip / buy_price * 100, 4) if buy_price > 0 else 0.0
-        slip_cost = round(slip * (actual_bet_size / exec_price), 4) if exec_price > 0 else 0.0
-
-        slippage_record = SlippageLog(
-            trade_id=history.id,
-            market_id=market.market_id,
-            asset=market.asset,
-            outcome_bought=decision,
-            expected_price=buy_price,
-            executed_price=exec_price,
-            slippage=slip,
-            slippage_pct=slip_pct,
-            bet_size_usdc=actual_bet_size,
-            slippage_cost_usdc=slip_cost,
-            mode=exec_mode,
-            created_at=start_time,
-        )
-        db_session.add(slippage_record)
-        
-        if cfg.stop_loss_enabled:
-            is_outsider = (
-                hasattr(decision_obj, 'strategy_type')
-                and isinstance(decision_obj.strategy_type, str)
-                and decision_obj.strategy_type.upper() == "OUTSIDER"
-            )
-            stop_pct = cfg.stop_loss_pct_outsider if is_outsider else cfg.stop_loss_pct_favorite
-            
-            history.market_end_time = getattr(market, "end_time_est", None)
-            history.stop_loss_pct = stop_pct
-            history.stop_loss_price = compute_stop_price(exec_price, stop_pct)
-            history.stop_loss_status = "ACTIVE"
-
-        if cfg.take_profit_enabled:
-            history.take_profit_enabled    = True
-            history.take_profit_multiplier = cfg.take_profit_multiplier
-            history.take_profit_price      = compute_take_profit_price(exec_price, cfg.take_profit_multiplier)
-            history.take_profit_status     = "ACTIVE"
-        else:
-            history.take_profit_enabled = False
-            history.take_profit_status  = "SKIPPED"
-
+    await enqueue_open_request(
+        db_session,
+        trade_id=history.id,
+        market_id=market.market_id,
+        asset=market.asset,
+        outcome_to_buy=decision,
+        target_amount_usdc=actual_bet_size,
+        limit_price=buy_price,
+        requested_mode=exec_settings.execution_mode,
+    )
+    
     invalidate_stats_cache()
     invalidate_dashboard_cache()

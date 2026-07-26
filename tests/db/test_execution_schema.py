@@ -89,12 +89,28 @@ async def test_duplicate_active_open_request_is_rejected(db_session):
 
 @pytest.mark.asyncio
 async def test_two_active_close_requests_are_rejected(db_session):
+    trade = TradeHistory(
+        market_id="close_market",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=100.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.6,
+        active_features="test",
+        status="SUCCESS",
+        position_accounting_version=0,
+        created_at=datetime.now(timezone.utc)
+    )
+    db_session.add(trade)
+    await db_session.commit()
+
     req1 = ExecutionRequest(
         intent="CLOSE",
-        trade_history_id=999,
+        trade_history_id=trade.id,
         market_id="close_market",
         asset="BTC",
         outcome_to_buy="YES",
+        requested_shares=Decimal("10.0"),
         target_amount_usdc=Decimal("100.0"),
         max_slippage_pct=2.0,
         ttl_seconds=60,
@@ -107,10 +123,11 @@ async def test_two_active_close_requests_are_rejected(db_session):
 
     req2 = ExecutionRequest(
         intent="CLOSE",
-        trade_history_id=999,
+        trade_history_id=trade.id,
         market_id="close_market",
         asset="BTC",
         outcome_to_buy="YES",
+        requested_shares=Decimal("5.0"),
         target_amount_usdc=Decimal("50.0"),
         max_slippage_pct=2.0,
         ttl_seconds=60,
@@ -182,4 +199,57 @@ async def test_execution_financial_columns_use_numeric(db_session):
     val = req.target_amount_usdc
     assert isinstance(val, Decimal) or isinstance(val, float)
     assert abs(float(val) - 123.45678901234568) < 1e-9
+
+@pytest.mark.asyncio
+async def test_stoploss_and_takeprofit_create_one_close_request(engine, db_session):
+    import asyncio
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from polyflip.execution.outbox import enqueue_close_request, ACTIVE_CLOSE_STATES
+    from polyflip.execution.config import ExecutionMode
+    from sqlalchemy import select, func
+
+    trade = TradeHistory(
+        market_id="concurrent_close_market",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=100.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.6,
+        active_features="test",
+        status="SUCCESS",
+        position_accounting_version=0,
+        created_at=datetime.now(timezone.utc)
+    )
+    db_session.add(trade)
+    await db_session.commit()
+
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
+    
+    async def run_enqueue(trigger):
+        async with async_session() as session:
+            res = await enqueue_close_request(
+                session,
+                trade_id=trade.id,
+                trigger_reason=trigger,
+                requested_mode=ExecutionMode.PAPER
+            )
+            await session.commit()
+            return res
+
+    results = await asyncio.gather(
+        run_enqueue("STOP_LOSS"),
+        run_enqueue("TAKE_PROFIT")
+    )
+    
+    successful_ids = [r for r in results if r is not None]
+    assert len(successful_ids) == 1, "Only one close request should succeed"
+
+    stmt = select(func.count()).where(
+        ExecutionRequest.trade_history_id == trade.id,
+        ExecutionRequest.intent == 'CLOSE',
+        ExecutionRequest.state.in_(ACTIVE_CLOSE_STATES)
+    )
+    count = (await db_session.execute(stmt)).scalar_one()
+    assert count == 1
+
 
