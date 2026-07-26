@@ -109,5 +109,7 @@ if __name__ == "__main__":
             res = await load_history_all(session, days_back=args.days)
             logger.info("historical_load_cli_done", results=res)
             await session.commit()
+        await engine.dispose()()
     
     asyncio.run(main())
+
