@@ -22,7 +22,7 @@ def upgrade() -> None:
     with op.batch_alter_table('crypto_candles') as batch_op:
         batch_op.create_check_constraint(
             'ck_crypto_candles_close_time',
-            '(is_closed = 0) OR (is_closed IS NULL) OR (close_time IS NOT NULL)'
+            '(is_closed = false) OR (is_closed IS NULL) OR (close_time IS NOT NULL)'
         )
 
 
