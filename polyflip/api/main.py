@@ -19,6 +19,7 @@ from polyflip.api.backtest_api import router as backtest_router
 from polyflip.api.crypto_dashboard import router as crypto_router
 from polyflip.api.crypto_backtest_api import router as crypto_backtest_router
 from polyflip.api.presets import router as presets_router
+from polyflip.api.execution_api import router as execution_router
 from polyflip.config import settings
 
 structlog.configure(
@@ -112,6 +113,7 @@ app.include_router(backtest_router)
 app.include_router(presets_router)
 app.include_router(crypto_router)
 app.include_router(crypto_backtest_router)
+app.include_router(execution_router)
 
 # Подключение статических файлов
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

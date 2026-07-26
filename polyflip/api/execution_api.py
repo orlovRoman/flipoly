@@ -1,0 +1,45 @@
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from typing import Literal
+from sqlalchemy import select
+from datetime import datetime, timezone
+from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
+
+from polyflip.db.connection import get_db_session
+from polyflip.api.auth import verify_api_key
+from polyflip.db.models import RuntimeSettings
+
+logger = structlog.get_logger(__name__)
+
+router = APIRouter(prefix="/api/live-trading", tags=["Execution"], dependencies=[Depends(verify_api_key)])
+
+class KillSwitchRequest(BaseModel):
+    enabled: bool
+
+@router.put("/kill-switch")
+async def toggle_kill_switch(payload: KillSwitchRequest, db: AsyncSession = Depends(get_db_session)):
+    """
+    Управляет глобальным рубильником LIVE-торговли.
+    """
+    key = "LIVE_TRADING_ENABLED"
+    value = "true" if payload.enabled else "false"
+    
+    try:
+        existing = (await db.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == key)
+        )).scalar_one_or_none()
+
+        now = datetime.now(timezone.utc)
+        if existing:
+            existing.value = value
+            existing.updated_at = now
+        else:
+            db.add(RuntimeSettings(key=key, value=value, updated_at=now, updated_by="api"))
+        
+        await db.commit()
+        logger.info("kill_switch_toggled", enabled=payload.enabled)
+        return {"status": "ok", "live_trading_enabled": payload.enabled}
+    except Exception as e:
+        logger.exception("kill_switch_error", error=str(e))
+        raise HTTPException(status_code=500, detail="Internal Server Error")

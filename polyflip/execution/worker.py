@@ -245,6 +245,7 @@ async def rebuild_trade_accounting(session, trade_id: int):
     open_cost = Decimal("0")
     close_shares = Decimal("0")
     close_revenue = Decimal("0")
+    total_fees = Decimal("0")
     
     for req in reqs:
         # Load attempts and fills
@@ -259,6 +260,7 @@ async def rebuild_trade_accounting(session, trade_id: int):
             )).scalars().all()
             
             for fill in fills:
+                total_fees += fill.fee_usdc
                 if req.intent == "OPEN":
                     open_shares += fill.shares
                     open_cost += (fill.gross_quote_usdc or fill.shares * fill.price)
@@ -266,10 +268,13 @@ async def rebuild_trade_accounting(session, trade_id: int):
                     close_shares += fill.shares
                     close_revenue += (fill.gross_quote_usdc or fill.shares * fill.price)
 
+    avg_entry_price = open_cost / open_shares if open_shares > Decimal("0") else Decimal("0")
+    realized_pnl = close_revenue - (close_shares * avg_entry_price) - total_fees
+
     trade.entry_filled_shares = open_shares
     trade.entry_cost_usdc = open_cost
     trade.remaining_shares = open_shares - close_shares
-    trade.realized_pnl_usdc = close_revenue
+    trade.realized_pnl_usdc = realized_pnl
     
     if trade.entry_filled_shares > 0 and trade.remaining_shares <= Decimal("0"):
         trade.position_status = "CLOSED"
@@ -282,10 +287,103 @@ async def rebuild_trade_accounting(session, trade_id: int):
     await session.commit()
 
 async def reconcile_active_requests():
+    settings = ExecutionSettings()
     async with async_session() as session:
-        # Reconcile requests in UNKNOWN state
-        # In this implementation, just logging for now. Later we query the gateway
-        pass
+        # Find requests in UNKNOWN or SUBMITTING state that are stuck for more than 1 minute
+        now = datetime.now(timezone.utc)
+        # using a simple select for now, SQLite/Postgres friendly
+        stmt = select(ExecutionRequest).where(ExecutionRequest.state.in_(("UNKNOWN", "SUBMITTING")))
+        result = await session.execute(stmt)
+        reqs = result.scalars().all()
+        
+        for req in reqs:
+            # Check how long it's been in this state
+            if not req.updated_at or (now - req.updated_at).total_seconds() < 60:
+                continue
+                
+            logger.info("reconciling_request", request_id=str(req.id), state=req.state)
+            
+            # Get latest attempt
+            attempt_stmt = select(ExecutionAttempt).where(ExecutionAttempt.request_id == req.id).order_by(ExecutionAttempt.attempt_no.desc()).limit(1)
+            attempt_res = await session.execute(attempt_stmt)
+            attempt = attempt_res.scalar_one_or_none()
+            
+            if not attempt or not attempt.provider_order_id:
+                logger.warning("cannot_reconcile_no_provider_id", request_id=str(req.id))
+                # Mark as FAILED because we don't have an order id to check
+                req.state = "REJECTED"
+                req.error_reason = "Stuck in SUBMITTING/UNKNOWN with no provider_order_id"
+                req.updated_at = now
+                if attempt:
+                    attempt.status = "FAILED"
+                    attempt.error_msg = req.error_reason
+                await session.commit()
+                continue
+                
+            gateway = build_execution_gateway(settings)
+            
+            try:
+                sub_res = await gateway.get_order(attempt.provider_order_id)
+                if sub_res.status == "FILLED":
+                    attempt.status = "SUCCESS"
+                    attempt.provider_status = sub_res.status
+                    req.state = "FILLED"
+                    req.filled_shares = req.requested_shares or Decimal("0")
+                    req.filled_cost_usdc = req.target_amount_usdc or Decimal("0")
+                    
+                    from polyflip.db.execution_models import ExecutionFill
+                    for f in sub_res.fills:
+                        # Check if fill already exists
+                        fill_check = await session.execute(select(ExecutionFill).where(ExecutionFill.provider_trade_id == f.provider_trade_id))
+                        if not fill_check.scalar_one_or_none():
+                            session.add(ExecutionFill(
+                                attempt_id=attempt.id,
+                                provider_trade_id=f.provider_trade_id,
+                                gateway=f.gateway,
+                                gross_quote_usdc=f.gross_quote_usdc,
+                                price=f.price,
+                                shares=f.shares,
+                                fee_usdc=f.fee_usdc,
+                                timestamp=f.matched_at
+                            ))
+                            
+                    req.updated_at = now
+                    await session.commit()
+                    
+                    if req.trade_history_id:
+                        await rebuild_trade_accounting(session, req.trade_history_id)
+                        
+                    # Clean up ExposureReservation if it exists
+                    if req.trade_history_id and req.intent == "OPEN":
+                        from polyflip.db.execution_models import ExposureReservation
+                        from sqlalchemy import delete
+                        await session.execute(
+                            delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id)
+                        )
+                        await session.commit()
+                        
+                elif sub_res.status in ("REJECTED", "FAILED", "EXPIRED", "CANCELED"):
+                    attempt.status = "FAILED"
+                    attempt.provider_status = sub_res.status
+                    req.state = "REJECTED"
+                    req.error_reason = f"Gateway returned final status: {sub_res.status}"
+                    req.updated_at = now
+                    await session.commit()
+                    
+                    # Clean up ExposureReservation if it exists
+                    if req.trade_history_id and req.intent == "OPEN":
+                        from polyflip.db.execution_models import ExposureReservation
+                        from sqlalchemy import delete
+                        await session.execute(
+                            delete(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id)
+                        )
+                        await session.commit()
+                else:
+                    # Still pending/unknown on the gateway
+                    logger.info("reconcile_still_pending", request_id=str(req.id), gateway_status=sub_res.status)
+                    
+            except Exception as e:
+                logger.exception("reconcile_failed", request_id=str(req.id), error=str(e))
 
 async def execution_worker_loop():
     logger.info("execution_worker_started")
