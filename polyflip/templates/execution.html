@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyFlip Исполнение Сделок</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ timestamp }}">
+    <style>
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        .status-shadow { background: #4a5568; color: white; }
+        .status-paper { background: #d69e2e; color: white; }
+        .status-live { background: #e53e3e; color: white; }
+        
+        .worker-online { color: #48bb78; font-weight: bold; }
+        .worker-offline { color: #e53e3e; font-weight: bold; }
+
+        .kill-switch {
+            appearance: none;
+            width: 50px;
+            height: 26px;
+            background: #4a5568;
+            border-radius: 13px;
+            position: relative;
+            cursor: pointer;
+            outline: none;
+            transition: background 0.3s;
+        }
+        .kill-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+        }
+        .kill-switch:checked {
+            background: #e53e3e;
+        }
+        .kill-switch:checked::after {
+            transform: translateX(24px);
+        }
+        .kill-switch:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+    </style>
+    <script>
+        window.API_BASE = "{{ root_path }}";
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar / Navigation -->
+        <nav class="sidebar">
+            <div class="logo">
+                <span class="poly">Poly</span><span class="flip">Flip</span>
+            </div>
+            <ul class="nav-links">
+                <li class="nav-item" onclick="window.location.href='/dashboard'">Аналитика</li>
+                <li class="nav-item" onclick="window.location.href='/dashboard?tab=models'">Модели Polymarket (LogReg)</li>
+                <li class="nav-item" onclick="window.location.href='/dashboard?tab=status'">Статус Парсера</li>
+                <li class="nav-item" data-href="/trading">Торговля (PnL)</li>
+                <li class="nav-item" data-href="/backtest">Бэктест</li>
+                <li class="nav-item" data-href="/crypto">Crypto-модели (LightGBM)</li>
+                <li class="nav-item active" data-href="/execution">Исполнение сделок</li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="tab-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h1>Исполнение сделок</h1>
+                <div style="display: flex; gap: 20px; align-items: center;">
+                    <div style="text-align: right;">
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Режим Исполнения</div>
+                        <div id="exec-mode-badge" class="status-badge status-shadow">SHADOW</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Воркер</div>
+                        <div id="worker-status" class="worker-offline">Остановлен</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Баланс USDC</div>
+                        <div id="wallet-balance" style="font-weight: 600; font-size: 1.1rem;">--</div>
+                    </div>
+                    <div style="text-align: center; background: rgba(229, 62, 62, 0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(229, 62, 62, 0.3);">
+                        <div style="font-size: 0.85rem; color: #fc8181; font-weight: bold; margin-bottom: 4px;">LIVE ТОРГОВЛЯ</div>
+                        <input type="checkbox" id="live-kill-switch" class="kill-switch" title="Включить/выключить реальные сделки">
+                    </div>
+                </div>
+            </header>
+
+            <div class="panel" style="margin-bottom: 20px;">
+                <h3>Активные заявки (Execution Requests)</h3>
+                <div style="overflow-x: auto;">
+                    <table class="data-table" id="requests-table">
+                        <thead>
+                            <tr>
+                                <th>Время</th>
+                                <th>Намерение</th>
+                                <th>Рынок</th>
+                                <th>Режим</th>
+                                <th>Цель</th>
+                                <th>Статус</th>
+                                <th>Исполнено</th>
+                                <th>Ошибка / TTL</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="8" style="text-align: center;">Загрузка...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Открытые позиции (OPEN / CLOSING / PARTIALLY_CLOSED)</h3>
+                <div style="overflow-x: auto;">
+                    <table class="data-table" id="positions-table">
+                        <thead>
+                            <tr>
+                                <th>Открыта</th>
+                                <th>Рынок</th>
+                                <th>Исход</th>
+                                <th>Режим</th>
+                                <th>Shares (Ост.)</th>
+                                <th>Средняя Цена</th>
+                                <th>Stop Loss / Take Profit</th>
+                                <th>PnL (Реализ.)</th>
+                                <th>Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="9" style="text-align: center;">Загрузка...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Notifications API Wrapper -->
+    <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ timestamp }}"></script>
+    <script>
+        // Set up navigation logic
+        document.querySelectorAll('.nav-item[data-href]').forEach(item => {
+            item.addEventListener('click', function() {
+                window.location.href = this.getAttribute('data-href');
+            });
+        });
+
+        // Dashboard logic
+        const toggleSwitch = document.getElementById('live-kill-switch');
+        
+        async function fetchStatus() {
+            try {
+                const res = await fetch(window.API_BASE + '/api/live-trading/status', {
+                    headers: { 'x-api-key': localStorage.getItem('polyflip_api_key') || '' }
+                });
+                if (res.status === 401 || res.status === 403) {
+                    window.location.href = '/login';
+                    return;
+                }
+                const data = await res.json();
+                
+                // Update mode badge
+                const modeBadge = document.getElementById('exec-mode-badge');
+                modeBadge.textContent = data.execution_mode;
+                modeBadge.className = 'status-badge ' + (
+                    data.execution_mode === 'LIVE' ? 'status-live' :
+                    data.execution_mode === 'PAPER' ? 'status-paper' : 'status-shadow'
+                );
+
+                // Update worker status
+                const workerStatus = document.getElementById('worker-status');
+                const isOnline = data.worker_online;
+                workerStatus.textContent = isOnline ? 'Работает' : 'Остановлен';
+                workerStatus.className = isOnline ? 'worker-online' : 'worker-offline';
+                
+                // Update balance
+                document.getElementById('wallet-balance').textContent = 
+                    data.wallet_balance !== null ? `$${parseFloat(data.wallet_balance).toFixed(2)}` : '--';
+                
+                // Update kill switch
+                toggleSwitch.checked = data.live_enabled;
+                if (!isOnline && !data.live_enabled) {
+                    // Cannot enable LIVE if worker is offline
+                    toggleSwitch.title = "Воркер остановлен. Запустите воркер перед включением LIVE.";
+                } else {
+                    toggleSwitch.title = "Включить/выключить реальные сделки";
+                }
+                
+            } catch (e) {
+                console.error("Error fetching status", e);
+            }
+        }
+        
+        toggleSwitch.addEventListener('change', async function() {
+            const enable = this.checked;
+            this.disabled = true;
+            try {
+                const res = await fetch(window.API_BASE + '/api/live-trading/kill-switch', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': localStorage.getItem('polyflip_api_key') || ''
+                    },
+                    body: JSON.stringify({ enable: enable })
+                });
+                const data = await res.json();
+                
+                if (!res.ok) {
+                    this.checked = !enable; // Revert
+                    window.showNotification ? showNotification(data.detail || "Error", "error") : alert(data.detail);
+                } else {
+                    window.showNotification ? showNotification(`LIVE trading ${enable ? 'ENABLED' : 'DISABLED'}`, enable ? 'warning' : 'info') : null;
+                }
+            } catch (e) {
+                this.checked = !enable;
+                alert("Request failed");
+            } finally {
+                this.disabled = false;
+                fetchStatus();
+            }
+        });
+        
+        async function fetchRequests() {
+            try {
+                const res = await fetch(window.API_BASE + '/api/live-trading/requests?limit=20', {
+                    headers: { 'x-api-key': localStorage.getItem('polyflip_api_key') || '' }
+                });
+                const data = await res.json();
+                
+                const tbody = document.querySelector('#requests-table tbody');
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Нет активных заявок</td></tr>';
+                    return;
+                }
+                
+                let html = '';
+                data.forEach(req => {
+                    const date = new Date(req.created_at).toLocaleString();
+                    const target = req.target_amount_usdc ? `$${req.target_amount_usdc}` : (req.requested_shares ? `${req.requested_shares} sh` : '--');
+                    const filled = req.filled_shares ? `${req.filled_shares} sh / $${req.filled_cost_usdc}` : '0';
+                    const errTTL = req.error_reason ? `<span style="color:red; font-size:0.85em;">${req.error_reason}</span>` : `TTL: ${req.ttl_seconds}s`;
+                    
+                    html += `<tr>
+                        <td>${date}</td>
+                        <td><strong>${req.intent}</strong></td>
+                        <td><span style="font-size:0.85em;">${req.market_id.substring(0,8)}...</span></td>
+                        <td>${req.requested_mode}</td>
+                        <td>${target} @ ${req.limit_price}</td>
+                        <td><span class="status-badge ${req.state === 'SUCCESS' || req.state === 'FILLED' ? 'status-shadow' : (req.state.includes('FAILED') || req.state === 'REJECTED' || req.state === 'EXPIRED' ? 'status-live' : 'status-paper')}">${req.state}</span></td>
+                        <td>${filled}</td>
+                        <td>${errTTL}</td>
+                    </tr>`;
+                });
+                tbody.innerHTML = html;
+            } catch (e) {
+                console.error("Error fetching requests", e);
+            }
+        }
+        
+        async function fetchPositions() {
+            try {
+                const res = await fetch(window.API_BASE + '/api/live-trading/positions', {
+                    headers: { 'x-api-key': localStorage.getItem('polyflip_api_key') || '' }
+                });
+                const data = await res.json();
+                
+                const tbody = document.querySelector('#positions-table tbody');
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Нет открытых позиций</td></tr>';
+                    return;
+                }
+                
+                let html = '';
+                data.forEach(pos => {
+                    const date = new Date(pos.created_at).toLocaleString();
+                    const avgPrice = pos.entry_cost_usdc && pos.entry_filled_shares ? (pos.entry_cost_usdc / pos.entry_filled_shares).toFixed(3) : '--';
+                    const sltp = `SL: ${pos.stop_loss_status} / TP: ${pos.take_profit_status}`;
+                    const pnlClass = pos.realized_pnl_usdc > 0 ? 'color: #48bb78;' : (pos.realized_pnl_usdc < 0 ? 'color: #e53e3e;' : '');
+                    
+                    html += `<tr>
+                        <td>${date}</td>
+                        <td>${pos.asset} <span style="font-size:0.85em; color:var(--text-muted);">${pos.market_id.substring(0,8)}...</span></td>
+                        <td>${pos.outcome_bought}</td>
+                        <td>${pos.mode}</td>
+                        <td>${pos.remaining_shares} sh</td>
+                        <td>${avgPrice}</td>
+                        <td><span style="font-size:0.85em;">${sltp}</span></td>
+                        <td style="${pnlClass}">$${(pos.realized_pnl_usdc || 0).toFixed(2)}</td>
+                        <td><strong>${pos.position_status}</strong></td>
+                    </tr>`;
+                });
+                tbody.innerHTML = html;
+            } catch (e) {
+                console.error("Error fetching positions", e);
+            }
+        }
+        
+        function updateAll() {
+            fetchStatus();
+            fetchRequests();
+            fetchPositions();
+        }
+        
+        updateAll();
+        setInterval(updateAll, 5000);
+    </script>
+</body>
+</html>

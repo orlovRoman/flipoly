@@ -96,6 +96,9 @@ async def toggle_kill_switch(payload: KillSwitchRequest, db: AsyncSession = Depe
         if not worker_status.gateway_ready:
             raise HTTPException(status_code=400, detail=f"System not ready for LIVE trading: Worker gateway is not ready (Error: {worker_status.last_error_message})")
             
+        if float(worker_status.balance_usdc or 0) < 5:
+            raise HTTPException(status_code=400, detail=f"System not ready for LIVE trading: Insufficient USDC balance (Minimum $5, current {float(worker_status.balance_usdc or 0)})")
+            
         if not worker_status.collateral_allowance_ready:
             raise HTTPException(status_code=400, detail="System not ready for LIVE trading: Collateral allowance is not ready")
 

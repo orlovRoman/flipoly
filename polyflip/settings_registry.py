@@ -42,6 +42,10 @@ REGISTRY: list[SettingDef] = [
     # --- Финансы / потери ---
     SettingDef("DAILY_LOSS_LIMIT_USDC", "-100.0",
                description="Дневной стоп-лосс в USDC (отрицательное число)"),
+    SettingDef("MAX_OPEN_POSITIONS", "5",
+               description="Максимальное количество одновременно открытых позиций."),
+    SettingDef("MAX_TOTAL_EXPOSURE_USDC", "250.0",
+               description="Максимальная общая сумма открытых позиций в USDC."),
     SettingDef("INITIAL_CAPITAL", "1000.0",
                description="Начальный капитал для расчёта финрезультата"),
 

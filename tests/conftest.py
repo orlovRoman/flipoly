@@ -1,6 +1,7 @@
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from polyflip.db.models import Base
+import polyflip.db.execution_models  # Ensure execution models are registered
 import pytest
 from polyflip.trading.ml_inference import clear_models_cache
 

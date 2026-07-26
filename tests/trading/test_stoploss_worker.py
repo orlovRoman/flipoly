@@ -217,9 +217,13 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
     await stoploss_worker_cycle(db_session, api_mock)
 
     assert trade.stop_loss_status == "QUEUED"
-    # assert trade.close_price == 0.20
-
     
+    from polyflip.db.execution_models import ExecutionRequest
+    req = (await db_session.execute(select(ExecutionRequest).where(ExecutionRequest.trade_history_id == trade.id))).scalar_one_or_none()
+    assert req is not None
+    assert req.intent == "CLOSE"
+    assert req.state == "READY"
+    assert req.requested_mode == "PAPER"
 
 @pytest.mark.asyncio
 async def test_worker_skips_trade_with_missing_stop_loss_pct(db_session):

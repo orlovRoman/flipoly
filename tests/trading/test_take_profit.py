@@ -88,7 +88,13 @@ async def test_tp_worker_triggers_when_price_reached(db_session):
     t = result.scalar_one()
     assert t.take_profit_status == "QUEUED"
     assert t.status == "SUCCESS"
-    # assert t.pnl is not None and t.pnl > 0
+    
+    from polyflip.db.execution_models import ExecutionRequest
+    req = (await db_session.execute(select(ExecutionRequest).where(ExecutionRequest.trade_history_id == t.id))).scalar_one_or_none()
+    assert req is not None
+    assert req.intent == "CLOSE"
+    assert req.state == "READY"
+    assert req.requested_mode == "PAPER"
 
     
 

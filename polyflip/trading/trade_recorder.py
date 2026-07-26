@@ -153,7 +153,7 @@ async def execute_and_record(
         logger.warning("trade_config_snapshot_failed", error=str(exc_snap))
         config_snapshot_json = None
 
-    market_role = decision_obj.decision_details.get("market_role", "FAVORITE") if decision_obj.decision_details else "FAVORITE"
+    market_role = validation.market_role or (decision_obj.decision_details.get("market_role", "FAVORITE") if decision_obj.decision_details else "FAVORITE")
     p_flip_effective = decision_obj.decision_details.get("p_flip_effective") if decision_obj.decision_details else None
     
     exec_settings = ExecutionSettings()

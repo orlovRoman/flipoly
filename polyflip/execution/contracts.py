@@ -67,10 +67,12 @@ class TradeExecution(BaseModel):
     matched_at: datetime
 
 class SubmissionResult(BaseModel):
-    provider_order_id: str
-    status: str
-    state: ProviderOrderState | None = None
-    fills: Tuple[TradeExecution, ...] = ()
+    accepted: bool
+    provider_order_id: str | None = None
+    provider_status: str
+    provider_trade_ids: tuple[str, ...] = ()
+    rejection_code: str | None = None
+    error_message: str | None = None
 
 class ExecutionGateway(Protocol):
     name: str
@@ -80,7 +82,11 @@ class ExecutionGateway(Protocol):
         ...
 
     async def get_order(self, provider_order_id: str) -> SubmissionResult:
-        """Fetch the latest status and fills for an order."""
+        """Fetch the latest status for an order."""
+        ...
+
+    async def fetch_order_fills(self, provider_order_id: str, token_id: str, after: str = "0") -> tuple[TradeExecution, ...]:
+        """Fetch the actual trade fills for an order."""
         ...
 
     async def get_readiness(

@@ -9,7 +9,7 @@ from polyflip.db.models import TradeHistory
 from polyflip.db.execution_models import ExecutionRequest
 from polyflip.execution.config import ExecutionMode
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 ACTIVE_CLOSE_STATES = (
     "READY",
@@ -57,6 +57,7 @@ async def enqueue_open_request(
             limit_price=Decimal(str(limit_price)),
             max_spend_usdc=Decimal(str(target_amount_usdc)),
             ttl_seconds=60,
+            expires_at=now_utc + timedelta(seconds=60),
             state="READY",
             created_at=now_utc,
             updated_at=now_utc,
@@ -138,6 +139,7 @@ async def enqueue_close_request(
             max_slippage_pct=2.0,
             limit_price=Decimal(str(limit_price)),
             ttl_seconds=60,
+            expires_at=now_utc + timedelta(seconds=60),
             state="READY",
             created_at=now_utc,
             updated_at=now_utc,

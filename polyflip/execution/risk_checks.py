@@ -4,7 +4,9 @@ from polyflip.db.models import RuntimeSettings, TradeHistory
 from polyflip.db.execution_models import ExposureReservation
 from decimal import Decimal
 
-async def check_risk_limits(session: AsyncSession, intent: str, max_spend_usdc: Decimal, requested_mode: str) -> str | None:
+from uuid import UUID
+
+async def check_risk_limits(session: AsyncSession, intent: str, max_spend_usdc: Decimal, requested_mode: str, request_id: UUID | None = None) -> str | None:
     """
     Checks risk limits before order submission. 
     Returns an error string if a limit is breached, otherwise None.
@@ -50,8 +52,10 @@ async def check_risk_limits(session: AsyncSession, intent: str, max_spend_usdc: 
             current_exp_res = await session.execute(current_exp_stmt)
             current_exp = current_exp_res.scalar_one_or_none() or Decimal("0")
             
-            # Plus reserved exposure
+            # Plus reserved exposure, excluding current request
             res_exp_stmt = select(func.sum(ExposureReservation.amount_usdc)).where(ExposureReservation.released_at.is_(None))
+            if request_id:
+                res_exp_stmt = res_exp_stmt.where(ExposureReservation.request_id != request_id)
             res_exp_res = await session.execute(res_exp_stmt)
             res_exp = res_exp_res.scalar_one_or_none() or Decimal("0")
             

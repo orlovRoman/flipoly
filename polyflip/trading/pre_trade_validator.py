@@ -142,7 +142,8 @@ async def validate_pre_trade(
         
     # Рассчитываем новую ставку (если не фикс)
     if cfg.bet_sizing_mode == "fixed":
-        actual_bet_size = min(decision_obj.bet_size_usdc, cfg.bet_size) if decision_obj.bet_size_usdc > 0 else cfg.bet_size
+        # P1.12: Запретить уменьшение fixed ставки. Игнорируем decision_obj.bet_size_usdc
+        actual_bet_size = cfg.bet_size
     else:
         newly_calculated_bet_size = compute_bet_size_edge_scaled(
             edge=edge,
@@ -151,12 +152,7 @@ async def validate_pre_trade(
             min_edge=current_min_edge,
             max_edge=cfg.max_bet_edge
         )
-        # Запрет увеличения ставки на финальной проверке
-        if decision_obj.bet_size_usdc > 0:
-            actual_bet_size = min(decision_obj.bet_size_usdc, newly_calculated_bet_size)
-        else:
-            actual_bet_size = newly_calculated_bet_size
-            
+        actual_bet_size = newly_calculated_bet_size
         if asset_mode == TRADING_MODE_FAVORITE and actual_bet_size < cfg.bet_size:
             actual_bet_size = cfg.bet_size
 

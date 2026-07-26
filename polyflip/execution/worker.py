@@ -43,6 +43,19 @@ async def claim_one(session) -> ExecutionRequest | None:
     req = result.scalar_one_or_none()
     
     if req:
+        # P0.7: Check TTL
+        if req.expires_at and req.expires_at < now:
+            req.state = "EXPIRED"
+            req.updated_at = now
+            if req.trade_history_id and req.intent == "OPEN":
+                from polyflip.db.execution_models import ExposureReservation
+                from sqlalchemy import update
+                await session.execute(
+                    update(ExposureReservation).where(ExposureReservation.trade_history_id == req.trade_history_id).values(released_at=now)
+                )
+            await session.commit()
+            return None
+            
         req.state = "CLAIMED"
         req.claimed_by = f"worker-{os.getpid()}"
         req.claimed_at = now
@@ -164,7 +177,7 @@ async def process_ready_requests():
         )
         
         from polyflip.execution.risk_checks import check_risk_limits
-        risk_error = await check_risk_limits(session, req.intent, max_spend_usdc, req.requested_mode)
+        risk_error = await check_risk_limits(session, req.intent, max_spend_usdc, req.requested_mode, req.id)
         if risk_error:
             logger.warning("risk_limit_breached", request_id=str(req.id), reason=risk_error)
             req.state = "REJECTED"
@@ -183,24 +196,37 @@ async def process_ready_requests():
             sub_res = await gateway.submit(order)
             attempt.finished_at = datetime.now(timezone.utc)
             attempt.provider_order_id = sub_res.provider_order_id
-            attempt.provider_status = sub_res.status
+            attempt.provider_status = sub_res.provider_status
             
-            if "REJECTED" in sub_res.status or "ERROR" in sub_res.status:
+            if not sub_res.accepted or "REJECTED" in sub_res.provider_status or "ERROR" in sub_res.provider_status:
                 attempt.status = "FAILED"
-                attempt.error_msg = sub_res.status
+                attempt.error_msg = sub_res.provider_status
                 req.state = "REJECTED"
-                req.error_reason = sub_res.status
-            elif sub_res.status == "SUBMITTED" or sub_res.status == "UNKNOWN":
+                req.error_reason = sub_res.error_message or sub_res.provider_status
+            elif sub_res.provider_status == "SUBMITTED" or sub_res.provider_status == "UNKNOWN":
                 attempt.status = "SUCCESS" 
                 req.state = "UNKNOWN"
-            elif sub_res.status == "MATCHED":
+            elif sub_res.provider_status == "MATCHED":
                 attempt.status = "SUCCESS"
-                req.state = "FILLED"
-                req.filled_shares = req.requested_shares or Decimal("0")
-                req.filled_cost_usdc = req.target_amount_usdc or Decimal("0")
+                
+                # Fetch actual fills since FAK can be partially filled
+                fills = await gateway.fetch_order_fills(attempt.provider_order_id, token_id)
+                
+                filled_shares = sum((fill.shares for fill in fills), Decimal("0"))
+                filled_quote = sum((fill.gross_quote_usdc for fill in fills), Decimal("0"))
+                req.filled_shares = filled_shares
+                req.filled_cost_usdc = filled_quote
+                
+                if filled_shares == Decimal("0"):
+                    req.state = "REJECTED"
+                    req.error_reason = "FAK matched but 0 shares filled (cancelled)"
+                elif filled_shares < (req.requested_shares or Decimal("0")):
+                    req.state = "PARTIALLY_FILLED_FINAL"
+                else:
+                    req.state = "FILLED"
                 
                 from polyflip.db.execution_models import ExecutionFill
-                for f in sub_res.fills:
+                for f in fills:
                     session.add(ExecutionFill(
                         attempt_id=attempt.id,
                         provider_trade_id=f.provider_trade_id,
@@ -322,10 +348,27 @@ async def rebuild_trade_accounting(session, trade_id: int):
         trade.position_status = "OPEN"
         
     if trade.position_status in ("OPEN", "PARTIALLY_CLOSED") and trade.entry_filled_shares > 0:
-        if trade.stop_loss_pct is not None and trade.stop_loss_status not in ("TRIGGERED", "ACTIVE"):
-            trade.stop_loss_status = "ACTIVE"
-        if trade.take_profit_enabled and trade.take_profit_status not in ("TRIGGERED", "ACTIVE"):
-            trade.take_profit_status = "ACTIVE"
+        # Check if all CLOSE requests have failed
+        close_reqs = [r for r in reqs if r.intent == "CLOSE"]
+        all_close_failed = len(close_reqs) > 0 and all(r.state in ("REJECTED", "FAILED") for r in close_reqs)
+        
+        # P0.6: Return stuck protective orders to ACTIVE state
+        if trade.stop_loss_pct is not None:
+            if trade.stop_loss_status not in ("TRIGGERED", "ACTIVE") or (trade.stop_loss_status == "TRIGGERED" and all_close_failed):
+                trade.stop_loss_status = "ACTIVE"
+        if trade.take_profit_enabled:
+            if trade.take_profit_status not in ("TRIGGERED", "ACTIVE") or (trade.take_profit_status == "TRIGGERED" and all_close_failed):
+                trade.take_profit_status = "ACTIVE"
+                
+        # P0.5: Initialize protective prices if they are None
+        if avg_entry_price > Decimal("0"):
+            if trade.stop_loss_pct is not None and trade.stop_loss_price is None:
+                trade.stop_loss_price = float(avg_entry_price * (Decimal("1") - Decimal(str(trade.stop_loss_pct)) / Decimal("100")))
+            if trade.take_profit_enabled and trade.take_profit_price is None:
+                # Based on the UI, take profit is typically 100% or user specified.
+                # Just default to 1.0 (win) for now, or calculate if we have take_profit_pct?
+                # The schema might just use take_profit_price directly. We will set it to 0.99 if not set.
+                trade.take_profit_price = 0.99
         
     if open_shares > Decimal("0") or close_shares > Decimal("0"):
         trade.status = "SUCCESS"
@@ -376,15 +419,33 @@ async def reconcile_active_requests():
             
             try:
                 sub_res = await gateway.get_order(attempt.provider_order_id)
-                if sub_res.status == "FILLED":
+                # In reconcile, we use provider_status
+                if sub_res.provider_status == "FILLED":
                     attempt.status = "SUCCESS"
-                    attempt.provider_status = sub_res.status
-                    req.state = "FILLED"
-                    req.filled_shares = req.requested_shares or Decimal("0")
-                    req.filled_cost_usdc = req.target_amount_usdc or Decimal("0")
+                    attempt.provider_status = sub_res.provider_status
+                    
+                    # Fetch actual fills
+                    market_stmt = select(LiveMarket).where(LiveMarket.market_id == req.market_id)
+                    market = (await session.execute(market_stmt)).scalar_one_or_none()
+                    token_id = market.yes_token_id if market and req.outcome_to_buy == "YES" else (market.no_token_id if market else "")
+                    
+                    fills = await gateway.fetch_order_fills(attempt.provider_order_id, token_id)
+                    filled_shares = sum((fill.shares for fill in fills), Decimal("0"))
+                    filled_quote = sum((fill.gross_quote_usdc for fill in fills), Decimal("0"))
+                    
+                    req.filled_shares = filled_shares
+                    req.filled_cost_usdc = filled_quote
+                    
+                    if filled_shares == Decimal("0"):
+                        req.state = "REJECTED"
+                        req.error_reason = "Order was FILLED but 0 shares matched (cancelled?)"
+                    elif filled_shares < (req.requested_shares or Decimal("0")):
+                        req.state = "PARTIALLY_FILLED_FINAL"
+                    else:
+                        req.state = "FILLED"
                     
                     from polyflip.db.execution_models import ExecutionFill
-                    for f in sub_res.fills:
+                    for f in fills:
                         # Check if fill already exists
                         fill_check = await session.execute(select(ExecutionFill).where(ExecutionFill.provider_trade_id == f.provider_trade_id))
                         if not fill_check.scalar_one_or_none():
@@ -414,11 +475,11 @@ async def reconcile_active_requests():
                         )
                         await session.commit()
                         
-                elif sub_res.status in ("REJECTED", "FAILED", "EXPIRED", "CANCELED"):
+                elif sub_res.provider_status in ("REJECTED", "FAILED", "EXPIRED", "CANCELED"):
                     attempt.status = "FAILED"
-                    attempt.provider_status = sub_res.status
+                    attempt.provider_status = sub_res.provider_status
                     req.state = "REJECTED"
-                    req.error_reason = f"Gateway returned final status: {sub_res.status}"
+                    req.error_reason = f"Gateway returned final status: {sub_res.provider_status}"
                     req.updated_at = now
                     await session.commit()
                     
@@ -432,7 +493,7 @@ async def reconcile_active_requests():
                         await session.commit()
                 else:
                     # Still pending/unknown on the gateway
-                    logger.info("reconcile_still_pending", request_id=str(req.id), gateway_status=sub_res.status)
+                    logger.info("reconcile_still_pending", request_id=str(req.id), gateway_status=sub_res.provider_status)
                     
             except Exception as e:
                 logger.exception("reconcile_failed", request_id=str(req.id), error=str(e))

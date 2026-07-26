@@ -47,42 +47,44 @@ class PolymarketExecutionGateway:
             
         try:
             if order.side.upper() == "BUY":
-                amount_limit = float(order.max_spend_usdc) if order.max_spend_usdc else 0.0
+                amount_limit = str(order.max_spend_usdc) if order.max_spend_usdc else "0"
                 resp = await client.place_market_order(
                     token_id=order.token_id,
                     side="BUY",
                     amount=amount_limit,
                     max_spend=amount_limit,
-                    max_price=float(order.limit_price),
+                    max_price=str(order.limit_price),
                     order_type="FAK",
                 )
             else:
                 resp = await client.place_market_order(
                     token_id=order.token_id,
                     side="SELL",
-                    shares=float(order.requested_shares),
-                    min_price=float(order.limit_price),
+                    shares=str(order.requested_shares),
+                    min_price=str(order.limit_price),
                     order_type="FAK",
                 )
             
             if not getattr(resp, "ok", False):
                 return SubmissionResult(
-                    provider_order_id="",
-                    status="REJECTED",
-                    rejection_code=getattr(resp, "code", ""),
+                    accepted=False,
+                    provider_status="REJECTED",
+                    rejection_code=str(getattr(resp, "code", "")),
                     error_message=getattr(resp, "message", "Unknown rejection"),
                 )
                 
             return SubmissionResult(
+                accepted=True,
                 provider_order_id=getattr(resp, "order_id", ""),
-                status=getattr(resp, "status", "UNKNOWN").upper(),
-                provider_trade_ids=getattr(resp, "trade_ids", [])
+                provider_status=getattr(resp, "status", "UNKNOWN").upper(),
+                provider_trade_ids=tuple(getattr(resp, "trade_ids", []))
             )
             
         except Exception as e:
             return SubmissionResult(
-                provider_order_id="",
-                status=f"ERROR: {str(e)}"
+                accepted=False,
+                provider_status="ERROR",
+                error_message=str(e)
             )
 
     async def get_order(self, provider_order_id: str) -> SubmissionResult:
@@ -94,51 +96,64 @@ class PolymarketExecutionGateway:
             resp = await client.get_order(order_id=provider_order_id)
             if not resp:
                 return SubmissionResult(
+                    accepted=True,
                     provider_order_id=provider_order_id,
-                    status="UNKNOWN"
+                    provider_status="UNKNOWN"
                 )
             
             resp_dict = resp if isinstance(resp, dict) else resp.__dict__
-            
             status = resp_dict.get("status", "UNKNOWN")
-            fills = []
-            
-            if status == "FILLED":
-                filled_shares = Decimal(str(resp_dict.get("size_matched", 0)))
-                avg_price = Decimal(str(resp_dict.get("price", 0)))
-                if filled_shares > 0:
-                    fills.append(TradeExecution(
-                        provider_trade_id=provider_order_id,
-                        gateway=self.name,
-                        gross_quote_usdc=filled_shares * avg_price,
-                        price=avg_price,
-                        shares=filled_shares,
-                        fee_usdc=Decimal("0"),
-                        matched_at=datetime.now(timezone.utc)
-                    ))
-            
-            state = ProviderOrderState(
-                provider_order_id=provider_order_id,
-                status=status,
-                filled_shares=Decimal(str(resp_dict.get("size_matched", 0))),
-                filled_usdc=Decimal(str(resp_dict.get("size_matched", 0))) * Decimal(str(resp_dict.get("price", 0))),
-                remaining_shares=Decimal("0"),
-                fee_usdc=Decimal("0"),
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
-            )
             
             return SubmissionResult(
+                accepted=True,
                 provider_order_id=provider_order_id,
-                status=status,
-                state=state,
-                fills=tuple(fills)
+                provider_status=status
             )
         except Exception as e:
             return SubmissionResult(
+                accepted=False,
                 provider_order_id=provider_order_id,
-                status=f"ERROR: {str(e)}"
+                provider_status=f"ERROR: {str(e)}"
             )
+
+    async def fetch_order_fills(self, provider_order_id: str, token_id: str, after: str = "0") -> tuple[TradeExecution, ...]:
+        client = await self.get_client()
+        if not client:
+            raise GatewayUnavailable("Polymarket client not initialized")
+        
+        result = []
+        try:
+            pages = client.list_account_trades(token_id=token_id, after=after)
+            async for page in pages:
+                for trade in page.items:
+                    maker_orders = getattr(trade, 'maker_orders', [])
+                    belongs_to_order = (
+                        trade.taker_order_id == provider_order_id or 
+                        any(maker.order_id == provider_order_id for maker in maker_orders)
+                    )
+                    if not belongs_to_order:
+                        continue
+                    
+                    price = Decimal(str(trade.price))
+                    size = Decimal(str(trade.size))
+                    fee_rate = Decimal(str(getattr(trade, 'fee_rate_bps', 0)))
+                    
+                    fee = (price * size * fee_rate / Decimal("10000"))
+                    result.append(
+                        TradeExecution(
+                            provider_trade_id=trade.id,
+                            gateway=self.name,
+                            gross_quote_usdc=price * size,
+                            price=price,
+                            shares=size,
+                            fee_usdc=fee,
+                            matched_at=trade.matched_at,
+                        )
+                    )
+        except Exception as e:
+            logger.error("failed_to_fetch_order_fills", error=str(e), order_id=provider_order_id)
+            
+        return tuple(result)
 
     async def get_readiness(
         self, conditional_token_ids: tuple[str, ...] = ()

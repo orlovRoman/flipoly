@@ -36,6 +36,18 @@ async def get_dashboard(request: Request):
         }
     )
 
+@router.get("/execution")
+async def get_execution_dashboard(request: Request):
+    """Отдает страницу дашборда Исполнения"""
+    return templates.TemplateResponse(
+        "execution.html", 
+        {
+            "request": request, 
+            "timestamp": int(time.time()), 
+            "root_path": request.scope.get("root_path", "")
+        }
+    )
+
 _dashboard_cache = {}
 _DASHBOARD_CACHE_TTL = 30  # 30 секунд кэша
 
