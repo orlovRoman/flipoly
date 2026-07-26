@@ -44,7 +44,7 @@ class VotingResult:
 def combine_votes(
     ml_action: str,
     ml_edge: float,
-    crypto_sig: CryptoSignalProxy,
+    crypto_sig: "CryptoSignal",
     asset: str,
     none_bet_multiplier: float = 0.5,
     ml_skip_reason: str = "",
@@ -105,8 +105,9 @@ def combine_votes(
 
         # Soft SKIP = технические причины (зона, цена вне диапазона)
         # LightGBM может торговать автономно с 50% ставкой
+        # ВРЕМЕННО ОТКЛЮЧЕНО
         SOFT_SKIP_PATTERNS = ("dead zone", "price out of", "out of bounds", "мёртвая зона")
-        is_soft = any(p in skip_reason_lower for p in SOFT_SKIP_PATTERNS)
+        is_soft = False # any(p in skip_reason_lower for p in SOFT_SKIP_PATTERNS)
 
         if is_soft and crypto_sig.features_ok and crypto_sig.direction not in (None, "NONE"):
             lgbm_action = "BUY_YES" if crypto_sig.direction == "UP" else "BUY_NO"

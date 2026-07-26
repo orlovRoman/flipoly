@@ -505,7 +505,6 @@ async def decide_crypto_mode(
     )
 
 async def _fetch_lgbm_signal(
-    db_session: AsyncSession,
     crypto_predictor: Any,
     binance_symbol: str,
     asset_upper: str,
@@ -514,21 +513,24 @@ async def _fetch_lgbm_signal(
     from polyflip.trading.combined_voting import CryptoSignalProxy
     from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
     from polyflip.crypto.candle_repository import get_recent_candles
+    from polyflip.db.connection import async_session
+    
     try:
-        await crypto_predictor.load(db_session, binance_symbol)
-        interval = crypto_predictor.get_interval(binance_symbol)
-        candles = await get_recent_candles(db_session, binance_symbol, interval=interval, limit=MIN_CANDLES_REQUIRED)
-        fr = await _get_funding_rate(db_session, binance_symbol)
-        raw_sig = crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
-        return CryptoSignalProxy(
-            direction=raw_sig.direction,
-            features_ok=raw_sig.features_ok,
-            model_version=getattr(raw_sig, "model_version", None),
-            risk_vetoed=getattr(raw_sig, "risk_vetoed", False),
-        )
+        async with async_session() as db_session:
+            await crypto_predictor.load(db_session, binance_symbol)
+            interval = crypto_predictor.get_interval(binance_symbol)
+            candles = await get_recent_candles(db_session, binance_symbol, interval=interval, limit=MIN_CANDLES_REQUIRED)
+            fr = await _get_funding_rate(db_session, binance_symbol)
+            return crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
     except Exception as exc:
         logger.error("combined_lgbm_error_fallback", asset=asset_upper, error=str(exc))
-        return CryptoSignalProxy(direction=None, features_ok=False, risk_vetoed=False)
+        from polyflip.crypto.predictor import CryptoSignal
+        return CryptoSignal(
+            symbol=binance_symbol, p_up=0.0, p_down=0.0,
+            direction="NONE", signal_strength=0.0, strike=0.0,
+            threshold_up=0.0, threshold_down=0.0, model_version=0,
+            features_ok=False, risk_vetoed=False
+        )
 
 async def decide_combined_mode(
     db_session: AsyncSession,
@@ -587,12 +589,18 @@ async def decide_combined_mode(
     binance_symbol = COMBINED_BINANCE_SYMBOLS.get(asset_upper)
 
     if crypto_predictor is not None and binance_symbol is not None:
-        lgbm_task = _fetch_lgbm_signal(db_session, crypto_predictor, binance_symbol, asset_upper)
+        lgbm_task = _fetch_lgbm_signal(crypto_predictor, binance_symbol, asset_upper)
         # Запускаем параллельно
         ml_result, crypto_proxy = await asyncio.gather(ml_task, lgbm_task)
     else:
         ml_result = await ml_task
-        crypto_proxy = CryptoSignalProxy(direction=None, features_ok=False, risk_vetoed=False)
+        from polyflip.crypto.predictor import CryptoSignal
+        crypto_proxy = CryptoSignal(
+            symbol=binance_symbol or "UNKNOWN", p_up=0.0, p_down=0.0,
+            direction="NONE", signal_strength=0.0, strike=0.0,
+            threshold_up=0.0, threshold_down=0.0, model_version=0,
+            features_ok=False, risk_vetoed=False
+        )
         logger.warning("combined_no_crypto_predictor", asset=asset_upper)
 
     elapsed = time.monotonic() - t0

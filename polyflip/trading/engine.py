@@ -142,6 +142,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 await save_or_update_skipped_trade(
                     db_session, market, f"Error calculating prediction: {e}", 0.0, None, start_time, existing_skipped
                 )
+                _ACTIVE_MARKETS.remove(market.market_id)
                 continue
                 
             if not decision_res or not decision_res.decision_obj or decision_res.decision_obj.action == "SKIP":
@@ -155,10 +156,11 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj if decision_res else None, market.asset),
                     lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
                 )
+                _ACTIVE_MARKETS.remove(market.market_id)
                 continue
 
             validation = await validate_pre_trade(
-                api_client, market, decision_res.decision_obj, cfg, asset_mode,
+                db_session, api_client, market, decision_res.decision_obj, cfg, asset_mode,
                 asset_min_edge, asset_max_price, decision_res.p_flip, decision_res.model_ver
             )
 
@@ -171,6 +173,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj, market.asset),
                     lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
                 )
+                _ACTIVE_MARKETS.remove(market.market_id)
                 continue
 
             await execute_and_record(
@@ -179,6 +182,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                 cfg, existing_skipped, start_time,
                 lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
             )
+            
+            _ACTIVE_MARKETS.remove(market.market_id)
 
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))

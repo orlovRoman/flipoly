@@ -65,6 +65,7 @@ class TradingConfig:
     stop_loss_pct_outsider: float
     fee_rate: float
     slippage_rate: float
+    max_exposure_pct: float
 
 def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
     trade_assets_str = raw.get("TRADE_ASSETS", getattr(settings, "TRADE_ASSETS", "BTC,ETH"))
@@ -111,4 +112,5 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         stop_loss_pct_outsider=_parse_float(raw.get("STOP_LOSS_PCT_OUTSIDER"), getattr(settings, "STOP_LOSS_PCT_OUTSIDER", 60.0)),
         fee_rate=_parse_float(raw.get("FEE_RATE"), getattr(settings, "FEE_RATE", 0.0)),
         slippage_rate=_parse_float(raw.get("SLIPPAGE_RATE"), getattr(settings, "SLIPPAGE_RATE", 0.0)),
+        max_exposure_pct=_parse_float(raw.get("MAX_EXPOSURE_PCT"), getattr(settings, "MAX_EXPOSURE_PCT", 15.0)),
     )

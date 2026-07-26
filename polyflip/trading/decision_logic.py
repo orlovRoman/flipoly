@@ -250,7 +250,8 @@ def decide_ml_trend(
         action, buy_price, bet,
         f"ML_TREND p_flip={p_flip:.3f} < {no_flip_thresh:.3f}",
         "ML_TREND",
-        p_flip=p_flip, edge=edge
+        p_flip=p_flip, edge=edge,
+        p_win_effective=p_win, p_win_raw=p_win
     )
 
 
@@ -337,7 +338,8 @@ def decide_outsider(
     return TradeDecision(
         outsider_action, outsider_ask, bet,
         f"outsider {outsider_action.split('_')[1]}, p_flip={p_flip:.3f}", "OUTSIDER",
-        p_flip=p_flip, edge=edge
+        p_flip=p_flip, edge=edge,
+        p_win_effective=p_win_outsider, p_win_raw=p_win_outsider
     )
 
 

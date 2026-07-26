@@ -661,7 +661,7 @@ class TestStep6PreTradeValidator:
         )
 
     @pytest.mark.asyncio
-    async def test_step6_price_drift_too_large_fails(self):
+    async def test_step6_price_drift_too_large_fails(self, db_session):
         """price drift > MAX_PRICE_DRIFT → valid=False, skip_reason содержит 'drift'."""
         from polyflip.trading.pre_trade_validator import validate_pre_trade
         from polyflip.trading.trading_config import parse_trading_settings
@@ -674,7 +674,7 @@ class TestStep6PreTradeValidator:
         decision = self._make_decision(buy_price=0.60)
 
         result = await validate_pre_trade(
-            api_client=api_mock, market=market, decision_obj=decision,
+            db_session=db_session, api_client=api_mock, market=market, decision_obj=decision,
             cfg=cfg, asset_mode=TRADING_MODE_ML,
             asset_min_edge=0.05, asset_max_price=0.95, p_flip=0.7, model_ver=1,
         )
@@ -683,7 +683,7 @@ class TestStep6PreTradeValidator:
         assert "drift" in result.skip_reason.lower()
 
     @pytest.mark.asyncio
-    async def test_step6_zero_bet_size_fails(self):
+    async def test_step6_zero_bet_size_fails(self, db_session):
         """actual_bet_size <= 0 → valid=False."""
         from polyflip.trading.pre_trade_validator import validate_pre_trade
         from polyflip.trading.trading_config import parse_trading_settings
@@ -698,14 +698,14 @@ class TestStep6PreTradeValidator:
         decision = self._make_decision(buy_price=0.60, bet=0.0)
 
         result = await validate_pre_trade(
-            api_client=api_mock, market=market, decision_obj=decision,
+            db_session=db_session, api_client=api_mock, market=market, decision_obj=decision,
             cfg=cfg, asset_mode=TRADING_MODE_ML,
             asset_min_edge=0.05, asset_max_price=0.95, p_flip=0.7, model_ver=1,
         )
         assert not result.valid
 
     @pytest.mark.asyncio
-    async def test_step6_valid_trade_returns_updated_buy_price(self):
+    async def test_step6_valid_trade_returns_updated_buy_price(self, db_session):
         """Валидный trade: valid=True, buy_price обновлён до свежего best_ask."""
         from polyflip.trading.pre_trade_validator import validate_pre_trade
         from polyflip.trading.trading_config import parse_trading_settings
@@ -719,7 +719,7 @@ class TestStep6PreTradeValidator:
         decision = self._make_decision(buy_price=0.60, edge=0.12, bet=10.0)
 
         result = await validate_pre_trade(
-            api_client=api_mock, market=market, decision_obj=decision,
+            db_session=db_session, api_client=api_mock, market=market, decision_obj=decision,
             cfg=cfg, asset_mode=TRADING_MODE_ML,
             asset_min_edge=0.05, asset_max_price=0.95, p_flip=0.2, model_ver=1,
         )

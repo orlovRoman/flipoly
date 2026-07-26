@@ -9,6 +9,9 @@ from polyflip.trading.decision_logic import TradeDecision
 from polyflip.trading.position_sizing import compute_bet_size_edge_scaled
 from polyflip.crypto.edge import compute_economic_edge
 from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from polyflip.db.models import TradeHistory
 
 logger = structlog.get_logger(__name__)
 
@@ -23,6 +26,7 @@ class PreTradeValidation:
 
 
 async def validate_pre_trade(
+    db_session: AsyncSession,
     api_client: Any,
     market: LiveMarket,
     decision_obj: Optional[TradeDecision],
@@ -69,16 +73,12 @@ async def validate_pre_trade(
     buy_price = fresh_ask
     
     # Пересчет edge по реальной цене
-    if decision_obj.p_win_effective is not None:
-        p_win = decision_obj.p_win_effective
-    else:
-        # Fallback to older logic if missing (should not happen with updated decision_logic)
-        if asset_mode == TRADING_MODE_ML:
-            p_win = 1.0 - p_flip if decision_obj.strategy_type == "ML_TREND" else p_flip
-        elif decision_obj.p_up is not None:
-            p_win = decision_obj.p_up
-        else:
-            p_win = p_flip
+    if decision_obj.p_win_effective is None:
+        return PreTradeValidation(
+            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=decision_obj.edge or 0.0,
+            skip_reason="Missing p_win_effective in TradeDecision"
+        )
+    p_win = decision_obj.p_win_effective
 
     current_min_edge = cfg.favorite_min_edge if (asset_mode == TRADING_MODE_FAVORITE and cfg.favorite_min_edge is not None) else asset_min_edge
     
@@ -133,6 +133,19 @@ async def validate_pre_trade(
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
             skip_reason="Bet size <= 0"
+        )
+        
+    # Check max exposure
+    exposure_res = await db_session.execute(
+        select(func.sum(TradeHistory.amount_usdc)).where(TradeHistory.status == 'LIVE')
+    )
+    current_exposure = exposure_res.scalar() or 0.0
+    max_exposure = cfg.capital * (cfg.max_exposure_pct / 100.0)
+    
+    if current_exposure + actual_bet_size > max_exposure:
+        return PreTradeValidation(
+            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
+            skip_reason=f"Max exposure exceeded: current {current_exposure:.2f} + new {actual_bet_size:.2f} > max {max_exposure:.2f}"
         )
 
     return PreTradeValidation(
