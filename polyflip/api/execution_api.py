@@ -17,11 +17,46 @@ router = APIRouter(prefix="/api/live-trading", tags=["Execution"], dependencies=
 class KillSwitchRequest(BaseModel):
     enabled: bool
 
+from polyflip.execution.config import ExecutionSettings
+from polyflip.execution.gateways.factory import build_execution_gateway
+
+@router.get("/status")
+async def get_live_trading_status(db: AsyncSession = Depends(get_db_session)):
+    """
+    Returns the current live trading status and execution mode.
+    """
+    key = "LIVE_TRADING_ENABLED"
+    existing = (await db.execute(
+        select(RuntimeSettings).where(RuntimeSettings.key == key)
+    )).scalar_one_or_none()
+    
+    enabled = existing is not None and existing.value.lower() == "true"
+    settings = ExecutionSettings()
+    
+    return {
+        "live_trading_enabled": enabled,
+        "execution_mode": settings.execution_mode.value
+    }
+
 @router.put("/kill-switch")
 async def toggle_kill_switch(payload: KillSwitchRequest, db: AsyncSession = Depends(get_db_session)):
     """
     Управляет глобальным рубильником LIVE-торговли.
+    Проверяет готовность системы перед включением.
     """
+    if payload.enabled:
+        settings = ExecutionSettings()
+        if settings.execution_mode.value != "LIVE":
+            raise HTTPException(status_code=400, detail="Cannot enable LIVE trading: Execution mode is not LIVE")
+            
+        try:
+            gateway = build_execution_gateway(settings)
+            balance = await gateway.get_balance_allowance(asset_type="COLLATERAL")
+            if balance.balance_usdc < 5:
+                raise ValueError(f"Insufficient USDC balance: {balance.balance_usdc}")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"System not ready for LIVE trading: {str(e)}")
+
     key = "LIVE_TRADING_ENABLED"
     value = "true" if payload.enabled else "false"
     
