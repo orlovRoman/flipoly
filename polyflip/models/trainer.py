@@ -220,7 +220,7 @@ def _fit_and_serialize(
         ("model", LogisticRegression(class_weight="balanced", C=best_C, random_state=CV_RANDOM_STATE, max_iter=1000))
     ])
     
-    from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
     
     aucs = []
     oof_scores = np.zeros(len(y))
@@ -272,9 +272,9 @@ def _fit_and_serialize(
         final_base.fit(X_train_cal, y_train_cal, model__sample_weight=tr_cal_weight)
         
         final_model = CalibratedClassifierCV(
-            estimator=final_base,
+            estimator=FrozenEstimator(final_base),
             method="sigmoid",
-            cv="prefit"
+            cv=None
         )
         final_model.fit(X_cal, y_cal)
     
