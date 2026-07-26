@@ -96,6 +96,45 @@ async def decide_favorite_mode(
         skip_reason=decision_obj.reason if decision_obj.action == "SKIP" else None
     )
 
+async def infer_flip_for_market(
+    db_session: AsyncSession,
+    market: LiveMarket,
+    model: Any,
+    active_features: list[str],
+    fresh_price: float,
+    fresh_spread: float,
+    start_time: datetime,
+    time_left_sec: float,
+    max_time_left: float,
+) -> float:
+    from datetime import timedelta
+    cutoff_time = start_time - timedelta(seconds=max_time_left)
+
+    snapshots_stmt = select(MarketSnapshot).where(
+        MarketSnapshot.market_id == market.market_id,
+        MarketSnapshot.recorded_at >= cutoff_time
+    ).order_by(MarketSnapshot.recorded_at.asc())
+    snapshots_res = await db_session.execute(snapshots_stmt)
+    history_snaps = snapshots_res.scalars().all()
+
+    filtered_prices = [
+        float(s.mid_price) for s in history_snaps
+        if s.recorded_at >= cutoff_time
+    ] + [fresh_price]
+    global_max = max(filtered_prices) if filtered_prices else fresh_price
+
+    df = build_inference_dataframe(
+        market=market,
+        history_snaps=list(history_snaps), 
+        fresh_yes_price=fresh_price,
+        fresh_spread=fresh_spread,
+        global_max=global_max,
+        start_time=start_time,
+        time_left_sec=time_left_sec,
+    )
+    
+    return float(run_model_inference(df, model, active_features))
+
 async def decide_ml_mode(
     db_session: AsyncSession,
     api_client: Any,
@@ -151,34 +190,21 @@ async def decide_ml_mode(
     if not model:
         return DecisionResult(None, 0.0, None, None, f"No active model found for {market.asset.upper()}")
         
-    # Загружаем историю снапшотов для правильного расчета лагов и глобального максимума (BUG-3 fix: cutoff_time filter)
-    from datetime import timedelta
-    cutoff_time = start_time - timedelta(seconds=cfg.max_time_left)
-
-    snapshots_stmt = select(MarketSnapshot).where(
-        MarketSnapshot.market_id == market.market_id,
-        MarketSnapshot.recorded_at >= cutoff_time
-    ).order_by(MarketSnapshot.recorded_at.asc())
-    snapshots_res = await db_session.execute(snapshots_stmt)
-    history_snaps = snapshots_res.scalars().all()
-
-    filtered_prices = [
-        float(s.mid_price) for s in history_snaps
-        if s.recorded_at >= cutoff_time
-    ] + [fresh_yes_price]
-    global_max = max(filtered_prices) if filtered_prices else fresh_yes_price
-
-    df = build_inference_dataframe(
-        market=market,
-        history_snaps=list(history_snaps), 
-        fresh_yes_price=fresh_yes_price,
-        fresh_spread=fresh_spread,
-        global_max=global_max,
-        start_time=start_time,
-        time_left_sec=time_left_sec,
-    )
-    
-    p_flip = float(run_model_inference(df, model, active_features))
+    try:
+        p_flip = await infer_flip_for_market(
+            db_session=db_session,
+            market=market,
+            model=model,
+            active_features=active_features,
+            fresh_price=fresh_yes_price,
+            fresh_spread=fresh_spread,
+            start_time=start_time,
+            time_left_sec=time_left_sec,
+            max_time_left=cfg.max_time_left,
+        )
+    except Exception as e:
+        logger.error("ml_mode_infer_flip_error", asset=market.asset, error=str(e))
+        return DecisionResult(None, 0.0, None, None, "flip inference failed")
     
     signal = MarketSignal(
         asset=market.asset,
@@ -427,18 +453,20 @@ async def decide_crypto_mode(
             model = models_cache.models.get(market.asset.upper())
             active_features = models_cache.features.get(market.asset.upper(), [])
             if model and active_features:
-                snaps_res = await db_session.execute(
-                    select(MarketSnapshot)
-                    .where(MarketSnapshot.market_id == market.market_id)
-                    .order_by(MarketSnapshot.recorded_at.desc())
-                    .limit(10)
+                p_flip_ml = await infer_flip_for_market(
+                    db_session=db_session,
+                    market=market,
+                    model=model,
+                    active_features=active_features,
+                    fresh_price=fresh_yes_price,
+                    fresh_spread=market.current_spread or 0.01,
+                    start_time=start_time,
+                    time_left_sec=time_left_sec,
+                    max_time_left=cfg.max_time_left,
                 )
-                snaps = list(reversed(snaps_res.scalars().all()))
-                if snaps:
-                    df_inf = build_inference_dataframe(snaps)
-                    p_flip_ml = run_model_inference(model, df_inf, active_features)
         except Exception as e:
-            logger.warning("crypto_mode_ml_pflip_error", asset=market.asset, error=str(e))
+            logger.error("crypto_mode_ml_pflip_error", asset=market.asset, error=str(e))
+            return DecisionResult(None, 0.0, crypto_sig.model_version, None, "flip inference failed")
 
     no_ask = None
     if crypto_sig.direction == "DOWN" and getattr(market, "no_token_id", None):

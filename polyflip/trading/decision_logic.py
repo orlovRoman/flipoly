@@ -367,17 +367,33 @@ def decide_crypto_trend(
     if flip_thresh > 1.0:
         flip_thresh = flip_thresh / 100.0
 
-    if crypto.direction == "DOWN":
-        if p_flip_ml is None:
+    is_yes_fav = entry_price >= 0.50
+    buying_yes = (crypto.direction == "UP")
+    buying_fav = (buying_yes and is_yes_fav) or (not buying_yes and not is_yes_fav)
+    
+    if p_flip_ml is None:
+        return TradeDecision(
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
+            reason="Trade blocked: p_flip_ml not provided",
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+        )
+        
+    no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", 0.35))
+    
+    if buying_fav:
+        # Buying favorite requires low flip probability (no reversal expected)
+        if p_flip_ml >= no_flip_thresh:
             return TradeDecision(
                 action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
-                reason="DOWN trade blocked: p_flip_ml not provided",
+                reason=f"Fav trade blocked: p_flip={p_flip_ml:.3f} >= NO_FLIP_THRESHOLD ({no_flip_thresh:.2f})",
                 strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
             )
+    else:
+        # Buying outsider requires high flip probability (reversal expected)
         if p_flip_ml < flip_thresh:
             return TradeDecision(
                 action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
-                reason=f"p_flip={p_flip_ml:.3f} < FLIP_THRESHOLD ({flip_thresh:.2f})",
+                reason=f"Outsider trade blocked: p_flip={p_flip_ml:.3f} < FLIP_THRESHOLD ({flip_thresh:.2f})",
                 strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
             )
 
