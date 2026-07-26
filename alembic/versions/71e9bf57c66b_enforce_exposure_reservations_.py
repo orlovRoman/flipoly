@@ -23,7 +23,15 @@ def upgrade() -> None:
     op.alter_column('execution_requests', 'trade_history_id', existing_type=sa.Integer(), nullable=False)
     
     # 2. Fix the check constraint on execution_requests
-    op.drop_constraint('ck_execution_request_trade_reference', 'execution_requests', type_='check')
+    bind = op.get_bind()
+    if bind.dialect.name == 'postgresql':
+        op.execute("ALTER TABLE execution_requests DROP CONSTRAINT IF EXISTS ck_execution_request_trade_reference")
+    else:
+        with op.batch_alter_table('execution_requests') as batch_op:
+            try:
+                batch_op.drop_constraint('ck_execution_request_trade_reference', type_='check')
+            except Exception:
+                pass
     op.create_check_constraint(
         'ck_execution_request_trade_reference',
         'execution_requests',
