@@ -397,8 +397,9 @@ def test_combine_votes_soft_skip_allows_lgbm():
         asset="SOL",
         ml_skip_reason="p_flip 0.41 in dead zone [0.35, 0.45]"
     )
-    assert vote.action == "BUY_NO"
-    assert "LightGBM autonomous" in vote.reason
+    # The feature is temporarily disabled, so it acts as Hard SKIP
+    assert vote.action == "SKIP"
+    assert "hard-SKIP" in vote.reason
 
 
 

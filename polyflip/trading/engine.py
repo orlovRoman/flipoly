@@ -108,82 +108,132 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     decision_res = await decide_favorite_mode(
                         market, cfg, asset_min_edge, asset_max_price, start_time, time_left_sec
                     )
-                elif asset_mode == TRADING_MODE_LIGHTGBM:
-                    try:
-                        from polyflip.trading.decision_runners import decide_crypto_mode
+                raw_mode = raw_settings.get(f"TRADING_MODE_{market.asset.upper()}")
+                if raw_mode and raw_mode.strip():
+                    asset_mode = raw_mode.strip().lower()
+                else:
+                    asset_mode = cfg.trading_mode.lower() if cfg.trading_mode else ""
+                    
+                val_min_edge = raw_settings.get(f"MIN_EDGE_{market.asset.upper()}")
+                if val_min_edge is not None and val_min_edge.strip() != "":
+                    asset_min_edge = float(val_min_edge)
+                else:
+                    asset_min_edge = cfg.min_edge
+                    
+                val_max_price = raw_settings.get(f"TRADE_MAX_PRICE_{market.asset.upper()}")
+                if val_max_price is not None and val_max_price.strip() != "":
+                    asset_max_price = float(val_max_price)
+                else:
+                    asset_max_price = cfg.trade_max_price
+
+                end_time_utc = market.end_time_est
+                if end_time_utc.tzinfo is None:
+                    end_time_utc = end_time_utc.replace(tzinfo=timezone.utc)
+                time_left_sec = (end_time_utc - start_time).total_seconds()
+
+                guard_res = await check_market_guards(db_session, market, cfg, asset_mode, time_left_sec, start_time)
+                
+                if not guard_res.passed:
+                    if guard_res.skip_reason and guard_res.skip_reason not in ("Time left <= 0", "Trade already exists"):
+                        await save_or_update_skipped_trade(
+                            db_session, market, guard_res.skip_reason, p_flip_val=0.0,
+                            model_version=None, start_time=start_time,
+                            existing_skipped=guard_res.existing_skipped
+                        )
+                    continue
+
+                existing_skipped = guard_res.existing_skipped
+                decision_res = None
+                
+                try:
+                    if asset_mode == TRADING_MODE_ML:
                         from polyflip.trading.ml_inference import get_models_cache, populate_models_cache
                         models_cache = get_models_cache()
                         if not models_cache.models:
+                            logger.warning("models_cache_empty_populating", context="trade_worker_cycle")
                             await populate_models_cache(db_session)
                             models_cache = get_models_cache()
-                        decision_res = await decide_crypto_mode(
-                            db_session, api_client, market, cfg, raw_settings, _get_crypto_predictor(), start_time, time_left_sec, models_cache
+                        decision_res = await decide_ml_mode(
+                            db_session, api_client, market, cfg, raw_settings, models_cache, _get_crypto_predictor(),
+                            start_time, time_left_sec, existing_skipped
                         )
-                    except ImportError as e:
-                        logger.error("decide_crypto_mode_import_error", error=str(e))
-                        await save_or_update_skipped_trade(
-                            db_session, market, f"ImportError: {e}", 0.0, None, start_time, existing_skipped
+                    elif asset_mode == TRADING_MODE_FAVORITE:
+                        decision_res = await decide_favorite_mode(
+                            market, cfg, asset_min_edge, asset_max_price, start_time, time_left_sec
                         )
-                elif asset_mode == TRADING_MODE_COMBINED:
-                    from polyflip.trading.decision_runners import decide_combined_mode
-                    from polyflip.trading.ml_inference import get_models_cache, populate_models_cache
-                    models_cache = get_models_cache()
-                    if not models_cache.models:
-                        logger.warning("models_cache_empty_populating", context="trade_worker_cycle")
-                        await populate_models_cache(db_session)
+                    elif asset_mode == TRADING_MODE_LIGHTGBM:
+                        try:
+                            from polyflip.trading.decision_runners import decide_crypto_mode
+                            from polyflip.trading.ml_inference import get_models_cache, populate_models_cache
+                            models_cache = get_models_cache()
+                            if not models_cache.models:
+                                await populate_models_cache(db_session)
+                                models_cache = get_models_cache()
+                            decision_res = await decide_crypto_mode(
+                                db_session, api_client, market, cfg, raw_settings, _get_crypto_predictor(), start_time, time_left_sec, models_cache
+                            )
+                        except ImportError as e:
+                            logger.error("decide_crypto_mode_import_error", error=str(e))
+                            await save_or_update_skipped_trade(
+                                db_session, market, f"ImportError: {e}", 0.0, None, start_time, existing_skipped
+                            )
+                    elif asset_mode == TRADING_MODE_COMBINED:
+                        from polyflip.trading.decision_runners import decide_combined_mode
+                        from polyflip.trading.ml_inference import get_models_cache, populate_models_cache
                         models_cache = get_models_cache()
-                    decision_res = await decide_combined_mode(
-                        db_session, api_client, market, cfg,
-                        raw_settings, models_cache, _get_crypto_predictor(),
-                        start_time, time_left_sec, existing_skipped
+                        if not models_cache.models:
+                            logger.warning("models_cache_empty_populating", context="trade_worker_cycle")
+                            await populate_models_cache(db_session)
+                            models_cache = get_models_cache()
+                        decision_res = await decide_combined_mode(
+                            db_session, api_client, market, cfg,
+                            raw_settings, models_cache, _get_crypto_predictor(),
+                            start_time, time_left_sec, existing_skipped
+                        )
+                except Exception as e:
+                    logger.exception("decision_logic_error", market=market.market_id, error=str(e))
+                    await save_or_update_skipped_trade(
+                        db_session, market, f"Error calculating prediction: {e}", 0.0, None, start_time, existing_skipped
                     )
-            except Exception as e:
-                logger.exception("decision_logic_error", market=market.market_id, error=str(e))
-                await save_or_update_skipped_trade(
-                    db_session, market, f"Error calculating prediction: {e}", 0.0, None, start_time, existing_skipped
+                    continue
+                    
+                if not decision_res or not decision_res.decision_obj or decision_res.decision_obj.action == "SKIP":
+                    skip_reason = decision_res.skip_reason if decision_res else "SKIP"
+                    p_flip = decision_res.p_flip if decision_res else 0.0
+                    edge = decision_res.edge if decision_res else None
+                    model_ver = decision_res.model_ver if decision_res else None
+                    from polyflip.trading.trade_recorder import _get_trade_active_features
+                    await save_or_update_skipped_trade(
+                        db_session, market, skip_reason or "SKIP", p_flip, model_ver, start_time, existing_skipped, edge,
+                        active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj if decision_res else None, market.asset),
+                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
+                    )
+                    continue
+
+                validation = await validate_pre_trade(
+                    db_session, api_client, market, decision_res.decision_obj, cfg, asset_mode,
+                    asset_min_edge, asset_max_price, decision_res.p_flip, decision_res.model_ver
                 )
-                _ACTIVE_MARKETS.remove(market.market_id)
-                continue
-                
-            if not decision_res or not decision_res.decision_obj or decision_res.decision_obj.action == "SKIP":
-                skip_reason = decision_res.skip_reason if decision_res else "SKIP"
-                p_flip = decision_res.p_flip if decision_res else 0.0
-                edge = decision_res.edge if decision_res else None
-                model_ver = decision_res.model_ver if decision_res else None
-                from polyflip.trading.trade_recorder import _get_trade_active_features
-                await save_or_update_skipped_trade(
-                    db_session, market, skip_reason or "SKIP", p_flip, model_ver, start_time, existing_skipped, edge,
-                    active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj if decision_res else None, market.asset),
+
+                if not validation.valid:
+                    from polyflip.trading.trade_recorder import _get_trade_active_features
+                    await save_or_update_skipped_trade(
+                        db_session, market, validation.skip_reason, decision_res.p_flip, decision_res.model_ver, start_time,
+                        existing_skipped=existing_skipped,
+                        edge=validation.edge,
+                        active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj, market.asset),
+                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
+                    )
+                    continue
+
+                await execute_and_record(
+                    db_session, trader, market, decision_res.decision_obj, validation,
+                    asset_mode, cfg.active_features_str, decision_res.p_flip, decision_res.model_ver,
+                    cfg, existing_skipped, start_time,
                     lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
                 )
+            finally:
                 _ACTIVE_MARKETS.remove(market.market_id)
-                continue
-
-            validation = await validate_pre_trade(
-                db_session, api_client, market, decision_res.decision_obj, cfg, asset_mode,
-                asset_min_edge, asset_max_price, decision_res.p_flip, decision_res.model_ver
-            )
-
-            if not validation.valid:
-                from polyflip.trading.trade_recorder import _get_trade_active_features
-                await save_or_update_skipped_trade(
-                    db_session, market, validation.skip_reason, decision_res.p_flip, decision_res.model_ver, start_time,
-                    existing_skipped=existing_skipped,
-                    edge=validation.edge,
-                    active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj, market.asset),
-                    lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
-                )
-                _ACTIVE_MARKETS.remove(market.market_id)
-                continue
-
-            await execute_and_record(
-                db_session, trader, market, decision_res.decision_obj, validation,
-                asset_mode, cfg.active_features_str, decision_res.p_flip, decision_res.model_ver,
-                cfg, existing_skipped, start_time,
-                lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
-            )
-            
-            _ACTIVE_MARKETS.remove(market.market_id)
 
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))

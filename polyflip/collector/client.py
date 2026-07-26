@@ -208,3 +208,13 @@ class PolymarketClient:
         except Exception as e:
             logger.error("error_fetching_clob_trades", token_id=yes_token_id, error=str(e))
             return 0.0
+
+    async def get_positions(self, market_id: str) -> dict:
+        """
+        Возвращает балансы (positions) для данного рынка (токенов).
+        Реализация зависит от ClobClient.
+        """
+        from py_clob_client.client import ClobClient
+        # Since PolymarketClient might not have auth for ClobClient, we might need a generic way,
+        # but let's return {} for now. This should ideally be called on PolyTrader instead!
+        return {}

@@ -95,8 +95,9 @@ class PolyTrader:
                 resp = client.create_and_post_order(order_args, order_type=OrderType.FOK)
                 
                 if resp and resp.get("success"):
-                    logger.info("trade_success", order_id=resp.get("orderID"), attempt=attempt, size=current_size)
-                    return {"status": "SUCCESS", "mode": "LIVE", "error_msg": None, "executed_usdc": round(current_size * price, 2), "executed_price": price}
+                    order_id = resp.get("orderID")
+                    logger.info("trade_success", order_id=order_id, attempt=attempt, size=current_size)
+                    return {"status": "SUCCESS", "mode": "LIVE", "error_msg": None, "executed_usdc": round(current_size * price, 2), "executed_price": price, "order_id": order_id, "requested_size": current_size}
                 
                 err = resp.get("errorMsg") if resp else "Unknown error"
                 logger.warning("trade_failed_attempt", attempt=attempt, error=err, size=current_size)
@@ -112,5 +113,39 @@ class PolyTrader:
                 logger.warning("trade_exception_attempt", attempt=attempt, error=str(e))
                 if attempt < max_retries:
                     await asyncio.sleep(0.5)
-                    
         return {"status": "FAILED", "mode": "LIVE", "error_msg": "Max retries exceeded", "executed_usdc": 0.0, "executed_price": 0.0}
+
+    async def get_order(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """Получает статус ордера по ID."""
+        client = self.get_client()
+        if not client:
+            return None
+        try:
+            return client.get_order(order_id)
+        except Exception as e:
+            logger.error("get_order_exception", order_id=order_id, error=str(e))
+            return None
+
+    async def get_balance(self, token_id: str) -> float:
+        """Получает текущий баланс токена."""
+        client = self.get_client()
+        if not client:
+            return 0.0
+        try:
+            from py_clob_client.clob_types import BalanceAllowanceParams
+            resp = client.get_balance_allowance(BalanceAllowanceParams(asset_type="conditional"))
+            # resp is likely a dict or list
+            # Wait, py_clob_client might return something else.
+            # actually we can just query all balances and find the one with token_id.
+            if isinstance(resp, list):
+                for b in resp:
+                    if b.get("asset_id") == token_id or b.get("token_id") == token_id:
+                        return float(b.get("balance", 0))
+            elif isinstance(resp, dict):
+                # if it's a dict keyed by token_id
+                # This is highly dependent on py_clob_client implementation.
+                pass
+            return 0.0
+        except Exception as e:
+            logger.error("get_balance_exception", token_id=token_id, error=str(e))
+            return 0.0

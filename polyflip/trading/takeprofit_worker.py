@@ -34,7 +34,7 @@ async def takeprofit_worker_cycle(
     # 2. Загружаем ACTIVE позиции с выставленным take_profit_price
     stmt = select(TradeHistory).where(
         and_(
-            TradeHistory.position_status.in_(["OPEN", "EXIT_FAILED"]),
+            TradeHistory.position_status.in_(["OPEN", "EXIT_FAILED", "PARTIALLY_CLOSED"]),
             TradeHistory.exit_attempts < 10,
             TradeHistory.take_profit_status == "ACTIVE",
             TradeHistory.take_profit_price.is_not(None),

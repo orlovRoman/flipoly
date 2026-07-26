@@ -39,7 +39,8 @@ async def execute_position_exit(
     trade: TradeHistory,
     market: LiveMarket,
     target_price: float,
-    fee_rate: float
+    fee_rate: float,
+    actual_size: Optional[float] = None
 ):
     """
     Выполняет продажу позиции и вызывает reconcile_position_exit.
@@ -48,7 +49,7 @@ async def execute_position_exit(
     
     # Пытаемся продать купленный размер
     try:
-        size_shares = trade.amount_usdc / trade.executed_price if trade.executed_price > 0 else 0
+        size_shares = actual_size if actual_size is not None else (trade.amount_usdc / trade.executed_price if trade.executed_price > 0 else 0)
         
         exit_result = await trader.execute_trade(
             market_id=market.market_id,
@@ -61,11 +62,12 @@ async def execute_position_exit(
         logger.error("position_exit_exception", trade_id=trade.id, error=str(e))
         exit_result = {"status": "FAILED", "error_msg": str(e)}
 
-    await reconcile_position_exit(db_session, trade.id, exit_result, target_price, fee_rate, trade.market_id, trade.asset, trade.outcome_bought)
+    await reconcile_position_exit(db_session, trader, trade.id, exit_result, target_price, fee_rate, trade.market_id, trade.asset, trade.outcome_bought)
 
 
 async def reconcile_position_exit(
     db_session: AsyncSession, 
+    trader: PolyTrader,
     trade_id: int, 
     exit_result: dict,
     target_price: float,
@@ -92,8 +94,28 @@ async def reconcile_position_exit(
         # Успешная продажа
         executed_price = exit_result.get("executed_price", 0.0)
         executed_usdc = exit_result.get("executed_usdc", 0.0)
+        requested_size = exit_result.get("requested_size", trade.amount_usdc / trade.executed_price if trade.executed_price > 0 else 0)
+        mode = exit_result.get("mode", "PAPER")
+        order_id = exit_result.get("order_id")
         
-        trade.position_status = "CLOSED"
+        filled_size = requested_size
+        if mode == "LIVE" and order_id:
+            import asyncio
+            try:
+                await asyncio.sleep(1.0)
+                order_info = await trader.get_order(order_id)
+                if order_info:
+                    filled_size = float(order_info.get("sizeMatched", requested_size))
+            except Exception as e:
+                logger.error("get_order_failed", order_id=order_id, error=str(e))
+                
+        if filled_size >= requested_size * 0.99:
+            trade.position_status = "CLOSED"
+        elif filled_size > 0:
+            trade.position_status = "PARTIALLY_CLOSED"
+        else:
+            trade.position_status = "EXIT_FAILED"
+            
         trade.closed_at = now
         trade.close_price = executed_price
         

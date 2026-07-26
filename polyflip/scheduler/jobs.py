@@ -9,6 +9,7 @@ from polyflip.collector.resolver import resolve_pending_markets
 from polyflip.trading.engine import trade_worker_cycle
 from polyflip.trading.stoploss_worker import stoploss_worker_cycle
 from polyflip.trading.takeprofit_worker import takeprofit_worker_cycle
+from polyflip.trading.recovery_worker import recovery_worker_cycle
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
 from polyflip.db.connection import async_session
@@ -90,7 +91,15 @@ async def takeprofit_job(trader, api_client):
         async with async_session() as session:
             await takeprofit_worker_cycle(session, trader, api_client)
     except Exception as e:
-        logger.exception("takeprofit_job_error", error=str(e))
+        logger.exception("takeprofit_worker_failed", error=str(e))
+
+async def recovery_job(trader, api_client):
+    """Обертка для запуска recovery_worker_cycle с инъекцией БД-сессии."""
+    try:
+        async with async_session() as session:
+            await recovery_worker_cycle(session, trader, api_client)
+    except Exception as e:
+        logger.exception("recovery_worker_failed", error=str(e))
 
 async def backup_job():
     logger.info("starting_backup_job")
@@ -422,6 +431,17 @@ async def main():
         replace_existing=True,
         max_instances=1,
         kwargs={"scheduler": scheduler}
+    )
+    
+    # Запускаем recovery-воркер каждые 10 секунд
+    scheduler.add_job(
+        recovery_job,
+        trigger=IntervalTrigger(seconds=10),
+        id="recovery_job",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=10,
+        kwargs={"trader": trader, "api_client": api_client}
     )
     
     # Запускаем резолвер каждые 2 минуты (120 сек)
