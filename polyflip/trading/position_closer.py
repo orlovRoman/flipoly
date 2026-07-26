@@ -10,15 +10,18 @@ from polyflip.trading.trader import PolyTrader
 logger = structlog.get_logger(__name__)
 
 
-async def claim_position_for_exit(db_session: AsyncSession, trade_id: int, reason: str) -> bool:
+async def claim_position_for_exit(db_session: AsyncSession, trade_id: int, reason: str, allowed_statuses: Optional[list[str]] = None) -> bool:
     """
     Атомарно захватывает позицию для закрытия.
     Возвращает True, если захват успешен.
     """
+    if allowed_statuses is None:
+        allowed_statuses = ["OPEN", "EXIT_FAILED"]
+        
     stmt = (
         update(TradeHistory)
         .where(TradeHistory.id == trade_id)
-        .where(TradeHistory.position_status.in_(["OPEN", "EXIT_FAILED"]))
+        .where(TradeHistory.position_status.in_(allowed_statuses))
         .values(
             position_status="CLOSING",
             exit_reason=reason,
@@ -119,27 +122,31 @@ async def reconcile_position_exit(
         trade.closed_at = now
         trade.close_price = executed_price
         
-        shares_held = trade.amount_usdc / trade.executed_price if trade.executed_price > 0 else 0
-        
         if trade.exit_reason == "TAKE_PROFIT":
-            trade.take_profit_sell_size = round(shares_held, 2)
+            trade.take_profit_sell_size = round(filled_size, 2)
         elif trade.exit_reason == "STOP_LOSS":
-            trade.stop_loss_sell_size = round(shares_held, 2)
-        
-        if trade.amount_usdc > 0 and executed_usdc > 0:
-            # PnL (чистый профит/убыток в USDC)
-            gross = executed_price * shares_held
+            trade.stop_loss_sell_size = round(filled_size, 2)
+            
+        # Accumulate PnL based on filled_size
+        if trade.amount_usdc > 0 and filled_size > 0:
+            gross = executed_price * filled_size
             net = gross * (1.0 - fee_rate)
-            trade.pnl = net - trade.amount_usdc
+            cost_basis = trade.executed_price * filled_size
+            current_pnl = net - cost_basis
+            
+            if trade.pnl is None:
+                trade.pnl = current_pnl
+            else:
+                trade.pnl += current_pnl
             
         trade.exit_order_id = exit_result.get("order_id", "")
         trade.updated_at = now
         
-        # Записываем проскальзывание
+        # Записываем проскальзывание (относительно filled_size)
         from polyflip.db.models import SlippageLog
         slip = target_price - executed_price
         slip_pct = (slip / target_price * 100) if target_price > 0 else 0.0
-        slip_cost = slip * shares_held
+        slip_cost = slip * filled_size
         
         db_session.add(SlippageLog(
             trade_id=trade.id,

@@ -9,10 +9,12 @@ from polyflip.db.models import MarketSnapshot
 
 logger = structlog.get_logger(__name__)
 
+from typing import Any
+
 def extract_final_outcome(market_data: dict) -> str | None:
     answer = market_data.get("answer") or market_data.get("winnerOutcome")
     
-    def normalize(val: any) -> str | None:
+    def normalize(val: Any) -> str | None:
         if not val: return None
         val_str = str(val).upper()
         if val_str in ("YES", "UP"): return "YES"
@@ -114,9 +116,7 @@ async def resolve_pending_markets(db_session: AsyncSession):
                     any_resolved = True
                     logger.info("market_prepared_to_resolve", market_id=market_id, outcome=final_outcome)
                 except Exception as exc:
-                    await db_session.rollback()
                     logger.exception("resolver_snapshot_failed", market_id=market_id, error=str(exc))
-                    raise
                 
             except Exception as e:
                 logger.error("error_preparing_market_resolve", market_id=market_id, error=str(e))

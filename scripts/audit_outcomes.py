@@ -53,7 +53,17 @@ async def main():
             print(f"Found invalid outcomes: {invalid_outcomes}")
             
             invalid_markets_res = await session.execute(
-                text("SELECT DISTINCT market_id FROM market_snapshots WHERE final_outcome NOT IN ('YES', 'NO', 'INVALID', 'PENDING')")
+                text("""
+                SELECT DISTINCT market_id FROM market_snapshots 
+                WHERE final_outcome NOT IN ('YES', 'NO', 'INVALID', 'PENDING')
+                OR (final_outcome IN ('INVALID', 'PENDING') AND flip_vs_final IS NOT NULL)
+                OR (final_outcome IN ('YES', 'NO') AND flip_vs_final IS NULL)
+                OR (final_outcome = 'YES' AND mid_price > 0.5 AND flip_vs_final != false)
+                OR (final_outcome = 'YES' AND mid_price < 0.5 AND flip_vs_final != true)
+                OR (final_outcome = 'NO' AND mid_price > 0.5 AND flip_vs_final != true)
+                OR (final_outcome = 'NO' AND mid_price < 0.5 AND flip_vs_final != false)
+                OR (final_outcome IN ('YES', 'NO') AND mid_price = 0.5 AND flip_vs_final != false)
+                """)
             )
             market_ids = [row[0] for row in invalid_markets_res.fetchall()]
             total_markets = len(market_ids)

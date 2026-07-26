@@ -111,7 +111,7 @@ async def validate_pre_trade(
         
     # Рассчитываем новую ставку (если не фикс)
     if cfg.bet_sizing_mode == "fixed":
-        actual_bet_size = cfg.bet_size
+        actual_bet_size = min(decision_obj.bet_size_usdc, cfg.bet_size) if decision_obj.bet_size_usdc > 0 else cfg.bet_size
     else:
         newly_calculated_bet_size = compute_bet_size_edge_scaled(
             edge=edge,
@@ -135,9 +135,12 @@ async def validate_pre_trade(
             skip_reason="Bet size <= 0"
         )
         
-    # Check max exposure
+    # Check max exposure (only for LIVE trades)
     exposure_res = await db_session.execute(
-        select(func.sum(TradeHistory.amount_usdc)).where(TradeHistory.status == 'LIVE')
+        select(func.sum(TradeHistory.amount_usdc)).where(
+            TradeHistory.mode == 'LIVE',
+            TradeHistory.position_status.in_(['OPEN', 'CLOSING', 'PARTIALLY_CLOSED'])
+        )
     )
     current_exposure = exposure_res.scalar() or 0.0
     max_exposure = cfg.capital * (cfg.max_exposure_pct / 100.0)

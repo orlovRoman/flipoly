@@ -258,15 +258,17 @@ async def candle_collector_job():
 
 
 async def candle_backfill_job(session: AsyncSession) -> None:
-    from polyflip.crypto.candle_repository import get_latest_open_time
+    from polyflip.crypto.candle_repository import get_latest_open_time, has_incomplete_candles
     from polyflip.crypto.historical_loader import load_history_all, DEFAULT_SYMBOLS
 
     symbols_to_backfill = []
     for symbol in DEFAULT_SYMBOLS:
         latest = await get_latest_open_time(session, symbol, "15m")
+        has_incomplete = await has_incomplete_candles(session, symbol, "15m")
         needs = (
             latest is None or
-            (datetime.now(timezone.utc) - latest) > timedelta(days=7)
+            (datetime.now(timezone.utc) - latest) > timedelta(days=7) or
+            has_incomplete
         )
         if needs:
             symbols_to_backfill.append(symbol)

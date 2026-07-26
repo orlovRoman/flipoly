@@ -9,7 +9,7 @@ from polyflip.db.models import TradeHistory, RuntimeSettings, LiveMarket
 from polyflip.services.settings_service import get_float
 from polyflip.trading.trader import PolyTrader
 from polyflip.collector.client import PolymarketClient
-from polyflip.trading.position_closer import execute_position_exit
+from polyflip.trading.position_closer import execute_position_exit, claim_position_for_exit
 
 logger = structlog.get_logger(__name__)
 
@@ -35,9 +35,11 @@ async def _process_single_recovery(
 
     token_id = market.yes_token_id if trade.outcome_bought == "YES" else market.no_token_id
 
-    # Проверяем реальный баланс
     actual_balance = await trader.get_balance(token_id)
-    
+    if actual_balance is None:
+        logger.error("recovery_balance_error", trade_id=trade.id, token_id=token_id)
+        return
+
     if actual_balance <= 0.01: # Мелкие пылинки игнорируем
         # Баланс нулевой, значит позиция полностью закрыта
         logger.info("recovery_balance_zero_closing", trade_id=trade.id)
@@ -77,9 +79,17 @@ async def recovery_worker_cycle(
     """Один цикл проверки восстанавливаемых позиций."""
     fee_rate = await get_float(db_session, "POLYMARKET_FEE_RATE")
 
+    from sqlalchemy import or_
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    stuck_threshold = now - timedelta(minutes=5)
+
     stmt = select(TradeHistory).where(
         and_(
-            TradeHistory.position_status.in_(["EXIT_FAILED", "PARTIALLY_CLOSED"]),
+            or_(
+                TradeHistory.position_status.in_(["EXIT_FAILED", "PARTIALLY_CLOSED"]),
+                and_(TradeHistory.position_status == "CLOSING", TradeHistory.updated_at < stuck_threshold)
+            ),
             TradeHistory.exit_attempts < 10,
         )
     )
@@ -88,10 +98,13 @@ async def recovery_worker_cycle(
     if not stuck_trades:
         return
 
-    now = datetime.now(timezone.utc)
-
     for trade in stuck_trades:
         try:
+            # Атомарный захват позиции
+            claimed = await claim_position_for_exit(db_session, trade.id, "RECOVERY", allowed_statuses=["EXIT_FAILED", "PARTIALLY_CLOSED", "CLOSING"])
+            if not claimed:
+                continue
+                
             await _process_single_recovery(db_session, trader, api_client, trade, fee_rate, now)
             await db_session.commit()
         except Exception as e:

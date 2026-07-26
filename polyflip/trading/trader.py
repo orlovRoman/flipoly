@@ -126,11 +126,11 @@ class PolyTrader:
             logger.error("get_order_exception", order_id=order_id, error=str(e))
             return None
 
-    async def get_balance(self, token_id: str) -> float:
+    async def get_balance(self, token_id: str) -> float | None:
         """Получает текущий баланс токена."""
         client = self.get_client()
         if not client:
-            return 0.0
+            return None
         try:
             from py_clob_client.clob_types import BalanceAllowanceParams
             resp = client.get_balance_allowance(BalanceAllowanceParams(asset_type="conditional"))
@@ -148,4 +148,4 @@ class PolyTrader:
             return 0.0
         except Exception as e:
             logger.error("get_balance_exception", token_id=token_id, error=str(e))
-            return 0.0
+            return None

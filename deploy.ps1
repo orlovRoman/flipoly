@@ -1,4 +1,13 @@
 # Скрипт для деплоя
+echo "🚀 Запускаем pre-flight checks (тесты)..."
+$env:PYTHONPATH="."
+python -m pytest tests\
+if ($LASTEXITCODE -ne 0) {
+    echo "❌ Тесты упали! Деплой отменен."
+    exit $LASTEXITCODE
+}
+
+echo "✅ Тесты пройдены. Начинаем деплой..."
 echo "🚀 Запускаем процесс деплоя..."
 
 echo "1️⃣ Отправка изменений в GitHub..."

@@ -35,6 +35,7 @@ def _get_crypto_predictor():
             _crypto_predictor_initialized = True
     return _crypto_predictor
 
+_ACTIVE_MARKETS = set()
 
 async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_client: PolymarketClient):
     """
@@ -55,59 +56,8 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
             return
 
         for market in markets:
-            raw_mode = raw_settings.get(f"TRADING_MODE_{market.asset.upper()}")
-            if raw_mode and raw_mode.strip():
-                asset_mode = raw_mode.strip().lower()
-            else:
-                asset_mode = cfg.trading_mode.lower() if cfg.trading_mode else ""
-                
-            val_min_edge = raw_settings.get(f"MIN_EDGE_{market.asset.upper()}")
-            if val_min_edge is not None and val_min_edge.strip() != "":
-                asset_min_edge = float(val_min_edge)
-            else:
-                asset_min_edge = cfg.min_edge
-                
-            val_max_price = raw_settings.get(f"TRADE_MAX_PRICE_{market.asset.upper()}")
-            if val_max_price is not None and val_max_price.strip() != "":
-                asset_max_price = float(val_max_price)
-            else:
-                asset_max_price = cfg.trade_max_price
-
-            end_time_utc = market.end_time_est
-            if end_time_utc.tzinfo is None:
-                end_time_utc = end_time_utc.replace(tzinfo=timezone.utc)
-            time_left_sec = (end_time_utc - start_time).total_seconds()
-
-            guard_res = await check_market_guards(db_session, market, cfg, asset_mode, time_left_sec, start_time)
-            
-            if not guard_res.passed:
-                if guard_res.skip_reason and guard_res.skip_reason not in ("Time left <= 0", "Trade already exists"):
-                    await save_or_update_skipped_trade(
-                        db_session, market, guard_res.skip_reason, p_flip_val=0.0,
-                        model_version=None, start_time=start_time,
-                        existing_skipped=guard_res.existing_skipped
-                    )
-                continue
-
-            existing_skipped = guard_res.existing_skipped
-            decision_res = None
-            
+            _ACTIVE_MARKETS.add(market.market_id)
             try:
-                if asset_mode == TRADING_MODE_ML:
-                    from polyflip.trading.ml_inference import get_models_cache, populate_models_cache
-                    models_cache = get_models_cache()
-                    if not models_cache.models:
-                        logger.warning("models_cache_empty_populating", context="trade_worker_cycle")
-                        await populate_models_cache(db_session)
-                        models_cache = get_models_cache()
-                    decision_res = await decide_ml_mode(
-                        db_session, api_client, market, cfg, raw_settings, models_cache, _get_crypto_predictor(),
-                        start_time, time_left_sec, existing_skipped
-                    )
-                elif asset_mode == TRADING_MODE_FAVORITE:
-                    decision_res = await decide_favorite_mode(
-                        market, cfg, asset_min_edge, asset_max_price, start_time, time_left_sec
-                    )
                 raw_mode = raw_settings.get(f"TRADING_MODE_{market.asset.upper()}")
                 if raw_mode and raw_mode.strip():
                     asset_mode = raw_mode.strip().lower()
@@ -233,7 +183,7 @@ async def trade_worker_cycle(db_session: AsyncSession, trader: PolyTrader, api_c
                     lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
                 )
             finally:
-                _ACTIVE_MARKETS.remove(market.market_id)
+                _ACTIVE_MARKETS.discard(market.market_id)
 
     except Exception as e:
         logger.exception("trade_worker_error", error=str(e))

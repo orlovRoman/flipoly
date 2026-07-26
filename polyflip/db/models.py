@@ -120,6 +120,7 @@ class TradeHistory(Base):
     stop_loss_status     = Column(String(20), nullable=True, default="ACTIVE")
     stop_loss_hit_at     = Column(DateTime(timezone=True), nullable=True)
     stop_loss_sell_price = Column(Float, nullable=True)
+    stop_loss_sell_size  = Column(Float, nullable=True)
     
     # --- Take Profit ---
     take_profit_enabled    = Column(Boolean, nullable=True, default=False)
@@ -128,6 +129,7 @@ class TradeHistory(Base):
     take_profit_status     = Column(String(20), nullable=True, default="ACTIVE")
     take_profit_hit_at     = Column(DateTime(timezone=True), nullable=True)
     take_profit_sell_price = Column(Float, nullable=True)
+    take_profit_sell_size  = Column(Float, nullable=True)
     
     # --- Unified Exit Status ---
     position_status = Column(String(32), nullable=False, default="OPEN")

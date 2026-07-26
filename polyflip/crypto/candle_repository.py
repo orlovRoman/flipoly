@@ -101,3 +101,15 @@ async def get_latest_open_time(
         )
     )
     return result.scalar_one_or_none()
+
+
+async def has_incomplete_candles(session, symbol, interval):
+    result = await session.execute(
+        select(func.count(CryptoCandle.id))
+        .where(
+            CryptoCandle.symbol == symbol,
+            CryptoCandle.interval == interval,
+            (CryptoCandle.is_closed.is_(None) | CryptoCandle.close_time.is_(None))
+        )
+    )
+    return result.scalar_one_or_none() > 0
