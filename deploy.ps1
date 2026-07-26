@@ -1,27 +1,27 @@
-# Script for deployment
-echo "?? Запускаем pre-flight checks (тесты)..."
+п»ї# Script for deployment
+echo "рџљЂ Р—Р°РїСѓСЃРєР°РµРј pre-flight checks (С‚РµСЃС‚С‹)..."
 $env:PYTHONPATH="."
 python -m pytest tests
 if ($LASTEXITCODE -ne 0) {
-    echo "? Тесты упали! Деплой отменен."
+    echo "вќЊ РўРµСЃС‚С‹ СѓРїР°Р»Рё! Р”РµРїР»РѕР№ РѕС‚РјРµРЅРµРЅ."
     exit $LASTEXITCODE
 }
 
-echo "? Тесты пройдены. Начинаем деплой..."
-echo "?? Запускаем процесс деплоя..."
+echo "вњ… РўРµСЃС‚С‹ РїСЂРѕР№РґРµРЅС‹. РќР°С‡РёРЅР°РµРј РґРµРїР»РѕР№..."
+echo "рџљЂ Р—Р°РїСѓСЃРєР°РµРј РїСЂРѕС†РµСЃСЃ РґРµРїР»РѕСЏ..."
 
-echo "1?? Отправка изменений в GitHub..."
+echo "1пёЏвѓЈ РћС‚РїСЂР°РІРєР° РёР·РјРµРЅРµРЅРёР№ РІ GitHub..."
 git push origin main
 if ($LASTEXITCODE -ne 0) {
-    echo "? Ошибка при отправке в GitHub"
+    echo "вќЊ РћС€РёР±РєР° РїСЂРё РѕС‚РїСЂР°РІРєРµ РІ GitHub"
     exit $LASTEXITCODE
 }
 
-echo "2?? Подключение к серверу и деплой..."
-ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732 'cd flipoly && git pull origin main && docker compose up -d --build'
+echo "2пёЏвѓЈ РџРѕРґРєР»СЋС‡РµРЅРёРµ Рє СЃРµСЂРІРµСЂСѓ Рё РґРµРїР»РѕР№..."
+ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732 'cd flipoly && git pull origin main && docker compose up -d --build && docker compose exec -T api alembic upgrade head'
 if ($LASTEXITCODE -ne 0) {
-    echo "? Ошибка при деплое на сервер"
+    echo "вќЊ РћС€РёР±РєР° РїСЂРё РґРµРїР»РѕРµ РЅР° СЃРµСЂРІРµСЂ"
     exit $LASTEXITCODE
 }
 
-echo "? Деплой успешно завершен!"
+echo "вњ… Р”РµРїР»РѕР№ СѓСЃРїРµС€РЅРѕ Р·Р°РІРµСЂС€РµРЅ!"
