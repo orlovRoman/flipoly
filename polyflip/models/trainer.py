@@ -401,7 +401,8 @@ class ModelTrainer:
 
         count_stmt = select(func.count(MarketSnapshot.id)).where(
             MarketSnapshot.asset == asset,
-            MarketSnapshot.final_outcome != "PENDING",
+            MarketSnapshot.final_outcome.in_(["YES", "NO"]),
+            MarketSnapshot.flip_vs_final.is_not(None),
             MarketSnapshot.time_left_min >= min_time_min,
             MarketSnapshot.time_left_min <= max_time_min
         )
@@ -414,10 +415,11 @@ class ModelTrainer:
             self.status_messages[asset] = f"Пропущено: недостаточно данных ({total_samples}/{settings.MIN_SAMPLES_FOR_MODEL})"
             return False
 
-        # Получаем обучающую выборку (исключаем PENDING), так как данных достаточно
+        # Получаем обучающую выборку (только YES и NO, и где есть рассчитанный флип)
         stmt = select(MarketSnapshot).where(
             MarketSnapshot.asset == asset,
-            MarketSnapshot.final_outcome != "PENDING",
+            MarketSnapshot.final_outcome.in_(["YES", "NO"]),
+            MarketSnapshot.flip_vs_final.is_not(None),
             MarketSnapshot.time_left_min >= min_time_min,
             MarketSnapshot.time_left_min <= max_time_min
         )
