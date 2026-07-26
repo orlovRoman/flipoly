@@ -348,17 +348,20 @@ def decide_outsider(
         return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
     decision_details = {
+        "market_role": "OUTSIDER",
+        "signal_type": "FLIP",
         "p_flip_raw": round(p_flip, 4),
         "p_flip_effective": round(p_flip_effective, 4),
         "ece_used": round(ece, 4),
         "threshold_upper_applied": round(flip_thresh, 4),
         "bet_size_before_multiplier": round(bet, 4),
+        "outsider_discount": round(outsider_pwin_discount, 4),
     }
 
     return TradeDecision(
         outsider_action, outsider_ask, bet,
         f"OUTSIDER p_flip_effective={p_flip_effective:.3f} >= {flip_thresh:.3f}",
-        "TRADE_ON_FLIP",
+        "OUTSIDER",
         p_flip=p_flip, edge=edge,
         p_win_effective=p_win_outsider, p_win_raw=p_flip * outsider_pwin_discount,
         decision_details=decision_details

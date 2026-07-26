@@ -1051,17 +1051,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
         let betTypeHtml = `<span style="color: #00ff88; font-weight: 500;">Ставка по тренду</span>`;
-        const isOutsider =
-          log.strategy_type === "OUTSIDER" ||
-          (log.active_features &&
-            (log.active_features.includes("outsider") ||
-             log.active_features.includes("OUTSIDER"))) ||
-          (log.error_msg &&
-            (log.error_msg.includes("TRADE_ON_FLIP") ||
-             log.error_msg.includes("Ожидается флип") ||
-             log.error_msg.includes("outsider")));
+        const isOutsider = log.market_role === "OUTSIDER" || (log.active_features && (log.active_features.includes("outsider") || log.active_features.includes("OUTSIDER"))) || (log.error_msg && (log.error_msg.includes("TRADE_ON_FLIP") || log.error_msg.includes("Ожидается флип") || log.error_msg.includes("outsider")));
         if (isOutsider) {
           betTypeHtml = `<span style="color: #ffb020; font-weight: 500;">Ставка против тренда (Аутсайдер)</span>`;
+          if (log.strategy_type === "COMBINED") {
+            betTypeHtml += ` <span style="font-size: 0.8em; color: #aaa;">(LightGBM подтверждает)</span>`;
+          }
         }
 
         let outcomeBadge = "";

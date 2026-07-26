@@ -54,6 +54,23 @@ async def validate_pre_trade(
     actual_bet_size = decision_obj.bet_size_usdc
     token_to_buy = market.yes_token_id if decision == "YES" else market.no_token_id
     
+    # 0. Validate Market Role invariants
+    selected_mid = market.current_yes_price if decision == "YES" else market.current_no_price
+    actual_role = "FAVORITE" if selected_mid >= 0.5 else "OUTSIDER"
+
+    if decision_obj.strategy_type == "OUTSIDER" and actual_role != "OUTSIDER":
+        return PreTradeValidation(
+            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
+            skip_reason="OUTSIDER strategy selected a favorite token"
+        )
+
+    if decision_obj.strategy_type in {"ML_TREND", "PURE_FAVORITE", "LIGHTGBM_TREND"}:
+        if actual_role != "FAVORITE":
+            return PreTradeValidation(
+                valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
+                skip_reason=f"{decision_obj.strategy_type} selected an outsider token"
+            )
+    
     fresh_prices = await api_client.get_market_prices(token_to_buy)
     if not fresh_prices or fresh_prices.get("best_ask") is None:
         return PreTradeValidation(

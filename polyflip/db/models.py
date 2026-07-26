@@ -114,6 +114,11 @@ class TradeHistory(Base):
     lgbm_metadata = Column(String, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)
     
+    strategy_type = Column(String(32), nullable=True)
+    market_role = Column(String(16), nullable=True)
+    p_flip_effective = Column(Float, nullable=True)
+    p_win_effective = Column(Float, nullable=True)
+    
     # --- Stop-loss ---
     market_end_time      = Column(DateTime(timezone=True), nullable=True)
     stop_loss_pct        = Column(Float, nullable=True)

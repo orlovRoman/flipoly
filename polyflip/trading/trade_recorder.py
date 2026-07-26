@@ -148,6 +148,9 @@ async def execute_and_record(
         logger.warning("trade_config_snapshot_failed", error=str(exc_snap))
         config_snapshot_json = None
 
+    market_role = decision_obj.decision_details.get("market_role", "FAVORITE") if decision_obj.decision_details else "FAVORITE"
+    p_flip_effective = decision_obj.decision_details.get("p_flip_effective") if decision_obj.decision_details else None
+    
     exec_settings = ExecutionSettings()
     history = TradeHistory(
         market_id=market.market_id,
@@ -163,6 +166,10 @@ async def execute_and_record(
         status="PENDING",
         error_msg=None,
         mode=exec_settings.execution_mode.value,
+        strategy_type=decision_obj.strategy_type,
+        market_role=market_role,
+        p_flip_effective=p_flip_effective,
+        p_win_effective=decision_obj.p_win_effective,
         edge=round(edge, 4) if edge is not None else None,
         lgbm_metadata=lgbm_metadata,
         config_snapshot=config_snapshot_json,
