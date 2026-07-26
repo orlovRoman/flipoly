@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint, Text, CheckConstraint
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -26,6 +26,7 @@ class MarketSnapshot(Base):
         Index("idx_market_snapshots_asset", "asset"),
         Index("idx_market_snapshots_asset_time", "asset", "time_left_min"),
         Index("idx_market_snapshots_recorded_at", "recorded_at"),
+        CheckConstraint("final_outcome IN ('PENDING', 'YES', 'NO', 'INVALID')", name="ck_market_snapshot_outcome"),
     )
 
 class ModelRegistry(Base):
