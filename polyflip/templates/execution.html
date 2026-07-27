@@ -165,6 +165,7 @@
 
         // Dashboard logic
         const toggleSwitch = document.getElementById('live-kill-switch');
+        let currentExecutionMode = null;
         
         async function fetchStatus() {
             try {
@@ -179,6 +180,7 @@
                 
                 // Update mode badge
                 const modeBadge = document.getElementById('exec-mode-badge');
+                currentExecutionMode = data.execution_mode;
                 modeBadge.textContent = data.execution_mode;
                 modeBadge.className = 'status-badge ' + (
                     data.execution_mode === 'LIVE' ? 'status-live' :
@@ -202,12 +204,18 @@
                 
                 // Update kill switch
                 toggleSwitch.checked = data.live_trading_enabled;
-                if (!isOnline && !data.live_trading_enabled) {
+                if (!data.kill_switch_available && !data.live_trading_enabled) {
+                    toggleSwitch.disabled = true;
+                    toggleSwitch.title = "LIVE-рубильник недоступен в режиме " + data.execution_mode;
+                } else if (!isOnline && !data.live_trading_enabled) {
+                    toggleSwitch.disabled = false;
                     // Cannot enable LIVE if worker is offline
                     toggleSwitch.title = "Воркер остановлен. Запустите воркер перед включением LIVE.";
                 } else if (data.worker_status && !data.worker_status.gateway_ready && !data.live_trading_enabled) {
+                    toggleSwitch.disabled = false;
                     toggleSwitch.title = "Gateway не готов: " + (data.worker_status.last_error_message || "");
                 } else {
+                    toggleSwitch.disabled = false;
                     toggleSwitch.title = "Включить/выключить реальные сделки";
                 }
                 
@@ -218,6 +226,13 @@
         
         toggleSwitch.addEventListener('change', async function() {
             const enable = this.checked;
+            if (enable && currentExecutionMode !== 'LIVE') {
+                this.checked = false;
+                this.disabled = true;
+                const message = `LIVE-рубильник недоступен в режиме ${currentExecutionMode || 'UNKNOWN'}`;
+                window.showNotification ? showNotification(message, "info") : alert(message);
+                return;
+            }
             this.disabled = true;
             try {
                 const res = await fetch(window.API_BASE + '/api/execution/kill-switch', {
@@ -240,7 +255,6 @@
                 this.checked = !enable;
                 alert("Request failed");
             } finally {
-                this.disabled = false;
                 fetchStatus();
             }
         });
