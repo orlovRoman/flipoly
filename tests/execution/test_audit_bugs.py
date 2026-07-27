@@ -34,6 +34,55 @@ async def test_daily_loss_limit(db_session: AsyncSession):
     error = await check_risk_limits(db_session, "OPEN", Decimal("10"), "PAPER")
     assert error is None, "PnL 0 should not be blocked by -100 limit"
 
+
+@pytest.mark.asyncio
+async def test_paper_never_uses_live_portfolio_limits(db_session: AsyncSession):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    settings = [
+        RuntimeSettings(
+            key="PAPER_RISK_LIMITS_ENABLED",
+            value="true",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="MAX_OPEN_POSITIONS",
+            value="0",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="MAX_SINGLE_ORDER_USDC",
+            value="0.01",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="MAX_TOTAL_EXPOSURE_USDC",
+            value="0.01",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="DAILY_LOSS_LIMIT_USDC",
+            value="-0.01",
+            updated_at=now,
+            updated_by="test",
+        ),
+    ]
+    db_session.add_all(settings)
+    await db_session.commit()
+
+    error = await check_risk_limits(
+        db_session,
+        "OPEN",
+        Decimal("1.00"),
+        ExecutionMode.PAPER.value,
+    )
+
+    assert error is None
+
+
 class MockClient:
     async def get_market_prices(self, token_id):
         return {"best_ask": "0.5", "best_bid": "0.4"}
