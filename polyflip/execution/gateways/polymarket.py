@@ -130,40 +130,79 @@ class PolymarketExecutionGateway:
             raise GatewayUnavailable(f"Transport/Network error during get_order: {e}")
 
     async def get_token_allowance(self, token_id: str) -> Decimal:
+        """
+        Читает allowance для конкретного conditional token.
+        Проверяет два оператора: standard_exchange и neg_risk_exchange.
+        При сетевой ошибке бросает GatewayUnavailable — нулевой allowance
+        и невозможность его прочитать являются разными состояниями.
+        """
         client = await self.get_client()
         if not client:
             raise GatewayUnavailable("Polymarket client not initialized")
         try:
-            resp = await client.get_balance_allowance(asset_type="CONDITIONAL", token_id=token_id)
-            allowances = getattr(resp, "allowances", {})
-            exchange = getattr(client.network, "exchange", "").lower()
-            
-            total = Decimal("0")
-            for k, v in allowances.items():
-                if k.lower() == exchange or k.lower() == getattr(client.network, "exchange_v2", "").lower():
-                    total += Decimal(str(v)) / Decimal("1000000")
-            
-            return total
-        except Exception as e:
-            logger.error("get_token_allowance_error", error=str(e))
-            return Decimal("0")
+            resp = await client.get_balance_allowance(
+                asset_type="CONDITIONAL", token_id=token_id
+            )
+        except Exception as exc:
+            raise GatewayUnavailable(
+                f"Cannot read conditional allowance: {exc}"
+            ) from exc
+
+        env = getattr(client, "environment", None)
+        if env is None:
+            raise GatewayUnavailable(
+                "SDK client has no 'environment' attribute — check SDK version"
+            )
+
+        allowances: dict[str, Decimal] = {
+            addr.lower(): Decimal(str(val)) / Decimal("1000000")
+            for addr, val in getattr(resp, "allowances", {}).items()
+        }
+        required_operators = (
+            str(getattr(env, "standard_exchange", "")).lower(),
+            str(getattr(env, "neg_risk_exchange", "")).lower(),
+        )
+        return min(
+            allowances.get(op, Decimal("0")) for op in required_operators
+        )
 
     async def approve_token(self, token_id: str) -> None:
+        """
+        Выдаёт ERC-1155 approval для обоих операторов (standard + neg_risk).
+        Вызывается ТОЛЬКО из CLI-инструмента setup_approvals.py, не из воркера.
+        """
         client = await self.get_client()
         if not client:
             raise GatewayUnavailable("Polymarket client not initialized")
-        try:
-            exchange = getattr(client.network, "exchange")
-            conditional_tokens = getattr(client.network, "conditional_tokens")
-            
-            await client.approve_erc1155_for_all(
-                token_address=conditional_tokens,
-                operator_address=exchange,
-                approved=True
+
+        env = getattr(client, "environment", None)
+        if env is None:
+            raise GatewayUnavailable(
+                "SDK client has no 'environment' attribute — check SDK version"
             )
-        except Exception as e:
-            logger.error("approve_token_error", error=str(e))
-            raise GatewayUnavailable(f"Failed to approve token: {e}")
+
+        conditional_tokens = getattr(env, "conditional_tokens", None)
+        if not conditional_tokens:
+            raise GatewayUnavailable("Cannot resolve conditional_tokens address from environment")
+
+        for operator_attr in ("standard_exchange", "neg_risk_exchange"):
+            operator = getattr(env, operator_attr, None)
+            if not operator:
+                continue
+            try:
+                await client.approve_erc1155_for_all(
+                    token_address=conditional_tokens,
+                    operator_address=operator,
+                    approved=True,
+                )
+                logger.info(
+                    "approve_token_success",
+                    operator=operator,
+                    token_id=token_id,
+                )
+            except Exception as exc:
+                logger.error("approve_token_error", operator=operator, error=str(exc))
+                raise GatewayUnavailable(f"Failed to approve token for {operator}: {exc}") from exc
 
     async def fetch_order_fills(self, provider_order_id: str, token_id: str, after: str = "0") -> tuple[TradeExecution, ...]:
         client = await self.get_client()

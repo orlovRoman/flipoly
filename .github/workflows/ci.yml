@@ -2,23 +2,59 @@ name: CI Gate
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: polyflip
+          POSTGRES_PASSWORD: polyflip
+          POSTGRES_DB: polyflip_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U polyflip"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://polyflip:polyflip@localhost:5432/polyflip_test
+      EXECUTION_MODE: PAPER
+
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.14'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e .
-        pip install pytest flake8 black respx pytest-asyncio aiosqlite pytest-cov httpx
-    - name: Run CI Gate
-      run: bash ./ci_gate.sh
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Compile check
+        run: poetry run python -m compileall -q polyflip
+
+      - name: Apply migrations
+        run: poetry run alembic upgrade head
+
+      - name: Check single alembic head
+        run: test "$(poetry run alembic heads | wc -l)" -eq 1
+
+      - name: Run tests
+        run: poetry run pytest tests/ -m "not live" --strict-config --strict-markers -q
+
+      - name: Lint (execution contour)
+        run: |
+          poetry run flake8 polyflip/execution --max-line-length=100
+          poetry run black --check polyflip/execution

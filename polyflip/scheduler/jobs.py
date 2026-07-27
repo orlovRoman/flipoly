@@ -177,63 +177,75 @@ async def retrain_job():
 async def resolve_trades_job():
     logger.info("starting_resolve_trades_job")
     try:
+        from decimal import Decimal
+        from polyflip.execution.settlement_service import settle_resolved_position
+
         async with async_session() as session:
-            # Ищем сделки, которые еще не закрыты (OPEN, OPENING) и имеют статус SUCCESS или PAPER
+            # Ищем все незакрытые позиции с финальным статусом SUCCESS / PAPER
+            from polyflip.execution.states import ACTIVE_POSITION_STATES
             stmt = select(TradeHistory).where(
-                and_(TradeHistory.position_status.in_(["OPEN", "OPENING"]), TradeHistory.status.in_(["SUCCESS", "PAPER"]))
+                and_(
+                    TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
+                    TradeHistory.status.in_(["SUCCESS", "PAPER"]),
+                )
             )
             trades = (await session.execute(stmt)).scalars().all()
-            
+
             if not trades:
                 return
-                
-            market_ids = list(set([t.market_id for t in trades]))
-            outcomes_stmt = select(MarketSnapshot.market_id, MarketSnapshot.final_outcome).where(
-                and_(MarketSnapshot.market_id.in_(market_ids), MarketSnapshot.final_outcome != "PENDING")
+
+            market_ids = list({t.market_id for t in trades})
+            outcomes_stmt = select(
+                MarketSnapshot.market_id, MarketSnapshot.final_outcome
+            ).where(
+                and_(
+                    MarketSnapshot.market_id.in_(market_ids),
+                    MarketSnapshot.final_outcome != "PENDING",
+                )
             )
             outcomes = (await session.execute(outcomes_stmt)).all()
             market_outcomes = {r.market_id: r.final_outcome for r in outcomes}
-            
-            from decimal import Decimal
-            
+
+            resolved_count = 0
             for t in trades:
-                outcome = market_outcomes.get(t.market_id)
-                if outcome:
-                    if outcome == "INVALID":
-                        t.pnl = 0.0
-                        t.status = "INVALID"
-                        t.position_status = "CLOSED"
-                        t.remaining_shares = Decimal("0")
-                    else:
-                        outcome_map = {"1": "YES", "0": "NO", "YES": "YES", "NO": "NO"}
-                        normalized_outcome = outcome_map.get(str(outcome).upper())
-                        
-                        if normalized_outcome is None:
-                            logger.error("unknown_outcome_value", raw_outcome=outcome, trade_id=t.id)
-                            t.status = "INVALID"
-                            t.pnl = 0.0
-                            continue
-                            
-                        is_win = (t.outcome_bought.upper() == normalized_outcome)
-                        
-                        remaining = t.remaining_shares or Decimal("0")
-                        realized = t.realized_pnl_usdc or Decimal("0")
-                        cost = t.entry_cost_usdc or Decimal("0")
-                        
-                        if is_win and remaining > 0:
-                            gross_payout = float(remaining)
-                            net_payout = gross_payout * (1.0 - 0.002)  # Polymarket fee 0.2%
-                            realized += Decimal(str(net_payout))
-                            t.realized_pnl_usdc = realized
-                        
-                        t.pnl = float(realized - cost)
-                        t.position_status = "CLOSED"
-                        t.remaining_shares = Decimal("0")
-                        
+                raw_outcome = market_outcomes.get(t.market_id)
+                if not raw_outcome:
+                    continue
+
+                if raw_outcome == "INVALID":
+                    # При INVALID — рынок возвращает вложенные средства (payout_per_share=1.0)
+                    await settle_resolved_position(
+                        session,
+                        trade_id=t.id,
+                        winning_outcome="INVALID",
+                        payout_per_share=Decimal("1"),
+                        settlement_fee_usdc=Decimal("0"),
+                    )
+                    t.status = "INVALID"
+                else:
+                    # Polymarket берёт 2% с выигрыша
+                    SETTLEMENT_FEE_RATE = Decimal("0.002")
+                    remaining = Decimal(str(t.remaining_shares or 0))
+                    # fee считается от gross payout победителя
+                    await settle_resolved_position(
+                        session,
+                        trade_id=t.id,
+                        winning_outcome=raw_outcome,
+                        payout_per_share=Decimal("1"),
+                        settlement_fee_usdc=(
+                            remaining * SETTLEMENT_FEE_RATE
+                            if t.outcome_bought and raw_outcome
+                            else Decimal("0")
+                        ),
+                    )
+
+                resolved_count += 1
+
             await session.commit()
-            logger.info("finished_resolve_trades_job", resolved=len(trades))
+            logger.info("finished_resolve_trades_job", resolved=resolved_count)
     except Exception as e:
         logger.exception("resolve_trades_job_error", error=str(e))
+
 
 async def cleanup_job():
     logger.info("starting_cleanup_job")

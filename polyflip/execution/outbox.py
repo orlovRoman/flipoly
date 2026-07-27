@@ -147,16 +147,22 @@ async def enqueue_close_request(
 
     request_id = uuid.uuid4()
     now_utc = datetime.now(timezone.utc)
-    
+
+    # Атомарно фиксируем текущую версию позиции для idempotency_key,
+    # а затем увеличиваем её, чтобы следующий CLOSE получил новый ключ.
+    # Оба изменения (ExecutionRequest + trade.position_version) находятся
+    # в одной транзакции под SELECT ... FOR UPDATE.
+    version_snapshot = trade.position_version or 0
+
     dialect_name = db.bind.dialect.name
-    insert_func = sqlite_insert if dialect_name == 'sqlite' else pg_insert
-    
+    insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
+
     statement = (
         insert_func(ExecutionRequest)
         .values(
             id=request_id,
-            idempotency_key=f"CLOSE:{trade.id}:v{trade.position_version}:a{trade.exit_attempts}",
-            requested_mode=trade.mode,  # Ensure we respect the original trade mode
+            idempotency_key=f"CLOSE:{trade.id}:v{version_snapshot}",
+            requested_mode=trade.mode,  # режим берём из исходной сделки
             intent="CLOSE",
             trigger_reason=trigger_reason,
             trade_history_id=trade.id,
@@ -174,17 +180,21 @@ async def enqueue_close_request(
             updated_at=now_utc,
         )
         .on_conflict_do_nothing(
-            index_elements=["requested_mode", "trade_history_id"],
+            index_elements=["trade_history_id"],
             index_where=ExecutionRequest.ACTIVE_CLOSE_PREDICATE,
         )
         .returning(ExecutionRequest.id)
     )
 
+
     created_id = (await db.execute(statement)).scalar_one_or_none()
     if created_id is not None:
         trade.position_status = "EXIT_REQUESTED"
         trade.exit_reason = trigger_reason
+        # Атомарно увеличиваем версию позиции — следующий CLOSE получит новый ключ
+        trade.position_version = version_snapshot + 1
         return EnqueueResult(request_id=created_id, created=True)
+
 
     existing_id = (
         await db.execute(

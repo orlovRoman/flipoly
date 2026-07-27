@@ -29,14 +29,14 @@ async def get_live_trading_status(db: AsyncSession = Depends(get_db_session)):
     existing = (await db.execute(
         select(RuntimeSettings).where(RuntimeSettings.key == key)
     )).scalar_one_or_none()
-    
+
     enabled = existing is not None and existing.value.lower() == "true"
     settings = ExecutionSettings()
-    
-    # Get latest worker status
+
+    # Статус воркера для ТЕКУЩЕГО режима (не всегда LIVE)
     worker_status = (await db.execute(
         select(ExecutionWorkerStatus)
-        .where(ExecutionWorkerStatus.execution_mode == "LIVE")
+        .where(ExecutionWorkerStatus.execution_mode == settings.execution_mode.value)
         .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
         .limit(1)
     )).scalar_one_or_none()
@@ -130,9 +130,16 @@ from polyflip.db.execution_models import ExecutionRequest
 from polyflip.execution.states import ACTIVE_POSITION_STATES
 
 @router.get("/positions")
-async def get_live_trading_positions(db: AsyncSession = Depends(get_db_session)):
+async def get_live_trading_positions(
+    mode: Optional[str] = Query(None, description="Фильтр по режиму: PAPER, SHADOW, LIVE"),
+    db: AsyncSession = Depends(get_db_session),
+):
+    settings = ExecutionSettings()
+    effective_mode = mode or settings.execution_mode.value
+
     stmt = select(TradeHistory).where(
-        TradeHistory.position_status.in_(ACTIVE_POSITION_STATES)
+        TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
+        TradeHistory.mode == effective_mode,
     ).order_by(TradeHistory.created_at.desc()).limit(100)
     
     res = await db.execute(stmt)
@@ -160,9 +167,18 @@ async def get_live_trading_positions(db: AsyncSession = Depends(get_db_session))
 @router.get("/requests")
 async def get_live_trading_requests(
     limit: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db_session)
+    mode: Optional[str] = Query(None, description="Фильтр по режиму: PAPER, SHADOW, LIVE"),
+    db: AsyncSession = Depends(get_db_session),
 ):
-    stmt = select(ExecutionRequest).order_by(ExecutionRequest.created_at.desc()).limit(limit)
+    settings = ExecutionSettings()
+    effective_mode = mode or settings.execution_mode.value
+
+    stmt = (
+        select(ExecutionRequest)
+        .where(ExecutionRequest.requested_mode == effective_mode)
+        .order_by(ExecutionRequest.created_at.desc())
+        .limit(limit)
+    )
     res = await db.execute(stmt)
     requests = res.scalars().all()
     
