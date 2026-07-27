@@ -19,6 +19,7 @@ from polyflip.execution.states import (
     TERMINAL_REQUEST_STATES,
     FAILURE_TERMINAL_STATES,
     ACTIVE_REQUEST_STATES,
+    BLOCKING_REQUEST_STATES,
 )
 from polyflip.execution.risk_checks import check_risk_limits
 from decimal import Decimal
@@ -52,13 +53,15 @@ async def enqueue_open_request(
     requested_mode: ExecutionMode,
 ) -> EnqueueResult:
 
+    # Используем BLOCKING_REQUEST_STATES: MANUAL_REVIEW_REQUIRED не мешает
+    # новым ставкам — воркер его уже не обработает.
     existing_id = (
         await db.execute(
             select(ExecutionRequest.id)
             .where(ExecutionRequest.requested_mode == requested_mode.value)
             .where(ExecutionRequest.market_id == market_id)
             .where(ExecutionRequest.intent == "OPEN")
-            .where(ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES))
+            .where(ExecutionRequest.state.in_(BLOCKING_REQUEST_STATES))
         )
     ).scalar_one_or_none()
 
@@ -152,13 +155,14 @@ async def enqueue_open_request(
             disposition=EnqueueDisposition.CREATED, request_id=created_id
         )
 
+    # Повторная проверка после ON CONFLICT DO NOTHING — используем BLOCKING_REQUEST_STATES
     existing_id = (
         await db.execute(
             select(ExecutionRequest.id)
             .where(ExecutionRequest.requested_mode == requested_mode.value)
             .where(ExecutionRequest.market_id == market_id)
             .where(ExecutionRequest.intent == "OPEN")
-            .where(ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES))
+            .where(ExecutionRequest.state.in_(BLOCKING_REQUEST_STATES))
         )
     ).scalar_one_or_none()
 
@@ -198,12 +202,14 @@ async def enqueue_close_request(
             disposition=EnqueueDisposition.BLOCKED, reason="No remaining shares"
         )
 
+    # Используем BLOCKING_REQUEST_STATES: MANUAL_REVIEW_REQUIRED не должен
+    # блокировать повторную попытку закрытия позиции.
     existing_id = (
         await db.execute(
             select(ExecutionRequest.id)
             .where(ExecutionRequest.trade_history_id == trade.id)
             .where(ExecutionRequest.intent == "CLOSE")
-            .where(ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES))
+            .where(ExecutionRequest.state.in_(BLOCKING_REQUEST_STATES))
         )
     ).scalar_one_or_none()
 
@@ -264,12 +270,13 @@ async def enqueue_close_request(
             disposition=EnqueueDisposition.CREATED, request_id=created_id
         )
 
+    # Повторная проверка — используем BLOCKING_REQUEST_STATES
     existing_id = (
         await db.execute(
             select(ExecutionRequest.id)
             .where(ExecutionRequest.trade_history_id == trade.id)
             .where(ExecutionRequest.intent == "CLOSE")
-            .where(ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES))
+            .where(ExecutionRequest.state.in_(BLOCKING_REQUEST_STATES))
         )
     ).scalar_one_or_none()
 

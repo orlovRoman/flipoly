@@ -46,6 +46,11 @@ TERMINAL_REQUEST_STATES = SUCCESS_TERMINAL_STATES | FAILURE_TERMINAL_STATES
 
 ACTIVE_REQUEST_STATES = REQUEST_HOLD_STATES
 
+# Состояния, которые реально блокируют постановку нового OPEN/CLOSE.
+# MANUAL_REVIEW_REQUIRED исключён: воркер его не обрабатывает повторно,
+# поэтому он не должен мешать новым запросам для того же маркета.
+BLOCKING_REQUEST_STATES = REQUEST_HOLD_STATES - {"MANUAL_REVIEW_REQUIRED"}
+
 ACTIVE_POSITION_STATES = frozenset(
     {
         "OPENING",
