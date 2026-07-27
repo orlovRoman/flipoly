@@ -67,7 +67,7 @@ async def check_market_guards(
     # 2. Проверяем дубликаты сделок — existing_skipped уже доступен
     trade_check = select(TradeHistory).where(
         TradeHistory.market_id == market.market_id,
-        TradeHistory.status.in_(["SUCCESS", "LIVE", "FAILED"])
+        TradeHistory.status.in_(["SUCCESS", "LIVE", "FAILED", "PAPER", "SHADOW", "PENDING"])
     )
     result = await db_session.execute(trade_check)
     already_traded = result.scalars().first() is not None
