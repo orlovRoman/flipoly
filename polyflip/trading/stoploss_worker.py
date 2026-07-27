@@ -90,7 +90,7 @@ async def _process_single_stoploss(
         trigger_reason="STOP_LOSS",
         limit_price=sell_floor,
     )
-    if res is None or not res.created:
+    if res is None or res.disposition != 'CREATED':
         return
 
     # После успешной постановки меняем статус стоп-лосса

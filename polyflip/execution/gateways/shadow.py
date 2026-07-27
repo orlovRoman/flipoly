@@ -6,6 +6,7 @@ SHADOW gateway — симулирует исполнение без отправ
 - Заполняет поле SubmissionResult.fills синхронно (worker пропускает fetch_order_fills).
 - settlement_state = "CONFIRMED" немедленно (как PAPER/FAKE).
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

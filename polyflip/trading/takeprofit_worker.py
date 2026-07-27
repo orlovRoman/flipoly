@@ -108,7 +108,7 @@ async def takeprofit_worker_cycle(
                 trigger_reason="TAKE_PROFIT",
                 limit_price=sell_floor,
             )
-            if res is None or not res.created:
+            if res is None or res.disposition != 'CREATED':
                 continue
 
             # После успешной постановки меняем статус тейк-профита

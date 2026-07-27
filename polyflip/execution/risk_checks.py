@@ -65,9 +65,7 @@ async def check_risk_limits(
         try:
             single_limit = Decimal(single_limit_set.value)
             if max_spend_usdc > single_limit:
-                return (
-                    f"Single order size {max_spend_usdc} USDC exceeds limit {single_limit} USDC"
-                )
+                return f"Single order size {max_spend_usdc} USDC exceeds limit {single_limit} USDC"
         except (ValueError, TypeError) as exc:
             return f"Invalid MAX_SINGLE_ORDER_USDC configuration: {exc}"
 

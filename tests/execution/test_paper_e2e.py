@@ -113,7 +113,7 @@ async def test_paper_request_goes_to_ready_not_awaiting_approval(db_session):
     )
 
     assert result is not None
-    assert result.created is True
+    assert result.disposition == 'CREATED'
 
     req = await db_session.get(ExecutionRequest, result.request_id)
     assert req is not None

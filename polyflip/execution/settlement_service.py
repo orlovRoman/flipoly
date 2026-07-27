@@ -12,6 +12,7 @@
 
 Идемпотентен: повторный вызов на CLOSED позиции → no-op.
 """
+
 from __future__ import annotations
 
 import structlog
@@ -57,9 +58,8 @@ def _reconstruct_missing_fields(trade: TradeHistory) -> None:
 
     if trade.entry_filled_shares is None:
         if trade.executed_price and Decimal(str(trade.executed_price)) > 0:
-            trade.entry_filled_shares = (
-                Decimal(str(trade.amount_usdc or 0))
-                / Decimal(str(trade.executed_price))
+            trade.entry_filled_shares = Decimal(str(trade.amount_usdc or 0)) / Decimal(
+                str(trade.executed_price)
             )
         else:
             raise AccountingInvariantError(
@@ -112,12 +112,8 @@ async def settle_resolved_position(
         Gas/network fee (если оплачен пользователем из chain_transactions).
         При match-комиссиях Polymarket — передавать Decimal("0").
     """
-    trade = (
-        await session.scalar(
-            select(TradeHistory)
-            .where(TradeHistory.id == trade_id)
-            .with_for_update()
-        )
+    trade = await session.scalar(
+        select(TradeHistory).where(TradeHistory.id == trade_id).with_for_update()
     )
 
     if trade is None:

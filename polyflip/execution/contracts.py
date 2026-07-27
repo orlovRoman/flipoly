@@ -1,8 +1,9 @@
-from typing import Protocol, Tuple
+from typing import Protocol
 from decimal import Decimal
 from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field
+
 
 class BalanceResult(BaseModel):
     balance_usdc: Decimal
@@ -11,6 +12,7 @@ class BalanceResult(BaseModel):
     conditional_allowance_ready: bool | None = None
     checked_at: datetime
     raw_asset_type: str = "COLLATERAL"
+
 
 class GatewayReadiness(BaseModel):
     ready: bool
@@ -29,6 +31,7 @@ class GatewayReadiness(BaseModel):
 class GatewayUnavailable(Exception):
     pass
 
+
 class GatewayOrder(BaseModel):
     attempt_id: UUID
     market_id: str
@@ -40,12 +43,14 @@ class GatewayOrder(BaseModel):
     requested_shares: Decimal
     max_spend_usdc: Decimal | None = None
 
+
 class ProviderFill(BaseModel):
     provider_trade_id: str
     price: Decimal
     shares: Decimal
     fee_usdc: Decimal
     matched_at: datetime
+
 
 class ProviderOrderState(BaseModel):
     provider_order_id: str
@@ -57,6 +62,7 @@ class ProviderOrderState(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+
 class TradeExecution(BaseModel):
     provider_trade_id: str
     gateway: str
@@ -65,6 +71,7 @@ class TradeExecution(BaseModel):
     shares: Decimal
     fee_usdc: Decimal
     matched_at: datetime
+
 
 class SubmissionResult(BaseModel):
     accepted: bool
@@ -91,7 +98,9 @@ class ExecutionGateway(Protocol):
         """Fetch the latest status for an order."""
         ...
 
-    async def fetch_order_fills(self, provider_order_id: str, token_id: str, after: str = "0") -> tuple[TradeExecution, ...]:
+    async def fetch_order_fills(
+        self, provider_order_id: str, token_id: str, after: str = "0"
+    ) -> tuple[TradeExecution, ...]:
         """Fetch the actual trade fills for an order."""
         ...
 
@@ -104,7 +113,8 @@ class ExecutionGateway(Protocol):
         ...
 
     async def get_readiness(
-        self, conditional_token_ids: tuple[str, ...] = (),
+        self,
+        conditional_token_ids: tuple[str, ...] = (),
     ) -> GatewayReadiness:
         """Get the current readiness status of the gateway."""
         ...

@@ -10,7 +10,10 @@ def build_execution_gateway(settings: ExecutionSettings):
         case ExecutionMode.SHADOW:
             return ShadowExecutionGateway()
         case ExecutionMode.LIVE:
-            from polyflip.execution.gateways.polymarket import PolymarketExecutionGateway
+            from polyflip.execution.gateways.polymarket import (
+                PolymarketExecutionGateway,
+            )
+
             return PolymarketExecutionGateway(
                 private_key=settings.polygon_private_key,  # type: ignore
                 wallet_address=settings.polygon_address,  # type: ignore

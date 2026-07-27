@@ -1,8 +1,8 @@
 """
 SettlementSnapshot — результат опроса settlement-состояния ордера и его trades.
 """
+
 from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import Any
 
 

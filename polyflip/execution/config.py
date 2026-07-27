@@ -2,10 +2,12 @@ from enum import StrEnum
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class ExecutionMode(StrEnum):
     PAPER = "PAPER"
     SHADOW = "SHADOW"
     LIVE = "LIVE"
+
 
 class ExecutionSettings(BaseSettings):
     model_config = SettingsConfigDict(

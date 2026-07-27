@@ -62,8 +62,8 @@ async def test_enqueue_open_idempotent(db_session: AsyncSession):
     await db_session.commit()
 
     assert req_id_1.request_id == req_id_2.request_id
-    assert req_id_1.created is True
-    assert req_id_2.created is False
+    assert req_id_1.disposition == 'CREATED'
+    assert req_id_2.disposition != 'CREATED'
     res = await db_session.execute(
         select(ExecutionRequest).where(ExecutionRequest.trade_history_id == trade.id)
     )
@@ -118,8 +118,8 @@ async def test_enqueue_close_idempotent(db_session: AsyncSession):
     await db_session.commit()
 
     assert req_id_1.request_id == req_id_2.request_id
-    assert req_id_1.created is True
-    assert req_id_2.created is False
+    assert req_id_1.disposition == 'CREATED'
+    assert req_id_2.disposition != 'CREATED'
     res = await db_session.execute(
         select(ExecutionRequest).where(
             ExecutionRequest.trade_history_id == trade.id,

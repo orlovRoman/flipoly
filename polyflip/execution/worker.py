@@ -1,12 +1,14 @@
 import asyncio
+import uuid
+import argparse
+import sys
 import structlog
 import os
 import socket
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
-import uuid
 
-from sqlalchemy import select, or_, and_, update, text
+from sqlalchemy import select, or_, and_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -14,17 +16,15 @@ from polyflip.db.connection import async_session
 from polyflip.db.execution_models import (
     ExecutionRequest,
     ExecutionAttempt,
-    ExposureReservation,
     ExecutionFill,
     ExecutionWorkerStatus,
 )
 from polyflip.db.models import LiveMarket, RuntimeSettings, TradeHistory
-from polyflip.execution.config import ExecutionSettings, ExecutionMode
+from polyflip.execution.config import ExecutionSettings
 from polyflip.execution.gateways.factory import build_execution_gateway
 from polyflip.execution.contracts import GatewayOrder, GatewayUnavailable
 from polyflip.execution.outbox import finalize_request
 from polyflip.execution.states import (
-    ACTIVE_REQUEST_STATES,
     RECONCILABLE_REQUEST_STATES,
 )
 from polyflip.execution.risk_checks import check_risk_limits
@@ -792,7 +792,6 @@ async def publish_heartbeat():
 
 async def execution_worker_loop():
     logger.info("execution_worker_started")
-    settings = ExecutionSettings()
     asyncio.create_task(publish_heartbeat())
 
     while True:
@@ -803,9 +802,6 @@ async def execution_worker_loop():
             logger.exception("execution_worker_error", error=str(e))
         await asyncio.sleep(1)
 
-
-import argparse
-import sys
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

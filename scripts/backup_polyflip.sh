@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BACKUP_DIR="/home/orlovrp/backups"
+BACKUP_DIR="/home/orlov/backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M)
 FILENAME="${BACKUP_DIR}/polyflip_${TIMESTAMP}.sql.gz"
 
@@ -13,7 +13,7 @@ mkdir -p "${BACKUP_DIR}"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting backup -> ${FILENAME}"
 
-docker exec polyflip_db pg_dump \
+docker exec -e PGPASSWORD=secret polyflip_db pg_dump \
     -U polyflip \
     -d polyflip \
     | gzip -9 > "${FILENAME}"
