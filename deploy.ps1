@@ -29,29 +29,10 @@ set -e
 cd flipoly
 git pull origin main
 
-stop_legacy_execution_workers() {
-    project="${COMPOSE_PROJECT_NAME:-flipoly}"
-
-    legacy_ids="$(
-        docker ps -aq \
-          --filter "label=com.docker.compose.project=${project}" \
-          --filter "label=com.docker.compose.service=execution_worker"
-    )"
-
-    for exact_name in execution_worker polyflip_execution_worker; do
-        exact_id="$(docker ps -aq --filter "name=^/${exact_name}$")"
-        legacy_ids="${legacy_ids} ${exact_id}"
-    done
-
-    for container_id in $legacy_ids; do
-        [ -n "$container_id" ] || continue
-        docker stop --time 20 "$container_id"
-        docker rm "$container_id"
-    done
-}
-
 docker compose stop scheduler execution_worker_paper execution_worker_live execution_worker_shadow api || true
-stop_legacy_execution_workers
+docker rm -f $(docker ps -aq --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-flipoly}" --filter "label=com.docker.compose.service=execution_worker") 2>/dev/null || true
+docker rm -f $(docker ps -aq --filter "name=^/execution_worker$") 2>/dev/null || true
+docker rm -f $(docker ps -aq --filter "name=^/polyflip_execution_worker$") 2>/dev/null || true
 
 docker compose build
 docker compose run --rm api alembic upgrade head
