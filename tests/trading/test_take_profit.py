@@ -94,7 +94,7 @@ async def test_tp_worker_triggers_when_price_reached(db_session):
     assert req is not None
     assert req.intent == "CLOSE"
     assert req.state == "READY"
-    assert req.requested_mode == "PAPER"
+    assert req.requested_mode == trade.mode
 
     
 

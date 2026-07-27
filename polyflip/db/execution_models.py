@@ -39,20 +39,35 @@ class ExecutionRequest(Base):
     filled_shares = Column(Numeric(38, 18), nullable=False, default=0)
     filled_cost_usdc = Column(Numeric(38, 18), nullable=False, default=0)
 
+    ACTIVE_OPEN_PREDICATE = text("""
+        intent = 'OPEN' AND state IN (
+            'AWAITING_APPROVAL', 'READY', 'CLAIMED', 'SUBMITTING',
+            'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING', 'MANUAL_REVIEW_REQUIRED'
+        )
+    """)
+    ACTIVE_CLOSE_PREDICATE = text("""
+        intent = 'CLOSE' AND state IN (
+            'AWAITING_APPROVAL', 'READY', 'CLAIMED', 'SUBMITTING',
+            'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING', 'MANUAL_REVIEW_REQUIRED'
+        )
+    """)
+
     __table_args__ = (
         Index(
             "uq_active_open_request",
+            "requested_mode",
             "market_id",
             unique=True,
-            postgresql_where=text("intent = 'OPEN' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING')"),
-            sqlite_where=text("intent = 'OPEN' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING')")
+            postgresql_where=ACTIVE_OPEN_PREDICATE,
+            sqlite_where=ACTIVE_OPEN_PREDICATE
         ),
         Index(
             "uq_active_close_request",
+            "requested_mode",
             "trade_history_id",
             unique=True,
-            postgresql_where=text("intent = 'CLOSE' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING')"),
-            sqlite_where=text("intent = 'CLOSE' AND state IN ('READY', 'CLAIMED', 'SUBMITTING', 'ACCEPTED', 'UNKNOWN', 'PARTIALLY_FILLED', 'RECONCILING')")
+            postgresql_where=ACTIVE_CLOSE_PREDICATE,
+            sqlite_where=ACTIVE_CLOSE_PREDICATE
         ),
         CheckConstraint(
             "intent IN ('OPEN', 'CLOSE') AND trade_history_id IS NOT NULL",

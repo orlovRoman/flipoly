@@ -10,18 +10,27 @@ class FakeExecutionGateway:
             accepted=True,
             provider_order_id=f"PAPER:{order.attempt_id}",
             provider_status="MATCHED",
-            provider_trade_ids=(f"TRADE:{order.attempt_id}",)
+            provider_trade_ids=(f"TRADE:{order.attempt_id}",),
+            settlement_state="CONFIRMED",
+            transaction_hashes=(),
         )
         
     async def get_order(self, provider_order_id: str) -> SubmissionResult:
         return SubmissionResult(
             accepted=True,
             provider_order_id=provider_order_id,
-            provider_status="MATCHED"
+            provider_status="MATCHED",
+            settlement_state="CONFIRMED",
         )
         
     async def get_balance_allowance(self, asset_type: str = "COLLATERAL", token_id: str | None = None) -> Decimal:
         return Decimal("1000000.0")
+
+    async def get_token_allowance(self, token_id: str) -> Decimal:
+        return Decimal("1000000000")
+        
+    async def approve_token(self, token_id: str) -> None:
+        pass
         
     async def fetch_order_fills(self, provider_order_id: str, token_id: str, after: str = "0") -> tuple[TradeExecution, ...]:
         from polyflip.db.connection import async_session

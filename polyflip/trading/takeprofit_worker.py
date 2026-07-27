@@ -99,9 +99,7 @@ async def takeprofit_worker_cycle(
 
             # Триггер: продаём
             from polyflip.execution.outbox import enqueue_close_request
-            from polyflip.execution.config import ExecutionSettings
             
-            exec_settings = ExecutionSettings()
             sell_floor = max(0.01, current_bid - 0.01)
             
             res = await enqueue_close_request(
@@ -109,9 +107,8 @@ async def takeprofit_worker_cycle(
                 trade_id=trade.id,
                 trigger_reason="TAKE_PROFIT",
                 limit_price=sell_floor,
-                requested_mode=exec_settings.execution_mode
             )
-            if not res:
+            if res is None or not res.created:
                 continue
 
             # После успешной постановки меняем статус тейк-профита

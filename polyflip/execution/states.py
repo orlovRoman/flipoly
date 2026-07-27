@@ -2,12 +2,23 @@
 Central definition of execution state machine.
 """
 
-ACTIVE_REQUEST_STATES = frozenset({
+REQUEST_HOLD_STATES = frozenset({
+    "AWAITING_APPROVAL",
     "READY",
     "CLAIMED",
     "SUBMITTING",
+    "ACCEPTED",         # legacy
+    "UNKNOWN",          # legacy
+    "PARTIALLY_FILLED", # legacy, пока не выполнен backfill
+    "RECONCILING",
+    "MANUAL_REVIEW_REQUIRED",
+})
+
+RECONCILABLE_REQUEST_STATES = frozenset({
+    "SUBMITTING",
     "ACCEPTED",
     "UNKNOWN",
+    "PARTIALLY_FILLED",
     "RECONCILING",
 })
 
@@ -24,6 +35,8 @@ FAILURE_TERMINAL_STATES = frozenset({
 })
 
 TERMINAL_REQUEST_STATES = SUCCESS_TERMINAL_STATES | FAILURE_TERMINAL_STATES
+
+ACTIVE_REQUEST_STATES = REQUEST_HOLD_STATES
 
 ACTIVE_POSITION_STATES = frozenset({
     "OPENING",

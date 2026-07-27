@@ -89,11 +89,7 @@ async def enqueue_open_request(
         )
         .on_conflict_do_nothing(
             index_elements=["requested_mode", "market_id"],
-            index_where=text(
-                "intent = 'OPEN' AND state IN "
-                "('READY','CLAIMED','SUBMITTING','ACCEPTED',"
-                "'UNKNOWN','RECONCILING','MANUAL_REVIEW_REQUIRED')"
-            ),
+            index_where=ExecutionRequest.ACTIVE_OPEN_PREDICATE,
         )
         .returning(ExecutionRequest.id)
     )
@@ -121,7 +117,6 @@ async def enqueue_close_request(
     trade_id: int,
     trigger_reason: Literal["STOP_LOSS", "TAKE_PROFIT", "MANUAL", "RECOVERY", "STRATEGY"],
     limit_price: float,
-    requested_mode: ExecutionMode,
 ) -> EnqueueResult | None:
     
     trade = (
@@ -179,12 +174,8 @@ async def enqueue_close_request(
             updated_at=now_utc,
         )
         .on_conflict_do_nothing(
-            index_elements=["trade_history_id"],
-            index_where=text(
-                "intent = 'CLOSE' AND state IN "
-                "('READY','CLAIMED','SUBMITTING','ACCEPTED',"
-                "'UNKNOWN','PARTIALLY_FILLED','RECONCILING')"
-            ),
+            index_elements=["requested_mode", "trade_history_id"],
+            index_where=ExecutionRequest.ACTIVE_CLOSE_PREDICATE,
         )
         .returning(ExecutionRequest.id)
     )

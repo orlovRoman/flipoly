@@ -223,7 +223,7 @@ async def test_worker_triggers_sell_when_bid_below_stop(db_session):
     assert req is not None
     assert req.intent == "CLOSE"
     assert req.state == "READY"
-    assert req.requested_mode == "PAPER"
+    assert req.requested_mode == trade.mode
 
 @pytest.mark.asyncio
 async def test_worker_skips_trade_with_missing_stop_loss_pct(db_session):

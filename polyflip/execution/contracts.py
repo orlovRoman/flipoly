@@ -91,6 +91,14 @@ class ExecutionGateway(Protocol):
         """Fetch the actual trade fills for an order."""
         ...
 
+    async def get_token_allowance(self, token_id: str) -> Decimal:
+        """Get the allowance for a specific conditional token."""
+        ...
+
+    async def approve_token(self, token_id: str) -> None:
+        """Approve a specific conditional token."""
+        ...
+
     async def get_readiness(
         self, conditional_token_ids: tuple[str, ...] = (),
     ) -> GatewayReadiness:

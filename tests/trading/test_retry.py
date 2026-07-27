@@ -106,7 +106,6 @@ async def test_enqueue_close_idempotent(db_session: AsyncSession):
         trade_id=trade.id,
         trigger_reason="TAKE_PROFIT",
         limit_price=0.6,
-        requested_mode=ExecutionMode.PAPER,
     )
     await db_session.commit()
 
@@ -115,7 +114,6 @@ async def test_enqueue_close_idempotent(db_session: AsyncSession):
         trade_id=trade.id,
         trigger_reason="TAKE_PROFIT",
         limit_price=0.6,
-        requested_mode=ExecutionMode.PAPER,
     )
     await db_session.commit()
 

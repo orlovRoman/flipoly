@@ -104,9 +104,36 @@ async def process_ready_requests():
         limit_price = req.limit_price or Decimal("0")
         max_spend_usdc = req.max_spend_usdc or Decimal("0")
             
+        if session.bind.dialect.name == "postgresql":
+            import zlib
+            market_hash = zlib.crc32(req.market_id.encode("utf-8")) % (2**31 - 1)
+            await session.execute(text(f"SELECT pg_advisory_xact_lock(1001, {market_hash})"))
+            
+        risk_err = await check_risk_limits(
+            session,
+            intent=req.intent,
+            max_spend_usdc=max_spend_usdc,
+            requested_mode=req.requested_mode,
+            request_id=req.id
+        )
+        if risk_err:
+            logger.warning("risk_limit_breached", request_id=str(req.id), error=risk_err)
+            await finalize_request(session, req, state="REJECTED", error=f"Risk check failed: {risk_err}")
+            await session.commit()
+            return
+
         attempt_count_stmt = select(ExecutionAttempt).where(ExecutionAttempt.request_id == req.id)
         attempt_count = len((await session.execute(attempt_count_stmt)).scalars().all())
         attempt_no = attempt_count + 1
+        
+        if req.intent == "CLOSE":
+            market_stmt = select(LiveMarket).where(LiveMarket.market_id == req.market_id)
+            market = (await session.execute(market_stmt)).scalar_one_or_none()
+            token_id = market.yes_token_id if market and req.outcome_to_buy == "YES" else (market.no_token_id if market else "")
+            if token_id:
+                allowance = await gateway.get_token_allowance(token_id)
+                if allowance < (req.requested_shares or Decimal("0")):
+                    await gateway.approve_token(token_id)
         
         submission_key = f"{req.idempotency_key}:{attempt_no}"
         
@@ -149,33 +176,34 @@ async def process_ready_requests():
                 attempt.error_msg = sub_res.provider_status
                 await finalize_request(session, req, state="REJECTED", error=sub_res.error_message or sub_res.provider_status)
             elif sub_res.settlement_state == "CONFIRMED":
-                attempt.status = "SUCCESS"
-                
                 fills = await gateway.fetch_order_fills(attempt.provider_order_id, token_id)
-                filled_shares = sum((fill.shares for fill in fills), Decimal("0"))
-                filled_quote = sum((fill.gross_quote_usdc for fill in fills), Decimal("0"))
-                
-                req.filled_shares = filled_shares
-                req.filled_cost_usdc = filled_quote
-                
-                for f in fills:
-                    session.add(ExecutionFill(
-                        attempt_id=attempt.id,
-                        provider_trade_id=f.provider_trade_id,
-                        gateway=f.gateway,
-                        gross_quote_usdc=f.gross_quote_usdc,
-                        price=f.price,
-                        shares=f.shares,
-                        fee_usdc=f.fee_usdc,
-                        timestamp=f.matched_at
-                    ))
-
-                if filled_shares == Decimal("0"):
-                    await finalize_request(session, req, state="REJECTED", error="Settled but 0 shares filled")
-                elif filled_shares < (req.requested_shares or Decimal("0")):
-                    await finalize_request(session, req, state="PARTIALLY_FILLED_FINAL")
+                if len(fills) == 0:
+                    attempt.status = "UNKNOWN"
+                    req.state = "RECONCILING"
                 else:
-                    await finalize_request(session, req, state="FILLED")
+                    attempt.status = "SUCCESS"
+                    filled_shares = sum((fill.shares for fill in fills), Decimal("0"))
+                    filled_quote = sum((fill.gross_quote_usdc for fill in fills), Decimal("0"))
+                    
+                    req.filled_shares = filled_shares
+                    req.filled_cost_usdc = filled_quote
+                    
+                    for f in fills:
+                        session.add(ExecutionFill(
+                            attempt_id=attempt.id,
+                            provider_trade_id=f.provider_trade_id,
+                            gateway=f.gateway,
+                            gross_quote_usdc=f.gross_quote_usdc,
+                            price=f.price,
+                            shares=f.shares,
+                            fee_usdc=f.fee_usdc,
+                            timestamp=f.matched_at
+                        ))
+
+                    if filled_shares < (req.requested_shares or Decimal("0")):
+                        await finalize_request(session, req, state="PARTIALLY_FILLED_FINAL")
+                    else:
+                        await finalize_request(session, req, state="FILLED")
             elif sub_res.settlement_state == "FAILED":
                 attempt.status = "FAILED"
                 attempt.error_msg = "Settlement failed on chain"
@@ -350,15 +378,30 @@ async def reconcile_active_requests():
             
             try:
                 sub_res = await gateway.get_order(attempt.provider_order_id)
-                if sub_res.provider_status == "FILLED":
-                    attempt.status = "SUCCESS"
-                    attempt.provider_status = sub_res.provider_status
-                    
+                attempt.provider_status = sub_res.provider_status
+                if sub_res.settlement_state:
+                    attempt.settlement_state = sub_res.settlement_state
+                
+                PENDING_TRADE_STATES = ("MATCHED", "ACCEPTED", "UNKNOWN", "PENDING")
+                
+                if sub_res.settlement_state in PENDING_TRADE_STATES:
+                    logger.info("reconcile_still_pending", request_id=str(req.id), settlement_state=sub_res.settlement_state)
+                    await session.commit()
+                    continue
+                
+                if sub_res.settlement_state == "CONFIRMED":
                     market_stmt = select(LiveMarket).where(LiveMarket.market_id == req.market_id)
                     market = (await session.execute(market_stmt)).scalar_one_or_none()
                     token_id = market.yes_token_id if market and req.outcome_to_buy == "YES" else (market.no_token_id if market else "")
                     
                     fills = await gateway.fetch_order_fills(attempt.provider_order_id, token_id)
+                    if len(fills) == 0:
+                        logger.info("reconcile_confirmed_no_fills_waiting", request_id=str(req.id))
+                        await session.commit()
+                        continue
+                        
+                    attempt.status = "SUCCESS"
+                    
                     filled_shares = sum((fill.shares for fill in fills), Decimal("0"))
                     filled_quote = sum((fill.gross_quote_usdc for fill in fills), Decimal("0"))
                     
@@ -379,9 +422,7 @@ async def reconcile_active_requests():
                                 timestamp=f.matched_at
                             ))
                             
-                    if filled_shares == Decimal("0"):
-                        await finalize_request(session, req, state="REJECTED", error="Order was FILLED but 0 shares matched (cancelled?)")
-                    elif filled_shares < (req.requested_shares or Decimal("0")):
+                    if filled_shares < (req.requested_shares or Decimal("0")):
                         await finalize_request(session, req, state="PARTIALLY_FILLED_FINAL")
                     else:
                         await finalize_request(session, req, state="FILLED")
@@ -391,13 +432,12 @@ async def reconcile_active_requests():
                     if req.trade_history_id:
                         await rebuild_trade_accounting(session, req.trade_history_id)
                         
-                elif sub_res.provider_status in ("REJECTED", "FAILED", "EXPIRED", "CANCELED"):
+                elif sub_res.settlement_state in ("FAILED", "REJECTED", "EXPIRED", "CANCELED") or sub_res.provider_status in ("REJECTED", "FAILED", "EXPIRED", "CANCELED"):
                     attempt.status = "FAILED"
-                    attempt.provider_status = sub_res.provider_status
-                    await finalize_request(session, req, state="REJECTED", error=f"Gateway returned final status: {sub_res.provider_status}")
+                    await finalize_request(session, req, state="REJECTED", error=f"Gateway returned final status: {sub_res.settlement_state or sub_res.provider_status}")
                     await session.commit()
                 else:
-                    logger.info("reconcile_still_pending", request_id=str(req.id), gateway_status=sub_res.provider_status)
+                    logger.info("reconcile_unknown_status", request_id=str(req.id), gateway_status=sub_res.provider_status)
                     
             except GatewayUnavailable as e:
                 logger.warning("gateway_unavailable_reconcile", error=str(e))

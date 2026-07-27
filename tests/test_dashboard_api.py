@@ -76,6 +76,7 @@ async def test_get_daily_pnl(db_session):
         predicted_flip_prob=0.8,
         active_features="other",
         status="SUCCESS",
+        position_status="CLOSED",
         pnl=1.5,
         created_at=now
     )

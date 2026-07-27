@@ -129,6 +129,42 @@ class PolymarketExecutionGateway:
             logger.error("polymarket_get_order_error", error=str(e))
             raise GatewayUnavailable(f"Transport/Network error during get_order: {e}")
 
+    async def get_token_allowance(self, token_id: str) -> Decimal:
+        client = await self.get_client()
+        if not client:
+            raise GatewayUnavailable("Polymarket client not initialized")
+        try:
+            resp = await client.get_balance_allowance(asset_type="CONDITIONAL", token_id=token_id)
+            allowances = getattr(resp, "allowances", {})
+            exchange = getattr(client.network, "exchange", "").lower()
+            
+            total = Decimal("0")
+            for k, v in allowances.items():
+                if k.lower() == exchange or k.lower() == getattr(client.network, "exchange_v2", "").lower():
+                    total += Decimal(str(v)) / Decimal("1000000")
+            
+            return total
+        except Exception as e:
+            logger.error("get_token_allowance_error", error=str(e))
+            return Decimal("0")
+
+    async def approve_token(self, token_id: str) -> None:
+        client = await self.get_client()
+        if not client:
+            raise GatewayUnavailable("Polymarket client not initialized")
+        try:
+            exchange = getattr(client.network, "exchange")
+            conditional_tokens = getattr(client.network, "conditional_tokens")
+            
+            await client.approve_erc1155_for_all(
+                token_address=conditional_tokens,
+                operator_address=exchange,
+                approved=True
+            )
+        except Exception as e:
+            logger.error("approve_token_error", error=str(e))
+            raise GatewayUnavailable(f"Failed to approve token: {e}")
+
     async def fetch_order_fills(self, provider_order_id: str, token_id: str, after: str = "0") -> tuple[TradeExecution, ...]:
         client = await self.get_client()
         if not client:

@@ -6,6 +6,14 @@ from polyflip.db.connection import async_session
 from polyflip.db.models import TradeHistory
 from datetime import datetime, timezone
 
+OUTCOME_ALIASES = {"UP": "YES", "DOWN": "NO"}
+
+def normalize_outcome(outcome: str) -> str:
+    if not outcome:
+        return ""
+    out = outcome.upper()
+    return OUTCOME_ALIASES.get(out, out)
+
 async def fetch_market(session, market_id):
     url = f"https://gamma-api.polymarket.com/markets"
     params = {"condition_id": market_id}
@@ -46,7 +54,7 @@ async def main(apply: bool):
                         size = float(trade.entry_filled_shares) if trade.entry_filled_shares is not None else (float(trade.amount_usdc) / float(trade.executed_price) if trade.executed_price else 0)
                         cost = float(trade.entry_cost_usdc) if trade.entry_cost_usdc is not None else float(trade.amount_usdc)
                         
-                        if winner_outcome.upper() == str(trade.outcome_bought).upper():
+                        if normalize_outcome(winner_outcome) == normalize_outcome(str(trade.outcome_bought)):
                             pnl = size - cost
                             close_price = 1.0
                         else:

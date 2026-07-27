@@ -81,9 +81,7 @@ async def _process_single_stoploss(
     )
 
     from polyflip.execution.outbox import enqueue_close_request
-    from polyflip.execution.config import ExecutionSettings
     
-    exec_settings = ExecutionSettings()
     sell_floor = max(0.01, current_bid - 0.01)
     
     res = await enqueue_close_request(
@@ -91,9 +89,8 @@ async def _process_single_stoploss(
         trade_id=trade.id,
         trigger_reason="STOP_LOSS",
         limit_price=sell_floor,
-        requested_mode=exec_settings.execution_mode
     )
-    if not res:
+    if res is None or not res.created:
         return
 
     # После успешной постановки меняем статус стоп-лосса

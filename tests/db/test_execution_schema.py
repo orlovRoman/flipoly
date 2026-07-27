@@ -299,7 +299,6 @@ async def test_stoploss_and_takeprofit_create_one_close_request(engine, db_sessi
                 session,
                 trade_id=trade.id,
                 trigger_reason=trigger,
-                requested_mode=ExecutionMode.PAPER,
                 limit_price=0.5
             )
             await session.commit()
