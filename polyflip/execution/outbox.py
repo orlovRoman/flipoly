@@ -18,7 +18,6 @@ from polyflip.execution.config import ExecutionMode
 from polyflip.execution.states import (
     TERMINAL_REQUEST_STATES,
     FAILURE_TERMINAL_STATES,
-    ACTIVE_REQUEST_STATES,
     BLOCKING_REQUEST_STATES,
 )
 from polyflip.execution.risk_checks import check_risk_limits
