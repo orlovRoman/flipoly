@@ -66,6 +66,7 @@ async def get_live_trading_status(db: AsyncSession = Depends(get_db_session)):
     return {
         "live_trading_enabled": enabled,
         "execution_mode": settings.execution_mode.value,
+        "kill_switch_available": settings.execution_mode.value == "LIVE",
         "worker_status": worker_data
     }
 
