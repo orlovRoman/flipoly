@@ -56,12 +56,9 @@ async def _acquire_mode_lock(session, requested_mode: str) -> None:
         return
     mode_key = _MODE_LOCK_KEYS.get(requested_mode, 0)
     await session.execute(
-        text(
-            "SELECT pg_advisory_xact_lock(:namespace, :mode_key)"
-        ),
+        text("SELECT pg_advisory_xact_lock(:namespace, :mode_key)"),
         {"namespace": _ADVISORY_LOCK_NAMESPACE, "mode_key": mode_key},
     )
-
 
 
 async def _persist_fills(
@@ -72,15 +69,14 @@ async def _persist_fills(
     """
     Сохраняет fills идемпотентно через ON CONFLICT DO NOTHING
     по (gateway, provider_trade_id).
-    Единая функция для прямого пути submit() и reconciler.
+    Совместимо с PostgreSQL и SQLite (index_elements вместо constraint=).
     """
     dialect_name = session.bind.dialect.name
     insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
     for f in fills:
         stmt = (
-            insert_func(ExecutionFill)
-            .values(
+            insert_func(ExecutionFill).values(
                 attempt_id=attempt.id,
                 provider_trade_id=f.provider_trade_id,
                 gateway=f.gateway,
@@ -90,7 +86,10 @@ async def _persist_fills(
                 fee_usdc=f.fee_usdc,
                 timestamp=f.matched_at,
             )
-            .on_conflict_do_nothing(constraint="uq_execution_provider_trade")
+            # index_elements корректно работает на SQLite и PostgreSQL
+            .on_conflict_do_nothing(
+                index_elements=["gateway", "provider_trade_id"],
+            )
         )
         await session.execute(stmt)
 
@@ -118,10 +117,17 @@ async def claim_one(session, worker_mode: str) -> ExecutionRequest | None:
     req = result.scalar_one_or_none()
 
     if req:
-        if req.expires_at and req.expires_at < now:
-            await finalize_request(session, req, state="EXPIRED", error="TTL expired")
-            await session.commit()
-            return None
+        expires_at = req.expires_at
+        if expires_at is not None:
+            # SQLite возвращает naive datetime — нормализуем к UTC
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at < now:
+                await finalize_request(
+                    session, req, state="EXPIRED", error="TTL expired"
+                )
+                await session.commit()
+                return None
 
         req.state = "CLAIMED"
         req.claimed_by = f"worker-{os.getpid()}"
@@ -157,7 +163,10 @@ async def process_ready_requests():
             rt_set = (await session.execute(rt_stmt)).scalar_one_or_none()
             if not rt_set or rt_set.value.lower() != "true":
                 await finalize_request(
-                    session, req, state="REJECTED", error="LIVE trading kill switch is off"
+                    session,
+                    req,
+                    state="REJECTED",
+                    error="LIVE trading kill switch is off",
                 )
                 await session.commit()
                 return
@@ -178,7 +187,9 @@ async def process_ready_requests():
         market = (await session.execute(market_stmt)).scalar_one_or_none()
 
         if not market:
-            await finalize_request(session, req, state="REJECTED", error="Market not found")
+            await finalize_request(
+                session, req, state="REJECTED", error="Market not found"
+            )
             await session.commit()
             return
 
@@ -202,7 +213,9 @@ async def process_ready_requests():
             trade_history_id=req.trade_history_id,
         )
         if risk_err:
-            logger.warning("risk_limit_breached", request_id=str(req.id), error=risk_err)
+            logger.warning(
+                "risk_limit_breached", request_id=str(req.id), error=risk_err
+            )
             await finalize_request(
                 session, req, state="REJECTED", error=f"Risk check failed: {risk_err}"
             )
@@ -298,9 +311,7 @@ async def process_ready_requests():
                 else:
                     attempt.status = "SUCCESS"
                     await _persist_fills(session, attempt, fills)
-                    filled_shares = sum(
-                        (fill.shares for fill in fills), Decimal("0")
-                    )
+                    filled_shares = sum((fill.shares for fill in fills), Decimal("0"))
                     filled_quote = sum(
                         (fill.gross_quote_usdc for fill in fills), Decimal("0")
                     )
@@ -330,10 +341,13 @@ async def process_ready_requests():
                 req.state = "RECONCILING"
 
             req.updated_at = datetime.now(timezone.utc)
-            await session.commit()
 
+            # rebuild_trade_accounting НЕ делает commit сам.
+            # Единый commit ниже фиксирует fills + request state + TradeHistory атомарно.
             if req.trade_history_id:
                 await rebuild_trade_accounting(session, req.trade_history_id)
+
+            await session.commit()
 
         except GatewayUnavailable as e:
             logger.warning(
@@ -408,21 +422,29 @@ async def rebuild_trade_accounting(session, trade_id: int):
 
     for req in reqs:
         attempts = (
-            await session.execute(
-                select(ExecutionAttempt).where(
-                    ExecutionAttempt.request_id == req.id
+            (
+                await session.execute(
+                    select(ExecutionAttempt).where(
+                        ExecutionAttempt.request_id == req.id
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         for attempt in attempts:
             fills = (
-                await session.execute(
-                    select(ExecutionFill).where(
-                        ExecutionFill.attempt_id == attempt.id
+                (
+                    await session.execute(
+                        select(ExecutionFill).where(
+                            ExecutionFill.attempt_id == attempt.id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
             for fill in fills:
                 gross = fill.gross_quote_usdc or (fill.shares * fill.price)
@@ -439,7 +461,11 @@ async def rebuild_trade_accounting(session, trade_id: int):
                         latest_close_time = fill.timestamp
 
     # Fallback: если fills по OPEN нет, берём данные самой сделки
-    if open_shares == Decimal("0") and trade.entry_filled_shares and trade.entry_filled_shares > 0:
+    if (
+        open_shares == Decimal("0")
+        and trade.entry_filled_shares
+        and trade.entry_filled_shares > 0
+    ):
         open_shares = Decimal(str(trade.entry_filled_shares))
         open_gross = Decimal(str(trade.entry_cost_usdc or trade.amount_usdc or "0"))
 
@@ -493,7 +519,9 @@ async def rebuild_trade_accounting(session, trade_id: int):
         trade.position_status = "OPEN"
 
     # Stop Loss / Take Profit цены из реальной средней цены входа
-    if trade.position_status in ("OPEN", "PARTIALLY_CLOSED") and open_shares > Decimal("0"):
+    if trade.position_status in ("OPEN", "PARTIALLY_CLOSED") and open_shares > Decimal(
+        "0"
+    ):
         close_reqs = [r for r in reqs if r.intent == "CLOSE"]
         all_close_failed = len(close_reqs) > 0 and all(
             r.state in ("REJECTED", "FAILED") for r in close_reqs
@@ -514,10 +542,15 @@ async def rebuild_trade_accounting(session, trade_id: int):
             if trade.stop_loss_pct is not None and trade.stop_loss_price is None:
                 trade.stop_loss_price = float(
                     avg_entry_cost_per_share
-                    * (Decimal("1") - Decimal(str(trade.stop_loss_pct)) / Decimal("100"))
+                    * (
+                        Decimal("1")
+                        - Decimal(str(trade.stop_loss_pct)) / Decimal("100")
+                    )
                 )
             if trade.take_profit_enabled and trade.take_profit_price is None:
-                multiplier = Decimal(str(getattr(trade, "take_profit_multiplier", 1.5) or 1.5))
+                multiplier = Decimal(
+                    str(getattr(trade, "take_profit_multiplier", 1.5) or 1.5)
+                )
                 # take_profit не выше 0.99 (цена бинарного токена не может превысить 1.0)
                 trade.take_profit_price = float(
                     min(Decimal("0.99"), avg_entry_cost_per_share * multiplier)
@@ -532,7 +565,9 @@ async def rebuild_trade_accounting(session, trade_id: int):
             trade.status = "FAILED"
 
     trade.position_accounting_version = (trade.position_accounting_version or 0) + 1
-    await session.commit()
+    # НЕ делаем session.commit() здесь — вызывающая функция владеет транзакцией.
+    # Это гарантирует атомарность: fills + request state + TradeHistory
+    # фиксируются в одном commit, а не в двух независимых.
 
 
 async def reconcile_active_requests():
@@ -545,12 +580,9 @@ async def reconcile_active_requests():
     async with async_session() as session:
         now = datetime.now(timezone.utc)
         # Выбираем все reconcilable заявки своего режима
-        stmt = (
-            select(ExecutionRequest)
-            .where(
-                ExecutionRequest.state.in_(RECONCILABLE_REQUEST_STATES),
-                ExecutionRequest.requested_mode == settings.execution_mode.value,
-            )
+        stmt = select(ExecutionRequest).where(
+            ExecutionRequest.state.in_(RECONCILABLE_REQUEST_STATES),
+            ExecutionRequest.requested_mode == settings.execution_mode.value,
         )
         result = await session.execute(stmt)
         reqs = result.scalars().all()
@@ -559,9 +591,7 @@ async def reconcile_active_requests():
             if not req.updated_at or (now - req.updated_at).total_seconds() < 60:
                 continue
 
-            logger.info(
-                "reconciling_request", request_id=str(req.id), state=req.state
-            )
+            logger.info("reconciling_request", request_id=str(req.id), state=req.state)
 
             attempt_stmt = (
                 select(ExecutionAttempt)
@@ -576,14 +606,10 @@ async def reconcile_active_requests():
             # Таймаут: неизвестность != отсутствие сделки.
             # MANUAL_REVIEW_REQUIRED сохраняет резерв.
             if time_in_reconciling > MAX_RECONCILIATION_AGE_SEC:
-                logger.warning(
-                    "request_timed_out_in_unknown", request_id=str(req.id)
-                )
+                logger.warning("request_timed_out_in_unknown", request_id=str(req.id))
                 if attempt:
                     attempt.status = "FAILED"
-                    attempt.error_msg = (
-                        f"Timed out after {MAX_RECONCILIATION_AGE_SEC}s in unknown state"
-                    )
+                    attempt.error_msg = f"Timed out after {MAX_RECONCILIATION_AGE_SEC}s in unknown state"
                 await finalize_request(
                     session,
                     req,
@@ -652,9 +678,7 @@ async def reconcile_active_requests():
                         continue
 
                     attempt.status = "SUCCESS"
-                    filled_shares = sum(
-                        (fill.shares for fill in fills), Decimal("0")
-                    )
+                    filled_shares = sum((fill.shares for fill in fills), Decimal("0"))
                     filled_quote = sum(
                         (fill.gross_quote_usdc for fill in fills), Decimal("0")
                     )
@@ -670,10 +694,10 @@ async def reconcile_active_requests():
                     else:
                         await finalize_request(session, req, state="FILLED")
 
-                    await session.commit()
-
                     if req.trade_history_id:
                         await rebuild_trade_accounting(session, req.trade_history_id)
+
+                    await session.commit()
 
                 elif sub_res.settlement_state in (
                     "FAILED",
@@ -726,9 +750,7 @@ async def publish_heartbeat():
             now = datetime.now(timezone.utc)
             async with async_session() as session:
                 dialect_name = session.bind.dialect.name
-                insert_func = (
-                    sqlite_insert if dialect_name == "sqlite" else pg_insert
-                )
+                insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
                 bal = (
                     float(readiness.balance.balance_usdc) if readiness.balance else None

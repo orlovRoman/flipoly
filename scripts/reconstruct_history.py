@@ -13,6 +13,7 @@
 - LIVE-позиции пропускаются: они требуют on-chain redemption.
 - Никакой собственной формулы PnL в этом скрипте нет.
 """
+
 import argparse
 import asyncio
 import aiohttp
@@ -25,6 +26,7 @@ from polyflip.execution.settlement_service import (
     AccountingInvariantError,
 )
 from polyflip.execution.states import ACTIVE_POSITION_STATES
+from polyflip.collector.resolver import extract_final_outcome
 
 OUTCOME_ALIASES = {"UP": "YES", "DOWN": "NO", "1": "YES", "0": "NO"}
 
@@ -75,46 +77,46 @@ async def main(apply: bool):
                 if not (market.get("closed") or market.get("active") is False):
                     continue
 
-                tokens = market.get("tokens", [])
-                winner_token = next((t for t in tokens if t.get("winner")), None)
+                # Единый авторитетный определитель исхода — тот же, что использует scheduler.
+                # resolvedBy НЕ используется: это адрес resolver-контракта, не исход.
+                outcome = extract_final_outcome(market)
+                if outcome is None:
+                    # Рынок закрыт, но итог ещё не верифицирован
+                    continue
 
-                if not winner_token:
-                    # INVALID или нет финального итога
-                    raw_outcome = market.get("resolvedBy") or ""
-                    if raw_outcome.upper() != "INVALID":
-                        continue
-                    # INVALID: 50/50
-                    try:
-                        old_status = trade.position_status
-                        await settle_resolved_position(
-                            db,
-                            trade_id=trade.id,
-                            winning_outcome="INVALID",
-                            payout_per_share=Decimal("0.5"),
-                            settlement_fee_usdc=Decimal("0"),
-                        )
-                        trade.status = "INVALID"
-                        updates.append(
-                            (trade.id, trade.mode, trade.market_id, old_status, "CLOSED", "INVALID")
-                        )
-                    except AccountingInvariantError as exc:
-                        errors.append((trade.id, str(exc)))
+                if outcome == "INVALID":
+                    payout = Decimal("0.5")
                 else:
-                    winner_outcome = normalize_outcome(winner_token.get("outcome", ""))
-                    try:
-                        old_status = trade.position_status
-                        await settle_resolved_position(
-                            db,
-                            trade_id=trade.id,
-                            winning_outcome=winner_outcome,
-                            payout_per_share=Decimal("1"),
-                            settlement_fee_usdc=Decimal("0"),
+                    # outcome = "YES" или "NO" — сравниваем с позицией трейдера
+                    payout = (
+                        Decimal("1")
+                        if normalize_outcome(trade.outcome_bought or "") == outcome
+                        else Decimal("0")
+                    )
+
+                try:
+                    old_status = trade.position_status
+                    await settle_resolved_position(
+                        db,
+                        trade_id=trade.id,
+                        winning_outcome=outcome,
+                        payout_per_share=payout,
+                        settlement_fee_usdc=Decimal("0"),
+                    )
+                    if outcome == "INVALID":
+                        trade.status = "INVALID"
+                    updates.append(
+                        (
+                            trade.id,
+                            trade.mode,
+                            trade.market_id,
+                            old_status,
+                            "CLOSED",
+                            outcome,
                         )
-                        updates.append(
-                            (trade.id, trade.mode, trade.market_id, old_status, "CLOSED", winner_outcome)
-                        )
-                    except AccountingInvariantError as exc:
-                        errors.append((trade.id, str(exc)))
+                    )
+                except AccountingInvariantError as exc:
+                    errors.append((trade.id, str(exc)))
 
                 await asyncio.sleep(0.1)
 
@@ -124,7 +126,9 @@ async def main(apply: bool):
         )
         print("-" * 120)
         for u in updates:
-            print(f"{u[0]:<6} | {u[1]:<6} | {u[2]:<44} | {u[3]:<20} | {u[4]:<10} | {u[5]:<10}")
+            print(
+                f"{u[0]:<6} | {u[1]:<6} | {u[2]:<44} | {u[3]:<20} | {u[4]:<10} | {u[5]:<10}"
+            )
 
         if errors:
             print(f"\n--- Accounting Errors ({len(errors)}) ---")
@@ -145,7 +149,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Reconstruct trade history for PAPER/SHADOW trades using settlement_service"
     )
-    parser.add_argument("--apply", action="store_true", help="Apply changes to the database")
+    parser.add_argument(
+        "--apply", action="store_true", help="Apply changes to the database"
+    )
     args = parser.parse_args()
 
     asyncio.run(main(apply=args.apply))

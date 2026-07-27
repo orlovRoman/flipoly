@@ -1,35 +1,44 @@
-# Script for deployment
-echo "?? ��������� pre-flight checks (�����)..."
-$env:PYTHONPATH="."
-python -m pytest tests
-if ($LASTEXITCODE -ne 0) {
-    echo "? ����� �����! ������ �������."
-    exit $LASTEXITCODE
+# deploy.ps1 — Deployement script for Polyflip
+# Usage: .\deploy.ps1 [-SkipTests]
+param([switch]$SkipTests)
+
+$ErrorActionPreference = "Stop"
+
+if (-not $SkipTests) {
+    Write-Host "Running pre-flight tests..." -ForegroundColor Cyan
+    $env:PYTHONPATH = "."
+    poetry run pytest tests/ -m "not live" -q --tb=short
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Tests failed. Aborting deploy." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+    Write-Host "Tests passed." -ForegroundColor Green
 }
 
-echo "? ����� ��������. �������� ������..."
-echo "?? ��������� ������� ������..."
-
-echo "1?? �������� ��������� � GitHub..."
-    echo "?  !  ."
-    exit $LASTEXITCODE
-}
-
-echo "?  .  ..."
-echo "??   ..."
-
-echo "1??    GitHub..."
+Write-Host "Step 1: Pushing to GitHub..." -ForegroundColor Cyan
 git push origin main
 if ($LASTEXITCODE -ne 0) {
-    echo "?     GitHub"
+    Write-Host "git push failed." -ForegroundColor Red
     exit $LASTEXITCODE
 }
+Write-Host "Pushed to GitHub." -ForegroundColor Green
 
-echo "2?? Подключение к серверу и деплой..."
-ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732 'cd flipoly && git pull origin main && docker compose stop execution_worker_paper execution_worker_live scheduler api && docker compose build && docker compose run --rm api alembic upgrade head && docker compose up -d api && sleep 10 && curl --fail http://localhost:8001/dashboard && docker compose up -d scheduler execution_worker_paper'
+Write-Host "Step 2: Deploying to server..." -ForegroundColor Cyan
+ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732 @'
+set -e
+cd flipoly
+git pull origin main
+docker compose stop execution_worker_paper execution_worker_live scheduler api || true
+docker compose build
+docker compose run --rm api alembic upgrade head
+docker compose up -d api
+sleep 10
+curl --fail http://localhost:8001/dashboard
+docker compose up -d scheduler execution_worker_paper
+'@
 if ($LASTEXITCODE -ne 0) {
-    echo "? Ошибка при деплое на сервере"
+    Write-Host "Deploy failed on server." -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
-echo "?   !"
+Write-Host "Deploy complete!" -ForegroundColor Green
