@@ -344,5 +344,6 @@ async def finalize_request(
             source="execution_worker",
             request_id=req.id,
             trade_history_id=req.trade_history_id,
+            created_at=now,
         )
     )

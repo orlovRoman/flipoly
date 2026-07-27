@@ -16,7 +16,7 @@ from polyflip.trading.pre_trade_validator import validate_pre_trade
 from polyflip.trading.trade_recorder import execute_and_record, save_or_update_skipped_trade
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.trading.decision_logic import decide_crypto_trend
-from polyflip.execution.outbox import EnqueueRejected
+from polyflip.trading.trade_recorder import EnqueueRejected
 
 logger = structlog.get_logger(__name__)
 
