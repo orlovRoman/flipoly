@@ -118,6 +118,11 @@ async def enqueue_open_request(
         else Decimal("0")
     )
 
+    # FIX Bug #4: AWAITING_APPROVAL requests wait for operator approval.
+    # 60s TTL is too short — the request expires before the operator can act.
+    # Use 300s for AWAITING_APPROVAL, 60s for all other states.
+    ttl_seconds = 300 if initial_state == "AWAITING_APPROVAL" else 60
+
     statement = (
         insert_func(ExecutionRequest)
         .values(
@@ -135,15 +140,19 @@ async def enqueue_open_request(
             max_slippage_pct=2.0,
             limit_price=Decimal(str(limit_price)),
             max_spend_usdc=Decimal(str(target_amount_usdc)),
-            ttl_seconds=60,
-            expires_at=now_utc + timedelta(seconds=60),
+            ttl_seconds=ttl_seconds,
+            expires_at=now_utc + timedelta(seconds=ttl_seconds),
             state=initial_state,
             created_at=now_utc,
             updated_at=now_utc,
             position_version_snapshot=trade_position_version,
         )
+        # FIX Bug #2: index_elements must include 'intent' to match the partial
+        # unique index created by migration (requested_mode, market_id, intent)
+        # WHERE active. Without 'intent', PostgreSQL cannot find the index and
+        # inserts duplicate OPEN requests for the same market.
         .on_conflict_do_nothing(
-            index_elements=["requested_mode", "market_id"],
+            index_elements=["requested_mode", "market_id", "intent"],
             index_where=ExecutionRequest.ACTIVE_OPEN_PREDICATE,
         )
         .returning(ExecutionRequest.id)
@@ -326,12 +335,21 @@ async def finalize_request(
             trade.position_status = "ENTRY_FAILED"
             trade.error_msg = error
         else:
-            trade.position_status = (
+            prev_status = (
                 "PARTIALLY_CLOSED"
                 if Decimal(trade.remaining_shares or 0)
                 < Decimal(trade.entry_filled_shares or 0)
                 else "OPEN"
             )
+            logger.warning(
+                "close_failed_position_rollback",
+                trade_id=trade.id,
+                remaining_shares=str(trade.remaining_shares),
+                entry_filled_shares=str(trade.entry_filled_shares),
+                rolled_back_to=prev_status,
+                error=error,
+            )
+            trade.position_status = prev_status
             trade.last_exit_error = error
             trade.exit_attempts = (trade.exit_attempts or 0) + 1
 
