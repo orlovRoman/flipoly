@@ -94,8 +94,8 @@ async def get_trading_stats(
                 TradeHistory.mode == requested_mode
             ]
             if cutoff_dt:
-                conds.append(TradeHistory.closed_at >= cutoff_dt)
-            local_date = cast(func.timezone('Asia/Ho_Chi_Minh', TradeHistory.closed_at), Date)
+                conds.append(TradeHistory.created_at >= cutoff_dt)
+            local_date = cast(func.timezone('Asia/Ho_Chi_Minh', TradeHistory.created_at), Date)
             stmt = select(
                 local_date.label("day"),
                 func.sum(TradeHistory.pnl).label("daily_pnl"),
