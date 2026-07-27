@@ -1,5 +1,4 @@
 import asyncio
-import uuid
 import argparse
 import sys
 import structlog
@@ -75,23 +74,86 @@ async def _persist_fills(
     insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
     for f in fills:
-        stmt = (
-            insert_func(ExecutionFill).values(
-                attempt_id=attempt.id,
-                provider_trade_id=f.provider_trade_id,
-                gateway=f.gateway,
-                gross_quote_usdc=f.gross_quote_usdc,
-                price=f.price,
-                shares=f.shares,
-                fee_usdc=f.fee_usdc,
-                timestamp=f.matched_at,
-            )
-            # index_elements корректно работает на SQLite и PostgreSQL
-            .on_conflict_do_nothing(
+        stmt = insert_func(ExecutionFill).values(
+            attempt_id=attempt.id,
+            provider_trade_id=f.provider_trade_id,
+            gateway=f.gateway,
+            gross_quote_usdc=f.gross_quote_usdc,
+            price=f.price,
+            shares=f.shares,
+            fee_usdc=f.fee_usdc,
+            timestamp=f.matched_at,
+        )
+
+        # В PostgreSQL явно ссылаемся на constraint, который создаётся
+        # миграцией c4d5e6f7a8b9. Так drift между ORM и production-схемой
+        # обнаруживается сразу и не маскируется несовпадающим conflict target.
+        if dialect_name == "postgresql":
+            stmt = stmt.on_conflict_do_nothing(constraint="uq_execution_provider_trade")
+        else:
+            stmt = stmt.on_conflict_do_nothing(
                 index_elements=["gateway", "provider_trade_id"],
             )
-        )
         await session.execute(stmt)
+
+
+async def _finish_submit_exception(
+    session,
+    *,
+    request_id,
+    attempt_id,
+    attempt_no: int,
+    requested_mode: str,
+    error: str,
+) -> None:
+    """
+    Восстанавливает сессию после любой ошибки submit/persist/accounting.
+
+    SQL-ошибка переводит транзакцию SQLAlchemy в failed state. Поэтому перед
+    изменением ExecutionRequest обязателен rollback и повторная загрузка строк.
+    PAPER можно безопасно повторить: Fake gateway не создаёт внешнего ордера.
+    LIVE/SHADOW требуют ручной проверки, поскольку внешний результат неизвестен.
+    """
+    await session.rollback()
+
+    req = (
+        await session.execute(
+            select(ExecutionRequest)
+            .where(ExecutionRequest.id == request_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    attempt = await session.get(ExecutionAttempt, attempt_id)
+
+    if not req:
+        return
+
+    now = datetime.now(timezone.utc)
+    if attempt:
+        attempt.status = "FAILED"
+        attempt.error_msg = error[:2000]
+        attempt.finished_at = now
+
+    if requested_mode == "PAPER" and attempt_no < 3:
+        req.state = "READY"
+        req.claimed_by = None
+        req.claimed_at = None
+        req.lease_expires_at = None
+        req.expires_at = now + timedelta(seconds=max(req.ttl_seconds or 60, 60))
+        req.error_reason = f"PAPER retry after submit error: {error}"[:2000]
+        req.updated_at = now
+    else:
+        terminal_state = (
+            "REJECTED" if requested_mode == "PAPER" else "MANUAL_REVIEW_REQUIRED"
+        )
+        await finalize_request(
+            session,
+            req,
+            state=terminal_state,
+            error=f"Submit error: {error}"[:2000],
+        )
+
+    await session.commit()
 
 
 async def claim_one(session, worker_mode: str) -> ExecutionRequest | None:
@@ -266,19 +328,24 @@ async def process_ready_requests():
         req.updated_at = datetime.now(timezone.utc)
         await session.commit()
 
-        order = GatewayOrder(
-            attempt_id=attempt.id,
-            market_id=req.market_id,
-            asset=req.asset,
-            outcome_to_buy=req.outcome_to_buy,
-            token_id=token_id,
-            side=side,
-            limit_price=limit_price,
-            requested_shares=req.requested_shares or Decimal("0"),
-            max_spend_usdc=max_spend_usdc,
-        )
+        request_id = req.id
+        attempt_id = attempt.id
+        requested_mode = req.requested_mode
 
         try:
+            # Конструирование заказа тоже должно находиться внутри try.
+            # Иначе Pydantic ValidationError оставляет заявку в SUBMITTING.
+            order = GatewayOrder(
+                attempt_id=attempt_id,
+                market_id=req.market_id,
+                asset=req.asset,
+                outcome_to_buy=req.outcome_to_buy,
+                token_id=token_id,
+                side=side,
+                limit_price=limit_price,
+                requested_shares=req.requested_shares or Decimal("0"),
+                max_spend_usdc=max_spend_usdc,
+            )
             sub_res = await gateway.submit(order)
             attempt.finished_at = datetime.now(timezone.utc)
             attempt.provider_order_id = sub_res.provider_order_id
@@ -351,35 +418,29 @@ async def process_ready_requests():
 
         except GatewayUnavailable as e:
             logger.warning(
-                "gateway_unavailable_submit", error=str(e), attempt_id=str(attempt.id)
+                "gateway_unavailable_submit", error=str(e), attempt_id=str(attempt_id)
             )
-            attempt.status = "UNKNOWN"
-            attempt.error_msg = str(e)
-            attempt.finished_at = datetime.now(timezone.utc)
-            # Сетевая ошибка после отправки — неизвестно, прошёл ли ордер.
-            # MANUAL_REVIEW_REQUIRED сохраняет резерв.
-            await finalize_request(
+            await _finish_submit_exception(
                 session,
-                req,
-                state="MANUAL_REVIEW_REQUIRED",
+                request_id=request_id,
+                attempt_id=attempt_id,
+                attempt_no=attempt_no,
+                requested_mode=requested_mode,
                 error=f"Gateway unavailable: {e}",
             )
-            await session.commit()
 
         except Exception as e:
             logger.exception(
-                "gateway_submit_failed", error=str(e), attempt_id=str(attempt.id)
+                "gateway_submit_failed", error=str(e), attempt_id=str(attempt_id)
             )
-            attempt.status = "UNKNOWN"
-            attempt.error_msg = str(e)
-            attempt.finished_at = datetime.now(timezone.utc)
-            await finalize_request(
+            await _finish_submit_exception(
                 session,
-                req,
-                state="MANUAL_REVIEW_REQUIRED",
-                error=f"Submit error: {e}",
+                request_id=request_id,
+                attempt_id=attempt_id,
+                attempt_no=attempt_no,
+                requested_mode=requested_mode,
+                error=str(e),
             )
-            await session.commit()
 
 
 async def rebuild_trade_accounting(session, trade_id: int):
@@ -588,7 +649,10 @@ async def reconcile_active_requests():
         reqs = result.scalars().all()
 
         for req in reqs:
-            if not req.updated_at or (now - req.updated_at).total_seconds() < 60:
+            updated_at = req.updated_at
+            if updated_at is not None and updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if not updated_at or (now - updated_at).total_seconds() < 60:
                 continue
 
             logger.info("reconciling_request", request_id=str(req.id), state=req.state)
@@ -601,7 +665,7 @@ async def reconcile_active_requests():
             )
             attempt = (await session.execute(attempt_stmt)).scalar_one_or_none()
 
-            time_in_reconciling = (now - req.updated_at).total_seconds()
+            time_in_reconciling = (now - updated_at).total_seconds()
 
             # Таймаут: неизвестность != отсутствие сделки.
             # MANUAL_REVIEW_REQUIRED сохраняет резерв.
@@ -609,17 +673,49 @@ async def reconcile_active_requests():
                 logger.warning("request_timed_out_in_unknown", request_id=str(req.id))
                 if attempt:
                     attempt.status = "FAILED"
-                    attempt.error_msg = f"Timed out after {MAX_RECONCILIATION_AGE_SEC}s in unknown state"
+                    attempt.error_msg = (
+                        f"Timed out after {MAX_RECONCILIATION_AGE_SEC}s "
+                        "in unknown state"
+                    )
                 await finalize_request(
                     session,
                     req,
                     state="MANUAL_REVIEW_REQUIRED",
-                    error=f"Settlement status still unknown after {MAX_RECONCILIATION_AGE_SEC}s — manual review required",
+                    error=(
+                        "Settlement status still unknown after "
+                        f"{MAX_RECONCILIATION_AGE_SEC}s, manual review required"
+                    ),
                 )
                 await session.commit()
                 continue
 
             if not attempt or not attempt.provider_order_id:
+                if settings.execution_mode.value == "PAPER":
+                    # У PAPER нет внешнего ордера, поэтому SUBMITTING без
+                    # provider_order_id можно безопасно вернуть в READY.
+                    if attempt:
+                        attempt.status = "FAILED"
+                        attempt.finished_at = now
+                        attempt.error_msg = (
+                            "Recovered stale PAPER attempt without provider_order_id"
+                        )
+                    req.state = "READY"
+                    req.claimed_by = None
+                    req.claimed_at = None
+                    req.lease_expires_at = None
+                    req.expires_at = now + timedelta(
+                        seconds=max(req.ttl_seconds or 60, 60)
+                    )
+                    req.error_reason = (
+                        "Recovered stale PAPER request without provider_order_id"
+                    )
+                    req.updated_at = now
+                    await session.commit()
+                    logger.warning(
+                        "paper_request_requeued_without_provider_id",
+                        request_id=str(req.id),
+                    )
+                    continue
                 logger.warning(
                     "cannot_reconcile_no_provider_id", request_id=str(req.id)
                 )
