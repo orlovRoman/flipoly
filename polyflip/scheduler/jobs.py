@@ -33,15 +33,34 @@ async def collector_job():
     logger.info("starting_collector_job")
     async with async_session() as session:
         await run_collector_cycle(session)
-        
-    # Обновляем файл-маркер для healthcheck
+    logger.info("finished_collector_job")
+
+async def scheduler_heartbeat_job() -> None:
     try:
-        with open("/tmp/scheduler_alive", "w") as f:
-            f.write(datetime.now(timezone.utc).isoformat())
+        heartbeat_path = Path("/tmp/scheduler_alive")
+        heartbeat_path.write_text(
+            datetime.now(timezone.utc).isoformat(),
+            encoding="utf-8",
+        )
     except Exception as e:
         logger.warning("failed_to_write_scheduler_health_marker", error=str(e))
+
+async def initial_backfill_job() -> None:
+    try:
+        from sqlalchemy import select
+        from polyflip.db.models import RuntimeSettings
         
-    logger.info("finished_collector_job")
+        async with async_session() as session:
+            stmt = select(RuntimeSettings).where(RuntimeSettings.key == "STARTUP_CANDLE_BACKFILL_ENABLED")
+            res = await session.execute(stmt)
+            setting = res.scalar_one_or_none()
+            if not setting or setting.value.lower() != "true":
+                logger.info("startup_backfill_disabled")
+                return
+
+            await candle_backfill_job(session)
+    except Exception as exc:
+        logger.exception("startup_backfill_failed", error=str(exc))
 
 async def resolver_job():
     logger.info("starting_resolver_job")
@@ -426,12 +445,7 @@ async def main():
     # Инициализируем общие клиенты для переиспользования соединений
     api_client = PolymarketClient()
     # Вызов одноразового backfill свечей и обновления ставок финансирования при старте
-    try:
-        async with async_session() as session:
-            await candle_backfill_job(session)
-    except Exception as e:
-
-        logger.exception("initial_candle_backfill_failed", error=str(e))
+    api_client = PolymarketClient()
 
     scheduler = AsyncIOScheduler()
     
@@ -439,6 +453,26 @@ async def main():
         collector_job,
         trigger=IntervalTrigger(seconds=poll_interval),
         id="collector_job",
+        replace_existing=True
+    )
+    
+    now = datetime.now(timezone.utc)
+    
+    scheduler.add_job(
+        scheduler_heartbeat_job,
+        trigger=IntervalTrigger(seconds=15),
+        id="scheduler_heartbeat",
+        next_run_time=now,
+        max_instances=1,
+        replace_existing=True
+    )
+
+    scheduler.add_job(
+        initial_backfill_job,
+        trigger="date",
+        run_date=now + timedelta(seconds=10),
+        id="initial_candle_backfill",
+        max_instances=1,
         replace_existing=True
     )
     

@@ -26,10 +26,18 @@ from datetime import datetime, timezone, timedelta
 logger = structlog.get_logger(__name__)
 
 
+from enum import StrEnum
+
+class EnqueueDisposition(StrEnum):
+    CREATED = "CREATED"
+    DUPLICATE = "DUPLICATE"
+    BLOCKED = "BLOCKED"
+
 @dataclass(frozen=True)
 class EnqueueResult:
-    request_id: UUID
-    created: bool
+    disposition: EnqueueDisposition
+    request_id: UUID | None = None
+    reason: str | None = None
 
 
 async def enqueue_open_request(
@@ -42,7 +50,7 @@ async def enqueue_open_request(
     target_amount_usdc: float,
     limit_price: float,
     requested_mode: ExecutionMode,
-) -> EnqueueResult | None:
+) -> EnqueueResult:
 
     existing_id = (
         await db.execute(
@@ -55,7 +63,7 @@ async def enqueue_open_request(
     ).scalar_one_or_none()
 
     if existing_id is not None:
-        return EnqueueResult(request_id=existing_id, created=False)
+        return EnqueueResult(disposition=EnqueueDisposition.DUPLICATE, request_id=existing_id)
 
     request_id = uuid.uuid4()
     now_utc = datetime.now(timezone.utc)
@@ -75,7 +83,7 @@ async def enqueue_open_request(
     )
     if risk_error:
         logger.warning("risk_limit_breached", reason=risk_error, market_id=market_id)
-        return None
+        return EnqueueResult(disposition=EnqueueDisposition.BLOCKED, reason=risk_error)
 
     # --- CONFIRM_THRESHOLD_USDC ---
     # Применяется ТОЛЬКО к LIVE. PAPER и SHADOW всегда попадают в READY,
@@ -138,7 +146,7 @@ async def enqueue_open_request(
     )
     created_id = (await db.execute(statement)).scalar_one_or_none()
     if created_id is not None:
-        return EnqueueResult(request_id=created_id, created=True)
+        return EnqueueResult(disposition=EnqueueDisposition.CREATED, request_id=created_id)
 
     existing_id = (
         await db.execute(
@@ -151,8 +159,8 @@ async def enqueue_open_request(
     ).scalar_one_or_none()
 
     if existing_id is not None:
-        return EnqueueResult(request_id=existing_id, created=False)
-    return None
+        return EnqueueResult(disposition=EnqueueDisposition.DUPLICATE, request_id=existing_id)
+    return EnqueueResult(disposition=EnqueueDisposition.BLOCKED, reason="Failed to insert ExecutionRequest")
 
 
 async def enqueue_close_request(
@@ -163,7 +171,7 @@ async def enqueue_close_request(
         "STOP_LOSS", "TAKE_PROFIT", "MANUAL", "RECOVERY", "STRATEGY"
     ],
     limit_price: float,
-) -> EnqueueResult | None:
+) -> EnqueueResult:
 
     trade = (
         await db.execute(
@@ -172,10 +180,10 @@ async def enqueue_close_request(
     ).scalar_one()
 
     if trade.position_status == "CLOSED":
-        return None
+        return EnqueueResult(disposition=EnqueueDisposition.BLOCKED, reason="Trade is already CLOSED")
 
     if not trade.remaining_shares or trade.remaining_shares <= 0:
-        return None
+        return EnqueueResult(disposition=EnqueueDisposition.BLOCKED, reason="No remaining shares")
 
     existing_id = (
         await db.execute(
@@ -187,7 +195,7 @@ async def enqueue_close_request(
     ).scalar_one_or_none()
 
     if existing_id is not None:
-        return EnqueueResult(request_id=existing_id, created=False)
+        return EnqueueResult(disposition=EnqueueDisposition.DUPLICATE, request_id=existing_id)
 
     request_id = uuid.uuid4()
     now_utc = datetime.now(timezone.utc)
@@ -236,9 +244,8 @@ async def enqueue_close_request(
     if created_id is not None:
         trade.position_status = "EXIT_REQUESTED"
         trade.exit_reason = trigger_reason
-        # Атомарно увеличиваем версию позиции — следующий CLOSE получит новый ключ
         trade.position_version = version_snapshot + 1
-        return EnqueueResult(request_id=created_id, created=True)
+        return EnqueueResult(disposition=EnqueueDisposition.CREATED, request_id=created_id)
 
     existing_id = (
         await db.execute(
@@ -250,9 +257,9 @@ async def enqueue_close_request(
     ).scalar_one_or_none()
 
     if existing_id is not None:
-        return EnqueueResult(request_id=existing_id, created=False)
+        return EnqueueResult(disposition=EnqueueDisposition.DUPLICATE, request_id=existing_id)
 
-    return None
+    return EnqueueResult(disposition=EnqueueDisposition.BLOCKED, reason="Failed to insert ExecutionRequest")
 
 
 async def finalize_request(

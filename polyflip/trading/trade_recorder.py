@@ -12,12 +12,15 @@ from polyflip.trading.stoploss import compute_stop_price
 from polyflip.trading.takeprofit import compute_take_profit_price
 from polyflip.api.trading_dashboard import invalidate_stats_cache
 from polyflip.api.dashboard import invalidate_dashboard_cache
-from polyflip.execution.outbox import enqueue_open_request
+from polyflip.execution.outbox import enqueue_open_request, EnqueueDisposition
 from polyflip.execution.config import ExecutionSettings
 import os
 from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
 
 logger = structlog.get_logger(__name__)
+
+class EnqueueRejected(Exception):
+    pass
 
 def _get_trade_active_features(asset_mode: str, active_features_str: str, decision_obj: Any, asset_name: str = "") -> str:
     if asset_mode == TRADING_MODE_LIGHTGBM:
@@ -209,39 +212,44 @@ async def execute_and_record(
         history.take_profit_enabled = False
         history.take_profit_status  = "SKIPPED"
 
-    db_session.add(history)
-    await db_session.flush()
+    savepoint = await db_session.begin_nested()
+    try:
+        db_session.add(history)
+        await db_session.flush()
 
-    result = await enqueue_open_request(
-        db_session,
-        trade_id=history.id,
-        market_id=market.market_id,
-        asset=market.asset,
-        outcome_to_buy=decision,
-        target_amount_usdc=actual_bet_size,
-        limit_price=buy_price,
-        requested_mode=exec_settings.execution_mode,
-    )
-    
-    if result is None:
-        raise ValueError(f"ActiveExecutionConflict: Market {market.market_id} cannot enqueue.")
+        result = await enqueue_open_request(
+            db_session,
+            trade_id=history.id,
+            market_id=market.market_id,
+            asset=market.asset,
+            outcome_to_buy=decision,
+            target_amount_usdc=actual_bet_size,
+            limit_price=buy_price,
+            requested_mode=exec_settings.execution_mode,
+        )
+        
+        if result.disposition == EnqueueDisposition.BLOCKED:
+            raise EnqueueRejected(f"Execution rejected: {result.reason}")
 
-    if not result.created:
-        await db_session.delete(history)
-        raise ValueError(f"ActiveExecutionConflict: Market {market.market_id} already has an active OPEN request.")
+        if result.disposition == EnqueueDisposition.DUPLICATE:
+            raise EnqueueRejected(f"ActiveExecutionConflict: Market {market.market_id} already has an active OPEN request.")
 
-    # Create ExposureReservation
-    from polyflip.db.execution_models import ExposureReservation
-    from datetime import timedelta
-    reservation = ExposureReservation(
-        request_id=result.request_id,
-        trade_history_id=history.id,
-        market_id=market.market_id,
-        amount_usdc=actual_bet_size,
-        expires_at=start_time + timedelta(hours=1)
-    )
-    db_session.add(reservation)
+        from polyflip.db.execution_models import ExposureReservation
+        from datetime import timedelta
+        reservation = ExposureReservation(
+            request_id=result.request_id,
+            trade_history_id=history.id,
+            market_id=market.market_id,
+            amount_usdc=actual_bet_size,
+            expires_at=start_time + timedelta(hours=1)
+        )
+        db_session.add(reservation)
 
-    
-    invalidate_stats_cache()
-    invalidate_dashboard_cache()
+        invalidate_stats_cache()
+        invalidate_dashboard_cache()
+    except Exception as e:
+        await savepoint.rollback()
+        history.status = "SKIPPED"
+        history.error_msg = str(e)
+        db_session.add(history)
+        raise

@@ -71,6 +71,7 @@ async def get_trading_stats(
         async with async_session() as s:
             conds = [
                 TradeHistory.status == "SUCCESS",
+                TradeHistory.position_status == "CLOSED",
                 TradeHistory.pnl.is_not(None),
                 TradeHistory.mode == requested_mode
             ]
@@ -88,12 +89,13 @@ async def get_trading_stats(
         async with async_session() as s:
             conds = [
                 TradeHistory.status == "SUCCESS",
+                TradeHistory.position_status == "CLOSED",
                 TradeHistory.pnl.is_not(None),
                 TradeHistory.mode == requested_mode
             ]
             if cutoff_dt:
-                conds.append(TradeHistory.created_at >= cutoff_dt)
-            local_date = cast(func.timezone('Asia/Ho_Chi_Minh', TradeHistory.created_at), Date)
+                conds.append(TradeHistory.closed_at >= cutoff_dt)
+            local_date = cast(func.timezone('Asia/Ho_Chi_Minh', TradeHistory.closed_at), Date)
             stmt = select(
                 local_date.label("day"),
                 func.sum(TradeHistory.pnl).label("daily_pnl"),
@@ -106,6 +108,7 @@ async def get_trading_stats(
         async with async_session() as s:
             conds = [
                 TradeHistory.status == "SUCCESS",
+                TradeHistory.position_status == "CLOSED",
                 TradeHistory.pnl.is_not(None),
                 TradeHistory.mode == requested_mode
             ]
@@ -127,6 +130,7 @@ async def get_trading_stats(
                 func.sum(sa_case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
             ).where(
                 TradeHistory.status == "SUCCESS",
+                TradeHistory.position_status == "CLOSED",
                 TradeHistory.pnl.is_not(None),
                 TradeHistory.mode == requested_mode
             )

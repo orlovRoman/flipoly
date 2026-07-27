@@ -9,6 +9,20 @@ import datetime
 from uuid import UUID
 
 
+async def _financial_limits_enabled(
+    session: AsyncSession,
+    mode: ExecutionMode,
+) -> bool:
+    if mode is ExecutionMode.LIVE:
+        return True
+
+    key = f"{mode.value}_RISK_LIMITS_ENABLED"
+    row = await session.scalar(
+        select(RuntimeSettings).where(RuntimeSettings.key == key)
+    )
+    return row is not None and row.value.strip().lower() == "true"
+
+
 async def check_risk_limits(
     session: AsyncSession,
     intent: str,
@@ -21,18 +35,26 @@ async def check_risk_limits(
     Проверяет риск-лимиты до отправки ордера.
     Возвращает строку с описанием нарушения, или None если всё ОК.
 
-    CLOSE-заявки всегда проходят — они уменьшают экспозицию.
+    Закрытие никогда не блокируется финансовыми лимитами.
     """
+    try:
+        mode = ExecutionMode(requested_mode)
+    except ValueError:
+        return f"Unsupported execution mode: {requested_mode}"
+
     if intent == "CLOSE":
         return None
 
-    if requested_mode == "LIVE":
+    if mode is ExecutionMode.LIVE:
         rt_stmt = select(RuntimeSettings).where(
             RuntimeSettings.key == "LIVE_TRADING_ENABLED"
         )
         rt_set = (await session.execute(rt_stmt)).scalar_one_or_none()
         if not rt_set or rt_set.value.lower() != "true":
             return "LIVE trading kill switch is off"
+
+    if not await _financial_limits_enabled(session, mode):
+        return None
 
     # --- MAX_SINGLE_ORDER_USDC ---
     single_limit_stmt = select(RuntimeSettings).where(

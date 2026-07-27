@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,7 +59,24 @@ async def collect_new_candles(session: AsyncSession) -> dict[str, int]:
                 lookback = timedelta(hours=4) if interval == "5m" else timedelta(hours=12)
                 start_ms = int((datetime.now(timezone.utc) - lookback).timestamp() * 1000)
 
-            candles = fetch_klines(symbol, interval, start_ms=start_ms)
+            try:
+                candles = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        fetch_klines,
+                        symbol,
+                        interval,
+                        start_ms=start_ms,
+                    ),
+                    timeout=30,
+                )
+            except TimeoutError:
+                log.warning("candle_fetch_timeout", symbol=symbol, interval=interval)
+                results[f"{symbol}_{interval}"] = -1
+                continue
+            except Exception as exc:
+                log.warning("candle_fetch_failed", symbol=symbol, interval=interval, error=str(exc))
+                results[f"{symbol}_{interval}"] = -1
+                continue
 
             inserted = await upsert_candles(session, symbol, interval, candles)
             log.info("candle_collector_done", symbol=symbol, interval=interval, inserted=inserted)
