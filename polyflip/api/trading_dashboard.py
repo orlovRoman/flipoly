@@ -7,6 +7,7 @@ from datetime import datetime, time as dt_time, timezone, timedelta
 from fastapi import APIRouter, Request, Depends, Query
 
 from sqlalchemy import select, func, cast, Date, case as sa_case
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import TradeHistory, RuntimeSettings
