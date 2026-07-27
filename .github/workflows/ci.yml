@@ -28,6 +28,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://polyflip:polyflip@localhost:5432/polyflip_test
       EXECUTION_MODE: PAPER
+      POSTGRES_INTEGRATION_TESTS: "1"
 
     steps:
       - uses: actions/checkout@v4
