@@ -7,7 +7,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from polyflip.db.models import TradeHistory
+from polyflip.db.models import TradeHistory, RuntimeSettings
 from polyflip.db.execution_models import ExecutionRequest, ExposureReservation, ExecutionEvent
 from polyflip.execution.config import ExecutionMode
 from polyflip.execution.states import (
@@ -54,10 +54,34 @@ async def enqueue_open_request(
     request_id = uuid.uuid4()
     now_utc = datetime.now(timezone.utc)
     
-    risk_error = await check_risk_limits(db, "OPEN", Decimal(str(target_amount_usdc)), requested_mode.value, None)
+    risk_error = await check_risk_limits(
+        db,
+        "OPEN",
+        Decimal(str(target_amount_usdc)),
+        requested_mode.value,
+        trade_history_id=trade_id,
+    )
     if risk_error:
         logger.warning("risk_limit_breached", reason=risk_error, market_id=market_id)
         return None
+
+    # --- CONFIRM_THRESHOLD_USDC ---
+    # Если сумма превышает порог — ставим AWAITING_APPROVAL, не READY
+    threshold_set = (
+        await db.execute(
+            select(RuntimeSettings).where(
+                RuntimeSettings.key == "CONFIRM_THRESHOLD_USDC"
+            )
+        )
+    ).scalar_one_or_none()
+    initial_state = "READY"
+    if threshold_set:
+        try:
+            threshold = Decimal(threshold_set.value)
+            if Decimal(str(target_amount_usdc)) > threshold:
+                initial_state = "AWAITING_APPROVAL"
+        except (ValueError, TypeError):
+            pass  # некорректное значение — считаем порог неустановленным
         
     dialect_name = db.bind.dialect.name
     insert_func = sqlite_insert if dialect_name == 'sqlite' else pg_insert
@@ -83,7 +107,7 @@ async def enqueue_open_request(
             max_spend_usdc=Decimal(str(target_amount_usdc)),
             ttl_seconds=60,
             expires_at=now_utc + timedelta(seconds=60),
-            state="READY",
+            state=initial_state,
             created_at=now_utc,
             updated_at=now_utc,
         )

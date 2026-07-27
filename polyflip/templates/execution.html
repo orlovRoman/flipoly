@@ -245,33 +245,48 @@
             }
         });
         
+        // Безопасная экранировка — защита от stored XSS через данные gateway
+        function esc(str) {
+            const div = document.createElement('div');
+            div.textContent = String(str ?? '');
+            return div.innerHTML;  // возвращает HTML-сущности, не теги
+        }
+
         async function fetchRequests() {
             try {
                 const res = await fetch(window.API_BASE + '/api/execution/requests?limit=20', {
                     headers: { 'x-api-key': localStorage.getItem('polyflip_api_key') || '' }
                 });
                 const data = await res.json();
-                
+
                 const tbody = document.querySelector('#requests-table tbody');
                 if (data.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Нет активных заявок</td></tr>';
                     return;
                 }
-                
+
                 let html = '';
                 data.forEach(req => {
-                    const date = new Date(req.created_at).toLocaleString();
-                    const target = req.target_amount_usdc ? `$${req.target_amount_usdc}` : (req.requested_shares ? `${req.requested_shares} sh` : '--');
-                    const filled = req.filled_shares ? `${req.filled_shares} sh / $${req.filled_cost_usdc}` : '0';
-                    const errTTL = req.error_reason ? `<span style="color:red; font-size:0.85em;">${req.error_reason}</span>` : `TTL: ${req.ttl_seconds}s`;
-                    
+                    const date = esc(new Date(req.created_at).toLocaleString());
+                    const target = req.target_amount_usdc ? `$${esc(req.target_amount_usdc)}` : (req.requested_shares ? `${esc(req.requested_shares)} sh` : '--');
+                    const filled = req.filled_shares ? `${esc(req.filled_shares)} sh / $${esc(req.filled_cost_usdc)}` : '0';
+                    // error_reason экранируется через esc() — защита от XSS
+                    const errTTL = req.error_reason
+                        ? `<span style="color:red; font-size:0.85em;">${esc(req.error_reason)}</span>`
+                        : `TTL: ${esc(req.ttl_seconds)}s`;
+                    const stateClass = (req.state === 'SUCCESS' || req.state === 'FILLED')
+                        ? 'status-shadow'
+                        : (req.state.includes('FAILED') || req.state === 'REJECTED' || req.state === 'EXPIRED')
+                            ? 'status-live'
+                            : 'status-paper';
+
                     html += `<tr>
                         <td>${date}</td>
-                        <td><strong>${req.intent}</strong></td>
-                        <td><span style="font-size:0.85em;">${req.market_id.substring(0,8)}...</span></td>
-                        <td>${req.requested_mode}</td>
-                        <td>${target} @ ${req.limit_price}</td>
-                        <td><span class="status-badge ${req.state === 'SUCCESS' || req.state === 'FILLED' ? 'status-shadow' : (req.state.includes('FAILED') || req.state === 'REJECTED' || req.state === 'EXPIRED' ? 'status-live' : 'status-paper')}">${req.state}</span></td>
+                        <td><strong>${esc(req.intent)}</strong></td>
+                        <td><span style="font-size:0.85em;">${esc(req.market_id.substring(0,8))}...</span></td>
+                        <td>${esc(req.requested_mode)}</td>
+                        <td>${target} @ ${esc(req.limit_price)}</td>
+                        <td><span class="status-badge ${esc(stateClass)}">${esc(req.state)}</span></td>
                         <td>${filled}</td>
                         <td>${errTTL}</td>
                     </tr>`;
@@ -281,6 +296,7 @@
                 console.error("Error fetching requests", e);
             }
         }
+
         
         async function fetchPositions() {
             try {

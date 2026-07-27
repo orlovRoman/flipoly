@@ -23,9 +23,10 @@ from sqlalchemy import text
 
 # revision identifiers, used by Alembic.
 revision: str = "a2b3c4d5e6f7"
-down_revision: Union[str, None] = "32d70d1e31e4"
+down_revision: Union[str, None] = "41c8d1f7c5e2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
 
 # Предикат для активных CLOSE-заявок
 _ACTIVE_CLOSE_SQL = """

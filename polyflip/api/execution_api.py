@@ -10,8 +10,13 @@ import structlog
 from polyflip.db.connection import get_db_session
 from polyflip.api.auth import verify_api_key
 from polyflip.db.models import RuntimeSettings
-from polyflip.db.execution_models import ExecutionWorkerStatus
+from polyflip.db.execution_models import (
+    ExecutionWorkerStatus,
+    ExecutionRequest,
+    ExecutionEvent,
+)
 from polyflip.execution.config import ExecutionSettings
+
 
 logger = structlog.get_logger(__name__)
 
@@ -204,3 +209,113 @@ async def get_live_trading_requests(
         }
         for r in requests
     ]
+
+
+# ---------------------------------------------------------------------------
+# Manual review endpoint
+# ---------------------------------------------------------------------------
+
+class ResolveReviewRequest(BaseModel):
+    action: Literal["REQUEUE_AFTER_ALLOWANCE", "MARK_FAILED_NO_FILL"]
+    operator: str
+    note: str = ""
+
+
+@router.post("/requests/{request_id}/resolve-review")
+async def resolve_manual_review(
+    request_id: str,
+    body: ResolveReviewRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Переводит заявку из MANUAL_REVIEW_REQUIRED в новое состояние.
+
+    REQUEUE_AFTER_ALLOWANCE — оператор убедился, что allowance выставлен;
+        заявка возвращается в READY для повторной попытки.
+        ⚠ Если у попытки уже есть provider_order_id — вызов запрещён
+        (требуется сверка fills).
+
+    MARK_FAILED_NO_FILL — fill не произошёл, allowance недостаточен;
+        заявка переходит в FAILED.
+    """
+    now = datetime.now(timezone.utc)
+
+    req = (
+        await db.execute(
+            select(ExecutionRequest).where(ExecutionRequest.id == request_id)
+        )
+    ).scalar_one_or_none()
+
+    if req is None:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    if req.state != "MANUAL_REVIEW_REQUIRED":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Request is in state {req.state!r}, not MANUAL_REVIEW_REQUIRED",
+        )
+
+    old_state = req.state
+
+    if body.action == "REQUEUE_AFTER_ALLOWANCE":
+        # Проверяем: если у попытки уже есть provider_order_id — запрещаем
+        from polyflip.db.execution_models import ExecutionAttempt
+
+        last_attempt = (
+            await db.execute(
+                select(ExecutionAttempt)
+                .where(ExecutionAttempt.request_id == req.id)
+                .order_by(ExecutionAttempt.started_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if last_attempt and last_attempt.provider_order_id:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Cannot requeue: last attempt has a provider_order_id "
+                    f"({last_attempt.provider_order_id!r}). "
+                    "Reconcile provider fills first."
+                ),
+            )
+
+        req.state = "READY"
+        req.error_reason = None
+        req.updated_at = now
+
+    elif body.action == "MARK_FAILED_NO_FILL":
+        req.state = "FAILED"
+        req.error_reason = f"Manually marked as failed by {body.operator}: {body.note}"
+        req.updated_at = now
+
+    db.add(
+        ExecutionEvent(
+            level="INFO",
+            event_type=f"MANUAL_REVIEW_{body.action}",
+            message=(
+                f"Operator {body.operator!r} resolved MANUAL_REVIEW_REQUIRED → "
+                f"{req.state!r}. Note: {body.note or '—'}"
+            ),
+            source="execution_api",
+            request_id=req.id,
+            trade_history_id=req.trade_history_id,
+            payload={
+                "operator": body.operator,
+                "action": body.action,
+                "old_state": old_state,
+                "new_state": req.state,
+                "note": body.note,
+            },
+        )
+    )
+
+    await db.commit()
+
+    return {
+        "request_id": str(req.id),
+        "old_state": old_state,
+        "new_state": req.state,
+        "action": body.action,
+        "operator": body.operator,
+    }

@@ -44,4 +44,7 @@ ACTIVE_POSITION_STATES = frozenset({
     "PARTIALLY_CLOSED",
     "EXIT_REQUESTED",
     "CLOSING",
+    # LIVE-позиции после разрешения рынка — ожидают on-chain redemption
+    "RESOLVED_REDEEMABLE",
 })
+

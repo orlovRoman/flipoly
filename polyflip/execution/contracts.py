@@ -75,6 +75,10 @@ class SubmissionResult(BaseModel):
     error_message: str | None = None
     settlement_state: str = "PENDING"
     transaction_hashes: tuple[str, ...] = ()
+    # Заполняется шлюзами, которые возвращают fills синхронно (SHADOW, FAKE).
+    # Если непустое — worker пропускает fetch_order_fills.
+    fills: tuple["TradeExecution", ...] = ()
+
 
 class ExecutionGateway(Protocol):
     name: str

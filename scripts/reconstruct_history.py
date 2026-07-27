@@ -1,12 +1,33 @@
+"""
+Скрипт восстановления истории сделок на основе on-chain результатов рынка.
+
+Алгоритм:
+1. Найти PAPER/SHADOW позиции в активных статусах.
+2. Для каждого market_id запросить финальный итог через Gamma API.
+3. Восстановить nullable-поля (basis-реконструкция) если нужно.
+4. Вызвать settle_resolved_position() из settlement_service.
+5. Вывести diff.
+6. Если --apply — commit. Иначе rollback.
+
+Примечания:
+- LIVE-позиции пропускаются: они требуют on-chain redemption.
+- Никакой собственной формулы PnL в этом скрипте нет.
+"""
 import argparse
 import asyncio
 import aiohttp
+from decimal import Decimal
 from sqlalchemy import select
 from polyflip.db.connection import async_session
 from polyflip.db.models import TradeHistory
-from datetime import datetime, timezone
+from polyflip.execution.settlement_service import (
+    settle_resolved_position,
+    AccountingInvariantError,
+)
+from polyflip.execution.states import ACTIVE_POSITION_STATES
 
-OUTCOME_ALIASES = {"UP": "YES", "DOWN": "NO"}
+OUTCOME_ALIASES = {"UP": "YES", "DOWN": "NO", "1": "YES", "0": "NO"}
+
 
 def normalize_outcome(outcome: str) -> str:
     if not outcome:
@@ -14,85 +35,117 @@ def normalize_outcome(outcome: str) -> str:
     out = outcome.upper()
     return OUTCOME_ALIASES.get(out, out)
 
-async def fetch_market(session, market_id):
-    url = f"https://gamma-api.polymarket.com/markets"
+
+async def fetch_market(http_session, market_id: str) -> dict | None:
+    url = "https://gamma-api.polymarket.com/markets"
     params = {"condition_id": market_id}
-    async with session.get(url, params=params) as resp:
+    async with http_session.get(url, params=params) as resp:
         if resp.status == 200:
             data = await resp.json()
             if isinstance(data, list) and len(data) > 0:
                 return data[0]
-        return None
+    return None
+
 
 async def main(apply: bool):
     print(f"Running reconstruct_history... (Apply={apply})")
     async with async_session() as db:
-        res = await db.execute(select(TradeHistory).where(TradeHistory.position_status.in_(['OPEN', 'CLOSING', 'PARTIALLY_CLOSED'])))
+        res = await db.execute(
+            select(TradeHistory).where(
+                TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
+                # Только PAPER и SHADOW — LIVE нельзя закрывать без on-chain redemption
+                TradeHistory.mode.in_(("PAPER", "SHADOW")),
+            )
+        )
         trades = res.scalars().all()
-        print(f"Found {len(trades)} active trades.")
-        
+        print(f"Found {len(trades)} active PAPER/SHADOW trades.")
+
         if not trades:
             return
 
-        updates = []
-        async with aiohttp.ClientSession() as session:
+        updates: list[tuple] = []
+        errors: list[tuple] = []
+
+        async with aiohttp.ClientSession() as http_session:
             for trade in trades:
-                if trade.mode == 'LIVE':
-                    continue
-                    
-                market = await fetch_market(session, trade.market_id)
+                market = await fetch_market(http_session, trade.market_id)
                 if not market:
                     continue
-                
-                if market.get('closed') or market.get('active') is False:
-                    tokens = market.get('tokens', [])
-                    winner_token = next((t for t in tokens if t.get('winner')), None)
-                    
-                    if winner_token:
-                        winner_outcome = winner_token.get('outcome', '')
-                        
-                        size = float(trade.entry_filled_shares) if trade.entry_filled_shares is not None else (float(trade.amount_usdc) / float(trade.executed_price) if trade.executed_price else 0)
-                        cost = float(trade.entry_cost_usdc) if trade.entry_cost_usdc is not None else float(trade.amount_usdc)
-                        
-                        if normalize_outcome(winner_outcome) == normalize_outcome(str(trade.outcome_bought)):
-                            pnl = size - cost
-                            close_price = 1.0
-                        else:
-                            pnl = -cost
-                            close_price = 0.0
-                        
+
+                if not (market.get("closed") or market.get("active") is False):
+                    continue
+
+                tokens = market.get("tokens", [])
+                winner_token = next((t for t in tokens if t.get("winner")), None)
+
+                if not winner_token:
+                    # INVALID или нет финального итога
+                    raw_outcome = market.get("resolvedBy") or ""
+                    if raw_outcome.upper() != "INVALID":
+                        continue
+                    # INVALID: 50/50
+                    try:
                         old_status = trade.position_status
-                        
-                        if apply:
-                            trade.position_status = 'CLOSED'
-                            trade.status = 'SUCCESS'
-                            trade.pnl = pnl
-                            trade.realized_pnl_usdc = pnl
-                            trade.close_price = close_price
-                            trade.remaining_shares = 0
-                            trade.closed_at = datetime.now(timezone.utc)
-                            
-                        updates.append((trade.id, trade.mode, trade.market_id, old_status, "CLOSED", pnl, winner_outcome))
-                        
+                        await settle_resolved_position(
+                            db,
+                            trade_id=trade.id,
+                            winning_outcome="INVALID",
+                            payout_per_share=Decimal("0.5"),
+                            settlement_fee_usdc=Decimal("0"),
+                        )
+                        trade.status = "INVALID"
+                        updates.append(
+                            (trade.id, trade.mode, trade.market_id, old_status, "CLOSED", "INVALID")
+                        )
+                    except AccountingInvariantError as exc:
+                        errors.append((trade.id, str(exc)))
+                else:
+                    winner_outcome = normalize_outcome(winner_token.get("outcome", ""))
+                    try:
+                        old_status = trade.position_status
+                        await settle_resolved_position(
+                            db,
+                            trade_id=trade.id,
+                            winning_outcome=winner_outcome,
+                            payout_per_share=Decimal("1"),
+                            settlement_fee_usdc=Decimal("0"),
+                        )
+                        updates.append(
+                            (trade.id, trade.mode, trade.market_id, old_status, "CLOSED", winner_outcome)
+                        )
+                    except AccountingInvariantError as exc:
+                        errors.append((trade.id, str(exc)))
+
                 await asyncio.sleep(0.1)
-        
+
         print("\n--- Proposed Changes ---")
-        print(f"{'ID':<6} | {'Mode':<6} | {'Market ID':<44} | {'Old':<10} | {'New':<10} | {'PnL':<8} | {'Winner':<10}")
-        print("-" * 115)
+        print(
+            f"{'ID':<6} | {'Mode':<6} | {'Market ID':<44} | {'Old':<20} | {'New':<10} | {'Winner':<10}"
+        )
+        print("-" * 120)
         for u in updates:
-            print(f"{u[0]:<6} | {u[1]:<6} | {u[2]:<44} | {u[3]:<10} | {u[4]:<10} | {u[5]:<8.2f} | {u[6]:<10}")
-            
+            print(f"{u[0]:<6} | {u[1]:<6} | {u[2]:<44} | {u[3]:<20} | {u[4]:<10} | {u[5]:<10}")
+
+        if errors:
+            print(f"\n--- Accounting Errors ({len(errors)}) ---")
+            for trade_id, err in errors:
+                print(f"  Trade {trade_id}: {err}")
+
         if apply and updates:
             await db.commit()
             print(f"\nCommitted {len(updates)} updated trades to database.")
         elif not apply and updates:
+            await db.rollback()
             print("\nDRY RUN: Run with --apply to commit changes.")
         else:
             print("\nNo trades were updated.")
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Reconstruct trade history for PAPER trades")
+    parser = argparse.ArgumentParser(
+        description="Reconstruct trade history for PAPER/SHADOW trades using settlement_service"
+    )
     parser.add_argument("--apply", action="store_true", help="Apply changes to the database")
     args = parser.parse_args()
-    
+
     asyncio.run(main(apply=args.apply))

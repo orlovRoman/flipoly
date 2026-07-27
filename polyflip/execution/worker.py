@@ -1,6 +1,7 @@
 import asyncio
 import structlog
 import os
+import socket
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 import uuid
@@ -60,6 +61,38 @@ async def _acquire_mode_lock(session, requested_mode: str) -> None:
         ),
         {"namespace": _ADVISORY_LOCK_NAMESPACE, "mode_key": mode_key},
     )
+
+
+
+async def _persist_fills(
+    session,
+    attempt: ExecutionAttempt,
+    fills,
+) -> None:
+    """
+    Сохраняет fills идемпотентно через ON CONFLICT DO NOTHING
+    по (gateway, provider_trade_id).
+    Единая функция для прямого пути submit() и reconciler.
+    """
+    dialect_name = session.bind.dialect.name
+    insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
+
+    for f in fills:
+        stmt = (
+            insert_func(ExecutionFill)
+            .values(
+                attempt_id=attempt.id,
+                provider_trade_id=f.provider_trade_id,
+                gateway=f.gateway,
+                gross_quote_usdc=f.gross_quote_usdc,
+                price=f.price,
+                shares=f.shares,
+                fee_usdc=f.fee_usdc,
+                timestamp=f.matched_at,
+            )
+            .on_conflict_do_nothing(constraint="uq_execution_provider_trade")
+        )
+        await session.execute(stmt)
 
 
 async def claim_one(session, worker_mode: str) -> ExecutionRequest | None:
@@ -166,6 +199,7 @@ async def process_ready_requests():
             max_spend_usdc=max_spend_usdc,
             requested_mode=req.requested_mode,
             request_id=req.id,
+            trade_history_id=req.trade_history_id,
         )
         if risk_err:
             logger.warning("risk_limit_breached", request_id=str(req.id), error=risk_err)
@@ -250,14 +284,20 @@ async def process_ready_requests():
                     error=sub_res.error_message or sub_res.provider_status,
                 )
             elif sub_res.settlement_state == "CONFIRMED":
-                fills = await gateway.fetch_order_fills(
-                    attempt.provider_order_id, token_id
-                )
+                # Шлюзы SHADOW/FAKE возвращают fills синхронно в sub_res.fills.
+                # LIVE: делаем fetch_order_fills как обычно.
+                if sub_res.fills:
+                    fills = sub_res.fills
+                else:
+                    fills = await gateway.fetch_order_fills(
+                        attempt.provider_order_id, token_id
+                    )
                 if len(fills) == 0:
                     attempt.status = "UNKNOWN"
                     req.state = "RECONCILING"
                 else:
                     attempt.status = "SUCCESS"
+                    await _persist_fills(session, attempt, fills)
                     filled_shares = sum(
                         (fill.shares for fill in fills), Decimal("0")
                     )
@@ -268,26 +308,13 @@ async def process_ready_requests():
                     req.filled_shares = filled_shares
                     req.filled_cost_usdc = filled_quote
 
-                    for f in fills:
-                        session.add(
-                            ExecutionFill(
-                                attempt_id=attempt.id,
-                                provider_trade_id=f.provider_trade_id,
-                                gateway=f.gateway,
-                                gross_quote_usdc=f.gross_quote_usdc,
-                                price=f.price,
-                                shares=f.shares,
-                                fee_usdc=f.fee_usdc,
-                                timestamp=f.matched_at,
-                            )
-                        )
-
                     if filled_shares < (req.requested_shares or Decimal("0")):
                         await finalize_request(
                             session, req, state="PARTIALLY_FILLED_FINAL"
                         )
                     else:
                         await finalize_request(session, req, state="FILLED")
+
             elif sub_res.settlement_state == "FAILED":
                 attempt.status = "FAILED"
                 attempt.error_msg = "Settlement failed on chain"
@@ -417,14 +444,20 @@ async def rebuild_trade_accounting(session, trade_id: int):
         open_gross = Decimal(str(trade.entry_cost_usdc or trade.amount_usdc or "0"))
 
     # Invariant: нельзя продать больше, чем куплено
-    if close_shares > open_shares and open_shares > Decimal("0"):
+    if close_shares > open_shares + Decimal("0.000001") and open_shares > Decimal("0"):
         logger.error(
             "accounting_invariant_violated",
             trade_id=trade_id,
             open_shares=str(open_shares),
             close_shares=str(close_shares),
         )
-        close_shares = open_shares  # зажимаем, не пересчитываем
+        # Не зажимаем — переводим в MANUAL_REVIEW_REQUIRED и прерываем
+        trade.position_status = "MANUAL_REVIEW_REQUIRED"
+        trade.last_exit_error = (
+            f"over-close: close_shares={close_shares} > open_shares={open_shares}"
+        )
+        await session.commit()
+        return
 
     # --- PnL по формуле частичного закрытия ---
     # entry_basis включает gross + fees (полная стоимость входа)
@@ -438,8 +471,9 @@ async def rebuild_trade_accounting(session, trade_id: int):
     remaining_shares = open_shares - close_shares
 
     trade.entry_filled_shares = open_shares
-    trade.entry_cost_usdc = open_gross
-    trade.amount_usdc = open_gross
+    # entry_cost_usdc = gross + entry fees (полная себестоимость входа)
+    trade.entry_cost_usdc = open_gross + open_fees
+    trade.amount_usdc = open_gross  # legacy: только gross
     trade.remaining_shares = max(Decimal("0"), remaining_shares)
     trade.realized_pnl_usdc = realized_pnl
     trade.pnl = realized_pnl  # синхронизируем legacy-колонку
@@ -588,7 +622,8 @@ async def reconcile_active_requests():
                         provider_status=sub_res.provider_status,
                     )
                     req.state = "RECONCILING"
-                    req.updated_at = now
+                    # НЕ обновляем req.updated_at — таймер отсчитывается
+                    # с момента перехода в RECONCILING, а не с последнего poll.
                     await session.commit()
                     continue
 
@@ -626,25 +661,7 @@ async def reconcile_active_requests():
                     req.filled_shares = filled_shares
                     req.filled_cost_usdc = filled_quote
 
-                    for f in fills:
-                        fill_check = await session.execute(
-                            select(ExecutionFill).where(
-                                ExecutionFill.provider_trade_id == f.provider_trade_id
-                            )
-                        )
-                        if not fill_check.scalar_one_or_none():
-                            session.add(
-                                ExecutionFill(
-                                    attempt_id=attempt.id,
-                                    provider_trade_id=f.provider_trade_id,
-                                    gateway=f.gateway,
-                                    gross_quote_usdc=f.gross_quote_usdc,
-                                    price=f.price,
-                                    shares=f.shares,
-                                    fee_usdc=f.fee_usdc,
-                                    timestamp=f.matched_at,
-                                )
-                            )
+                    await _persist_fills(session, attempt, fills)
 
                     if filled_shares < (req.requested_shares or Decimal("0")):
                         await finalize_request(
@@ -700,7 +717,8 @@ async def reconcile_active_requests():
 async def publish_heartbeat():
     settings = ExecutionSettings()
     gateway = build_execution_gateway(settings)
-    worker_id = f"worker-{os.getpid()}"
+    # Уникальный ID: mode:hostname:pid — не конфликтует между PAPER/SHADOW/LIVE контейнерами
+    worker_id = f"{settings.execution_mode.value}:{socket.gethostname()}:{os.getpid()}"
 
     while True:
         try:

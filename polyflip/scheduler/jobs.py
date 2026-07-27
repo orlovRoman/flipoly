@@ -179,27 +179,43 @@ async def resolve_trades_job():
     try:
         from decimal import Decimal
         from polyflip.execution.settlement_service import settle_resolved_position
+        from polyflip.execution.states import ACTIVE_POSITION_STATES
 
         async with async_session() as session:
-            # Ищем все незакрытые позиции с финальным статусом SUCCESS / PAPER
-            from polyflip.execution.states import ACTIVE_POSITION_STATES
+            # Только PAPER и SHADOW закрываются scheduler-ом автоматически.
+            # LIVE-позиции переходят в RESOLVED_REDEEMABLE — требуют ручного redemption
+            # через CTF adapter (client.redeem_positions()).
             stmt = select(TradeHistory).where(
                 and_(
                     TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
                     TradeHistory.status.in_(["SUCCESS", "PAPER"]),
+                    TradeHistory.mode.in_(("PAPER", "SHADOW")),
                 )
             )
             trades = (await session.execute(stmt)).scalars().all()
 
-            if not trades:
+            # Также находим LIVE-позиции для перевода в RESOLVED_REDEEMABLE
+            live_stmt = select(TradeHistory).where(
+                and_(
+                    TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
+                    TradeHistory.status.in_(["SUCCESS"]),
+                    TradeHistory.mode == "LIVE",
+                )
+            )
+            live_trades = (await session.execute(live_stmt)).scalars().all()
+
+            all_trade_market_ids = list(
+                {t.market_id for t in trades} | {t.market_id for t in live_trades}
+            )
+
+            if not all_trade_market_ids:
                 return
 
-            market_ids = list({t.market_id for t in trades})
             outcomes_stmt = select(
                 MarketSnapshot.market_id, MarketSnapshot.final_outcome
             ).where(
                 and_(
-                    MarketSnapshot.market_id.in_(market_ids),
+                    MarketSnapshot.market_id.in_(all_trade_market_ids),
                     MarketSnapshot.final_outcome != "PENDING",
                 )
             )
@@ -207,44 +223,56 @@ async def resolve_trades_job():
             market_outcomes = {r.market_id: r.final_outcome for r in outcomes}
 
             resolved_count = 0
+
+            # PAPER/SHADOW: полное закрытие через settle_resolved_position
             for t in trades:
                 raw_outcome = market_outcomes.get(t.market_id)
                 if not raw_outcome:
                     continue
 
                 if raw_outcome == "INVALID":
-                    # При INVALID — рынок возвращает вложенные средства (payout_per_share=1.0)
+                    # Polymarket: INVALID → каждый бинарный токен = $0.50
                     await settle_resolved_position(
                         session,
                         trade_id=t.id,
                         winning_outcome="INVALID",
-                        payout_per_share=Decimal("1"),
+                        payout_per_share=Decimal("0.5"),
                         settlement_fee_usdc=Decimal("0"),
                     )
                     t.status = "INVALID"
                 else:
-                    # Polymarket берёт 2% с выигрыша
-                    SETTLEMENT_FEE_RATE = Decimal("0.002")
-                    remaining = Decimal(str(t.remaining_shares or 0))
-                    # fee считается от gross payout победителя
+                    # Polymarket fee взимается при match, не при разрешении рынка.
+                    # settlement_fee_usdc = 0.
                     await settle_resolved_position(
                         session,
                         trade_id=t.id,
                         winning_outcome=raw_outcome,
                         payout_per_share=Decimal("1"),
-                        settlement_fee_usdc=(
-                            remaining * SETTLEMENT_FEE_RATE
-                            if t.outcome_bought and raw_outcome
-                            else Decimal("0")
-                        ),
+                        settlement_fee_usdc=Decimal("0"),
                     )
 
                 resolved_count += 1
+
+            # LIVE: переводим в RESOLVED_REDEEMABLE — оператор должен запустить
+            # scripts/setup_approvals.py → client.redeem_positions()
+            for t in live_trades:
+                raw_outcome = market_outcomes.get(t.market_id)
+                if not raw_outcome:
+                    continue
+                if t.position_status not in ("RESOLVED_REDEEMABLE",):
+                    t.position_status = "RESOLVED_REDEEMABLE"
+                    logger.info(
+                        "live_position_resolved_redeemable",
+                        trade_id=t.id,
+                        winning_outcome=raw_outcome,
+                    )
+                    resolved_count += 1
 
             await session.commit()
             logger.info("finished_resolve_trades_job", resolved=resolved_count)
     except Exception as e:
         logger.exception("resolve_trades_job_error", error=str(e))
+
 
 
 async def cleanup_job():

@@ -115,5 +115,24 @@ services:
         limits:
           memory: 512M
 
+  execution_worker_shadow:
+    build: .
+    container_name: polyflip_execution_worker_shadow
+    restart: always
+    depends_on:
+      - db
+    profiles: ["shadow"]
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - EXECUTION_MODE=SHADOW
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python -m polyflip.execution.worker
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
 volumes:
   polyflip_db_data:

@@ -15,6 +15,7 @@ async def check_risk_limits(
     max_spend_usdc: Decimal,
     requested_mode: str,
     request_id: UUID | None = None,
+    trade_history_id: int | None = None,
 ) -> str | None:
     """
     Проверяет риск-лимиты до отправки ордера.
@@ -49,7 +50,8 @@ async def check_risk_limits(
             return f"Invalid MAX_SINGLE_ORDER_USDC configuration: {exc}"
 
     # --- MAX_OPEN_POSITIONS ---
-    # Считаем все активные позиции в данном режиме (OPEN + PARTIALLY_CLOSED + EXIT_REQUESTED)
+    # Считаем все активные позиции в данном режиме (OPEN + PARTIALLY_CLOSED + EXIT_REQUESTED...)
+    # Исключаем текущую OPENING-позицию если trade_history_id задан
     max_open_stmt = select(RuntimeSettings).where(
         RuntimeSettings.key == "MAX_OPEN_POSITIONS"
     )
@@ -61,6 +63,10 @@ async def check_risk_limits(
                 TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
                 TradeHistory.mode == requested_mode,
             )
+            if trade_history_id is not None:
+                open_count_stmt = open_count_stmt.where(
+                    TradeHistory.id != trade_history_id
+                )
             open_count = (await session.execute(open_count_stmt)).scalar_one()
             if open_count >= max_open:
                 return f"Max open positions limit reached ({max_open})"
@@ -88,13 +94,17 @@ async def check_risk_limits(
                 else_=Decimal("0"),
             )
 
-            current_exp_stmt = select(
+            current_exp_base = select(
                 func.coalesce(func.sum(remaining_cost_expr), Decimal("0"))
             ).where(
                 TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
                 TradeHistory.mode == requested_mode,
             )
-            current_exp = (await session.execute(current_exp_stmt)).scalar_one()
+            if trade_history_id is not None:
+                current_exp_base = current_exp_base.where(
+                    TradeHistory.id != trade_history_id
+                )
+            current_exp = (await session.execute(current_exp_base)).scalar_one()
 
             # Зарезервированная экспозиция по активным заявкам
             res_exp = await get_reserved_exposure(
@@ -113,6 +123,8 @@ async def check_risk_limits(
             return f"Invalid MAX_TOTAL_EXPOSURE_USDC configuration: {exc}"
 
     # --- DAILY_LOSS_LIMIT_USDC ---
+    # Значение хранится как ОТРИЦАТЕЛЬНОЕ число (например, -100).
+    # Блокируем если daily_pnl <= loss_floor.
     today_start = datetime.datetime.now(datetime.timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
@@ -122,7 +134,12 @@ async def check_risk_limits(
     loss_limit_set = (await session.execute(loss_limit_stmt)).scalar_one_or_none()
     if loss_limit_set:
         try:
-            loss_limit = Decimal(loss_limit_set.value)
+            loss_floor = Decimal(loss_limit_set.value)
+            if loss_floor >= Decimal("0"):
+                return (
+                    "Invalid DAILY_LOSS_LIMIT_USDC configuration: "
+                    "expected a strictly negative value (e.g. -100)"
+                )
 
             daily_pnl_stmt = select(
                 func.coalesce(func.sum(TradeHistory.realized_pnl_usdc), Decimal("0"))
@@ -132,12 +149,13 @@ async def check_risk_limits(
                 TradeHistory.closed_at >= today_start,
                 TradeHistory.realized_pnl_usdc.is_not(None),
             )
-            daily_pnl = (await session.execute(daily_pnl_stmt)).scalar_one()
+            daily_pnl = Decimal(
+                str((await session.execute(daily_pnl_stmt)).scalar_one() or 0)
+            )
 
-            # loss_limit — положительное число; убыток — отрицательный PnL
-            if Decimal(str(daily_pnl or 0)) <= -loss_limit:
+            if daily_pnl <= loss_floor:
                 return (
-                    f"Daily loss limit {loss_limit} USDC reached. "
+                    f"Daily loss floor {loss_floor} USDC reached. "
                     f"Today PnL: {daily_pnl}"
                 )
         except (ValueError, TypeError) as exc:

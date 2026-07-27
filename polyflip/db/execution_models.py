@@ -63,12 +63,12 @@ class ExecutionRequest(Base):
         ),
         Index(
             "uq_active_close_request",
-            "requested_mode",
             "trade_history_id",
             unique=True,
             postgresql_where=ACTIVE_CLOSE_PREDICATE,
             sqlite_where=ACTIVE_CLOSE_PREDICATE
         ),
+
         CheckConstraint(
             "intent IN ('OPEN', 'CLOSE') AND trade_history_id IS NOT NULL",
             name="ck_execution_request_trade_reference",

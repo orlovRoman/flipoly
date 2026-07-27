@@ -1,15 +1,16 @@
 """
 Единый сервис закрытия позиций по итогам разрешения рынка.
 
-Используется в:
-- polyflip/scheduler/jobs.py (resolve_trades_job)
-- scripts/reconstruct_history.py
-
-Правила:
+Правила бухгалтерии:
+- entry_cost_usdc = open_gross + open_entry_fees  (включает комиссии входа)
 - remaining_basis = avg_entry_cost_per_share * remaining_shares
-- payout = remaining_shares * payout_per_share (только если winning outcome)
-- realized_pnl += payout - settlement_fee - remaining_basis
-- Идемпотентен: повторный вызов на уже закрытой позиции не меняет PnL.
+- payout (YES-победитель) = remaining_shares * 1.0
+- payout (INVALID) = remaining_shares * 0.5  (50/50 redemption по Polymarket)
+- realized_pnl += payout - remaining_basis
+  (Polymarket-комиссии взимаются при match, а не при разрешении рынка.
+   settlement_fee_usdc оставлен для будущих gas-charges из chain_transactions.)
+
+Идемпотентен: повторный вызов на CLOSED позиции → no-op.
 """
 from __future__ import annotations
 
@@ -37,19 +38,51 @@ def _normalize_outcome(outcome: str) -> str:
     return _OUTCOME_ALIASES.get(raw, raw)
 
 
+class AccountingInvariantError(Exception):
+    """Критическая ошибка бухгалтерских инвариантов — требует ручного разбора."""
+
+
+def _reconstruct_missing_fields(trade: TradeHistory) -> None:
+    """
+    Восстанавливает nullable legacy-поля для старых записей.
+    Выбрасывает AccountingInvariantError если восстановить невозможно надёжно.
+    """
+    if trade.remaining_shares is None:
+        if trade.entry_filled_shares is not None:
+            trade.remaining_shares = trade.entry_filled_shares
+        else:
+            raise AccountingInvariantError(
+                f"Trade {trade.id}: remaining_shares is NULL and cannot be reconstructed"
+            )
+
+    if trade.entry_filled_shares is None:
+        if trade.executed_price and Decimal(str(trade.executed_price)) > 0:
+            trade.entry_filled_shares = (
+                Decimal(str(trade.amount_usdc or 0))
+                / Decimal(str(trade.executed_price))
+            )
+        else:
+            raise AccountingInvariantError(
+                f"Trade {trade.id}: entry_filled_shares is NULL and executed_price is zero"
+            )
+
+    if trade.entry_cost_usdc is None:
+        # Для старых записей: basis = gross amount (без fees, т.к. они неизвестны)
+        trade.entry_cost_usdc = Decimal(str(trade.amount_usdc or 0))
+
+
 def _calculate_remaining_basis(trade: TradeHistory) -> Decimal:
     """
     Оставшаяся себестоимость незакрытой части позиции.
-    Включает пропорциональную долю entry-комиссий.
+    entry_cost_usdc уже включает entry-комиссии.
     """
     entry_filled = Decimal(str(trade.entry_filled_shares or 0))
-    entry_cost = Decimal(str(trade.entry_cost_usdc or trade.amount_usdc or 0))
+    entry_cost = Decimal(str(trade.entry_cost_usdc or 0))
     remaining = Decimal(str(trade.remaining_shares or 0))
 
     if entry_filled <= Decimal("0"):
         return Decimal("0")
 
-    # entry_cost уже включает gross + entry fees (см. rebuild_trade_accounting)
     avg_cost_per_share = entry_cost / entry_filled
     return avg_cost_per_share * remaining
 
@@ -70,11 +103,14 @@ async def settle_resolved_position(
     trade_id : int
         ID записи TradeHistory.
     winning_outcome : str
-        Итог рынка (YES / NO / INVALID и т.д.). Нормализуется автоматически.
+        Итог рынка (YES / NO / INVALID). Нормализуется автоматически.
     payout_per_share : Decimal
-        Выплата за 1 share победителю (обычно 1.0, при INVALID может быть другой).
+        Выплата за 1 share победителю:
+        - 1.0 для нормального исхода
+        - 0.5 для INVALID (50/50 redemption)
     settlement_fee_usdc : Decimal
-        Комиссия за settlement (если есть).
+        Gas/network fee (если оплачен пользователем из chain_transactions).
+        При match-комиссиях Polymarket — передавать Decimal("0").
     """
     trade = (
         await session.scalar(
@@ -96,6 +132,19 @@ async def settle_resolved_position(
         )
         return  # идемпотентность
 
+    # Восстановление null-полей для legacy-записей
+    try:
+        _reconstruct_missing_fields(trade)
+    except AccountingInvariantError as exc:
+        logger.error(
+            "settle_resolved_position_accounting_error",
+            trade_id=trade_id,
+            error=str(exc),
+        )
+        # Переводим в MANUAL_REVIEW_REQUIRED без изменения PnL
+        trade.position_status = "MANUAL_REVIEW_REQUIRED"
+        return
+
     normalized_winning = _normalize_outcome(winning_outcome)
     normalized_bought = _normalize_outcome(str(trade.outcome_bought or ""))
 
@@ -103,10 +152,9 @@ async def settle_resolved_position(
     remaining_basis = _calculate_remaining_basis(trade)
 
     if normalized_winning == "INVALID":
-        # При INVALID рынок возвращает стоимость позиции по payout_per_share
-        payout = remaining_shares * payout_per_share
+        payout = remaining_shares * payout_per_share  # 0.5 per share
     elif normalized_bought == normalized_winning:
-        payout = remaining_shares * payout_per_share
+        payout = remaining_shares * payout_per_share  # 1.0 per share
     else:
         payout = Decimal("0")
 
@@ -127,6 +175,7 @@ async def settle_resolved_position(
         winning_outcome=normalized_winning,
         outcome_bought=normalized_bought,
         payout=str(payout),
+        payout_per_share=str(payout_per_share),
         settlement_fee=str(settlement_fee_usdc),
         remaining_basis=str(remaining_basis),
         delta_pnl=str(delta_pnl),
