@@ -348,6 +348,7 @@ async def get_funnel_detail(
 
 
 @router.get("/pnl-markers")
+@router.get("/api/trading/pnl-markers")
 async def get_pnl_markers(
     hours: int = Query(default=168, ge=1, le=720),
     db: AsyncSession = Depends(get_db_session),
