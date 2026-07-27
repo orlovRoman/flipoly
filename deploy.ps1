@@ -37,10 +37,9 @@ docker rm -f $(docker ps -aq --filter "name=^/polyflip_execution_worker$") 2>/de
 docker compose build
 docker compose run --rm api alembic upgrade head
 
-docker compose up -d api
+docker compose up -d --remove-orphans api scheduler execution_worker_paper
 sleep 10
 curl --fail http://localhost:8001/dashboard
-docker compose up -d scheduler execution_worker_paper
 '@
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Deploy failed on server." -ForegroundColor Red

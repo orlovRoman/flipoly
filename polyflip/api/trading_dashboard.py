@@ -93,9 +93,18 @@ async def get_trading_stats(
                 TradeHistory.pnl.is_not(None),
                 TradeHistory.mode == requested_mode
             ]
+            date_col = sa.func.coalesce(TradeHistory.closed_at, TradeHistory.created_at)
+            local_date = cast(func.timezone('Asia/Ho_Chi_Minh', date_col), Date)
             if cutoff_dt:
-                conds.append(TradeHistory.created_at >= cutoff_dt)
-            local_date = cast(func.timezone('Asia/Ho_Chi_Minh', TradeHistory.created_at), Date)
+                conds.append(
+                    sa.or_(
+                        TradeHistory.closed_at >= cutoff_dt,
+                        sa.and_(
+                            TradeHistory.closed_at.is_(None),
+                            TradeHistory.created_at >= cutoff_dt
+                        )
+                    )
+                )
             stmt = select(
                 local_date.label("day"),
                 func.sum(TradeHistory.pnl).label("daily_pnl"),

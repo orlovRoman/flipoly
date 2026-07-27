@@ -443,7 +443,6 @@ async def main():
     logger.info("scheduler_starting", interval=poll_interval, stoploss_interval=stoploss_interval, takeprofit_interval=takeprofit_interval)
     
     # Инициализируем общие клиенты для переиспользования соединений
-    api_client = PolymarketClient()
     # Вызов одноразового backfill свечей и обновления ставок финансирования при старте
     api_client = PolymarketClient()
 

@@ -16,6 +16,7 @@ from polyflip.trading.pre_trade_validator import validate_pre_trade
 from polyflip.trading.trade_recorder import execute_and_record, save_or_update_skipped_trade
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.trading.decision_logic import decide_crypto_trend
+from polyflip.execution.outbox import EnqueueRejected
 
 logger = structlog.get_logger(__name__)
 
@@ -178,12 +179,23 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                     )
                     continue
 
-                await execute_and_record(
-                    db_session, market, decision_res.decision_obj, validation,
-                    asset_mode, cfg.active_features_str, decision_res.p_flip, decision_res.model_ver,
-                    cfg, existing_skipped, start_time,
-                    lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
-                )
+                try:
+                    await execute_and_record(
+                        db_session, market, decision_res.decision_obj, validation,
+                        asset_mode, cfg.active_features_str, decision_res.p_flip, decision_res.model_ver,
+                        cfg, existing_skipped, start_time,
+                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
+                    )
+                except EnqueueRejected as exc:
+                    from polyflip.trading.trade_recorder import _get_trade_active_features
+                    await save_or_update_skipped_trade(
+                        db_session, market, f"Execution not enqueued: {exc}", decision_res.p_flip, decision_res.model_ver, start_time,
+                        existing_skipped=existing_skipped,
+                        edge=validation.edge,
+                        active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj, market.asset),
+                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
+                    )
+                    continue
             finally:
                 _ACTIVE_MARKETS.discard(market.market_id)
 
