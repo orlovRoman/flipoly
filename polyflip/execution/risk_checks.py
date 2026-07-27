@@ -13,6 +13,11 @@ async def _financial_limits_enabled(
     session: AsyncSession,
     mode: ExecutionMode,
 ) -> bool:
+    # PAPER is an observation mode used to collect an uninterrupted strategy
+    # sample. Portfolio limits protect real funds and must never stop it.
+    if mode is ExecutionMode.PAPER:
+        return False
+
     if mode is ExecutionMode.LIVE:
         return True
 
