@@ -80,7 +80,12 @@ async def get_trading_stats(
             TradeHistory.mode == mode,
         ]
         if with_cutoff and cutoff_dt:
-            conds.append(TradeHistory.created_at >= cutoff_dt)
+            conds.append(
+                sa.func.coalesce(
+                    TradeHistory.closed_at,
+                    TradeHistory.created_at,
+                ) >= cutoff_dt
+            )
         return conds
 
 
@@ -120,7 +125,7 @@ async def get_trading_stats(
                 local_date.label("day"),
                 func.sum(_pnl_expr).label("daily_pnl"),
                 func.sum(sa_case((_pnl_expr > 0, 1), else_=0)).label("wins"),
-                func.sum(sa_case((_pnl_expr <= 0, 1), else_=0)).label("losses")
+                func.sum(sa_case((_pnl_expr < 0, 1), else_=0)).label("losses")
             ).where(*conds).group_by(local_date)
             return (await s.execute(stmt)).all()
 
@@ -141,7 +146,8 @@ async def get_trading_stats(
             stmt = select(
                 func.count(TradeHistory.id).label("total_trades"),
                 func.sum(_pnl_expr).label("total_pnl"),
-                func.sum(sa_case((_pnl_expr > 0, 1), else_=0)).label("wins")
+                func.sum(sa_case((_pnl_expr > 0, 1), else_=0)).label("wins"),
+                func.sum(sa_case((_pnl_expr < 0, 1), else_=0)).label("losses")
             ).where(*conds)
             return (await s.execute(stmt)).first()
 
@@ -170,10 +176,10 @@ async def get_trading_stats(
     # Итоговые KPI карточки дашборда ВСЕГДА считаются за всё время
     all_total_pnl = float(totals_row.total_pnl or 0) if totals_row else 0.0
     all_wins = int(totals_row.wins or 0) if totals_row else 0
-    all_trades_count = int(totals_row.total_trades or 0) if totals_row else 0
-    all_losses = all_trades_count - all_wins
+    all_losses = int(totals_row.losses or 0) if totals_row else 0
+    decisive_trades = all_wins + all_losses
     all_capital = initial_capital + all_total_pnl
-    all_winrate = (all_wins / all_trades_count) * 100 if all_trades_count > 0 else 0
+    all_winrate = (all_wins / decisive_trades) * 100 if decisive_trades > 0 else 0
 
     daily_pnl_map = {}
     for row in daily_rows:
@@ -409,4 +415,3 @@ async def get_pnl_markers(
 
     markers.sort(key=lambda x: x["timestamp"])
     return {"count": len(markers), "markers": markers}
-
