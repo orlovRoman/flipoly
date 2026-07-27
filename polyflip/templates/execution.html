@@ -168,7 +168,7 @@
         
         async function fetchStatus() {
             try {
-                const res = await fetch(window.API_BASE + '/api/live-trading/status', {
+                const res = await fetch(window.API_BASE + '/api/execution/status', {
                     headers: { 'x-api-key': localStorage.getItem('polyflip_api_key') || '' }
                 });
                 if (res.status === 401 || res.status === 403) {
@@ -220,7 +220,7 @@
             const enable = this.checked;
             this.disabled = true;
             try {
-                const res = await fetch(window.API_BASE + '/api/live-trading/kill-switch', {
+                const res = await fetch(window.API_BASE + '/api/execution/kill-switch', {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -247,7 +247,7 @@
         
         async function fetchRequests() {
             try {
-                const res = await fetch(window.API_BASE + '/api/live-trading/requests?limit=20', {
+                const res = await fetch(window.API_BASE + '/api/execution/requests?limit=20', {
                     headers: { 'x-api-key': localStorage.getItem('polyflip_api_key') || '' }
                 });
                 const data = await res.json();
@@ -284,7 +284,7 @@
         
         async function fetchPositions() {
             try {
-                const res = await fetch(window.API_BASE + '/api/live-trading/positions', {
+                const res = await fetch(window.API_BASE + '/api/execution/positions', {
                     headers: { 'x-api-key': localStorage.getItem('polyflip_api_key') || '' }
                 });
                 const data = await res.json();

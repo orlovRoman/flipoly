@@ -21,15 +21,18 @@ from polyflip.execution.risk_checks import check_risk_limits
 
 logger = structlog.get_logger(__name__)
 
-async def claim_one(session) -> ExecutionRequest | None:
+async def claim_one(session, worker_mode: str) -> ExecutionRequest | None:
     now = datetime.now(timezone.utc)
     dialect = session.bind.dialect.name
     
-    where_clause = or_(
-        ExecutionRequest.state == "READY",
-        and_(
-            ExecutionRequest.state == "CLAIMED",
-            ExecutionRequest.lease_expires_at < now
+    where_clause = and_(
+        ExecutionRequest.requested_mode == worker_mode,
+        or_(
+            ExecutionRequest.state == "READY",
+            and_(
+                ExecutionRequest.state == "CLAIMED",
+                ExecutionRequest.lease_expires_at < now
+            )
         )
     )
     
@@ -57,15 +60,15 @@ async def claim_one(session) -> ExecutionRequest | None:
 
 async def process_ready_requests():
     settings = ExecutionSettings()
+    worker_mode = settings.execution_mode.value
     
     async with async_session() as session:
-        req = await claim_one(session)
+        req = await claim_one(session, worker_mode)
         if not req:
             return
             
-        logger.info("execution_request_claimed", request_id=str(req.id), intent=req.intent)
+        logger.info("execution_request_claimed", request_id=str(req.id), intent=req.intent, requested_mode=req.requested_mode)
         
-        mode_str = "PAPER"
         is_live_allowed = False
         if req.requested_mode == "LIVE":
             rt_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_TRADING_ENABLED")
@@ -74,20 +77,12 @@ async def process_ready_requests():
             if rt_set and rt_set.value.lower() == "true":
                 is_live_allowed = True
             
-            if is_live_allowed or req.intent == "CLOSE":
-                if settings.execution_mode == ExecutionMode.LIVE:
-                    mode_str = "LIVE"
-                
-        elif req.requested_mode == "SHADOW" and settings.execution_mode in (ExecutionMode.SHADOW, ExecutionMode.LIVE):
-            mode_str = "SHADOW"
+            if not is_live_allowed and req.intent == "OPEN":
+                await finalize_request(session, req, state="REJECTED", error="LIVE trading kill switch is off")
+                await session.commit()
+                return
 
-        if req.requested_mode == "LIVE" and not is_live_allowed and req.intent == "OPEN":
-            await finalize_request(session, req, state="REJECTED", error="LIVE trading kill switch is off")
-            await session.commit()
-            return
-            
-        actual_settings = ExecutionSettings(execution_mode=ExecutionMode(mode_str))
-        gateway = build_execution_gateway(actual_settings)
+        gateway = build_execution_gateway(settings)
         
         if req.requested_mode == "LIVE" and gateway.name == "FAKE":
             await finalize_request(session, req, state="REJECTED", error="LIVE mode cannot be executed via fake gateway")
@@ -324,7 +319,10 @@ async def reconcile_active_requests():
     settings = ExecutionSettings()
     async with async_session() as session:
         now = datetime.now(timezone.utc)
-        stmt = select(ExecutionRequest).where(ExecutionRequest.state.in_(("UNKNOWN", "SUBMITTING")))
+        stmt = select(ExecutionRequest).where(
+            ExecutionRequest.state.in_(("UNKNOWN", "SUBMITTING")),
+            ExecutionRequest.requested_mode == settings.execution_mode.value
+        )
         result = await session.execute(stmt)
         reqs = result.scalars().all()
         
@@ -338,13 +336,21 @@ async def reconcile_active_requests():
             attempt_res = await session.execute(attempt_stmt)
             attempt = attempt_res.scalar_one_or_none()
             
-            if not attempt or not attempt.provider_order_id:
-                logger.warning("cannot_reconcile_no_provider_id", request_id=str(req.id))
+            time_in_unknown = (now - req.updated_at).total_seconds()
+            
+            if time_in_unknown > 900:
+                logger.warning("request_timed_out_in_unknown", request_id=str(req.id))
                 if attempt:
                     attempt.status = "FAILED"
-                    attempt.error_msg = "Stuck in SUBMITTING/UNKNOWN with no provider_order_id"
-                await finalize_request(session, req, state="REJECTED", error="Stuck in SUBMITTING/UNKNOWN with no provider_order_id")
+                    attempt.error_msg = "Timed out in UNKNOWN state after 15m"
+                await finalize_request(session, req, state="REJECTED", error="Timed out after 15m in UNKNOWN state")
                 await session.commit()
+                continue
+
+            if not attempt or not attempt.provider_order_id:
+                logger.warning("cannot_reconcile_no_provider_id", request_id=str(req.id))
+                # Only reject immediately if it's been a really long time, handled above.
+                # Actually, if there's no provider ID, we can't do anything anyway, but we wait 15m just in case.
                 continue
                 
             gateway = build_execution_gateway(settings)

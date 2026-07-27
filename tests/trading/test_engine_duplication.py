@@ -59,7 +59,7 @@ async def test_concurrent_enqueue_open(db_session: AsyncSession):
     # All should return the same request UUID
     first_req_id = results[0]
     for r in results:
-        assert r == first_req_id
+        assert r.request_id == first_req_id.request_id
 
     await db_session.commit()
 

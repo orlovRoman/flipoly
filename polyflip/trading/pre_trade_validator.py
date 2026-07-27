@@ -163,18 +163,17 @@ async def validate_pre_trade(
         )
         
     # Check max exposure (only for LIVE trades)
-    from polyflip.db.execution_models import ExposureReservation
-    from sqlalchemy import and_, or_
-    import datetime
+    from polyflip.execution.exposure import get_reserved_exposure
+    from polyflip.execution.config import ExecutionMode
 
     # Global max exposure
     exposure_res = await db_session.execute(
-        select(func.sum(TradeHistory.amount_usdc)).where(
+        select(func.coalesce(func.sum(TradeHistory.entry_cost_usdc), 0.0)).where(
             TradeHistory.mode == 'LIVE',
             TradeHistory.position_status.in_(['OPEN', 'CLOSING', 'PARTIALLY_CLOSED'])
         )
     )
-    current_global_exposure = exposure_res.scalar() or 0.0
+    current_global_exposure = float(exposure_res.scalar() or 0.0)
     max_global_exposure = cfg.capital * (cfg.max_exposure_pct / 100.0)
     
     if current_global_exposure + actual_bet_size > max_global_exposure:
@@ -187,24 +186,18 @@ async def validate_pre_trade(
     MAX_MARKET_EXPOSURE = 50.0
 
     market_exposure_res = await db_session.execute(
-        select(func.sum(TradeHistory.entry_cost_usdc)).where(
+        select(func.coalesce(func.sum(TradeHistory.entry_cost_usdc), 0.0)).where(
             TradeHistory.market_id == market.market_id,
             TradeHistory.mode == 'LIVE',
             TradeHistory.position_status.in_(['OPEN', 'CLOSING', 'PARTIALLY_CLOSED'])
         )
     )
-    current_market_exposure = market_exposure_res.scalar() or 0.0
+    current_market_exposure = float(market_exposure_res.scalar() or 0.0)
 
     # Also sum active reservations for this market
-    reservations_res = await db_session.execute(
-        select(func.sum(ExposureReservation.amount_usdc)).where(
-            ExposureReservation.market_id == market.market_id,
-            ExposureReservation.expires_at > datetime.datetime.now(datetime.timezone.utc)
-        )
-    )
-    reserved_market_exposure = float(reservations_res.scalar() or 0.0)
+    reserved_market_exposure = float(await get_reserved_exposure(db_session, mode=ExecutionMode.LIVE, market_id=market.market_id))
 
-    total_market_exposure = float(current_market_exposure) + reserved_market_exposure
+    total_market_exposure = current_market_exposure + reserved_market_exposure
     if total_market_exposure + actual_bet_size > MAX_MARKET_EXPOSURE:
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,

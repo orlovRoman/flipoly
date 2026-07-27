@@ -266,10 +266,13 @@ async def test_execution_financial_columns_use_numeric(db_session):
     assert abs(float(val) - 123.45678901234568) < 1e-9
 
 @pytest.mark.asyncio
+
+@pytest.mark.asyncio
 async def test_stoploss_and_takeprofit_create_one_close_request(engine, db_session):
     import asyncio
     from sqlalchemy.ext.asyncio import async_sessionmaker
-    from polyflip.execution.outbox import enqueue_close_request, ACTIVE_CLOSE_STATES
+    from polyflip.execution.outbox import enqueue_close_request
+    from polyflip.execution.states import ACTIVE_REQUEST_STATES
     from polyflip.execution.config import ExecutionMode
     from sqlalchemy import select, func
 
@@ -307,15 +310,13 @@ async def test_stoploss_and_takeprofit_create_one_close_request(engine, db_sessi
         run_enqueue("TAKE_PROFIT")
     )
     
-    successful_ids = [r for r in results if r is not None]
+    successful_ids = [r.request_id for r in results if r is not None]
     assert len(set(successful_ids)) == 1, "Only one unique close request ID should be returned"
 
     stmt = select(func.count()).where(
         ExecutionRequest.trade_history_id == trade.id,
         ExecutionRequest.intent == 'CLOSE',
-        ExecutionRequest.state.in_(ACTIVE_CLOSE_STATES)
+        ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES)
     )
     count = (await db_session.execute(stmt)).scalar_one()
     assert count == 1
-
-

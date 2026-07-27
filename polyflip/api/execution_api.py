@@ -15,7 +15,7 @@ from polyflip.execution.config import ExecutionSettings
 
 logger = structlog.get_logger(__name__)
 
-router = APIRouter(prefix="/api/live-trading", tags=["Execution"], dependencies=[Depends(verify_api_key)])
+router = APIRouter(prefix="/api/execution", tags=["Execution"], dependencies=[Depends(verify_api_key)])
 
 class KillSwitchRequest(BaseModel):
     enabled: bool
@@ -165,10 +165,13 @@ async def get_live_trading_requests(
             "market_id": r.market_id,
             "asset": r.asset,
             "state": r.state,
+            "requested_mode": r.requested_mode,
             "requested_shares": float(r.requested_shares) if r.requested_shares else None,
+            "limit_price": float(r.limit_price) if r.limit_price else None,
             "target_amount_usdc": float(r.target_amount_usdc) if r.target_amount_usdc else None,
             "filled_shares": float(r.filled_shares) if r.filled_shares else 0,
             "filled_cost_usdc": float(r.filled_cost_usdc) if r.filled_cost_usdc else 0,
+            "ttl_seconds": r.ttl_seconds,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
             "error_reason": r.error_reason,

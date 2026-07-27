@@ -11,7 +11,8 @@ from polyflip.db.execution_models import ExecutionRequest, ExposureReservation, 
 from polyflip.execution.config import ExecutionMode
 from polyflip.execution.states import (
     TERMINAL_REQUEST_STATES, 
-    FAILURE_TERMINAL_STATES
+    FAILURE_TERMINAL_STATES,
+    ACTIVE_REQUEST_STATES
 )
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
@@ -32,6 +33,19 @@ async def enqueue_open_request(
     limit_price: float,
     requested_mode: ExecutionMode,
 ) -> EnqueueResult | None:
+    
+    existing_id = (
+        await db.execute(
+            select(ExecutionRequest.id)
+            .where(ExecutionRequest.market_id == market_id)
+            .where(ExecutionRequest.intent == "OPEN")
+            .where(ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES))
+        )
+    ).scalar_one_or_none()
+    
+    if existing_id is not None:
+        return EnqueueResult(request_id=existing_id, created=False)
+
     request_id = uuid.uuid4()
     now_utc = datetime.now(timezone.utc)
     dialect_name = db.bind.dialect.name
@@ -81,10 +95,7 @@ async def enqueue_open_request(
             select(ExecutionRequest.id)
             .where(ExecutionRequest.market_id == market_id)
             .where(ExecutionRequest.intent == "OPEN")
-            .where(ExecutionRequest.state.in_([
-                "READY", "CLAIMED", "SUBMITTING", "ACCEPTED",
-                "UNKNOWN", "PARTIALLY_FILLED", "RECONCILING"
-            ]))
+            .where(ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES))
         )
     ).scalar_one_or_none()
     
@@ -115,6 +126,18 @@ async def enqueue_close_request(
     if not trade.remaining_shares or trade.remaining_shares <= 0:
         return None
 
+    existing_id = (
+        await db.execute(
+            select(ExecutionRequest.id)
+            .where(ExecutionRequest.trade_history_id == trade.id)
+            .where(ExecutionRequest.intent == "CLOSE")
+            .where(ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES))
+        )
+    ).scalar_one_or_none()
+
+    if existing_id is not None:
+        return EnqueueResult(request_id=existing_id, created=False)
+
     request_id = uuid.uuid4()
     now_utc = datetime.now(timezone.utc)
     
@@ -126,7 +149,7 @@ async def enqueue_close_request(
         .values(
             id=request_id,
             idempotency_key=f"CLOSE:{trade.id}:v{trade.position_version}:a{trade.exit_attempts}",
-            requested_mode=requested_mode.value,
+            requested_mode=trade.mode,  # Ensure we respect the original trade mode
             intent="CLOSE",
             trigger_reason=trigger_reason,
             trade_history_id=trade.id,
@@ -165,16 +188,11 @@ async def enqueue_close_request(
             select(ExecutionRequest.id)
             .where(ExecutionRequest.trade_history_id == trade.id)
             .where(ExecutionRequest.intent == "CLOSE")
-            .where(ExecutionRequest.state.in_([
-                "READY", "CLAIMED", "SUBMITTING", "ACCEPTED",
-                "UNKNOWN", "PARTIALLY_FILLED", "RECONCILING"
-            ]))
+            .where(ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES))
         )
     ).scalar_one_or_none()
 
     if existing_id is not None:
-        trade.position_status = "EXIT_REQUESTED"
-        trade.exit_reason = trigger_reason
         return EnqueueResult(request_id=existing_id, created=False)
 
     return None

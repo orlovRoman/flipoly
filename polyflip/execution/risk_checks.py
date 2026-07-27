@@ -1,11 +1,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func
 from polyflip.db.models import RuntimeSettings, TradeHistory
-from polyflip.db.execution_models import ExposureReservation, ExecutionRequest
-from polyflip.execution.states import ACTIVE_REQUEST_STATES
+from polyflip.execution.config import ExecutionMode
+from polyflip.execution.exposure import get_reserved_exposure
 from decimal import Decimal
 import datetime
-
 from uuid import UUID
 
 async def check_risk_limits(session: AsyncSession, intent: str, max_spend_usdc: Decimal, requested_mode: str, request_id: UUID | None = None) -> str | None:
@@ -53,29 +52,20 @@ async def check_risk_limits(session: AsyncSession, intent: str, max_spend_usdc: 
         try:
             max_exp = Decimal(max_exp_set.value)
             # Current exposure in TradeHistory
-            current_exp_stmt = select(func.sum(TradeHistory.entry_cost_usdc)).where(
+            current_exp_stmt = select(func.coalesce(func.sum(TradeHistory.entry_cost_usdc), Decimal("0"))).where(
                 TradeHistory.position_status == "OPEN",
                 TradeHistory.mode == requested_mode
             )
-            current_exp_res = await session.execute(current_exp_stmt)
-            current_exp = current_exp_res.scalar_one_or_none() or Decimal("0")
+            current_exp = (await session.execute(current_exp_stmt)).scalar_one()
             
             # Plus reserved exposure, excluding current request
-            res_exp_stmt = (
-                select(func.sum(ExposureReservation.amount_usdc))
-                .join(ExecutionRequest, ExecutionRequest.id == ExposureReservation.request_id)
-                .where(
-                    ExposureReservation.released_at.is_(None),
-                    ExecutionRequest.requested_mode == requested_mode,
-                    ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES)
-                )
+            res_exp = await get_reserved_exposure(
+                session, 
+                mode=ExecutionMode(requested_mode), 
+                exclude_request_id=request_id
             )
-            if request_id:
-                res_exp_stmt = res_exp_stmt.where(ExposureReservation.request_id != request_id)
-            res_exp_res = await session.execute(res_exp_stmt)
-            res_exp = res_exp_res.scalar_one_or_none() or Decimal("0")
             
-            if Decimal(str(current_exp)) + Decimal(str(res_exp)) + max_spend_usdc > max_exp:
+            if current_exp + res_exp + max_spend_usdc > max_exp:
                 return f"Max total exposure limit reached ({max_exp} USDC). Current: {current_exp}, Reserved: {res_exp}, Requested: {max_spend_usdc}"
         except (ValueError, TypeError) as exc:
             return f"Invalid risk configuration: {exc}"
@@ -87,15 +77,26 @@ async def check_risk_limits(session: AsyncSession, intent: str, max_spend_usdc: 
     loss_limit_set = loss_limit_res.scalar_one_or_none()
     if loss_limit_set:
         try:
-            loss_limit = Decimal(loss_limit_set.value)
-            daily_loss_stmt = select(func.sum(TradeHistory.realized_pnl_usdc)).where(
+            limit = Decimal(loss_limit_set.value)
+            if limit >= 0:
+                return "Invalid DAILY_LOSS_LIMIT_USDC: expected a negative number"
+
+            stmt = select(
+                func.coalesce(func.sum(TradeHistory.realized_pnl_usdc), Decimal("0"))
+            ).where(
                 TradeHistory.mode == requested_mode,
-                TradeHistory.created_at >= today_start,
-                TradeHistory.realized_pnl_usdc < 0
+                TradeHistory.position_status == "CLOSED",
+                func.coalesce(
+                    TradeHistory.closed_at,
+                    TradeHistory.updated_at,
+                    TradeHistory.created_at,
+                ) >= today_start,
             )
-            daily_loss = (await session.execute(daily_loss_stmt)).scalar_one_or_none() or Decimal("0")
-            if abs(daily_loss) >= loss_limit:
-                return f"Daily loss limit breached (Limit: {loss_limit}, Loss: {abs(daily_loss)})"
+
+            daily_pnl = Decimal(str((await session.execute(stmt)).scalar_one()))
+
+            if daily_pnl <= limit:
+                return f"Daily loss limit breached (Limit: {limit}, Loss: {daily_pnl})"
         except (ValueError, TypeError):
             pass
 
