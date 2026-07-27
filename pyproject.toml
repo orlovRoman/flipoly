@@ -43,5 +43,9 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 testpaths = ["tests"]
+markers = [
+    "live: tests that can access a live external trading venue",
+    "postgres: tests that require the PostgreSQL integration service",
+]
 # Exclude files that make network calls on import
 addopts = "--ignore=scripts/test_14_crypto_dashboard.py --ignore=test_runner.py --ignore=test_remote.py --ignore=test_schema.py"
