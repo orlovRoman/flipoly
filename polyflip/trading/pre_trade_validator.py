@@ -162,47 +162,7 @@ async def validate_pre_trade(
             skip_reason="Bet size <= 0"
         )
         
-    # Check max exposure (only for LIVE trades)
-    from polyflip.execution.exposure import get_reserved_exposure
-    from polyflip.execution.config import ExecutionMode
 
-    # Global max exposure
-    exposure_res = await db_session.execute(
-        select(func.coalesce(func.sum(TradeHistory.entry_cost_usdc), 0.0)).where(
-            TradeHistory.mode == 'LIVE',
-            TradeHistory.position_status.in_(['OPEN', 'CLOSING', 'PARTIALLY_CLOSED'])
-        )
-    )
-    current_global_exposure = float(exposure_res.scalar() or 0.0)
-    max_global_exposure = cfg.capital * (cfg.max_exposure_pct / 100.0)
-    
-    if current_global_exposure + actual_bet_size > max_global_exposure:
-        return PreTradeValidation(
-            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
-            skip_reason=f"Global max exposure exceeded: current {current_global_exposure:.2f} + new {actual_bet_size:.2f} > max {max_global_exposure:.2f}"
-        )
-
-    # Per-market max exposure (limit 50 USDC per market)
-    MAX_MARKET_EXPOSURE = 50.0
-
-    market_exposure_res = await db_session.execute(
-        select(func.coalesce(func.sum(TradeHistory.entry_cost_usdc), 0.0)).where(
-            TradeHistory.market_id == market.market_id,
-            TradeHistory.mode == 'LIVE',
-            TradeHistory.position_status.in_(['OPEN', 'CLOSING', 'PARTIALLY_CLOSED'])
-        )
-    )
-    current_market_exposure = float(market_exposure_res.scalar() or 0.0)
-
-    # Also sum active reservations for this market
-    reserved_market_exposure = float(await get_reserved_exposure(db_session, mode=ExecutionMode.LIVE, market_id=market.market_id))
-
-    total_market_exposure = current_market_exposure + reserved_market_exposure
-    if total_market_exposure + actual_bet_size > MAX_MARKET_EXPOSURE:
-        return PreTradeValidation(
-            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
-            skip_reason=f"Market max exposure exceeded: current {float(current_market_exposure):.2f} + reserved {reserved_market_exposure:.2f} + new {actual_bet_size:.2f} > max {MAX_MARKET_EXPOSURE:.2f}"
-        )
 
     return PreTradeValidation(
         valid=True,

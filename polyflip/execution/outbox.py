@@ -1,4 +1,5 @@
 import uuid
+import structlog
 from typing import Literal
 from uuid import UUID
 from dataclasses import dataclass
@@ -14,8 +15,11 @@ from polyflip.execution.states import (
     FAILURE_TERMINAL_STATES,
     ACTIVE_REQUEST_STATES
 )
+from polyflip.execution.risk_checks import check_risk_limits
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
+
+logger = structlog.get_logger(__name__)
 
 @dataclass(frozen=True)
 class EnqueueResult:
@@ -37,6 +41,7 @@ async def enqueue_open_request(
     existing_id = (
         await db.execute(
             select(ExecutionRequest.id)
+            .where(ExecutionRequest.requested_mode == requested_mode.value)
             .where(ExecutionRequest.market_id == market_id)
             .where(ExecutionRequest.intent == "OPEN")
             .where(ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES))
@@ -48,6 +53,12 @@ async def enqueue_open_request(
 
     request_id = uuid.uuid4()
     now_utc = datetime.now(timezone.utc)
+    
+    risk_error = await check_risk_limits(db, "OPEN", Decimal(str(target_amount_usdc)), requested_mode.value, None)
+    if risk_error:
+        logger.warning("risk_limit_breached", reason=risk_error, market_id=market_id)
+        return None
+        
     dialect_name = db.bind.dialect.name
     insert_func = sqlite_insert if dialect_name == 'sqlite' else pg_insert
     
@@ -77,11 +88,11 @@ async def enqueue_open_request(
             updated_at=now_utc,
         )
         .on_conflict_do_nothing(
-            index_elements=["market_id"],
+            index_elements=["requested_mode", "market_id"],
             index_where=text(
                 "intent = 'OPEN' AND state IN "
                 "('READY','CLAIMED','SUBMITTING','ACCEPTED',"
-                "'UNKNOWN','PARTIALLY_FILLED','RECONCILING')"
+                "'UNKNOWN','RECONCILING','MANUAL_REVIEW_REQUIRED')"
             ),
         )
         .returning(ExecutionRequest.id)
@@ -93,6 +104,7 @@ async def enqueue_open_request(
     existing_id = (
         await db.execute(
             select(ExecutionRequest.id)
+            .where(ExecutionRequest.requested_mode == requested_mode.value)
             .where(ExecutionRequest.market_id == market_id)
             .where(ExecutionRequest.intent == "OPEN")
             .where(ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES))

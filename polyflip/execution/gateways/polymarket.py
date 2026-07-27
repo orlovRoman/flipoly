@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import asyncio
 
 from polymarket import AsyncSecureClient
+from polymarket.errors import TimeoutError as SettlementTimeoutError, TransactionFailedError
 from polyflip.execution.contracts import GatewayOrder, TradeExecution, ProviderOrderState, SubmissionResult, GatewayUnavailable, GatewayReadiness, BalanceResult
 
 logger = structlog.get_logger(__name__)
@@ -73,11 +74,29 @@ class PolymarketExecutionGateway:
                     error_message=getattr(resp, "message", "Unknown rejection"),
                 )
                 
+            settlement_state = "PENDING"
+            transaction_hashes: tuple[str, ...] = ()
+            trade_ids = getattr(resp, "trade_ids", [])
+            
+            if trade_ids:
+                try:
+                    hashes = await client.wait_for_order_fill_settlement(
+                        resp, timeout_s=30
+                    )
+                    transaction_hashes = tuple(map(str, hashes))
+                    settlement_state = "CONFIRMED"
+                except SettlementTimeoutError:
+                    settlement_state = "PENDING"
+                except TransactionFailedError:
+                    settlement_state = "FAILED"
+                    
             return SubmissionResult(
                 accepted=True,
                 provider_order_id=getattr(resp, "order_id", ""),
                 provider_status=getattr(resp, "status", "UNKNOWN").upper(),
-                provider_trade_ids=tuple(getattr(resp, "trade_ids", []))
+                provider_trade_ids=tuple(trade_ids),
+                settlement_state=settlement_state,
+                transaction_hashes=transaction_hashes
             )
             
         except Exception as e:
@@ -126,6 +145,9 @@ class PolymarketExecutionGateway:
                         any(maker.order_id == provider_order_id for maker in maker_orders)
                     )
                     if not belongs_to_order:
+                        continue
+                        
+                    if getattr(trade, "status", "CONFIRMED") != "CONFIRMED":
                         continue
                     
                     price = Decimal(str(trade.price))

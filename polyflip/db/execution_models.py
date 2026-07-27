@@ -84,6 +84,9 @@ class ExecutionAttempt(Base):
     tx_hash = Column(String(128), nullable=True)
     error_msg = Column(Text, nullable=True)
     raw_response = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    provider_trade_ids = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list)
+    transaction_hashes = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list)
+    settlement_state = Column(String(32), nullable=False, default="PENDING")
 
     __table_args__ = (
         UniqueConstraint(

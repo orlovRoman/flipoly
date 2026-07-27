@@ -189,8 +189,8 @@
                 const workerStatus = document.getElementById('worker-status');
                 let isOnline = false;
                 if (data.worker_status && data.worker_status.heartbeat_at) {
-                    const hbTime = new Date(data.worker_status.heartbeat_at + "Z").getTime();
-                    if (Date.now() - hbTime < 60000) isOnline = true; // 1 min tolerance
+                    const hbTime = Date.parse(data.worker_status.heartbeat_at);
+                    if (Number.isFinite(hbTime) && Date.now() - hbTime < 60000) isOnline = true; // 1 min tolerance
                 }
                 workerStatus.textContent = isOnline ? 'Работает' : 'Остановлен';
                 workerStatus.className = isOnline ? 'worker-online' : 'worker-offline';
@@ -226,7 +226,7 @@
                         'Content-Type': 'application/json',
                         'x-api-key': localStorage.getItem('polyflip_api_key') || ''
                     },
-                    body: JSON.stringify({ enable: enable })
+                    body: JSON.stringify({ enabled: enable })
                 });
                 const data = await res.json();
                 

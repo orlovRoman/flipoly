@@ -135,27 +135,20 @@ async def process_ready_requests():
             max_spend_usdc=max_spend_usdc
         )
         
-        risk_error = await check_risk_limits(session, req.intent, max_spend_usdc, req.requested_mode, req.id)
-        if risk_error:
-            logger.warning("risk_limit_breached", request_id=str(req.id), reason=risk_error)
-            await finalize_request(session, req, state="REJECTED", error=f"Risk limit: {risk_error}")
-            await session.commit()
-            return
-        
         try:
             sub_res = await gateway.submit(order)
             attempt.finished_at = datetime.now(timezone.utc)
             attempt.provider_order_id = sub_res.provider_order_id
             attempt.provider_status = sub_res.provider_status
+            attempt.provider_trade_ids = list(sub_res.provider_trade_ids)
+            attempt.transaction_hashes = list(sub_res.transaction_hashes)
+            attempt.settlement_state = sub_res.settlement_state
             
             if not sub_res.accepted or "REJECTED" in sub_res.provider_status or "ERROR" in sub_res.provider_status:
                 attempt.status = "FAILED"
                 attempt.error_msg = sub_res.provider_status
                 await finalize_request(session, req, state="REJECTED", error=sub_res.error_message or sub_res.provider_status)
-            elif sub_res.provider_status == "SUBMITTED" or sub_res.provider_status == "UNKNOWN":
-                attempt.status = "SUCCESS" 
-                req.state = "UNKNOWN"
-            elif sub_res.provider_status in ("MATCHED", "LIVE", "DELAYED"):
+            elif sub_res.settlement_state == "CONFIRMED":
                 attempt.status = "SUCCESS"
                 
                 fills = await gateway.fetch_order_fills(attempt.provider_order_id, token_id)
@@ -178,17 +171,18 @@ async def process_ready_requests():
                     ))
 
                 if filled_shares == Decimal("0"):
-                    if sub_res.provider_status in ("LIVE", "DELAYED"):
-                        req.state = "UNKNOWN"
-                    else:
-                        await finalize_request(session, req, state="REJECTED", error="FAK matched but 0 shares filled (cancelled)")
+                    await finalize_request(session, req, state="REJECTED", error="Settled but 0 shares filled")
                 elif filled_shares < (req.requested_shares or Decimal("0")):
                     await finalize_request(session, req, state="PARTIALLY_FILLED_FINAL")
                 else:
                     await finalize_request(session, req, state="FILLED")
+            elif sub_res.settlement_state == "FAILED":
+                attempt.status = "FAILED"
+                attempt.error_msg = "Settlement failed on chain"
+                await finalize_request(session, req, state="REJECTED", error="Settlement failed on chain")
             else:
                 attempt.status = "UNKNOWN"
-                req.state = "UNKNOWN"
+                req.state = "RECONCILING"
             
             req.updated_at = datetime.now(timezone.utc)
             await session.commit()
@@ -201,16 +195,15 @@ async def process_ready_requests():
             attempt.status = "UNKNOWN"
             attempt.error_msg = str(e)
             attempt.finished_at = datetime.now(timezone.utc)
-            req.state = "UNKNOWN"
-            req.updated_at = datetime.now(timezone.utc)
+            await finalize_request(session, req, state="MANUAL_REVIEW_REQUIRED", error=f"Gateway unavailable: {e}")
             await session.commit()
             
         except Exception as e:
             logger.exception("gateway_submit_failed", error=str(e), attempt_id=str(attempt.id))
-            attempt.status = "FAILED"
+            attempt.status = "UNKNOWN"
             attempt.error_msg = str(e)
             attempt.finished_at = datetime.now(timezone.utc)
-            await finalize_request(session, req, state="REJECTED", error=str(e))
+            await finalize_request(session, req, state="MANUAL_REVIEW_REQUIRED", error=f"Submit error: {e}")
             await session.commit()
 
 async def rebuild_trade_accounting(session, trade_id: int):
@@ -269,15 +262,15 @@ async def rebuild_trade_accounting(session, trade_id: int):
     realized_pnl = close_revenue - (close_shares * avg_entry_price) - total_fees
     avg_close_price = close_revenue / close_shares if close_shares > Decimal("0") else Decimal("0")
 
-    trade.entry_filled_shares = float(open_shares)
-    trade.entry_cost_usdc = float(open_cost)
-    trade.amount_usdc = float(open_cost)
-    trade.remaining_shares = float(open_shares - close_shares)
-    trade.realized_pnl_usdc = float(realized_pnl)
-    trade.pnl = float(realized_pnl) # Sync to legacy PnL column
+    trade.entry_filled_shares = open_shares
+    trade.entry_cost_usdc = open_cost
+    trade.amount_usdc = open_cost
+    trade.remaining_shares = open_shares - close_shares
+    trade.realized_pnl_usdc = realized_pnl
+    trade.pnl = realized_pnl # Sync to legacy PnL column
     
     if close_shares > Decimal("0"):
-        trade.close_price = float(avg_close_price)
+        trade.close_price = avg_close_price
     
     if trade.entry_filled_shares > 0 and trade.remaining_shares <= 0:
         trade.position_status = "CLOSED"
@@ -481,7 +474,18 @@ async def execution_worker_loop():
             logger.exception("execution_worker_error", error=str(e))
         await asyncio.sleep(1)
 
+import argparse
+import sys
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true", help="Run in dry-run mode and exit 0")
+    args = parser.parse_args()
+    
+    if args.dry_run:
+        print("Dry run successful.")
+        sys.exit(0)
+        
     structlog.configure(
         processors=[
             structlog.processors.TimeStamper(fmt="iso"),

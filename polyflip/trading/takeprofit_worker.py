@@ -104,15 +104,14 @@ async def takeprofit_worker_cycle(
             exec_settings = ExecutionSettings()
             sell_floor = max(0.01, current_bid - 0.01)
             
-            request_id = await enqueue_close_request(
+            res = await enqueue_close_request(
                 db_session,
                 trade_id=trade.id,
                 trigger_reason="TAKE_PROFIT",
                 limit_price=sell_floor,
                 requested_mode=exec_settings.execution_mode
             )
-            if not request_id:
-                logger.warning("takeprofit_failed_to_enqueue_close", trade_id=trade.id)
+            if not res:
                 continue
 
             # После успешной постановки меняем статус тейк-профита
@@ -125,7 +124,7 @@ async def takeprofit_worker_cycle(
                 "takeprofit_outbox_request_created",
                 trade_id=trade.id,
                 sell_price=current_bid,
-                request_id=str(request_id)
+                request_id=str(res.request_id)
             )
 
         except Exception as e:

@@ -516,15 +516,19 @@ def _normalize_model_asset(asset: str) -> str:
 
 
 @router.get("/api/dashboard/model_pnl", dependencies=[Depends(verify_api_key)])
-async def get_model_pnl(db: AsyncSession = Depends(get_db_session)):
+async def get_model_pnl(
+    requested_mode: str = Query("PAPER"),
+    db: AsyncSession = Depends(get_db_session)
+):
 
     """
     Возвращает PnL, число сделок и win-rate для каждой версии модели
     за период её активности (с trained_at до trained_at следующей версии).
     """
     current_time = time.time()
-    if "data" in _model_pnl_cache and current_time - _model_pnl_cache.get("time", 0) < _MODEL_PNL_CACHE_TTL:
-        return _model_pnl_cache["data"]
+    cache_key = f"model_pnl_{requested_mode}"
+    if cache_key in _model_pnl_cache and current_time - _model_pnl_cache[cache_key].get("time", 0) < _MODEL_PNL_CACHE_TTL:
+        return _model_pnl_cache[cache_key]["data"]
 
     # 1. Загружаем все версии моделей из ModelRegistry
     models_stmt = select(
@@ -568,6 +572,7 @@ async def get_model_pnl(db: AsyncSession = Depends(get_db_session)):
         TradeHistory.position_status == "CLOSED",
         TradeHistory.pnl.is_not(None),
         TradeHistory.model_version.is_not(None),
+        TradeHistory.mode == requested_mode,
     ]
     if earliest_since is not None:
         where_conditions.append(TradeHistory.created_at >= earliest_since)
@@ -617,7 +622,6 @@ async def get_model_pnl(db: AsyncSession = Depends(get_db_session)):
         }
 
     response_data = {"status": "success", "data": result_map}
-    _model_pnl_cache["time"] = current_time
-    _model_pnl_cache["data"] = response_data
+    _model_pnl_cache[cache_key] = {"time": current_time, "data": response_data}
 
     return response_data

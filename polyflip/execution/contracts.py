@@ -73,6 +73,8 @@ class SubmissionResult(BaseModel):
     provider_trade_ids: tuple[str, ...] = ()
     rejection_code: str | None = None
     error_message: str | None = None
+    settlement_state: str = "PENDING"
+    transaction_hashes: tuple[str, ...] = ()
 
 class ExecutionGateway(Protocol):
     name: str

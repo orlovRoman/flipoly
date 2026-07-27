@@ -45,10 +45,11 @@ def _utc_cutoff(delta: timedelta) -> datetime:
 @router.get("/api/trading/stats")
 async def get_trading_stats(
     timeframe: Optional[str] = Query("all"),
+    requested_mode: str = Query("PAPER"),
     db: AsyncSession = Depends(get_db_session)
 ):
     current_time = time.time()
-    cache_key = f"stats_{timeframe or 'all'}"
+    cache_key = f"stats_{timeframe or 'all'}_{requested_mode}"
     if cache_key in _stats_cache and current_time - _stats_cache[cache_key]["time"] < _STATS_CACHE_TTL:
         return _stats_cache[cache_key]["data"]
 
@@ -70,7 +71,8 @@ async def get_trading_stats(
         async with async_session() as s:
             conds = [
                 TradeHistory.status == "SUCCESS",
-                TradeHistory.pnl.is_not(None)
+                TradeHistory.pnl.is_not(None),
+                TradeHistory.mode == requested_mode
             ]
             if cutoff_dt:
                 conds.append(TradeHistory.created_at >= cutoff_dt)
@@ -86,7 +88,8 @@ async def get_trading_stats(
         async with async_session() as s:
             conds = [
                 TradeHistory.status == "SUCCESS",
-                TradeHistory.pnl.is_not(None)
+                TradeHistory.pnl.is_not(None),
+                TradeHistory.mode == requested_mode
             ]
             if cutoff_dt:
                 conds.append(TradeHistory.created_at >= cutoff_dt)
@@ -103,7 +106,8 @@ async def get_trading_stats(
         async with async_session() as s:
             conds = [
                 TradeHistory.status == "SUCCESS",
-                TradeHistory.pnl.is_not(None)
+                TradeHistory.pnl.is_not(None),
+                TradeHistory.mode == requested_mode
             ]
             if cutoff_dt:
                 conds.append(TradeHistory.created_at >= cutoff_dt)
@@ -123,7 +127,8 @@ async def get_trading_stats(
                 func.sum(sa_case((TradeHistory.pnl > 0, 1), else_=0)).label("wins")
             ).where(
                 TradeHistory.status == "SUCCESS",
-                TradeHistory.pnl.is_not(None)
+                TradeHistory.pnl.is_not(None),
+                TradeHistory.mode == requested_mode
             )
             return (await s.execute(stmt)).first()
 

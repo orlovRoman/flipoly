@@ -76,17 +76,36 @@ services:
         limits:
           memory: 512M
 
-  execution_worker:
+  execution_worker_paper:
     build: .
-    container_name: polyflip_execution_worker
+    container_name: polyflip_execution_worker_paper
     restart: always
     depends_on:
       - db
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - EXECUTION_MODE=PAPER
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python -m polyflip.execution.worker
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  execution_worker_live:
+    build: .
+    container_name: polyflip_execution_worker_live
+    restart: always
+    depends_on:
+      - db
+    profiles: ["live"]
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
       - POLYGON_PRIVATE_KEY=${POLYGON_PRIVATE_KEY}
       - POLYGON_ADDRESS=${POLYGON_ADDRESS}
-      - EXECUTION_MODE=${EXECUTION_MODE:-PAPER}
+      - EXECUTION_MODE=LIVE
     volumes:
       - ./polyflip:/app/polyflip
       - ./scripts:/app/scripts

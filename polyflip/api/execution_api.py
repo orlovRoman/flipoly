@@ -35,7 +35,10 @@ async def get_live_trading_status(db: AsyncSession = Depends(get_db_session)):
     
     # Get latest worker status
     worker_status = (await db.execute(
-        select(ExecutionWorkerStatus).order_by(ExecutionWorkerStatus.heartbeat_at.desc()).limit(1)
+        select(ExecutionWorkerStatus)
+        .where(ExecutionWorkerStatus.execution_mode == "LIVE")
+        .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
+        .limit(1)
     )).scalar_one_or_none()
     
     worker_data = None
@@ -83,7 +86,10 @@ async def toggle_kill_switch(payload: KillSwitchRequest, db: AsyncSession = Depe
             raise HTTPException(status_code=400, detail="Cannot enable LIVE trading: Execution mode is not LIVE")
             
         worker_status = (await db.execute(
-            select(ExecutionWorkerStatus).order_by(ExecutionWorkerStatus.heartbeat_at.desc()).limit(1)
+            select(ExecutionWorkerStatus)
+            .where(ExecutionWorkerStatus.execution_mode == "LIVE")
+            .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
+            .limit(1)
         )).scalar_one_or_none()
         
         if not worker_status:
@@ -121,11 +127,12 @@ async def toggle_kill_switch(payload: KillSwitchRequest, db: AsyncSession = Depe
         raise HTTPException(status_code=500, detail="Internal Server Error")
 from polyflip.db.models import TradeHistory
 from polyflip.db.execution_models import ExecutionRequest
+from polyflip.execution.states import ACTIVE_POSITION_STATES
 
 @router.get("/positions")
 async def get_live_trading_positions(db: AsyncSession = Depends(get_db_session)):
     stmt = select(TradeHistory).where(
-        TradeHistory.position_status.in_(["OPEN", "OPENING", "CLOSING"])
+        TradeHistory.position_status.in_(ACTIVE_POSITION_STATES)
     ).order_by(TradeHistory.created_at.desc()).limit(100)
     
     res = await db.execute(stmt)
@@ -136,12 +143,15 @@ async def get_live_trading_positions(db: AsyncSession = Depends(get_db_session))
             "id": t.id,
             "market_id": t.market_id,
             "asset": t.asset,
-            "side": t.side,
-            "price": float(t.price) if t.price else 0,
-            "size": float(t.size) if t.size else 0,
-            "amount_usdc": float(t.amount_usdc) if t.amount_usdc else 0,
+            "outcome_bought": t.outcome_bought,
+            "mode": t.mode,
+            "entry_filled_shares": float(t.entry_filled_shares or 0),
+            "entry_cost_usdc": float(t.entry_cost_usdc or 0),
+            "remaining_shares": float(t.remaining_shares or 0),
+            "realized_pnl_usdc": float(t.realized_pnl_usdc or 0),
             "position_status": t.position_status,
-            "pnl": float(t.pnl) if t.pnl else 0,
+            "stop_loss_status": t.stop_loss_status,
+            "take_profit_status": t.take_profit_status,
             "created_at": t.created_at.isoformat() if t.created_at else None,
         }
         for t in trades

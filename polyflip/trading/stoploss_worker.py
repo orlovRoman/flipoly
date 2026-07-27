@@ -86,15 +86,14 @@ async def _process_single_stoploss(
     exec_settings = ExecutionSettings()
     sell_floor = max(0.01, current_bid - 0.01)
     
-    request_id = await enqueue_close_request(
+    res = await enqueue_close_request(
         db_session,
         trade_id=trade.id,
         trigger_reason="STOP_LOSS",
         limit_price=sell_floor,
         requested_mode=exec_settings.execution_mode
     )
-    if not request_id:
-        logger.warning("stoploss_failed_to_enqueue_close", trade_id=trade.id)
+    if not res:
         return
 
     # После успешной постановки меняем статус стоп-лосса
@@ -107,7 +106,7 @@ async def _process_single_stoploss(
         "stoploss_outbox_request_created",
         trade_id=trade.id,
         sell_price=current_bid,
-        request_id=str(request_id)
+        request_id=str(res.request_id)
     )
 
 
