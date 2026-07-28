@@ -224,7 +224,20 @@ async def decide_ml_mode(
     except Exception as e:
         logger.error("ml_mode_infer_flip_error", asset=market.asset, error=str(e))
         return DecisionResult(None, 0.0, None, None, "flip inference failed")
-    
+
+    # Диагностика: сырое значение p_flip до любых коррекций (ECE, dead zone и т.д.)
+    # Если is_suspicious=True (значение близко к 0.5) — проблема в фичах, а не в порогах.
+    logger.info(
+        "p_flip_raw_pre_correction",
+        asset=market.asset,
+        market_id=market.market_id,
+        p_flip_raw=round(p_flip, 6),
+        fresh_price=round(fresh_yes_price, 4),
+        used_model=used_model,
+        n_active_features=len(active_features),
+        is_suspicious=(abs(p_flip - 0.5) < 0.01),
+    )
+
     signal = MarketSignal(
         asset=market.asset,
         mid_price=fresh_yes_price,
