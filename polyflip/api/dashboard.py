@@ -418,30 +418,38 @@ async def get_daily_pnl(
     """Возвращает отчет PnL по стратегиям за выбранный период (24h, 7d, 30d, all)."""
     now = datetime.now(timezone.utc)
     
+    # Единый якорь: дата закрытия (или открытия, если ещё не закрыта)
+    _time_col = func.coalesce(TradeHistory.closed_at, TradeHistory.created_at)
+
     where_clause = [
+        TradeHistory.status == "SUCCESS",
         TradeHistory.position_status == "CLOSED",
-        TradeHistory.pnl.is_not(None)
+        or_(
+            TradeHistory.realized_pnl_usdc.is_not(None),
+            TradeHistory.pnl.is_not(None),
+        ),
     ]
-    
+
     if timeframe == "24h":
         start_time = now - timedelta(hours=24)
-        where_clause.append(TradeHistory.created_at >= start_time)
+        where_clause.append(_time_col >= start_time)
     elif timeframe == "7d":
         start_time = now - timedelta(days=7)
-        where_clause.append(TradeHistory.created_at >= start_time)
+        where_clause.append(_time_col >= start_time)
     elif timeframe == "30d":
         start_time = now - timedelta(days=30)
-        where_clause.append(TradeHistory.created_at >= start_time)
+        where_clause.append(_time_col >= start_time)
     elif timeframe == "all":
         pass  # без фильтра по времени
     else:
         start_time = now - timedelta(hours=24)
-        where_clause.append(TradeHistory.created_at >= start_time)
-    
+        where_clause.append(_time_col >= start_time)
+
     stmt = select(
         TradeHistory.asset,
         TradeHistory.active_features,
         TradeHistory.pnl,
+        TradeHistory.realized_pnl_usdc,
         TradeHistory.amount_usdc,
         TradeHistory.executed_price,
         TradeHistory.mode
@@ -481,10 +489,12 @@ async def get_daily_pnl(
                 "volume": 0.0
             }
             
+        # Приоритет: realized_pnl_usdc (новые сделки), fallback: pnl (старые)
+        effective_pnl = row.realized_pnl_usdc if row.realized_pnl_usdc is not None else (row.pnl or 0.0)
         aggregated[key]["trades"] += 1
-        if row.pnl and row.pnl > 0:
+        if effective_pnl > 0:
             aggregated[key]["wins"] += 1
-        aggregated[key]["pnl"] += (row.pnl or 0.0)
+        aggregated[key]["pnl"] += effective_pnl
         aggregated[key]["volume"] += (row.amount_usdc or 0.0)
         
     response_data = []
