@@ -47,15 +47,13 @@ def _reconstruct_missing_fields(trade: TradeHistory) -> None:
     """
     Восстанавливает nullable legacy-поля для старых записей.
     Выбрасывает AccountingInvariantError если восстановить невозможно надёжно.
-    """
-    if trade.remaining_shares is None:
-        if trade.entry_filled_shares is not None:
-            trade.remaining_shares = trade.entry_filled_shares
-        else:
-            raise AccountingInvariantError(
-                f"Trade {trade.id}: remaining_shares is NULL and cannot be reconstructed"
-            )
 
+    Порядок важен:
+    1. Сначала восстанавливаем entry_filled_shares — он нужен для remaining_shares.
+    2. Затем remaining_shares — может опираться на entry_filled_shares.
+    3. Затем entry_cost_usdc.
+    """
+    # Шаг 1: восстанавливаем entry_filled_shares
     if trade.entry_filled_shares is None:
         if trade.executed_price and Decimal(str(trade.executed_price)) > 0:
             trade.entry_filled_shares = Decimal(str(trade.amount_usdc or 0)) / Decimal(
@@ -66,6 +64,16 @@ def _reconstruct_missing_fields(trade: TradeHistory) -> None:
                 f"Trade {trade.id}: entry_filled_shares is NULL and executed_price is zero"
             )
 
+    # Шаг 2: восстанавливаем remaining_shares (опирается на entry_filled_shares)
+    if trade.remaining_shares is None:
+        if trade.entry_filled_shares is not None:
+            trade.remaining_shares = trade.entry_filled_shares
+        else:
+            raise AccountingInvariantError(
+                f"Trade {trade.id}: remaining_shares is NULL and cannot be reconstructed"
+            )
+
+    # Шаг 3: восстанавливаем entry_cost_usdc
     if trade.entry_cost_usdc is None:
         # Для старых записей: basis = gross amount (без fees, т.к. они неизвестны)
         trade.entry_cost_usdc = Decimal(str(trade.amount_usdc or 0))
@@ -160,7 +168,7 @@ async def settle_resolved_position(
     new_realized = prior_realized + delta_pnl
 
     trade.realized_pnl_usdc = new_realized
-    trade.pnl = new_realized  # синхронизация legacy-колонки
+    trade.pnl = float(new_realized)  # явное приведение: колонка pnl имеет тип Float
     trade.remaining_shares = Decimal("0")
     trade.position_status = "CLOSED"
     trade.closed_at = datetime.now(timezone.utc)
