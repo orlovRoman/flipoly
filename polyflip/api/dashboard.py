@@ -486,12 +486,13 @@ async def get_daily_pnl(
             }
             
         # Приоритет: realized_pnl_usdc (новые сделки), fallback: pnl (старые)
-        effective_pnl = row.realized_pnl_usdc if row.realized_pnl_usdc is not None else (row.pnl or 0.0)
+        # Явное приведение к float — realized_pnl_usdc приходит из БД как Decimal
+        effective_pnl = float(row.realized_pnl_usdc) if row.realized_pnl_usdc is not None else float(row.pnl or 0)
         aggregated[key]["trades"] += 1
         if effective_pnl > 0:
             aggregated[key]["wins"] += 1
         aggregated[key]["pnl"] += effective_pnl
-        aggregated[key]["volume"] += (row.amount_usdc or 0.0)
+        aggregated[key]["volume"] += float(row.amount_usdc or 0)
         
     response_data = []
     for data in aggregated.values():
