@@ -365,6 +365,7 @@ def _fit_and_serialize(
 
     return model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest
 
+
 class ModelTrainer:
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
@@ -777,6 +778,13 @@ class ModelTrainer:
                 )
                 phase_results[phase_name] = f"skipped ({n_unique_markets} markets < {CV_N_SPLITS} folds)"
                 continue
+
+            # FIX: определяем все переменные фазы перед передачей в _fit_and_serialize
+            phase_asset = f"{asset}_{phase_name}"
+            df_phase = df_phase.reset_index(drop=True)
+            X_phase   = df_phase[active_features]
+            y_phase   = df_phase["target"]
+            grp_phase = df_phase["market_id"]
 
             phase_weights = (
                 _compute_sample_weights(
