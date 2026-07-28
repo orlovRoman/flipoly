@@ -40,6 +40,16 @@ class EnqueueResult:
     reason: str | None = None
 
 
+async def _get_dialect(db: AsyncSession) -> str:
+    """
+    Возвращает имя диалекта БД через connection, а не db.bind.
+    AsyncSession.bind всегда None при async_sessionmaker — использование
+    db.bind.dialect.name вызывает AttributeError в продакшене.
+    """
+    conn = await db.connection()
+    return conn.dialect.name
+
+
 async def enqueue_open_request(
     db: AsyncSession,
     *,
@@ -109,7 +119,14 @@ async def enqueue_open_request(
             except (ValueError, TypeError):
                 pass  # некорректное значение — считаем порог неустановленным
 
-    dialect_name = db.bind.dialect.name
+    # Risk #6 fix: TTL для AWAITING_APPROVAL увеличен до 300 сек.
+    # При initial_state == AWAITING_APPROVAL оператор может апрувить несколько минут,
+    # 60 сек недостаточно — запрос экспирирует раньше апрува.
+    ttl_seconds = 300 if initial_state == "AWAITING_APPROVAL" else 60
+    expires_at = now_utc + timedelta(seconds=ttl_seconds)
+
+    # Bug #4 fix: используем _get_dialect вместо db.bind.dialect.name
+    dialect_name = await _get_dialect(db)
     insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
     requested_shares = (
@@ -135,15 +152,18 @@ async def enqueue_open_request(
             max_slippage_pct=2.0,
             limit_price=Decimal(str(limit_price)),
             max_spend_usdc=Decimal(str(target_amount_usdc)),
-            ttl_seconds=60,
-            expires_at=now_utc + timedelta(seconds=60),
+            ttl_seconds=ttl_seconds,
+            expires_at=expires_at,
             state=initial_state,
             created_at=now_utc,
             updated_at=now_utc,
             position_version_snapshot=trade_position_version,
         )
+        # Bug #2 fix: добавлен "intent" в index_elements.
+        # Partial unique index создан по (requested_mode, market_id, intent) WHERE active.
+        # Без intent PostgreSQL не находил partial index и делал INSERT без дедупликации.
         .on_conflict_do_nothing(
-            index_elements=["requested_mode", "market_id"],
+            index_elements=["requested_mode", "market_id", "intent"],
             index_where=ExecutionRequest.ACTIVE_OPEN_PREDICATE,
         )
         .returning(ExecutionRequest.id)
@@ -226,7 +246,8 @@ async def enqueue_close_request(
     # в одной транзакции под SELECT ... FOR UPDATE.
     version_snapshot = trade.position_version or 0
 
-    dialect_name = db.bind.dialect.name
+    # Bug #4 fix: используем _get_dialect вместо db.bind.dialect.name
+    dialect_name = await _get_dialect(db)
     insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
     statement = (
@@ -326,12 +347,24 @@ async def finalize_request(
             trade.position_status = "ENTRY_FAILED"
             trade.error_msg = error
         else:
-            trade.position_status = (
+            new_status = (
                 "PARTIALLY_CLOSED"
                 if Decimal(trade.remaining_shares or 0)
                 < Decimal(trade.entry_filled_shares or 0)
                 else "OPEN"
             )
+            # Risk #5 fix: логируем откат статуса позиции при неудачном CLOSE.
+            # Помогает обнаружить гонку данных если remaining_shares неактуален.
+            logger.warning(
+                "close_failed_position_rollback",
+                trade_id=trade.id,
+                trigger_reason=req.trigger_reason,
+                remaining_shares=str(trade.remaining_shares),
+                entry_filled_shares=str(trade.entry_filled_shares),
+                new_status=new_status,
+                error=error,
+            )
+            trade.position_status = new_status
             trade.last_exit_error = error
             trade.exit_attempts = (trade.exit_attempts or 0) + 1
 

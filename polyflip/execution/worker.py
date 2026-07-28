@@ -43,6 +43,16 @@ _ADVISORY_LOCK_NAMESPACE = 2001
 MAX_RECONCILIATION_AGE_SEC = 900  # 15 минут
 
 
+async def _get_dialect(session) -> str:
+    """
+    Возвращает имя диалекта БД через connection, а не session.bind.
+    AsyncSession.bind всегда None при async_sessionmaker — использование
+    session.bind.dialect.name вызывает AttributeError в продакшене.
+    """
+    conn = await session.connection()
+    return conn.dialect.name
+
+
 async def _acquire_mode_lock(session, requested_mode: str) -> None:
     """
     Берёт PostgreSQL advisory lock на уровне режима исполнения.
@@ -51,7 +61,9 @@ async def _acquire_mode_lock(session, requested_mode: str) -> None:
     одновременно пройти risk-check.
     На SQLite — no-op (тесты).
     """
-    if session.bind.dialect.name != "postgresql":
+    # Bug #3 fix: получаем диалект через connection, не через session.bind
+    dialect_name = await _get_dialect(session)
+    if dialect_name != "postgresql":
         return
     mode_key = _MODE_LOCK_KEYS.get(requested_mode, 0)
     await session.execute(
@@ -70,7 +82,8 @@ async def _persist_fills(
     по (gateway, provider_trade_id).
     Совместимо с PostgreSQL и SQLite (index_elements вместо constraint=).
     """
-    dialect_name = session.bind.dialect.name
+    # Bug #4 fix: используем _get_dialect вместо session.bind.dialect.name
+    dialect_name = await _get_dialect(session)
     insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
     for f in fills:
@@ -158,7 +171,8 @@ async def _finish_submit_exception(
 
 async def claim_one(session, worker_mode: str) -> ExecutionRequest | None:
     now = datetime.now(timezone.utc)
-    dialect = session.bind.dialect.name
+    # Bug #4 fix: используем _get_dialect вместо session.bind.dialect.name
+    dialect = await _get_dialect(session)
 
     where_clause = and_(
         ExecutionRequest.requested_mode == worker_mode,
@@ -217,21 +231,9 @@ async def process_ready_requests():
             requested_mode=req.requested_mode,
         )
 
-        # Проверка kill switch для LIVE
-        if req.requested_mode == "LIVE" and req.intent == "OPEN":
-            rt_stmt = select(RuntimeSettings).where(
-                RuntimeSettings.key == "LIVE_TRADING_ENABLED"
-            )
-            rt_set = (await session.execute(rt_stmt)).scalar_one_or_none()
-            if not rt_set or rt_set.value.lower() != "true":
-                await finalize_request(
-                    session,
-                    req,
-                    state="REJECTED",
-                    error="LIVE trading kill switch is off",
-                )
-                await session.commit()
-                return
+        # Bug #1 fix: дублирующий kill-switch блок удалён.
+        # Kill-switch для LIVE OPEN полностью обрабатывается внутри
+        # check_risk_limits() — единая точка проверки без двойного SELECT.
 
         gateway = build_execution_gateway(settings)
 
@@ -563,7 +565,7 @@ async def rebuild_trade_accounting(session, trade_id: int):
     trade.amount_usdc = open_gross  # legacy: только gross
     trade.remaining_shares = max(Decimal("0"), remaining_shares)
     trade.realized_pnl_usdc = realized_pnl
-    trade.pnl = realized_pnl  # синхронизируем legacy-колонку
+    trade.pnl = float(realized_pnl)  # явное приведение: колонка pnl имеет тип Float
 
     if close_shares > Decimal("0"):
         avg_close_price = close_gross / close_shares
@@ -845,7 +847,8 @@ async def publish_heartbeat():
             readiness = await gateway.get_readiness()
             now = datetime.now(timezone.utc)
             async with async_session() as session:
-                dialect_name = session.bind.dialect.name
+                # Bug #4 fix: используем _get_dialect вместо session.bind.dialect.name
+                dialect_name = await _get_dialect(session)
                 insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
                 bal = (
