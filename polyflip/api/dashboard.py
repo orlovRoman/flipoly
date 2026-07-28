@@ -418,16 +418,12 @@ async def get_daily_pnl(
     """Возвращает отчет PnL по стратегиям за выбранный период (24h, 7d, 30d, all)."""
     now = datetime.now(timezone.utc)
     
-    # Единый якорь: дата закрытия (или открытия, если ещё не закрыта)
+    # Единый якорь времени: дата закрытия (если есть), иначе дата открытия
     _time_col = func.coalesce(TradeHistory.closed_at, TradeHistory.created_at)
 
     where_clause = [
-        TradeHistory.status == "SUCCESS",
         TradeHistory.position_status == "CLOSED",
-        or_(
-            TradeHistory.realized_pnl_usdc.is_not(None),
-            TradeHistory.pnl.is_not(None),
-        ),
+        TradeHistory.pnl.is_not(None),
     ]
 
     if timeframe == "24h":
