@@ -159,11 +159,12 @@ async def enqueue_open_request(
             updated_at=now_utc,
             position_version_snapshot=trade_position_version,
         )
-        # Bug #2 fix: добавлен "intent" в index_elements.
-        # Partial unique index создан по (requested_mode, market_id, intent) WHERE active.
-        # Без intent PostgreSQL не находил partial index и делал INSERT без дедупликации.
+        # Partial unique index uq_active_open_request создан по (requested_mode, market_id)
+        # с WHERE-предикатом ACTIVE_OPEN_PREDICATE. Именно эти два поля нужны для ON CONFLICT.
+        # ВАЖНО: добавление intent в index_elements ломало матчинг в PostgreSQL —
+        # нельзя указывать больше колонок, чем есть в индексе.
         .on_conflict_do_nothing(
-            index_elements=["requested_mode", "market_id", "intent"],
+            index_elements=["requested_mode", "market_id"],
             index_where=ExecutionRequest.ACTIVE_OPEN_PREDICATE,
         )
         .returning(ExecutionRequest.id)

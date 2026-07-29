@@ -809,6 +809,10 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const sortedData = [...filteredData].sort((a, b) => {
+      // Первым делом поднимаем АКТИВНЫЕ модели наверх таблицы!
+      if (a.is_active !== b.is_active) {
+        return a.is_active ? -1 : 1;
+      }
 
       let valA, valB;
       const keyA = `${a.asset}_v${a.version}`;

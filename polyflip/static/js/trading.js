@@ -110,14 +110,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
       let cumulativePnl = 0;
       const pnlData = [];
-      const winData = [];
-      const lossData = [];
+      const dailyPnlData = [];
+      const dailyColors = [];
 
       for (const date of sortedDates) {
-        cumulativePnl += dailyData[date].pnl;
+        const dayPnl = dailyData[date].pnl;
+        cumulativePnl += dayPnl;
         pnlData.push(cumulativePnl);
-        winData.push(dailyData[date].wins);
-        lossData.push(dailyData[date].losses);
+        dailyPnlData.push(dayPnl);
+        dailyColors.push(dayPnl >= 0 ? "#00ff88" : "#ff3366");
       }
 
       const displayDates = [...sortedDates];
@@ -131,8 +132,8 @@ document.addEventListener("DOMContentLoaded", () => {
           const nextDateStr = lastDate.toISOString().split("T")[0];
           displayDates.push(nextDateStr);
           pnlData.push(lastPnl);
-          winData.push(null);
-          lossData.push(null);
+          dailyPnlData.push(null);
+          dailyColors.push("#00ff88");
         }
       }
 
@@ -238,31 +239,42 @@ document.addEventListener("DOMContentLoaded", () => {
             labels: displayDates,
             datasets: [
               {
-                label: "Выигрыши",
-                data: winData,
-                backgroundColor: "#2ecc71",
-                maxBarThickness: 30,
-              },
-              {
-                label: "Проигрыши",
-                data: lossData,
-                backgroundColor: "#e74c3c",
+                label: "Дневной PnL (USDC)",
+                data: dailyPnlData,
+                backgroundColor: dailyColors,
                 maxBarThickness: 30,
               },
             ],
           },
           options: {
             ...commonOptions,
+            plugins: {
+              legend: { display: true, labels: { color: "white" } },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const val = context.raw;
+                    if (val === null || val === undefined) return "";
+                    return ` Дневной PnL: ${val >= 0 ? "+" : ""}${val.toFixed(2)} USDC`;
+                  }
+                }
+              }
+            },
             scales: {
               x: {
-                stacked: true,
+                stacked: false,
                 offset: true,
                 ticks: { color: "rgba(255, 255, 255, 0.7)" },
                 grid: { color: "rgba(255, 255, 255, 0.1)" },
               },
               y: {
-                stacked: true,
-                ticks: { color: "rgba(255, 255, 255, 0.7)" },
+                stacked: false,
+                ticks: {
+                  color: "rgba(255, 255, 255, 0.7)",
+                  callback: function(val) {
+                    return (val >= 0 ? "+" : "") + val.toFixed(2) + " USDC";
+                  }
+                },
                 grid: { color: "rgba(255, 255, 255, 0.1)" },
               }
             }

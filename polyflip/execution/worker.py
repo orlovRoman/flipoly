@@ -563,6 +563,10 @@ async def rebuild_trade_accounting(session, trade_id: int):
     # entry_cost_usdc = gross + entry fees (полная себестоимость входа)
     trade.entry_cost_usdc = open_gross + open_fees
     trade.amount_usdc = open_gross  # legacy: только gross
+    if open_shares > Decimal("0"):
+        trade.executed_price = float(open_gross / open_shares)
+    else:
+        trade.executed_price = 0.0
     trade.remaining_shares = max(Decimal("0"), remaining_shares)
     trade.realized_pnl_usdc = realized_pnl
     trade.pnl = float(realized_pnl)  # явное приведение: колонка pnl имеет тип Float

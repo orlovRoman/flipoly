@@ -45,25 +45,31 @@ async def upsert_candles(
         for c in candles
     ]
 
-    stmt = pg_insert(CryptoCandle).values(rows)
-    stmt = stmt.on_conflict_do_update(
-        constraint="uix_crypto_candle",
-        set_={
-            "is_closed": case(
-                (CryptoCandle.is_closed.is_(True), True),
-                else_=stmt.excluded.is_closed
-            ),
-            "close_time": stmt.excluded.close_time,
-            "close": stmt.excluded.close,
-            "high": stmt.excluded.high,
-            "low": stmt.excluded.low,
-            "volume": stmt.excluded.volume,
-            "taker_buy_volume": stmt.excluded.taker_buy_volume,
-        }
-    )
-    result = await session.execute(stmt)
+    total_inserted = 0
+    batch_size = 500
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i:i + batch_size]
+        stmt = pg_insert(CryptoCandle).values(batch)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uix_crypto_candle",
+            set_={
+                "is_closed": case(
+                    (CryptoCandle.is_closed.is_(True), True),
+                    else_=stmt.excluded.is_closed
+                ),
+                "close_time": stmt.excluded.close_time,
+                "close": stmt.excluded.close,
+                "high": stmt.excluded.high,
+                "low": stmt.excluded.low,
+                "volume": stmt.excluded.volume,
+                "taker_buy_volume": stmt.excluded.taker_buy_volume,
+            }
+        )
+        result = await session.execute(stmt)
+        total_inserted += result.rowcount
+        
     await session.commit()
-    return result.rowcount
+    return total_inserted
 
 
 async def get_recent_candles(

@@ -1,0 +1,1 @@
+\d market_snapshots

@@ -559,12 +559,23 @@ async def get_model_pnl(
             if since and since.tzinfo is None:
                 since = since.replace(tzinfo=timezone.utc)
             
-            if i + 1 < len(versions):
-                until = versions[i + 1].trained_at
-                if until and until.tzinfo is None:
-                    until = until.replace(tzinfo=timezone.utc)
+            # Для активных моделей период не должен обрезаться неактивными драфтами переобучения.
+            # Интервал активной модели продолжается до следующей АКТИВНОЙ модели или до текущего времени (now).
+            if m.is_active:
+                next_active = next((other for other in versions[i+1:] if other.is_active), None)
+                if next_active and next_active.trained_at:
+                    until = next_active.trained_at
+                    if until.tzinfo is None:
+                        until = until.replace(tzinfo=timezone.utc)
+                else:
+                    until = now
             else:
-                until = now
+                if i + 1 < len(versions) and versions[i + 1].trained_at:
+                    until = versions[i + 1].trained_at
+                    if until and until.tzinfo is None:
+                        until = until.replace(tzinfo=timezone.utc)
+                else:
+                    until = now
                 
             periods.append((asset, m.version, since, until))
 
