@@ -200,6 +200,9 @@ async def _set_runtime_flag(db: AsyncSession, key: str, value: str) -> None:
     await db.commit()
 
 
+from polyflip.execution.live_mirror_worker import set_mirror_enabled
+
+
 @router.put("/mirror-switch",
              summary="Включить / выключить LIVE_MIRROR_ENABLED (mirror-воркер)")
 async def toggle_mirror_switch(
@@ -211,11 +214,7 @@ async def toggle_mirror_switch(
     true  — mirror-воркер создаёт LiveMirrorCandidate для FILLED PAPER OPEN.
     false — воркер спит, ни одного кандидата не создаёт.
     """
-    val = "true" if payload.enabled else "false"
-    if payload.enabled:
-        now_iso = datetime.now(timezone.utc).isoformat()
-        await _set_runtime_flag(db, "LIVE_MIRROR_STARTED_AT", now_iso)
-    await _set_runtime_flag(db, "LIVE_MIRROR_ENABLED", val)
+    await set_mirror_enabled(db, enabled=payload.enabled, updated_by="api")
     logger.info("mirror_switch_toggled", enabled=payload.enabled)
     return {"status": "ok", "LIVE_MIRROR_ENABLED": payload.enabled}
 
