@@ -54,8 +54,8 @@ docker compose -f docker-compose.live-test.yml logs -f release_gate_worker_test
 
 3. **Проверка статуса через REST API:**
    ```bash
-   curl -s -H "X-API-Key: test-key" http://localhost:8001/api/execution/status
-   curl -s -H "X-API-Key: test-key" "http://localhost:8001/api/execution/candidates?state=NEW"
+   curl -s -H "X-API-Key: test-key" http://localhost:8002/api/execution/status
+   curl -s -H "X-API-Key: test-key" "http://localhost:8002/api/execution/candidates?state=NEW"
    ```
 
 ### Критерии успеха
@@ -71,7 +71,7 @@ docker compose -f docker-compose.live-test.yml --profile live-test down
 ```
 Отключение флага mirror-воркера через API (при необходимости):
 ```bash
-curl -X PUT http://localhost:8001/api/execution/mirror-switch \
+curl -X PUT http://localhost:8002/api/execution/mirror-switch \
   -H "Content-Type: application/json" \
   -H "X-API-Key: test-key" \
   -d '{"enabled": false}'

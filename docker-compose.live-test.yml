@@ -23,6 +23,34 @@ services:
         limits:
           memory: 512M
 
+  migrate_test:
+    build: .
+    profiles: ["live-test"]
+    depends_on:
+      db_test:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    command: alembic upgrade head
+
+  seed_paper_signals:
+    build: .
+    profiles: ["live-test"]
+    depends_on:
+      migrate_test:
+        condition: service_completed_successfully
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python scripts/seed_shadow_paper_signals.py
+
   api_test:
     build: .
     restart: always
@@ -30,6 +58,8 @@ services:
     depends_on:
       db_test:
         condition: service_healthy
+      migrate_test:
+        condition: service_completed_successfully
     ports:
       - "8002:8001"
     environment:
@@ -56,6 +86,8 @@ services:
     depends_on:
       db_test:
         condition: service_healthy
+      migrate_test:
+        condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
       - EXECUTION_MODE=PAPER
@@ -75,6 +107,8 @@ services:
     depends_on:
       db_test:
         condition: service_healthy
+      migrate_test:
+        condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
       - EXECUTION_MODE=SHADOW
@@ -94,6 +128,8 @@ services:
     depends_on:
       db_test:
         condition: service_healthy
+      migrate_test:
+        condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
       - MIRROR_TARGET_MODE=SHADOW
@@ -114,6 +150,8 @@ services:
     depends_on:
       db_test:
         condition: service_healthy
+      migrate_test:
+        condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
     volumes:

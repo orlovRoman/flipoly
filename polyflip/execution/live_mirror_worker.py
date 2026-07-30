@@ -27,9 +27,7 @@ import json
 import logging
 import os
 import signal
-import sys
 from datetime import datetime, timezone
-from decimal import Decimal
 
 from sqlalchemy import select, exists
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -48,10 +46,12 @@ BATCH_SIZE: int = int(os.environ.get("MIRROR_BATCH_SIZE", "50"))
 TARGET_MODE: str = os.environ.get("MIRROR_TARGET_MODE", "SHADOW")  # SHADOW до Этапа 10
 
 # Состояния PAPER OPEN-заявок, которые считаются финально исполненными
-PAPER_MIRRORABLE_STATES: frozenset[str] = frozenset({
-    "FILLED",
-    "PARTIALLY_FILLED_FINAL",
-})
+PAPER_MIRRORABLE_STATES: frozenset[str] = frozenset(
+    {
+        "FILLED",
+        "PARTIALLY_FILLED_FINAL",
+    }
+)
 
 # ── Главный цикл ──────────────────────────────────────────────────────────────
 
@@ -91,15 +91,21 @@ async def set_mirror_enabled(
     now_iso = now.isoformat()
 
     async def _upsert(key: str, val: str) -> None:
-        existing = (await session.execute(
-            select(RuntimeSettings).where(RuntimeSettings.key == key)
-        )).scalar_one_or_none()
+        existing = (
+            await session.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == key)
+            )
+        ).scalar_one_or_none()
         if existing:
             existing.value = val
             existing.updated_at = now
             existing.updated_by = updated_by
         else:
-            session.add(RuntimeSettings(key=key, value=val, updated_at=now, updated_by=updated_by))
+            session.add(
+                RuntimeSettings(
+                    key=key, value=val, updated_at=now, updated_by=updated_by
+                )
+            )
 
     val = "true" if enabled else "false"
     await _upsert("LIVE_MIRROR_ENABLED", val)
@@ -120,10 +126,15 @@ async def mirror_batch(session: AsyncSession) -> int:
     """
     # Курсор начала зеркалирования
     started_at_raw = await session.scalar(
-        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_MIRROR_STARTED_AT")
+        select(RuntimeSettings.value).where(
+            RuntimeSettings.key == "LIVE_MIRROR_STARTED_AT"
+        )
     )
     if not started_at_raw:
-        logger.warning("LIVE_MIRROR_STARTED_AT не задан в RuntimeSettings. Mirror worker работает в режиме fail-closed.")
+        logger.warning(
+            "LIVE_MIRROR_STARTED_AT не задан в RuntimeSettings. "
+            "Mirror worker работает в режиме fail-closed."
+        )
         return 0
 
     started_at = None
@@ -132,7 +143,10 @@ async def mirror_batch(session: AsyncSession) -> int:
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=timezone.utc)
     except ValueError:
-        logger.error("Неверный формат LIVE_MIRROR_STARTED_AT: %s. Mirror worker пропущен.", started_at_raw)
+        logger.error(
+            "Неверный формат LIVE_MIRROR_STARTED_AT: %s. Mirror worker пропущен.",
+            started_at_raw,
+        )
         return 0
 
     # Выбираем исполненные PAPER OPEN без существующего кандидата
@@ -200,7 +214,11 @@ async def mirror_batch(session: AsyncSession) -> int:
 
     if created:
         await session.commit()
-        logger.info("Зеркалировано %d PAPER OPEN → LiveMirrorCandidate (target_mode=%s)", created, TARGET_MODE)
+        logger.info(
+            "Зеркалировано %d PAPER OPEN → LiveMirrorCandidate (target_mode=%s)",
+            created,
+            TARGET_MODE,
+        )
     else:
         # Все строки уже были зеркалированы (race condition / повтор)
         await session.rollback()
@@ -221,8 +239,16 @@ def _build_signal_snapshot(
         "asset": paper_request.asset,
         "outcome_to_buy": paper_request.outcome_to_buy,
         "target_amount_usdc": str(paper_request.target_amount_usdc),
-        "requested_shares": str(paper_request.requested_shares) if paper_request.requested_shares is not None else None,
-        "decision_limit_price": str(paper_request.limit_price) if paper_request.limit_price is not None else None,
+        "requested_shares": (
+            str(paper_request.requested_shares)
+            if paper_request.requested_shares is not None
+            else None
+        ),
+        "decision_limit_price": (
+            str(paper_request.limit_price)
+            if paper_request.limit_price is not None
+            else None
+        ),
         "model_key": paper_trade.model_key,
         "model_version": paper_trade.model_version,
         "confirm_model_key": paper_trade.confirm_model_key,
@@ -231,7 +257,9 @@ def _build_signal_snapshot(
         "market_role": paper_trade.market_role,
         "predicted_flip_prob": paper_trade.predicted_flip_prob,
         "config_snapshot": paper_trade.config_snapshot,
-        "source_created_at": paper_request.created_at.isoformat() if paper_request.created_at else None,
+        "source_created_at": (
+            paper_request.created_at.isoformat() if paper_request.created_at else None
+        ),
     }
 
 
@@ -247,7 +275,6 @@ def _compute_hash(snapshot: dict) -> str:
 
 async def run_worker() -> None:
     """Главный цикл mirror-воркера."""
-    global _shutdown
 
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL environment variable is not set")
@@ -265,13 +292,17 @@ async def run_worker() -> None:
         try:
             async with Session() as session:
                 if not await runtime_bool(session, "LIVE_MIRROR_ENABLED"):
-                    logger.debug("LIVE_MIRROR_ENABLED=false (в DB) — спим %ss", POLL_INTERVAL)
+                    logger.debug(
+                        "LIVE_MIRROR_ENABLED=false (в DB) — спим %ss", POLL_INTERVAL
+                    )
                 else:
                     created = await mirror_batch(session)
                     if created:
                         logger.info("Батч завершён: создано %d кандидатов", created)
         except Exception:
-            logger.exception("Ошибка в mirror_batch, продолжаем через %ss", POLL_INTERVAL)
+            logger.exception(
+                "Ошибка в mirror_batch, продолжаем через %ss", POLL_INTERVAL
+            )
 
         await asyncio.sleep(POLL_INTERVAL)
 

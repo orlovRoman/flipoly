@@ -18,7 +18,7 @@ from polyflip.db.execution_models import (
     ExecutionFill,
     ExecutionWorkerStatus,
 )
-from polyflip.db.models import LiveMarket, RuntimeSettings, TradeHistory
+from polyflip.db.models import LiveMarket, TradeHistory
 from polyflip.execution.config import ExecutionSettings
 from polyflip.execution.gateways.factory import build_execution_gateway
 from polyflip.execution.contracts import GatewayOrder, GatewayUnavailable

@@ -178,7 +178,7 @@
 
         // Dashboard logic
         const toggleSwitch = document.getElementById('live-kill-switch');
-        let currentExecutionMode = null;
+        let liveWorkerReady = false;
         
         async function fetchStatus() {
             try {
@@ -193,7 +193,6 @@
                 
                 // Update mode badge
                 const modeBadge = document.getElementById('exec-mode-badge');
-                currentExecutionMode = data.execution_mode;
                 modeBadge.textContent = data.execution_mode;
                 modeBadge.className = 'status-badge ' + (
                     data.execution_mode === 'LIVE' ? 'status-live' :
@@ -202,32 +201,29 @@
 
                 // Update worker status
                 const workerStatus = document.getElementById('worker-status');
-                let isOnline = false;
-                if (data.worker_status && data.worker_status.heartbeat_at) {
-                    const hbTime = Date.parse(data.worker_status.heartbeat_at);
-                    if (Number.isFinite(hbTime) && Date.now() - hbTime < 60000) isOnline = true; // 1 min tolerance
-                }
-                workerStatus.textContent = isOnline ? 'Работает' : 'Остановлен';
-                workerStatus.className = isOnline ? 'worker-online' : 'worker-offline';
+                const worker = data.live_worker;
+                const heartbeatMs = worker?.heartbeat_at ? Date.parse(worker.heartbeat_at) : NaN;
+
+                liveWorkerReady = Number.isFinite(heartbeatMs) &&
+                    (Date.now() - heartbeatMs < 60000) &&
+                    (worker?.gateway_ready === true);
+
+                workerStatus.textContent = liveWorkerReady ? 'Работает' : 'Остановлен';
+                workerStatus.className = liveWorkerReady ? 'worker-online' : 'worker-offline';
                 
                 // Update balance
-                const balance = data.worker_status ? data.worker_status.balance_usdc : null;
+                const balance = worker ? worker.balance_usdc : null;
                 document.getElementById('wallet-balance').textContent = 
                     balance !== null ? `$${parseFloat(balance).toFixed(2)}` : '--';
                 
                 // Update kill switch
                 toggleSwitch.checked = data.live_trading_enabled;
-                const liveWorker = data.live_worker;
-                const heartbeat = liveWorker ? liveWorker.heartbeat_at : null;
-                const liveOnline = heartbeat && (Date.now() - Date.parse(heartbeat) < 60000);
+                toggleSwitch.disabled = !data.live_trading_enabled && !liveWorkerReady;
 
-                toggleSwitch.disabled = !data.live_trading_enabled && (!liveOnline || !liveWorker?.gateway_ready);
-                if (!liveWorker) {
+                if (!worker) {
                     toggleSwitch.title = "LIVE воркер не найден";
-                } else if (!liveOnline) {
-                    toggleSwitch.title = "Воркер остановлен. Запустите воркер перед включением LIVE.";
-                } else if (!liveWorker.gateway_ready) {
-                    toggleSwitch.title = "Gateway не готов: " + (liveWorker.last_error_message || "");
+                } else if (!liveWorkerReady) {
+                    toggleSwitch.title = "LIVE-воркер не готов. Проверьте запуск воркера и готовность Gateway.";
                 } else {
                     toggleSwitch.title = "Включить/выключить реальные сделки";
                 }
@@ -239,11 +235,9 @@
         
         toggleSwitch.addEventListener('change', async function() {
             const enable = this.checked;
-            if (enable && currentExecutionMode !== 'LIVE') {
+            if (enable && !liveWorkerReady) {
                 this.checked = false;
-                this.disabled = true;
-                const message = `LIVE-рубильник недоступен в режиме ${currentExecutionMode || 'UNKNOWN'}`;
-                window.showNotification ? showNotification(message, "info") : alert(message);
+                window.showNotification ? showNotification("LIVE-воркер не готов", "error") : alert("LIVE-воркер не готов");
                 return;
             }
             this.disabled = true;
