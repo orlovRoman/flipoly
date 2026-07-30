@@ -14,6 +14,13 @@ class ExecutionRequest(Base):
     trigger_reason = Column(String(32), nullable=True) # 'STRATEGY', 'STOP_LOSS', 'TAKE_PROFIT', 'MANUAL', 'RECOVERY'
     market_id = Column(String(128), nullable=False)
     asset = Column(String(32), nullable=False)
+
+    # Mirror linkage: NULL for PAPER rows, set for LIVE rows mirrored from PAPER
+    source_paper_request_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("execution_requests.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     
     # Order parameters
     outcome_to_buy = Column(String(16), nullable=False)
@@ -226,3 +233,84 @@ class ChainTransaction(Base):
     gas_paid_usdc = Column(Numeric(38, 18), nullable=True)
     paid_by = Column(String(16), nullable=False)  # USER, RELAYER, UNKNOWN
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class LiveMirrorCandidate(Base):
+    """
+    Безопасный буфер зеркалирования PAPER → LIVE.
+
+    mirror-воркер создаёт строку здесь (state='NEW') вместо того,
+    чтобы немедленно создавать исполнимый LIVE ExecutionRequest.
+    Release-gate проверяет все условия и только затем атомарно
+    создаёт TradeHistory(mode='LIVE') + ExecutionRequest(mode='LIVE')
+    и помечает кандидата state='RELEASED'.
+
+    Инварианты:
+    - Никогда не изменяет PAPER-строки (trade_history, execution_requests).
+    - ON CONFLICT DO NOTHING на (source_paper_request_id, target_mode)
+      гарантирует идемпотентность воркера.
+    - Переход state: NEW → ELIGIBLE | REJECTED | RELEASED
+    """
+    __tablename__ = "live_mirror_candidates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Ссылки на исходный PAPER-сигнал
+    source_paper_request_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("execution_requests.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    source_paper_trade_id = Column(
+        Integer,
+        ForeignKey("trade_history.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    # Целевой режим: SHADOW или LIVE
+    target_mode = Column(String(16), nullable=False, default="SHADOW")
+
+    # Жизненный цикл: NEW → ELIGIBLE | REJECTED | RELEASED
+    state = Column(String(32), nullable=False, default="NEW")
+
+    # Снимок сигнала в момент исполнения PAPER-заявки
+    signal_snapshot = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+
+    # SHA-256 от signal_snapshot для сверки идемпотентности
+    signal_hash = Column(String(64), nullable=False)
+
+    # Ссылки на выпущенные LIVE-строки (заполняются только после RELEASED)
+    released_trade_id = Column(
+        Integer,
+        ForeignKey("trade_history.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    released_request_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("execution_requests.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+
+    rejection_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    released_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        # Гарантирует: один кандидат на каждую пару (PAPER-заявка, целевой режим)
+        UniqueConstraint(
+            "source_paper_request_id",
+            "target_mode",
+            name="uq_live_mirror_source_mode",
+        ),
+        CheckConstraint(
+            "target_mode IN ('SHADOW', 'LIVE')",
+            name="ck_live_mirror_target_mode",
+        ),
+        CheckConstraint(
+            "state IN ('NEW', 'ELIGIBLE', 'REJECTED', 'RELEASED')",
+            name="ck_live_mirror_state",
+        ),
+        Index("ix_live_mirror_candidates_state", "state"),
+        Index("ix_live_mirror_candidates_created_at", "created_at"),
+    )
+

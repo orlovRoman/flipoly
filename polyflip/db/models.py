@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint, Text, CheckConstraint, Numeric, SmallInteger
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint, Text, CheckConstraint, Numeric, SmallInteger, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 
@@ -163,6 +163,13 @@ class TradeHistory(Base):
     confirm_model_key = Column(String(64), nullable=True)
     confirm_model_version = Column(Integer, nullable=True)
     model_attribution_source = Column(String(16), nullable=True)
+
+    # --- LIVE mirror linkage (NULL for PAPER rows, set for LIVE rows derived from PAPER) ---
+    source_paper_trade_id = Column(
+        Integer,
+        ForeignKey("trade_history.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
 
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),
