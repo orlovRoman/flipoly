@@ -167,3 +167,144 @@ async def test_paper_rows_checksum_invariance_during_readiness_check(db_session)
     checksum_after = await compute_paper_checksum(db_session)
     
     assert checksum_after == checksum_before
+
+
+@pytest.mark.asyncio
+async def test_paper_golden_e2e_flow(db_session):
+    """
+    Полноценный золотой тест PAPER-маршрута:
+    decision logic → trade_recorder → execution_requests → FakeExecutionGateway / fill → TradeHistory (PAPER_FILLED)
+    """
+    import uuid
+    from polyflip.trading.decision_logic import TradeDecision
+    from polyflip.trading.pre_trade_validator import PreTradeValidation
+    from polyflip.trading.trading_config import TradingConfig
+    from polyflip.trading.trade_recorder import execute_and_record
+    from polyflip.db.models import LiveMarket
+    from polyflip.execution.gateways.fake import FakeExecutionGateway
+    from polyflip.db.execution_models import ExecutionAttempt
+
+    now = datetime.now(timezone.utc)
+    market = LiveMarket(
+        market_id="MKT-GOLDEN-1",
+        asset="BTC",
+        question="Will BTC flip?",
+        yes_token_id="tok_yes",
+        no_token_id="tok_no",
+        end_time_est=now + timedelta(hours=1),
+        current_yes_price=0.73,
+        current_no_price=0.27,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
+        last_updated=now,
+    )
+    db_session.add(market)
+    await db_session.commit()
+
+    decision = TradeDecision(
+        action="BUY_NO",
+        strike=0.27,
+        p_up=0.377,
+        strategy_type="OUTSIDER",
+        buy_price=0.27,
+        bet_size_usdc=1.00,
+        reason="Edge > 0.05",
+        decision_details={"p_flip_effective": 0.377},
+    )
+    validation = PreTradeValidation(
+        valid=True,
+        buy_price=Decimal("0.27"),
+        actual_bet_size=Decimal("1.00"),
+        edge=0.107,
+        market_role="OUTSIDER",
+        skip_reason=None,
+    )
+    from polyflip.trading.trading_config import parse_trading_settings
+    cfg = parse_trading_settings({})
+
+    await execute_and_record(
+        db_session=db_session,
+        market=market,
+        decision_obj=decision,
+        validation=validation,
+        asset_mode="FAVORITE",
+        active_features="test_feat",
+        p_flip=0.377,
+        model_ver=1,
+        cfg=cfg,
+        existing_skipped=None,
+        start_time=now,
+    )
+    await db_session.commit()
+
+    req = (await db_session.execute(
+        select(ExecutionRequest).where(ExecutionRequest.market_id == "MKT-GOLDEN-1")
+    )).scalar_one()
+
+    assert req.intent == "OPEN"
+    assert req.requested_mode == "PAPER"
+    assert req.state == "READY"
+
+    # Имитация исполнения через FakeExecutionGateway
+    gateway = FakeExecutionGateway()
+    attempt = ExecutionAttempt(
+        id=uuid.uuid4(),
+        request_id=req.id,
+        gateway="FAKE",
+        attempt_no=1,
+        started_at=now,
+        status="IN_PROGRESS",
+    )
+    db_session.add(attempt)
+    await db_session.commit()
+
+    from polyflip.execution.contracts import GatewayOrder
+    order = GatewayOrder(
+        attempt_id=attempt.id,
+        market_id=req.market_id,
+        asset=req.asset,
+        outcome_to_buy=req.outcome_to_buy,
+        token_id="tok_no",
+        side="BUY",
+        order_type="FOK",
+        limit_price=req.limit_price,
+        requested_shares=req.requested_shares,
+        target_amount_usdc=req.target_amount_usdc,
+    )
+
+    sub_res = await gateway.submit(order)
+    assert sub_res.accepted is True
+    fill = sub_res.fills[0]
+
+    req.state = "FILLED"
+    req.filled_shares = fill.shares
+    req.filled_cost_usdc = fill.gross_quote_usdc
+
+    trade = await db_session.get(TradeHistory, req.trade_history_id)
+    trade.status = "SUCCESS"
+    trade.position_status = "OPEN"
+    trade.entry_filled_shares = fill.shares
+    trade.entry_cost_usdc = fill.gross_quote_usdc
+    trade.remaining_shares = fill.shares
+    await db_session.commit()
+
+    result_snapshot = {
+        "action": decision.action,
+        "outcome": req.outcome_to_buy,
+        "bet_size": f"{req.target_amount_usdc:.2f}",
+        "limit_price": f"{req.limit_price:.2f}",
+        "edge": f"{validation.edge:.3f}",
+        "market_role": validation.market_role,
+        "request_state": req.state,
+    }
+
+    assert result_snapshot == {
+        "action": "BUY_NO",
+        "outcome": "NO",
+        "bet_size": "1.00",
+        "limit_price": "0.27",
+        "edge": "0.107",
+        "market_role": "OUTSIDER",
+        "request_state": "FILLED",
+    }

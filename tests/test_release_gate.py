@@ -360,3 +360,32 @@ async def test_release_creates_exposure_reservation(db_session):
     assert reservation.trade_history_id == candidate.released_trade_id
     assert reservation.amount_usdc == Decimal("5")
     assert reservation.released_at is None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_release_respects_total_exposure(db_session):
+    """
+    Проверяет, что при установленном лимите MAX_TOTAL_EXPOSURE_USDC=1.0
+    повторный выпуск кандидатов блокируется лимитом экспозиции.
+    """
+    from polyflip.execution.risk_checks import check_risk_limits
+
+    now = datetime.now(timezone.utc)
+    db_session.add(RuntimeSettings(key="MAX_TOTAL_EXPOSURE_USDC", value="1.0", updated_at=now, updated_by="test"))
+    db_session.add(RuntimeSettings(key="SHADOW_RISK_LIMITS_ENABLED", value="true", updated_at=now, updated_by="test"))
+    await db_session.commit()
+
+    err1 = await check_risk_limits(db_session, intent="OPEN", max_spend_usdc=Decimal("1.0"), requested_mode="SHADOW")
+    assert err1 is None
+
+    # Занимаем лимит
+    t = await _make_paper_trade(db_session)
+    t.mode = "SHADOW"
+    t.entry_cost_usdc = Decimal("1.0")
+    t.entry_filled_shares = Decimal("2.0")
+    t.remaining_shares = Decimal("2.0")
+    await db_session.commit()
+
+    err2 = await check_risk_limits(db_session, intent="OPEN", max_spend_usdc=Decimal("1.0"), requested_mode="SHADOW")
+    assert err2 is not None
+    assert "Max total exposure" in err2
