@@ -126,9 +126,7 @@ services:
     restart: always
     profiles: ["live-test"]
     depends_on:
-      db_test:
-        condition: service_healthy
-      migrate_test:
+      seed_paper_signals:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
@@ -148,9 +146,7 @@ services:
     restart: always
     profiles: ["live-test"]
     depends_on:
-      db_test:
-        condition: service_healthy
-      migrate_test:
+      seed_paper_signals:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}

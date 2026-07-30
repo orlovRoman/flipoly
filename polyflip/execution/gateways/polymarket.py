@@ -316,8 +316,22 @@ class PolymarketExecutionGateway:
             readiness.balance = balance_result
             readiness.collateral_allowance_ready = collateral_ready
 
+            if conditional_token_ids:
+                allowances = [
+                    await self.get_token_allowance(token_id)
+                    for token_id in conditional_token_ids
+                ]
+                readiness.conditional_allowance_ready = all(
+                    allowance > 0 for allowance in allowances
+                )
+            else:
+                readiness.conditional_allowance_ready = None
+
             readiness.ready = (
-                credentials_loaded and client_initialized and collateral_ready
+                credentials_loaded
+                and client_initialized
+                and collateral_ready
+                and (readiness.conditional_allowance_ready is not False)
             )
             return readiness
 

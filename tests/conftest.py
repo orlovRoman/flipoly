@@ -5,6 +5,7 @@ import polyflip.db.execution_models  # Ensure execution models are registered
 import pytest
 from polyflip.trading.ml_inference import clear_models_cache
 
+
 @pytest.fixture(autouse=True)
 def clean_models_cache_fixture():
     clear_models_cache()
@@ -34,27 +35,40 @@ async def db_session(engine):
         yield session
 
 
-@pytest_asyncio.fixture(scope="function")
+@pytest_asyncio.fixture
 async def pg_session_factory():
     """Фикстура для подключения к PostgreSQL при прогоне postgres-тестов."""
     import os
     from sqlalchemy import text
-    pg_url = os.getenv("TEST_DATABASE_URL", "postgresql+asyncpg://polyflip:secret@localhost:5435/polyflip_test")
-    pg_engine = create_async_engine(pg_url, echo=False, pool_pre_ping=True)
-    try:
-        async with pg_engine.begin() as conn:
-            await conn.execute(text("SELECT 1"))
-    except Exception:
-        pytest.skip("PostgreSQL test DB not accessible")
 
-    factory = async_sessionmaker(pg_engine, expire_on_commit=False, class_=AsyncSession)
-    yield factory
-    await pg_engine.dispose()
+    required = os.getenv("POSTGRES_INTEGRATION_TESTS") == "1"
+    pg_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+
+    if not pg_url:
+        if required:
+            pytest.fail("PostgreSQL integration DB URL is required")
+        pytest.skip("PostgreSQL integration disabled")
+
+    engine = create_async_engine(pg_url, pool_pre_ping=True)
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        await engine.dispose()
+        if required:
+            pytest.fail(f"PostgreSQL integration DB unavailable: {exc}")
+        pytest.skip(str(exc))
+
+    yield async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    await engine.dispose()
+
 
 from polyflip.trading.schemas import TradeExecution, ExecutionFees
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
+
 
 def make_dummy_execution(
     status="FILLED",
@@ -63,7 +77,7 @@ def make_dummy_execution(
     executed_usdc=5.0,
     filled_shares=10.0,
     error_msg=None,
-    attempt_id=None
+    attempt_id=None,
 ):
     if attempt_id is None:
         attempt_id = uuid4()
@@ -73,7 +87,7 @@ def make_dummy_execution(
         network_fee_native=Decimal("0.0"),
         network_fee_symbol="POL",
         network_fee_usdc=Decimal("0.0"),
-        fee_source="CONFIRMED_ZERO"
+        fee_source="CONFIRMED_ZERO",
     )
     return TradeExecution(
         attempt_id=attempt_id,
@@ -96,5 +110,5 @@ def make_dummy_execution(
         transaction_hashes=("h1",),
         submitted_at=datetime.now(timezone.utc),
         observed_at=datetime.now(timezone.utc),
-        error_message=error_msg
+        error_message=error_msg,
     )

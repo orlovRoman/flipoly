@@ -7,10 +7,16 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy import select, func
-from polyflip.db.models import TradeHistory, ModelRegistry, DecisionFunnelLog, RuntimeSettings
+from polyflip.db.models import (
+    TradeHistory,
+    ModelRegistry,
+    DecisionFunnelLog,
+    RuntimeSettings,
+)
 from polyflip.db.execution_models import ExecutionRequest
 from polyflip.execution.outbox import enqueue_open_request, EnqueueDisposition
 from polyflip.execution.config import ExecutionMode
+
 
 @dataclass(frozen=True)
 class PaperGoldenTestCase:
@@ -26,18 +32,140 @@ class PaperGoldenTestCase:
     expected_action: str
     expected_requests: int
 
+
 PAPER_GOLDEN_CASES = [
-    PaperGoldenTestCase("case_btc_yes_fav", "BTC", "YES", 0.65, 0.50, 0.05, "FAVORITE", "BTC_leaning", 3, "BUY_YES", 1),
-    PaperGoldenTestCase("case_btc_no_out", "BTC", "NO", 0.35, 0.45, 0.05, "OUTSIDER", "BTC_leaning", 3, "BUY_NO", 1),
-    PaperGoldenTestCase("case_eth_yes_fav", "ETH", "YES", 0.70, 0.55, 0.05, "FAVORITE", "ETH_decided", 3, "BUY_YES", 1),
-    PaperGoldenTestCase("case_eth_skip_low_edge", "ETH", "YES", 0.52, 0.50, 0.05, "FAVORITE", "ETH_decided", 3, "SKIP", 0),
-    PaperGoldenTestCase("case_sol_yes_contested", "SOL", "YES", 0.60, 0.40, 0.05, "FAVORITE", "SOL_contested", 1, "BUY_YES", 1),
-    PaperGoldenTestCase("case_doge_no_fav", "DOGE", "NO", 0.30, 0.50, 0.05, "FAVORITE", "DOGE_leaning", 8, "BUY_NO", 1),
-    PaperGoldenTestCase("case_xrp_lgbm_mid_vol", "XRP", "YES", 0.68, 0.45, 0.05, "FAVORITE", "XRPUSDT_mid_vol", 13, "BUY_YES", 1),
-    PaperGoldenTestCase("case_xrp_skip_edge", "XRP", "YES", 0.51, 0.50, 0.05, "FAVORITE", "XRPUSDT_mid_vol", 13, "SKIP", 0),
-    PaperGoldenTestCase("case_btc_high_vol", "BTC", "YES", 0.75, 0.50, 0.05, "FAVORITE", "BTCUSDT_high_vol", 21, "BUY_YES", 1),
-    PaperGoldenTestCase("case_eth_no_out", "ETH", "NO", 0.25, 0.55, 0.05, "OUTSIDER", "ETH_leaning", 3, "BUY_NO", 1),
+    PaperGoldenTestCase(
+        "case_btc_yes_fav",
+        "BTC",
+        "YES",
+        0.65,
+        0.50,
+        0.05,
+        "FAVORITE",
+        "BTC_leaning",
+        3,
+        "BUY_YES",
+        1,
+    ),
+    PaperGoldenTestCase(
+        "case_btc_no_out",
+        "BTC",
+        "NO",
+        0.35,
+        0.45,
+        0.05,
+        "OUTSIDER",
+        "BTC_leaning",
+        3,
+        "BUY_NO",
+        1,
+    ),
+    PaperGoldenTestCase(
+        "case_eth_yes_fav",
+        "ETH",
+        "YES",
+        0.70,
+        0.55,
+        0.05,
+        "FAVORITE",
+        "ETH_decided",
+        3,
+        "BUY_YES",
+        1,
+    ),
+    PaperGoldenTestCase(
+        "case_eth_skip_low_edge",
+        "ETH",
+        "YES",
+        0.52,
+        0.50,
+        0.05,
+        "FAVORITE",
+        "ETH_decided",
+        3,
+        "SKIP",
+        0,
+    ),
+    PaperGoldenTestCase(
+        "case_sol_yes_contested",
+        "SOL",
+        "YES",
+        0.60,
+        0.40,
+        0.05,
+        "FAVORITE",
+        "SOL_contested",
+        1,
+        "BUY_YES",
+        1,
+    ),
+    PaperGoldenTestCase(
+        "case_doge_no_fav",
+        "DOGE",
+        "NO",
+        0.30,
+        0.50,
+        0.05,
+        "FAVORITE",
+        "DOGE_leaning",
+        8,
+        "BUY_NO",
+        1,
+    ),
+    PaperGoldenTestCase(
+        "case_xrp_lgbm_mid_vol",
+        "XRP",
+        "YES",
+        0.68,
+        0.45,
+        0.05,
+        "FAVORITE",
+        "XRPUSDT_mid_vol",
+        13,
+        "BUY_YES",
+        1,
+    ),
+    PaperGoldenTestCase(
+        "case_xrp_skip_edge",
+        "XRP",
+        "YES",
+        0.51,
+        0.50,
+        0.05,
+        "FAVORITE",
+        "XRPUSDT_mid_vol",
+        13,
+        "SKIP",
+        0,
+    ),
+    PaperGoldenTestCase(
+        "case_btc_high_vol",
+        "BTC",
+        "YES",
+        0.75,
+        0.50,
+        0.05,
+        "FAVORITE",
+        "BTCUSDT_high_vol",
+        21,
+        "BUY_YES",
+        1,
+    ),
+    PaperGoldenTestCase(
+        "case_eth_no_out",
+        "ETH",
+        "NO",
+        0.25,
+        0.55,
+        0.05,
+        "OUTSIDER",
+        "ETH_leaning",
+        3,
+        "BUY_NO",
+        1,
+    ),
 ]
+
 
 @dataclass(frozen=True)
 class PaperCycleResult:
@@ -50,9 +178,16 @@ class PaperCycleResult:
     execution_requests: int
     realized_pnl_usdc: float
 
-async def run_deterministic_paper_cycle(db_session, case: PaperGoldenTestCase) -> PaperCycleResult:
-    edge = case.predicted_prob - case.best_price if case.outcome == "YES" else (1.0 - case.predicted_prob) - case.best_price
-    
+
+async def run_deterministic_paper_cycle(
+    db_session, case: PaperGoldenTestCase
+) -> PaperCycleResult:
+    edge = (
+        case.predicted_prob - case.best_price
+        if case.outcome == "YES"
+        else (1.0 - case.predicted_prob) - case.best_price
+    )
+
     if edge < case.min_edge:
         action = "SKIP"
         req_count = 0
@@ -64,7 +199,7 @@ async def run_deterministic_paper_cycle(db_session, case: PaperGoldenTestCase) -
         outcome = case.outcome
         limit_price = case.best_price
         edge_val = round(edge, 4)
-        
+
         trade = TradeHistory(
             market_id=f"MARKET-{case.id}",
             asset=case.asset,
@@ -82,12 +217,12 @@ async def run_deterministic_paper_cycle(db_session, case: PaperGoldenTestCase) -
             model_attribution_source="EXACT",
             edge=edge_val,
             market_role=case.market_role,
-            created_at=datetime.now(timezone.utc)
+            created_at=datetime.now(timezone.utc),
         )
         db_session.add(trade)
         await db_session.commit()
         await db_session.refresh(trade)
-        
+
         res = await enqueue_open_request(
             db_session,
             trade_id=trade.id,
@@ -99,13 +234,15 @@ async def run_deterministic_paper_cycle(db_session, case: PaperGoldenTestCase) -
             requested_mode=ExecutionMode.PAPER,
         )
         assert res.disposition == EnqueueDisposition.CREATED
-        
-        reqs = (await db_session.scalars(
-            select(ExecutionRequest).where(
-                ExecutionRequest.market_id == f"MARKET-{case.id}",
-                ExecutionRequest.requested_mode == "PAPER"
+
+        reqs = (
+            await db_session.scalars(
+                select(ExecutionRequest).where(
+                    ExecutionRequest.market_id == f"MARKET-{case.id}",
+                    ExecutionRequest.requested_mode == "PAPER",
+                )
             )
-        )).all()
+        ).all()
         req_count = len(reqs)
 
     return PaperCycleResult(
@@ -119,12 +256,13 @@ async def run_deterministic_paper_cycle(db_session, case: PaperGoldenTestCase) -
         realized_pnl_usdc=1.0 if action != "SKIP" else 0.0,
     )
 
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", PAPER_GOLDEN_CASES, ids=lambda c: c.id)
 async def test_paper_behavior_matches_stable_snapshot(case, db_session):
     """Золотой тест 10 фиксированных сценариев торговли в PAPER режиме."""
     result = await run_deterministic_paper_cycle(db_session, case)
-    
+
     assert result.action == case.expected_action
     assert result.execution_requests == case.expected_requests
     if result.action != "SKIP":
@@ -132,57 +270,91 @@ async def test_paper_behavior_matches_stable_snapshot(case, db_session):
         assert result.bet_size_usdc == 1.0
         assert result.market_role == case.market_role
 
+
 async def compute_paper_checksum(db_session) -> str:
     """Вычисляет хэш состояния всех PAPER записей в БД."""
-    trades = (await db_session.scalars(
-        select(TradeHistory).where(TradeHistory.mode == "PAPER").order_by(TradeHistory.id)
-    )).all()
-    reqs = (await db_session.scalars(
-        select(ExecutionRequest).where(ExecutionRequest.requested_mode == "PAPER").order_by(ExecutionRequest.id)
-    )).all()
-    
-    payload = json.dumps({
-        "trades": [{"id": t.id, "asset": t.asset, "status": t.status, "pnl": t.realized_pnl_usdc} for t in trades],
-        "reqs": [{"id": str(r.id), "state": r.state, "intent": r.intent} for r in reqs]
-    }, sort_keys=True)
-    
+    trades = (
+        await db_session.scalars(
+            select(TradeHistory)
+            .where(TradeHistory.mode == "PAPER")
+            .order_by(TradeHistory.id)
+        )
+    ).all()
+    reqs = (
+        await db_session.scalars(
+            select(ExecutionRequest)
+            .where(ExecutionRequest.requested_mode == "PAPER")
+            .order_by(ExecutionRequest.id)
+        )
+    ).all()
+
+    payload = json.dumps(
+        {
+            "trades": [
+                {
+                    "id": t.id,
+                    "asset": t.asset,
+                    "status": t.status,
+                    "pnl": t.realized_pnl_usdc,
+                }
+                for t in trades
+            ],
+            "reqs": [
+                {"id": str(r.id), "state": r.state, "intent": r.intent} for r in reqs
+            ],
+        },
+        sort_keys=True,
+    )
+
     return hashlib.sha256(payload.encode()).hexdigest()
+
 
 @pytest.mark.asyncio
 async def test_paper_rows_checksum_invariance_during_readiness_check(db_session):
     """Проверяет, что контрольные суммы PAPER записей в БД остаются неизменными до и после любых проверок."""
     # Создаем исходную PAPER запись
     t = TradeHistory(
-        market_id="CHK-1", asset="BTC", outcome_bought="YES", amount_usdc=1.0, executed_price=0.5,
-        predicted_flip_prob=0.6, active_features="test", mode="PAPER", status="SUCCESS", created_at=datetime.now(timezone.utc)
+        market_id="CHK-1",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=1.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.6,
+        active_features="test",
+        mode="PAPER",
+        status="SUCCESS",
+        created_at=datetime.now(timezone.utc),
     )
     db_session.add(t)
     await db_session.commit()
-    
+
     checksum_before = await compute_paper_checksum(db_session)
-    
+
     # Эмулируем обращение к настройкам и статистике
-    setting = (await db_session.scalars(select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_TRADING_ENABLED"))).first()
-    
+    setting = (
+        await db_session.scalars(
+            select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_TRADING_ENABLED")
+        )
+    ).first()
+
     checksum_after = await compute_paper_checksum(db_session)
-    
+
     assert checksum_after == checksum_before
 
 
 @pytest.mark.asyncio
-async def test_paper_golden_e2e_flow(db_session):
+async def test_paper_golden_e2e_flow(db_session, monkeypatch, engine):
     """
-    Полноценный золотой тест PAPER-маршрута:
-    decision logic → trade_recorder → execution_requests → FakeExecutionGateway / fill → TradeHistory (PAPER_FILLED)
+    Полноценный сквозной золотой тест PAPER-маршрута:
+    decision logic → trade_recorder → execution_requests → process_ready_requests() (PAPER worker + FakeGateway) → TradeHistory (SUCCESS/OPEN)
     """
-    import uuid
     from polyflip.trading.decision_logic import TradeDecision
     from polyflip.trading.pre_trade_validator import PreTradeValidation
-    from polyflip.trading.trading_config import TradingConfig
+    from polyflip.trading.trading_config import parse_trading_settings
     from polyflip.trading.trade_recorder import execute_and_record
     from polyflip.db.models import LiveMarket
-    from polyflip.execution.gateways.fake import FakeExecutionGateway
-    from polyflip.db.execution_models import ExecutionAttempt
+    from polyflip.execution import worker
+    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
     now = datetime.now(timezone.utc)
     market = LiveMarket(
@@ -220,7 +392,6 @@ async def test_paper_golden_e2e_flow(db_session):
         market_role="OUTSIDER",
         skip_reason=None,
     )
-    from polyflip.trading.trading_config import parse_trading_settings
     cfg = parse_trading_settings({})
 
     await execute_and_record(
@@ -238,73 +409,57 @@ async def test_paper_golden_e2e_flow(db_session):
     )
     await db_session.commit()
 
-    req = (await db_session.execute(
-        select(ExecutionRequest).where(ExecutionRequest.market_id == "MKT-GOLDEN-1")
-    )).scalar_one()
+    req = (
+        await db_session.execute(
+            select(ExecutionRequest).where(ExecutionRequest.market_id == "MKT-GOLDEN-1")
+        )
+    ).scalar_one()
 
     assert req.intent == "OPEN"
     assert req.requested_mode == "PAPER"
     assert req.state == "READY"
 
-    # Имитация исполнения через FakeExecutionGateway
-    gateway = FakeExecutionGateway()
-    attempt = ExecutionAttempt(
-        id=uuid.uuid4(),
-        request_id=req.id,
-        gateway="FAKE",
-        attempt_no=1,
-        started_at=now,
-        status="IN_PROGRESS",
+    # Запускаем настоящий обработчик PAPER воркера!
+    test_session_factory = async_sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
     )
-    db_session.add(attempt)
-    await db_session.commit()
+    monkeypatch.setenv("EXECUTION_MODE", "PAPER")
+    monkeypatch.setattr(worker, "async_session", test_session_factory)
 
-    from polyflip.execution.contracts import GatewayOrder
-    order = GatewayOrder(
-        attempt_id=attempt.id,
-        market_id=req.market_id,
-        asset=req.asset,
-        outcome_to_buy=req.outcome_to_buy,
-        token_id="tok_no",
-        side="BUY",
-        order_type="FOK",
-        limit_price=req.limit_price,
-        requested_shares=req.requested_shares,
-        target_amount_usdc=req.target_amount_usdc,
-    )
+    await worker.process_ready_requests()
 
-    sub_res = await gateway.submit(order)
-    assert sub_res.accepted is True
-    fill = sub_res.fills[0]
+    # Считываем реальный результат исполнения из БД
+    async with test_session_factory() as session:
+        updated_req = (
+            await session.execute(
+                select(ExecutionRequest).where(
+                    ExecutionRequest.market_id == "MKT-GOLDEN-1"
+                )
+            )
+        ).scalar_one()
 
-    req.state = "FILLED"
-    req.filled_shares = fill.shares
-    req.filled_cost_usdc = fill.gross_quote_usdc
+        trade = await session.get(TradeHistory, updated_req.trade_history_id)
 
-    trade = await db_session.get(TradeHistory, req.trade_history_id)
-    trade.status = "SUCCESS"
-    trade.position_status = "OPEN"
-    trade.entry_filled_shares = fill.shares
-    trade.entry_cost_usdc = fill.gross_quote_usdc
-    trade.remaining_shares = fill.shares
-    await db_session.commit()
+        result_snapshot = {
+            "action": decision.action,
+            "outcome": updated_req.outcome_to_buy,
+            "bet_size": f"{updated_req.target_amount_usdc:.2f}",
+            "limit_price": f"{updated_req.limit_price:.2f}",
+            "edge": f"{validation.edge:.3f}",
+            "market_role": validation.market_role,
+            "request_state": updated_req.state,
+            "trade_status": trade.status,
+            "position_status": trade.position_status,
+        }
 
-    result_snapshot = {
-        "action": decision.action,
-        "outcome": req.outcome_to_buy,
-        "bet_size": f"{req.target_amount_usdc:.2f}",
-        "limit_price": f"{req.limit_price:.2f}",
-        "edge": f"{validation.edge:.3f}",
-        "market_role": validation.market_role,
-        "request_state": req.state,
-    }
-
-    assert result_snapshot == {
-        "action": "BUY_NO",
-        "outcome": "NO",
-        "bet_size": "1.00",
-        "limit_price": "0.27",
-        "edge": "0.107",
-        "market_role": "OUTSIDER",
-        "request_state": "FILLED",
-    }
+        assert result_snapshot == {
+            "action": "BUY_NO",
+            "outcome": "NO",
+            "bet_size": "1.00",
+            "limit_price": "0.27",
+            "edge": "0.107",
+            "market_role": "OUTSIDER",
+            "request_state": "FILLED",
+            "trade_status": "SUCCESS",
+            "position_status": "OPEN",
+        }
