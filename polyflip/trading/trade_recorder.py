@@ -56,7 +56,11 @@ async def save_or_update_skipped_trade(
     edge: Optional[float] = None,
     active_features: str = "",
     lgbm_metadata: Optional[str] = None,
-    market_role: Optional[str] = None
+    market_role: Optional[str] = None,
+    *,
+    model_key: Optional[str] = None,
+    confirm_model_key: Optional[str] = None,
+    confirm_model_version: Optional[int] = None,
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
     if existing_skipped:
@@ -65,7 +69,8 @@ async def save_or_update_skipped_trade(
             existing_skipped.edge != edge or
             existing_skipped.active_features != active_features or
             existing_skipped.lgbm_metadata != lgbm_metadata or
-            (market_role and existing_skipped.market_role != market_role)):
+            (market_role and existing_skipped.market_role != market_role) or
+            (model_key and existing_skipped.model_key != model_key)):
             existing_skipped.error_msg = reason
             existing_skipped.predicted_flip_prob = p_flip_val
             existing_skipped.model_version = model_version
@@ -75,6 +80,12 @@ async def save_or_update_skipped_trade(
             existing_skipped.lgbm_metadata = lgbm_metadata
             if market_role:
                 existing_skipped.market_role = market_role
+            if model_key:
+                existing_skipped.model_key = model_key
+                existing_skipped.model_attribution_source = "EXACT"
+            if confirm_model_key:
+                existing_skipped.confirm_model_key = confirm_model_key
+                existing_skipped.confirm_model_version = confirm_model_version
             existing_skipped.updated_at = start_time
     else:
         history = TradeHistory(
@@ -92,6 +103,10 @@ async def save_or_update_skipped_trade(
             mode="LIVE" if bool(os.getenv("POLYGON_PRIVATE_KEY") and os.getenv("POLYGON_ADDRESS")) else "PAPER",
             edge=edge,
             lgbm_metadata=lgbm_metadata,
+            model_key=model_key,
+            confirm_model_key=confirm_model_key,
+            confirm_model_version=confirm_model_version,
+            model_attribution_source="EXACT" if model_key else None,
             created_at=start_time
         )
         db_session.add(history)
@@ -111,6 +126,10 @@ async def execute_and_record(
     existing_skipped: Optional[TradeHistory],
     start_time: datetime,
     lgbm_metadata: Optional[str] = None,
+    *,
+    model_key: Optional[str] = None,
+    confirm_model_key: Optional[str] = None,
+    confirm_model_version: Optional[int] = None,
 ) -> None:
     if not validation.valid:
         raise ValueError("execute_and_record called with failed validation")
@@ -173,6 +192,10 @@ async def execute_and_record(
         strike=decision_obj.strike,
         active_features=_get_trade_active_features(asset_mode, active_features, decision_obj, market.asset),
         model_version=model_ver,
+        model_key=model_key,
+        confirm_model_key=confirm_model_key,
+        confirm_model_version=confirm_model_version,
+        model_attribution_source="EXACT" if model_key else None,
         status="PENDING",
         error_msg=None,
         mode=exec_settings.execution_mode.value,

@@ -41,6 +41,8 @@ class DecisionResult:
     skip_reason: Optional[str]
     lgbm_metadata: Optional[str] = None
     used_model_key: Optional[str] = None
+    confirm_model_key: Optional[str] = None
+    confirm_model_version: Optional[int] = None
     applied_lower: Optional[float] = None
     applied_upper: Optional[float] = None
 
@@ -685,7 +687,17 @@ async def decide_combined_mode(
     # --- Шаг D: применяем результат голосования к decision_obj ---
     import dataclasses
     if ml_result.decision_obj is None:
-        return DecisionResult(None, ml_result.p_flip, ml_result.model_ver, None, vote.reason, lgbm_metadata=lgbm_meta)
+        return DecisionResult(
+            None,
+            ml_result.p_flip if ml_result else 0.0,
+            ml_result.model_ver if ml_result else None,
+            None,
+            vote.reason,
+            lgbm_metadata=lgbm_meta,
+            used_model_key=ml_result.used_model_key if ml_result else None,
+            confirm_model_key=getattr(crypto_proxy, "model_key", None),
+            confirm_model_version=getattr(crypto_proxy, "model_version", None),
+        )
 
     _strategy = ml_result.decision_obj.strategy_type
     _reason = ml_result.decision_obj.reason if vote.action == "SKIP" and ml_action == "SKIP" else vote.reason
@@ -742,4 +754,7 @@ async def decide_combined_mode(
         edge=final_decision.edge if final_decision.edge is not None else ml_result.edge,  # сохраняем edge всегда — важно для анализа вето
         skip_reason=_reason if vote.action == "SKIP" else None,
         lgbm_metadata=lgbm_meta,
+        used_model_key=ml_result.used_model_key if ml_result else None,
+        confirm_model_key=getattr(crypto_proxy, "model_key", None),
+        confirm_model_version=getattr(crypto_proxy, "model_version", None),
     )

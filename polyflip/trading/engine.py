@@ -159,7 +159,10 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         db_session, market, skip_reason or "SKIP", p_flip, model_ver, start_time, existing_skipped, edge,
                         active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj if decision_res else None, market.asset),
                         lgbm_metadata=decision_res.lgbm_metadata if decision_res else None,
-                        market_role=skip_role
+                        market_role=skip_role,
+                        model_key=decision_res.used_model_key if decision_res else None,
+                        confirm_model_key=decision_res.confirm_model_key if decision_res else None,
+                        confirm_model_version=decision_res.confirm_model_version if decision_res else None,
                     )
                     continue
 
@@ -175,7 +178,10 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         existing_skipped=existing_skipped,
                         edge=validation.edge,
                         active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj, market.asset),
-                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
+                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None,
+                        model_key=decision_res.used_model_key if decision_res else None,
+                        confirm_model_key=decision_res.confirm_model_key if decision_res else None,
+                        confirm_model_version=decision_res.confirm_model_version if decision_res else None,
                     )
                     continue
 
@@ -184,7 +190,10 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         db_session, market, decision_res.decision_obj, validation,
                         asset_mode, cfg.active_features_str, decision_res.p_flip, decision_res.model_ver,
                         cfg, existing_skipped, start_time,
-                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
+                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None,
+                        model_key=decision_res.used_model_key if decision_res else None,
+                        confirm_model_key=decision_res.confirm_model_key if decision_res else None,
+                        confirm_model_version=decision_res.confirm_model_version if decision_res else None,
                     )
                 except EnqueueRejected as exc:
                     from polyflip.trading.trade_recorder import _get_trade_active_features
@@ -193,7 +202,10 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         existing_skipped=existing_skipped,
                         edge=validation.edge,
                         active_features=_get_trade_active_features(asset_mode, cfg.active_features_str, decision_res.decision_obj, market.asset),
-                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None
+                        lgbm_metadata=decision_res.lgbm_metadata if decision_res else None,
+                        model_key=decision_res.used_model_key if decision_res else None,
+                        confirm_model_key=decision_res.confirm_model_key if decision_res else None,
+                        confirm_model_version=decision_res.confirm_model_version if decision_res else None,
                     )
                     continue
             finally:

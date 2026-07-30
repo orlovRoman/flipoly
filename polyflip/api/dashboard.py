@@ -585,58 +585,63 @@ async def get_model_pnl(
     valid_sinces = [s for _, _, s, _ in periods if s is not None]
     earliest_since = min(valid_sinces) if valid_sinces else None
 
-    # 2. Выполняем батч-запрос к TradeHistory с фильтром по времени (BUG-G fix)
-    where_conditions = [
-        TradeHistory.position_status == "CLOSED",
-        TradeHistory.pnl.is_not(None),
-        TradeHistory.model_version.is_not(None),
-        TradeHistory.mode == requested_mode,
-    ]
-    if earliest_since is not None:
-        where_conditions.append(TradeHistory.created_at >= earliest_since)
-
+    # 2. Выполняем точный запрос к TradeHistory
+    pnl_expr = func.coalesce(TradeHistory.realized_pnl_usdc, cast(TradeHistory.pnl, Numeric))
     trades_stmt = select(
+        TradeHistory.model_key,
         TradeHistory.asset,
         TradeHistory.model_version,
-        TradeHistory.pnl,
-        TradeHistory.created_at,
-    ).where(*where_conditions)
+        pnl_expr.label("pnl"),
+        TradeHistory.model_attribution_source,
+    ).where(
+        TradeHistory.position_status == "CLOSED",
+        TradeHistory.model_version.is_not(None),
+        TradeHistory.mode == requested_mode,
+        pnl_expr.is_not(None),
+    )
     trades_rows = (await db.execute(trades_stmt)).all()
 
-    # Группируем сделки по (normalized_asset, model_version)
-
+    # Группируем сделки по (exact_model_key, model_version)
+    from collections import defaultdict
     trades_by_model = defaultdict(list)
+    exact_trades_count = defaultdict(int)
+    reconstructed_trades_count = defaultdict(int)
+    ambiguous_trades_count = defaultdict(int)
+
     for row in trades_rows:
-        created_at = row.created_at
-        if created_at and created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        norm_asset = _normalize_model_asset(row.asset)
-        trades_by_model[(norm_asset, row.model_version)].append((row.pnl, created_at))
+        m_key = row.model_key or row.asset
+        pnl_val = float(row.pnl) if row.pnl is not None else 0.0
+        trades_by_model[(m_key, row.model_version)].append(pnl_val)
 
-    # 3. Агрегируем результаты для каждого периода
+        attr_src = row.model_attribution_source
+        if attr_src == "EXACT":
+            exact_trades_count[(m_key, row.model_version)] += 1
+        elif attr_src == "RECONSTRUCTED":
+            reconstructed_trades_count[(m_key, row.model_version)] += 1
+        else:
+            ambiguous_trades_count[(m_key, row.model_version)] += 1
+
+    # 3. Агрегируем результаты для каждой модели из реестра
     result_map = {}
-    for asset, version, since, until in periods:
+    for row in models_rows:
+        asset = row.asset
+        version = row.version
         key = f"{asset}_v{version}"
-        norm_asset = _normalize_model_asset(asset)
-        model_trades = trades_by_model.get((norm_asset, version), [])
 
-        
-        # Фильтруем по временному окну [since, until)
-        valid_trades = [
-            pnl for pnl, created_at in model_trades
-            if (since is None or created_at >= since) and (until is None or created_at < until)
-        ]
-        
+        valid_trades = trades_by_model.get((asset, version), [])
         total = len(valid_trades)
         total_pnl = sum(valid_trades) if total > 0 else 0.0
         wins = sum(1 for pnl in valid_trades if pnl > 0)
-        
+
         result_map[key] = {
             "asset": asset,
             "version": version,
             "total_trades": total,
             "pnl": round(float(total_pnl), 2),
             "win_rate": round(wins / total * 100, 1) if total > 0 else None,
+            "exact_trades": exact_trades_count.get((asset, version), 0),
+            "reconstructed_trades": reconstructed_trades_count.get((asset, version), 0),
+            "ambiguous_trades": ambiguous_trades_count.get((asset, version), 0),
         }
 
     response_data = {"status": "success", "data": result_map}

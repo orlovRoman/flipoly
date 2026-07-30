@@ -156,14 +156,17 @@ class TradeHistory(Base):
     last_exit_error = Column(Text, nullable=True)
     exit_attempts   = Column(Integer, nullable=False, default=0)
     closed_at       = Column(DateTime(timezone=True), nullable=True)
-    close_price     = Column(Float, nullable=True)
-    
     created_at = Column(DateTime(timezone=True), nullable=False)
     config_snapshot = Column(Text, nullable=True)   # JSON паспорт настроек на момент сделки
-    
+    model_key = Column(String(64), nullable=True)
+    confirm_model_key = Column(String(64), nullable=True)
+    confirm_model_version = Column(Integer, nullable=True)
+    model_attribution_source = Column(String(16), nullable=True)
+
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),
         Index("idx_trade_history_model_version", "asset", "model_version", "status", "created_at"),
+        Index("idx_trade_history_exact_model", "model_key", "model_version", "mode", "position_status", "closed_at"),
         CheckConstraint(
             "position_accounting_version = 0 OR (entry_filled_shares IS NOT NULL AND entry_cost_usdc IS NOT NULL AND remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
             name="ck_trade_position_accounting_initialized",

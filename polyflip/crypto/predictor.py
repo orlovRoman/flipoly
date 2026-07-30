@@ -79,6 +79,7 @@ class CryptoSignal:
     stake_multiplier: float = 1.0 # Множитель размера ставки на основе фандинга
     funding_rate: float = 0.0     # Значение ставки финансирования, использованное для расчета
     ece: float = 0.0         # BUG-AO
+    model_key: str = ""      # Точный ключ фактически загруженной модели (напр. BTCUSDT_low_vol)
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
@@ -355,17 +356,21 @@ class CryptoPredictor:
 
             # Выбор модели с защитой от отсутствия конкретного режима (fallback)
             symbol_models = self._models.get(symbol, {})
-            model = symbol_models.get(regime) or next(iter(symbol_models.values()), None)
-            
-            version = (self._model_versions.get(symbol, {}).get(regime)
-                       or next(iter(self._model_versions.get(symbol, {}).values()), -1))
-                       
-            th_up, th_down = (self._thresholds.get(symbol, {}).get(regime)
-                              or next(iter(self._thresholds.get(symbol, {}).values()), (0.55, 0.45)))
+            if regime in symbol_models:
+                selected_regime = regime
+            elif symbol_models:
+                selected_regime = next(iter(symbol_models))
+            else:
+                selected_regime = None
 
-            if model is None:
+            if selected_regime is None:
                 logger.warning("no_model_available_for_predict", symbol=symbol, regime=regime)
-                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0)
+                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0, model_key="")
+
+            model = symbol_models[selected_regime]
+            version = self._model_versions.get(symbol, {}).get(selected_regime, -1)
+            th_up, th_down = self._thresholds.get(symbol, {}).get(selected_regime, (0.55, 0.45))
+            model_key = f"{symbol}_{selected_regime}"
 
             # 3. Инференс
             p_up = float(model.predict_proba([fv_array])[0][1])
@@ -386,15 +391,9 @@ class CryptoPredictor:
             # Страйк (цена последней закрытой свечи)
             strike = float(candles[-1].close)
 
-            ece = (self._model_eces.get(symbol, {}).get(regime)
+            ece = (self._model_eces.get(symbol, {}).get(selected_regime)
                    or next(iter(self._model_eces.get(symbol, {}).values()), 0.0))
 
-            # Фандинг
-            # Если funding_rate явно передан None, считаем его stale, иначе используем значение.
-            # Если не передан (оставлен по умолчанию None), используем кэшированное fallback значение.
-            # Но подождите: сигнатура predict(..., funding_rate: float | None = None).
-            # В вызывающем коде (decision_runners.py) мы всегда передаём funding_rate.
-            # Если он не смог получить, он может передать 0.0, но подождите, мы хотим отличать stale.
             fr = funding_rate if funding_rate is not None else self._funding_rates.get(symbol)
             from polyflip.crypto.risk_guard import check_funding_veto
             veto = check_funding_veto(funding_rate=fr, direction=direction)
@@ -416,6 +415,7 @@ class CryptoPredictor:
                     funding_rate=fr or 0.0,
                     features_ok=True,
                     ece=ece,
+                    model_key=model_key,
                 )
 
             logger.debug(
@@ -442,8 +442,9 @@ class CryptoPredictor:
                 funding_rate=fr or 0.0,
                 features_ok=True,
                 ece=ece,
+                model_key=model_key,
             )
         except Exception as e:
             logger.exception("crypto_inference_failed", symbol=symbol, error=str(e))
-            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, str(e), 1.0, 0.0, 0.0)
+            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, str(e), 1.0, 0.0, 0.0, model_key="")
 

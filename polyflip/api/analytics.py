@@ -311,48 +311,25 @@ async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = D
 
     trades = (await db.execute(trades_stmt)).scalars().all()
 
-    LGBM_SUFFIXES = ("_low_vol", "_mid_vol", "_high_vol")
-
-    # Группируем трейды двумя способами:
-    # 1. trades_by_exact  — по полному имени актива (для LightGBM)
-    # 2. trades_by_base   — по базовому символу (для LogReg: base/leaning/decided/contested)
-    trades_by_exact: dict[tuple, dict] = {}
-    trades_by_base:  dict[tuple, dict] = {}
+    # Группируем трейды по exact_model_key (model_key или fallback на asset)
+    trades_by_model: dict[tuple, dict] = {}
 
     for t in trades:
-        norm_asset = t.asset.split('_')[0].replace('USDT', '').upper()
+        m_key = t.model_key or t.asset
+        pnl_val = float(t.realized_pnl_usdc) if t.realized_pnl_usdc is not None else float(t.pnl or 0.0)
 
-        # Exact (LightGBM)
-        k_exact = (t.asset, t.model_version)
-        if k_exact not in trades_by_exact:
-            trades_by_exact[k_exact] = {"total": 0, "wins": 0, "pnl": 0.0}
-        trades_by_exact[k_exact]["total"] += 1
-        if t.pnl > 0:
-            trades_by_exact[k_exact]["wins"] += 1
-        trades_by_exact[k_exact]["pnl"] += float(t.pnl)
-
-        # Base (LogReg — все фазовые модели BTC/ETH/SOL пишут просто "BTC")
-        k_base = (norm_asset, t.model_version)
-        if k_base not in trades_by_base:
-            trades_by_base[k_base] = {"total": 0, "wins": 0, "pnl": 0.0}
-        trades_by_base[k_base]["total"] += 1
-        if t.pnl > 0:
-            trades_by_base[k_base]["wins"] += 1
-        trades_by_base[k_base]["pnl"] += float(t.pnl)
+        k = (m_key, t.model_version)
+        if k not in trades_by_model:
+            trades_by_model[k] = {"total": 0, "wins": 0, "pnl": 0.0}
+        trades_by_model[k]["total"] += 1
+        if pnl_val > 0:
+            trades_by_model[k]["wins"] += 1
+        trades_by_model[k]["pnl"] += pnl_val
 
     result = []
     for m in models:
         base_symbol, sub_code, sub_label = get_model_subtype_info(m.asset)
-
-        is_lgbm = any(m.asset.endswith(s) for s in LGBM_SUFFIXES)
-
-        if is_lgbm:
-            # LightGBM: строгий exact-матч по полному имени (нет коллизий между low/mid/high_vol)
-            stats = trades_by_exact.get((m.asset, m.version), {"total": 0, "wins": 0, "pnl": 0.0})
-        else:
-            # LogReg (base/leaning/decided/contested): матч по базовому символу
-            # т.к. в TradeHistory.asset всегда записан чистый тикер "BTC", "ETH", "SOL"
-            stats = trades_by_base.get((base_symbol, m.version), {"total": 0, "wins": 0, "pnl": 0.0})
+        stats = trades_by_model.get((m.asset, m.version), {"total": 0, "wins": 0, "pnl": 0.0})
 
         win_rate = round((stats["wins"] / stats["total"] * 100), 1) if stats["total"] > 0 else None
 
