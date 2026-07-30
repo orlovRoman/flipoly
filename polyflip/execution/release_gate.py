@@ -388,7 +388,6 @@ async def _release_one(
         await validate_live_release(session, candidate, paper_request, paper_trade, target_mode)
     except ReleaseDeferred as e:
         logger.info("Deferred release for candidate %s: %s", candidate.id, e)
-        await session.rollback()
         return False
     except ReleaseRejected as e:
         logger.warning("Rejected candidate %s: %s", candidate.id, e)
@@ -411,9 +410,10 @@ async def _release_one(
     exposure_res = ExposureReservation(
         id=uuid.uuid4(),
         request_id=live_request.id,
-        trade_id=live_trade.id,
+        trade_history_id=live_trade.id,
         market_id=live_request.market_id,
         amount_usdc=exposure_amount,
+        expires_at=live_request.expires_at or (now + timedelta(seconds=30)),
         created_at=now,
     )
     session.add(exposure_res)
