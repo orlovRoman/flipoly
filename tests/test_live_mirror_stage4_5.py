@@ -333,3 +333,58 @@ async def test_mirror_switch_changes_behavior_without_restart(db_session):
     assert await runtime_bool(db_session, "LIVE_MIRROR_ENABLED") is True
     created = await mirror_batch(db_session)
     assert created == 1
+
+
+@pytest.mark.asyncio
+async def test_mirror_switch_persists_both_settings(db_session, engine):
+    """toggle_mirror_switch совершает commit и сохраняет флаги в отдельной сессии."""
+    from polyflip.api.execution_api import toggle_mirror_switch, SwitchBoolRequest
+    from polyflip.db.models import RuntimeSettings
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    await toggle_mirror_switch(
+        SwitchBoolRequest(enabled=True),
+        db_session,
+    )
+
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with Session() as check_session:
+        enabled_row = await check_session.scalar(
+            select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_MIRROR_ENABLED")
+        )
+        started_row = await check_session.scalar(
+            select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_MIRROR_STARTED_AT")
+        )
+
+    assert enabled_row is not None and enabled_row.value == "true"
+    assert started_row is not None and started_row.value is not None
+
+
+@pytest.mark.asyncio
+async def test_paper_api_exposes_ready_live_worker(db_session):
+    """API в PAPER-режиме возвращает kill_switch_available=True при наличии LIVE-воркера."""
+    from polyflip.api.execution_api import get_live_trading_status
+    from polyflip.db.execution_models import ExecutionWorkerStatus
+
+    now = datetime.now(timezone.utc)
+    ws = ExecutionWorkerStatus(
+        worker_id="live_worker_1",
+        execution_mode="LIVE",
+        heartbeat_at=now,
+        gateway_ready=True,
+        credentials_loaded=True,
+        wallet_address="0x123",
+        balance_usdc=Decimal("100.0"),
+        collateral_allowance_ready=True,
+        conditional_allowance_ready=True,
+    )
+    db_session.add(ws)
+    await db_session.commit()
+
+    status = await get_live_trading_status(db_session)
+
+    assert status["execution_mode"] == "PAPER"
+    assert status["kill_switch_available"] is True
+    assert status["worker_status"] is not None
+    assert status["worker_status"]["execution_mode"] == "LIVE"

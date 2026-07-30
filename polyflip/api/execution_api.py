@@ -88,11 +88,11 @@ async def get_live_trading_status(db: AsyncSession = Depends(get_db_session)):
     return {
         "live_trading_enabled": live_trading_enabled,
         "execution_mode": settings.execution_mode.value,
-        "kill_switch_available": settings.execution_mode.value == "LIVE",
+        "kill_switch_available": live_worker is not None,
         "paper_worker": paper_worker,
         "shadow_worker": shadow_worker,
         "live_worker": live_worker,
-        "worker_status": await get_worker_dict(settings.execution_mode.value),
+        "worker_status": live_worker,
         "live_mirror_enabled": live_mirror_enabled,
         "live_release_mode": live_release_mode,
         "mirror_candidates": candidate_counts,
@@ -214,9 +214,14 @@ async def toggle_mirror_switch(
     true  — mirror-воркер создаёт LiveMirrorCandidate для FILLED PAPER OPEN.
     false — воркер спит, ни одного кандидата не создаёт.
     """
-    await set_mirror_enabled(db, enabled=payload.enabled, updated_by="api")
-    logger.info("mirror_switch_toggled", enabled=payload.enabled)
-    return {"status": "ok", "LIVE_MIRROR_ENABLED": payload.enabled}
+    try:
+        await set_mirror_enabled(db, enabled=payload.enabled, updated_by="api")
+        await db.commit()
+        logger.info("mirror_switch_toggled", enabled=payload.enabled)
+        return {"status": "ok", "LIVE_MIRROR_ENABLED": payload.enabled}
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.put("/release-mode",

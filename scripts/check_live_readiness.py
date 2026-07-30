@@ -118,21 +118,19 @@ async def check_worker_heartbeat(
     target_mode: str = "SHADOW",
 ) -> bool:
     from polyflip.db.execution_models import ExecutionWorkerStatus
+
+    worker_mode = "LIVE" if target_mode == "LIVE" else "SHADOW"
+
     status = (await session.execute(
         select(ExecutionWorkerStatus)
-        .where(ExecutionWorkerStatus.execution_mode == "LIVE")
+        .where(ExecutionWorkerStatus.execution_mode == worker_mode)
         .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
         .limit(1)
     )).scalar_one_or_none()
 
     if status is None:
-        msg = "Нет heartbeat для LIVE execution_worker. Запустить live-воркер."
-        if target_mode == "LIVE":
-            fail(msg)
-            return False
-        else:
-            warn(f"{msg} (Игнорируется для режима {target_mode})")
-            return True
+        fail(f"Нет heartbeat для {worker_mode} execution_worker. Запустить {worker_mode}-воркер.")
+        return False
 
     now = datetime.now(timezone.utc)
     heartbeat_at = status.heartbeat_at
@@ -141,49 +139,26 @@ async def check_worker_heartbeat(
 
     age = (now - heartbeat_at).total_seconds()
     if age > 60:
-        msg = f"LIVE-воркер не отвечал {age:.0f}s (максимум 60s). Проверить контейнер."
-        if target_mode == "LIVE":
-            fail(msg)
-            return False
-        else:
-            warn(f"{msg} (Игнорируется для режима {target_mode})")
-            return True
-
-    ok(f"LIVE-воркер heartbeat {age:.0f}s назад")
+        fail(f"{worker_mode}-воркер не отвечал {age:.0f}s (максимум 60s). Проверить контейнер.")
+        return False
+    ok(f"{worker_mode}-воркер heartbeat {age:.0f}s назад")
 
     if not status.gateway_ready:
-        msg = f"Gateway не готов: {status.last_error_message}"
-        if target_mode == "LIVE":
-            fail(msg)
+        fail(f"{worker_mode} Gateway не готов: {status.last_error_message}")
+        return False
+    ok(f"{worker_mode} Gateway готов")
+
+    if target_mode == "LIVE":
+        balance = float(status.balance_usdc or 0)
+        if balance < min_balance:
+            fail(f"Недостаточный баланс USDC: {balance:.2f} (минимум {min_balance:.2f})")
             return False
-        else:
-            warn(f"{msg} (Игнорируется для режима {target_mode})")
-            return True
+        ok(f"Баланс USDC: {balance:.2f}")
 
-    ok("Gateway готов")
-
-    balance = float(status.balance_usdc or 0)
-    if balance < min_balance:
-        msg = f"Недостаточный баланс USDC: {balance:.2f} (минимум {min_balance:.2f})"
-        if target_mode == "LIVE":
-            fail(msg)
+        if not status.collateral_allowance_ready:
+            fail("Collateral allowance не выставлен")
             return False
-        else:
-            warn(f"{msg} (Игнорируется для режима {target_mode})")
-            return True
-
-    ok(f"Баланс USDC: {balance:.2f}")
-
-    if not status.collateral_allowance_ready:
-        msg = "Collateral allowance не выставлен"
-        if target_mode == "LIVE":
-            fail(msg)
-            return False
-        else:
-            warn(f"{msg} (Игнорируется для режима {target_mode})")
-            return True
-
-    ok("Collateral allowance готов")
+        ok("Collateral allowance готов")
 
     return True
 
