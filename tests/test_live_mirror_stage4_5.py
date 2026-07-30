@@ -16,7 +16,7 @@ tests/test_live_mirror_stage4_5.py
 
 import pytest
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select, func
@@ -65,6 +65,8 @@ async def _make_paper_request(
     state: str = "FILLED",
     market_id: str | None = None,
 ) -> ExecutionRequest:
+    await set_mirror_enabled(session, enabled=True)
+    now = datetime.now(timezone.utc) + timedelta(seconds=1)
     req = ExecutionRequest(
         id=uuid.uuid4(),
         idempotency_key=f"PAPER-OPEN-{uuid.uuid4()}",
@@ -81,8 +83,8 @@ async def _make_paper_request(
         max_slippage_pct=0.02,
         max_spend_usdc=Decimal("1"),
         state=state,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=now,
+        updated_at=now,
         expires_at=None,
     )
     session.add(req)
@@ -93,7 +95,13 @@ async def _make_paper_request(
 
 # ─── Вспомогательный импорт mirror_batch ─────────────────────────────────────
 # Импортируем напрямую, минуя управляющий флаг LIVE_MIRROR_ENABLED
-from polyflip.execution.live_mirror_worker import mirror_batch, _build_signal_snapshot, _compute_hash, TARGET_MODE
+from polyflip.execution.live_mirror_worker import (
+    mirror_batch,
+    set_mirror_enabled,
+    _build_signal_snapshot,
+    _compute_hash,
+    TARGET_MODE,
+)
 
 
 # ─── Тесты Этапа 4: структура БД ─────────────────────────────────────────────
