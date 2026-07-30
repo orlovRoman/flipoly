@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Literal, Optional, List
-from sqlalchemy import select, and_, or_, desc
+from sqlalchemy import select, and_, or_, desc, func
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,6 +14,7 @@ from polyflip.db.execution_models import (
     ExecutionWorkerStatus,
     ExecutionRequest,
     ExecutionEvent,
+    LiveMirrorCandidate,
 )
 from polyflip.execution.config import ExecutionSettings
 
@@ -63,11 +64,41 @@ async def get_live_trading_status(db: AsyncSession = Depends(get_db_session)):
             "last_error_message": worker_status.last_error_message,
         }
     
+    # --- Три рубильника LIVE-архитектуры ---
+    async def _flag(key: str) -> bool:
+        row = (await db.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == key)
+        )).scalar_one_or_none()
+        return row is not None and row.value.lower() == "true"
+
+    async def _flag_str(key: str, default: str) -> str:
+        row = (await db.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == key)
+        )).scalar_one_or_none()
+        return row.value if row else default
+
+    live_mirror_enabled = await _flag("LIVE_MIRROR_ENABLED")
+    live_release_mode = await _flag_str("LIVE_RELEASE_MODE", "DISABLED")
+    live_trading_enabled = await _flag("LIVE_TRADING_ENABLED")
+
+    # Количество кандидатов по состояниям
+    candidate_counts = {}
+    for state in ("NEW", "ELIGIBLE", "REJECTED", "RELEASED"):
+        cnt = await db.scalar(
+            select(func.count()).select_from(LiveMirrorCandidate)
+            .where(LiveMirrorCandidate.state == state)
+        )
+        candidate_counts[state] = cnt or 0
+
     return {
-        "live_trading_enabled": enabled,
+        "live_trading_enabled": live_trading_enabled,
         "execution_mode": settings.execution_mode.value,
         "kill_switch_available": settings.execution_mode.value == "LIVE",
-        "worker_status": worker_data
+        "worker_status": worker_data,
+        # Этап 6: три рубильника и зеркало
+        "live_mirror_enabled": live_mirror_enabled,
+        "live_release_mode": live_release_mode,
+        "mirror_candidates": candidate_counts,
     }
 
 @router.put("/kill-switch")
@@ -131,9 +162,139 @@ async def toggle_kill_switch(payload: KillSwitchRequest, db: AsyncSession = Depe
     except Exception as e:
         logger.exception("kill_switch_error", error=str(e))
         raise HTTPException(status_code=500, detail="Internal Server Error")
+
+
 from polyflip.db.models import TradeHistory
-from polyflip.db.execution_models import ExecutionRequest
 from polyflip.execution.states import ACTIVE_POSITION_STATES
+
+
+# ---------------------------------------------------------------------------
+# Этап 6: управление тремя рубильниками LIVE-архитектуры
+# ---------------------------------------------------------------------------
+
+_BOOL_SWITCH_KEYS = {"LIVE_MIRROR_ENABLED", "LIVE_TRADING_ENABLED"}
+_STR_SWITCH_KEYS = {"LIVE_RELEASE_MODE"}
+_LIVE_RELEASE_MODE_VALUES = {"DISABLED", "MANUAL", "AUTO"}
+
+
+class SwitchBoolRequest(BaseModel):
+    enabled: bool
+
+
+class SwitchReleaseModeRequest(BaseModel):
+    mode: Literal["DISABLED", "MANUAL", "AUTO"]
+
+
+async def _set_runtime_flag(db: AsyncSession, key: str, value: str) -> None:
+    now = datetime.now(timezone.utc)
+    existing = (await db.execute(
+        select(RuntimeSettings).where(RuntimeSettings.key == key)
+    )).scalar_one_or_none()
+    if existing:
+        existing.value = value
+        existing.updated_at = now
+        existing.updated_by = "api"
+    else:
+        db.add(RuntimeSettings(key=key, value=value, updated_at=now, updated_by="api"))
+    await db.commit()
+
+
+@router.put("/mirror-switch",
+             summary="Включить / выключить LIVE_MIRROR_ENABLED (mirror-воркер)")
+async def toggle_mirror_switch(
+    payload: SwitchBoolRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Рубильник 1: управляет LIVE_MIRROR_ENABLED.
+    true  — mirror-воркер создаёт LiveMirrorCandidate для FILLED PAPER OPEN.
+    false — воркер спит, ни одного кандидата не создаёт.
+    """
+    await _set_runtime_flag(db, "LIVE_MIRROR_ENABLED", "true" if payload.enabled else "false")
+    logger.info("mirror_switch_toggled", enabled=payload.enabled)
+    return {"status": "ok", "LIVE_MIRROR_ENABLED": payload.enabled}
+
+
+@router.put("/release-mode",
+             summary="Установить LIVE_RELEASE_MODE (DISABLED | MANUAL | AUTO)")
+async def set_release_mode(
+    payload: SwitchReleaseModeRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Рубильник 2: управляет способом выпуска кандидатов.
+    DISABLED — release_gate спит.
+    MANUAL   — release_gate ожидает явного /release-candidate через API.
+    AUTO     — release_gate автоматически выпускает NEW→ELIGIBLE кандидатов.
+    """
+    await _set_runtime_flag(db, "LIVE_RELEASE_MODE", payload.mode)
+    logger.info("release_mode_set", mode=payload.mode)
+    return {"status": "ok", "LIVE_RELEASE_MODE": payload.mode}
+
+
+@router.get("/candidates",
+             summary="Просмотр LiveMirrorCandidate")
+async def get_mirror_candidates(
+    state: Optional[str] = Query(None, description="NEW | ELIGIBLE | REJECTED | RELEASED"),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Возвращает список mirror-кандидатов (для операторского мониторинга).
+    """
+    q = select(LiveMirrorCandidate).order_by(LiveMirrorCandidate.created_at.desc()).limit(limit)
+    if state:
+        q = q.where(LiveMirrorCandidate.state == state)
+    rows = (await db.execute(q)).scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "source_paper_request_id": str(r.source_paper_request_id),
+            "source_paper_trade_id": r.source_paper_trade_id,
+            "target_mode": r.target_mode,
+            "state": r.state,
+            "signal_hash": r.signal_hash,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "released_at": r.released_at.isoformat() if r.released_at else None,
+            "released_trade_id": r.released_trade_id,
+            "released_request_id": str(r.released_request_id) if r.released_request_id else None,
+            "rejection_reason": r.rejection_reason,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/candidates/{candidate_id}/release",
+              summary="Операторский выпуск: ELIGIBLE → release_gate переведёт кандидата в RELEASED")
+async def manual_release_candidate(
+    candidate_id: str,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    При LIVE_RELEASE_MODE=MANUAL оператор явно одобряет кандидата.
+    release_gate при следующем цикле заберёт его и создаст LIVE-заявку.
+    """
+    from uuid import UUID
+    try:
+        cid = UUID(candidate_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid UUID")
+
+    candidate = await db.get(LiveMirrorCandidate, cid)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if candidate.state not in ("NEW", "ELIGIBLE"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Candidate is in state {candidate.state!r}, cannot manually release",
+        )
+
+    candidate.state = "ELIGIBLE"
+    candidate_id_str = str(cid)
+    await db.commit()
+    logger.info("candidate_marked_eligible", candidate_id=candidate_id_str)
+    return {"status": "ok", "candidate_id": candidate_id_str, "new_state": "ELIGIBLE"}
+
 
 @router.get("/positions")
 async def get_live_trading_positions(

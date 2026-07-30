@@ -1,0 +1,107 @@
+version: "3.8"
+
+services:
+  db_test:
+    image: postgres:16-alpine
+    container_name: polyflip_test_db
+    restart: always
+    profiles: ["live-test"]
+    environment:
+      POSTGRES_USER: ${DB_USER:-polyflip}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+      POSTGRES_DB: ${DB_NAME:-polyflip_test}
+    ports:
+      - "127.0.0.1:5435:5432"
+    volumes:
+      - polyflip_live_test_db:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  api_test:
+    build: .
+    container_name: polyflip_test_api
+    restart: always
+    profiles: ["live-test"]
+    depends_on:
+      - db_test
+    ports:
+      - "8002:8001"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
+      - API_KEY=${API_KEY:-test-key}
+      - ASSETS=${ASSETS:-BTC,ETH,SOL,XRP,DOGE}
+      - EXECUTION_MODE=PAPER
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./tests:/app/tests
+    command: uvicorn polyflip.api.main:app --host 0.0.0.0 --port 8001
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  execution_worker_paper_test:
+    build: .
+    container_name: polyflip_test_execution_worker_paper
+    restart: always
+    profiles: ["live-test"]
+    depends_on:
+      - db_test
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
+      - EXECUTION_MODE=PAPER
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python -m polyflip.execution.worker
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  live_mirror_worker_test:
+    build: .
+    container_name: polyflip_test_live_mirror_worker
+    restart: always
+    profiles: ["live-test"]
+    depends_on:
+      - db_test
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
+      - LIVE_MIRROR_ENABLED=true
+      - MIRROR_TARGET_MODE=SHADOW
+      - MIRROR_POLL_INTERVAL=10
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python -m polyflip.execution.live_mirror_worker
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  release_gate_worker_test:
+    build: .
+    container_name: polyflip_test_release_gate_worker
+    restart: always
+    profiles: ["live-test"]
+    depends_on:
+      - db_test
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db_test:5432/${DB_NAME:-polyflip_test}
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python -m polyflip.execution.release_gate --mode=SHADOW
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  polyflip_live_test_db:
