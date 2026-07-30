@@ -46,6 +46,7 @@ async def seed() -> None:
         # 1. Включаем mirror switch и сбрасываем timestamp отсечки LIVE_MIRROR_STARTED_AT = now
         await set_mirror_enabled(session, enabled=True, updated_by="seed_script")
         await upsert_runtime_setting(session, key="LIVE_RELEASE_MODE", value="AUTO")
+        await upsert_runtime_setting(session, key="TRADING_ENABLED", value="true")
         await session.commit()
 
         # 2. Генерируем 5 синтетических исполненных PAPER ордеров со свежими метками времени (сигналы после включения mirror)
