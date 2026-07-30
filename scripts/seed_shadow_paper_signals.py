@@ -47,7 +47,23 @@ async def seed() -> None:
         await set_mirror_enabled(session, enabled=True, updated_by="seed_script")
         await upsert_runtime_setting(session, key="LIVE_RELEASE_MODE", value="AUTO")
         await upsert_runtime_setting(session, key="TRADING_ENABLED", value="true")
+        await upsert_runtime_setting(
+            session, key="STARTUP_CANDLE_BACKFILL_ENABLED", value="true"
+        )
         await session.commit()
+
+        # Предварительная загрузка свечей крипты для работы ML-моделей
+        try:
+            from polyflip.crypto.candle_collector import collect_new_candles
+            from polyflip.crypto.historical_loader import load_history_all
+
+            print("Pre-loading crypto candles for ML models...")
+            await load_history_all(session)
+            await collect_new_candles(session)
+            await session.commit()
+            print("Crypto candles loaded successfully.")
+        except Exception as exc:
+            print(f"Warning: failed to preload candles in seed script: {exc}")
 
         # 2. Генерируем 5 синтетических исполненных PAPER ордеров со свежими метками времени (сигналы после включения mirror)
         for i in range(1, 6):
