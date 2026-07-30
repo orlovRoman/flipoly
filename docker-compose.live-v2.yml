@@ -1,0 +1,67 @@
+version: "3.8"
+
+services:
+  live_mirror_worker:
+    build: .
+    container_name: polyflip_live_mirror_worker
+    restart: always
+    profiles: ["live-v2"]
+    networks:
+      - polyflip_net
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db:5432/${DB_NAME:-polyflip}}
+      - LIVE_MIRROR_ENABLED=${LIVE_MIRROR_ENABLED:-true}
+      - MIRROR_TARGET_MODE=LIVE
+      - MIRROR_POLL_INTERVAL=10
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python -m polyflip.execution.live_mirror_worker
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  release_gate_worker:
+    build: .
+    container_name: polyflip_release_gate_worker
+    restart: always
+    profiles: ["live-v2"]
+    networks:
+      - polyflip_net
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db:5432/${DB_NAME:-polyflip}}
+      - LIVE_RELEASE_MODE=${LIVE_RELEASE_MODE:-AUTO}
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python -m polyflip.execution.release_gate --mode=LIVE
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  execution_worker_live:
+    build: .
+    container_name: polyflip_execution_worker_live
+    restart: always
+    profiles: ["live-v2"]
+    networks:
+      - polyflip_net
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db:5432/${DB_NAME:-polyflip}}
+      - EXECUTION_MODE=LIVE
+      - POLYGON_PRIVATE_KEY=${POLYGON_PRIVATE_KEY}
+      - POLYGON_ADDRESS=${POLYGON_ADDRESS}
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python -m polyflip.execution.worker
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+networks:
+  polyflip_net:
+    external: true
