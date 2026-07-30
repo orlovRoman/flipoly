@@ -809,11 +809,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const sortedData = [...filteredData].sort((a, b) => {
-      // Первым делом поднимаем АКТИВНЫЕ модели наверх таблицы!
-      if (a.is_active !== b.is_active) {
-        return a.is_active ? -1 : 1;
-      }
-
       let valA, valB;
       const keyA = `${a.asset}_v${a.version}`;
       const keyB = `${b.asset}_v${b.version}`;
@@ -830,21 +825,26 @@ document.addEventListener("DOMContentLoaded", () => {
           valB = b.version || 0;
           break;
         case "accuracy":
-          valA = a.accuracy || 0;
-          valB = b.accuracy || 0;
+          valA = a.accuracy !== null && a.accuracy !== undefined ? a.accuracy : -999;
+          valB = b.accuracy !== null && b.accuracy !== undefined ? b.accuracy : -999;
           break;
         case "baseline":
-          valA = a.baseline || 0;
-          valB = b.baseline || 0;
+          valA = a.baseline !== null && a.baseline !== undefined ? a.baseline : -999;
+          valB = b.baseline !== null && b.baseline !== undefined ? b.baseline : -999;
           break;
         case "ece":
           const nullA = a.ece === null || a.ece === undefined;
           const nullB = b.ece === null || b.ece === undefined;
-          if (nullA && nullB) return 0;
-          if (nullA) return 1;
-          if (nullB) return -1;
-          valA = a.ece;
-          valB = b.ece;
+          if (nullA && nullB) {
+            valA = 999; valB = 999;
+          } else if (nullA) {
+            return 1;
+          } else if (nullB) {
+            return -1;
+          } else {
+            valA = a.ece;
+            valB = b.ece;
+          }
           break;
         case "date":
         case "trained_at":
@@ -852,25 +852,36 @@ document.addEventListener("DOMContentLoaded", () => {
           valB = b.trained_at ? (Date.parse(b.trained_at) || 0) : 0;
           break;
         case "backtest_pnl":
-          valA = a.backtest_pnl !== null ? a.backtest_pnl : -999999;
-          valB = b.backtest_pnl !== null ? b.backtest_pnl : -999999;
+          valA = a.backtest_pnl !== null && a.backtest_pnl !== undefined ? a.backtest_pnl : -999999;
+          valB = b.backtest_pnl !== null && b.backtest_pnl !== undefined ? b.backtest_pnl : -999999;
           break;
         case "pnl":
-          valA = (pnlA && pnlA.total_trades > 0) ? pnlA.pnl : -999999;
-          valB = (pnlB && pnlB.total_trades > 0) ? pnlB.pnl : -999999;
+          valA = (pnlA && pnlA.total_trades > 0 && pnlA.pnl !== null && pnlA.pnl !== undefined) ? pnlA.pnl : -999999;
+          valB = (pnlB && pnlB.total_trades > 0 && pnlB.pnl !== null && pnlB.pnl !== undefined) ? pnlB.pnl : -999999;
           break;
         case "status":
           valA = a.is_active ? 1 : 0;
           valB = b.is_active ? 1 : 0;
           break;
         default:
-          valA = a.version || 0;
-          valB = b.version || 0;
+          valA = a.trained_at ? (Date.parse(a.trained_at) || 0) : 0;
+          valB = b.trained_at ? (Date.parse(b.trained_at) || 0) : 0;
       }
 
       if (valA < valB) return modelsSortAsc ? -1 : 1;
       if (valA > valB) return modelsSortAsc ? 1 : -1;
-      return 0;
+
+      // Tie-breaker 1: active models first
+      if (a.is_active !== b.is_active) {
+        return a.is_active ? -1 : 1;
+      }
+
+      // Tie-breaker 2: newest date first
+      const dateA = a.trained_at ? (Date.parse(a.trained_at) || 0) : 0;
+      const dateB = b.trained_at ? (Date.parse(b.trained_at) || 0) : 0;
+      if (dateA !== dateB) return dateB - dateA;
+
+      return (b.version || 0) - (a.version || 0);
     });
 
     document.querySelectorAll("#models-table th[data-sort]").forEach((th) => {
@@ -1082,7 +1093,7 @@ document.addEventListener("DOMContentLoaded", () => {
           modelsSortAsc = !modelsSortAsc;
         } else {
           modelsSortField = field;
-          modelsSortAsc = false;
+          modelsSortAsc = (field === "ece" || field === "asset");
         }
         renderModelsTable();
       });
