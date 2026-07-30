@@ -29,42 +29,37 @@ class KillSwitchRequest(BaseModel):
 @router.get("/status")
 async def get_live_trading_status(db: AsyncSession = Depends(get_db_session)):
     """
-    Returns the current live trading status and execution mode, plus worker status.
+    Returns live trading status, mirror status, and worker status for PAPER, SHADOW, and LIVE modes.
     """
-    key = "LIVE_TRADING_ENABLED"
-    existing = (await db.execute(
-        select(RuntimeSettings).where(RuntimeSettings.key == key)
-    )).scalar_one_or_none()
-
-    enabled = existing is not None and existing.value.lower() == "true"
     settings = ExecutionSettings()
 
-    # Статус воркера для ТЕКУЩЕГО режима (не всегда LIVE)
-    worker_status = (await db.execute(
-        select(ExecutionWorkerStatus)
-        .where(ExecutionWorkerStatus.execution_mode == settings.execution_mode.value)
-        .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
-        .limit(1)
-    )).scalar_one_or_none()
-    
-    worker_data = None
-    if worker_status:
-        # Convert to dict manually or rely on fastapi response model (but we don't have one here)
-        worker_data = {
-            "worker_id": worker_status.worker_id,
-            "execution_mode": worker_status.execution_mode,
-            "heartbeat_at": worker_status.heartbeat_at.isoformat() if worker_status.heartbeat_at else None,
-            "gateway_ready": worker_status.gateway_ready,
-            "credentials_loaded": worker_status.credentials_loaded,
-            "wallet_address": worker_status.wallet_address,
-            "balance_usdc": float(worker_status.balance_usdc) if worker_status.balance_usdc is not None else None,
-            "collateral_allowance_ready": worker_status.collateral_allowance_ready,
-            "conditional_allowance_ready": worker_status.conditional_allowance_ready,
-            "last_error_code": worker_status.last_error_code,
-            "last_error_message": worker_status.last_error_message,
+    async def get_worker_dict(mode_name: str):
+        ws = (await db.execute(
+            select(ExecutionWorkerStatus)
+            .where(ExecutionWorkerStatus.execution_mode == mode_name)
+            .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        if not ws:
+            return None
+        return {
+            "worker_id": ws.worker_id,
+            "execution_mode": ws.execution_mode,
+            "heartbeat_at": ws.heartbeat_at.isoformat() if ws.heartbeat_at else None,
+            "gateway_ready": ws.gateway_ready,
+            "credentials_loaded": ws.credentials_loaded,
+            "wallet_address": ws.wallet_address,
+            "balance_usdc": float(ws.balance_usdc) if ws.balance_usdc is not None else None,
+            "collateral_allowance_ready": ws.collateral_allowance_ready,
+            "conditional_allowance_ready": ws.conditional_allowance_ready,
+            "last_error_code": ws.last_error_code,
+            "last_error_message": ws.last_error_message,
         }
-    
-    # --- Три рубильника LIVE-архитектуры ---
+
+    paper_worker = await get_worker_dict("PAPER")
+    shadow_worker = await get_worker_dict("SHADOW")
+    live_worker = await get_worker_dict("LIVE")
+
     async def _flag(key: str) -> bool:
         row = (await db.execute(
             select(RuntimeSettings).where(RuntimeSettings.key == key)
@@ -94,18 +89,21 @@ async def get_live_trading_status(db: AsyncSession = Depends(get_db_session)):
         "live_trading_enabled": live_trading_enabled,
         "execution_mode": settings.execution_mode.value,
         "kill_switch_available": settings.execution_mode.value == "LIVE",
-        "worker_status": worker_data,
-        # Этап 6: три рубильника и зеркало
+        "paper_worker": paper_worker,
+        "shadow_worker": shadow_worker,
+        "live_worker": live_worker,
+        "worker_status": await get_worker_dict(settings.execution_mode.value),
         "live_mirror_enabled": live_mirror_enabled,
         "live_release_mode": live_release_mode,
         "mirror_candidates": candidate_counts,
     }
 
+
 @router.put("/kill-switch")
 async def toggle_kill_switch(payload: KillSwitchRequest, db: AsyncSession = Depends(get_db_session)):
     """
     Управляет глобальным рубильником LIVE-торговли.
-    Перед включением проверяет свежий execution_worker_status из БД.
+    Перед включением проверяет наличие и свежесть heartbeat от LIVE-воркера.
     """
     key = "LIVE_TRADING_ENABLED"
     
@@ -118,10 +116,6 @@ async def toggle_kill_switch(payload: KillSwitchRequest, db: AsyncSession = Depe
     existing = (await db.execute(stmt)).scalar_one_or_none()
     
     if payload.enabled:
-        settings = ExecutionSettings()
-        if settings.execution_mode.value != "LIVE":
-            raise HTTPException(status_code=400, detail="Cannot enable LIVE trading: Execution mode is not LIVE")
-            
         worker_status = (await db.execute(
             select(ExecutionWorkerStatus)
             .where(ExecutionWorkerStatus.execution_mode == "LIVE")
@@ -130,20 +124,24 @@ async def toggle_kill_switch(payload: KillSwitchRequest, db: AsyncSession = Depe
         )).scalar_one_or_none()
         
         if not worker_status:
-            raise HTTPException(status_code=400, detail="System not ready for LIVE trading: No worker status found in database")
+            raise HTTPException(status_code=409, detail="Cannot enable LIVE trading: LIVE worker is not running (no status in DB)")
             
         now = datetime.now(timezone.utc)
-        if worker_status.heartbeat_at < now - timedelta(seconds=30):
-            raise HTTPException(status_code=400, detail="System not ready for LIVE trading: Worker heartbeat is older than 30 seconds")
+        hb_at = worker_status.heartbeat_at
+        if hb_at and hb_at.tzinfo is None:
+            hb_at = hb_at.replace(tzinfo=timezone.utc)
+            
+        if not hb_at or hb_at < now - timedelta(seconds=30):
+            raise HTTPException(status_code=409, detail="Cannot enable LIVE trading: LIVE worker heartbeat is older than 30 seconds")
             
         if not worker_status.gateway_ready:
-            raise HTTPException(status_code=400, detail=f"System not ready for LIVE trading: Worker gateway is not ready (Error: {worker_status.last_error_message})")
+            raise HTTPException(status_code=409, detail=f"Cannot enable LIVE trading: LIVE gateway is not ready ({worker_status.last_error_message})")
             
         if float(worker_status.balance_usdc or 0) < 5:
-            raise HTTPException(status_code=400, detail=f"System not ready for LIVE trading: Insufficient USDC balance (Minimum $5, current {float(worker_status.balance_usdc or 0)})")
+            raise HTTPException(status_code=409, detail=f"Cannot enable LIVE trading: Insufficient USDC balance (Minimum $5, current {float(worker_status.balance_usdc or 0)})")
             
         if not worker_status.collateral_allowance_ready:
-            raise HTTPException(status_code=400, detail="System not ready for LIVE trading: Collateral allowance is not ready")
+            raise HTTPException(status_code=409, detail="Cannot enable LIVE trading: Collateral allowance is not ready")
 
     value = "true" if payload.enabled else "false"
     
@@ -159,9 +157,12 @@ async def toggle_kill_switch(payload: KillSwitchRequest, db: AsyncSession = Depe
         await db.commit()
         logger.info("kill_switch_toggled", enabled=payload.enabled)
         return {"status": "ok", "live_trading_enabled": payload.enabled}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("kill_switch_error", error=str(e))
         raise HTTPException(status_code=500, detail="Internal Server Error")
+
 
 
 from polyflip.db.models import TradeHistory
@@ -210,7 +211,11 @@ async def toggle_mirror_switch(
     true  — mirror-воркер создаёт LiveMirrorCandidate для FILLED PAPER OPEN.
     false — воркер спит, ни одного кандидата не создаёт.
     """
-    await _set_runtime_flag(db, "LIVE_MIRROR_ENABLED", "true" if payload.enabled else "false")
+    val = "true" if payload.enabled else "false"
+    if payload.enabled:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await _set_runtime_flag(db, "LIVE_MIRROR_STARTED_AT", now_iso)
+    await _set_runtime_flag(db, "LIVE_MIRROR_ENABLED", val)
     logger.info("mirror_switch_toggled", enabled=payload.enabled)
     return {"status": "ok", "LIVE_MIRROR_ENABLED": payload.enabled}
 

@@ -15,7 +15,7 @@ tests/test_release_gate.py — Тесты Этапа 8: release_gate
 
 import pytest
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -95,8 +95,12 @@ async def _make_paper_request(session, trade):
     return req
 
 
+from polyflip.execution.live_mirror_worker import _build_signal_snapshot, _compute_hash
+
+
 async def _make_candidate(session, paper_request, paper_trade, state="ELIGIBLE", target_mode="SHADOW"):
-    snap = {"market_id": paper_trade.market_id, "asset": paper_trade.asset}
+    snap = _build_signal_snapshot(paper_request, paper_trade)
+    sig_hash = _compute_hash(snap)
     c = LiveMirrorCandidate(
         id=uuid.uuid4(),
         source_paper_request_id=paper_request.id,
@@ -104,7 +108,7 @@ async def _make_candidate(session, paper_request, paper_trade, state="ELIGIBLE",
         target_mode=target_mode,
         state=state,
         signal_snapshot=snap,
-        signal_hash="abc123",
+        signal_hash=sig_hash,
         created_at=datetime.now(timezone.utc),
     )
     session.add(c)
@@ -274,3 +278,60 @@ async def test_get_release_mode_default_disabled(db_session):
     """Без записи в RuntimeSettings release mode = DISABLED."""
     mode = await _get_release_mode(db_session)
     assert mode == "DISABLED"
+
+
+@pytest.mark.asyncio
+async def test_release_deferred_keeps_candidate_eligible_when_kill_switch_off(db_session):
+    """Когда kill switch выключен в LIVE режиме, кандидат откладывается (остаётся ELIGIBLE, не REJECTED)."""
+    await _set_release_mode(db_session, "AUTO")
+    trade = await _make_paper_trade(db_session)
+    req = await _make_paper_request(db_session, trade)
+    candidate = await _make_candidate(db_session, req, trade, state="ELIGIBLE", target_mode="LIVE")
+
+    released = await release_batch(db_session, "LIVE")
+    assert released == 0
+
+    await db_session.refresh(candidate)
+    assert candidate.state == "ELIGIBLE"  # Не переведён в REJECTED!
+
+
+@pytest.mark.asyncio
+async def test_release_rejected_when_signal_too_old(db_session):
+    """Когда PAPER-сигнал старше 30 секунд, кандидат забраковывается (state=REJECTED)."""
+    await _set_release_mode(db_session, "AUTO")
+    trade = await _make_paper_trade(db_session)
+    req = await _make_paper_request(db_session, trade)
+    
+    # Старый сигнал (40 секунд назад)
+    req.updated_at = datetime.now(timezone.utc) - timedelta(seconds=40)
+    req.created_at = req.updated_at
+    await db_session.commit()
+
+    candidate = await _make_candidate(db_session, req, trade, state="ELIGIBLE", target_mode="SHADOW")
+
+    released = await release_batch(db_session, "SHADOW")
+    assert released == 0
+
+    await db_session.refresh(candidate)
+    assert candidate.state == "REJECTED"
+    assert "Signal is too old" in candidate.rejection_reason
+
+
+@pytest.mark.asyncio
+async def test_release_sets_expires_at_and_ttl(db_session):
+    """Создаваемая LIVE-заявка обязана иметь ttl_seconds <= 30 и заполненный expires_at."""
+    await _set_release_mode(db_session, "AUTO")
+    trade = await _make_paper_trade(db_session)
+    req = await _make_paper_request(db_session, trade)
+    req.ttl_seconds = 120  # должно усечься до 30
+    await db_session.commit()
+
+    candidate = await _make_candidate(db_session, req, trade, state="ELIGIBLE", target_mode="SHADOW")
+
+    await release_batch(db_session, "SHADOW")
+
+    await db_session.refresh(candidate)
+    live_req = await db_session.get(ExecutionRequest, candidate.released_request_id)
+    assert live_req is not None
+    assert live_req.ttl_seconds == 30
+    assert live_req.expires_at is not None
