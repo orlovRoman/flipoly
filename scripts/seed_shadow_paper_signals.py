@@ -85,6 +85,7 @@ async def seed() -> None:
                 target_amount_usdc=Decimal("10.0"),
                 requested_shares=Decimal("20.0"),
                 limit_price=Decimal("0.50"),
+                max_slippage_pct=0.01,
                 filled_shares=Decimal("20.0"),
                 filled_cost_usdc=Decimal("10.0"),
                 requested_mode="PAPER",

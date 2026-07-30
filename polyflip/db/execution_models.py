@@ -1,7 +1,24 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Float, DateTime, Index, Text, Numeric, ForeignKey, JSON, text, CheckConstraint, func, UniqueConstraint, Boolean
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Float,
+    DateTime,
+    Index,
+    Text,
+    Numeric,
+    ForeignKey,
+    JSON,
+    text,
+    CheckConstraint,
+    func,
+    UniqueConstraint,
+    Boolean,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from polyflip.db.models import Base
+
 
 class ExecutionRequest(Base):
     __tablename__ = "execution_requests"
@@ -9,9 +26,13 @@ class ExecutionRequest(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     idempotency_key = Column(String(128), unique=True, nullable=True)
     requested_mode = Column(String(32), nullable=False, default="PAPER")
-    trade_history_id = Column(Integer, ForeignKey("trade_history.id", ondelete="RESTRICT"), nullable=False)
-    intent = Column(String(32), nullable=False) # 'OPEN', 'CLOSE'
-    trigger_reason = Column(String(32), nullable=True) # 'STRATEGY', 'STOP_LOSS', 'TAKE_PROFIT', 'MANUAL', 'RECOVERY'
+    trade_history_id = Column(
+        Integer, ForeignKey("trade_history.id", ondelete="RESTRICT"), nullable=False
+    )
+    intent = Column(String(32), nullable=False)  # 'OPEN', 'CLOSE'
+    trigger_reason = Column(
+        String(32), nullable=True
+    )  # 'STRATEGY', 'STOP_LOSS', 'TAKE_PROFIT', 'MANUAL', 'RECOVERY'
     market_id = Column(String(128), nullable=False)
     asset = Column(String(32), nullable=False)
 
@@ -21,18 +42,18 @@ class ExecutionRequest(Base):
         ForeignKey("execution_requests.id", ondelete="RESTRICT"),
         nullable=True,
     )
-    
+
     # Order parameters
     outcome_to_buy = Column(String(16), nullable=False)
     requested_shares = Column(Numeric(38, 18), nullable=True)
     target_amount_usdc = Column(Numeric(38, 18), nullable=False)
-    max_slippage_pct = Column(Float, nullable=False)
+    max_slippage_pct = Column(Float, nullable=False, default=0.01)
     ttl_seconds = Column(Integer, nullable=False, default=60)
     limit_price = Column(Numeric(38, 18), nullable=True)
     max_spend_usdc = Column(Numeric(38, 18), nullable=True)
-    
+
     # State tracking
-    state = Column(String(32), nullable=False, default='READY')
+    state = Column(String(32), nullable=False, default="READY")
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=True)
@@ -41,7 +62,7 @@ class ExecutionRequest(Base):
     claimed_by = Column(String(100), nullable=True)
     position_version_snapshot = Column(Integer, nullable=True)
     error_reason = Column(Text, nullable=True)
-    
+
     # Outcome tracking
     filled_shares = Column(Numeric(38, 18), nullable=False, default=0)
     filled_cost_usdc = Column(Numeric(38, 18), nullable=False, default=0)
@@ -66,16 +87,15 @@ class ExecutionRequest(Base):
             "market_id",
             unique=True,
             postgresql_where=ACTIVE_OPEN_PREDICATE,
-            sqlite_where=ACTIVE_OPEN_PREDICATE
+            sqlite_where=ACTIVE_OPEN_PREDICATE,
         ),
         Index(
             "uq_active_close_request",
             "trade_history_id",
             unique=True,
             postgresql_where=ACTIVE_CLOSE_PREDICATE,
-            sqlite_where=ACTIVE_CLOSE_PREDICATE
+            sqlite_where=ACTIVE_CLOSE_PREDICATE,
         ),
-
         CheckConstraint(
             "intent IN ('OPEN', 'CLOSE') AND trade_history_id IS NOT NULL",
             name="ck_execution_request_trade_reference",
@@ -90,24 +110,33 @@ class ExecutionRequest(Base):
         ),
     )
 
+
 class ExecutionAttempt(Base):
     __tablename__ = "execution_attempts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    request_id = Column(UUID(as_uuid=True), ForeignKey("execution_requests.id"), nullable=False)
-    gateway = Column(String(32), nullable=False) # 'POLYMARKET', 'SHADOW', 'FAKE'
+    request_id = Column(
+        UUID(as_uuid=True), ForeignKey("execution_requests.id"), nullable=False
+    )
+    gateway = Column(String(32), nullable=False)  # 'POLYMARKET', 'SHADOW', 'FAKE'
     attempt_no = Column(Integer, nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=False)
     finished_at = Column(DateTime(timezone=True), nullable=True)
-    status = Column(String(32), nullable=False, default='IN_PROGRESS') # 'SUCCESS', 'FAILED', 'UNKNOWN'
+    status = Column(
+        String(32), nullable=False, default="IN_PROGRESS"
+    )  # 'SUCCESS', 'FAILED', 'UNKNOWN'
     provider_status = Column(String(50), nullable=True)
     provider_order_id = Column(String(255), nullable=True)
     submission_key = Column(String(255), nullable=True)
     tx_hash = Column(String(128), nullable=True)
     error_msg = Column(Text, nullable=True)
     raw_response = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
-    provider_trade_ids = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list)
-    transaction_hashes = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list)
+    provider_trade_ids = Column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
+    transaction_hashes = Column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
     settlement_state = Column(String(32), nullable=False, default="PENDING")
 
     __table_args__ = (
@@ -119,11 +148,14 @@ class ExecutionAttempt(Base):
         ),
     )
 
+
 class ExecutionFill(Base):
     __tablename__ = "execution_fills"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    attempt_id = Column(UUID(as_uuid=True), ForeignKey("execution_attempts.id"), nullable=False)
+    attempt_id = Column(
+        UUID(as_uuid=True), ForeignKey("execution_attempts.id"), nullable=False
+    )
     provider_trade_id = Column(String(255), nullable=True)
     gateway = Column(String(50), nullable=True)
     price = Column(Numeric(38, 18), nullable=False)
@@ -138,39 +170,54 @@ class ExecutionFill(Base):
         ),
     )
 
+
 class ExecutionApproval(Base):
     __tablename__ = "execution_approvals"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    request_id = Column(UUID(as_uuid=True), ForeignKey("execution_requests.id"), nullable=False)
+    request_id = Column(
+        UUID(as_uuid=True), ForeignKey("execution_requests.id"), nullable=False
+    )
     approval_hash = Column(String(128), nullable=False, unique=True)
-    status = Column(String(32), nullable=False, default='PENDING') # 'PENDING', 'CONSUMED', 'EXPIRED'
+    status = Column(
+        String(32), nullable=False, default="PENDING"
+    )  # 'PENDING', 'CONSUMED', 'EXPIRED'
     created_at = Column(DateTime(timezone=True), nullable=False)
     consumed_at = Column(DateTime(timezone=True), nullable=True)
     consumed_by_ip = Column(String(64), nullable=True)
+
 
 class ExecutionEvent(Base):
     __tablename__ = "execution_events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
     level = Column(String(16), nullable=False, default="INFO")
     event_type = Column(String(64), nullable=False)
     message = Column(Text, nullable=False)
     source = Column(String(32), nullable=False)
     trade_history_id = Column(
-        Integer, ForeignKey("trade_history.id", ondelete="SET NULL"), nullable=True,
+        Integer,
+        ForeignKey("trade_history.id", ondelete="SET NULL"),
+        nullable=True,
     )
     request_id = Column(
-        UUID(as_uuid=True), ForeignKey("execution_requests.id", ondelete="SET NULL"), nullable=True,
+        UUID(as_uuid=True),
+        ForeignKey("execution_requests.id", ondelete="SET NULL"),
+        nullable=True,
     )
     attempt_id = Column(
-        UUID(as_uuid=True), ForeignKey("execution_attempts.id", ondelete="SET NULL"), nullable=True,
+        UUID(as_uuid=True),
+        ForeignKey("execution_attempts.id", ondelete="SET NULL"),
+        nullable=True,
     )
     payload = Column(
-        JSON().with_variant(JSONB, "postgresql"), nullable=True,
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
     )
 
     __table_args__ = (
@@ -180,15 +227,22 @@ class ExecutionEvent(Base):
         ),
         Index("ix_execution_events_created_at", "created_at"),
         Index(
-            "ix_execution_events_request_time", "request_id", "created_at",
+            "ix_execution_events_request_time",
+            "request_id",
+            "created_at",
         ),
         Index(
-            "ix_execution_events_trade_time", "trade_history_id", "created_at",
+            "ix_execution_events_trade_time",
+            "trade_history_id",
+            "created_at",
         ),
         Index(
-            "ix_execution_events_type_time", "event_type", "created_at",
+            "ix_execution_events_type_time",
+            "event_type",
+            "created_at",
         ),
     )
+
 
 class ExecutionWorkerStatus(Base):
     __tablename__ = "execution_worker_status"
@@ -211,7 +265,10 @@ class ExposureReservation(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     request_id = Column(
-        UUID(as_uuid=True), ForeignKey("execution_requests.id", ondelete="RESTRICT"), nullable=False, unique=True
+        UUID(as_uuid=True),
+        ForeignKey("execution_requests.id", ondelete="RESTRICT"),
+        nullable=False,
+        unique=True,
     )
     trade_history_id = Column(
         Integer, ForeignKey("trade_history.id", ondelete="RESTRICT"), nullable=False
@@ -222,12 +279,17 @@ class ExposureReservation(Base):
     created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     released_at = Column(DateTime(timezone=True), nullable=True)
 
+
 class ChainTransaction(Base):
     __tablename__ = "chain_transactions"
-    
+
     tx_hash = Column(String(128), primary_key=True)
-    attempt_id = Column(UUID(as_uuid=True), ForeignKey("execution_attempts.id"), nullable=True)
-    operation = Column(String(32), nullable=False)  # APPROVE, SPLIT, MERGE, REDEEM, SETTLEMENT
+    attempt_id = Column(
+        UUID(as_uuid=True), ForeignKey("execution_attempts.id"), nullable=True
+    )
+    operation = Column(
+        String(32), nullable=False
+    )  # APPROVE, SPLIT, MERGE, REDEEM, SETTLEMENT
     network = Column(String(32), nullable=False)
     gas_paid_native = Column(Numeric(38, 18), nullable=True)
     gas_paid_usdc = Column(Numeric(38, 18), nullable=True)
@@ -251,6 +313,7 @@ class LiveMirrorCandidate(Base):
       гарантирует идемпотентность воркера.
     - Переход state: NEW → ELIGIBLE | REJECTED | RELEASED
     """
+
     __tablename__ = "live_mirror_candidates"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -313,4 +376,3 @@ class LiveMirrorCandidate(Base):
         Index("ix_live_mirror_candidates_state", "state"),
         Index("ix_live_mirror_candidates_created_at", "created_at"),
     )
-
