@@ -36,14 +36,20 @@ import logging
 import os
 import signal
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from polyflip.db.execution_models import ExecutionRequest, LiveMirrorCandidate
+from polyflip.db.execution_models import ExecutionRequest, LiveMirrorCandidate, ExecutionWorkerStatus
 from polyflip.db.models import RuntimeSettings, TradeHistory
+from polyflip.execution.live_mirror_worker import (
+    PAPER_MIRRORABLE_STATES,
+    _build_signal_snapshot,
+    _compute_hash,
+)
+from polyflip.execution.risk_checks import check_risk_limits
 
 logger = logging.getLogger("release_gate")
 
@@ -53,6 +59,16 @@ DATABASE_URL: str = os.environ.get("DATABASE_URL", "")
 POLL_INTERVAL: float = float(os.environ.get("RELEASE_GATE_POLL_INTERVAL", "5"))
 
 _shutdown = False
+
+
+class ReleaseRejected(Exception):
+    """Кандидат забракован окончательно — переходит в REJECTED."""
+    pass
+
+
+class ReleaseDeferred(Exception):
+    """Временная неготовность системы — кандидат остаётся ELIGIBLE/NEW."""
+    pass
 
 
 def _handle_sigterm(signum: int, frame: object) -> None:
@@ -101,6 +117,102 @@ async def _get_eligible_candidates(
     return (await session.execute(stmt)).scalars().all()
 
 
+async def validate_live_release(
+    session: AsyncSession,
+    candidate: LiveMirrorCandidate,
+    paper_request: ExecutionRequest,
+    paper_trade: TradeHistory,
+    target_mode: str,
+) -> None:
+    """
+    Выполняет все предпусковые проверки безопасности.
+    При невосстановимой ошибке бросает ReleaseRejected (кандидат отклоняется).
+    При временной неготовности системы бросает ReleaseDeferred (откладывается).
+    """
+    now = datetime.now(timezone.utc)
+
+    # 1. Проверка источника
+    if paper_request.requested_mode != "PAPER":
+        raise ReleaseRejected("source request is not PAPER")
+
+    if paper_request.intent != "OPEN":
+        raise ReleaseRejected("source request is not OPEN")
+
+    if paper_request.state not in PAPER_MIRRORABLE_STATES:
+        raise ReleaseRejected(f"source request state is {paper_request.state!r}, not finally filled")
+
+    if paper_trade.mode != "PAPER":
+        raise ReleaseRejected("source trade is not PAPER")
+
+    if paper_request.trade_history_id != paper_trade.id:
+        raise ReleaseRejected("source linkage mismatch")
+
+    # 2. Совпадение snapshot signal_hash
+    current_snapshot = _build_signal_snapshot(paper_request, paper_trade)
+    if _compute_hash(current_snapshot) != candidate.signal_hash:
+        raise ReleaseRejected("signal snapshot hash mismatch")
+
+    # 3. Возраст сигнала: не старше 30 секунд от updated_at/created_at
+    created_or_updated = paper_request.updated_at or paper_request.created_at
+    if created_or_updated:
+        if created_or_updated.tzinfo is None:
+            created_or_updated = created_or_updated.replace(tzinfo=timezone.utc)
+        age_sec = (now - created_or_updated).total_seconds()
+        if age_sec > 30:
+            raise ReleaseRejected(f"Signal is too old ({age_sec:.1f}s > 30s)")
+
+    # 4. Проверка окончания рынка
+    if paper_trade.market_end_time:
+        end_time = paper_trade.market_end_time
+        if end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=timezone.utc)
+        if end_time <= now or (end_time - now).total_seconds() < 120:
+            raise ReleaseRejected("Market is closed or ending soon (< 120s)")
+
+    # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance)
+    if target_mode == "LIVE":
+        live_enabled = await session.scalar(
+            select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_TRADING_ENABLED")
+        )
+        if live_enabled is None or live_enabled.strip().lower() != "true":
+            raise ReleaseDeferred("LIVE kill switch is off")
+
+        ws = (await session.execute(
+            select(ExecutionWorkerStatus)
+            .where(ExecutionWorkerStatus.execution_mode == "LIVE")
+            .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+
+        if ws is None:
+            raise ReleaseDeferred("No LIVE worker status found")
+
+        hb_at = ws.heartbeat_at
+        if hb_at and hb_at.tzinfo is None:
+            hb_at = hb_at.replace(tzinfo=timezone.utc)
+        if not hb_at or (now - hb_at).total_seconds() > 60:
+            raise ReleaseDeferred("LIVE worker heartbeat is stale (>60s)")
+
+        if not ws.gateway_ready:
+            raise ReleaseDeferred(f"LIVE worker gateway not ready: {ws.last_error_message}")
+
+        if not ws.collateral_allowance_ready:
+            raise ReleaseDeferred("LIVE worker collateral allowance not ready")
+
+        if float(ws.balance_usdc or 0) < 5.0:
+            raise ReleaseDeferred(f"LIVE worker balance USDC is low ({ws.balance_usdc})")
+
+    # 6. Риск-лимиты
+    risk_error = await check_risk_limits(
+        session,
+        intent="OPEN",
+        max_spend_usdc=Decimal(str(paper_request.target_amount_usdc)),
+        requested_mode=target_mode,
+    )
+    if risk_error:
+        raise ReleaseRejected(f"Risk check failed: {risk_error}")
+
+
 def _build_live_trade(
     candidate: LiveMirrorCandidate,
     paper_trade: TradeHistory,
@@ -109,15 +221,7 @@ def _build_live_trade(
 ) -> TradeHistory:
     """
     Создаёт новый TradeHistory(mode=target_mode) на основе PAPER-снимка.
-
-    Инварианты:
-    - mode = target_mode (SHADOW или LIVE)
-    - position_accounting_version = 0 (будет инициализировано после fill)
-    - pnl / realized_pnl_usdc = None (неизвестно до исполнения)
-    - source_paper_trade_id = paper_trade.id (ссылка на источник)
     """
-    snap = candidate.signal_snapshot
-
     return TradeHistory(
         market_id=paper_trade.market_id,
         asset=paper_trade.asset,
@@ -147,7 +251,7 @@ def _build_live_trade(
         model_attribution_source=paper_trade.model_attribution_source,
         config_snapshot=paper_trade.config_snapshot,
         market_end_time=paper_trade.market_end_time,
-        source_paper_trade_id=paper_trade.id,  # ← ключевая ссылка на источник
+        source_paper_trade_id=paper_trade.id,
         created_at=now,
         updated_at=now,
     )
@@ -162,13 +266,16 @@ def _build_live_request(
 ) -> ExecutionRequest:
     """
     Создаёт новый ExecutionRequest(requested_mode=target_mode, state='READY').
-    source_paper_request_id = paper_request.id
+    Заполняет ttl_seconds (макс 30с) и expires_at.
     """
+    ttl_seconds = min(paper_request.ttl_seconds or 30, 30)
+    expires_at = now + timedelta(seconds=ttl_seconds)
+
     return ExecutionRequest(
         id=uuid.uuid4(),
         idempotency_key=f"{target_mode}-OPEN-mirror-{candidate.id}",
         requested_mode=target_mode,
-        trade_history_id=live_trade.id,         # ← ID только что созданной LIVE-строки
+        trade_history_id=live_trade.id,
         intent="OPEN",
         trigger_reason="MIRROR",
         market_id=paper_request.market_id,
@@ -179,9 +286,10 @@ def _build_live_request(
         limit_price=paper_request.limit_price,
         max_slippage_pct=paper_request.max_slippage_pct,
         max_spend_usdc=paper_request.max_spend_usdc,
-        ttl_seconds=paper_request.ttl_seconds,
+        ttl_seconds=ttl_seconds,
+        expires_at=expires_at,
         state="READY",
-        source_paper_request_id=paper_request.id,  # ← ключевая ссылка на источник
+        source_paper_request_id=paper_request.id,
         created_at=now,
         updated_at=now,
     )
@@ -196,13 +304,6 @@ async def release_batch(
     """
     Выпускает очередную порцию кандидатов.
     Возвращает количество успешно выпущенных.
-
-    Каждый кандидат обрабатывается в отдельной транзакции —
-    ошибка на одном не блокирует остальные.
-
-    ЗАПРЕЩЕНО:
-    - Изменять PAPER TradeHistory или PAPER ExecutionRequest
-    - Создавать ExecutionRequest(state!='READY')
     """
     release_mode = await _get_release_mode(session)
     if release_mode == "DISABLED":
@@ -216,10 +317,10 @@ async def release_batch(
 
     for candidate in candidates:
         try:
-            await _release_one(session, candidate, target_mode)
-            released += 1
+            success = await _release_one(session, candidate, target_mode)
+            if success:
+                released += 1
         except Exception as exc:
-            # Откат только этой строки; остальные кандидаты обрабатываются независимо
             await session.rollback()
             logger.error(
                 "release_failed for candidate %s: %s",
@@ -240,20 +341,14 @@ async def _release_one(
     session: AsyncSession,
     candidate: LiveMirrorCandidate,
     target_mode: str,
-) -> None:
+) -> bool:
     """
-    Атомарно:
-    1. Загружает исходные PAPER-строки (read-only)
-    2. Создаёт TradeHistory(mode=target_mode)
-    3. Создаёт ExecutionRequest(mode=target_mode, state='READY')
-    4. Обновляет LiveMirrorCandidate.state = 'RELEASED'
-    5. Коммитит
-
-    Если шаг 3 или 4 падает — откат, PAPER-строки остаются неизменными.
+    Валидирует и атомарно выпускает одного кандидата.
+    Возвращает True если кандидат выпущен, False если задефферен или отклонен.
     """
     now = datetime.now(timezone.utc)
 
-    # Загружаем PAPER-источники (только чтение)
+    # Загружаем PAPER-источники
     paper_request = (await session.execute(
         select(ExecutionRequest).where(
             ExecutionRequest.id == candidate.source_paper_request_id
@@ -265,7 +360,7 @@ async def _release_one(
         candidate.rejection_reason = "source_paper_request not found"
         await session.commit()
         logger.warning("Rejected candidate %s: source_paper_request not found", candidate.id)
-        return
+        return False
 
     paper_trade = (await session.execute(
         select(TradeHistory).where(
@@ -278,18 +373,32 @@ async def _release_one(
         candidate.rejection_reason = "source_paper_trade not found"
         await session.commit()
         logger.warning("Rejected candidate %s: source_paper_trade not found", candidate.id)
-        return
+        return False
 
-    # Создаём LIVE-строки
+    # 2. Валидация выпуска
+    try:
+        await validate_live_release(session, candidate, paper_request, paper_trade, target_mode)
+    except ReleaseDeferred as e:
+        logger.info("Deferred release for candidate %s: %s", candidate.id, e)
+        await session.rollback()
+        return False
+    except ReleaseRejected as e:
+        logger.warning("Rejected candidate %s: %s", candidate.id, e)
+        candidate.state = "REJECTED"
+        candidate.rejection_reason = str(e)
+        await session.commit()
+        return False
+
+    # 3. Создаём LIVE-строки
     live_trade = _build_live_trade(candidate, paper_trade, now, target_mode)
     session.add(live_trade)
-    await session.flush()  # получаем live_trade.id до создания request
+    await session.flush()
 
     live_request = _build_live_request(candidate, paper_request, live_trade, now, target_mode)
     session.add(live_request)
     await session.flush()
 
-    # Обновляем кандидата (атомарно в той же транзакции)
+    # 4. Обновляем кандидата
     candidate.state = "RELEASED"
     candidate.released_at = now
     candidate.released_trade_id = live_trade.id
@@ -303,7 +412,7 @@ async def _release_one(
         live_trade.id,
         live_request.id,
     )
-
+    return True
 
 # ── Главный цикл ──────────────────────────────────────────────────────────────
 

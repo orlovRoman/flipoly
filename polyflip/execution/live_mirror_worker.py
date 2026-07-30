@@ -36,7 +36,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from polyflip.db.execution_models import ExecutionRequest, LiveMirrorCandidate
-from polyflip.db.models import TradeHistory
+from polyflip.db.models import TradeHistory, RuntimeSettings
 
 logger = logging.getLogger("live_mirror_worker")
 
@@ -46,7 +46,6 @@ DATABASE_URL: str = os.environ.get("DATABASE_URL", "")  # lazy-checked in run_wo
 POLL_INTERVAL: float = float(os.environ.get("MIRROR_POLL_INTERVAL", "10"))
 BATCH_SIZE: int = int(os.environ.get("MIRROR_BATCH_SIZE", "50"))
 TARGET_MODE: str = os.environ.get("MIRROR_TARGET_MODE", "SHADOW")  # SHADOW до Этапа 10
-LIVE_MIRROR_ENABLED: bool = os.environ.get("LIVE_MIRROR_ENABLED", "false").lower() == "true"
 
 # Состояния PAPER OPEN-заявок, которые считаются финально исполненными
 PAPER_MIRRORABLE_STATES: frozenset[str] = frozenset({
@@ -65,6 +64,20 @@ def _handle_sigterm(signum: int, frame: object) -> None:
     _shutdown = True
 
 
+async def runtime_bool(
+    session: AsyncSession,
+    key: str,
+    default: bool = False,
+) -> bool:
+    """Читает флаг из RuntimeSettings в БД в реальном времени."""
+    value = await session.scalar(
+        select(RuntimeSettings.value).where(RuntimeSettings.key == key)
+    )
+    if value is None:
+        return default
+    return value.strip().lower() == "true"
+
+
 async def mirror_batch(session: AsyncSession) -> int:
     """
     Зеркалирует одну порцию PAPER OPEN → LiveMirrorCandidate.
@@ -75,24 +88,42 @@ async def mirror_batch(session: AsyncSession) -> int:
     - Изменять paper_trade.*
     - Создавать LIVE TradeHistory или LIVE ExecutionRequest
     """
+    # Курсор начала зеркалирования
+    started_at_raw = await session.scalar(
+        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_MIRROR_STARTED_AT")
+    )
+    started_at = None
+    if started_at_raw:
+        try:
+            started_at = datetime.fromisoformat(started_at_raw)
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
     # Выбираем исполненные PAPER OPEN без существующего кандидата
+    conditions = [
+        ExecutionRequest.requested_mode == "PAPER",
+        ExecutionRequest.intent == "OPEN",
+        ExecutionRequest.state.in_(PAPER_MIRRORABLE_STATES),
+        TradeHistory.mode == "PAPER",
+        # Идемпотентность: пропускаем уже зеркалированные
+        ~exists().where(
+            LiveMirrorCandidate.source_paper_request_id == ExecutionRequest.id,
+            LiveMirrorCandidate.target_mode == TARGET_MODE,
+        ),
+    ]
+
+    if started_at:
+        conditions.append(ExecutionRequest.updated_at >= started_at)
+
     stmt = (
         select(ExecutionRequest, TradeHistory)
         .join(
             TradeHistory,
             TradeHistory.id == ExecutionRequest.trade_history_id,
         )
-        .where(
-            ExecutionRequest.requested_mode == "PAPER",
-            ExecutionRequest.intent == "OPEN",
-            ExecutionRequest.state.in_(PAPER_MIRRORABLE_STATES),
-            TradeHistory.mode == "PAPER",
-            # Идемпотентность: пропускаем уже зеркалированные
-            ~exists().where(
-                LiveMirrorCandidate.source_paper_request_id == ExecutionRequest.id,
-                LiveMirrorCandidate.target_mode == TARGET_MODE,
-            ),
-        )
+        .where(*conditions)
         .order_by(ExecutionRequest.updated_at)
         .limit(BATCH_SIZE)
     )
@@ -190,8 +221,7 @@ async def run_worker() -> None:
         raise RuntimeError("DATABASE_URL environment variable is not set")
 
     logger.info(
-        "live_mirror_worker запущен. LIVE_MIRROR_ENABLED=%s TARGET_MODE=%s POLL_INTERVAL=%ss",
-        LIVE_MIRROR_ENABLED,
+        "live_mirror_worker запущен. TARGET_MODE=%s POLL_INTERVAL=%ss",
         TARGET_MODE,
         POLL_INTERVAL,
     )
@@ -200,16 +230,14 @@ async def run_worker() -> None:
     Session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
     while not _shutdown:
-        if not LIVE_MIRROR_ENABLED:
-            logger.debug("LIVE_MIRROR_ENABLED=false — спим %ss", POLL_INTERVAL)
-            await asyncio.sleep(POLL_INTERVAL)
-            continue
-
         try:
             async with Session() as session:
-                created = await mirror_batch(session)
-                if created:
-                    logger.info("Батч завершён: создано %d кандидатов", created)
+                if not await runtime_bool(session, "LIVE_MIRROR_ENABLED"):
+                    logger.debug("LIVE_MIRROR_ENABLED=false (в DB) — спим %ss", POLL_INTERVAL)
+                else:
+                    created = await mirror_batch(session)
+                    if created:
+                        logger.info("Батч завершён: создано %d кандидатов", created)
         except Exception:
             logger.exception("Ошибка в mirror_batch, продолжаем через %ss", POLL_INTERVAL)
 

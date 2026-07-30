@@ -298,3 +298,30 @@ async def test_mirror_candidate_state_is_new(db_session):
     assert candidate.released_at is None
     assert candidate.released_trade_id is None
     assert candidate.released_request_id is None
+
+
+from polyflip.db.models import RuntimeSettings
+from polyflip.execution.live_mirror_worker import runtime_bool
+
+
+@pytest.mark.asyncio
+async def test_mirror_switch_changes_behavior_without_restart(db_session):
+    """Флаг LIVE_MIRROR_ENABLED из БД динамически управляет поведением без рестарта."""
+    # Выключаем
+    now = datetime.now(timezone.utc)
+    db_session.add(RuntimeSettings(key="LIVE_MIRROR_ENABLED", value="false", updated_at=now, updated_by="test"))
+    await db_session.commit()
+
+    assert await runtime_bool(db_session, "LIVE_MIRROR_ENABLED") is False
+
+    trade = await _make_paper_trade(db_session)
+    await _make_paper_request(db_session, trade, state="FILLED")
+
+    # Включаем через БД
+    setting = await db_session.scalar(select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_MIRROR_ENABLED"))
+    setting.value = "true"
+    await db_session.commit()
+
+    assert await runtime_bool(db_session, "LIVE_MIRROR_ENABLED") is True
+    created = await mirror_batch(db_session)
+    assert created == 1

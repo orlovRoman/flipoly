@@ -1,14 +1,14 @@
 """
-scripts/setup_live_approvals.py — Этап 7
+scripts/check_live_readiness.py — Этап 7
 
-Pre-flight скрипт: проверяет все предусловия перед включением LIVE-торговли
+Pre-flight скрипт готовности LIVE-торговли: проверяет все предусловия перед включением LIVE-торговли
 и при успехе выставляет начальные значения рубильников в БД.
 
 Последовательность вызовов (типичный MANUAL pre-flight):
-    python scripts/setup_live_approvals.py --target-mode SHADOW --release-mode MANUAL --enable-mirror
+    python scripts/check_live_readiness.py --target-mode SHADOW --release-mode MANUAL --enable-mirror
 
     или для полного AUTO-режима:
-    python scripts/setup_live_approvals.py --target-mode LIVE --release-mode AUTO --enable-mirror
+    python scripts/check_live_readiness.py --target-mode LIVE --release-mode AUTO --enable-mirror
 
 Что проверяет:
     1. Доступность БД
