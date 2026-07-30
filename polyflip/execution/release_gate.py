@@ -1,5 +1,6 @@
 """
-release_gate.py — Этап 8: шлюз выпуска LiveMirrorCandidate → LIVE TradeHistory + LIVE ExecutionRequest
+release_gate.py — Этап 8: шлюз выпуска LiveMirrorCandidate → LIVE TradeHistory
+                    + LIVE ExecutionRequest
 
 Архитектура:
     mirror_worker                 release_gate              execution_worker_live
@@ -42,7 +43,11 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from polyflip.db.execution_models import ExecutionRequest, LiveMirrorCandidate, ExecutionWorkerStatus
+from polyflip.db.execution_models import (
+    ExecutionRequest,
+    LiveMirrorCandidate,
+    ExecutionWorkerStatus,
+)
 from polyflip.db.models import RuntimeSettings, TradeHistory
 from polyflip.execution.live_mirror_worker import (
     PAPER_MIRRORABLE_STATES,
@@ -63,11 +68,13 @@ _shutdown = False
 
 class ReleaseRejected(Exception):
     """Кандидат забракован окончательно — переходит в REJECTED."""
+
     pass
 
 
 class ReleaseDeferred(Exception):
     """Временная неготовность системы — кандидат остаётся ELIGIBLE/NEW."""
+
     pass
 
 
@@ -79,11 +86,14 @@ def _handle_sigterm(signum: int, frame: object) -> None:
 
 # ── Вспомогательные функции ───────────────────────────────────────────────────
 
+
 async def _get_release_mode(session: AsyncSession) -> str:
     """Читает LIVE_RELEASE_MODE из RuntimeSettings (DISABLED | MANUAL | AUTO)."""
-    row = (await session.execute(
-        select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_RELEASE_MODE")
-    )).scalar_one_or_none()
+    row = (
+        await session.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_RELEASE_MODE")
+        )
+    ).scalar_one_or_none()
     return (row.value if row else "DISABLED").upper()
 
 
@@ -139,6 +149,8 @@ async def release_batch(
             success = await release_candidate_by_id(session, candidate_id, target_mode)
             if success:
                 released += 1
+            else:
+                await session.rollback()
         except Exception as exc:
             await session.rollback()
             logger.error(
@@ -151,7 +163,9 @@ async def release_batch(
     if released:
         logger.info(
             "release_gate: выпущено %d кандидатов (mode=%s, target=%s)",
-            released, release_mode, target_mode,
+            released,
+            release_mode,
+            target_mode,
         )
     return released
 
@@ -200,35 +214,45 @@ async def _release_one_locked(
     now = datetime.now(timezone.utc)
 
     # 1. Загружаем PAPER-источники
-    paper_request = (await session.execute(
-        select(ExecutionRequest).where(
-            ExecutionRequest.id == candidate.source_paper_request_id
+    paper_request = (
+        await session.execute(
+            select(ExecutionRequest).where(
+                ExecutionRequest.id == candidate.source_paper_request_id
+            )
         )
-    )).scalar_one_or_none()
+    ).scalar_one_or_none()
 
     if paper_request is None:
         candidate.state = "REJECTED"
         candidate.rejection_reason = "source_paper_request not found"
         await session.commit()
-        logger.warning("Rejected candidate %s: source_paper_request not found", candidate.id)
+        logger.warning(
+            "Rejected candidate %s: source_paper_request not found", candidate.id
+        )
         return False
 
-    paper_trade = (await session.execute(
-        select(TradeHistory).where(
-            TradeHistory.id == candidate.source_paper_trade_id
+    paper_trade = (
+        await session.execute(
+            select(TradeHistory).where(
+                TradeHistory.id == candidate.source_paper_trade_id
+            )
         )
-    )).scalar_one_or_none()
+    ).scalar_one_or_none()
 
     if paper_trade is None:
         candidate.state = "REJECTED"
         candidate.rejection_reason = "source_paper_trade not found"
         await session.commit()
-        logger.warning("Rejected candidate %s: source_paper_trade not found", candidate.id)
+        logger.warning(
+            "Rejected candidate %s: source_paper_trade not found", candidate.id
+        )
         return False
 
     # 2. Валидация выпуска
     try:
-        await validate_live_release(session, candidate, paper_request, paper_trade, target_mode)
+        await validate_live_release(
+            session, candidate, paper_request, paper_trade, target_mode
+        )
     except ReleaseDeferred as e:
         logger.info("Deferred release for candidate %s: %s", candidate.id, e)
         return False
@@ -244,12 +268,16 @@ async def _release_one_locked(
     session.add(live_trade)
     await session.flush()
 
-    live_request = _build_live_request(candidate, paper_request, live_trade, now, target_mode)
+    live_request = _build_live_request(
+        candidate, paper_request, live_trade, now, target_mode
+    )
     session.add(live_request)
     await session.flush()
 
     # 4. Резервируем экспозицию (ExposureReservation)
-    exposure_amount = Decimal(str(paper_request.target_amount_usdc or paper_request.max_spend_usdc or 0))
+    exposure_amount = Decimal(
+        str(paper_request.target_amount_usdc or paper_request.max_spend_usdc or 0)
+    )
     exposure_res = ExposureReservation(
         id=uuid.uuid4(),
         request_id=live_request.id,
@@ -294,6 +322,9 @@ async def validate_live_release(
     now = datetime.now(timezone.utc)
 
     # 1. Проверка источника
+    if candidate.target_mode != target_mode:
+        raise ReleaseRejected("candidate target_mode mismatch")
+
     if paper_request.requested_mode != "PAPER":
         raise ReleaseRejected("source request is not PAPER")
 
@@ -301,7 +332,9 @@ async def validate_live_release(
         raise ReleaseRejected("source request is not OPEN")
 
     if paper_request.state not in PAPER_MIRRORABLE_STATES:
-        raise ReleaseRejected(f"source request state is {paper_request.state!r}, not finally filled")
+        raise ReleaseRejected(
+            f"source request state is {paper_request.state!r}, not finally filled"
+        )
 
     if paper_trade.mode != "PAPER":
         raise ReleaseRejected("source trade is not PAPER")
@@ -334,17 +367,21 @@ async def validate_live_release(
     # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance)
     if target_mode == "LIVE":
         live_enabled = await session.scalar(
-            select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_TRADING_ENABLED")
+            select(RuntimeSettings.value).where(
+                RuntimeSettings.key == "LIVE_TRADING_ENABLED"
+            )
         )
         if live_enabled is None or live_enabled.strip().lower() != "true":
             raise ReleaseDeferred("LIVE kill switch is off")
 
-        ws = (await session.execute(
-            select(ExecutionWorkerStatus)
-            .where(ExecutionWorkerStatus.execution_mode == "LIVE")
-            .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
-            .limit(1)
-        )).scalar_one_or_none()
+        ws = (
+            await session.execute(
+                select(ExecutionWorkerStatus)
+                .where(ExecutionWorkerStatus.execution_mode == "LIVE")
+                .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
 
         if ws is None:
             raise ReleaseDeferred("No LIVE worker status found")
@@ -356,13 +393,17 @@ async def validate_live_release(
             raise ReleaseDeferred("LIVE worker heartbeat is stale (>60s)")
 
         if not ws.gateway_ready:
-            raise ReleaseDeferred(f"LIVE worker gateway not ready: {ws.last_error_message}")
+            raise ReleaseDeferred(
+                f"LIVE worker gateway not ready: {ws.last_error_message}"
+            )
 
         if not ws.collateral_allowance_ready:
             raise ReleaseDeferred("LIVE worker collateral allowance not ready")
 
         if float(ws.balance_usdc or 0) < 5.0:
-            raise ReleaseDeferred(f"LIVE worker balance USDC is low ({ws.balance_usdc})")
+            raise ReleaseDeferred(
+                f"LIVE worker balance USDC is low ({ws.balance_usdc})"
+            )
 
     # 6. Риск-лимиты
     risk_error = await check_risk_limits(
@@ -389,7 +430,7 @@ def _build_live_trade(
         asset=paper_trade.asset,
         outcome_bought=paper_trade.outcome_bought,
         amount_usdc=paper_trade.amount_usdc,
-        executed_price=0.0,               # заполняется после fill
+        executed_price=0.0,  # заполняется после fill
         predicted_flip_prob=paper_trade.predicted_flip_prob,
         active_features=paper_trade.active_features,
         model_version=paper_trade.model_version,
@@ -406,7 +447,7 @@ def _build_live_trade(
         take_profit_multiplier=paper_trade.take_profit_multiplier,
         take_profit_price=paper_trade.take_profit_price,
         position_status="OPEN",
-        position_accounting_version=0,    # инициализируется после FILLED
+        position_accounting_version=0,  # инициализируется после FILLED
         model_key=paper_trade.model_key,
         confirm_model_key=paper_trade.confirm_model_key,
         confirm_model_version=paper_trade.confirm_model_version,
@@ -459,16 +500,17 @@ def _build_live_request(
 
 # ── Главный цикл ──────────────────────────────────────────────────────────────
 
+
 async def run_gate(target_mode: str) -> None:
     """Главный цикл release_gate."""
-    global _shutdown
 
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL environment variable is not set")
 
     logger.info(
         "release_gate запущен. target_mode=%s POLL_INTERVAL=%ss",
-        target_mode, POLL_INTERVAL,
+        target_mode,
+        POLL_INTERVAL,
     )
 
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
@@ -479,7 +521,9 @@ async def run_gate(target_mode: str) -> None:
             async with Session() as session:
                 await release_batch(session, target_mode)
         except Exception:
-            logger.exception("Ошибка в release_batch, продолжаем через %ss", POLL_INTERVAL)
+            logger.exception(
+                "Ошибка в release_batch, продолжаем через %ss", POLL_INTERVAL
+            )
         await asyncio.sleep(POLL_INTERVAL)
 
     logger.info("release_gate остановлен.")
@@ -492,7 +536,9 @@ def main() -> None:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
-    parser = argparse.ArgumentParser(description="Release gate: LiveMirrorCandidate → LIVE ExecutionRequest")
+    parser = argparse.ArgumentParser(
+        description="Release gate: LiveMirrorCandidate → LIVE ExecutionRequest"
+    )
     parser.add_argument(
         "--mode",
         choices=["SHADOW", "LIVE"],

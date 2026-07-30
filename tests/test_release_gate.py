@@ -389,3 +389,41 @@ async def test_concurrent_release_respects_total_exposure(db_session):
     err2 = await check_risk_limits(db_session, intent="OPEN", max_spend_usdc=Decimal("1.0"), requested_mode="SHADOW")
     assert err2 is not None
     assert "Max total exposure" in err2
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_two_release_gates_cannot_exceed_total_exposure(pg_session_factory):
+    """
+    PostgreSQL тест: гарантирует, что 2 конкурентных Release Gate не превысят лимит экспозиции.
+    """
+    import asyncio
+
+    async with pg_session_factory() as setup_session:
+        now = datetime.now(timezone.utc)
+        setup_session.add(RuntimeSettings(key="MAX_TOTAL_EXPOSURE_USDC", value="5.0", updated_at=now, updated_by="test"))
+        setup_session.add(RuntimeSettings(key="SHADOW_RISK_LIMITS_ENABLED", value="true", updated_at=now, updated_by="test"))
+
+        p_req1, p_trade1 = await _make_paper_pair(setup_session)
+        p_req2, p_trade2 = await _make_paper_pair(setup_session)
+        p_req1.target_amount_usdc = Decimal("4.0")
+        p_req2.target_amount_usdc = Decimal("4.0")
+
+        cand1 = await _make_candidate(setup_session, p_req1, p_trade1)
+        cand2 = await _make_candidate(setup_session, p_req2, p_trade2)
+        cand1.target_mode = "SHADOW"
+        cand2.target_mode = "SHADOW"
+
+        await setup_session.commit()
+        cand1_id = cand1.id
+        cand2_id = cand2.id
+
+    async with pg_session_factory() as s1, pg_session_factory() as s2:
+        results = await asyncio.gather(
+            release_candidate_by_id(s1, cand1_id, "SHADOW"),
+            release_candidate_by_id(s2, cand2_id, "SHADOW"),
+            return_exceptions=True,
+        )
+
+    successful_releases = [r for r in results if r is True]
+    assert len(successful_releases) == 1
