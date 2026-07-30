@@ -49,6 +49,8 @@ async def run_backfill(
         async with async_session() as session:
             await _execute_backfill_logic(session, apply_changes, mode, before_dt, after_id, stats)
 
+    return stats
+
 async def _execute_backfill_logic(session, apply_changes, mode, before_dt, after_id, stats):
         # 1. Загружаем список валидных моделей из реестра
         registry_rows = (await session.execute(select(ModelRegistry.asset, ModelRegistry.version))).all()
@@ -65,6 +67,7 @@ async def _execute_backfill_logic(session, apply_changes, mode, before_dt, after
                 TradeHistory.mode == mode,
                 TradeHistory.position_status == "CLOSED",
                 TradeHistory.model_key.is_(None),
+                TradeHistory.model_attribution_source.is_(None),
                 TradeHistory.model_version.is_not(None),
                 pnl_expr.is_not(None),
             ]

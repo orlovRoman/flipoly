@@ -4,6 +4,9 @@ set -euo pipefail
 echo "=== Checking Python compilation ==="
 python -m compileall -q polyflip
 
+echo "=== Checking dashboard JavaScript ==="
+node --check polyflip/static/js/app.js
+
 echo "=== Checking Alembic migrations ==="
 python -m alembic heads
 HEAD_COUNT=$(python -m alembic heads | wc -l)

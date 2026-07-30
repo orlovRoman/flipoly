@@ -47,6 +47,9 @@ jobs:
       - name: Compile check
         run: poetry run python -m compileall -q polyflip
 
+      - name: Check dashboard JavaScript
+        run: node --check polyflip/static/js/app.js
+
       - name: Apply migrations
         run: poetry run alembic upgrade head
 

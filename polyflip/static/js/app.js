@@ -753,9 +753,34 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  let currentModelStatusFilter = "all";
+
+  function setupModelStatusFilter() {
+    const buttons = document.querySelectorAll(".btn-model-filter");
+
+    buttons.forEach((btn) => {
+      if (btn.dataset.bound === "true") return;
+      btn.dataset.bound = "true";
+
+      btn.addEventListener("click", () => {
+        buttons.forEach((item) => {
+          item.style.background = "";
+          item.style.color = "";
+        });
+        btn.style.background = "var(--poly-blue, #2563eb)";
+        btn.style.color = "#ffffff";
+
+        currentModelStatusFilter = btn.dataset.filter || "all";
+        modelsCurrentPage = 1;
+        renderModelsTable();
+      });
+    });
+  }
+
   async function loadModelsHistory() {
     try {
       setupModelTypeFilter();
+      setupModelStatusFilter();
       const [resModels, resPnl] = await Promise.all([
         fetch(window.API_BASE + "/api/analytics/models", { headers: getHeaders() }),
         fetch(window.API_BASE + "/api/dashboard/model_pnl", { headers: getHeaders() })
@@ -1063,21 +1088,10 @@ document.addEventListener("DOMContentLoaded", () => {
           renderModelsTable();
         });
       });
-    document.querySelectorAll(".btn-model-filter").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        document.querySelectorAll(".btn-model-filter").forEach(b => {
-          b.style.background = "";
-          b.style.color = "";
-        });
-        e.currentTarget.style.background = "var(--poly-blue, #2563eb)";
-        e.currentTarget.style.color = "#ffffff";
-        window.currentModelStatusFilter = e.currentTarget.dataset.filter || "all";
-        modelsCurrentPage = 1;
-        renderModelsTable();
-      });
-    });
-
-    // Обработчик кнопки удаления
+    } else {
+      paginationContainer.innerHTML = "";
+      paginationContainer.style.display = "none";
+    }
     
     // Обработчик кнопки активации
     document.querySelectorAll(".btn-activate-model").forEach((btn) => {
@@ -1238,4 +1252,3 @@ document.addEventListener("DOMContentLoaded", () => {
     loadParserStatus();
   }, 30000);
 });
-  
