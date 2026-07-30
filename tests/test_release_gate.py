@@ -398,14 +398,19 @@ async def test_two_release_gates_cannot_exceed_total_exposure(pg_session_factory
     PostgreSQL тест: гарантирует, что 2 конкурентных Release Gate не превысят лимит экспозиции.
     """
     import asyncio
+    from polyflip.execution.release_gate import release_candidate_by_id
 
     async with pg_session_factory() as setup_session:
         now = datetime.now(timezone.utc)
         setup_session.add(RuntimeSettings(key="MAX_TOTAL_EXPOSURE_USDC", value="5.0", updated_at=now, updated_by="test"))
         setup_session.add(RuntimeSettings(key="SHADOW_RISK_LIMITS_ENABLED", value="true", updated_at=now, updated_by="test"))
 
-        p_req1, p_trade1 = await _make_paper_pair(setup_session)
-        p_req2, p_trade2 = await _make_paper_pair(setup_session)
+        p_trade1 = await _make_paper_trade(setup_session, market_id="MKT-PG-1")
+        p_req1 = await _make_paper_request(setup_session, p_trade1)
+
+        p_trade2 = await _make_paper_trade(setup_session, market_id="MKT-PG-2")
+        p_req2 = await _make_paper_request(setup_session, p_trade2)
+
         p_req1.target_amount_usdc = Decimal("4.0")
         p_req2.target_amount_usdc = Decimal("4.0")
 

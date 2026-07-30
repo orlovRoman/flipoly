@@ -33,6 +33,24 @@ async def db_session(engine):
     async with async_session() as session:
         yield session
 
+
+@pytest_asyncio.fixture(scope="function")
+async def pg_session_factory():
+    """Фикстура для подключения к PostgreSQL при прогоне postgres-тестов."""
+    import os
+    from sqlalchemy import text
+    pg_url = os.getenv("TEST_DATABASE_URL", "postgresql+asyncpg://polyflip:secret@localhost:5435/polyflip_test")
+    pg_engine = create_async_engine(pg_url, echo=False, pool_pre_ping=True)
+    try:
+        async with pg_engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        pytest.skip("PostgreSQL test DB not accessible")
+
+    factory = async_sessionmaker(pg_engine, expire_on_commit=False, class_=AsyncSession)
+    yield factory
+    await pg_engine.dispose()
+
 from polyflip.trading.schemas import TradeExecution, ExecutionFees
 from datetime import datetime, timezone
 from decimal import Decimal
