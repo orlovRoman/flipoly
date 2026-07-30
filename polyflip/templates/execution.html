@@ -156,6 +156,19 @@
     <!-- Notifications API Wrapper -->
     <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ timestamp }}"></script>
     <script>
+        function getAuthHeaders() {
+            let key = "test-key";
+            try {
+                key = localStorage.getItem("polyflip_api_key") || "test-key";
+            } catch (e) {
+                console.warn("localStorage unavailable, using default key");
+            }
+            return {
+                "Content-Type": "application/json",
+                "X-API-Key": key
+            };
+        }
+
         // Set up navigation logic
         document.querySelectorAll('.nav-item[data-href]').forEach(item => {
             item.addEventListener('click', function() {
@@ -170,10 +183,10 @@
         async function fetchStatus() {
             try {
                 const res = await fetch(window.API_BASE + '/api/execution/status', {
-                    headers: { 'x-api-key': localStorage.getItem('polyflip_api_key') || '' }
+                    headers: getAuthHeaders()
                 });
-                if (res.status === 401 || res.status === 403) {
-                    window.location.href = '/login';
+                if (!res.ok) {
+                    console.warn("Execution status returned non-OK status", res.status);
                     return;
                 }
                 const data = await res.json();
@@ -237,10 +250,7 @@
             try {
                 const res = await fetch(window.API_BASE + '/api/execution/kill-switch', {
                     method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-api-key': localStorage.getItem('polyflip_api_key') || ''
-                    },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify({ enabled: enable })
                 });
                 const data = await res.json();
@@ -269,8 +279,9 @@
         async function fetchRequests() {
             try {
                 const res = await fetch(window.API_BASE + '/api/execution/requests?limit=20', {
-                    headers: { 'x-api-key': localStorage.getItem('polyflip_api_key') || '' }
+                    headers: getAuthHeaders()
                 });
+                if (!res.ok) return;
                 const data = await res.json();
 
                 const tbody = document.querySelector('#requests-table tbody');
@@ -315,8 +326,9 @@
         async function fetchPositions() {
             try {
                 const res = await fetch(window.API_BASE + '/api/execution/positions', {
-                    headers: { 'x-api-key': localStorage.getItem('polyflip_api_key') || '' }
+                    headers: getAuthHeaders()
                 });
+                if (!res.ok) return;
                 const data = await res.json();
                 
                 const tbody = document.querySelector('#positions-table tbody');
