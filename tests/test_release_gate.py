@@ -499,34 +499,40 @@ async def test_two_release_gates_cannot_exceed_total_exposure(pg_session_factory
     assert results.count(False) == 1
     assert not any(isinstance(result, BaseException) for result in results)
 
-    from polyflip.db.execution_models import ExposureReservation
-    from sqlalchemy import func
+    candidate_ids = [cand1_id, cand2_id]
+    paper_request_ids = [p_req1.id, p_req2.id]
 
     async with pg_session_factory() as check_session:
-        released_candidates = len(
-            (
-                await check_session.scalars(
-                    select(LiveMirrorCandidate).where(
-                        LiveMirrorCandidate.state == "RELEASED"
-                    )
-                )
-            ).all()
+        released_candidates = await check_session.scalar(
+            select(func.count())
+            .select_from(LiveMirrorCandidate)
+            .where(
+                LiveMirrorCandidate.id.in_(candidate_ids),
+                LiveMirrorCandidate.state == "RELEASED",
+            )
         )
-        live_requests = len(
-            (
-                await check_session.scalars(
-                    select(ExecutionRequest).where(
-                        ExecutionRequest.requested_mode == "SHADOW"
-                    )
+
+        live_request_ids = (
+            await check_session.scalars(
+                select(ExecutionRequest.id).where(
+                    ExecutionRequest.requested_mode == "SHADOW",
+                    ExecutionRequest.source_paper_request_id.in_(paper_request_ids),
                 )
-            ).all()
-        )
+            )
+        ).all()
+
         res_sum = await check_session.scalar(
             select(
-                func.coalesce(func.sum(ExposureReservation.amount_usdc), Decimal("0"))
-            ).where(ExposureReservation.released_at.is_(None))
+                func.coalesce(
+                    func.sum(ExposureReservation.amount_usdc),
+                    Decimal("0"),
+                )
+            ).where(
+                ExposureReservation.request_id.in_(live_request_ids),
+                ExposureReservation.released_at.is_(None),
+            )
         )
 
     assert released_candidates == 1
-    assert live_requests == 1
+    assert len(live_request_ids) == 1
     assert res_sum == Decimal("4.0")

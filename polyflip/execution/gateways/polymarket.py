@@ -1,3 +1,5 @@
+from dataclasses import replace
+from polymarket.environments import PRODUCTION
 import structlog
 from typing import Optional
 from decimal import Decimal
@@ -24,10 +26,19 @@ logger = structlog.get_logger(__name__)
 class PolymarketExecutionGateway:
     name = "POLYMARKET"
 
-    def __init__(self, private_key: str, wallet_address: str, host: str):
+    def __init__(
+        self,
+        private_key: str,
+        wallet_address: str,
+        host: str = "https://clob.polymarket.com",
+    ):
         self._private_key = private_key
         self._wallet_address = wallet_address
         self._host = host
+        self._environment = replace(
+            PRODUCTION,
+            clob_url=host.rstrip("/"),
+        )
         self._client_cache: Optional[AsyncSecureClient] = None
         self._client_lock = asyncio.Lock()
 
@@ -42,7 +53,9 @@ class PolymarketExecutionGateway:
 
             try:
                 client = await AsyncSecureClient.create(
-                    private_key=self._private_key, wallet=self._wallet_address
+                    private_key=self._private_key,
+                    wallet=self._wallet_address,
+                    environment=self._environment,
                 )
                 self._client_cache = client
                 return client
@@ -305,27 +318,29 @@ class PolymarketExecutionGateway:
                 if amt > 0:
                     collateral_ready = True
 
+            token_allowances = [
+                await self.get_token_allowance(token_id)
+                for token_id in conditional_token_ids
+            ]
+
+            conditional_ready = (
+                all(value > 0 for value in token_allowances)
+                if conditional_token_ids
+                else None
+            )
+
             balance_result = BalanceResult(
                 balance_usdc=balance_usdc,
                 collateral_allowances=parsed_allowances,
-                conditional_allowances_checked=0,
+                conditional_allowances_checked=len(conditional_token_ids),
+                conditional_allowance_ready=conditional_ready,
                 checked_at=datetime.now(timezone.utc),
                 raw_asset_type="COLLATERAL",
             )
 
             readiness.balance = balance_result
             readiness.collateral_allowance_ready = collateral_ready
-
-            if conditional_token_ids:
-                allowances = [
-                    await self.get_token_allowance(token_id)
-                    for token_id in conditional_token_ids
-                ]
-                readiness.conditional_allowance_ready = all(
-                    allowance > 0 for allowance in allowances
-                )
-            else:
-                readiness.conditional_allowance_ready = None
+            readiness.conditional_allowance_ready = conditional_ready
 
             readiness.ready = (
                 credentials_loaded
