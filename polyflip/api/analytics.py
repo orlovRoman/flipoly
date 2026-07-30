@@ -281,7 +281,11 @@ def get_model_subtype_info(asset: str) -> tuple[str, str, str]:
 
 
 @router.get("/analytics/active_models_summary", dependencies=[Depends(verify_api_key)])
-async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = Depends(get_db_session)):
+async def get_active_models_summary(
+    timeframe: str = "24h",
+    requested_mode: str = "PAPER",
+    db: AsyncSession = Depends(get_db_session)
+):
     """
     Сводная статистика по всем АКТИВНЫМ моделям (Base, Leaning, Decided, Contested, LightGBM)
     с расчетом PnL, WinRate и количества сделок за выбранный период.
@@ -300,25 +304,33 @@ async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = D
     models_stmt = select(ModelRegistry).where(ModelRegistry.is_active).order_by(ModelRegistry.asset)
     models = (await db.execute(models_stmt)).scalars().all()
 
-    # 2. Запрашиваем успешные сделки
-    trades_stmt = select(TradeHistory).where(
-        TradeHistory.status == "SUCCESS",
-        TradeHistory.pnl.is_not(None),
-        TradeHistory.model_version.is_not(None)
-    )
+    # 2. Запрашиваем закрытые сделки с точной атрибуцией
+    pnl_expr = func.coalesce(TradeHistory.realized_pnl_usdc, cast(TradeHistory.pnl, Numeric))
+    conditions = [
+        TradeHistory.position_status == "CLOSED",
+        TradeHistory.mode == requested_mode,
+        TradeHistory.model_key.is_not(None),
+        TradeHistory.model_attribution_source.in_(["EXACT", "RECONSTRUCTED"]),
+        pnl_expr.is_not(None),
+    ]
     if start_time:
-        trades_stmt = trades_stmt.where(TradeHistory.created_at >= start_time)
+        conditions.append(func.coalesce(TradeHistory.closed_at, TradeHistory.created_at) >= start_time)
 
-    trades = (await db.execute(trades_stmt)).scalars().all()
+    trades_stmt = select(
+        TradeHistory.model_key,
+        TradeHistory.model_version,
+        pnl_expr.label("pnl"),
+    ).where(*conditions)
 
-    # Группируем трейды по exact_model_key (model_key или fallback на asset)
+    trades = (await db.execute(trades_stmt)).all()
+
+    # Группируем трейды по exact_model_key (model_key, model_version)
     trades_by_model: dict[tuple, dict] = {}
 
     for t in trades:
-        m_key = t.model_key or t.asset
-        pnl_val = float(t.realized_pnl_usdc) if t.realized_pnl_usdc is not None else float(t.pnl or 0.0)
+        k = (t.model_key, t.model_version)
+        pnl_val = float(t.pnl) if t.pnl is not None else 0.0
 
-        k = (m_key, t.model_version)
         if k not in trades_by_model:
             trades_by_model[k] = {"total": 0, "wins": 0, "pnl": 0.0}
         trades_by_model[k]["total"] += 1
@@ -347,7 +359,7 @@ async def get_active_models_summary(timeframe: str = "24h", db: AsyncSession = D
             "trained_at":    m.trained_at.isoformat() if m.trained_at else None,
         })
 
-    return {"status": "success", "timeframe": timeframe, "data": result}
+    return {"status": "success", "timeframe": timeframe, "mode": requested_mode, "data": result}
 
 
 

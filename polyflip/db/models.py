@@ -156,6 +156,7 @@ class TradeHistory(Base):
     last_exit_error = Column(Text, nullable=True)
     exit_attempts   = Column(Integer, nullable=False, default=0)
     closed_at       = Column(DateTime(timezone=True), nullable=True)
+    close_price     = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
     config_snapshot = Column(Text, nullable=True)   # JSON паспорт настроек на момент сделки
     model_key = Column(String(64), nullable=True)

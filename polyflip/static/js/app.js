@@ -919,7 +919,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const actionHtml = isActive
-        ? `<button class="btn btn-primary" disabled style="opacity: 0.5; padding: 0.35rem 0.6rem; font-size: 0.8rem;">Текущая</button>`
+        ? `<div style="display:flex; gap:0.4rem;">
+            <button class="btn btn-primary" disabled style="opacity: 0.5; padding: 0.35rem 0.6rem; font-size: 0.8rem;" title="Сначала активируйте другую версию">Текущая</button>
+            <button class="btn btn-delete-polymarket-model" disabled style="opacity: 0.3; padding: 0.35rem 0.6rem; font-size: 0.8rem; background: rgba(220, 53, 69, 0.15); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.3);" title="Сначала активируйте другую версию">🗑</button>
+           </div>`
         : `<div style="display:flex; gap:0.4rem;">
             <button class="btn btn-primary btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">Активировать</button>
             <button class="btn btn-delete-polymarket-model" data-asset="${m.asset}" data-version="${m.version}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; background: rgba(220, 53, 69, 0.15); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.3);">🗑</button>
@@ -949,8 +952,11 @@ document.addEventListener("DOMContentLoaded", () => {
           const color = pnlVal > 0 ? "var(--poly-green, #4ade80)" : pnlVal < 0 ? "#ff3366" : "var(--text-muted)";
           const sign = pnlVal > 0 ? "+" : "";
           const wr = pnl.win_rate !== null ? ` (${pnl.win_rate}% WR, ${pnl.total_trades} сд.)` : "";
+          const attrDetails = (pnl.exact_trades !== undefined || pnl.reconstructed_trades !== undefined)
+            ? `<br/><span style="color:var(--text-muted);font-size:0.75rem;">точных: ${pnl.exact_trades || 0} · восс.: ${pnl.reconstructed_trades || 0}</span>`
+            : "";
           pnlHtml = `<td style="color:${color}; font-weight:600; white-space:nowrap;">
-            ${sign}${pnlVal.toFixed(2)} USDC<span style="color:var(--text-muted);font-size:0.8rem;font-weight:normal;">${wr}</span>
+            ${sign}${pnlVal.toFixed(2)} USDC<span style="color:var(--text-muted);font-size:0.8rem;font-weight:normal;">${wr}</span>${attrDetails}
           </td>`;
         } else {
           pnlHtml = '<td style="color: var(--text-muted); font-size:0.85rem;">Нет сделок</td>';

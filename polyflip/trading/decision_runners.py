@@ -480,17 +480,17 @@ async def decide_crypto_mode(
     crypto_sig = crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
     
     if not crypto_sig.features_ok:
-        return DecisionResult(None, 0.0, crypto_sig.model_version, None, "Invalid crypto features")
+        return DecisionResult(None, 0.0, crypto_sig.model_version, None, "Invalid crypto features", used_model_key=crypto_sig.model_key)
 
     fresh_yes_prices = await api_client.get_market_prices(market.yes_token_id)
     if not fresh_yes_prices or "current_yes_price" not in fresh_yes_prices:
         error_detail = fresh_yes_prices.get("error", "unknown") if fresh_yes_prices else "None returned"
-        return DecisionResult(None, 0.0, crypto_sig.model_version, None, f"No fresh yes price: {error_detail}")
+        return DecisionResult(None, 0.0, crypto_sig.model_version, None, f"No fresh yes price: {error_detail}", used_model_key=crypto_sig.model_key)
         
     fresh_yes_price = fresh_yes_prices["current_yes_price"]
     yes_ask = fresh_yes_prices.get("best_ask")
     if yes_ask is None and crypto_sig.direction == "UP":
-        return DecisionResult(None, 0.0, crypto_sig.model_version, None, "No YES ask price available")
+        return DecisionResult(None, 0.0, crypto_sig.model_version, None, "No YES ask price available", used_model_key=crypto_sig.model_key)
 
     p_flip_ml = None
     if models_cache and getattr(models_cache, "models", None) and market.asset.upper() in models_cache.models:
@@ -511,7 +511,7 @@ async def decide_crypto_mode(
                 )
         except Exception as e:
             logger.error("crypto_mode_ml_pflip_error", asset=market.asset, error=str(e))
-            return DecisionResult(None, 0.0, crypto_sig.model_version, None, "flip inference failed")
+            return DecisionResult(None, 0.0, crypto_sig.model_version, None, "flip inference failed", used_model_key=crypto_sig.model_key)
 
     no_ask = None
     if crypto_sig.direction == "DOWN":
@@ -520,7 +520,7 @@ async def decide_crypto_mode(
             if no_prices and no_prices.get("best_ask") is not None:
                 no_ask = float(no_prices["best_ask"])
         if no_ask is None:
-            return DecisionResult(None, 0.0, crypto_sig.model_version, None, "No NO ask price available")
+            return DecisionResult(None, 0.0, crypto_sig.model_version, None, "No NO ask price available", used_model_key=crypto_sig.model_key)
 
     decision_obj = decide_crypto_trend(crypto_sig, yes_ask or fresh_yes_price, market.volume_5min or 0.0, raw_settings, no_ask=no_ask, p_flip_ml=p_flip_ml)
     if decision_obj.action == "SKIP" and not decision_obj.decision_details:
@@ -533,7 +533,8 @@ async def decide_crypto_mode(
         p_flip=0.0,
         model_ver=crypto_sig.model_version if crypto_sig else None,
         edge=decision_obj.edge if decision_obj else None,
-        skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None
+        skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None,
+        used_model_key=crypto_sig.model_key,
     )
 
 async def _fetch_lgbm_signal(
@@ -669,13 +670,14 @@ async def decide_combined_mode(
 
     lgbm_meta_dict = {
         "lgbm_version": crypto_proxy.model_version,
+        "lgbm_model_key": getattr(crypto_proxy, "model_key", None),
         "lgbm_direction": crypto_proxy.direction,
         "lgbm_features_ok": crypto_proxy.features_ok,
         "is_fallback": not crypto_proxy.features_ok,
         "vote_action": vote.action,
         "bet_size_multiplier": vote.bet_size_multiplier,
         "trading_mode": "COMBINED",
-        "ml_phase_model": ml_result.used_model_key,
+        "ml_phase_model": ml_result.used_model_key if ml_result else None,
     }
     if ml_result.decision_obj:
         lgbm_meta_dict["original_strategy"] = ml_result.decision_obj.strategy_type

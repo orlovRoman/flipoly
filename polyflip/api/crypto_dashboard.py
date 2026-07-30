@@ -319,8 +319,8 @@ async def crypto_train(
     }
 
 @router.get("/api/model_pnl", dependencies=[Depends(verify_api_key)])
-async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
-    cache_key = "crypto_model_pnl"
+async def crypto_model_pnl(requested_mode: str = "PAPER", db: AsyncSession = Depends(get_db_session)):
+    cache_key = f"crypto_model_pnl_{requested_mode}"
     now = time.time()
     if cache_key in _cache:
         c = _cache[cache_key]
@@ -329,7 +329,7 @@ async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
 
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
-        allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
+        allowed_assets.extend([f"{s}_low_vol", f"{s}_mid_vol", f"{s}_high_vol", s])
 
     # 1. Запрашиваем модели
     stmt = select(ModelRegistry).where(
@@ -337,65 +337,57 @@ async def crypto_model_pnl(db: AsyncSession = Depends(get_db_session)):
     ).order_by(ModelRegistry.asset, ModelRegistry.version.desc())
     models = (await db.execute(stmt)).scalars().all()
 
-    # 2. Запрашиваем все успешные сделки
-    # Fetch crypto trades. DB stores asset as 'BTC', 'ETH' etc.
-    db_assets = [s.replace("USDT", "") for s in CRYPTO_SYMBOLS]
-    
+    # 2. Запрашиваем закрытые сделки с точной атрибуцией
+    pnl_expr = func.coalesce(TradeHistory.realized_pnl_usdc, cast(TradeHistory.pnl, Numeric))
     trades_stmt = select(
-        TradeHistory.asset,
-        TradeHistory.pnl,
-        TradeHistory.created_at,
+        TradeHistory.model_key,
+        TradeHistory.model_version,
+        TradeHistory.confirm_model_key,
+        TradeHistory.confirm_model_version,
+        pnl_expr.label("pnl"),
     ).where(
-        TradeHistory.status == "SUCCESS",
-        TradeHistory.pnl.is_not(None),
-        TradeHistory.asset.in_(db_assets),
+        TradeHistory.position_status == "CLOSED",
+        TradeHistory.mode == requested_mode,
+        TradeHistory.model_key.is_not(None),
+        TradeHistory.model_attribution_source.in_(["EXACT", "RECONSTRUCTED"]),
+        pnl_expr.is_not(None),
     )
     trades = (await db.execute(trades_stmt)).all()
 
-    # 3. Группируем сделки по asset + времени
-    asset_trades: dict[str, list] = defaultdict(list)
+    # 3. Группируем сделки по точным ключам модели
+    primary_trades = defaultdict(list)
+    confirm_trades = defaultdict(list)
+
     for row in trades:
-        # row.asset is 'BTC', map to 'BTCUSDT_low_vol', 'BTCUSDT_high_vol', etc.
-        base = row.asset
-        asset_trades[f"{base}USDT_low_vol"].append((row.created_at, row.pnl))
-        asset_trades[f"{base}USDT_high_vol"].append((row.created_at, row.pnl))
-        asset_trades[f"{base}USDT"].append((row.created_at, row.pnl))
+        pnl_val = float(row.pnl) if row.pnl is not None else 0.0
+        if row.model_key and row.model_version is not None:
+            primary_trades[(row.model_key, row.model_version)].append(pnl_val)
+        if row.confirm_model_key and row.confirm_model_version is not None:
+            confirm_trades[(row.confirm_model_key, row.confirm_model_version)].append(pnl_val)
 
-    # Группируем модели по asset
-    asset_versions: dict[str, list] = defaultdict(list)
-    for m in models:
-        asset_versions[m.asset].append(m)
-
-    # 4. Считаем метрики для каждой версии
+    # 4. Считаем метрики для каждой версии в реестре
     result = {}
-    for asset, versions in asset_versions.items():
-        versions_asc = list(reversed(versions))
-        
-        for idx, m in enumerate(versions_asc):
-            since = m.trained_at
-            until = versions_asc[idx + 1].trained_at if idx + 1 < len(versions_asc) else None
-            
-            pnls = [
-                pnl for (ts, pnl) in asset_trades[asset]
-                if (since is None or ts >= since)
-                and (until is None or ts < until)
-            ]
-            
-            key = f"{asset}_v{m.version}"
-            if pnls:
-                total = sum(pnls)
-                wins = sum(1 for p in pnls if p > 0)
-                result[key] = {
-                    "pnl": round(total, 4),
-                    "win_rate": round(wins / len(pnls) * 100, 1),
-                    "total_trades": len(pnls),
-                }
-            else:
-                result[key] = {
-                    "pnl": 0.0,
-                    "win_rate": None,
-                    "total_trades": 0,
-                }
+    for m in models:
+        key = f"{m.asset}_v{m.version}"
+        pnls = primary_trades.get((m.asset, m.version), [])
+        c_pnls = confirm_trades.get((m.asset, m.version), [])
+
+        total = len(pnls)
+        wins = sum(1 for p in pnls if p > 0)
+        pnl_sum = sum(pnls) if total > 0 else 0.0
+
+        c_total = len(c_pnls)
+        c_wins = sum(1 for p in c_pnls if p > 0)
+        c_pnl_sum = sum(c_pnls) if c_total > 0 else 0.0
+
+        result[key] = {
+            "pnl": round(pnl_sum, 4),
+            "win_rate": round(wins / total * 100, 1) if total > 0 else None,
+            "total_trades": total,
+            "confirmed_trades": c_total,
+            "confirmed_pnl": round(c_pnl_sum, 4),
+            "confirmed_win_rate": round(c_wins / c_total * 100, 1) if c_total > 0 else None,
+        }
 
     _cache[cache_key] = {"ts": now, "data": result}
     return result

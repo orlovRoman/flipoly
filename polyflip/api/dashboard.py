@@ -9,7 +9,7 @@ import math
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case, or_
+from sqlalchemy import select, func, case, or_, cast, Numeric
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import CollectorStatus, LiveMarket, MarketSnapshot, TradeHistory, ModelRegistry, RuntimeSettings
 from polyflip.api.auth import verify_api_key
@@ -589,37 +589,39 @@ async def get_model_pnl(
     pnl_expr = func.coalesce(TradeHistory.realized_pnl_usdc, cast(TradeHistory.pnl, Numeric))
     trades_stmt = select(
         TradeHistory.model_key,
-        TradeHistory.asset,
         TradeHistory.model_version,
         pnl_expr.label("pnl"),
         TradeHistory.model_attribution_source,
     ).where(
         TradeHistory.position_status == "CLOSED",
-        TradeHistory.model_version.is_not(None),
         TradeHistory.mode == requested_mode,
         pnl_expr.is_not(None),
     )
     trades_rows = (await db.execute(trades_stmt)).all()
 
-    # Группируем сделки по (exact_model_key, model_version)
+    # Группируем сделки по (model_key, model_version)
     from collections import defaultdict
     trades_by_model = defaultdict(list)
     exact_trades_count = defaultdict(int)
     reconstructed_trades_count = defaultdict(int)
-    ambiguous_trades_count = defaultdict(int)
+
+    unattributed_trades = 0
+    unattributed_pnl = 0.0
 
     for row in trades_rows:
-        m_key = row.model_key or row.asset
-        pnl_val = float(row.pnl) if row.pnl is not None else 0.0
-        trades_by_model[(m_key, row.model_version)].append(pnl_val)
-
         attr_src = row.model_attribution_source
-        if attr_src == "EXACT":
-            exact_trades_count[(m_key, row.model_version)] += 1
-        elif attr_src == "RECONSTRUCTED":
-            reconstructed_trades_count[(m_key, row.model_version)] += 1
+        m_key = row.model_key
+        pnl_val = float(row.pnl) if row.pnl is not None else 0.0
+
+        if m_key is not None and attr_src in ("EXACT", "RECONSTRUCTED"):
+            trades_by_model[(m_key, row.model_version)].append(pnl_val)
+            if attr_src == "EXACT":
+                exact_trades_count[(m_key, row.model_version)] += 1
+            else:
+                reconstructed_trades_count[(m_key, row.model_version)] += 1
         else:
-            ambiguous_trades_count[(m_key, row.model_version)] += 1
+            unattributed_trades += 1
+            unattributed_pnl += pnl_val
 
     # 3. Агрегируем результаты для каждой модели из реестра
     result_map = {}
@@ -641,8 +643,12 @@ async def get_model_pnl(
             "win_rate": round(wins / total * 100, 1) if total > 0 else None,
             "exact_trades": exact_trades_count.get((asset, version), 0),
             "reconstructed_trades": reconstructed_trades_count.get((asset, version), 0),
-            "ambiguous_trades": ambiguous_trades_count.get((asset, version), 0),
         }
+
+    result_map["_unattributed"] = {
+        "total_trades": unattributed_trades,
+        "pnl": round(float(unattributed_pnl), 2),
+    }
 
     response_data = {"status": "success", "data": result_map}
     _model_pnl_cache[cache_key] = {"time": current_time, "data": response_data}

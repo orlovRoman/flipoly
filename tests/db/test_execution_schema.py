@@ -6,6 +6,13 @@ from sqlalchemy.exc import IntegrityError
 from polyflip.db.models import TradeHistory
 from polyflip.db.execution_models import ExecutionRequest
 
+def test_trade_history_has_close_price_column():
+    from sqlalchemy import inspect
+    from polyflip.db.models import TradeHistory
+
+    columns = {c.name for c in inspect(TradeHistory).columns}
+    assert "close_price" in columns
+
 @pytest.mark.asyncio
 async def test_legacy_trade_allows_null_accounting_fields(db_session):
     trade = TradeHistory(
