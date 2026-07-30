@@ -47,7 +47,7 @@ class ExecutionRequest(Base):
     outcome_to_buy = Column(String(16), nullable=False)
     requested_shares = Column(Numeric(38, 18), nullable=True)
     target_amount_usdc = Column(Numeric(38, 18), nullable=False)
-    max_slippage_pct = Column(Float, nullable=False, default=0.01)
+    max_slippage_pct = Column(Float, nullable=False)
     ttl_seconds = Column(Integer, nullable=False, default=60)
     limit_price = Column(Numeric(38, 18), nullable=True)
     max_spend_usdc = Column(Numeric(38, 18), nullable=True)
