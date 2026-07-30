@@ -24,20 +24,26 @@ from polyflip.db.execution_models import ExecutionRequest, LiveMirrorCandidate
 from polyflip.db.models import RuntimeSettings, TradeHistory
 from polyflip.execution.release_gate import release_batch, _get_release_mode
 
-
 # ─── Вспомогательные функции ──────────────────────────────────────────────────
+
 
 async def _set_release_mode(session, mode: str) -> None:
     now = datetime.now(timezone.utc)
-    existing = (await session.execute(
-        select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_RELEASE_MODE")
-    )).scalar_one_or_none()
+    existing = (
+        await session.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_RELEASE_MODE")
+        )
+    ).scalar_one_or_none()
     if existing:
         existing.value = mode
         existing.updated_at = now
         existing.updated_by = "test"
     else:
-        session.add(RuntimeSettings(key="LIVE_RELEASE_MODE", value=mode, updated_at=now, updated_by="test"))
+        session.add(
+            RuntimeSettings(
+                key="LIVE_RELEASE_MODE", value=mode, updated_at=now, updated_by="test"
+            )
+        )
     await session.commit()
 
 
@@ -98,7 +104,9 @@ async def _make_paper_request(session, trade):
 from polyflip.execution.live_mirror_worker import _build_signal_snapshot, _compute_hash
 
 
-async def _make_candidate(session, paper_request, paper_trade, state="ELIGIBLE", target_mode="SHADOW"):
+async def _make_candidate(
+    session, paper_request, paper_trade, state="ELIGIBLE", target_mode="SHADOW"
+):
     snap = _build_signal_snapshot(paper_request, paper_trade)
     sig_hash = _compute_hash(snap)
     c = LiveMirrorCandidate(
@@ -118,6 +126,7 @@ async def _make_candidate(session, paper_request, paper_trade, state="ELIGIBLE",
 
 
 # ─── Тесты ────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_release_mode_disabled_releases_nothing(db_session):
@@ -246,9 +255,11 @@ async def test_release_batch_idempotent(db_session):
     assert first == 1
     assert second == 0
 
-    live_trades = (await db_session.scalars(
-        select(TradeHistory).where(TradeHistory.mode == "SHADOW")
-    )).all()
+    live_trades = (
+        await db_session.scalars(
+            select(TradeHistory).where(TradeHistory.mode == "SHADOW")
+        )
+    ).all()
     assert len(live_trades) == 1
 
 
@@ -262,15 +273,19 @@ async def test_release_no_new_paper_rows_created(db_session):
 
     await release_batch(db_session, "SHADOW")
 
-    paper_trades = (await db_session.scalars(
-        select(TradeHistory).where(TradeHistory.mode == "PAPER")
-    )).all()
-    paper_reqs = (await db_session.scalars(
-        select(ExecutionRequest).where(ExecutionRequest.requested_mode == "PAPER")
-    )).all()
+    paper_trades = (
+        await db_session.scalars(
+            select(TradeHistory).where(TradeHistory.mode == "PAPER")
+        )
+    ).all()
+    paper_reqs = (
+        await db_session.scalars(
+            select(ExecutionRequest).where(ExecutionRequest.requested_mode == "PAPER")
+        )
+    ).all()
 
-    assert len(paper_trades) == 1   # только оригинальный
-    assert len(paper_reqs) == 1     # только оригинальный
+    assert len(paper_trades) == 1  # только оригинальный
+    assert len(paper_reqs) == 1  # только оригинальный
 
 
 @pytest.mark.asyncio
@@ -281,12 +296,16 @@ async def test_get_release_mode_default_disabled(db_session):
 
 
 @pytest.mark.asyncio
-async def test_release_deferred_keeps_candidate_eligible_when_kill_switch_off(db_session):
+async def test_release_deferred_keeps_candidate_eligible_when_kill_switch_off(
+    db_session,
+):
     """Когда kill switch выключен в LIVE режиме, кандидат откладывается (остаётся ELIGIBLE, не REJECTED)."""
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
     req = await _make_paper_request(db_session, trade)
-    candidate = await _make_candidate(db_session, req, trade, state="ELIGIBLE", target_mode="LIVE")
+    candidate = await _make_candidate(
+        db_session, req, trade, state="ELIGIBLE", target_mode="LIVE"
+    )
 
     released = await release_batch(db_session, "LIVE")
     assert released == 0
@@ -301,13 +320,15 @@ async def test_release_rejected_when_signal_too_old(db_session):
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
     req = await _make_paper_request(db_session, trade)
-    
+
     # Старый сигнал (40 секунд назад)
     req.updated_at = datetime.now(timezone.utc) - timedelta(seconds=40)
     req.created_at = req.updated_at
     await db_session.commit()
 
-    candidate = await _make_candidate(db_session, req, trade, state="ELIGIBLE", target_mode="SHADOW")
+    candidate = await _make_candidate(
+        db_session, req, trade, state="ELIGIBLE", target_mode="SHADOW"
+    )
 
     released = await release_batch(db_session, "SHADOW")
     assert released == 0
@@ -326,7 +347,9 @@ async def test_release_sets_expires_at_and_ttl(db_session):
     req.ttl_seconds = 120  # должно усечься до 30
     await db_session.commit()
 
-    candidate = await _make_candidate(db_session, req, trade, state="ELIGIBLE", target_mode="SHADOW")
+    candidate = await _make_candidate(
+        db_session, req, trade, state="ELIGIBLE", target_mode="SHADOW"
+    )
 
     await release_batch(db_session, "SHADOW")
 
@@ -345,14 +368,18 @@ async def test_release_creates_exposure_reservation(db_session):
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
     req = await _make_paper_request(db_session, trade)
-    candidate = await _make_candidate(db_session, req, trade, state="ELIGIBLE", target_mode="SHADOW")
+    candidate = await _make_candidate(
+        db_session, req, trade, state="ELIGIBLE", target_mode="SHADOW"
+    )
 
     released = await release_batch(db_session, "SHADOW")
     assert released == 1
 
     await db_session.refresh(candidate)
     reservation = await db_session.scalar(
-        select(ExposureReservation).where(ExposureReservation.request_id == candidate.released_request_id)
+        select(ExposureReservation).where(
+            ExposureReservation.request_id == candidate.released_request_id
+        )
     )
 
     assert reservation is not None
@@ -371,11 +398,30 @@ async def test_concurrent_release_respects_total_exposure(db_session):
     from polyflip.execution.risk_checks import check_risk_limits
 
     now = datetime.now(timezone.utc)
-    db_session.add(RuntimeSettings(key="MAX_TOTAL_EXPOSURE_USDC", value="1.0", updated_at=now, updated_by="test"))
-    db_session.add(RuntimeSettings(key="SHADOW_RISK_LIMITS_ENABLED", value="true", updated_at=now, updated_by="test"))
+    db_session.add(
+        RuntimeSettings(
+            key="MAX_TOTAL_EXPOSURE_USDC",
+            value="1.0",
+            updated_at=now,
+            updated_by="test",
+        )
+    )
+    db_session.add(
+        RuntimeSettings(
+            key="SHADOW_RISK_LIMITS_ENABLED",
+            value="true",
+            updated_at=now,
+            updated_by="test",
+        )
+    )
     await db_session.commit()
 
-    err1 = await check_risk_limits(db_session, intent="OPEN", max_spend_usdc=Decimal("1.0"), requested_mode="SHADOW")
+    err1 = await check_risk_limits(
+        db_session,
+        intent="OPEN",
+        max_spend_usdc=Decimal("1.0"),
+        requested_mode="SHADOW",
+    )
     assert err1 is None
 
     # Занимаем лимит
@@ -386,7 +432,12 @@ async def test_concurrent_release_respects_total_exposure(db_session):
     t.remaining_shares = Decimal("2.0")
     await db_session.commit()
 
-    err2 = await check_risk_limits(db_session, intent="OPEN", max_spend_usdc=Decimal("1.0"), requested_mode="SHADOW")
+    err2 = await check_risk_limits(
+        db_session,
+        intent="OPEN",
+        max_spend_usdc=Decimal("1.0"),
+        requested_mode="SHADOW",
+    )
     assert err2 is not None
     assert "Max total exposure" in err2
 
@@ -402,8 +453,22 @@ async def test_two_release_gates_cannot_exceed_total_exposure(pg_session_factory
 
     async with pg_session_factory() as setup_session:
         now = datetime.now(timezone.utc)
-        setup_session.add(RuntimeSettings(key="MAX_TOTAL_EXPOSURE_USDC", value="5.0", updated_at=now, updated_by="test"))
-        setup_session.add(RuntimeSettings(key="SHADOW_RISK_LIMITS_ENABLED", value="true", updated_at=now, updated_by="test"))
+        setup_session.add(
+            RuntimeSettings(
+                key="MAX_TOTAL_EXPOSURE_USDC",
+                value="5.0",
+                updated_at=now,
+                updated_by="test",
+            )
+        )
+        setup_session.add(
+            RuntimeSettings(
+                key="SHADOW_RISK_LIMITS_ENABLED",
+                value="true",
+                updated_at=now,
+                updated_by="test",
+            )
+        )
 
         p_trade1 = await _make_paper_trade(setup_session, market_id="MKT-PG-1")
         p_req1 = await _make_paper_request(setup_session, p_trade1)
@@ -430,5 +495,38 @@ async def test_two_release_gates_cannot_exceed_total_exposure(pg_session_factory
             return_exceptions=True,
         )
 
-    successful_releases = [r for r in results if r is True]
-    assert len(successful_releases) == 1
+    assert results.count(True) == 1
+    assert results.count(False) == 1
+    assert not any(isinstance(result, BaseException) for result in results)
+
+    from polyflip.db.execution_models import ExposureReservation
+    from sqlalchemy import func
+
+    async with pg_session_factory() as check_session:
+        released_candidates = len(
+            (
+                await check_session.scalars(
+                    select(LiveMirrorCandidate).where(
+                        LiveMirrorCandidate.state == "RELEASED"
+                    )
+                )
+            ).all()
+        )
+        live_requests = len(
+            (
+                await check_session.scalars(
+                    select(ExecutionRequest).where(
+                        ExecutionRequest.requested_mode == "SHADOW"
+                    )
+                )
+            ).all()
+        )
+        res_sum = await check_session.scalar(
+            select(
+                func.coalesce(func.sum(ExposureReservation.amount_usdc), Decimal("0"))
+            ).where(ExposureReservation.released_at.is_(None))
+        )
+
+    assert released_candidates == 1
+    assert live_requests == 1
+    assert res_sum == Decimal("4.0")
