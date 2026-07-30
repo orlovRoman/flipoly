@@ -112,7 +112,11 @@ async def check_no_stale_live_requests(session: AsyncSession) -> bool:
         return False
 
 
-async def check_worker_heartbeat(session: AsyncSession, min_balance: float) -> bool:
+async def check_worker_heartbeat(
+    session: AsyncSession,
+    min_balance: float,
+    target_mode: str = "SHADOW",
+) -> bool:
     from polyflip.db.execution_models import ExecutionWorkerStatus
     status = (await session.execute(
         select(ExecutionWorkerStatus)
@@ -122,8 +126,13 @@ async def check_worker_heartbeat(session: AsyncSession, min_balance: float) -> b
     )).scalar_one_or_none()
 
     if status is None:
-        fail("Нет heartbeat для LIVE execution_worker. Запустить live-воркер.")
-        return False
+        msg = "Нет heartbeat для LIVE execution_worker. Запустить live-воркер."
+        if target_mode == "LIVE":
+            fail(msg)
+            return False
+        else:
+            warn(f"{msg} (Игнорируется для режима {target_mode})")
+            return True
 
     now = datetime.now(timezone.utc)
     heartbeat_at = status.heartbeat_at
@@ -132,24 +141,48 @@ async def check_worker_heartbeat(session: AsyncSession, min_balance: float) -> b
 
     age = (now - heartbeat_at).total_seconds()
     if age > 60:
-        fail(f"LIVE-воркер не отвечал {age:.0f}s (максимум 60s). Проверить контейнер.")
-        return False
+        msg = f"LIVE-воркер не отвечал {age:.0f}s (максимум 60s). Проверить контейнер."
+        if target_mode == "LIVE":
+            fail(msg)
+            return False
+        else:
+            warn(f"{msg} (Игнорируется для режима {target_mode})")
+            return True
+
     ok(f"LIVE-воркер heartbeat {age:.0f}s назад")
 
     if not status.gateway_ready:
-        fail(f"Gateway не готов: {status.last_error_message}")
-        return False
+        msg = f"Gateway не готов: {status.last_error_message}"
+        if target_mode == "LIVE":
+            fail(msg)
+            return False
+        else:
+            warn(f"{msg} (Игнорируется для режима {target_mode})")
+            return True
+
     ok("Gateway готов")
 
     balance = float(status.balance_usdc or 0)
     if balance < min_balance:
-        fail(f"Недостаточный баланс USDC: {balance:.2f} (минимум {min_balance:.2f})")
-        return False
+        msg = f"Недостаточный баланс USDC: {balance:.2f} (минимум {min_balance:.2f})"
+        if target_mode == "LIVE":
+            fail(msg)
+            return False
+        else:
+            warn(f"{msg} (Игнорируется для режима {target_mode})")
+            return True
+
     ok(f"Баланс USDC: {balance:.2f}")
 
     if not status.collateral_allowance_ready:
-        fail("Collateral allowance не выставлен")
-        return False
+        msg = "Collateral allowance не выставлен"
+        if target_mode == "LIVE":
+            fail(msg)
+            return False
+        else:
+            warn(f"{msg} (Игнорируется для режима {target_mode})")
+            return True
+
     ok("Collateral allowance готов")
 
     return True
@@ -184,6 +217,7 @@ async def set_flags(
     release_mode: str,
 ) -> None:
     from polyflip.db.models import RuntimeSettings
+    from polyflip.execution.live_mirror_worker import set_mirror_enabled
 
     now = datetime.now(timezone.utc)
 
@@ -194,13 +228,13 @@ async def set_flags(
         if existing:
             existing.value = value
             existing.updated_at = now
-            existing.updated_by = "setup_live_approvals"
+            existing.updated_by = "check_live_readiness"
         else:
-            session.add(RuntimeSettings(key=key, value=value, updated_at=now, updated_by="setup_live_approvals"))
+            session.add(RuntimeSettings(key=key, value=value, updated_at=now, updated_by="check_live_readiness"))
 
     if enable_mirror:
-        await _upsert("LIVE_MIRROR_ENABLED", "true")
-        ok("LIVE_MIRROR_ENABLED = true")
+        await set_mirror_enabled(session, enabled=True, updated_by="check_live_readiness")
+        ok("LIVE_MIRROR_ENABLED = true (LIVE_MIRROR_STARTED_AT выставлен)")
 
     await _upsert("LIVE_RELEASE_MODE", release_mode)
     ok(f"LIVE_RELEASE_MODE = {release_mode}")
@@ -237,7 +271,8 @@ async def run(args: argparse.Namespace) -> int:
 
         section("4. LIVE execution_worker heartbeat")
         min_bal = getattr(args, "min_balance", MIN_USDC_BALANCE)
-        if not await check_worker_heartbeat(session, min_bal):
+        target_mode = getattr(args, "target_mode", "SHADOW").upper()
+        if not await check_worker_heartbeat(session, min_bal, target_mode=target_mode):
             all_ok = False
 
         section("5. Консистентность release_gate")

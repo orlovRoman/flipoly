@@ -78,6 +78,36 @@ async def runtime_bool(
     return value.strip().lower() == "true"
 
 
+async def set_mirror_enabled(
+    session: AsyncSession,
+    enabled: bool,
+    updated_by: str = "api",
+) -> None:
+    """
+    Единый сервис управления рубильником LIVE_MIRROR_ENABLED.
+    Атомарно выставляет LIVE_MIRROR_ENABLED и обновляет LIVE_MIRROR_STARTED_AT (курсор).
+    """
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    async def _upsert(key: str, val: str) -> None:
+        existing = (await session.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == key)
+        )).scalar_one_or_none()
+        if existing:
+            existing.value = val
+            existing.updated_at = now
+            existing.updated_by = updated_by
+        else:
+            session.add(RuntimeSettings(key=key, value=val, updated_at=now, updated_by=updated_by))
+
+    val = "true" if enabled else "false"
+    await _upsert("LIVE_MIRROR_ENABLED", val)
+
+    if enabled:
+        await _upsert("LIVE_MIRROR_STARTED_AT", now_iso)
+
+
 async def mirror_batch(session: AsyncSession) -> int:
     """
     Зеркалирует одну порцию PAPER OPEN → LiveMirrorCandidate.
@@ -92,14 +122,18 @@ async def mirror_batch(session: AsyncSession) -> int:
     started_at_raw = await session.scalar(
         select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_MIRROR_STARTED_AT")
     )
+    if not started_at_raw:
+        logger.warning("LIVE_MIRROR_STARTED_AT не задан в RuntimeSettings. Mirror worker работает в режиме fail-closed.")
+        return 0
+
     started_at = None
-    if started_at_raw:
-        try:
-            started_at = datetime.fromisoformat(started_at_raw)
-            if started_at.tzinfo is None:
-                started_at = started_at.replace(tzinfo=timezone.utc)
-        except ValueError:
-            pass
+    try:
+        started_at = datetime.fromisoformat(started_at_raw)
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+    except ValueError:
+        logger.error("Неверный формат LIVE_MIRROR_STARTED_AT: %s. Mirror worker пропущен.", started_at_raw)
+        return 0
 
     # Выбираем исполненные PAPER OPEN без существующего кандидата
     conditions = [
@@ -107,15 +141,13 @@ async def mirror_batch(session: AsyncSession) -> int:
         ExecutionRequest.intent == "OPEN",
         ExecutionRequest.state.in_(PAPER_MIRRORABLE_STATES),
         TradeHistory.mode == "PAPER",
+        ExecutionRequest.updated_at >= started_at,
         # Идемпотентность: пропускаем уже зеркалированные
         ~exists().where(
             LiveMirrorCandidate.source_paper_request_id == ExecutionRequest.id,
             LiveMirrorCandidate.target_mode == TARGET_MODE,
         ),
     ]
-
-    if started_at:
-        conditions.append(ExecutionRequest.updated_at >= started_at)
 
     stmt = (
         select(ExecutionRequest, TradeHistory)

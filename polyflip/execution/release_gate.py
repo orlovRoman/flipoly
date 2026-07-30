@@ -346,9 +346,17 @@ async def _release_one(
     Валидирует и атомарно выпускает одного кандидата.
     Возвращает True если кандидат выпущен, False если задефферен или отклонен.
     """
+    from sqlalchemy import text
+    from polyflip.db.execution_models import ExposureReservation
+
     now = datetime.now(timezone.utc)
 
-    # Загружаем PAPER-источники
+    # 0. Блокировка транзакции для предотвращения гонок при выпуске (только для PostgreSQL)
+    bind = session.bind
+    if bind and bind.dialect.name == "postgresql":
+        await session.execute(text("SELECT pg_advisory_xact_lock(999111888)"))
+
+    # 1. Загружаем PAPER-источники
     paper_request = (await session.execute(
         select(ExecutionRequest).where(
             ExecutionRequest.id == candidate.source_paper_request_id
@@ -398,7 +406,19 @@ async def _release_one(
     session.add(live_request)
     await session.flush()
 
-    # 4. Обновляем кандидата
+    # 4. Резервируем экспозицию (ExposureReservation)
+    exposure_amount = Decimal(str(paper_request.target_amount_usdc or paper_request.max_spend_usdc or 0))
+    exposure_res = ExposureReservation(
+        id=uuid.uuid4(),
+        request_id=live_request.id,
+        trade_id=live_trade.id,
+        market_id=live_request.market_id,
+        amount_usdc=exposure_amount,
+        created_at=now,
+    )
+    session.add(exposure_res)
+
+    # 5. Обновляем кандидата
     candidate.state = "RELEASED"
     candidate.released_at = now
     candidate.released_trade_id = live_trade.id
@@ -407,10 +427,11 @@ async def _release_one(
     await session.commit()
 
     logger.info(
-        "release_gate: candidate=%s → live_trade=%d live_request=%s",
+        "release_gate: candidate=%s → live_trade=%d live_request=%s exposure_res=%s",
         candidate.id,
         live_trade.id,
         live_request.id,
+        exposure_res.id,
     )
     return True
 
