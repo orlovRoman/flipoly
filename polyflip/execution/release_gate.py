@@ -87,14 +87,14 @@ async def _get_release_mode(session: AsyncSession) -> str:
     return (row.value if row else "DISABLED").upper()
 
 
-async def _get_eligible_candidates(
+async def get_candidate_ids(
     session: AsyncSession,
     release_mode: str,
     target_mode: str,
     batch_size: int = 10,
-) -> list[LiveMirrorCandidate]:
+) -> list[uuid.UUID]:
     """
-    Возвращает кандидатов, готовых к выпуску, в зависимости от режима:
+    Возвращает ID кандидатов, готовых к выпуску, в зависимости от режима:
       AUTO   — NEW и ELIGIBLE
       MANUAL — только ELIGIBLE
       DISABLED — []
@@ -105,16 +105,178 @@ async def _get_eligible_candidates(
     eligible_states = ["ELIGIBLE"] if release_mode == "MANUAL" else ["NEW", "ELIGIBLE"]
 
     stmt = (
-        select(LiveMirrorCandidate)
+        select(LiveMirrorCandidate.id)
         .where(
             LiveMirrorCandidate.state.in_(eligible_states),
             LiveMirrorCandidate.target_mode == target_mode,
         )
         .order_by(LiveMirrorCandidate.created_at)
         .limit(batch_size)
-        .with_for_update(skip_locked=True)
     )
-    return (await session.execute(stmt)).scalars().all()
+    return list((await session.scalars(stmt)).all())
+
+
+async def release_batch(
+    session: AsyncSession,
+    target_mode: str,
+) -> int:
+    """
+    Выпускает очередную порцию кандидатов.
+    Возвращает количество успешно выпущенных.
+    """
+    release_mode = await _get_release_mode(session)
+    if release_mode == "DISABLED":
+        return 0
+
+    candidate_ids = await get_candidate_ids(session, release_mode, target_mode)
+    if not candidate_ids:
+        return 0
+
+    released = 0
+
+    for candidate_id in candidate_ids:
+        try:
+            success = await release_candidate_by_id(session, candidate_id, target_mode)
+            if success:
+                released += 1
+        except Exception as exc:
+            await session.rollback()
+            logger.error(
+                "release_failed for candidate %s: %s",
+                candidate_id,
+                exc,
+                exc_info=True,
+            )
+
+    if released:
+        logger.info(
+            "release_gate: выпущено %d кандидатов (mode=%s, target=%s)",
+            released, release_mode, target_mode,
+        )
+    return released
+
+
+async def release_candidate_by_id(
+    session: AsyncSession,
+    candidate_id: uuid.UUID,
+    target_mode: str,
+) -> bool:
+    """
+    Блокирует кандидата с помощью advisory_xact_lock и FOR UPDATE, проверяет состояние и выпускает.
+    """
+    from sqlalchemy import text
+
+    conn = await session.connection()
+    if conn.dialect.name == "postgresql":
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"release:{target_mode}"},
+        )
+
+    candidate = await session.scalar(
+        select(LiveMirrorCandidate)
+        .where(LiveMirrorCandidate.id == candidate_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+    if candidate is None or candidate.state not in ("NEW", "ELIGIBLE"):
+        return False
+
+    return await _release_one_locked(session, candidate, target_mode)
+
+
+async def _release_one_locked(
+    session: AsyncSession,
+    candidate: LiveMirrorCandidate,
+    target_mode: str,
+) -> bool:
+    """
+    Валидирует и атомарно выпускает заблокированного кандидата.
+    Возвращает True если кандидат выпущен, False если задефферен или отклонен.
+    """
+    from polyflip.db.execution_models import ExposureReservation
+
+    now = datetime.now(timezone.utc)
+
+    # 1. Загружаем PAPER-источники
+    paper_request = (await session.execute(
+        select(ExecutionRequest).where(
+            ExecutionRequest.id == candidate.source_paper_request_id
+        )
+    )).scalar_one_or_none()
+
+    if paper_request is None:
+        candidate.state = "REJECTED"
+        candidate.rejection_reason = "source_paper_request not found"
+        await session.commit()
+        logger.warning("Rejected candidate %s: source_paper_request not found", candidate.id)
+        return False
+
+    paper_trade = (await session.execute(
+        select(TradeHistory).where(
+            TradeHistory.id == candidate.source_paper_trade_id
+        )
+    )).scalar_one_or_none()
+
+    if paper_trade is None:
+        candidate.state = "REJECTED"
+        candidate.rejection_reason = "source_paper_trade not found"
+        await session.commit()
+        logger.warning("Rejected candidate %s: source_paper_trade not found", candidate.id)
+        return False
+
+    # 2. Валидация выпуска
+    try:
+        await validate_live_release(session, candidate, paper_request, paper_trade, target_mode)
+    except ReleaseDeferred as e:
+        logger.info("Deferred release for candidate %s: %s", candidate.id, e)
+        return False
+    except ReleaseRejected as e:
+        logger.warning("Rejected candidate %s: %s", candidate.id, e)
+        candidate.state = "REJECTED"
+        candidate.rejection_reason = str(e)
+        await session.commit()
+        return False
+
+    # 3. Создаём LIVE-строки
+    live_trade = _build_live_trade(candidate, paper_trade, now, target_mode)
+    session.add(live_trade)
+    await session.flush()
+
+    live_request = _build_live_request(candidate, paper_request, live_trade, now, target_mode)
+    session.add(live_request)
+    await session.flush()
+
+    # 4. Резервируем экспозицию (ExposureReservation)
+    exposure_amount = Decimal(str(paper_request.target_amount_usdc or paper_request.max_spend_usdc or 0))
+    exposure_res = ExposureReservation(
+        id=uuid.uuid4(),
+        request_id=live_request.id,
+        trade_history_id=live_trade.id,
+        market_id=live_request.market_id,
+        amount_usdc=exposure_amount,
+        expires_at=live_request.expires_at or (now + timedelta(seconds=30)),
+        created_at=now,
+    )
+    session.add(exposure_res)
+
+    # 5. Обновляем кандидата
+    candidate.state = "RELEASED"
+    candidate.released_at = now
+    candidate.released_trade_id = live_trade.id
+    candidate.released_request_id = live_request.id
+
+    await session.commit()
+
+    logger.info(
+        "release_gate: candidate=%s → live_trade=%d live_request=%s exposure_res=%s",
+        candidate.id,
+        live_trade.id,
+        live_request.id,
+        exposure_res.id,
+    )
+    return True
 
 
 async def validate_live_release(
@@ -294,146 +456,6 @@ def _build_live_request(
         updated_at=now,
     )
 
-
-# ── Основная логика выпуска ───────────────────────────────────────────────────
-
-async def release_batch(
-    session: AsyncSession,
-    target_mode: str,
-) -> int:
-    """
-    Выпускает очередную порцию кандидатов.
-    Возвращает количество успешно выпущенных.
-    """
-    release_mode = await _get_release_mode(session)
-    if release_mode == "DISABLED":
-        return 0
-
-    candidates = await _get_eligible_candidates(session, release_mode, target_mode)
-    if not candidates:
-        return 0
-
-    released = 0
-
-    for candidate in candidates:
-        try:
-            success = await _release_one(session, candidate, target_mode)
-            if success:
-                released += 1
-        except Exception as exc:
-            await session.rollback()
-            logger.error(
-                "release_failed for candidate %s: %s",
-                candidate.id,
-                exc,
-                exc_info=True,
-            )
-
-    if released:
-        logger.info(
-            "release_gate: выпущено %d кандидатов (mode=%s, target=%s)",
-            released, release_mode, target_mode,
-        )
-    return released
-
-
-async def _release_one(
-    session: AsyncSession,
-    candidate: LiveMirrorCandidate,
-    target_mode: str,
-) -> bool:
-    """
-    Валидирует и атомарно выпускает одного кандидата.
-    Возвращает True если кандидат выпущен, False если задефферен или отклонен.
-    """
-    from sqlalchemy import text
-    from polyflip.db.execution_models import ExposureReservation
-
-    now = datetime.now(timezone.utc)
-
-    # 0. Блокировка транзакции для предотвращения гонок при выпуске (только для PostgreSQL)
-    bind = session.bind
-    if bind and bind.dialect.name == "postgresql":
-        await session.execute(text("SELECT pg_advisory_xact_lock(999111888)"))
-
-    # 1. Загружаем PAPER-источники
-    paper_request = (await session.execute(
-        select(ExecutionRequest).where(
-            ExecutionRequest.id == candidate.source_paper_request_id
-        )
-    )).scalar_one_or_none()
-
-    if paper_request is None:
-        candidate.state = "REJECTED"
-        candidate.rejection_reason = "source_paper_request not found"
-        await session.commit()
-        logger.warning("Rejected candidate %s: source_paper_request not found", candidate.id)
-        return False
-
-    paper_trade = (await session.execute(
-        select(TradeHistory).where(
-            TradeHistory.id == candidate.source_paper_trade_id
-        )
-    )).scalar_one_or_none()
-
-    if paper_trade is None:
-        candidate.state = "REJECTED"
-        candidate.rejection_reason = "source_paper_trade not found"
-        await session.commit()
-        logger.warning("Rejected candidate %s: source_paper_trade not found", candidate.id)
-        return False
-
-    # 2. Валидация выпуска
-    try:
-        await validate_live_release(session, candidate, paper_request, paper_trade, target_mode)
-    except ReleaseDeferred as e:
-        logger.info("Deferred release for candidate %s: %s", candidate.id, e)
-        return False
-    except ReleaseRejected as e:
-        logger.warning("Rejected candidate %s: %s", candidate.id, e)
-        candidate.state = "REJECTED"
-        candidate.rejection_reason = str(e)
-        await session.commit()
-        return False
-
-    # 3. Создаём LIVE-строки
-    live_trade = _build_live_trade(candidate, paper_trade, now, target_mode)
-    session.add(live_trade)
-    await session.flush()
-
-    live_request = _build_live_request(candidate, paper_request, live_trade, now, target_mode)
-    session.add(live_request)
-    await session.flush()
-
-    # 4. Резервируем экспозицию (ExposureReservation)
-    exposure_amount = Decimal(str(paper_request.target_amount_usdc or paper_request.max_spend_usdc or 0))
-    exposure_res = ExposureReservation(
-        id=uuid.uuid4(),
-        request_id=live_request.id,
-        trade_history_id=live_trade.id,
-        market_id=live_request.market_id,
-        amount_usdc=exposure_amount,
-        expires_at=live_request.expires_at or (now + timedelta(seconds=30)),
-        created_at=now,
-    )
-    session.add(exposure_res)
-
-    # 5. Обновляем кандидата
-    candidate.state = "RELEASED"
-    candidate.released_at = now
-    candidate.released_trade_id = live_trade.id
-    candidate.released_request_id = live_request.id
-
-    await session.commit()
-
-    logger.info(
-        "release_gate: candidate=%s → live_trade=%d live_request=%s exposure_res=%s",
-        candidate.id,
-        live_trade.id,
-        live_request.id,
-        exposure_res.id,
-    )
-    return True
 
 # ── Главный цикл ──────────────────────────────────────────────────────────────
 

@@ -217,18 +217,18 @@
                 
                 // Update kill switch
                 toggleSwitch.checked = data.live_trading_enabled;
-                if (!data.kill_switch_available && !data.live_trading_enabled) {
-                    toggleSwitch.disabled = true;
-                    toggleSwitch.title = "LIVE-рубильник недоступен в режиме " + data.execution_mode;
-                } else if (!isOnline && !data.live_trading_enabled) {
-                    toggleSwitch.disabled = false;
-                    // Cannot enable LIVE if worker is offline
+                const liveWorker = data.live_worker;
+                const heartbeat = liveWorker ? liveWorker.heartbeat_at : null;
+                const liveOnline = heartbeat && (Date.now() - Date.parse(heartbeat) < 60000);
+
+                toggleSwitch.disabled = !data.live_trading_enabled && (!liveOnline || !liveWorker?.gateway_ready);
+                if (!liveWorker) {
+                    toggleSwitch.title = "LIVE воркер не найден";
+                } else if (!liveOnline) {
                     toggleSwitch.title = "Воркер остановлен. Запустите воркер перед включением LIVE.";
-                } else if (data.worker_status && !data.worker_status.gateway_ready && !data.live_trading_enabled) {
-                    toggleSwitch.disabled = false;
-                    toggleSwitch.title = "Gateway не готов: " + (data.worker_status.last_error_message || "");
+                } else if (!liveWorker.gateway_ready) {
+                    toggleSwitch.title = "Gateway не готов: " + (liveWorker.last_error_message || "");
                 } else {
-                    toggleSwitch.disabled = false;
                     toggleSwitch.title = "Включить/выключить реальные сделки";
                 }
                 

@@ -335,3 +335,28 @@ async def test_release_sets_expires_at_and_ttl(db_session):
     assert live_req is not None
     assert live_req.ttl_seconds == 30
     assert live_req.expires_at is not None
+
+
+@pytest.mark.asyncio
+async def test_release_creates_exposure_reservation(db_session):
+    """При выпуске кандидата атомарно создаётся ExposureReservation."""
+    from polyflip.db.execution_models import ExposureReservation
+
+    await _set_release_mode(db_session, "AUTO")
+    trade = await _make_paper_trade(db_session)
+    req = await _make_paper_request(db_session, trade)
+    candidate = await _make_candidate(db_session, req, trade, state="ELIGIBLE", target_mode="SHADOW")
+
+    released = await release_batch(db_session, "SHADOW")
+    assert released == 1
+
+    await db_session.refresh(candidate)
+    reservation = await db_session.scalar(
+        select(ExposureReservation).where(ExposureReservation.request_id == candidate.released_request_id)
+    )
+
+    assert reservation is not None
+    assert reservation.request_id == candidate.released_request_id
+    assert reservation.trade_history_id == candidate.released_trade_id
+    assert reservation.amount_usdc == Decimal("5")
+    assert reservation.released_at is None
