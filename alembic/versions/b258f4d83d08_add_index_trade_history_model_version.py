@@ -21,14 +21,24 @@ def upgrade() -> None:
 
     columns = {column["name"] for column in inspector.get_columns("trade_history")}
 
-    # В некоторых старых production-схемах колонка уже существовала,
-    # но в чистой цепочке Alembic она отсутствует.
+    # В некоторых старых production-схемах колонки уже существовали,
+    # но в чистой цепочке Alembic они отсутствовали.
     if "lgbm_metadata" not in columns:
         op.add_column(
             "trade_history",
             sa.Column(
                 "lgbm_metadata",
                 sa.String(),
+                nullable=True,
+            ),
+        )
+
+    if "edge" not in columns:
+        op.add_column(
+            "trade_history",
+            sa.Column(
+                "edge",
+                sa.Float(),
                 nullable=True,
             ),
         )
