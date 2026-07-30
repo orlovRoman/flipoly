@@ -221,9 +221,20 @@
                     </div>
                 </div>
                 <pre id="time-left-stats" style="margin-top: 10px; font-size: 0.9em; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 10px; display: none;"></pre>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.75rem; background: rgba(255,255,255,0.03); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <span style="font-size: 0.85rem; color: var(--text-muted);">Фильтр:</span>
+                        <button class="btn btn-sm btn-model-filter active" data-filter="all" style="padding: 0.25rem 0.6rem; font-size: 0.8rem;">Все</button>
+                        <button class="btn btn-sm btn-model-filter" data-filter="active" style="padding: 0.25rem 0.6rem; font-size: 0.8rem;">Активные</button>
+                        <button class="btn btn-sm btn-model-filter" data-filter="archive" style="padding: 0.25rem 0.6rem; font-size: 0.8rem;">Архив</button>
+                    </div>
+                    <div id="attribution-stats-summary" style="font-size: 0.85rem; color: var(--text-muted);">
+                        Атрибуция PAPER PnL: точных — <b id="attr-exact-count" style="color: var(--text-main);">0</b> · восстановлено — <b id="attr-reconstructed-count" style="color: var(--text-main);">0</b> · не распределено — <b id="attr-unattributed-count" style="color: var(--text-main);">0</b> сд. / <b id="attr-unattributed-pnl" style="color: var(--text-main);">0.00 USDC</b>
+                    </div>
+                </div>
+
                 <div class="panel">
                     <div style="overflow-x: auto;">
-
                         <table class="data-table" id="models-table">
                             <thead>
                                 <tr>

@@ -17,7 +17,7 @@ import numpy as np
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Query, HTTPException
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func, cast, Numeric
 from collections import defaultdict
 from sqlalchemy.ext.asyncio import AsyncSession
 

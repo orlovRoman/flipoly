@@ -64,13 +64,20 @@ async def save_or_update_skipped_trade(
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
     if existing_skipped:
-        if (existing_skipped.error_msg != reason or 
+        decision_changed = (
+            existing_skipped.error_msg != reason or 
             existing_skipped.predicted_flip_prob != p_flip_val or 
             existing_skipped.edge != edge or
             existing_skipped.active_features != active_features or
             existing_skipped.lgbm_metadata != lgbm_metadata or
-            (market_role and existing_skipped.market_role != market_role) or
-            (model_key and existing_skipped.model_key != model_key)):
+            (market_role and existing_skipped.market_role != market_role)
+        )
+        attribution_changed = (
+            existing_skipped.model_key != model_key
+            or existing_skipped.confirm_model_key != confirm_model_key
+            or existing_skipped.confirm_model_version != confirm_model_version
+        )
+        if decision_changed or attribution_changed:
             existing_skipped.error_msg = reason
             existing_skipped.predicted_flip_prob = p_flip_val
             existing_skipped.model_version = model_version
@@ -80,12 +87,10 @@ async def save_or_update_skipped_trade(
             existing_skipped.lgbm_metadata = lgbm_metadata
             if market_role:
                 existing_skipped.market_role = market_role
-            if model_key:
-                existing_skipped.model_key = model_key
-                existing_skipped.model_attribution_source = "EXACT"
-            if confirm_model_key:
-                existing_skipped.confirm_model_key = confirm_model_key
-                existing_skipped.confirm_model_version = confirm_model_version
+            existing_skipped.model_key = model_key
+            existing_skipped.confirm_model_key = confirm_model_key
+            existing_skipped.confirm_model_version = confirm_model_version
+            existing_skipped.model_attribution_source = "EXACT" if model_key else None
             existing_skipped.updated_at = start_time
     else:
         history = TradeHistory(

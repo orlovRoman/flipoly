@@ -795,6 +795,36 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
+    if (typeof currentModelStatusFilter !== "undefined" && currentModelStatusFilter !== "all") {
+      filteredData = filteredData.filter(m => {
+        return currentModelStatusFilter === "active" ? m.is_active : !m.is_active;
+      });
+    }
+
+    // Обновляем плашку качества атрибуции
+    let totalExact = 0;
+    let totalReconstructed = 0;
+    if (rawModelsPnlData) {
+      Object.values(rawModelsPnlData).forEach(pnl => {
+        if (pnl && typeof pnl === "object") {
+          totalExact += pnl.exact_trades || 0;
+          totalReconstructed += pnl.reconstructed_trades || 0;
+        }
+      });
+      const unattr = rawModelsPnlData["_unattributed"] || { total_trades: 0, pnl: 0.0 };
+      const elExact = document.getElementById("attr-exact-count");
+      if (elExact) elExact.innerText = totalExact;
+      const elRecon = document.getElementById("attr-reconstructed-count");
+      if (elRecon) elRecon.innerText = totalReconstructed;
+      const elUnattrCount = document.getElementById("attr-unattributed-count");
+      if (elUnattrCount) elUnattrCount.innerText = unattr.total_trades || 0;
+      const elUnattrPnl = document.getElementById("attr-unattributed-pnl");
+      if (elUnattrPnl) {
+        const sign = (unattr.pnl || 0) >= 0 ? "+" : "";
+        elUnattrPnl.innerText = `${sign}${(unattr.pnl || 0).toFixed(2)} USDC`;
+      }
+    }
+
 
     if (filteredData.length === 0) {
       tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: var(--text-muted);">Нет моделей выбранного типа</td></tr>`;
@@ -1033,9 +1063,19 @@ document.addEventListener("DOMContentLoaded", () => {
           renderModelsTable();
         });
       });
-    } else {
-      paginationContainer.style.display = "none";
-    }
+    document.querySelectorAll(".btn-model-filter").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        document.querySelectorAll(".btn-model-filter").forEach(b => {
+          b.style.background = "";
+          b.style.color = "";
+        });
+        e.currentTarget.style.background = "var(--poly-blue, #2563eb)";
+        e.currentTarget.style.color = "#ffffff";
+        window.currentModelStatusFilter = e.currentTarget.dataset.filter || "all";
+        modelsCurrentPage = 1;
+        renderModelsTable();
+      });
+    });
 
     // Обработчик кнопки удаления
     
