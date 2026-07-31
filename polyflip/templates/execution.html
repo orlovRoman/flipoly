@@ -26,35 +26,6 @@
         .worker-online { color: #48bb78; font-weight: bold; }
         .worker-offline { color: #e53e3e; font-weight: bold; }
 
-        .kill-switch {
-            appearance: none;
-            width: 50px;
-            height: 26px;
-            background: #4a5568;
-            border-radius: 13px;
-            position: relative;
-            cursor: pointer;
-            outline: none;
-            transition: background 0.3s;
-        }
-        .kill-switch::after {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 22px;
-            height: 22px;
-            background: white;
-            border-radius: 50%;
-            transition: transform 0.3s;
-        }
-        .kill-switch:checked {
-            background: #e53e3e;
-        }
-        .kill-switch:checked::after {
-            transform: translateX(24px);
-        }
-
         .form-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -133,7 +104,7 @@
                 <div id="session-info-block" style="margin-bottom: 15px; display: none;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
                         <div><strong>ID Сессии:</strong> <span id="session-id-text">--</span></div>
-                        <div><strong>Расход Бюджета:</strong> <span id="session-budget-usage">0 / 0 USDC</span></div>
+                        <div><strong>Остаток Бюджета:</strong> <span id="session-budget-usage">0 / 0 USDC</span></div>
                     </div>
                     <progress id="budget-progress" max="100" value="0" style="width: 100%; height: 12px;"></progress>
                 </div>
@@ -176,6 +147,7 @@
                     <div class="checklist-item"><span id="check-heartbeat" class="check-fail">✗</span> Heartbeat свежий (&lt;30s)</div>
                     <div class="checklist-item"><span id="check-credentials" class="check-fail">✗</span> Ключи загружены</div>
                     <div class="checklist-item"><span id="check-wallet" class="check-fail">✗</span> Кошелек Polygon OK</div>
+                    <div class="checklist-item"><span id="check-network" class="check-fail">✗</span> Сеть Polygon (Chain 137)</div>
                     <div class="checklist-item"><span id="check-gateway" class="check-fail">✗</span> Gateway готов</div>
                     <div class="checklist-item"><span id="check-balance" class="check-fail">✗</span> Баланс USDC достаточен</div>
                     <div class="checklist-item"><span id="check-collateral" class="check-fail">✗</span> USDC Allowance готов</div>
@@ -183,7 +155,7 @@
                     <div class="checklist-item"><span id="check-active-req" class="check-fail">✗</span> Нет активных/зависших заявок</div>
                     <div class="checklist-item"><span id="check-old-pos" class="check-fail">✗</span> Нет чужих открытых позиций</div>
                 </div>
-                <div id="readiness-errors-list" style="margin-top: 10px; color: #e53e3e; font-size: 0.9rem;"></div>
+                <div id="readiness-errors-list" style="margin-top: 10px; font-size: 0.9rem;"></div>
             </div>
 
             <!-- Блок 3. Позиции -->
@@ -253,6 +225,20 @@
 
         let currentSessionId = null;
 
+        const readinessElementIds = {
+            live_worker: "check-worker",
+            heartbeat: "check-heartbeat",
+            credentials: "check-credentials",
+            wallet: "check-wallet",
+            network: "check-network",
+            gateway: "check-gateway",
+            balance: "check-balance",
+            collateral_allowance: "check-collateral",
+            conditional_allowance: "check-conditional",
+            active_requests: "check-active-req",
+            old_positions: "check-old-pos"
+        };
+
         async function loadLiveDashboard() {
             try {
                 const res = await fetch(window.API_BASE + '/api/execution/live/dashboard', { headers: getAuthHeaders() });
@@ -277,7 +263,7 @@
                     badge.className = 'status-badge ' + (s.status === 'ACTIVE' ? 'status-live' : s.status === 'READY' ? 'status-ready' : 'status-shadow');
                     document.getElementById('session-info-block').style.display = 'block';
                     document.getElementById('session-id-text').textContent = s.id;
-                    document.getElementById('session-budget-usage').textContent = `${(s.reserved_usdc || 0).toFixed(2)} / ${(s.budget_usdc || 0).toFixed(2)} USDC`;
+                    document.getElementById('session-budget-usage').textContent = `${(s.remaining_budget_usdc || 0).toFixed(2)} / ${(s.budget_usdc || 0).toFixed(2)} USDC`;
                     
                     const pct = s.budget_usdc > 0 ? (s.reserved_usdc / s.budget_usdc) * 100 : 0;
                     document.getElementById('budget-progress').value = pct;
@@ -288,7 +274,7 @@
                     document.getElementById('session-info-block').style.display = 'none';
                 }
 
-                // Render Positions
+                // Render Positions & Requests
                 renderPositions(data.positions || []);
                 renderRequests(data.requests || []);
 
@@ -370,18 +356,22 @@
 
         function updateChecklistUI(data) {
             const c = data.checks || {};
-            for (let k in c) {
-                const el = document.getElementById('check-' + k);
+            for (let [key, passed] of Object.entries(c)) {
+                const elementId = readinessElementIds[key];
+                if (!elementId) continue;
+                const el = document.getElementById(elementId);
                 if (el) {
-                    el.textContent = c[k] ? '✓' : '✗';
-                    el.className = c[k] ? 'check-pass' : 'check-fail';
+                    el.textContent = passed ? '✓' : '✗';
+                    el.className = passed ? 'check-pass' : 'check-fail';
                 }
             }
             const errBox = document.getElementById('readiness-errors-list');
             if (data.errors && data.errors.length) {
-                errBox.innerHTML = '<strong>Ошибки:</strong><br>' + data.errors.join('<br>');
+                errBox.textContent = 'Ошибки: ' + data.errors.join('; ');
+                errBox.style.color = '#e53e3e';
             } else {
-                errBox.innerHTML = '<span style="color:#48bb78;">✓ Все критические проверки пройдены!</span>';
+                errBox.textContent = '✓ Все критические проверки пройдены!';
+                errBox.style.color = '#48bb78';
             }
         }
 
@@ -424,7 +414,7 @@
             const res = await fetch(window.API_BASE + `/api/execution/positions/${tradeId}/close`, {
                 method: 'POST', headers: getAuthHeaders()
             });
-            if (res.ok) { alert("Заявка на закрытие позиций создана."); loadLiveDashboard(); }
+            if (res.ok) { alert("Заявка на закрытие позиции создана."); loadLiveDashboard(); }
             else { const err = await res.json(); alert("Ошибка: " + err.detail); }
         }
 
