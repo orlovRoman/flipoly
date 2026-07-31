@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   live_mirror_worker:
-    image: ${POLYFLIP_IMAGE:-polyflip:latest}
+    image: ${POLYFLIP_LIVE_IMAGE:?POLYFLIP_LIVE_IMAGE is required}
     restart: unless-stopped
     profiles: ["live-v2"]
     networks:
@@ -18,7 +18,7 @@ services:
           memory: 256M
 
   release_gate_worker:
-    image: ${POLYFLIP_IMAGE:-polyflip:latest}
+    image: ${POLYFLIP_LIVE_IMAGE:?POLYFLIP_LIVE_IMAGE is required}
     restart: unless-stopped
     profiles: ["live-v2"]
     networks:
@@ -32,7 +32,7 @@ services:
           memory: 256M
 
   execution_worker_live:
-    image: ${POLYFLIP_IMAGE:-polyflip:latest}
+    image: ${POLYFLIP_LIVE_IMAGE:?POLYFLIP_LIVE_IMAGE is required}
     restart: unless-stopped
     profiles: ["live-v2"]
     networks:
@@ -51,3 +51,4 @@ services:
 networks:
   polyflip_net:
     external: true
+    name: ${POLYFLIP_NETWORK:-polyflip_net}
