@@ -840,35 +840,71 @@ async def reconcile_active_requests():
                 )
 
 
+async def publish_heartbeat_once(
+    session: AsyncSession,
+    worker_id: str,
+    execution_mode: str,
+    gateway,
+):
+    token_rows = (
+        await session.execute(
+            select(LiveMarket.yes_token_id, LiveMarket.no_token_id).where(
+                LiveMarket.end_time_est > datetime.now(timezone.utc)
+            ).limit(100)
+        )
+    ).all()
+    token_ids = tuple({t for row in token_rows for t in row if t})
+
+    readiness = await gateway.get_readiness(conditional_token_ids=token_ids)
+    now = datetime.now(timezone.utc)
+
+    dialect_name = await _get_dialect(session)
+    insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
+
+    bal = (
+        float(readiness.balance.balance_usdc) if readiness.balance else None
+    )
+
+    stmt = insert_func(ExecutionWorkerStatus).values(
+        worker_id=worker_id,
+        execution_mode=execution_mode,
+        heartbeat_at=now,
+        gateway_ready=readiness.ready,
+        credentials_loaded=readiness.credentials_loaded,
+        wallet_address=readiness.wallet_address,
+        balance_usdc=bal,
+        collateral_allowance_ready=readiness.collateral_allowance_ready,
+        conditional_allowance_ready=readiness.conditional_allowance_ready,
+        network_chain_id=readiness.network_chain_id,
+        last_error_message=readiness.error_message,
+    )
+
+    set_dict = {
+        "heartbeat_at": now,
+        "gateway_ready": readiness.ready,
+        "balance_usdc": bal,
+        "collateral_allowance_ready": readiness.collateral_allowance_ready,
+        "conditional_allowance_ready": readiness.conditional_allowance_ready,
+        "network_chain_id": readiness.network_chain_id,
+        "last_error_message": readiness.error_message,
+        "execution_mode": execution_mode,
+    }
+
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["worker_id"],
+        set_=set_dict,
+    )
+    await session.execute(stmt)
+    await session.commit()
+
+
 async def publish_heartbeat():
     settings = ExecutionSettings()
     gateway = build_execution_gateway(settings)
-    # Уникальный ID: mode:hostname:pid — не конфликтует между PAPER/SHADOW/LIVE контейнерами
     worker_id = f"{settings.execution_mode.value}:{socket.gethostname()}:{os.getpid()}"
 
     while True:
         try:
-            token_ids: tuple[str, ...] = ()
-            async with async_session() as session:
-                token_rows = (
-                    await session.execute(
-                        select(LiveMarket.yes_token_id, LiveMarket.no_token_id).where(
-                            LiveMarket.end_time_est > datetime.now(timezone.utc)
-                        ).limit(100)
-                    )
-                ).all()
-                token_ids = tuple({t for row in token_rows for t in row if t})
-
-            readiness = await gateway.get_readiness(conditional_token_ids=token_ids)
-            now = datetime.now(timezone.utc)
-            async with async_session() as session:
-                # Bug #4 fix: используем _get_dialect вместо session.bind.dialect.name
-                dialect_name = await _get_dialect(session)
-                insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
-
-                bal = (
-                    float(readiness.balance.balance_usdc) if readiness.balance else None
-                )
 
                 stmt = insert_func(ExecutionWorkerStatus).values(
                     worker_id=worker_id,

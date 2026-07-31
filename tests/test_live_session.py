@@ -60,37 +60,49 @@ async def test_order_cost_calculation():
 
 @pytest.mark.asyncio
 async def test_worker_heartbeat_persists_polygon_chain_id(db_session):
-    """Тест: publish_heartbeat сохраняет network_chain_id=137 и conditional_allowance_ready."""
-    session_obj = LiveTradingSession(
-        id=uuid.uuid4(),
-        status="DRAFT",
-        budget_usdc=Decimal("10.00"),
-        reserved_usdc=Decimal("0.00"),
-        max_single_order_usdc=Decimal("1.00"),
-        max_total_exposure_usdc=Decimal("5.00"),
-        max_open_positions=5,
-    )
-    db_session.add(session_obj)
+    """Тест: publish_heartbeat_once считывает готовность из gateway и сохраняет network_chain_id=137 в БД."""
+    from polyflip.execution.worker import publish_heartbeat_once
 
-    ws = ExecutionWorkerStatus(
-        worker_id="test_live_worker",
-        execution_mode="LIVE",
-        heartbeat_at=datetime.now(timezone.utc),
-        gateway_ready=True,
+    gateway = AsyncMock()
+    gateway.get_readiness.return_value = GatewayReadiness(
+        ready=True,
+        gateway="POLYMARKET",
+        wallet_address="0x1234567890abcdef",
+        balance=BalanceResult(
+            balance_usdc=Decimal("20.0"),
+            collateral_allowances={},
+            conditional_allowances_checked=2,
+            conditional_allowance_ready=True,
+            checked_at=datetime.now(timezone.utc),
+        ),
         credentials_loaded=True,
-        wallet_address="0x123",
-        network_chain_id=137,  # Polygon mainnet
-        balance_usdc=Decimal("20.0"),
+        client_initialized=True,
         collateral_allowance_ready=True,
         conditional_allowance_ready=True,
+        network_chain_id=137,
+        checked_at=datetime.now(timezone.utc),
     )
-    db_session.add(ws)
-    await db_session.commit()
 
-    res = await evaluate_live_readiness(db_session, session_obj)
-    assert res.ready is True
-    assert res.checks["network"] is True
-    assert res.checks["conditional_allowance"] is True
+    await publish_heartbeat_once(
+        db_session,
+        worker_id="test_worker_1",
+        execution_mode="LIVE",
+        gateway=gateway,
+    )
+
+    status = (
+        await db_session.execute(
+            select(ExecutionWorkerStatus).where(
+                ExecutionWorkerStatus.execution_mode == "LIVE"
+            )
+        )
+    ).scalar_one_or_none()
+
+    assert status is not None
+    assert status.network_chain_id == 137
+    assert status.conditional_allowance_ready is True
+    assert status.gateway_ready is True
+    gateway.get_readiness.assert_awaited_once()
 
 
 @pytest.mark.asyncio
