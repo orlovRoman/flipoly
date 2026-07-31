@@ -141,6 +141,7 @@ async def test_worker_heartbeat_persists_polygon_chain_id(db_session):
     assert status.network_chain_id == 80002
     assert status.conditional_allowance_ready is False
     assert status.last_error_message == "wrong network"
+    assert gateway.get_readiness.await_count == 2
 
 
 @pytest.mark.asyncio
