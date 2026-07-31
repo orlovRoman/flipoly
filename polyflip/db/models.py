@@ -1,4 +1,19 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Index, UniqueConstraint, Text, CheckConstraint, Numeric, SmallInteger
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Float,
+    Boolean,
+    DateTime,
+    LargeBinary,
+    Index,
+    UniqueConstraint,
+    Text,
+    CheckConstraint,
+    Numeric,
+    SmallInteger,
+    ForeignKey,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 
