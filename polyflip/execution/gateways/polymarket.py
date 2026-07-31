@@ -6,7 +6,7 @@ from decimal import Decimal
 from datetime import datetime, timezone
 import asyncio
 
-from polymarket import AsyncSecureClient
+from polymarket import AsyncSecureClient, RelayerApiKey
 from polymarket.errors import (
     TimeoutError as SettlementTimeoutError,
     TransactionFailedError,
@@ -30,10 +30,14 @@ class PolymarketExecutionGateway:
         self,
         private_key: str,
         wallet_address: str,
+        relayer_api_key: str,
+        relayer_api_key_address: str,
         host: str = "https://clob.polymarket.com",
     ):
         self._private_key = private_key
         self._wallet_address = wallet_address
+        self._relayer_api_key = relayer_api_key
+        self._relayer_api_key_address = relayer_api_key_address
         self._host = host
         self._environment = replace(
             PRODUCTION,
@@ -43,7 +47,12 @@ class PolymarketExecutionGateway:
         self._client_lock = asyncio.Lock()
 
     async def get_client(self) -> Optional[AsyncSecureClient]:
-        if not self._private_key or not self._wallet_address:
+        if (
+            not self._private_key
+            or not self._wallet_address
+            or not self._relayer_api_key
+            or not self._relayer_api_key_address
+        ):
             logger.error("missing_polygon_credentials")
             return None
 
@@ -55,6 +64,10 @@ class PolymarketExecutionGateway:
                 client = await AsyncSecureClient.create(
                     private_key=self._private_key,
                     wallet=self._wallet_address,
+                    api_key=RelayerApiKey(
+                        key=self._relayer_api_key,
+                        address=self._relayer_api_key_address,
+                    ),
                     environment=self._environment,
                 )
                 self._client_cache = client

@@ -18,6 +18,8 @@ async def test_gateway_passes_configured_environment(create_mock):
     gateway = PolymarketExecutionGateway(
         private_key="key",
         wallet_address="wallet",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address="0x1111111111111111111111111111111111111111",
         host="https://custom-clob.example",
     )
 
@@ -28,10 +30,34 @@ async def test_gateway_passes_configured_environment(create_mock):
 
 
 @pytest.mark.asyncio
+@patch(
+    "polyflip.execution.gateways.polymarket.AsyncSecureClient.create",
+    new_callable=AsyncMock,
+)
+async def test_gateway_passes_relayer_credentials(create_mock):
+    create_mock.return_value = AsyncMock()
+
+    gateway = PolymarketExecutionGateway(
+        private_key="0xprivate",
+        wallet_address="0xwallet",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address="0x1111111111111111111111111111111111111111",
+    )
+
+    await gateway.get_client()
+
+    api_key = create_mock.await_args.kwargs["api_key"]
+    assert api_key.key == "relayer-key"
+    assert api_key.address == "0x1111111111111111111111111111111111111111"
+
+
+@pytest.mark.asyncio
 async def test_readiness_checks_all_conditional_tokens():
     gateway = PolymarketExecutionGateway(
         private_key="key",
         wallet_address="wallet",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address="0x1111111111111111111111111111111111111111",
         host="https://clob.polymarket.com",
     )
 
@@ -58,6 +84,8 @@ async def test_gateway_submits_buy_and_reads_order():
     gateway = PolymarketExecutionGateway(
         private_key="dummy_key",
         wallet_address="0xDummyAddress",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address="0x1111111111111111111111111111111111111111",
         host="https://clob.polymarket.com",
     )
 

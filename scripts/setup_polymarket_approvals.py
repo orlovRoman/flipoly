@@ -12,10 +12,12 @@ logger = structlog.get_logger(__name__)
 async def run_setup(token_ids: list[str] | None = None) -> None:
     private_key = os.getenv("POLYGON_PRIVATE_KEY")
     wallet_address = os.getenv("POLYGON_ADDRESS")
+    relayer_api_key = os.getenv("POLYMARKET_RELAYER_API_KEY")
+    relayer_api_key_address = os.getenv("POLYMARKET_RELAYER_API_KEY_ADDRESS")
 
-    if not private_key or not wallet_address:
+    if not private_key or not wallet_address or not relayer_api_key or not relayer_api_key_address:
         logger.error(
-            "Missing POLYGON_PRIVATE_KEY or POLYGON_ADDRESS environment variables."
+            "Missing POLYGON_PRIVATE_KEY, POLYGON_ADDRESS, POLYMARKET_RELAYER_API_KEY, or POLYMARKET_RELAYER_API_KEY_ADDRESS environment variables."
         )
         sys.exit(1)
 
@@ -23,6 +25,8 @@ async def run_setup(token_ids: list[str] | None = None) -> None:
     gateway = PolymarketExecutionGateway(
         private_key=private_key,
         wallet_address=wallet_address,
+        relayer_api_key=relayer_api_key,
+        relayer_api_key_address=relayer_api_key_address,
         host=host,
     )
 

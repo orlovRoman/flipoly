@@ -8,6 +8,8 @@ from scripts.setup_polymarket_approvals import run_setup
 async def test_setup_polymarket_approvals_success(monkeypatch):
     monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0xabc123")
     monkeypatch.setenv("POLYGON_ADDRESS", "0xdef456")
+    monkeypatch.setenv("POLYMARKET_RELAYER_API_KEY", "relayer-key")
+    monkeypatch.setenv("POLYMARKET_RELAYER_API_KEY_ADDRESS", "0x1111111111111111111111111111111111111111")
 
     mock_client = AsyncMock()
     mock_client.setup_trading_approvals = AsyncMock()

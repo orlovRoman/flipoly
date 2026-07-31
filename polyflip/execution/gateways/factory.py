@@ -17,6 +17,10 @@ def build_execution_gateway(settings: ExecutionSettings):
             return PolymarketExecutionGateway(
                 private_key=settings.polygon_private_key,  # type: ignore
                 wallet_address=settings.polygon_address,  # type: ignore
+                relayer_api_key=settings.polymarket_relayer_api_key,  # type: ignore
+                relayer_api_key_address=(
+                    settings.polymarket_relayer_api_key_address
+                ),  # type: ignore
                 host=settings.polymarket_host,
             )
         case _:

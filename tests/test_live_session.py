@@ -282,3 +282,16 @@ async def test_legacy_kill_switch_cannot_enable_live(db_session):
     assert "Включение LIVE выполняется только через активацию LIVE-сессии" in str(
         exc_info.value.detail
     )
+
+
+def test_live_mode_requires_relayer_credentials(monkeypatch):
+    from polyflip.execution.config import ExecutionSettings
+
+    monkeypatch.setenv("EXECUTION_MODE", "LIVE")
+    monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0xprivate")
+    monkeypatch.setenv("POLYGON_ADDRESS", "0xwallet")
+    monkeypatch.delenv("POLYMARKET_RELAYER_API_KEY", raising=False)
+    monkeypatch.delenv("POLYMARKET_RELAYER_API_KEY_ADDRESS", raising=False)
+
+    with pytest.raises(ValueError, match="POLYMARKET_RELAYER_API_KEY"):
+        ExecutionSettings()
