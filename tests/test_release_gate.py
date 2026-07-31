@@ -20,7 +20,11 @@ from decimal import Decimal
 
 from sqlalchemy import select, func
 
-from polyflip.db.execution_models import ExecutionRequest, LiveMirrorCandidate
+from polyflip.db.execution_models import (
+    ExecutionRequest,
+    LiveMirrorCandidate,
+    ExposureReservation,
+)
 from polyflip.db.models import RuntimeSettings, TradeHistory
 from polyflip.execution.release_gate import release_batch, _get_release_mode
 
