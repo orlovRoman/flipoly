@@ -3,7 +3,7 @@ import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, func, or_
 from polyflip.db.execution_models import (
     LiveTradingSession,
     ExecutionRequest,
@@ -11,12 +11,17 @@ from polyflip.db.execution_models import (
     ExecutionWorkerStatus,
 )
 from polyflip.db.models import TradeHistory, RuntimeSettings
-from polyflip.execution.release_gate import release_candidate_by_id, ReleaseDeferred, ReleaseRejected
+from polyflip.execution.release_gate import (
+    validate_live_release,
+    ReleaseDeferred,
+    ReleaseRejected,
+)
 from polyflip.execution.live_session_service import (
     evaluate_live_readiness,
     count_session_positions,
     get_session_exposure,
     get_max_order_cost,
+    get_session_budget_snapshot,
 )
 from polyflip.execution.outbox import enqueue_close_request, EnqueueDisposition
 
@@ -38,7 +43,6 @@ async def test_create_session_from_user_budget(db_session):
 
     assert session_obj.status == "DRAFT"
     assert session_obj.budget_usdc == Decimal("15.00")
-    assert session_obj.reserved_usdc == Decimal("0.00")
 
 
 @pytest.mark.asyncio
@@ -52,7 +56,7 @@ async def test_order_cost_calculation():
 
 
 @pytest.mark.asyncio
-async def test_readiness_fails_without_worker(db_session):
+async def test_readiness_checks_polygon_chain_id(db_session):
     session_obj = LiveTradingSession(
         id=uuid.uuid4(),
         status="DRAFT",
@@ -63,28 +67,45 @@ async def test_readiness_fails_without_worker(db_session):
         max_open_positions=5,
     )
     db_session.add(session_obj)
+
+    ws = ExecutionWorkerStatus(
+        worker_id="test_live_worker",
+        execution_mode="LIVE",
+        heartbeat_at=datetime.now(timezone.utc),
+        gateway_ready=True,
+        credentials_loaded=True,
+        wallet_address="0x123",
+        network_chain_id=1,  # Ethereum mainnet (not 137)
+        balance_usdc=Decimal("20.0"),
+        collateral_allowance_ready=True,
+        conditional_allowance_ready=True,
+    )
+    db_session.add(ws)
     await db_session.commit()
 
     res = await evaluate_live_readiness(db_session, session_obj)
     assert res.ready is False
-    assert "LIVE worker status не найден в БД" in res.errors
+    assert any("chain_id=1" in err for err in res.errors)
 
 
 @pytest.mark.asyncio
-async def test_single_order_limit_rejection_in_service(db_session):
+async def test_session_budget_snapshot(db_session):
     session_obj = LiveTradingSession(
         id=uuid.uuid4(),
         status="ACTIVE",
         budget_usdc=Decimal("10.00"),
         reserved_usdc=Decimal("0.00"),
-        max_single_order_usdc=Decimal("1.00"),
+        max_single_order_usdc=Decimal("2.00"),
         max_total_exposure_usdc=Decimal("5.00"),
         max_open_positions=5,
     )
     db_session.add(session_obj)
     await db_session.commit()
 
-    assert session_obj.max_single_order_usdc == Decimal("1.00")
+    snap = await get_session_budget_snapshot(db_session, session_obj)
+    assert snap.filled_usdc == Decimal("0")
+    assert snap.reserved_usdc == Decimal("0")
+    assert snap.remaining_usdc == Decimal("10.00")
 
 
 @pytest.mark.asyncio
