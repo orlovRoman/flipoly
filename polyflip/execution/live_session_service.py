@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import select, func, text, and_, or_
+from sqlalchemy import select, func, text, and_, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.db.execution_models import (
@@ -131,21 +131,15 @@ async def get_session_budget_snapshot(
             or 0
         )
     )
+    diff_expr = ExposureReservation.amount_usdc - func.coalesce(
+        ExecutionRequest.filled_cost_usdc, 0
+    )
+    unfilled_expr = case((diff_expr > 0, diff_expr), else_=0)
+
     reserved = Decimal(
         str(
             await db.scalar(
-                select(
-                    func.coalesce(
-                        func.sum(
-                            func.greatest(
-                                ExposureReservation.amount_usdc
-                                - func.coalesce(ExecutionRequest.filled_cost_usdc, 0),
-                                0,
-                            )
-                        ),
-                        0,
-                    )
-                )
+                select(func.coalesce(func.sum(unfilled_expr), 0))
                 .join(
                     ExecutionRequest,
                     ExecutionRequest.id == ExposureReservation.request_id,
