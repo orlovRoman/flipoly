@@ -124,6 +124,9 @@ class TradeHistory(Base):
     status = Column(String(32), nullable=False) # "SUCCESS", "FAILED"
     error_msg = Column(String, nullable=True)
     mode = Column(String(16), nullable=False, default="LIVE")
+    source_paper_trade_id = Column(
+        Integer, ForeignKey("trade_history.id", ondelete="SET NULL"), nullable=True
+    )
     live_session_id = Column(
         UUID(as_uuid=True),
         ForeignKey("live_trading_sessions.id", ondelete="SET NULL"),
