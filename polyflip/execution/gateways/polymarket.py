@@ -321,13 +321,7 @@ class PolymarketExecutionGateway:
     async def get_readiness(
         self, conditional_token_ids: tuple[str, ...] = ()
     ) -> GatewayReadiness:
-        credentials_loaded = bool(self._private_key and self._wallet_address)
-        client = await self.get_client()
-        client_initialized = client is not None
-
-        environment = getattr(client, "environment", None) if client else None
-        chain_id = getattr(environment, "chain_id", None) if environment else None
-        network_chain_id = int(chain_id) if chain_id is not None else None
+        credentials_loaded = self.credentials_loaded
 
         readiness = GatewayReadiness(
             ready=False,
@@ -335,16 +329,28 @@ class PolymarketExecutionGateway:
             wallet_address=self._wallet_address,
             balance=None,
             credentials_loaded=credentials_loaded,
-            client_initialized=client_initialized,
+            client_initialized=False,
             collateral_allowance_ready=False,
             conditional_allowance_ready=None,
-            network_chain_id=network_chain_id,
+            network_chain_id=getattr(
+                self._environment,
+                "chain_id",
+                None,
+            ),
             checked_at=datetime.now(timezone.utc),
         )
 
-        if not client:
-            readiness.error_message = "Polymarket client not initialized"
+        try:
+            client = await self.get_client()
+        except GatewayUnavailable as exc:
+            readiness.error_message = str(exc)
             return readiness
+
+        if client is None:
+            readiness.error_message = "Polymarket client initialization failed"
+            return readiness
+
+        readiness.client_initialized = True
 
         try:
             resp = await client.get_balance_allowance(asset_type="COLLATERAL")
@@ -370,15 +376,15 @@ class PolymarketExecutionGateway:
                 for token_id in conditional_token_ids
             ]
 
-            conditional_ready = (
-                all(value > 0 for value in token_allowances)
-                if conditional_token_ids
-                else None
-            )
+            conditional_ready: bool | None = None
+            if conditional_token_ids:
+                conditional_ready = all(value > 0 for value in token_allowances)
 
             balance_result = BalanceResult(
+                raw_balance_usdc=raw_balance,
                 balance_usdc=balance_usdc,
                 collateral_allowances=parsed_allowances,
+                collateral_allowance_ready=collateral_ready,
                 conditional_allowances_checked=len(conditional_token_ids),
                 conditional_allowance_ready=conditional_ready,
                 checked_at=datetime.now(timezone.utc),
@@ -390,10 +396,9 @@ class PolymarketExecutionGateway:
             readiness.conditional_allowance_ready = conditional_ready
 
             readiness.ready = (
-                credentials_loaded
-                and client_initialized
-                and collateral_ready
-                and (readiness.conditional_allowance_ready is not False)
+                collateral_ready
+                and (conditional_ready is not False)
+                and (balance_usdc >= Decimal("5.00"))
             )
             return readiness
 

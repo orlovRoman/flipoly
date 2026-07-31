@@ -154,3 +154,20 @@ def test_rejects_mismatched_signer_private_key():
         match="does not match",
     ):
         gateway._validate_credentials()
+
+
+@pytest.mark.asyncio
+async def test_readiness_reports_signer_mismatch():
+    gateway = PolymarketExecutionGateway(
+        private_key=KNOWN_PRIVATE_KEY,
+        wallet_address="0xPolymarketWallet",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address="0x1111111111111111111111111111111111111111",
+    )
+
+    result = await gateway.get_readiness(conditional_token_ids=("token-1",))
+
+    assert result.ready is False
+    assert result.credentials_loaded is True
+    assert result.client_initialized is False
+    assert "does not match" in result.error_message
