@@ -7,11 +7,11 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import select, func, text, and_, or_, case
+from sqlalchemy import select, func, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.db.execution_models import (
@@ -19,9 +19,8 @@ from polyflip.db.execution_models import (
     ExecutionRequest,
     ExecutionWorkerStatus,
     ExposureReservation,
-    LiveMirrorCandidate,
 )
-from polyflip.db.models import TradeHistory, RuntimeSettings
+from polyflip.db.models import TradeHistory
 
 logger = logging.getLogger("live_session_service")
 
@@ -75,7 +74,8 @@ async def count_session_positions(db: AsyncSession, session_id: uuid.UUID) -> in
 async def get_session_exposure(db: AsyncSession, session_id: uuid.UUID) -> Decimal:
     """
     Рассчитывает суммарную экспозицию сессии:
-    позиции (OPEN, PARTIALLY_CLOSED, EXIT_REQUESTED, CLOSING) + невыпущенные удержания (ExposureReservation).
+    позиции (OPEN, PARTIALLY_CLOSED, EXIT_REQUESTED, CLOSING)
+    + невыпущенные удержания (ExposureReservation).
     """
     pos_exp = await db.scalar(
         select(func.coalesce(func.sum(TradeHistory.entry_cost_usdc), 0)).where(
@@ -127,7 +127,9 @@ async def get_session_budget_snapshot(
     filled = Decimal(
         str(
             await db.scalar(
-                select(func.coalesce(func.sum(ExecutionRequest.filled_cost_usdc), 0)).where(
+                select(
+                    func.coalesce(func.sum(ExecutionRequest.filled_cost_usdc), 0)
+                ).where(
                     ExecutionRequest.live_session_id == session_obj.id,
                     ExecutionRequest.requested_mode == "LIVE",
                     ExecutionRequest.intent == "OPEN",
@@ -254,7 +256,9 @@ async def evaluate_live_readiness(
         if ws.conditional_allowance_ready:
             checks["conditional_allowance"] = True
         else:
-            errors.append("Conditional token allowance (продажа токенов) не подтвержден")
+            errors.append(
+                "Conditional token allowance (продажа токенов) не подтвержден"
+            )
 
         required_bal = min(
             Decimal(str(session.budget_usdc)),
@@ -314,7 +318,10 @@ async def evaluate_live_readiness(
     if old_pos_cnt == 0:
         checks["old_positions"] = True
     else:
-        errors.append(f"Обнаружено {old_pos_cnt} не закрытых LIVE-позиций прошлых сессий или без сессии")
+        errors.append(
+            f"Обнаружено {old_pos_cnt} не закрытых LIVE-позиций "
+            "прошлых сессий или без сессии"
+        )
 
     critical_keys = [
         "live_worker",

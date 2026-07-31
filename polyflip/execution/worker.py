@@ -849,9 +849,9 @@ async def publish_heartbeat_once(
 ):
     token_rows = (
         await session.execute(
-            select(LiveMarket.yes_token_id, LiveMarket.no_token_id).where(
-                LiveMarket.end_time_est > datetime.now(timezone.utc)
-            ).limit(100)
+            select(LiveMarket.yes_token_id, LiveMarket.no_token_id)
+            .where(LiveMarket.end_time_est > datetime.now(timezone.utc))
+            .limit(100)
         )
     ).all()
     token_ids = tuple({t for row in token_rows for t in row if t})
@@ -862,9 +862,7 @@ async def publish_heartbeat_once(
     dialect_name = await _get_dialect(session)
     insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
-    bal = (
-        float(readiness.balance.balance_usdc) if readiness.balance else None
-    )
+    bal = float(readiness.balance.balance_usdc) if readiness.balance else None
 
     stmt = insert_func(ExecutionWorkerStatus).values(
         worker_id=worker_id,
@@ -905,11 +903,7 @@ async def publish_heartbeat():
     settings = ExecutionSettings()
     gateway = build_execution_gateway(settings)
     execution_mode = settings.execution_mode.value
-    worker_id = (
-        f"{execution_mode}:"
-        f"{socket.gethostname()}:"
-        f"{os.getpid()}"
-    )
+    worker_id = f"{execution_mode}:" f"{socket.gethostname()}:" f"{os.getpid()}"
 
     while True:
         try:
