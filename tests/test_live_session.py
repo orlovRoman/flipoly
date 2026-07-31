@@ -1,7 +1,8 @@
 import pytest
 import uuid
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import select, func, or_
 from polyflip.db.execution_models import (
@@ -25,6 +26,7 @@ from polyflip.execution.live_session_service import (
     get_session_budget_snapshot,
 )
 from polyflip.execution.outbox import enqueue_close_request, EnqueueDisposition
+from polyflip.execution.contracts import GatewayReadiness, BalanceResult
 
 
 @pytest.mark.asyncio
@@ -58,6 +60,7 @@ async def test_order_cost_calculation():
 
 @pytest.mark.asyncio
 async def test_worker_heartbeat_persists_polygon_chain_id(db_session):
+    """Тест: publish_heartbeat сохраняет network_chain_id=137 и conditional_allowance_ready."""
     session_obj = LiveTradingSession(
         id=uuid.uuid4(),
         status="DRAFT",
@@ -87,6 +90,7 @@ async def test_worker_heartbeat_persists_polygon_chain_id(db_session):
     res = await evaluate_live_readiness(db_session, session_obj)
     assert res.ready is True
     assert res.checks["network"] is True
+    assert res.checks["conditional_allowance"] is True
 
 
 @pytest.mark.asyncio
@@ -214,16 +218,16 @@ async def test_budget_partial_fill_not_double_counted(db_session):
 
 
 @pytest.mark.asyncio
-async def test_legacy_kill_switch_cannot_enable_live():
+async def test_legacy_kill_switch_cannot_enable_live(db_session):
+    """Тест: эндпоинт toggle_kill_switch с enabled=True сбрасывает HTTP 409."""
     from fastapi import HTTPException
     from polyflip.api.execution_api import toggle_kill_switch, KillSwitchRequest
 
-    with pytest.raises(HTTPException) as exc:
-        req = KillSwitchRequest(enabled=True, reason="test")
-        # Синхронная эмуляция проверки бизнес-правила
-        if req.enabled:
-            raise HTTPException(
-                status_code=409,
-                detail="Включение LIVE выполняется только через активацию LIVE-сессии",
-            )
-    assert exc.value.status_code == 409
+    payload = KillSwitchRequest(enabled=True, reason="test_enable")
+    with pytest.raises(HTTPException) as exc_info:
+        await toggle_kill_switch(payload, db_session)
+
+    assert exc_info.value.status_code == 409
+    assert "Включение LIVE выполняется только через активацию LIVE-сессии" in str(
+        exc_info.value.detail
+    )
