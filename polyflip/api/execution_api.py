@@ -83,13 +83,16 @@ async def get_live_trading_status(db: AsyncSession = Depends(get_db_session)):
     live_release_mode = await _flag_str("LIVE_RELEASE_MODE", "DISABLED")
     live_trading_enabled = await _flag("LIVE_TRADING_ENABLED")
 
-    # Количество кандидатов по состояниям
+    # Количество кандидатов по состояниям для режима LIVE
     candidate_counts = {}
     for state in ("NEW", "ELIGIBLE", "REJECTED", "RELEASED"):
         cnt = await db.scalar(
             select(func.count())
             .select_from(LiveMirrorCandidate)
-            .where(LiveMirrorCandidate.state == state)
+            .where(
+                LiveMirrorCandidate.state == state,
+                LiveMirrorCandidate.target_mode == "LIVE",
+            )
         )
         candidate_counts[state] = cnt or 0
 
