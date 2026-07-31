@@ -169,15 +169,15 @@ async def update_security_setting(key: str, payload: SettingValue, request: Opti
             select(RuntimeSettings).where(RuntimeSettings.key == key)
         )).scalar_one_or_none()
 
+        now = datetime.now(timezone.utc)
         if existing:
             existing.value = payload.value
+            existing.updated_at = now
+            existing.updated_by = "api"
         else:
-            session.add(RuntimeSettings(key=key, value=payload.value))
+            session.add(RuntimeSettings(key=key, value=payload.value, updated_at=now, updated_by="api"))
         
         await session.commit()
-        
-        if ws_manager:
-            await ws_manager.broadcast_settings_update({key: payload.value})
     finally:
         if own_session:
             await session.close()

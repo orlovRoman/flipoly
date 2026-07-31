@@ -5,6 +5,7 @@ from sqlalchemy import select, and_, or_, desc, func
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+import uuid
 import structlog
 
 from polyflip.db.connection import get_db_session
