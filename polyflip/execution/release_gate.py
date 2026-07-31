@@ -292,9 +292,8 @@ async def _release_one_locked(
     await session.flush()
 
     # 5. Резервируем экспозицию (ExposureReservation) и бюджет сессии
-    exposure_amount = Decimal(
-        str(paper_request.target_amount_usdc or paper_request.max_spend_usdc or 0)
-    )
+    from polyflip.execution.live_session_service import get_max_order_cost
+    exposure_amount = get_max_order_cost(paper_request)
     exposure_res = ExposureReservation(
         id=uuid.uuid4(),
         request_id=live_request.id,
@@ -398,8 +397,13 @@ async def validate_live_release(
         if live_enabled is None or live_enabled.strip().lower() != "true":
             raise ReleaseDeferred("LIVE kill switch is off")
 
-        # 5.1 Проверка активной LIVE-сессии
+        # 5.1 Проверка активной LIVE-сессии и лимитов сессии
         from polyflip.db.execution_models import LiveTradingSession
+        from polyflip.execution.live_session_service import (
+            get_max_order_cost,
+            count_session_positions,
+            get_session_exposure,
+        )
 
         active_session = (
             await session.execute(
@@ -412,21 +416,36 @@ async def validate_live_release(
         if active_session is None:
             raise ReleaseDeferred("No active LIVE trading session")
 
-        order_amount = Decimal(str(paper_request.target_amount_usdc or 0))
+        # 5.2 Проверка стоимости ордера max(target_amount_usdc, max_spend_usdc)
+        order_amount = get_max_order_cost(paper_request)
 
-        # Лимит единичного ордера
+        # Лимит единичной ставки
         if order_amount > Decimal(str(active_session.max_single_order_usdc)):
             raise ReleaseRejected(
                 f"Order amount {order_amount} exceeds single-order limit {active_session.max_single_order_usdc}"
             )
 
-        # Остаток бюджета сессии
+        # Лимит бюджета сессии
         remaining_budget = Decimal(str(active_session.budget_usdc)) - Decimal(
             str(active_session.reserved_usdc)
         )
         if order_amount > remaining_budget:
             raise ReleaseDeferred(
                 f"LIVE session budget exhausted (remaining {remaining_budget} USDC < {order_amount} USDC)"
+            )
+
+        # Лимит количества позиций сессии
+        open_positions = await count_session_positions(session, active_session.id)
+        if open_positions >= active_session.max_open_positions:
+            raise ReleaseDeferred(
+                f"Session open-position limit reached ({open_positions} >= {active_session.max_open_positions})"
+            )
+
+        # Лимит экспозиции сессии
+        current_exposure = await get_session_exposure(session, active_session.id)
+        if (current_exposure + order_amount) > Decimal(str(active_session.max_total_exposure_usdc)):
+            raise ReleaseDeferred(
+                f"Session exposure limit reached ({current_exposure} + {order_amount} > {active_session.max_total_exposure_usdc})"
             )
 
         ws = (

@@ -512,8 +512,6 @@ async def resolve_manual_review(
     elif body.action == "MARK_FAILED_NO_FILL":
         req.state = "FAILED"
         req.error_reason = f"Manually marked as failed by {body.operator}: {body.note}"
-        req.updated_at = now
-
     db.add(
         ExecutionEvent(
             level="INFO",
@@ -551,7 +549,16 @@ async def resolve_manual_review(
 from decimal import Decimal
 from pydantic import model_validator
 from polyflip.db.execution_models import LiveTradingSession, LiveMirrorCandidate
-from polyflip.db.models import TradeHistory
+from polyflip.db.models import TradeHistory, RuntimeSettings
+from polyflip.execution.outbox import enqueue_close_request, EnqueueDisposition
+from polyflip.execution.live_session_service import (
+    get_active_session_for_update,
+    count_session_positions,
+    get_session_exposure,
+    calculate_session_filled_usdc,
+    evaluate_live_readiness,
+    serialize_live_session_dto,
+)
 
 
 class CreateLiveSessionRequest(BaseModel):
@@ -575,41 +582,17 @@ class CreateLiveSessionRequest(BaseModel):
         return self
 
 
-def serialize_live_session(session: LiveTradingSession) -> dict:
-    return {
-        "id": str(session.id),
-        "status": session.status,
-        "budget_usdc": float(session.budget_usdc),
-        "reserved_usdc": float(session.reserved_usdc),
-        "remaining_budget_usdc": float(session.budget_usdc - session.reserved_usdc),
-        "filled_usdc": float(session.filled_usdc),
-        "max_single_order_usdc": float(session.max_single_order_usdc),
-        "max_total_exposure_usdc": float(session.max_total_exposure_usdc),
-        "max_open_positions": session.max_open_positions,
-        "started_at": session.started_at.isoformat() if session.started_at else None,
-        "stopped_at": session.stopped_at.isoformat() if session.stopped_at else None,
-        "stop_reason": session.stop_reason,
-        "created_at": session.created_at.isoformat() if session.created_at else None,
-    }
-
-
 @router.post("/live/sessions")
 async def create_live_session(
     payload: CreateLiveSessionRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
-    active_or_draft = (
-        await db.execute(
-            select(LiveTradingSession).where(
-                LiveTradingSession.status.in_(["DRAFT", "READY", "ACTIVE"])
-            )
-        )
-    ).scalar_one_or_none()
+    active_or_draft = await get_active_session_for_update(db)
 
     if active_or_draft:
         raise HTTPException(
             status_code=409,
-            detail=f"Сессия уже существует в статусе {active_or_draft.status}",
+            detail=f"Управляемая LIVE-сессия уже существует в статусе {active_or_draft.status}",
         )
 
     session = LiveTradingSession(
@@ -624,7 +607,7 @@ async def create_live_session(
     db.add(session)
     await db.commit()
     await db.refresh(session)
-    return serialize_live_session(session)
+    return serialize_live_session_dto(session)
 
 
 @router.post("/live/sessions/{session_id}/readiness")
@@ -646,130 +629,21 @@ async def check_live_session_readiness(
     if not session_obj:
         raise HTTPException(status_code=404, detail="LiveTradingSession not found")
 
-    checks = {
-        "live_worker": False,
-        "heartbeat": False,
-        "credentials": False,
-        "wallet": False,
-        "network": False,
-        "balance": False,
-        "collateral_allowance": False,
-        "conditional_allowance": False,
-        "stale_requests": False,
-        "old_positions": False,
-        "paper_pipeline": False,
-        "close_workflow": True,
-    }
-    warnings = []
-    now = datetime.now(timezone.utc)
+    readiness = await evaluate_live_readiness(db, session_obj)
 
-    # 1. LIVE worker checks
-    ws = (
-        await db.execute(
-            select(ExecutionWorkerStatus)
-            .where(ExecutionWorkerStatus.execution_mode == "LIVE")
-            .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-
-    if ws:
-        checks["live_worker"] = True
-        hb_at = ws.heartbeat_at
-        if hb_at and hb_at.tzinfo is None:
-            hb_at = hb_at.replace(tzinfo=timezone.utc)
-        if hb_at and (now - hb_at).total_seconds() <= 30:
-            checks["heartbeat"] = True
-        checks["credentials"] = bool(ws.credentials_loaded)
-        checks["wallet"] = bool(ws.wallet_address)
-        checks["network"] = True  # Polygon network confirmed
-        checks["collateral_allowance"] = bool(ws.collateral_allowance_ready)
-        checks["conditional_allowance"] = bool(ws.conditional_allowance_ready)
-
-        required_bal = min(
-            Decimal(str(session_obj.budget_usdc)),
-            Decimal(str(session_obj.max_total_exposure_usdc)),
-        )
-        current_bal = Decimal(str(ws.balance_usdc or 0))
-        if current_bal >= required_bal:
-            checks["balance"] = True
-        else:
-            warnings.append(
-                f"Баланс {current_bal} USDC меньше требуемого {required_bal} USDC"
-            )
-
-    # 2. Stale requests check
-    stale_count = (
-        await db.execute(
-            select(func.count(ExecutionRequest.id)).where(
-                ExecutionRequest.requested_mode == "LIVE",
-                ExecutionRequest.state.in_(
-                    [
-                        "READY",
-                        "CLAIMED",
-                        "SUBMITTING",
-                        "RECONCILING",
-                        "MANUAL_REVIEW_REQUIRED",
-                    ]
-                ),
-            )
-        )
-    ).scalar() or 0
-    if stale_count == 0:
-        checks["stale_requests"] = True
-
-    # 3. Old positions check
-    old_positions_count = (
-        await db.execute(
-            select(func.count(TradeHistory.id)).where(
-                TradeHistory.mode == "LIVE",
-                TradeHistory.position_status == "OPEN",
-                TradeHistory.live_session_id != session_obj.id,
-            )
-        )
-    ).scalar() or 0
-    if old_positions_count == 0:
-        checks["old_positions"] = True
-
-    # 4. PAPER pipeline check
-    paper_ws = (
-        await db.execute(
-            select(ExecutionWorkerStatus)
-            .where(ExecutionWorkerStatus.execution_mode == "PAPER")
-            .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if paper_ws and paper_ws.heartbeat_at:
-        paper_hb = paper_ws.heartbeat_at
-        if paper_hb.tzinfo is None:
-            paper_hb = paper_hb.replace(tzinfo=timezone.utc)
-        if (now - paper_hb).total_seconds() <= 60:
-            checks["paper_pipeline"] = True
-
-    all_critical_passed = all(
-        [
-            checks["live_worker"],
-            checks["heartbeat"],
-            checks["credentials"],
-            checks["wallet"],
-            checks["collateral_allowance"],
-            checks["conditional_allowance"],
-            checks["stale_requests"],
-            checks["old_positions"],
-        ]
-    )
-
-    if all_critical_passed and session_obj.status == "DRAFT":
+    if readiness.ready and session_obj.status == "DRAFT":
         session_obj.status = "READY"
         await db.commit()
         await db.refresh(session_obj)
 
+    filled_usdc = await calculate_session_filled_usdc(db, session_obj.id)
+
     return {
-        "ready": all_critical_passed,
-        "session": serialize_live_session(session_obj),
-        "checks": checks,
-        "warnings": warnings,
+        "ready": readiness.ready,
+        "session": serialize_live_session_dto(session_obj, filled_usdc),
+        "checks": readiness.checks,
+        "errors": readiness.errors,
+        "warnings": readiness.warnings,
     }
 
 
@@ -785,7 +659,9 @@ async def activate_live_session(
 
     session_obj = (
         await db.execute(
-            select(LiveTradingSession).where(LiveTradingSession.id == sess_uuid)
+            select(LiveTradingSession)
+            .where(LiveTradingSession.id == sess_uuid)
+            .with_for_update()
         )
     ).scalar_one_or_none()
 
@@ -796,6 +672,17 @@ async def activate_live_session(
         raise HTTPException(
             status_code=409,
             detail=f"Сначала выполните проверку готовности (текущий статус: {session_obj.status})",
+        )
+
+    # Повторный прогон готовности непосредственно перед активацией
+    readiness = await evaluate_live_readiness(db, session_obj)
+    if not readiness.ready:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Параметры готовности изменились с момента прошлой проверки",
+                "errors": readiness.errors,
+            },
         )
 
     mirror_row = (
@@ -835,78 +722,176 @@ async def activate_live_session(
     await db.commit()
     await db.refresh(session_obj)
 
-    return serialize_live_session(session_obj)
+    filled_usdc = await calculate_session_filled_usdc(db, session_obj.id)
+    return serialize_live_session_dto(session_obj, filled_usdc)
 
 
-class ClosePositionRequest(BaseModel):
-    shares: Optional[Decimal] = None
-    max_slippage_pct: Decimal = Decimal("0.02")
+@router.post("/live/sessions/{session_id}/stop")
+async def stop_live_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        sess_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
+
+    session_obj = (
+        await db.execute(
+            select(LiveTradingSession)
+            .where(LiveTradingSession.id == sess_uuid)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if not session_obj:
+        raise HTTPException(status_code=404, detail="LiveTradingSession not found")
+
+    now = datetime.now(timezone.utc)
+
+    # Выключаем переключатели в БД
+    for key, val in [
+        ("LIVE_MIRROR_ENABLED", "false"),
+        ("LIVE_RELEASE_MODE", "DISABLED"),
+        ("LIVE_TRADING_ENABLED", "false"),
+    ]:
+        row = (
+            await db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == key)
+            )
+        ).scalar_one_or_none()
+        if row:
+            row.value = val
+            row.updated_at = now
+            row.updated_by = "user_stop"
+        else:
+            db.add(RuntimeSettings(key=key, value=val, updated_at=now, updated_by="user_stop"))
+
+    session_obj.status = "STOPPED"
+    session_obj.stopped_at = now
+    session_obj.stop_reason = "USER_STOP"
+    await db.commit()
+    await db.refresh(session_obj)
+
+    filled_usdc = await calculate_session_filled_usdc(db, session_obj.id)
+    return serialize_live_session_dto(session_obj, filled_usdc)
+
+
+@router.post("/live/sessions/{session_id}/finish")
+async def finish_live_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        sess_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
+
+    session_obj = (
+        await db.execute(
+            select(LiveTradingSession)
+            .where(LiveTradingSession.id == sess_uuid)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if not session_obj:
+        raise HTTPException(status_code=404, detail="LiveTradingSession not found")
+
+    open_pos = await count_session_positions(db, session_obj.id)
+    if open_pos > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Нельзя завершить сессию: осталось {open_pos} открытых/закрывающихся позиций",
+        )
+
+    active_cnt = (
+        await db.scalar(
+            select(func.count(ExecutionRequest.id)).where(
+                ExecutionRequest.live_session_id == session_obj.id,
+                ExecutionRequest.requested_mode == "LIVE",
+                ExecutionRequest.state.in_(
+                    [
+                        "AWAITING_APPROVAL",
+                        "READY",
+                        "CLAIMED",
+                        "SUBMITTING",
+                        "ACCEPTED",
+                        "UNKNOWN",
+                        "PARTIALLY_FILLED",
+                        "RECONCILING",
+                        "MANUAL_REVIEW_REQUIRED",
+                    ]
+                ),
+            )
+        )
+    ) or 0
+
+    if active_cnt > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Нельзя завершить сессию: {active_cnt} активных заявок в обработке",
+        )
+
+    session_obj.status = "STOPPED"
+    session_obj.stopped_at = datetime.now(timezone.utc)
+    session_obj.stop_reason = "COMPLETED"
+    await db.commit()
+    await db.refresh(session_obj)
+
+    filled_usdc = await calculate_session_filled_usdc(db, session_obj.id)
+    return serialize_live_session_dto(session_obj, filled_usdc)
 
 
 @router.post("/positions/{trade_id}/close")
 async def close_live_position(
     trade_id: int,
-    payload: ClosePositionRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
     trade = (
         await db.execute(
-            select(TradeHistory).where(TradeHistory.id == trade_id).with_for_update()
+            select(TradeHistory)
+            .where(TradeHistory.id == trade_id)
+            .with_for_update()
         )
     ).scalar_one_or_none()
 
     if not trade or trade.mode != "LIVE":
         raise HTTPException(status_code=404, detail="LIVE-позиция не найдена")
 
-    if trade.position_status not in ("OPEN", "PARTIALLY_CLOSED"):
+    if trade.position_status in ("CLOSED", "REDEEMED"):
         raise HTTPException(status_code=409, detail="Позиция уже закрыта")
 
-    # Защита от двойного закрытия
-    existing = (
-        await db.execute(
-            select(ExecutionRequest).where(
-                ExecutionRequest.trade_history_id == trade.id,
-                ExecutionRequest.intent == "CLOSE",
-                ExecutionRequest.state.in_(
-                    ["READY", "CLAIMED", "SUBMITTING", "RECONCILING"]
-                ),
-            )
-        )
-    ).scalar_one_or_none()
+    if not trade.remaining_shares or trade.remaining_shares <= 0:
+        raise HTTPException(status_code=409, detail="У позиции нет токенов для закрытия")
 
-    if existing:
+    limit_price = float(trade.executed_price or 0.5)
+
+    result = await enqueue_close_request(
+        db,
+        trade_id=trade.id,
+        trigger_reason="MANUAL",
+        limit_price=limit_price,
+    )
+
+    if result.disposition == EnqueueDisposition.CREATED:
+        await db.commit()
         return {
             "status": "queued",
-            "request_id": str(existing.id),
-            "note": "Already queued",
+            "disposition": "CREATED",
+            "request_id": str(result.request_id),
         }
 
-    now = datetime.now(timezone.utc)
-    requested_shares = (
-        payload.shares if payload.shares is not None else trade.remaining_shares
-    )
+    if result.disposition == EnqueueDisposition.DUPLICATE:
+        return {
+            "status": "already_queued",
+            "disposition": "DUPLICATE",
+            "request_id": str(result.request_id),
+        }
 
-    close_req = ExecutionRequest(
-        id=uuid.uuid4(),
-        requested_mode="LIVE",
-        intent="CLOSE",
-        trigger_reason="MANUAL",
-        trade_history_id=trade.id,
-        market_id=trade.market_id,
-        asset=trade.asset,
-        outcome_to_buy=trade.outcome_bought,
-        requested_shares=requested_shares,
-        target_amount_usdc=Decimal(str(trade.amount_usdc or 1.0)),
-        max_slippage_pct=float(payload.max_slippage_pct),
-        state="READY",
-        created_at=now,
-        updated_at=now,
-        live_session_id=trade.live_session_id,
+    raise HTTPException(
+        status_code=409, detail=f"Нельзя создать заявку закрытия: {result.reason}"
     )
-    db.add(close_req)
-    await db.commit()
-
-    return {"status": "queued", "request_id": str(close_req.id)}
 
 
 @router.post("/live/sessions/{session_id}/close-all")
@@ -920,64 +905,38 @@ async def close_all_session_positions(
         raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
 
     open_trades = (
-        (
-            await db.execute(
-                select(TradeHistory).where(
-                    TradeHistory.mode == "LIVE",
-                    TradeHistory.position_status.in_(["OPEN", "PARTIALLY_CLOSED"]),
-                    TradeHistory.live_session_id == sess_uuid,
-                )
+        await db.execute(
+            select(TradeHistory).where(
+                TradeHistory.mode == "LIVE",
+                TradeHistory.position_status.in_(["OPEN", "PARTIALLY_CLOSED"]),
+                TradeHistory.live_session_id == sess_uuid,
             )
         )
-        .scalars()
-        .all()
-    )
+    ).scalars().all()
 
-    queued_requests = []
-    now = datetime.now(timezone.utc)
-
+    results = []
     for trade in open_trades:
-        existing = (
-            await db.execute(
-                select(ExecutionRequest).where(
-                    ExecutionRequest.trade_history_id == trade.id,
-                    ExecutionRequest.intent == "CLOSE",
-                    ExecutionRequest.state.in_(
-                        ["READY", "CLAIMED", "SUBMITTING", "RECONCILING"]
-                    ),
-                )
-            )
-        ).scalar_one_or_none()
-
-        if existing:
-            queued_requests.append(str(existing.id))
-            continue
-
-        close_req = ExecutionRequest(
-            id=uuid.uuid4(),
-            requested_mode="LIVE",
-            intent="CLOSE",
+        limit_price = float(trade.executed_price or 0.5)
+        res = await enqueue_close_request(
+            db,
+            trade_id=trade.id,
             trigger_reason="MANUAL",
-            trade_history_id=trade.id,
-            market_id=trade.market_id,
-            asset=trade.asset,
-            outcome_to_buy=trade.outcome_bought,
-            requested_shares=trade.remaining_shares,
-            target_amount_usdc=Decimal(str(trade.amount_usdc or 1.0)),
-            max_slippage_pct=0.02,
-            state="READY",
-            created_at=now,
-            updated_at=now,
-            live_session_id=trade.live_session_id,
+            limit_price=limit_price,
         )
-        db.add(close_req)
-        queued_requests.append(str(close_req.id))
+        results.append(
+            {
+                "trade_id": trade.id,
+                "disposition": str(res.disposition),
+                "request_id": str(res.request_id) if res.request_id else None,
+                "reason": res.reason,
+            }
+        )
 
     await db.commit()
     return {
-        "status": "success",
-        "closed_positions_count": len(open_trades),
-        "request_ids": queued_requests,
+        "status": "completed",
+        "total_positions": len(open_trades),
+        "results": results,
     }
 
 
@@ -1039,8 +998,16 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         .all()
     )
 
+    filled_usdc = Decimal("0")
+    if active_session:
+        filled_usdc = await calculate_session_filled_usdc(db, active_session.id)
+
     return {
-        "session": serialize_live_session(active_session) if active_session else None,
+        "session": (
+            serialize_live_session_dto(active_session, filled_usdc)
+            if active_session
+            else None
+        ),
         "worker": {
             "worker_id": worker_status.worker_id if worker_status else None,
             "heartbeat_at": (
@@ -1052,7 +1019,9 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
             "credentials_loaded": (
                 worker_status.credentials_loaded if worker_status else False
             ),
-            "wallet_address": worker_status.wallet_address if worker_status else None,
+            "wallet_address": (
+                worker_status.wallet_address if worker_status else None
+            ),
             "balance_usdc": (
                 float(worker_status.balance_usdc)
                 if worker_status and worker_status.balance_usdc is not None
@@ -1085,6 +1054,9 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
                 "executed_price": p.executed_price,
                 "pnl": p.pnl,
                 "position_status": p.position_status,
+                "remaining_shares": (
+                    float(p.remaining_shares) if p.remaining_shares else 0.0
+                ),
                 "created_at": p.created_at.isoformat() if p.created_at else None,
             }
             for p in positions
