@@ -274,6 +274,7 @@ async def enqueue_close_request(
             created_at=now_utc,
             updated_at=now_utc,
             position_version_snapshot=version_snapshot,
+            live_session_id=trade.live_session_id,
         )
         .on_conflict_do_nothing(
             index_elements=["trade_history_id"],
