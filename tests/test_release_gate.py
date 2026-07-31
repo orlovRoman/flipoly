@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from polyflip.db.execution_models import ExecutionRequest, LiveMirrorCandidate
 from polyflip.db.models import RuntimeSettings, TradeHistory
