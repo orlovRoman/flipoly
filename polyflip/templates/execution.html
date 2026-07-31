@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PolyFlip Исполнение Сделок</title>
+    <title>PolyFlip Исполнение Сделок (LIVE)</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,6 +21,7 @@
         .status-shadow { background: #4a5568; color: white; }
         .status-paper { background: #d69e2e; color: white; }
         .status-live { background: #e53e3e; color: white; }
+        .status-ready { background: #3182ce; color: white; }
         
         .worker-online { color: #48bb78; font-weight: bold; }
         .worker-offline { color: #e53e3e; font-weight: bold; }
@@ -53,10 +54,36 @@
         .kill-switch:checked::after {
             transform: translateX(24px);
         }
-        .kill-switch:disabled {
-            cursor: not-allowed;
-            opacity: 0.5;
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
         }
+
+        .btn-action {
+            background: var(--accent-color, #3182ce);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn-action:hover { opacity: 0.9; }
+        .btn-danger { background: #e53e3e; }
+        .btn-warning { background: #dd6b20; }
+        
+        .checklist-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+        }
+        .check-pass { color: #48bb78; font-weight: bold; }
+        .check-fail { color: #e53e3e; font-weight: bold; }
     </style>
     <script>
         window.API_BASE = "{{ root_path }}";
@@ -64,88 +91,147 @@
 </head>
 <body>
     <div class="app-container">
-        <!-- Sidebar / Navigation -->
+        <!-- Sidebar Navigation -->
         <nav class="sidebar">
             <div class="logo">
                 <span class="poly">Poly</span><span class="flip">Flip</span>
             </div>
             <ul class="nav-links">
                 <li class="nav-item" onclick="window.location.href='/dashboard'">Аналитика</li>
-                <li class="nav-item" onclick="window.location.href='/dashboard?tab=models'">Модели Polymarket (LogReg)</li>
+                <li class="nav-item" onclick="window.location.href='/dashboard?tab=models'">Модели Polymarket</li>
                 <li class="nav-item" onclick="window.location.href='/dashboard?tab=status'">Статус Парсера</li>
                 <li class="nav-item" data-href="/trading">Торговля (PnL)</li>
                 <li class="nav-item" data-href="/backtest">Бэктест</li>
-                <li class="nav-item" data-href="/crypto">Crypto-модели (LightGBM)</li>
-                <li class="nav-item active" data-href="/execution">Исполнение сделок</li>
+                <li class="nav-item" data-href="/crypto">Crypto-модели</li>
+                <li class="nav-item active" data-href="/execution">Исполнение LIVE</li>
             </ul>
         </nav>
 
         <!-- Main Content Area -->
         <main class="main-content">
             <header class="tab-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h1>Исполнение сделок</h1>
+                <h1>Исполнение LIVE-сессий</h1>
                 <div style="display: flex; gap: 20px; align-items: center;">
                     <div style="text-align: right;">
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Режим Исполнения</div>
-                        <div id="exec-mode-badge" class="status-badge status-shadow">SHADOW</div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Статус Сессии</div>
+                        <div id="session-status-badge" class="status-badge status-shadow">БЕЗ СЕССИИ</div>
                     </div>
                     <div style="text-align: right;">
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Воркер</div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">LIVE Worker</div>
                         <div id="worker-status" class="worker-offline">Остановлен</div>
                     </div>
                     <div style="text-align: right;">
                         <div style="font-size: 0.85rem; color: var(--text-muted);">Баланс USDC</div>
                         <div id="wallet-balance" style="font-weight: 600; font-size: 1.1rem;">--</div>
                     </div>
-                    <div style="text-align: center; background: rgba(229, 62, 62, 0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(229, 62, 62, 0.3);">
-                        <div style="font-size: 0.85rem; color: #fc8181; font-weight: bold; margin-bottom: 4px;">LIVE ТОРГОВЛЯ</div>
-                        <input type="checkbox" id="live-kill-switch" class="kill-switch" title="Включить/выключить реальные сделки">
-                    </div>
                 </div>
             </header>
 
+            <!-- Блок 1. Управление сессией -->
             <div class="panel" style="margin-bottom: 20px;">
-                <h3>Активные заявки (Execution Requests)</h3>
+                <h3>Управление LIVE-Сессией и Рисками</h3>
+                <div id="session-info-block" style="margin-bottom: 15px; display: none;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <div><strong>ID Сессии:</strong> <span id="session-id-text">--</span></div>
+                        <div><strong>Расход Бюджета:</strong> <span id="session-budget-usage">0 / 0 USDC</span></div>
+                    </div>
+                    <progress id="budget-progress" max="100" value="0" style="width: 100%; height: 12px;"></progress>
+                </div>
+
+                <!-- Форма создания -->
+                <div id="session-create-form" class="form-grid">
+                    <div>
+                        <label style="font-size: 0.85rem;">Бюджет Сессии (USDC)</label>
+                        <input type="number" id="input-budget" class="form-control" value="10.00" step="1.0">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.85rem;">Макс. Ставка (USDC)</label>
+                        <input type="number" id="input-max-order" class="form-control" value="1.00" step="0.5">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.85rem;">Макс. Позиций</label>
+                        <input type="number" id="input-max-positions" class="form-control" value="5" min="1" max="100">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.85rem;">Макс. Экспозиция (USDC)</label>
+                        <input type="number" id="input-max-exposure" class="form-control" value="5.00" step="1.0">
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+                    <button id="btn-create-session" class="btn-action">1. Создать LIVE-Сессию</button>
+                    <button id="btn-check-readiness" class="btn-action" style="background: #3182ce;">2. Проверить Готовность</button>
+                    <button id="btn-activate-session" class="btn-action" style="background: #38a169;">3. Активировать LIVE</button>
+                    <button id="btn-stop-session" class="btn-action btn-warning">Остановить Входы</button>
+                    <button id="btn-close-all" class="btn-action btn-danger">Закрыть Все Позиции</button>
+                    <button id="btn-finish-session" class="btn-action" style="background: #4a5568;">Завершить Сессию</button>
+                </div>
+            </div>
+
+            <!-- Блок 2. Чеклист Readiness -->
+            <div class="panel" style="margin-bottom: 20px;" id="readiness-panel">
+                <h3>Результаты Проверки Готовности (Readiness Checklist)</h3>
+                <div id="readiness-checklist-box" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px;">
+                    <div class="checklist-item"><span id="check-worker" class="check-fail">✗</span> LIVE Worker запущен</div>
+                    <div class="checklist-item"><span id="check-heartbeat" class="check-fail">✗</span> Heartbeat свежий (&lt;30s)</div>
+                    <div class="checklist-item"><span id="check-credentials" class="check-fail">✗</span> Ключи загружены</div>
+                    <div class="checklist-item"><span id="check-wallet" class="check-fail">✗</span> Кошелек Polygon OK</div>
+                    <div class="checklist-item"><span id="check-gateway" class="check-fail">✗</span> Gateway готов</div>
+                    <div class="checklist-item"><span id="check-balance" class="check-fail">✗</span> Баланс USDC достаточен</div>
+                    <div class="checklist-item"><span id="check-collateral" class="check-fail">✗</span> USDC Allowance готов</div>
+                    <div class="checklist-item"><span id="check-conditional" class="check-fail">✗</span> Conditional Token Approval готов</div>
+                    <div class="checklist-item"><span id="check-active-req" class="check-fail">✗</span> Нет активных/зависших заявок</div>
+                    <div class="checklist-item"><span id="check-old-pos" class="check-fail">✗</span> Нет чужих открытых позиций</div>
+                </div>
+                <div id="readiness-errors-list" style="margin-top: 10px; color: #e53e3e; font-size: 0.9rem;"></div>
+            </div>
+
+            <!-- Блок 3. Позиции -->
+            <div class="panel" style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3>Открытые LIVE-Позиции</h3>
+                </div>
                 <div style="overflow-x: auto;">
-                    <table class="data-table" id="requests-table">
+                    <table class="data-table" id="positions-table">
                         <thead>
                             <tr>
-                                <th>Время</th>
-                                <th>Намерение</th>
+                                <th>ID</th>
+                                <th>Открыта</th>
                                 <th>Рынок</th>
-                                <th>Режим</th>
-                                <th>Цель</th>
+                                <th>Исход</th>
+                                <th>Вложено</th>
+                                <th>Shares</th>
+                                <th>Вход</th>
+                                <th>PnL</th>
                                 <th>Статус</th>
-                                <th>Исполнено</th>
-                                <th>Ошибка / TTL</th>
+                                <th>Действие</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr><td colspan="8" style="text-align: center;">Загрузка...</td></tr>
+                            <tr><td colspan="10" style="text-align: center;">Загрузка...</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            <div class="panel">
-                <h3>Открытые позиции (OPEN / CLOSING / PARTIALLY_CLOSED)</h3>
+            <!-- Блок 4. Заявки -->
+            <div class="panel" style="margin-bottom: 20px;">
+                <h3>LIVE-Заявки (Execution Requests)</h3>
                 <div style="overflow-x: auto;">
-                    <table class="data-table" id="positions-table">
+                    <table class="data-table" id="requests-table">
                         <thead>
                             <tr>
-                                <th>Открыта</th>
+                                <th>Время</th>
+                                <th>Intent</th>
                                 <th>Рынок</th>
                                 <th>Исход</th>
-                                <th>Режим</th>
-                                <th>Shares (Ост.)</th>
-                                <th>Средняя Цена</th>
-                                <th>Stop Loss / Take Profit</th>
-                                <th>PnL (Реализ.)</th>
+                                <th>Сумма</th>
                                 <th>Статус</th>
+                                <th>Причина Ошибки</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr><td colspan="9" style="text-align: center;">Загрузка...</td></tr>
+                            <tr><td colspan="7" style="text-align: center;">Загрузка...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -153,217 +239,197 @@
         </main>
     </div>
 
-    <!-- Notifications API Wrapper -->
     <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ timestamp }}"></script>
     <script>
         function getAuthHeaders() {
             let key = "test-key";
-            try {
-                key = localStorage.getItem("polyflip_api_key") || "test-key";
-            } catch (e) {
-                console.warn("localStorage unavailable, using default key");
-            }
-            return {
-                "Content-Type": "application/json",
-                "X-API-Key": key
-            };
+            try { key = localStorage.getItem("polyflip_api_key") || "test-key"; } catch (e) {}
+            return { "Content-Type": "application/json", "X-API-Key": key };
         }
 
-        // Set up navigation logic
         document.querySelectorAll('.nav-item[data-href]').forEach(item => {
-            item.addEventListener('click', function() {
-                window.location.href = this.getAttribute('data-href');
-            });
+            item.addEventListener('click', function() { window.location.href = this.getAttribute('data-href'); });
         });
 
-        // Dashboard logic
-        const toggleSwitch = document.getElementById('live-kill-switch');
-        let liveWorkerReady = false;
-        
-        async function fetchStatus() {
+        let currentSessionId = null;
+
+        async function loadLiveDashboard() {
             try {
-                const res = await fetch(window.API_BASE + '/api/execution/status', {
-                    headers: getAuthHeaders()
-                });
-                if (!res.ok) {
-                    console.warn("Execution status returned non-OK status", res.status);
-                    return;
-                }
+                const res = await fetch(window.API_BASE + '/api/execution/live/dashboard', { headers: getAuthHeaders() });
+                if (!res.ok) return;
                 const data = await res.json();
-                
-                // Update mode badge
-                const modeBadge = document.getElementById('exec-mode-badge');
-                modeBadge.textContent = data.execution_mode;
-                modeBadge.className = 'status-badge ' + (
-                    data.execution_mode === 'LIVE' ? 'status-live' :
-                    data.execution_mode === 'PAPER' ? 'status-paper' : 'status-shadow'
-                );
 
-                // Update worker status
-                const workerStatus = document.getElementById('worker-status');
-                const worker = data.live_worker;
-                const heartbeatMs = worker?.heartbeat_at ? Date.parse(worker.heartbeat_at) : NaN;
-
-                liveWorkerReady = Number.isFinite(heartbeatMs) &&
-                    (Date.now() - heartbeatMs < 60000) &&
-                    (worker?.gateway_ready === true);
-
-                workerStatus.textContent = liveWorkerReady ? 'Работает' : 'Остановлен';
-                workerStatus.className = liveWorkerReady ? 'worker-online' : 'worker-offline';
-                
-                // Update balance
-                const balance = worker ? worker.balance_usdc : null;
-                document.getElementById('wallet-balance').textContent = 
-                    balance !== null ? `$${parseFloat(balance).toFixed(2)}` : '--';
-                
-                // Update kill switch
-                toggleSwitch.checked = data.live_trading_enabled;
-                toggleSwitch.disabled = !data.live_trading_enabled && !liveWorkerReady;
-
-                if (!worker) {
-                    toggleSwitch.title = "LIVE воркер не найден";
-                } else if (!liveWorkerReady) {
-                    toggleSwitch.title = "LIVE-воркер не готов. Проверьте запуск воркера и готовность Gateway.";
+                // Worker
+                const ws = document.getElementById('worker-status');
+                if (data.worker && data.worker.gateway_ready) {
+                    ws.textContent = "Готов"; ws.className = "worker-online";
                 } else {
-                    toggleSwitch.title = "Включить/выключить реальные сделки";
+                    ws.textContent = "Остановлен / Ошибка"; ws.className = "worker-offline";
                 }
-                
+                document.getElementById('wallet-balance').textContent = (data.worker.balance_usdc || 0).toFixed(2) + " USDC";
+
+                // Session
+                const s = data.session;
+                const badge = document.getElementById('session-status-badge');
+                if (s) {
+                    currentSessionId = s.id;
+                    badge.textContent = s.status;
+                    badge.className = 'status-badge ' + (s.status === 'ACTIVE' ? 'status-live' : s.status === 'READY' ? 'status-ready' : 'status-shadow');
+                    document.getElementById('session-info-block').style.display = 'block';
+                    document.getElementById('session-id-text').textContent = s.id;
+                    document.getElementById('session-budget-usage').textContent = `${(s.reserved_usdc || 0).toFixed(2)} / ${(s.budget_usdc || 0).toFixed(2)} USDC`;
+                    
+                    const pct = s.budget_usdc > 0 ? (s.reserved_usdc / s.budget_usdc) * 100 : 0;
+                    document.getElementById('budget-progress').value = pct;
+                } else {
+                    currentSessionId = null;
+                    badge.textContent = "БЕЗ СЕССИИ";
+                    badge.className = "status-badge status-shadow";
+                    document.getElementById('session-info-block').style.display = 'none';
+                }
+
+                // Render Positions
+                renderPositions(data.positions || []);
+                renderRequests(data.requests || []);
+
             } catch (e) {
-                console.error("Error fetching status", e);
+                console.error("Error loading live dashboard:", e);
             }
         }
-        
-        toggleSwitch.addEventListener('change', async function() {
-            const enable = this.checked;
-            if (enable && !liveWorkerReady) {
-                this.checked = false;
-                window.showNotification ? showNotification("LIVE-воркер не готов", "error") : alert("LIVE-воркер не готов");
+
+        function renderPositions(positions) {
+            const tbody = document.querySelector('#positions-table tbody');
+            if (!positions.length) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">Нет LIVE-позиций</td></tr>';
                 return;
             }
-            this.disabled = true;
-            try {
-                const res = await fetch(window.API_BASE + '/api/execution/kill-switch', {
-                    method: 'PUT',
-                    headers: getAuthHeaders(),
-                    body: JSON.stringify({ enabled: enable })
-                });
-                const data = await res.json();
-                
-                if (!res.ok) {
-                    this.checked = !enable; // Revert
-                    window.showNotification ? showNotification(data.detail || "Error", "error") : alert(data.detail);
-                } else {
-                    window.showNotification ? showNotification(`LIVE trading ${enable ? 'ENABLED' : 'DISABLED'}`, enable ? 'warning' : 'info') : null;
-                }
-            } catch (e) {
-                this.checked = !enable;
-                alert("Request failed");
-            } finally {
-                fetchStatus();
-            }
-        });
-        
-        // Безопасная экранировка — защита от stored XSS через данные gateway
-        function esc(str) {
-            const div = document.createElement('div');
-            div.textContent = String(str ?? '');
-            return div.innerHTML;  // возвращает HTML-сущности, не теги
+            tbody.innerHTML = positions.map(p => `
+                <tr>
+                    <td>${p.id}</td>
+                    <td>${p.created_at ? p.created_at.substring(11, 19) : '--'}</td>
+                    <td>${p.asset} (${p.market_id.substring(0, 8)}...)</td>
+                    <td>${p.outcome_bought}</td>
+                    <td>$${(p.amount_usdc || 0).toFixed(2)}</td>
+                    <td>${(p.remaining_shares || 0).toFixed(2)}</td>
+                    <td>$${(p.executed_price || 0).toFixed(3)}</td>
+                    <td style="color: ${p.pnl >= 0 ? '#48bb78' : '#e53e3e'};">${p.pnl != null ? p.pnl.toFixed(2) : '--'}</td>
+                    <td><span class="status-badge ${p.position_status === 'OPEN' ? 'status-live' : 'status-shadow'}">${p.position_status}</span></td>
+                    <td>
+                        ${(p.position_status === 'OPEN' || p.position_status === 'PARTIALLY_CLOSED') ? 
+                            `<button class="btn-action btn-danger" onclick="closePosition(${p.id})">Закрыть</button>` : '--'}
+                    </td>
+                </tr>
+            `).join('');
         }
 
-        async function fetchRequests() {
-            try {
-                const res = await fetch(window.API_BASE + '/api/execution/requests?limit=20', {
-                    headers: getAuthHeaders()
-                });
-                if (!res.ok) return;
-                const data = await res.json();
-
-                const tbody = document.querySelector('#requests-table tbody');
-                if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Нет активных заявок</td></tr>';
-                    return;
-                }
-
-                let html = '';
-                data.forEach(req => {
-                    const date = esc(new Date(req.created_at).toLocaleString());
-                    const target = req.target_amount_usdc ? `$${esc(req.target_amount_usdc)}` : (req.requested_shares ? `${esc(req.requested_shares)} sh` : '--');
-                    const filled = req.filled_shares ? `${esc(req.filled_shares)} sh / $${esc(req.filled_cost_usdc)}` : '0';
-                    // error_reason экранируется через esc() — защита от XSS
-                    const errTTL = req.error_reason
-                        ? `<span style="color:red; font-size:0.85em;">${esc(req.error_reason)}</span>`
-                        : `TTL: ${esc(req.ttl_seconds)}s`;
-                    const stateClass = (req.state === 'SUCCESS' || req.state === 'FILLED')
-                        ? 'status-shadow'
-                        : (req.state.includes('FAILED') || req.state === 'REJECTED' || req.state === 'EXPIRED')
-                            ? 'status-live'
-                            : 'status-paper';
-
-                    html += `<tr>
-                        <td>${date}</td>
-                        <td><strong>${esc(req.intent)}</strong></td>
-                        <td><span style="font-size:0.85em;">${esc(req.market_id.substring(0,8))}...</span></td>
-                        <td>${esc(req.requested_mode)}</td>
-                        <td>${target} @ ${esc(req.limit_price)}</td>
-                        <td><span class="status-badge ${esc(stateClass)}">${esc(req.state)}</span></td>
-                        <td>${filled}</td>
-                        <td>${errTTL}</td>
-                    </tr>`;
-                });
-                tbody.innerHTML = html;
-            } catch (e) {
-                console.error("Error fetching requests", e);
+        function renderRequests(requests) {
+            const tbody = document.querySelector('#requests-table tbody');
+            if (!requests.length) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Нет LIVE-заявок</td></tr>';
+                return;
             }
+            tbody.innerHTML = requests.map(r => `
+                <tr>
+                    <td>${r.created_at ? r.created_at.substring(11, 19) : '--'}</td>
+                    <td><strong>${r.intent}</strong></td>
+                    <td>${r.asset}</td>
+                    <td>${r.outcome_to_buy}</td>
+                    <td>$${(r.target_amount_usdc || 0).toFixed(2)}</td>
+                    <td><span class="status-badge ${r.state === 'FILLED' ? 'status-ready' : 'status-shadow'}">${r.state}</span></td>
+                    <td style="color: #e53e3e;">${r.error_reason || '--'}</td>
+                </tr>
+            `).join('');
         }
 
-        
-        async function fetchPositions() {
-            try {
-                const res = await fetch(window.API_BASE + '/api/execution/positions', {
-                    headers: getAuthHeaders()
-                });
-                if (!res.ok) return;
+        // Actions
+        document.getElementById('btn-create-session').onclick = async () => {
+            const body = {
+                budget_usdc: parseFloat(document.getElementById('input-budget').value),
+                max_single_order_usdc: parseFloat(document.getElementById('input-max-order').value),
+                max_open_positions: parseInt(document.getElementById('input-max-positions').value),
+                max_total_exposure_usdc: parseFloat(document.getElementById('input-max-exposure').value)
+            };
+            const res = await fetch(window.API_BASE + '/api/execution/live/sessions', {
+                method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(body)
+            });
+            if (res.ok) { alert("Сессия создана!"); loadLiveDashboard(); }
+            else { const err = await res.json(); alert("Ошибка: " + (err.detail || JSON.stringify(err))); }
+        };
+
+        document.getElementById('btn-check-readiness').onclick = async () => {
+            if (!currentSessionId) return alert("Сначала создайте сессию");
+            const res = await fetch(window.API_BASE + `/api/execution/live/sessions/${currentSessionId}/readiness`, {
+                method: 'POST', headers: getAuthHeaders()
+            });
+            if (res.ok) {
                 const data = await res.json();
-                
-                const tbody = document.querySelector('#positions-table tbody');
-                if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Нет открытых позиций</td></tr>';
-                    return;
+                updateChecklistUI(data);
+                loadLiveDashboard();
+            } else { alert("Ошибка проверки readiness"); }
+        };
+
+        function updateChecklistUI(data) {
+            const c = data.checks || {};
+            for (let k in c) {
+                const el = document.getElementById('check-' + k);
+                if (el) {
+                    el.textContent = c[k] ? '✓' : '✗';
+                    el.className = c[k] ? 'check-pass' : 'check-fail';
                 }
-                
-                let html = '';
-                data.forEach(pos => {
-                    const date = new Date(pos.created_at).toLocaleString();
-                    const avgPrice = pos.entry_cost_usdc && pos.entry_filled_shares ? (pos.entry_cost_usdc / pos.entry_filled_shares).toFixed(3) : '--';
-                    const sltp = `SL: ${pos.stop_loss_status} / TP: ${pos.take_profit_status}`;
-                    const pnlClass = pos.realized_pnl_usdc > 0 ? 'color: #48bb78;' : (pos.realized_pnl_usdc < 0 ? 'color: #e53e3e;' : '');
-                    
-                    html += `<tr>
-                        <td>${date}</td>
-                        <td>${pos.asset} <span style="font-size:0.85em; color:var(--text-muted);">${pos.market_id.substring(0,8)}...</span></td>
-                        <td>${pos.outcome_bought}</td>
-                        <td>${pos.mode}</td>
-                        <td>${pos.remaining_shares} sh</td>
-                        <td>${avgPrice}</td>
-                        <td><span style="font-size:0.85em;">${sltp}</span></td>
-                        <td style="${pnlClass}">$${(pos.realized_pnl_usdc || 0).toFixed(2)}</td>
-                        <td><strong>${pos.position_status}</strong></td>
-                    </tr>`;
-                });
-                tbody.innerHTML = html;
-            } catch (e) {
-                console.error("Error fetching positions", e);
+            }
+            const errBox = document.getElementById('readiness-errors-list');
+            if (data.errors && data.errors.length) {
+                errBox.innerHTML = '<strong>Ошибки:</strong><br>' + data.errors.join('<br>');
+            } else {
+                errBox.innerHTML = '<span style="color:#48bb78;">✓ Все критические проверки пройдены!</span>';
             }
         }
-        
-        function updateAll() {
-            fetchStatus();
-            fetchRequests();
-            fetchPositions();
+
+        document.getElementById('btn-activate-session').onclick = async () => {
+            if (!currentSessionId) return alert("Нет сессии для активации");
+            const res = await fetch(window.API_BASE + `/api/execution/live/sessions/${currentSessionId}/activate`, {
+                method: 'POST', headers: getAuthHeaders()
+            });
+            if (res.ok) { alert("LIVE-Сессия успешно активирована!"); loadLiveDashboard(); }
+            else { const err = await res.json(); alert("Ошибка активации: " + JSON.stringify(err.detail)); }
+        };
+
+        document.getElementById('btn-stop-session').onclick = async () => {
+            if (!currentSessionId) return;
+            const res = await fetch(window.API_BASE + `/api/execution/live/sessions/${currentSessionId}/stop`, {
+                method: 'POST', headers: getAuthHeaders()
+            });
+            if (res.ok) { alert("Новые входы остановлены."); loadLiveDashboard(); }
+        };
+
+        document.getElementById('btn-close-all').onclick = async () => {
+            if (!currentSessionId) return;
+            if (!confirm("Закрыть все открытые LIVE-позиции?")) return;
+            const res = await fetch(window.API_BASE + `/api/execution/live/sessions/${currentSessionId}/close-all`, {
+                method: 'POST', headers: getAuthHeaders()
+            });
+            if (res.ok) { alert("Заявки закрытия созданы."); loadLiveDashboard(); }
+        };
+
+        document.getElementById('btn-finish-session').onclick = async () => {
+            if (!currentSessionId) return;
+            const res = await fetch(window.API_BASE + `/api/execution/live/sessions/${currentSessionId}/finish`, {
+                method: 'POST', headers: getAuthHeaders()
+            });
+            if (res.ok) { alert("Сессия завершена."); loadLiveDashboard(); }
+            else { const err = await res.json(); alert("Ошибка: " + err.detail); }
+        };
+
+        async function closePosition(tradeId) {
+            const res = await fetch(window.API_BASE + `/api/execution/positions/${tradeId}/close`, {
+                method: 'POST', headers: getAuthHeaders()
+            });
+            if (res.ok) { alert("Заявка на закрытие позиций создана."); loadLiveDashboard(); }
+            else { const err = await res.json(); alert("Ошибка: " + err.detail); }
         }
-        
-        updateAll();
-        setInterval(updateAll, 5000);
+
+        setInterval(loadLiveDashboard, 10000);
+        loadLiveDashboard();
     </script>
 </body>
 </html>
