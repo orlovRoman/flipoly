@@ -283,6 +283,10 @@ class PolymarketExecutionGateway:
         client = await self.get_client()
         client_initialized = client is not None
 
+        environment = getattr(client, "environment", None) if client else None
+        chain_id = getattr(environment, "chain_id", None) if environment else None
+        network_chain_id = int(chain_id) if chain_id is not None else None
+
         readiness = GatewayReadiness(
             ready=False,
             gateway=self.name,
@@ -292,6 +296,7 @@ class PolymarketExecutionGateway:
             client_initialized=client_initialized,
             collateral_allowance_ready=False,
             conditional_allowance_ready=None,
+            network_chain_id=network_chain_id,
             checked_at=datetime.now(timezone.utc),
         )
 

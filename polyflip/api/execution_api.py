@@ -115,9 +115,15 @@ async def toggle_kill_switch(
     payload: KillSwitchRequest, db: AsyncSession = Depends(get_db_session)
 ):
     """
-    Управляет глобальным рубильником LIVE-торговли.
-    Перед включением проверяет наличие и свежесть heartbeat от LIVE-воркера.
+    Управляет экстренным выключением LIVE-торговли.
+    Включение LIVE выполняется исключительно через активацию LIVE-сессии.
     """
+    if payload.enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="Включение LIVE выполняется только через активацию LIVE-сессии",
+        )
+
     key = "LIVE_TRADING_ENABLED"
 
     # Защищаем чтение/запись блокировкой FOR UPDATE

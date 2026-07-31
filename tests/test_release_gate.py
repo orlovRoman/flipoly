@@ -75,7 +75,9 @@ async def _make_paper_trade(session, market_id="MKT-TEST"):
     return t
 
 
-async def _make_paper_request(session, trade):
+async def _make_paper_request(
+    session, trade, amount_usdc: Decimal = Decimal("5")
+):
     req = ExecutionRequest(
         id=uuid.uuid4(),
         idempotency_key=f"PAPER-OPEN-{uuid.uuid4()}",
@@ -86,11 +88,11 @@ async def _make_paper_request(session, trade):
         market_id=trade.market_id,
         asset=trade.asset,
         outcome_to_buy="YES",
-        target_amount_usdc=Decimal("5"),
+        target_amount_usdc=amount_usdc,
         requested_shares=Decimal("10"),
         limit_price=Decimal("0.5"),
         max_slippage_pct=0.02,
-        max_spend_usdc=Decimal("5"),
+        max_spend_usdc=amount_usdc,
         state="FILLED",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -471,13 +473,14 @@ async def test_two_release_gates_cannot_exceed_total_exposure(pg_session_factory
         )
 
         p_trade1 = await _make_paper_trade(setup_session, market_id="MKT-PG-1")
-        p_req1 = await _make_paper_request(setup_session, p_trade1)
+        p_req1 = await _make_paper_request(
+            setup_session, p_trade1, amount_usdc=Decimal("4.0")
+        )
 
         p_trade2 = await _make_paper_trade(setup_session, market_id="MKT-PG-2")
-        p_req2 = await _make_paper_request(setup_session, p_trade2)
-
-        p_req1.target_amount_usdc = Decimal("4.0")
-        p_req2.target_amount_usdc = Decimal("4.0")
+        p_req2 = await _make_paper_request(
+            setup_session, p_trade2, amount_usdc=Decimal("4.0")
+        )
 
         cand1 = await _make_candidate(setup_session, p_req1, p_trade1)
         cand2 = await _make_candidate(setup_session, p_req2, p_trade2)

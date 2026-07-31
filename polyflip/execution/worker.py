@@ -848,7 +848,18 @@ async def publish_heartbeat():
 
     while True:
         try:
-            readiness = await gateway.get_readiness()
+            token_ids: tuple[str, ...] = ()
+            async with async_session() as session:
+                token_rows = (
+                    await session.execute(
+                        select(LiveMarket.yes_token_id, LiveMarket.no_token_id).where(
+                            LiveMarket.end_time_est > datetime.now(timezone.utc)
+                        ).limit(100)
+                    )
+                ).all()
+                token_ids = tuple({t for row in token_rows for t in row if t})
+
+            readiness = await gateway.get_readiness(conditional_token_ids=token_ids)
             now = datetime.now(timezone.utc)
             async with async_session() as session:
                 # Bug #4 fix: используем _get_dialect вместо session.bind.dialect.name
@@ -869,6 +880,7 @@ async def publish_heartbeat():
                     balance_usdc=bal,
                     collateral_allowance_ready=readiness.collateral_allowance_ready,
                     conditional_allowance_ready=readiness.conditional_allowance_ready,
+                    network_chain_id=readiness.network_chain_id,
                     last_error_message=readiness.error_message,
                 )
 
@@ -878,6 +890,7 @@ async def publish_heartbeat():
                     "balance_usdc": bal,
                     "collateral_allowance_ready": readiness.collateral_allowance_ready,
                     "conditional_allowance_ready": readiness.conditional_allowance_ready,
+                    "network_chain_id": readiness.network_chain_id,
                     "last_error_message": readiness.error_message,
                     "execution_mode": settings.execution_mode.value,
                 }

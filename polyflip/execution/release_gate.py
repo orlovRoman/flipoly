@@ -305,12 +305,8 @@ async def _release_one_locked(
     )
     session.add(exposure_res)
 
-    if active_session:
-        active_session.reserved_usdc = (
-            Decimal(str(active_session.reserved_usdc)) + exposure_amount
-        )
-        if active_session.reserved_usdc >= active_session.budget_usdc:
-            active_session.status = "BUDGET_EXHAUSTED"
+    # Примечание: session.reserved_usdc не накапливается накопительно.
+    # Источник истины — динамический get_session_budget_snapshot().
 
     # 6. Обновляем кандидата
     candidate.state = "RELEASED"
