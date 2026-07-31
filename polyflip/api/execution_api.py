@@ -685,45 +685,36 @@ async def activate_live_session(
             },
         )
 
-    mirror_row = (
-        await db.execute(
-            select(RuntimeSettings.value).where(
-                RuntimeSettings.key == "LIVE_MIRROR_ENABLED"
+    # Автоматически атомарно включаем все три тумблера в БД
+    now = datetime.now(timezone.utc)
+    for key, val in [
+        ("LIVE_MIRROR_ENABLED", "true"),
+        ("LIVE_RELEASE_MODE", "AUTO"),
+        ("LIVE_TRADING_ENABLED", "true"),
+    ]:
+        row = (
+            await db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == key)
             )
-        )
-    ).scalar_one_or_none()
-    if mirror_row is None or mirror_row.strip().lower() != "true":
-        raise HTTPException(
-            status_code=409, detail="Включите зеркалирование PAPER → LIVE"
-        )
-
-    release_row = (
-        await db.execute(
-            select(RuntimeSettings.value).where(
-                RuntimeSettings.key == "LIVE_RELEASE_MODE"
+        ).scalar_one_or_none()
+        if row:
+            row.value = val
+            row.updated_at = now
+            row.updated_by = "session_activate"
+        else:
+            db.add(
+                RuntimeSettings(
+                    key=key, value=val, updated_at=now, updated_by="session_activate"
+                )
             )
-        )
-    ).scalar_one_or_none()
-    if release_row is None or release_row.strip().upper() != "AUTO":
-        raise HTTPException(status_code=409, detail="Выберите режим выпуска AUTO")
-
-    trading_row = (
-        await db.execute(
-            select(RuntimeSettings.value).where(
-                RuntimeSettings.key == "LIVE_TRADING_ENABLED"
-            )
-        )
-    ).scalar_one_or_none()
-    if trading_row is None or trading_row.strip().lower() != "true":
-        raise HTTPException(status_code=409, detail="Включите реальное исполнение LIVE")
 
     session_obj.status = "ACTIVE"
-    session_obj.started_at = datetime.now(timezone.utc)
+    session_obj.started_at = now
     await db.commit()
     await db.refresh(session_obj)
 
-    filled_usdc = await calculate_session_filled_usdc(db, session_obj.id)
-    return serialize_live_session_dto(session_obj, filled_usdc)
+    budget_snap = await get_session_budget_snapshot(db, session_obj)
+    return serialize_live_session_dto(session_obj, budget_snap)
 
 
 @router.post("/live/sessions/{session_id}/stop")

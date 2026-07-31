@@ -1,5 +1,5 @@
 """
-live_session_service.py — Единый сервис управления LIVE-сессиями и лимитами риска
+live_session_service.py — Единый сервис управления LIVE-сессиями, бюджетом и лимитами риска
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import select, func, text, and_
+from sqlalchemy import select, func, text, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.db.execution_models import (
@@ -75,7 +75,7 @@ async def count_session_positions(db: AsyncSession, session_id: uuid.UUID) -> in
 async def get_session_exposure(db: AsyncSession, session_id: uuid.UUID) -> Decimal:
     """
     Рассчитывает суммарную экспозицию сессии:
-    позиции (OPEN, PARTIALLY_CLOSED, EXIT_REQUESTED, CLOSING) + удержания (ExposureReservation).
+    позиции (OPEN, PARTIALLY_CLOSED, EXIT_REQUESTED, CLOSING) + невыпущенные удержания (ExposureReservation).
     """
     pos_exp = await db.scalar(
         select(func.coalesce(func.sum(TradeHistory.entry_cost_usdc), 0)).where(
@@ -100,18 +100,75 @@ async def get_session_exposure(db: AsyncSession, session_id: uuid.UUID) -> Decim
     return Decimal(str(pos_exp or 0)) + Decimal(str(res_exp or 0))
 
 
-async def calculate_session_filled_usdc(
-    db: AsyncSession, session_id: uuid.UUID
-) -> Decimal:
-    """Вычисляет суммарную исполненную стоимость OPEN-ордеров сессии из БД."""
-    val = await db.scalar(
-        select(func.coalesce(func.sum(ExecutionRequest.filled_cost_usdc), 0)).where(
-            ExecutionRequest.live_session_id == session_id,
-            ExecutionRequest.requested_mode == "LIVE",
-            ExecutionRequest.intent == "OPEN",
+@dataclass(frozen=True)
+class SessionBudgetSnapshot:
+    filled_usdc: Decimal
+    reserved_usdc: Decimal
+    committed_usdc: Decimal
+    remaining_usdc: Decimal
+
+
+async def get_session_budget_snapshot(
+    db: AsyncSession,
+    session_obj: LiveTradingSession,
+) -> SessionBudgetSnapshot:
+    """
+    Рассчитывает динамический снимок бюджета сессии:
+    filled = фактически исполненная стоимость OPEN-ордеров
+    reserved = неисполненный остаток активных ExposureReservation
+    committed = filled + reserved
+    remaining = max(0, budget_usdc - committed)
+    """
+    filled = Decimal(
+        str(
+            await db.scalar(
+                select(func.coalesce(func.sum(ExecutionRequest.filled_cost_usdc), 0)).where(
+                    ExecutionRequest.live_session_id == session_obj.id,
+                    ExecutionRequest.requested_mode == "LIVE",
+                    ExecutionRequest.intent == "OPEN",
+                )
+            )
+            or 0
         )
     )
-    return Decimal(str(val or 0))
+    reserved = Decimal(
+        str(
+            await db.scalar(
+                select(
+                    func.coalesce(
+                        func.sum(
+                            func.greatest(
+                                ExposureReservation.amount_usdc
+                                - func.coalesce(ExecutionRequest.filled_cost_usdc, 0),
+                                0,
+                            )
+                        ),
+                        0,
+                    )
+                )
+                .join(
+                    ExecutionRequest,
+                    ExecutionRequest.id == ExposureReservation.request_id,
+                )
+                .where(
+                    ExecutionRequest.live_session_id == session_obj.id,
+                    ExposureReservation.released_at.is_(None),
+                )
+            )
+            or 0
+        )
+    )
+    committed = filled + reserved
+    remaining = max(
+        Decimal("0"),
+        Decimal(str(session_obj.budget_usdc)) - committed,
+    )
+    return SessionBudgetSnapshot(
+        filled_usdc=filled,
+        reserved_usdc=reserved,
+        committed_usdc=committed,
+        remaining_usdc=remaining,
+    )
 
 
 @dataclass
@@ -141,7 +198,6 @@ async def evaluate_live_readiness(
         "conditional_allowance": False,
         "active_requests": False,
         "old_positions": False,
-        "single_alembic_head": True,
     }
     errors: list[str] = []
     warnings: list[str] = []
@@ -176,9 +232,15 @@ async def evaluate_live_readiness(
 
         if ws.wallet_address:
             checks["wallet"] = True
-            checks["network"] = True
         else:
             errors.append("Адрес кошелька Polygon не определен")
+
+        if ws.network_chain_id == 137:
+            checks["network"] = True
+        else:
+            errors.append(
+                f"Неверная сеть: chain_id={ws.network_chain_id}, ожидается Polygon Mainnet (137)"
+            )
 
         if ws.gateway_ready:
             checks["gateway"] = True
@@ -234,7 +296,7 @@ async def evaluate_live_readiness(
     else:
         errors.append(f"Обнаружено {active_cnt} незавершенных LIVE-заявок")
 
-    # 3. Старые/незакрытые LIVE-позиции других сессий
+    # 3. Старые/незакрытые LIVE-позиции (включая позиции с live_session_id IS NULL)
     old_pos_cnt = (
         await db.scalar(
             select(func.count(TradeHistory.id)).where(
@@ -242,7 +304,10 @@ async def evaluate_live_readiness(
                 TradeHistory.position_status.in_(
                     ["OPEN", "PARTIALLY_CLOSED", "EXIT_REQUESTED", "CLOSING"]
                 ),
-                TradeHistory.live_session_id != session.id,
+                or_(
+                    TradeHistory.live_session_id.is_(None),
+                    TradeHistory.live_session_id != session.id,
+                ),
             )
         )
     ) or 0
@@ -250,7 +315,7 @@ async def evaluate_live_readiness(
     if old_pos_cnt == 0:
         checks["old_positions"] = True
     else:
-        errors.append(f"Обнаружено {old_pos_cnt} не закрытых LIVE-позиций предыдущих сессий")
+        errors.append(f"Обнаружено {old_pos_cnt} не закрытых LIVE-позиций прошлых сессий или без сессии")
 
     critical_keys = [
         "live_worker",
@@ -273,19 +338,23 @@ async def evaluate_live_readiness(
 
 
 def serialize_live_session_dto(
-    session: LiveTradingSession, filled_usdc: Optional[Decimal] = None
+    session: LiveTradingSession, budget_snapshot: Optional[SessionBudgetSnapshot] = None
 ) -> dict:
-    filled_val = (
-        float(filled_usdc)
-        if filled_usdc is not None
-        else float(session.filled_usdc or 0)
-    )
+    if budget_snapshot is not None:
+        filled_val = float(budget_snapshot.filled_usdc)
+        reserved_val = float(budget_snapshot.reserved_usdc)
+        remaining_val = float(budget_snapshot.remaining_usdc)
+    else:
+        filled_val = float(session.filled_usdc or 0)
+        reserved_val = float(session.reserved_usdc or 0)
+        remaining_val = max(0.0, float(session.budget_usdc - session.reserved_usdc))
+
     return {
         "id": str(session.id),
         "status": session.status,
         "budget_usdc": float(session.budget_usdc),
-        "reserved_usdc": float(session.reserved_usdc),
-        "remaining_budget_usdc": float(session.budget_usdc - session.reserved_usdc),
+        "reserved_usdc": reserved_val,
+        "remaining_budget_usdc": remaining_val,
         "filled_usdc": filled_val,
         "max_single_order_usdc": float(session.max_single_order_usdc),
         "max_total_exposure_usdc": float(session.max_total_exposure_usdc),

@@ -425,13 +425,12 @@ async def validate_live_release(
                 f"Order amount {order_amount} exceeds single-order limit {active_session.max_single_order_usdc}"
             )
 
-        # Лимит бюджета сессии
-        remaining_budget = Decimal(str(active_session.budget_usdc)) - Decimal(
-            str(active_session.reserved_usdc)
-        )
-        if order_amount > remaining_budget:
+        # Лимит бюджета сессии через SessionBudgetSnapshot
+        from polyflip.execution.live_session_service import get_session_budget_snapshot
+        budget_snap = await get_session_budget_snapshot(session, active_session)
+        if order_amount > budget_snap.remaining_usdc:
             raise ReleaseDeferred(
-                f"LIVE session budget exhausted (remaining {remaining_budget} USDC < {order_amount} USDC)"
+                f"LIVE session budget exhausted (remaining {budget_snap.remaining_usdc} USDC < {order_amount} USDC)"
             )
 
         # Лимит количества позиций сессии
