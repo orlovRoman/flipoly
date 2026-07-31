@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import asyncio
 
 from polymarket import AsyncSecureClient, RelayerApiKey
+from eth_account import Account
 from polymarket.errors import (
     TimeoutError as SettlementTimeoutError,
     TransactionFailedError,
@@ -21,6 +22,20 @@ from polyflip.execution.contracts import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def validate_signer(private_key: str, expected_address: str) -> str:
+    try:
+        actual_address = Account.from_key(private_key).address
+    except Exception as e:
+        raise GatewayUnavailable(f"Invalid POLYGON_PRIVATE_KEY format: {e}")
+
+    if actual_address.lower() != expected_address.lower():
+        raise GatewayUnavailable(
+            "POLYGON_PRIVATE_KEY does not match POLYMARKET_RELAYER_API_KEY_ADDRESS"
+        )
+
+    return actual_address
 
 
 class PolymarketExecutionGateway:
@@ -46,15 +61,29 @@ class PolymarketExecutionGateway:
         self._client_cache: Optional[AsyncSecureClient] = None
         self._client_lock = asyncio.Lock()
 
+    @property
+    def credentials_loaded(self) -> bool:
+        return all(
+            (
+                self._private_key,
+                self._wallet_address,
+                self._relayer_api_key,
+                self._relayer_api_key_address,
+            )
+        )
+
+    def _validate_credentials(self) -> None:
+        if not self.credentials_loaded:
+            raise GatewayUnavailable("Missing Polymarket credentials")
+
+        validate_signer(self._private_key, self._relayer_api_key_address)
+
     async def get_client(self) -> Optional[AsyncSecureClient]:
-        if (
-            not self._private_key
-            or not self._wallet_address
-            or not self._relayer_api_key
-            or not self._relayer_api_key_address
-        ):
+        if not self.credentials_loaded:
             logger.error("missing_polygon_credentials")
             return None
+
+        self._validate_credentials()
 
         async with self._client_lock:
             if self._client_cache:

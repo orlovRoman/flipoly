@@ -14,9 +14,11 @@ async def test_gateway_full_cycle():
     Тест должен проходить полный цикл: submit (ACCEPTED) -> fills (2 fills, sum=requested) -> reconcile -> FILLED
     """
     gateway = PolymarketExecutionGateway(
-        private_key="test_key",
+        private_key="0x0000000000000000000000000000000000000000000000000000000000000001",
         wallet_address="0xtest",
-        host="https://gamma-api.polymarket.com"
+        relayer_api_key="relayer_key",
+        relayer_api_key_address="0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
+        host="https://gamma-api.polymarket.com",
     )
     
     mock_client = AsyncMock()

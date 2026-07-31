@@ -6,6 +6,9 @@ from uuid import uuid4
 from polyflip.execution.contracts import GatewayOrder
 from polyflip.execution.gateways.polymarket import PolymarketExecutionGateway
 
+KNOWN_PRIVATE_KEY = "0x0000000000000000000000000000000000000000000000000000000000000001"
+KNOWN_SIGNER_ADDRESS = "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf"
+
 
 @pytest.mark.asyncio
 @patch(
@@ -16,10 +19,10 @@ async def test_gateway_passes_configured_environment(create_mock):
     create_mock.return_value = AsyncMock()
 
     gateway = PolymarketExecutionGateway(
-        private_key="key",
+        private_key=KNOWN_PRIVATE_KEY,
         wallet_address="wallet",
         relayer_api_key="relayer-key",
-        relayer_api_key_address="0x1111111111111111111111111111111111111111",
+        relayer_api_key_address=KNOWN_SIGNER_ADDRESS,
         host="https://custom-clob.example",
     )
 
@@ -38,26 +41,26 @@ async def test_gateway_passes_relayer_credentials(create_mock):
     create_mock.return_value = AsyncMock()
 
     gateway = PolymarketExecutionGateway(
-        private_key="0xprivate",
+        private_key=KNOWN_PRIVATE_KEY,
         wallet_address="0xwallet",
         relayer_api_key="relayer-key",
-        relayer_api_key_address="0x1111111111111111111111111111111111111111",
+        relayer_api_key_address=KNOWN_SIGNER_ADDRESS,
     )
 
     await gateway.get_client()
 
     api_key = create_mock.await_args.kwargs["api_key"]
     assert api_key.key == "relayer-key"
-    assert api_key.address == "0x1111111111111111111111111111111111111111"
+    assert api_key.address == KNOWN_SIGNER_ADDRESS
 
 
 @pytest.mark.asyncio
 async def test_readiness_checks_all_conditional_tokens():
     gateway = PolymarketExecutionGateway(
-        private_key="key",
+        private_key=KNOWN_PRIVATE_KEY,
         wallet_address="wallet",
         relayer_api_key="relayer-key",
-        relayer_api_key_address="0x1111111111111111111111111111111111111111",
+        relayer_api_key_address=KNOWN_SIGNER_ADDRESS,
         host="https://clob.polymarket.com",
     )
 
@@ -82,10 +85,10 @@ async def test_readiness_checks_all_conditional_tokens():
 @pytest.mark.asyncio
 async def test_gateway_submits_buy_and_reads_order():
     gateway = PolymarketExecutionGateway(
-        private_key="dummy_key",
+        private_key=KNOWN_PRIVATE_KEY,
         wallet_address="0xDummyAddress",
         relayer_api_key="relayer-key",
-        relayer_api_key_address="0x1111111111111111111111111111111111111111",
+        relayer_api_key_address=KNOWN_SIGNER_ADDRESS,
         host="https://clob.polymarket.com",
     )
 
@@ -134,3 +137,20 @@ async def test_gateway_submits_buy_and_reads_order():
     client.get_order.assert_awaited_once_with(
         order_id="order-123",
     )
+
+
+def test_rejects_mismatched_signer_private_key():
+    from polyflip.execution.contracts import GatewayUnavailable
+
+    gateway = PolymarketExecutionGateway(
+        private_key=KNOWN_PRIVATE_KEY,
+        wallet_address="0xPolymarketWallet",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address="0x1111111111111111111111111111111111111111",
+    )
+
+    with pytest.raises(
+        GatewayUnavailable,
+        match="does not match",
+    ):
+        gateway._validate_credentials()
