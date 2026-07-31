@@ -86,8 +86,13 @@ async def get_session_exposure(db: AsyncSession, session_id: uuid.UUID) -> Decim
             ),
         )
     )
+    diff_expr = ExposureReservation.amount_usdc - func.coalesce(
+        ExecutionRequest.filled_cost_usdc, 0
+    )
+    unfilled_expr = case((diff_expr > 0, diff_expr), else_=0)
+
     res_exp = await db.scalar(
-        select(func.coalesce(func.sum(ExposureReservation.amount_usdc), 0))
+        select(func.coalesce(func.sum(unfilled_expr), 0))
         .join(
             ExecutionRequest,
             ExecutionRequest.id == ExposureReservation.request_id,
@@ -337,10 +342,12 @@ def serialize_live_session_dto(
     if budget_snapshot is not None:
         filled_val = float(budget_snapshot.filled_usdc)
         reserved_val = float(budget_snapshot.reserved_usdc)
+        committed_val = float(budget_snapshot.committed_usdc)
         remaining_val = float(budget_snapshot.remaining_usdc)
     else:
         filled_val = float(session.filled_usdc or 0)
         reserved_val = float(session.reserved_usdc or 0)
+        committed_val = reserved_val + filled_val
         remaining_val = max(0.0, float(session.budget_usdc - session.reserved_usdc))
 
     return {
@@ -348,6 +355,7 @@ def serialize_live_session_dto(
         "status": session.status,
         "budget_usdc": float(session.budget_usdc),
         "reserved_usdc": reserved_val,
+        "committed_usdc": committed_val,
         "remaining_budget_usdc": remaining_val,
         "filled_usdc": filled_val,
         "max_single_order_usdc": float(session.max_single_order_usdc),

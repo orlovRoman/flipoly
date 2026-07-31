@@ -23,6 +23,7 @@ class GatewayReadiness(BaseModel):
     client_initialized: bool
     collateral_allowance_ready: bool
     conditional_allowance_ready: bool | None
+    network_chain_id: int | None = None
     error_code: str | None = None
     error_message: str | None = None
     checked_at: datetime

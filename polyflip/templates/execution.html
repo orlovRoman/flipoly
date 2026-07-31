@@ -263,9 +263,9 @@
                     badge.className = 'status-badge ' + (s.status === 'ACTIVE' ? 'status-live' : s.status === 'READY' ? 'status-ready' : 'status-shadow');
                     document.getElementById('session-info-block').style.display = 'block';
                     document.getElementById('session-id-text').textContent = s.id;
-                    document.getElementById('session-budget-usage').textContent = `${(s.remaining_budget_usdc || 0).toFixed(2)} / ${(s.budget_usdc || 0).toFixed(2)} USDC`;
+                    document.getElementById('session-budget-usage').textContent = `Использовано ${(s.committed_usdc || 0).toFixed(2)} из ${(s.budget_usdc || 0).toFixed(2)} USDC (Доступно ${(s.remaining_budget_usdc || 0).toFixed(2)} USDC)`;
                     
-                    const pct = s.budget_usdc > 0 ? (s.reserved_usdc / s.budget_usdc) * 100 : 0;
+                    const pct = s.budget_usdc > 0 ? (s.committed_usdc / s.budget_usdc) * 100 : 0;
                     document.getElementById('budget-progress').value = pct;
                 } else {
                     currentSessionId = null;
