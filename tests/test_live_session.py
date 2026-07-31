@@ -104,6 +104,44 @@ async def test_worker_heartbeat_persists_polygon_chain_id(db_session):
     assert status.gateway_ready is True
     gateway.get_readiness.assert_awaited_once()
 
+    # 2-й вызов heartbeat — проверяем ON CONFLICT DO UPDATE обновление ВСЕХ полей
+    gateway.get_readiness.return_value = GatewayReadiness(
+        ready=False,
+        gateway="POLYMARKET",
+        wallet_address="0xNEW",
+        balance=BalanceResult(
+            balance_usdc=Decimal("7.5"),
+            collateral_allowances={},
+            conditional_allowances_checked=2,
+            conditional_allowance_ready=False,
+            checked_at=datetime.now(timezone.utc),
+        ),
+        credentials_loaded=False,
+        client_initialized=True,
+        collateral_allowance_ready=False,
+        conditional_allowance_ready=False,
+        network_chain_id=80002,
+        error_message="wrong network",
+        checked_at=datetime.now(timezone.utc),
+    )
+
+    await publish_heartbeat_once(
+        db_session,
+        worker_id="test_worker_1",
+        execution_mode="LIVE",
+        gateway=gateway,
+    )
+
+    await db_session.refresh(status)
+
+    assert status.gateway_ready is False
+    assert status.credentials_loaded is False
+    assert status.wallet_address == "0xNEW"
+    assert status.balance_usdc == 7.5
+    assert status.network_chain_id == 80002
+    assert status.conditional_allowance_ready is False
+    assert status.last_error_message == "wrong network"
+
 
 @pytest.mark.asyncio
 async def test_session_budget_snapshot(db_session):

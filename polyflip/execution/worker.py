@@ -10,6 +10,7 @@ from decimal import Decimal
 from sqlalchemy import select, or_, and_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.db.connection import async_session
 from polyflip.db.execution_models import (
@@ -880,14 +881,16 @@ async def publish_heartbeat_once(
     )
 
     set_dict = {
+        "execution_mode": execution_mode,
         "heartbeat_at": now,
         "gateway_ready": readiness.ready,
+        "credentials_loaded": readiness.credentials_loaded,
+        "wallet_address": readiness.wallet_address,
         "balance_usdc": bal,
         "collateral_allowance_ready": readiness.collateral_allowance_ready,
         "conditional_allowance_ready": readiness.conditional_allowance_ready,
         "network_chain_id": readiness.network_chain_id,
         "last_error_message": readiness.error_message,
-        "execution_mode": execution_mode,
     }
 
     stmt = stmt.on_conflict_do_update(
@@ -901,44 +904,32 @@ async def publish_heartbeat_once(
 async def publish_heartbeat():
     settings = ExecutionSettings()
     gateway = build_execution_gateway(settings)
-    worker_id = f"{settings.execution_mode.value}:{socket.gethostname()}:{os.getpid()}"
+    execution_mode = settings.execution_mode.value
+    worker_id = (
+        f"{execution_mode}:"
+        f"{socket.gethostname()}:"
+        f"{os.getpid()}"
+    )
 
     while True:
         try:
-
-                stmt = insert_func(ExecutionWorkerStatus).values(
+            async with async_session() as session:
+                await publish_heartbeat_once(
+                    session,
                     worker_id=worker_id,
-                    execution_mode=settings.execution_mode.value,
-                    heartbeat_at=now,
-                    gateway_ready=readiness.ready,
-                    credentials_loaded=readiness.credentials_loaded,
-                    wallet_address=readiness.wallet_address,
-                    balance_usdc=bal,
-                    collateral_allowance_ready=readiness.collateral_allowance_ready,
-                    conditional_allowance_ready=readiness.conditional_allowance_ready,
-                    network_chain_id=readiness.network_chain_id,
-                    last_error_message=readiness.error_message,
+                    execution_mode=execution_mode,
+                    gateway=gateway,
                 )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception(
+                "heartbeat_failed",
+                worker_id=worker_id,
+                execution_mode=execution_mode,
+                error=str(exc),
+            )
 
-                set_dict = {
-                    "heartbeat_at": now,
-                    "gateway_ready": readiness.ready,
-                    "balance_usdc": bal,
-                    "collateral_allowance_ready": readiness.collateral_allowance_ready,
-                    "conditional_allowance_ready": readiness.conditional_allowance_ready,
-                    "network_chain_id": readiness.network_chain_id,
-                    "last_error_message": readiness.error_message,
-                    "execution_mode": settings.execution_mode.value,
-                }
-
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["worker_id"],
-                    set_=set_dict,
-                )
-                await session.execute(stmt)
-                await session.commit()
-        except Exception as e:
-            logger.error("heartbeat_failed", error=str(e))
         await asyncio.sleep(15)
 
 
