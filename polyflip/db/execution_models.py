@@ -260,6 +260,7 @@ class ExecutionWorkerStatus(Base):
     balance_usdc = Column(Numeric(38, 18), nullable=True)
     collateral_allowance_ready = Column(Boolean, nullable=True)
     conditional_allowance_ready = Column(Boolean, nullable=True)
+    network_chain_id = Column(Integer, nullable=True)
     last_error_code = Column(String(64), nullable=True)
     last_error_message = Column(Text, nullable=True)
     details = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
