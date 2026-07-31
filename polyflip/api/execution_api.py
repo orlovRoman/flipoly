@@ -558,7 +558,7 @@ from polyflip.execution.live_session_service import (
     get_active_session_for_update,
     count_session_positions,
     get_session_exposure,
-    calculate_session_filled_usdc,
+    get_session_budget_snapshot,
     evaluate_live_readiness,
     serialize_live_session_dto,
 )
