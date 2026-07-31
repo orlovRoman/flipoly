@@ -263,18 +263,35 @@ async def _release_one_locked(
         await session.commit()
         return False
 
-    # 3. Создаём LIVE-строки
+    # 3. Достаем активную LIVE-сессию для связки (если target_mode == LIVE)
+    active_session = None
+    if target_mode == "LIVE":
+        from polyflip.db.execution_models import LiveTradingSession
+
+        active_session = (
+            await session.execute(
+                select(LiveTradingSession)
+                .where(LiveTradingSession.status == "ACTIVE")
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+    # 4. Создаём LIVE-строки
     live_trade = _build_live_trade(candidate, paper_trade, now, target_mode)
+    if active_session:
+        live_trade.live_session_id = active_session.id
     session.add(live_trade)
     await session.flush()
 
     live_request = _build_live_request(
         candidate, paper_request, live_trade, now, target_mode
     )
+    if active_session:
+        live_request.live_session_id = active_session.id
     session.add(live_request)
     await session.flush()
 
-    # 4. Резервируем экспозицию (ExposureReservation)
+    # 5. Резервируем экспозицию (ExposureReservation) и бюджет сессии
     exposure_amount = Decimal(
         str(paper_request.target_amount_usdc or paper_request.max_spend_usdc or 0)
     )
@@ -289,7 +306,14 @@ async def _release_one_locked(
     )
     session.add(exposure_res)
 
-    # 5. Обновляем кандидата
+    if active_session:
+        active_session.reserved_usdc = (
+            Decimal(str(active_session.reserved_usdc)) + exposure_amount
+        )
+        if active_session.reserved_usdc >= active_session.budget_usdc:
+            active_session.status = "BUDGET_EXHAUSTED"
+
+    # 6. Обновляем кандидата
     candidate.state = "RELEASED"
     candidate.released_at = now
     candidate.released_trade_id = live_trade.id
@@ -364,7 +388,7 @@ async def validate_live_release(
         if end_time <= now or (end_time - now).total_seconds() < 120:
             raise ReleaseRejected("Market is closed or ending soon (< 120s)")
 
-    # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance)
+    # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance, session)
     if target_mode == "LIVE":
         live_enabled = await session.scalar(
             select(RuntimeSettings.value).where(
@@ -373,6 +397,37 @@ async def validate_live_release(
         )
         if live_enabled is None or live_enabled.strip().lower() != "true":
             raise ReleaseDeferred("LIVE kill switch is off")
+
+        # 5.1 Проверка активной LIVE-сессии
+        from polyflip.db.execution_models import LiveTradingSession
+
+        active_session = (
+            await session.execute(
+                select(LiveTradingSession)
+                .where(LiveTradingSession.status == "ACTIVE")
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+        if active_session is None:
+            raise ReleaseDeferred("No active LIVE trading session")
+
+        order_amount = Decimal(str(paper_request.target_amount_usdc or 0))
+
+        # Лимит единичного ордера
+        if order_amount > Decimal(str(active_session.max_single_order_usdc)):
+            raise ReleaseRejected(
+                f"Order amount {order_amount} exceeds single-order limit {active_session.max_single_order_usdc}"
+            )
+
+        # Остаток бюджета сессии
+        remaining_budget = Decimal(str(active_session.budget_usdc)) - Decimal(
+            str(active_session.reserved_usdc)
+        )
+        if order_amount > remaining_budget:
+            raise ReleaseDeferred(
+                f"LIVE session budget exhausted (remaining {remaining_budget} USDC < {order_amount} USDC)"
+            )
 
         ws = (
             await session.execute(
@@ -400,9 +455,16 @@ async def validate_live_release(
         if not ws.collateral_allowance_ready:
             raise ReleaseDeferred("LIVE worker collateral allowance not ready")
 
-        if float(ws.balance_usdc or 0) < 5.0:
+        if not ws.conditional_allowance_ready:
+            raise ReleaseDeferred("LIVE worker conditional token allowance not ready")
+
+        required_balance = min(
+            Decimal(str(active_session.budget_usdc)),
+            Decimal(str(active_session.max_total_exposure_usdc)),
+        )
+        if Decimal(str(ws.balance_usdc or 0)) < required_balance:
             raise ReleaseDeferred(
-                f"LIVE worker balance USDC is low ({ws.balance_usdc})"
+                f"LIVE worker balance USDC ({ws.balance_usdc}) is less than required ({required_balance})"
             )
 
     # 6. Риск-лимиты

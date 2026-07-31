@@ -42,6 +42,11 @@ class ExecutionRequest(Base):
         ForeignKey("execution_requests.id", ondelete="RESTRICT"),
         nullable=True,
     )
+    live_session_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("live_trading_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # Order parameters
     outcome_to_buy = Column(String(16), nullable=False)
@@ -375,4 +380,25 @@ class LiveMirrorCandidate(Base):
         ),
         Index("ix_live_mirror_candidates_state", "state"),
         Index("ix_live_mirror_candidates_created_at", "created_at"),
+    )
+
+
+class LiveTradingSession(Base):
+    __tablename__ = "live_trading_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    status = Column(
+        String(24), nullable=False, default="DRAFT"
+    )  # DRAFT, READY, ACTIVE, BUDGET_EXHAUSTED, STOPPED, ERROR
+    budget_usdc = Column(Numeric(18, 6), nullable=False)
+    reserved_usdc = Column(Numeric(18, 6), nullable=False, default=0)
+    filled_usdc = Column(Numeric(18, 6), nullable=False, default=0)
+    max_single_order_usdc = Column(Numeric(18, 6), nullable=False)
+    max_total_exposure_usdc = Column(Numeric(18, 6), nullable=False)
+    max_open_positions = Column(Integer, nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    stopped_at = Column(DateTime(timezone=True), nullable=True)
+    stop_reason = Column(String(255), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
