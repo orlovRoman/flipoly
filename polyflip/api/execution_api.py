@@ -616,7 +616,8 @@ async def create_live_session(
     db.add(session)
     await db.commit()
     await db.refresh(session)
-    return serialize_live_session_dto(session)
+    budget_snap = await get_session_budget_snapshot(db, session)
+    return serialize_live_session_dto(session, budget_snap)
 
 
 @router.post("/live/sessions/{session_id}/readiness")
@@ -645,11 +646,11 @@ async def check_live_session_readiness(
         await db.commit()
         await db.refresh(session_obj)
 
-    filled_usdc = await calculate_session_filled_usdc(db, session_obj.id)
+    budget_snap = await get_session_budget_snapshot(db, session_obj)
 
     return {
         "ready": readiness.ready,
-        "session": serialize_live_session_dto(session_obj, filled_usdc),
+        "session": serialize_live_session_dto(session_obj, budget_snap),
         "checks": readiness.checks,
         "errors": readiness.errors,
         "warnings": readiness.warnings,
@@ -773,8 +774,8 @@ async def stop_live_session(
     await db.commit()
     await db.refresh(session_obj)
 
-    filled_usdc = await calculate_session_filled_usdc(db, session_obj.id)
-    return serialize_live_session_dto(session_obj, filled_usdc)
+    budget_snap = await get_session_budget_snapshot(db, session_obj)
+    return serialize_live_session_dto(session_obj, budget_snap)
 
 
 @router.post("/live/sessions/{session_id}/finish")
@@ -839,8 +840,8 @@ async def finish_live_session(
     await db.commit()
     await db.refresh(session_obj)
 
-    filled_usdc = await calculate_session_filled_usdc(db, session_obj.id)
-    return serialize_live_session_dto(session_obj, filled_usdc)
+    budget_snap = await get_session_budget_snapshot(db, session_obj)
+    return serialize_live_session_dto(session_obj, budget_snap)
 
 
 @router.post("/positions/{trade_id}/close")
@@ -998,13 +999,13 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         .all()
     )
 
-    filled_usdc = Decimal("0")
+    budget_snap = None
     if active_session:
-        filled_usdc = await calculate_session_filled_usdc(db, active_session.id)
+        budget_snap = await get_session_budget_snapshot(db, active_session)
 
     return {
         "session": (
-            serialize_live_session_dto(active_session, filled_usdc)
+            serialize_live_session_dto(active_session, budget_snap)
             if active_session
             else None
         ),

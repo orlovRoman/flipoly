@@ -242,7 +242,11 @@
         async function loadLiveDashboard() {
             try {
                 const res = await fetch(window.API_BASE + '/api/execution/live/dashboard', { headers: getAuthHeaders() });
-                if (!res.ok) return;
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    console.error(`LIVE dashboard HTTP ${res.status}: ${errorText}`);
+                    return;
+                }
                 const data = await res.json();
 
                 // Worker
