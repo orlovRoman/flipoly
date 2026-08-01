@@ -627,4 +627,3 @@ async def test_one_dollar_paper_becomes_1_10_live(db_session):
     # PAPER не изменён
     await db_session.refresh(req)
     assert req.target_amount_usdc == Decimal("1.00")
-

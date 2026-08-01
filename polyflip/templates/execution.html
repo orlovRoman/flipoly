@@ -714,13 +714,7 @@
 
         setInterval(loadLiveDashboard, 10000);
 
-        // Auto-refresh readiness
-        setInterval(() => {
-            if (currentSessionId && document.getElementById('readiness-panel').style.display !== 'none') {
-                // If we are showing readiness, let's just refresh the dashboard data which includes worker status
-                loadLiveDashboard();
-            }
-        }, 5000);
+
 
         loadLiveDashboard();
     </script>

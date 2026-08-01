@@ -12,8 +12,21 @@ def _parse_error(error_reason: str | None) -> dict:
     normalized = error_reason.lower()
     if "insufficient funds" in normalized:
         return {"error_code": "INSUFFICIENT_FUNDS", "error_message_ru": "Недостаточно средств на балансе или allowance"}
-    if "minimum order size" in normalized or "below minimum" in normalized:
-        return {"error_code": "ORDER_BELOW_MINIMUM", "error_message_ru": "Сумма заявки меньше минимальной суммы Polymarket ($0.50)"}
+    below_minimum_markers = (
+        "invalid amount",
+        "min size",
+        "minimum order",
+        "below minimum",
+        "order size too small",
+    )
+    if any(marker in normalized for marker in below_minimum_markers):
+        return {
+            "error_code": "ORDER_BELOW_MINIMUM",
+            "error_message_ru": (
+                "Сумма ордера ниже допустимого минимума. "
+                "Для LIVE используется безопасный минимум 1.10 USDC"
+            ),
+        }
     if "max_slippage" in normalized or "slippage" in normalized:
         return {"error_code": "SLIPPAGE_EXCEEDED", "error_message_ru": "Превышено допустимое проскальзывание (slippage)"}
     if "market closed" in normalized or "market is closed" in normalized:
@@ -25,10 +38,35 @@ async def serialize_execution_requests(
     db: AsyncSession,
     requests: list[ExecutionRequest],
 ) -> list[dict]:
+    from sqlalchemy import select
+    from polyflip.db.execution_models import ExecutionAttempt
+
     eligibility = await evaluate_no_fill_eligibility_batch(db, requests)
 
-    return [
-        {
+    req_ids = [r.id for r in requests]
+    provider_evidence_request_ids = set()
+    if req_ids:
+        rows = await db.execute(
+            select(ExecutionAttempt.request_id)
+            .where(ExecutionAttempt.request_id.in_(req_ids))
+            .where(ExecutionAttempt.provider_order_id.is_not(None))
+            .distinct()
+        )
+        provider_evidence_request_ids = set(rows.scalars().all())
+
+    results = []
+    for req in requests:
+        actions = []
+        if req.id in eligibility and eligibility[req.id].allowed:
+            actions.append("MARK_FAILED_NO_FILL")
+
+        if (
+            req.state in RECONCILABLE_REQUEST_STATES
+            or req.state == "MANUAL_REVIEW_REQUIRED"
+        ) and req.id in provider_evidence_request_ids:
+            actions.append("RECONCILE_WITH_POLYMARKET")
+
+        results.append({
             "id": str(req.id),
             "trade_history_id": req.trade_history_id,
             "intent": req.intent,
@@ -52,10 +90,8 @@ async def serialize_execution_requests(
             "updated_at": req.updated_at.isoformat() if req.updated_at else None,
 
             "error_reason": req.error_reason,
-
             "error_details": _parse_error(req.error_reason),
-            "available_actions": ["RECONCILE_WITH_POLYMARKET"] if req.state in RECONCILABLE_REQUEST_STATES else [],
-
+            "available_actions": actions,
 
             "can_mark_no_fill": (
                 req.id in eligibility and eligibility[req.id].allowed
@@ -65,7 +101,5 @@ async def serialize_execution_requests(
                 if req.id in eligibility
                 else ()
             ),
-            "available_actions": ["MARK_FAILED_NO_FILL"] if (req.id in eligibility and eligibility[req.id].allowed) else [],
-        }
-        for req in requests
-    ]
+        })
+    return results

@@ -1244,6 +1244,31 @@ async def reconcile_request(
     if req is None:
         raise HTTPException(404, "Заявка не найдена")
 
+    if req.requested_mode != "LIVE":
+        raise HTTPException(409, "Сверка разрешена только для LIVE-заявок")
+
+    if req.state == "RECONCILING":
+        return {
+            "request_id": str(req.id),
+            "state": "RECONCILING",
+            "idempotent": True,
+        }
+
+    allowed_states = {
+        "SUBMITTING",
+        "ACCEPTED",
+        "UNKNOWN",
+        "PARTIALLY_FILLED",
+        "RECONCILING",
+        "MANUAL_REVIEW_REQUIRED",
+    }
+
+    if req.state not in allowed_states:
+        raise HTTPException(
+            409,
+            f"Заявку в статусе {req.state} нельзя переводить в RECONCILING",
+        )
+
     provider_evidence = await db.scalar(
         select(func.count(ExecutionAttempt.id)).where(
             ExecutionAttempt.request_id == request_id,
