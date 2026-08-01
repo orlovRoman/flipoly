@@ -494,7 +494,15 @@ async def test_transport_failure_always_blocks_live_activation(db_session):
 
 
 @pytest.mark.asyncio
-async def test_patch_live_session_limits_cases_negative(db_session):
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("budget_usdc", Decimal("-5"), "Бюджет"),
+        ("max_total_exposure_usdc", Decimal("-5"), "экспозиция"),
+        ("max_single_order_usdc", Decimal("-5"), "ставка"),
+    ],
+)
+async def test_patch_live_session_limits_cases_negative(db_session, field, value, message):
     from polyflip.api.execution_api import (
         update_live_session_limits,
         UpdateLiveSessionLimitsRequest,
@@ -513,12 +521,11 @@ async def test_patch_live_session_limits_cases_negative(db_session):
     db_session.add(session)
     await db_session.commit()
 
-    payload = UpdateLiveSessionLimitsRequest(
-        budget_usdc=Decimal("-5.00"),
-    )
+    kwargs = {field: value}
+    payload = UpdateLiveSessionLimitsRequest(**kwargs)
 
     with pytest.raises(HTTPException) as excinfo:
         await update_live_session_limits(str(session.id), payload, db_session)
 
     assert excinfo.value.status_code == 422
-    assert "Бюджет должен быть больше нуля" in str(excinfo.value.detail)
+    assert message in str(excinfo.value.detail)

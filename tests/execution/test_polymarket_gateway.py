@@ -185,10 +185,10 @@ async def test_client_close_failure_does_not_break_invalidation():
     mock_client = AsyncMock()
     # Force close to raise an exception
     mock_client.close.side_effect = Exception("Test close error")
-    gateway._client = mock_client
+    gateway._client_cache = mock_client
 
-    # invalidation should suppress the exception and still set _client to None
+    # invalidation should suppress the exception and still set _client_cache to None
     await gateway.invalidate_client()
 
-    assert gateway._client is None
+    assert gateway._client_cache is None
     mock_client.close.assert_awaited_once()
