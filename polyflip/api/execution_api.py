@@ -564,6 +564,7 @@ async def resolve_manual_review(
             source="execution_api",
             request_id=req.id,
             trade_history_id=req.trade_history_id,
+            created_at=now,
             payload={
                 "operator": body.operator,
                 "action": body.action,

@@ -335,6 +335,21 @@ async def test_mark_failed_no_fill_releases_reservation(db_session):
     assert trade.position_status == "ENTRY_FAILED"
     assert res.released_at is not None
 
+    from polyflip.db.execution_models import ExecutionEvent
+    events = (
+        await db_session.execute(
+            select(ExecutionEvent)
+            .where(ExecutionEvent.request_id == req.id)
+            .order_by(ExecutionEvent.created_at.desc())
+        )
+    ).scalars().all()
+    assert len(events) >= 1
+    event_types = [e.event_type for e in events]
+    assert "MANUAL_REVIEW_MARK_FAILED_NO_FILL" in event_types
+    
+    target_event = next(e for e in events if e.event_type == "MANUAL_REVIEW_MARK_FAILED_NO_FILL")
+    assert target_event.created_at is not None
+
 
 @pytest.mark.asyncio
 async def test_mark_failed_no_fill_forbidden_if_provider_order_id(db_session):
