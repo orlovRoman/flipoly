@@ -8,16 +8,15 @@
 Лаги вычисляются через pandas groupby + shift, без изменения схемы БД.
 Строки с NaN в лаговых фичах заполняются медианой по колонке (imputation).
 """
-
 import numpy as np
 import pandas as pd
 
 # Количество снапшотов назад для каждого лага
 # Если коллектор пишет снапшот каждые ~5 минут:
 #   LAG_1 ≈ 5 мин, LAG_3 ≈ 15 мин, LAG_6 ≈ 30 мин
-LAG_1 = 1  # ~5 мин
-LAG_3 = 3  # ~15 мин
-LAG_6 = 6  # ~30 мин
+LAG_1 = 1   # ~5 мин
+LAG_3 = 3   # ~15 мин
+LAG_6 = 6   # ~30 мин
 
 LAG_FEATURE_NAMES = [
     "price_momentum",
@@ -25,11 +24,10 @@ LAG_FEATURE_NAMES = [
     "volume_trend",
 ]
 
-
 def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Добавляет лаговые фичи к DataFrame.
-
+    
     ВАЖНО: входной df ДОЛЖЕН содержать колонки market_id и recorded_at.
     Функция сортирует df внутри себя, но НЕ изменяет порядок строк (reset_index).
     """

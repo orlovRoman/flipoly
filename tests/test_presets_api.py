@@ -4,7 +4,6 @@ from polyflip.db.connection import async_session
 from polyflip.services.preset_service import PresetService
 from polyflip.db.models import ConfigPreset
 
-
 async def run_test():
     async with async_session() as db:
         # Создание пресета через PresetService (эквивалентно POST /api/presets/)
@@ -13,7 +12,7 @@ async def run_test():
             name="test_api_preset",
             description="API test preset",
             preset_type="manual",
-            created_by="test_api",
+            created_by="test_api"
         )
         assert preset.id is not None
 
@@ -27,7 +26,6 @@ async def run_test():
         preset.is_active = False
         await db.commit()
         print("OK: Presets API unit test PASSED!")
-
 
 if __name__ == "__main__":
     asyncio.run(run_test())

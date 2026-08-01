@@ -52,6 +52,5 @@ def test_sample_weights_size_mismatch_assertion():
     X_mock = np.zeros((100, 5))
     weights_wrong = np.ones(95)
     with pytest.raises(AssertionError, match="sample_weights size mismatch"):
-        assert len(weights_wrong) == len(
-            X_mock
-        ), f"sample_weights size mismatch: {len(weights_wrong)} != {len(X_mock)}"
+        assert len(weights_wrong) == len(X_mock), f"sample_weights size mismatch: {len(weights_wrong)} != {len(X_mock)}"
+

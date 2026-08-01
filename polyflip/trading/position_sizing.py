@@ -2,11 +2,11 @@
 Расчёт размера позиции: Kelly criterion, bet sizing, dead zone.
 Все функции — чистые (без БД, API, логгера).
 """
-
 from __future__ import annotations
 
-from polyflip.constants import INVALID_EDGE_SENTINEL, FLIP_MIDPOINT
-
+from polyflip.constants import (
+    INVALID_EDGE_SENTINEL, FLIP_MIDPOINT
+)
 
 def compute_bet_size_edge_scaled(
     edge: float,
@@ -24,11 +24,9 @@ def compute_bet_size_edge_scaled(
         return 0.0
     if max_edge <= min_edge:
         import structlog
-
         structlog.get_logger(__name__).warning(
             "degenerate_edge_config_zero_division_guard",
-            min_edge=min_edge,
-            max_edge=max_edge,
+            min_edge=min_edge, max_edge=max_edge
         )
         return max_bet_usdc if edge >= max_edge else min_bet_usdc
     t = min(max((edge - min_edge) / (max_edge - min_edge), 0.0), 1.0)
@@ -47,10 +45,10 @@ def compute_bet_size_with_liquidity(
 ) -> float:
     """
     Масштабирует ставку по edge И ограничивает её по ликвидности рынка.
-
+    
     liquidity_fraction: максимальная доля от volume_5min.
     Например 0.05 = не более 5% от объёма за последние 5 минут.
-
+    
     Гарантирует: min_bet_usdc <= result <= min(max_bet_usdc, liquidity_cap).
     """
     raw_bet = compute_bet_size_edge_scaled(
@@ -67,7 +65,6 @@ def compute_bet_size_with_liquidity(
     # liquidity_cap: не менее min_bet чтобы не заблокировать торговлю на тихих рынках
     liquidity_cap = max(volume_5min * liquidity_fraction, min_bet_usdc)
     return round(min(raw_bet, liquidity_cap), 2)
-
 
 def compute_edge(win_prob: float, buy_price: float) -> float:
     """

@@ -9,7 +9,6 @@
   - Режим "binance" работает как раньше (регресс)
   - coverage_pct рассчитывается правильно
 """
-
 from __future__ import annotations
 
 import numpy as np
@@ -27,32 +26,14 @@ def _make_minimal_features(n: int = 600) -> pd.DataFrame:
     np.random.seed(42)
     df = pd.DataFrame({"open_time": times})
     feature_cols = [
-        "ret_1",
-        "ret_3",
-        "ret_6",
-        "ret_12",
-        "ret_24",
-        "ret_48",
-        "vol_6",
-        "vol_24",
-        "vol_48",
-        "vol_ratio",
-        "vol_z_1",
-        "taker_buy_ratio",
-        "rsi_14",
-        "ema_ratio_9_21",
-        "bb_width",
-        "bb_position",
-        "dist_to_high_24",
-        "dist_to_low_24",
-        "dist_to_high_96",
-        "dist_to_low_96",
-        "range_1",
-        "range_avg_24",
-        "consec_up",
-        "consec_down",
-        "hour_utc",
-        "dow",
+        "ret_1", "ret_3", "ret_6", "ret_12", "ret_24", "ret_48",
+        "vol_6", "vol_24", "vol_48", "vol_ratio",
+        "vol_z_1", "taker_buy_ratio",
+        "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
+        "dist_to_high_24", "dist_to_low_24", "dist_to_high_96", "dist_to_low_96",
+        "range_1", "range_avg_24",
+        "consec_up", "consec_down",
+        "hour_utc", "dow",
     ]
     for col in feature_cols:
         if col == "vol_ratio":
@@ -80,7 +61,7 @@ def _make_polymarket_prices(
     """Создаём DataFrame снапшотов для каждой свечи."""
     pm = df_features[["open_time"]].copy()
     pm["pm_yes_price"] = yes_price
-    pm["pm_outcome"] = outcome
+    pm["pm_outcome"]   = outcome
     pm["pm_market_id"] = "mkt-test"
     return pm
 
@@ -136,7 +117,6 @@ class TestBacktestPolymarketMode:
     def test_binance_mode_regression(self):
         """Режим binance работает как раньше — smoke test."""
         from polyflip.crypto.backtester import run_backtest
-
         df = _make_minimal_features(600)
         result = run_backtest(df, "BTCUSDT", pnl_mode="binance")
         assert result.pnl_mode == "binance"
@@ -146,38 +126,30 @@ class TestBacktestPolymarketMode:
     def test_polymarket_mode_no_prices_returns_zero_trades(self):
         """polymarket mode без polymarket_prices → 0 сделок (не крашится)."""
         from polyflip.crypto.backtester import run_backtest
-
         df = _make_minimal_features(600)
-        result = run_backtest(
-            df, "BTCUSDT", pnl_mode="polymarket", polymarket_prices=None
-        )
+        result = run_backtest(df, "BTCUSDT", pnl_mode="polymarket", polymarket_prices=None)
         # Без pm_prices → fallback на binance-логику (polymarket_prices=None)
         assert result.n_candles_total == 600
 
     def test_polymarket_mode_all_nan_prices(self):
         """Все pm_yes_price = NaN → 0 matched сделок."""
         from polyflip.crypto.backtester import run_backtest
-
         df = _make_minimal_features(600)
         pm = df[["open_time"]].copy()
         pm["pm_yes_price"] = float("nan")
-        pm["pm_outcome"] = None
+        pm["pm_outcome"]   = None
         pm["pm_market_id"] = None
-        result = run_backtest(
-            df, "BTCUSDT", pnl_mode="polymarket", polymarket_prices=pm
-        )
+        result = run_backtest(df, "BTCUSDT", pnl_mode="polymarket", polymarket_prices=pm)
         assert result.n_polymarket_matched == 0
         assert result.n_trades == 0
 
     def test_coverage_pct_calculation(self):
         """coverage_pct = n_matched / n_test_candles * 100."""
         from polyflip.crypto.backtester import run_backtest
-
         df = _make_minimal_features(600)
         pm_full = _make_polymarket_prices(df, yes_price=0.55, outcome="YES")
         result = run_backtest(
-            df,
-            "BTCUSDT",
+            df, "BTCUSDT",
             pnl_mode="polymarket",
             polymarket_prices=pm_full,
             min_edge=0.08,
@@ -190,12 +162,10 @@ class TestBacktestPolymarketMode:
     def test_win_rate_with_all_wins(self):
         """Если все исходы = YES и все сигналы UP → win_rate = 1.0."""
         from polyflip.crypto.backtester import run_backtest
-
         df = _make_minimal_features(600)
         pm = _make_polymarket_prices(df, yes_price=0.55, outcome="YES")
         result = run_backtest(
-            df,
-            "BTCUSDT",
+            df, "BTCUSDT",
             pnl_mode="polymarket",
             polymarket_prices=pm,
             min_edge=0.01,  # широкий порог чтобы была хоть одна сделка

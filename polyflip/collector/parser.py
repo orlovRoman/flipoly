@@ -9,7 +9,6 @@ from polyflip.config import settings
 
 logger = structlog.get_logger(__name__)
 
-
 async def run_collector_cycle(db_session: AsyncSession):
     """
     Основной цикл сбора данных:
@@ -33,7 +32,7 @@ async def run_collector_cycle(db_session: AsyncSession):
         for m_data in active_markets:
             market_id = m_data["market_id"]
             yes_token_id = m_data["yes_token_id"]
-
+            
             prices = await client.get_market_prices(yes_token_id)
             if not prices or "error" in prices:
                 continue
@@ -43,13 +42,11 @@ async def run_collector_cycle(db_session: AsyncSession):
 
             # Вычисляем time_left_min
             current_time = datetime.now(timezone.utc)
-            end_date = datetime.fromisoformat(
-                m_data["end_date_iso"].replace("Z", "+00:00")
-            )
+            end_date = datetime.fromisoformat(m_data["end_date_iso"].replace("Z", "+00:00"))
             time_left_min = (end_date - current_time).total_seconds() / 60.0
 
             if time_left_min < 0:
-                continue  # Рынок уже закрылся
+                continue # Рынок уже закрылся
 
             # 3. Получаем предыдущее состояние рынка из БД для вычисления дельт
             result = await db_session.execute(
@@ -64,7 +61,7 @@ async def run_collector_cycle(db_session: AsyncSession):
             if live_m:
                 # Считаем дельту скорости цены
                 price_velocity = mid_price - live_m.current_yes_price
-
+                
                 # Обновляем LiveMarket
                 live_m.current_yes_price = mid_price
                 live_m.current_no_price = prices["current_no_price"]
@@ -89,12 +86,12 @@ async def run_collector_cycle(db_session: AsyncSession):
                     current_spread=spread,
                     volume_5min=volume_5min,
                     price_velocity=0.0,
-                    last_updated=current_time,
+                    last_updated=current_time
                 )
                 db_session.add(live_m)
 
             # 4. Сохраняем Snapshot
-            # Внимание: final_outcome и flip_vs_final мы пока не знаем,
+            # Внимание: final_outcome и flip_vs_final мы пока не знаем, 
             # они заполняются позже (при резолве рынка)
             snapshot = MarketSnapshot(
                 asset=m_data["asset"],
@@ -108,8 +105,8 @@ async def run_collector_cycle(db_session: AsyncSession):
                 price_velocity=price_velocity,
                 hour_of_day=current_time.hour,
                 final_outcome="PENDING",
-                flip_vs_final=False,  # Обновится позже
-                recorded_at=current_time,
+                flip_vs_final=False, # Обновится позже
+                recorded_at=current_time
             )
             db_session.add(snapshot)
             markets_saved += 1
@@ -126,7 +123,7 @@ async def run_collector_cycle(db_session: AsyncSession):
         await client.close()
 
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-
+    
     # Записываем статистику работы сборщика
     try:
         status_record = CollectorStatus(
@@ -135,7 +132,7 @@ async def run_collector_cycle(db_session: AsyncSession):
             markets_found=markets_found,
             markets_saved=markets_saved,
             error_message=error_msg,
-            duration_sec=duration,
+            duration_sec=duration
         )
         db_session.add(status_record)
         await db_session.commit()

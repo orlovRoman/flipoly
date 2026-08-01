@@ -37,18 +37,15 @@ DERIVED_FEATURES = [
     *LAG_FEATURE_NAMES,
 ]
 
-
 def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["price_deviation"] = (df["mid_price"] - 0.5).abs()
-    df["spread_pct"] = (df["spread"] / (df["mid_price"] + 1e-6)).clip(upper=10.0)
-    df["log_time_left"] = np.log1p(df["time_left_min"])
+    df["price_deviation"]     = (df["mid_price"] - 0.5).abs()
+    df["spread_pct"]          = (df["spread"] / (df["mid_price"] + 1e-6)).clip(upper=10.0)
+    df["log_time_left"]       = np.log1p(df["time_left_min"])
 
     if "day_of_week" not in df.columns:
         if "recorded_at" in df.columns:
-            df["day_of_week"] = pd.to_datetime(df["recorded_at"]).dt.weekday.astype(
-                float
-            )
+            df["day_of_week"] = pd.to_datetime(df["recorded_at"]).dt.weekday.astype(float)
         else:
             df["day_of_week"] = 0.0
 
@@ -56,18 +53,17 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     if "market_id" in df.columns and "recorded_at" in df.columns:
         # expanding max по времени внутри рынка
         df_sorted = df.sort_values(["market_id", "recorded_at"])
-        expanding_max = df_sorted.groupby("market_id")["mid_price"].transform(
-            lambda x: x.expanding().max()
+        expanding_max = (
+            df_sorted.groupby("market_id")["mid_price"]
+            .transform(lambda x: x.expanding().max())
         )
         # Присваиваем через индекс, а не .values — это безопасно
         df["price_distance_from_max"] = (
-            (expanding_max - df_sorted["mid_price"]).clip(lower=0.0).reindex(df.index)
-        )
+            expanding_max - df_sorted["mid_price"]
+        ).clip(lower=0.0).reindex(df.index)
     elif "market_id" in df.columns:
         df["_market_max"] = df.groupby("market_id")["mid_price"].transform("max")
-        df["price_distance_from_max"] = (df["_market_max"] - df["mid_price"]).clip(
-            lower=0.0
-        )
+        df["price_distance_from_max"] = (df["_market_max"] - df["mid_price"]).clip(lower=0.0)
         df.drop(columns=["_market_max"], inplace=True)
     else:
         df["price_distance_from_max"] = 0.0
@@ -78,8 +74,7 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     elif "market_id" in df.columns and "time_left_min" in df.columns:
         if len(df) > df["market_id"].nunique():
             denominator = (
-                df.groupby("market_id")["time_left_min"]
-                .transform("max")
+                df.groupby("market_id")["time_left_min"].transform("max")
                 .clip(lower=15.0)
             )
             time_phase = (df["time_left_min"] / (denominator + 1e-6)).clip(0, 1)
@@ -95,7 +90,6 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     df["high_price_final"] = df["price_deviation"] * (1.0 - time_phase)
 
     return df
-
 
 def _compute_sample_weights(
     time_left: np.ndarray,
@@ -139,7 +133,7 @@ def _compute_backtest_pnl(
             "avg_trade_pnl": 0.0,
             "sharpe": None,
         }
-
+    
     prices = mid_prices.values[signals]
     targets = y.values[signals]
     trade_pnl = np.where(
@@ -186,9 +180,8 @@ def _fit_and_serialize(
             w_p10=round(float(np.percentile(sample_weight, 10)), 4),
             w_p90=round(float(np.percentile(sample_weight, 90)), 4),
             ratio_p90_p10=round(
-                float(np.percentile(sample_weight, 90))
-                / (float(np.percentile(sample_weight, 10)) + 1e-9),
-                2,
+                float(np.percentile(sample_weight, 90)) /
+                (float(np.percentile(sample_weight, 10)) + 1e-9), 2
             ),
         )
 
@@ -196,22 +189,15 @@ def _fit_and_serialize(
     C_GRID = [0.05, 0.1, 0.5, 1.0, 2.0, 5.0]
     gkf_search = GroupKFold(n_splits=CV_N_SPLITS)
     c_results = {}
-
+    
     for c_val in C_GRID:
-        probe = Pipeline(
-            [
-                ("scaler", StandardScaler()),
-                (
-                    "model",
-                    LogisticRegression(
-                        class_weight="balanced",
-                        C=c_val,
-                        random_state=CV_RANDOM_STATE,
-                        max_iter=1000,
-                    ),
-                ),
-            ]
-        )
+        probe = Pipeline([
+            ("scaler", StandardScaler()),
+            ("model", LogisticRegression(
+                class_weight="balanced", C=c_val,
+                random_state=CV_RANDOM_STATE, max_iter=1000,
+            )),
+        ])
         probe_aucs = []
         for tr_idx, vl_idx in gkf_search.split(X, y, groups=groups):
             if len(np.unique(y.iloc[tr_idx])) < 2 or len(np.unique(y.iloc[vl_idx])) < 2:
@@ -223,67 +209,54 @@ def _fit_and_serialize(
             probe_aucs.append(roc_auc_score(y.iloc[vl_idx], proba))
         if probe_aucs:
             c_results[c_val] = round(float(np.mean(probe_aucs)), 4)
-
+    
     best_C = max(c_results, key=c_results.get) if c_results else 5.0
     logger.info("c_grid_search_results", c_grid=c_results, best_C=best_C)
 
     # 3. Обучаем модель с кросс-валидацией
     gkf = GroupKFold(n_splits=CV_N_SPLITS)
-    base_model = Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            (
-                "model",
-                LogisticRegression(
-                    class_weight="balanced",
-                    C=best_C,
-                    random_state=CV_RANDOM_STATE,
-                    max_iter=1000,
-                ),
-            ),
-        ]
-    )
-
+    base_model = Pipeline([
+        ("scaler", StandardScaler()),
+        ("model", LogisticRegression(class_weight="balanced", C=best_C, random_state=CV_RANDOM_STATE, max_iter=1000))
+    ])
+    
     from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
-
+    
     aucs = []
     oof_scores = np.zeros(len(y))
     for train_index, val_index in gkf.split(X, y, groups=groups):
         X_train, X_val = X.iloc[train_index], X.iloc[val_index]
         y_train, y_val = y.iloc[train_index], y.iloc[val_index]
-
+        
         if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
             continue
-
+        
         fold_base = clone(base_model)
         tr_weight = sample_weight[train_index] if sample_weight is not None else None
         fold_base.fit(X_train, y_train, model__sample_weight=tr_weight)
-
+        
         y_proba = fold_base.predict_proba(X_val)[:, 1]
         oof_scores[val_index] = y_proba
         aucs.append(roc_auc_score(y_val, y_proba))
-
+        
     val_acc = float(np.mean(aucs)) if aucs else 0.5
-
+    
     # Baseline ROC-AUC/Accuracy (доля мажоритарного класса)
     baseline_acc = float(max(y.mean(), 1.0 - y.mean()))
-
+    
     # ECE Diagnostic
     from sklearn.calibration import calibration_curve
-
-    frac_pos, mean_pred = calibration_curve(
-        y, oof_scores, n_bins=10, strategy="uniform"
-    )
+    frac_pos, mean_pred = calibration_curve(y, oof_scores, n_bins=10, strategy="uniform")
     ece = float(np.mean(np.abs(frac_pos - mean_pred)))
     logger.info("calibration_check", ece=round(ece, 4))
-
+    
     # Обучаем финальную модель на всех данных (с holdout для честной калибровки)
     # Чтобы исключить Group Leakage (BUG-05), разбиваем выборку по группам (market_id)
     gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
     train_idx, cal_idx = next(gss.split(X, y, groups=groups))
     X_train_cal, X_cal = X.iloc[train_idx], X.iloc[cal_idx]
     y_train_cal, y_cal = y.iloc[train_idx], y.iloc[cal_idx]
-
+    
     if len(np.unique(y_train_cal)) < 2 or len(np.unique(y_cal)) < 2:
         # Fallback to uncalibrated model on entire dataset if split is invalid
         final_model = clone(base_model)
@@ -291,36 +264,33 @@ def _fit_and_serialize(
             sw_all = sample_weight if sample_weight is not None else None
             final_model.fit(X, y, model__sample_weight=sw_all)
         except Exception:
-            return None  # Impossible to fit
+            return None # Impossible to fit
         final_base = final_model
     else:
         final_base = clone(base_model)
         tr_cal_weight = sample_weight[train_idx] if sample_weight is not None else None
         final_base.fit(X_train_cal, y_train_cal, model__sample_weight=tr_cal_weight)
-
+        
         final_model = CalibratedClassifierCV(
-            estimator=FrozenEstimator(final_base), method="sigmoid", cv=None
+            estimator=FrozenEstimator(final_base),
+            method="sigmoid",
+            cv=None
         )
         final_model.fit(X_cal, y_cal)
-
+    
     coefs = final_base.named_steps["model"].coef_[0]
     coef_info = dict(zip(list(X.columns), [round(float(c), 4) for c in coefs]))
     logger.info("model_feature_weights", coefficients=coef_info)
-
+    
     # --- ДОБАВИТЬ: ранжирование по |coef| ---
     abs_coefs = sorted(
         [(feat, abs(float(c))) for feat, c in zip(X.columns, coefs)],
-        key=lambda x: x[1],
-        reverse=True,
+        key=lambda x: x[1], reverse=True,
     )
     logger.info(
         "feature_importance_top10",
-        top_features=[
-            {"feature": f, "abs_coef": round(v, 4)} for f, v in abs_coefs[:10]
-        ],
-        bottom_features=[
-            {"feature": f, "abs_coef": round(v, 4)} for f, v in abs_coefs[-5:]
-        ],
+        top_features=[{"feature": f, "abs_coef": round(v, 4)} for f, v in abs_coefs[:10]],
+        bottom_features=[{"feature": f, "abs_coef": round(v, 4)} for f, v in abs_coefs[-5:]],
     )
 
     weak_features = [f for f, v in abs_coefs if v < lr_coef_threshold]
@@ -332,26 +302,18 @@ def _fit_and_serialize(
             threshold=lr_coef_threshold,
             suggestion="Consider removing from ACTIVE_FEATURES via dashboard",
         )
-
+    
     # Калибровка порога с использованием Out-Of-Fold предсказаний (исключаем Data Leakage)
     precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, oof_scores)
 
     # Найти порог с лучшим F1 среди тех где precision >= min_precision
     valid_mask = precision_arr[:-1] >= min_precision
     if valid_mask.any():
-        f1 = (
-            2
-            * (precision_arr[:-1] * recall_arr[:-1])
-            / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
-        )
+        f1 = 2 * (precision_arr[:-1] * recall_arr[:-1]) / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
         f1_filtered = np.where(valid_mask, f1, 0)
         optimal_threshold = float(thresholds_pr[np.argmax(f1_filtered)])
     else:
-        f1_scores = (
-            2
-            * (precision_arr[:-1] * recall_arr[:-1])
-            / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
-        )
+        f1_scores = 2 * (precision_arr[:-1] * recall_arr[:-1]) / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
         if len(thresholds_pr) > 0:
             optimal_threshold = float(thresholds_pr[np.argmax(f1_scores)])
         else:
@@ -360,16 +322,14 @@ def _fit_and_serialize(
     # Проверка на leakage временно отключена, т.к. для decided-рынков
     # порог может легально достигать 1.0 (сигнал сильный).
     if optimal_threshold >= max_suspicious:
-        logger.warning(
-            "suspicious_threshold", threshold=optimal_threshold, max=max_suspicious
-        )
+        logger.warning("suspicious_threshold", threshold=optimal_threshold, max=max_suspicious)
 
     best_thr_idx = np.searchsorted(thresholds_pr, optimal_threshold - 1e-9)
     best_thr_idx = min(best_thr_idx, len(precision_arr) - 2)
     _prec = float(precision_arr[best_thr_idx])
-    _rec = float(recall_arr[best_thr_idx])
-    _f1 = 2 * _prec * _rec / (_prec + _rec + 1e-8)
-
+    _rec  = float(recall_arr[best_thr_idx])
+    _f1   = 2 * _prec * _rec / (_prec + _rec + 1e-8)
+    
     logger.info(
         "threshold_diagnostics",
         optimal_threshold=round(optimal_threshold, 4),
@@ -386,7 +346,7 @@ def _fit_and_serialize(
 
     # Сериализуем модель (Pipeline сохраняет скейлер внутри)
     model_bytes = pickle.dumps(final_model)
-
+    
     backtest = _compute_backtest_pnl(
         oof_scores=oof_scores,
         y=y,
@@ -405,7 +365,6 @@ def _fit_and_serialize(
 
     return model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest
 
-
 class ModelTrainer:
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
@@ -413,33 +372,30 @@ class ModelTrainer:
 
     async def train_model(self, asset: str) -> bool:
         """
-        Обучает модель LogisticRegression для заданного актива на основе
+        Обучает модель LogisticRegression для заданного актива на основе 
         исторических (разрезолвленных) данных и сохраняет в БД.
         """
         logger.info("starting_training", asset=asset)
-
+        
         # Получаем активные фичи из RuntimeSettings
-        settings_stmt = select(RuntimeSettings).where(
-            RuntimeSettings.key == "ACTIVE_FEATURES"
-        )
+        settings_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "ACTIVE_FEATURES")
         settings_result = await self.db.execute(settings_stmt)
         active_features_setting = settings_result.scalar_one_or_none()
-
+        
         if active_features_setting and active_features_setting.value.strip():
             active_features = active_features_setting.value.split(",")
         else:
             active_features = settings.ACTIVE_FEATURES.split(",")
-
+            
         active_features = [f.strip() for f in active_features if f.strip()]
-
+        
         if not active_features:
             logger.error("no_active_features_selected", asset=asset)
             self.status_messages[asset] = "Ошибка: не выбраны активные признаки"
             return False
-
+        
         # 1. Сначала проверяем количество доступных сэмплов через быстрый COUNT(*)
         from polyflip.services.settings_service import get_float, get_int, get_setting
-
         min_time_min = await get_float(self.db, "LR_TRAIN_MIN_TIME_LEFT_MIN")
         max_time_min = await get_float(self.db, "LR_TRAIN_MAX_TIME_LEFT_MIN")
 
@@ -448,22 +404,15 @@ class ModelTrainer:
             MarketSnapshot.final_outcome.in_(["YES", "NO"]),
             MarketSnapshot.flip_vs_final.is_not(None),
             MarketSnapshot.time_left_min >= min_time_min,
-            MarketSnapshot.time_left_min <= max_time_min,
+            MarketSnapshot.time_left_min <= max_time_min
         )
         count_result = await self.db.execute(count_stmt)
         total_samples = count_result.scalar() or 0
-
+        
         # BUG-004 FIX: Используем настройку из конфига
         if total_samples < settings.MIN_SAMPLES_FOR_MODEL:
-            logger.warning(
-                "not_enough_data_for_training",
-                asset=asset,
-                samples=total_samples,
-                required=settings.MIN_SAMPLES_FOR_MODEL,
-            )
-            self.status_messages[asset] = (
-                f"Пропущено: недостаточно данных ({total_samples}/{settings.MIN_SAMPLES_FOR_MODEL})"
-            )
+            logger.warning("not_enough_data_for_training", asset=asset, samples=total_samples, required=settings.MIN_SAMPLES_FOR_MODEL)
+            self.status_messages[asset] = f"Пропущено: недостаточно данных ({total_samples}/{settings.MIN_SAMPLES_FOR_MODEL})"
             return False
 
         # Получаем обучающую выборку (только YES и NO, и где есть рассчитанный флип)
@@ -472,7 +421,7 @@ class ModelTrainer:
             MarketSnapshot.final_outcome.in_(["YES", "NO"]),
             MarketSnapshot.flip_vs_final.is_not(None),
             MarketSnapshot.time_left_min >= min_time_min,
-            MarketSnapshot.time_left_min <= max_time_min,
+            MarketSnapshot.time_left_min <= max_time_min
         )
         result = await self.db.execute(stmt)
         snapshots = result.scalars().all()
@@ -480,28 +429,23 @@ class ModelTrainer:
         # 2. Формируем DataFrame
         data = []
         for s in snapshots:
-            data.append(
-                {
-                    "market_id": s.market_id,
-                    "recorded_at": s.recorded_at,
-                    "time_left_min": s.time_left_min,
-                    "mid_price": s.mid_price,
-                    "spread": s.spread,
-                    "price_velocity": s.price_velocity,
-                    "volume_5min": s.volume_5min,
-                    "hour_of_day": s.hour_of_day,
-                    "day_of_week": (
-                        float(s.recorded_at.weekday()) if s.recorded_at else 0.0
-                    ),
-                    "target": 1 if s.flip_vs_final else 0,
-                }
-            )
-
+            data.append({
+                "market_id": s.market_id,
+                "recorded_at": s.recorded_at,
+                "time_left_min": s.time_left_min,
+                "mid_price": s.mid_price,
+                "spread": s.spread,
+                "price_velocity": s.price_velocity,
+                "volume_5min": s.volume_5min,
+                "hour_of_day": s.hour_of_day,
+                "day_of_week": float(s.recorded_at.weekday()) if s.recorded_at else 0.0,
+                "target": 1 if s.flip_vs_final else 0
+            })
+            
         df = pd.DataFrame(data)
-
+        
         if not df.empty:
-            logger.info(
-                "time_left_distribution",
+            logger.info("time_left_distribution", 
                 asset=asset,
                 n_snapshots=len(df),
                 min_min=round(df["time_left_min"].min(), 2),
@@ -510,9 +454,7 @@ class ModelTrainer:
                 p25=round(df["time_left_min"].quantile(0.25), 2),
                 p75=round(df["time_left_min"].quantile(0.75), 2),
                 n_markets=df["market_id"].nunique(),
-                snapshots_per_market=round(
-                    len(df) / max(df["market_id"].nunique(), 1), 1
-                ),
+                snapshots_per_market=round(len(df) / max(df["market_id"].nunique(), 1), 1),
             )
 
         # Добавляем инженерные признаки
@@ -527,10 +469,8 @@ class ModelTrainer:
             for feat in DERIVED_FEATURES:
                 if feat not in active_features:
                     active_features.append(feat)
-            logger.info(
-                "derived_features_added", features=DERIVED_FEATURES, asset=asset
-            )
-
+            logger.info("derived_features_added", features=DERIVED_FEATURES, asset=asset)
+            
             # Синхронизируем расширенный список с БД RuntimeSettings (без принудительной молчаливой перезаписи)
             derived_setting = await self.db.execute(
                 select(RuntimeSettings).where(RuntimeSettings.key == "ACTIVE_FEATURES")
@@ -553,22 +493,20 @@ class ModelTrainer:
                             "was preserved. Update via dashboard if needed."
                         ),
                     )
-
+        
         # Базовая проверка на разнообразие классов
         if len(df["target"].unique()) < 2:
             logger.warning("only_one_class_in_target", asset=asset)
             self.status_messages[asset] = "Пропущено: все исходы одинаковы (1 класс)"
             return False
-
+            
         # Используем только те фичи, которые включены в дашборде
         missing_features = [f for f in active_features if f not in df.columns]
         if missing_features:
             logger.error("missing_features_in_df", missing=missing_features)
-            self.status_messages[asset] = (
-                f"Ошибка: отсутствуют фичи {', '.join(missing_features)}"
-            )
+            self.status_messages[asset] = f"Ошибка: отсутствуют фичи {', '.join(missing_features)}"
             return False
-
+            
         # Гарантируем позиционные индексы — критично для корректной
         # индексации sample_weight[train_idx] внутри _fit_and_serialize
         df = df.reset_index(drop=True)
@@ -578,15 +516,8 @@ class ModelTrainer:
         groups = df["market_id"]
 
         import hashlib
-
-        max_rec_str = (
-            str(df["recorded_at"].max()) if "recorded_at" in df.columns else "unknown"
-        )
-        time_min_str = (
-            f"{df['time_left_min'].min():.1f}-{df['time_left_min'].max():.1f}"
-            if "time_left_min" in df.columns
-            else "unknown"
-        )
+        max_rec_str = str(df["recorded_at"].max()) if "recorded_at" in df.columns else "unknown"
+        time_min_str = f"{df['time_left_min'].min():.1f}-{df['time_left_min'].max():.1f}" if "time_left_min" in df.columns else "unknown"
         dataset_fingerprint = hashlib.md5(
             f"{asset}|n={len(df)}|max_rec={max_rec_str}|features={','.join(sorted(active_features))}|time_range={time_min_str}".encode()
         ).hexdigest()
@@ -614,10 +545,7 @@ class ModelTrainer:
         # Выполняем CPU-bound обучение в отдельном потоке (BUG-A2 FIX)
         fee_per_trade = await get_float(self.db, "BACKTEST_FEE_PER_TRADE")
         fit_res = await asyncio.to_thread(
-            _fit_and_serialize,
-            X,
-            y,
-            groups,
+            _fit_and_serialize, X, y, groups,
             mid_prices=df["mid_price"],
             sample_weight=sample_weights,
             lr_coef_threshold=lr_coef_threshold,
@@ -628,20 +556,11 @@ class ModelTrainer:
         )
         model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest = fit_res
 
-        logger.info(
-            "model_trained",
-            asset=asset,
-            samples=len(df),
-            val_auc=val_acc,
-            baseline_auc=baseline_acc,
-            ece=ece,
-        )
+        logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc, ece=ece)
 
         # --- Model Quality Gate Check ---
         lift = val_acc - baseline_acc
-        max_lift_loss = (
-            -0.005
-        )  # accuracy не должна быть ниже baseline более чем на 0.5%
+        max_lift_loss = -0.005  # accuracy не должна быть ниже baseline более чем на 0.5%
 
         active_model_stmt = (
             select(ModelRegistry)
@@ -656,9 +575,7 @@ class ModelTrainer:
 
         if lift < max_lift_loss:
             passed_quality_gate = False
-            gate_reasons.append(
-                f"Negative lift vs baseline: {lift:+.4f} (accuracy={val_acc:.4f}, baseline={baseline_acc:.4f})"
-            )
+            gate_reasons.append(f"Negative lift vs baseline: {lift:+.4f} (accuracy={val_acc:.4f}, baseline={baseline_acc:.4f})")
 
         if ece > 0.15:
             passed_quality_gate = False
@@ -673,27 +590,18 @@ class ModelTrainer:
                 acc_diff = val_acc - active_model.accuracy
                 if acc_diff < -0.02:
                     passed_quality_gate = False
-                    gate_reasons.append(
-                        f"Accuracy degraded vs active model v{active_model.version}: {acc_diff:+.4f} < -0.02 (same dataset)"
-                    )
+                    gate_reasons.append(f"Accuracy degraded vs active model v{active_model.version}: {acc_diff:+.4f} < -0.02 (same dataset)")
             else:
                 logger.warning(
                     "quality_gate_dataset_changed",
                     asset=asset,
-                    old_fingerprint=getattr(
-                        active_model, "dataset_fingerprint", "none"
-                    ),
+                    old_fingerprint=getattr(active_model, "dataset_fingerprint", "none"),
                     new_fingerprint=dataset_fingerprint,
-                    note="AUC comparison skipped — dataset changed. Using baseline check only.",
+                    note="AUC comparison skipped — dataset changed. Using baseline check only."
                 )
 
-        if (
-            optimal_threshold < MODEL_THRESHOLD_MIN
-            or optimal_threshold > MODEL_THRESHOLD_MAX
-        ):
-            clipped = max(
-                MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, optimal_threshold)
-            )
+        if optimal_threshold < MODEL_THRESHOLD_MIN or optimal_threshold > MODEL_THRESHOLD_MAX:
+            clipped = max(MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, optimal_threshold))
             passed_quality_gate = False
             gate_reasons.append(
                 f"Threshold {optimal_threshold:.4f} outside safe bounds [{MODEL_THRESHOLD_MIN}, {MODEL_THRESHOLD_MAX}], clipped to {clipped:.4f}"
@@ -728,15 +636,10 @@ class ModelTrainer:
                 val_auc=val_acc,
                 baseline_auc=baseline_acc,
                 ece=ece,
-                action="Model saved as is_active=False. Retaining current active model.",
+                action="Model saved as is_active=False. Retaining current active model."
             )
         else:
-            logger.info(
-                "model_quality_gate_passed",
-                asset=asset,
-                val_auc=val_acc,
-                baseline_auc=baseline_acc,
-            )
+            logger.info("model_quality_gate_passed", asset=asset, val_auc=val_acc, baseline_auc=baseline_acc)
 
         # Получаем предыдущую активную модель для сравнения AUC
         prev_auc_res = await self.db.execute(
@@ -750,16 +653,10 @@ class ModelTrainer:
         # ШАГ 1.1 FIX: проверка min_auc ДО каких-либо изменений в БД
         from polyflip.services.settings_service import get_float
 
-        min_auc_row = (
-            await self.db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == f"MIN_AUC_{asset}")
-            )
-        ).scalar_one_or_none()
-        min_auc = (
-            float(min_auc_row.value)
-            if min_auc_row
-            else await get_float(self.db, "LR_MIN_AUC_FOR_DEPLOY")
-        )
+        min_auc_row = (await self.db.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == f"MIN_AUC_{asset}")
+        )).scalar_one_or_none()
+        min_auc = float(min_auc_row.value) if min_auc_row else await get_float(self.db, "LR_MIN_AUC_FOR_DEPLOY")
 
         if val_acc < min_auc:
             logger.warning(
@@ -783,12 +680,7 @@ class ModelTrainer:
             )
 
         # Получаем следующий номер версии
-        version_stmt = (
-            select(ModelRegistry.version)
-            .where(ModelRegistry.asset == asset)
-            .order_by(ModelRegistry.version.desc())
-            .limit(1)
-        )
+        version_stmt = select(ModelRegistry.version).where(ModelRegistry.asset == asset).order_by(ModelRegistry.version.desc()).limit(1)
         v_result = await self.db.execute(version_stmt)
         last_v = v_result.scalar_one_or_none()
         next_version = (last_v or 0) + 1
@@ -803,14 +695,12 @@ class ModelTrainer:
             if existing_row:
                 existing_row.value = str(round(optimal_threshold, 4))
             else:
-                self.db.add(
-                    RuntimeSettings(
-                        key=threshold_key,
-                        value=str(round(optimal_threshold, 4)),
-                        updated_at=datetime.now(timezone.utc),
-                        updated_by="train_job",
-                    )
-                )
+                self.db.add(RuntimeSettings(
+                    key=threshold_key,
+                    value=str(round(optimal_threshold, 4)),
+                    updated_at=datetime.now(timezone.utc),
+                    updated_by="train_job"
+                ))
 
         # 7. Сохраняем новую модель
         new_model_record = ModelRegistry(
@@ -833,13 +723,8 @@ class ModelTrainer:
         self.db.add(new_model_record)
         await self.db.commit()
 
-        logger.info(
-            "model_saved_to_db",
-            asset=asset,
-            version=next_version,
-            threshold=optimal_threshold,
-        )
-
+        logger.info("model_saved_to_db", asset=asset, version=next_version, threshold=optimal_threshold)
+        
         diff_str = ""
         if prev_auc is not None:
             diff = val_acc - prev_auc
@@ -850,21 +735,18 @@ class ModelTrainer:
             else:
                 diff_str = " (= без изм.)"
 
-        self.status_messages[asset] = (
-            f"Успешно: версия {next_version} (AUC {val_acc:.4f}{diff_str})"
-        )
+        self.status_messages[asset] = f"Успешно: версия {next_version} (AUC {val_acc:.4f}{diff_str})"
 
         # --- Шаг 3: Price-Phase Split ---
         from polyflip.constants import PRICE_PHASE_BOUNDARIES, CV_N_SPLITS
         from polyflip.services.settings_service import get_int
-
         min_samples = await get_int(self.db, "MIN_SAMPLES_FOR_PHASE_MODEL")
-
+        
         assert "price_deviation" in df.columns, (
             "price_deviation must be computed before phase split. "
             "Call add_derived_features(df) first."
         )
-
+        
         phase_results = {}
         for phase_name, (lo, hi) in PRICE_PHASE_BOUNDARIES.items():
             df_phase = df[
@@ -872,24 +754,12 @@ class ModelTrainer:
             ].copy()
 
             n_phase = len(df_phase)
-            logger.info(
-                "price_phase_split_stats",
-                asset=asset,
-                phase=phase_name,
-                n=n_phase,
-                target_mean=(
-                    round(df_phase["target"].mean(), 3) if n_phase > 0 else None
-                ),
-            )
+            logger.info("price_phase_split_stats", asset=asset, phase=phase_name, n=n_phase,
+                        target_mean=round(df_phase["target"].mean(), 3) if n_phase > 0 else None)
 
             if n_phase < min_samples:
-                logger.warning(
-                    "price_phase_model_skipped",
-                    asset=asset,
-                    phase=phase_name,
-                    n=n_phase,
-                    required=min_samples,
-                )
+                logger.warning("price_phase_model_skipped", asset=asset, phase=phase_name,
+                               n=n_phase, required=min_samples)
                 phase_results[phase_name] = f"skipped ({n_phase} samples)"
                 continue
 
@@ -897,19 +767,15 @@ class ModelTrainer:
                 logger.warning("price_phase_one_class", asset=asset, phase=phase_name)
                 phase_results[phase_name] = "skipped (one class)"
                 continue
-
+                
             n_unique_markets = df_phase["market_id"].nunique()
             if n_unique_markets < CV_N_SPLITS:
                 logger.warning(
                     "price_phase_not_enough_groups",
-                    asset=asset,
-                    phase=phase_name,
-                    n_markets=n_unique_markets,
-                    required=CV_N_SPLITS,
+                    asset=asset, phase=phase_name,
+                    n_markets=n_unique_markets, required=CV_N_SPLITS,
                 )
-                phase_results[phase_name] = (
-                    f"skipped ({n_unique_markets} markets < {CV_N_SPLITS} folds)"
-                )
+                phase_results[phase_name] = f"skipped ({n_unique_markets} markets < {CV_N_SPLITS} folds)"
                 continue
 
             phase_weights = (
@@ -937,84 +803,53 @@ class ModelTrainer:
                     fee_per_trade=fee_per_trade,
                 )
             except Exception as e:
-                logger.error(
-                    "price_phase_fit_failed",
-                    asset=asset,
-                    phase=phase_name,
-                    error=str(e),
-                )
+                logger.error("price_phase_fit_failed", asset=asset, phase=phase_name, error=str(e))
                 phase_results[phase_name] = f"failed: {e}"
                 continue
-
+                
             if not fit_res_phase:
                 continue
 
-            model_bytes_p, val_acc_p, baseline_acc_p, threshold_p, ece_p, backtest_p = (
-                fit_res_phase
-            )
+            model_bytes_p, val_acc_p, baseline_acc_p, threshold_p, ece_p, backtest_p = fit_res_phase
 
             if val_acc_p < min_auc:
-                logger.warning(
-                    "price_phase_auc_too_low",
-                    asset=asset,
-                    phase=phase_name,
-                    val_auc=round(val_acc_p, 4),
-                    min_auc=min_auc,
-                )
+                logger.warning("price_phase_auc_too_low", asset=asset, phase=phase_name,
+                               val_auc=round(val_acc_p, 4), min_auc=min_auc)
                 phase_results[phase_name] = f"auc_too_low ({val_acc_p:.3f})"
                 continue
 
             # Деактивируем старые
             await self.db.execute(
-                update(ModelRegistry)
-                .where(ModelRegistry.asset == phase_asset)
-                .values(is_active=False)
+                update(ModelRegistry).where(ModelRegistry.asset == phase_asset).values(is_active=False)
             )
-            last_v_p = (
-                await self.db.execute(
-                    select(ModelRegistry.version)
-                    .where(ModelRegistry.asset == phase_asset)
-                    .order_by(ModelRegistry.version.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
+            last_v_p = (await self.db.execute(
+                select(ModelRegistry.version).where(ModelRegistry.asset == phase_asset)
+                .order_by(ModelRegistry.version.desc()).limit(1)
+            )).scalar_one_or_none()
 
             # Сохраняем порог
             thr_key = f"AUTO_FLIP_THRESHOLD_{phase_asset}"
-            existing_thr = (
-                await self.db.execute(
-                    select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
-                )
-            ).scalar_one_or_none()
+            existing_thr = (await self.db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+            )).scalar_one_or_none()
             if existing_thr:
                 existing_thr.value = str(round(threshold_p, 4))
             else:
-                self.db.add(
-                    RuntimeSettings(
-                        key=thr_key,
-                        value=str(round(threshold_p, 4)),
-                        updated_at=datetime.now(timezone.utc),
-                        updated_by="train_job_phase",
-                    )
-                )
+                self.db.add(RuntimeSettings(
+                    key=thr_key, value=str(round(threshold_p, 4)),
+                    updated_at=datetime.now(timezone.utc), updated_by="train_job_phase"
+                ))
 
-            self.db.add(
-                ModelRegistry(
-                    asset=phase_asset,
-                    version=(last_v_p or 0) + 1,
-                    model_blob=model_bytes_p,
-                    accuracy=val_acc_p,
-                    baseline=baseline_acc_p,
-                    features=",".join(active_features),
-                    ece=ece_p,
-                    is_active=True,
-                    interval="15m",
-                    trained_at=datetime.now(timezone.utc),
-                    backtest_pnl=backtest_p["total_pnl"],
-                    backtest_trades=backtest_p["n_trades"],
-                    backtest_wr=backtest_p["win_rate"],
-                )
-            )
+            self.db.add(ModelRegistry(
+                asset=phase_asset, version=(last_v_p or 0) + 1,
+                model_blob=model_bytes_p, accuracy=val_acc_p,
+                baseline=baseline_acc_p, features=",".join(active_features),
+                ece=ece_p, is_active=True, interval="15m",
+                trained_at=datetime.now(timezone.utc),
+                backtest_pnl=backtest_p["total_pnl"],
+                backtest_trades=backtest_p["n_trades"],
+                backtest_wr=backtest_p["win_rate"],
+            ))
             phase_results[phase_name] = f"ok (AUC {val_acc_p:.3f}, n={n_phase})"
 
         await self.db.commit()

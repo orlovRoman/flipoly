@@ -4,7 +4,6 @@ polyflip/db/init_runtime_settings.py
 Инициализация runtime-настроек при старте.
 DEFAULTS берётся из settings_registry.py — единственного источника истины.
 """
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.models import RuntimeSettings
@@ -34,14 +33,12 @@ async def migrate_auto_dead_zone_width(session: AsyncSession):
             target.updated_by = "migration_auto_dead_zone"
             target.updated_at = datetime.now(timezone.utc)
         else:
-            session.add(
-                RuntimeSettings(
-                    key="DEAD_ZONE_WIDTH",
-                    value=old.value,
-                    updated_by="migration_auto_dead_zone",
-                    updated_at=datetime.now(timezone.utc),
-                )
-            )
+            session.add(RuntimeSettings(
+                key="DEAD_ZONE_WIDTH",
+                value=old.value,
+                updated_by="migration_auto_dead_zone",
+                updated_at=datetime.now(timezone.utc),
+            ))
         await session.delete(old)
         await session.commit()
 
@@ -64,14 +61,12 @@ async def migrate_stop_loss_pct(session: AsyncSession):
             select(RuntimeSettings).where(RuntimeSettings.key == new_key)
         )
         if not existing:
-            session.add(
-                RuntimeSettings(
-                    key=new_key,
-                    value=old.value,
-                    updated_by="migration_stop_loss_pct",
-                    updated_at=now,
-                )
-            )
+            session.add(RuntimeSettings(
+                key=new_key,
+                value=old.value,
+                updated_by="migration_stop_loss_pct",
+                updated_at=now,
+            ))
 
     await session.delete(old)
     await session.commit()
@@ -83,14 +78,14 @@ async def migrate_crypto_to_lightgbm(session: AsyncSession):
     меняем это значение на "lightgbm".
     """
     stmt = select(RuntimeSettings).where(
-        (RuntimeSettings.key == "TRADING_MODE")
-        | RuntimeSettings.key.like("TRADING_MODE_%")
+        (RuntimeSettings.key == "TRADING_MODE") |
+        RuntimeSettings.key.like("TRADING_MODE_%")
     )
     # Используем блокировку только для полноценных СУБД (PostgreSQL), так как SQLite не поддерживает FOR UPDATE
     bind = session.bind
     if bind and bind.dialect.name != "sqlite":
         stmt = stmt.with_for_update(skip_locked=True)
-
+        
     result = await session.execute(stmt)
     rows = result.scalars().all()
     updated = False
@@ -111,12 +106,10 @@ async def seed_runtime_settings(session: AsyncSession):
             select(RuntimeSettings).where(RuntimeSettings.key == key)
         )
         if not exists:
-            session.add(
-                RuntimeSettings(
-                    key=key,
-                    value=value,
-                    updated_by="system",
-                    updated_at=datetime.now(timezone.utc),
-                )
-            )
+            session.add(RuntimeSettings(
+                key=key,
+                value=value,
+                updated_by="system",
+                updated_at=datetime.now(timezone.utc),
+            ))
     await session.commit()

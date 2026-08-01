@@ -1,7 +1,6 @@
 """
 Ядро бэктеста. Объединяет MarketReplay, ML-модель, decision_logic и SimulatedTrader.
 """
-
 from __future__ import annotations
 import pickle
 import pandas as pd
@@ -9,33 +8,22 @@ from typing import Any
 
 from polyflip.backtesting.market_replay import MarketReplay
 from polyflip.backtesting.simulated_trader import SimulatedTrader
-from polyflip.trading.decision_logic import (
-    decide_favorite,
-    decide_ml_trend,
-    decide_outsider,
-    TradeDecision,
-)
+from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider, TradeDecision
 from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUMNS
 
 
 class BacktestRunner:
     def __init__(self, config: dict, model_blob: bytes, features: str):
         self.config = config
-        self.model = (
-            pickle.loads(model_blob) if model_blob and len(model_blob) > 0 else None
-        )
-        self.features = [f.strip() for f in features.split(",")] if features else []
-        self.trader = SimulatedTrader(
-            slippage_pct=float(config.get("SLIPPAGE_PCT", 0.005))
-        )
-
+        self.model = pickle.loads(model_blob) if model_blob and len(model_blob) > 0 else None
+        self.features = [f.strip() for f in features.split(',')] if features else []
+        self.trader = SimulatedTrader(slippage_pct=float(config.get("SLIPPAGE_PCT", 0.005)))
+        
         _tof = config.get("TRADE_ON_FLIP", False)
-        self.trade_on_flip = (
-            _tof if isinstance(_tof, bool) else str(_tof).lower() == "true"
-        )
-
+        self.trade_on_flip = _tof if isinstance(_tof, bool) else str(_tof).lower() == "true"
+        
         self.strategy_mode = config.get("STRATEGY_MODE", "ML")  # ML or PURE_FAVORITE
-
+        
         self.bet_sizing_mode = config.get("BET_SIZING_MODE", "scaled")
         self.base_bet = float(config.get("TRADE_BET_SIZE_USDC", 5.0))
         self.max_bet = float(config.get("MAX_BET_SIZE_USDC", 50.0))
@@ -46,9 +34,9 @@ class BacktestRunner:
         """Получает P(flip) от модели для данного тика (оптимизировано без Pandas)."""
         if not self.model or not self.features:
             return 0.0
-
+            
         import math
-
+        
         price_dev = abs(signal.mid_price - 0.5)
         row_dict = {
             "time_left_min": signal.time_left_min,
@@ -61,12 +49,12 @@ class BacktestRunner:
             "spread_pct": min(signal.spread / (signal.mid_price + 1e-6), 10.0),
             "log_time_left": math.log1p(signal.time_left_min),
         }
-
+        
         # Проверяем наличие всех фичей
         missing = [f for f in self.features if f not in row_dict]
         if missing:
             return 0.0
-
+            
         X = [[row_dict[f] for f in self.features]]
         proba = self.model.predict_proba(X)[0]
         return float(proba[1] if len(proba) > 1 else 0.0)
@@ -83,13 +71,13 @@ class BacktestRunner:
                 t = (edge - self.min_edge) / (self.max_edge - self.min_edge)
                 t = max(0.0, min(1.0, t))
                 bet = self.base_bet + t * (self.max_bet - self.base_bet)
-
+        
         # Применяем liquidity cap если есть signal
         if signal is not None and signal.volume_5min > 0:
             liquidity_fraction = float(self.config.get("LIQUIDITY_FRACTION", 0.05))
             cap = max(signal.volume_5min * liquidity_fraction, self.base_bet)
             bet = min(bet, cap)
-
+        
         return round(bet, 2)
 
     def _evaluate_tick(self, tick):
@@ -107,7 +95,7 @@ class BacktestRunner:
             decision = decide_ml_trend(signal, p_flip, self.config)
             if decision.action == "SKIP" and self.trade_on_flip:
                 decision = decide_outsider(signal, p_flip, self.config)
-
+        
         return decision, p_flip, signal
 
     def run_market(self, replay: MarketReplay) -> None:
@@ -116,49 +104,35 @@ class BacktestRunner:
 
         min_time = float(self.config.get("MIN_TIME_LEFT_MIN", 1.0))
         max_time = float(self.config.get("MAX_TIME_LEFT_MIN", 60.0))
-
+        
         ticks = replay.get_ticks_in_window(min_time, max_time)
         if not ticks:
             return
 
         entry_strategy = self.config.get("ENTRY_STRATEGY", "first")
-
+        
         best_decision = None
         best_tick = None
         best_p_flip = 0.0
         best_signal = None
         consecutive_edges = 0
-
+        
         for tick in ticks:
             decision, p_flip, signal = self._evaluate_tick(tick)
-
+            
             if decision.action == "SKIP":
                 consecutive_edges = 0
                 continue
-
+                
             if entry_strategy == "first":
-                best_decision, best_tick, best_p_flip, best_signal = (
-                    decision,
-                    tick,
-                    p_flip,
-                    signal,
-                )
+                best_decision, best_tick, best_p_flip, best_signal = decision, tick, p_flip, signal
                 break
             elif entry_strategy == "best_edge":
-                if not best_decision or (decision.edge or 0) > (
-                    best_decision.edge or 0
-                ):
-                    best_decision, best_tick, best_p_flip, best_signal = (
-                        decision,
-                        tick,
-                        p_flip,
-                        signal,
-                    )
+                if not best_decision or (decision.edge or 0) > (best_decision.edge or 0):
+                    best_decision, best_tick, best_p_flip, best_signal = decision, tick, p_flip, signal
             elif entry_strategy == "confirmed":
                 if best_decision and decision.action != best_decision.action:
-                    consecutive_edges = (
-                        0  # смена направления: нужно 2 подтверждения с нуля
-                    )
+                    consecutive_edges = 0  # смена направления: нужно 2 подтверждения с нуля
                     best_decision = decision
                 else:
                     consecutive_edges += 1
@@ -187,7 +161,7 @@ class BacktestRunner:
                 asset=replay.asset,
                 decision=decision,
                 timestamp=best_tick.recorded_at,
-                p_flip=best_p_flip,
+                p_flip=best_p_flip
             )
 
     def run_all(self, replays: dict[str, MarketReplay]) -> list:
@@ -197,67 +171,51 @@ class BacktestRunner:
             from polyflip.models.trainer import add_derived_features
             from polyflip.models.feature_lags import add_lag_features
             import numpy as np
-
+            
             rows = []
             for replay in replays.values():
                 if not replay.is_tradeable:
                     continue
                 for tick in replay.ticks:
-                    rows.append(
-                        {
-                            "market_id": tick.market_id,
-                            "recorded_at": tick.recorded_at,
-                            "time_left_min": tick.time_left_min,
-                            "mid_price": tick.mid_price,
-                            "spread": tick.spread,
-                            "volume_5min": tick.volume_5min,
-                            "price_velocity": tick.price_velocity,
-                            "hour_of_day": tick.hour_of_day,
-                            "day_of_week": tick.recorded_at.weekday(),
-                            "tick_obj": tick,
-                        }
-                    )
-
+                    rows.append({
+                        "market_id": tick.market_id,
+                        "recorded_at": tick.recorded_at,
+                        "time_left_min": tick.time_left_min,
+                        "mid_price": tick.mid_price,
+                        "spread": tick.spread,
+                        "volume_5min": tick.volume_5min,
+                        "price_velocity": tick.price_velocity,
+                        "hour_of_day": tick.hour_of_day,
+                        "day_of_week": tick.recorded_at.weekday(),
+                        "tick_obj": tick
+                    })
+            
             if rows:
                 df = pd.DataFrame(rows)
                 df = add_derived_features(df)
                 df = add_lag_features(df)
-
+                
                 min_time = float(self.config.get("MIN_TIME_LEFT_MIN", 1.0))
                 max_time = float(self.config.get("MAX_TIME_LEFT_MIN", 60.0))
-                mask = (df["time_left_min"] >= min_time) & (
-                    df["time_left_min"] <= max_time
-                )
+                mask = (df["time_left_min"] >= min_time) & (df["time_left_min"] <= max_time)
                 df_window = df[mask].copy()
-
+                
                 missing = [f for f in self.features if f not in df_window.columns]
                 if missing:
                     import structlog
-
-                    structlog.get_logger(__name__).error(
-                        "backtest_inference_missing_features", missing=missing
-                    )
+                    structlog.get_logger(__name__).error("backtest_inference_missing_features", missing=missing)
                     self.p_flips = {}
                 else:
                     X = df_window[self.features]
                     try:
                         probas = self.model.predict_proba(X)
-                        p_flip_values = (
-                            probas[:, 1]
-                            if probas.shape[1] > 1
-                            else np.zeros(len(df_window))
-                        )
+                        p_flip_values = probas[:, 1] if probas.shape[1] > 1 else np.zeros(len(df_window))
                         for idx, p_val in zip(df_window.index, p_flip_values):
                             tick = df_window.at[idx, "tick_obj"]
-                            self.p_flips[(tick.market_id, tick.time_left_min)] = float(
-                                p_val
-                            )
+                            self.p_flips[(tick.market_id, tick.time_left_min)] = float(p_val)
                     except Exception as e:
                         import structlog
-
-                        structlog.get_logger(__name__).error(
-                            "backtest_inference_error", error=str(e)
-                        )
+                        structlog.get_logger(__name__).error("backtest_inference_error", error=str(e))
                         self.p_flips = {}
 
         for market_id, replay in replays.items():

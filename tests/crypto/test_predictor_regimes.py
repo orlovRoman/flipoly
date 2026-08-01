@@ -2,15 +2,12 @@
 Тесты выбора режима в CryptoPredictor после миграции
 с vol_median → vol_p33/vol_p67 (tertile).
 """
-
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from polyflip.crypto.predictor import CryptoPredictor
 
 
-def _make_predictor(
-    p33: float = 0.5, p67: float = 1.5, symbol: str = "BTCUSDT"
-) -> CryptoPredictor:
+def _make_predictor(p33: float = 0.5, p67: float = 1.5, symbol: str = "BTCUSDT") -> CryptoPredictor:
     """Создаёт предзагруженный предсказатель с нужными квантилями."""
     pred = CryptoPredictor()
     pred._vol_p33s[symbol] = p33
@@ -34,11 +31,7 @@ def test_regime_low_vol():
     vol_ratio = 0.3
     p33 = pred._vol_p33s["BTCUSDT"]
     p67 = pred._vol_p67s["BTCUSDT"]
-    regime = (
-        "low_vol"
-        if vol_ratio <= p33
-        else ("mid_vol" if vol_ratio <= p67 else "high_vol")
-    )
+    regime = "low_vol" if vol_ratio <= p33 else ("mid_vol" if vol_ratio <= p67 else "high_vol")
     assert regime == "low_vol"
 
 
@@ -48,11 +41,7 @@ def test_regime_mid_vol():
     vol_ratio = 0.9  # между P33=0.5 и P67=1.5
     p33 = pred._vol_p33s["BTCUSDT"]
     p67 = pred._vol_p67s["BTCUSDT"]
-    regime = (
-        "low_vol"
-        if vol_ratio <= p33
-        else ("mid_vol" if vol_ratio <= p67 else "high_vol")
-    )
+    regime = "low_vol" if vol_ratio <= p33 else ("mid_vol" if vol_ratio <= p67 else "high_vol")
     assert regime == "mid_vol"
 
 
@@ -62,11 +51,7 @@ def test_regime_high_vol():
     vol_ratio = 2.0  # выше P67=1.5
     p33 = pred._vol_p33s["BTCUSDT"]
     p67 = pred._vol_p67s["BTCUSDT"]
-    regime = (
-        "low_vol"
-        if vol_ratio <= p33
-        else ("mid_vol" if vol_ratio <= p67 else "high_vol")
-    )
+    regime = "low_vol" if vol_ratio <= p33 else ("mid_vol" if vol_ratio <= p67 else "high_vol")
     assert regime == "high_vol"
 
 
@@ -76,11 +61,7 @@ def test_regime_boundary_p33():
     vol_ratio = 0.5  # точно на границе P33
     p33 = pred._vol_p33s["BTCUSDT"]
     p67 = pred._vol_p67s["BTCUSDT"]
-    regime = (
-        "low_vol"
-        if vol_ratio <= p33
-        else ("mid_vol" if vol_ratio <= p67 else "high_vol")
-    )
+    regime = "low_vol" if vol_ratio <= p33 else ("mid_vol" if vol_ratio <= p67 else "high_vol")
     assert regime == "low_vol", "Граница P33 должна входить в low_vol (<=)"
 
 
@@ -90,11 +71,7 @@ def test_regime_boundary_p67():
     vol_ratio = 1.5  # точно на границе P67
     p33 = pred._vol_p33s["BTCUSDT"]
     p67 = pred._vol_p67s["BTCUSDT"]
-    regime = (
-        "low_vol"
-        if vol_ratio <= p33
-        else ("mid_vol" if vol_ratio <= p67 else "high_vol")
-    )
+    regime = "low_vol" if vol_ratio <= p33 else ("mid_vol" if vol_ratio <= p67 else "high_vol")
     assert regime == "mid_vol", "Граница P67 должна входить в mid_vol (<=)"
 
 
@@ -111,10 +88,8 @@ def test_invalidate_clears_tertile_caches():
 def test_no_vol_median_key_present():
     """Старый ключ _vol_medians не должен существовать в предсказателе."""
     pred = CryptoPredictor()
-    assert not hasattr(
-        pred, "_vol_medians"
-    ), "_vol_medians удалён в пользу _vol_p33s/_vol_p67s, не должен существовать"
-
+    assert not hasattr(pred, "_vol_medians"), \
+        "_vol_medians удалён в пользу _vol_p33s/_vol_p67s, не должен существовать"
 
 def test_default_tertile_values_when_no_db():
     """Дефолтные значения P33=0.5, P67=1.5 при отсутствии записей в RuntimeSettings."""

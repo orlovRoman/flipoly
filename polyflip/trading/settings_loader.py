@@ -13,7 +13,7 @@ async def load_trading_settings(
     Возвращает сырой dict[str, str] — парсинг на стороне вызывающего.
     """
     settings_keys = [
-        "TRADING_ENABLED",
+        "TRADING_ENABLED", 
         "TRADE_MIN_TIME_LEFT_SEC",
         "TRADE_MAX_TIME_LEFT_SEC",
         "TRADE_BET_SIZE_USDC",
@@ -51,15 +51,15 @@ async def load_trading_settings(
         "TAKE_PROFIT_ENABLED",
         "TAKE_PROFIT_MULTIPLIER",
     ]
-
+    
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     result = await db_session.execute(stmt)
     settings_db = {s.key: str(s.value) for s in result.scalars().all()}
-
+    
     if trade_assets is None:
         trade_assets_str = settings_db.get("TRADE_ASSETS", settings.TRADE_ASSETS)
         trade_assets = [a.strip() for a in trade_assets_str.split(",") if a.strip()]
-
+        
     threshold_keys = []
     for asset in trade_assets:
         asset_upper = asset.upper()
@@ -71,11 +71,11 @@ async def load_trading_settings(
         threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}_contested")
         threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}_leaning")
         threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}_decided")
-
+        
     if threshold_keys:
         t_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(threshold_keys))
         t_result = await db_session.execute(t_stmt)
         for s in t_result.scalars().all():
             settings_db[s.key] = str(s.value)
-
+            
     return settings_db

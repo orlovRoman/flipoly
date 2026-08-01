@@ -3,7 +3,6 @@
 НЕТ обращений к БД, API, логгеру.
 Используется: engine.py (production), backtesting/strategy.py (backtest).
 """
-
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Optional
@@ -15,22 +14,18 @@ from polyflip.trading.position_sizing import (
     compute_bet_size_edge_scaled,
     compute_edge,
     is_in_dead_zone,
-    apply_ece_correction,
+    apply_ece_correction
 )
 from polyflip.constants import FLIP_MIDPOINT, ECE_WARN_THRESHOLD
 import structlog
 
-logger = structlog.get_logger(__name__)
 
+logger = structlog.get_logger(__name__)
 
 def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
     from polyflip.trading.position_sizing import compute_bet_size_with_liquidity
-
     min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5.0))
-    if (
-        config.get("BET_SIZING_MODE")
-        and str(config.get("BET_SIZING_MODE")).lower() == "fixed"
-    ):
+    if config.get("BET_SIZING_MODE") and str(config.get("BET_SIZING_MODE")).lower() == "fixed":
         return min_bet
     bet = compute_bet_size_with_liquidity(
         edge=edge,
@@ -45,10 +40,7 @@ def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
         bet = min_bet
     return bet
 
-
-StrategyType = Literal[
-    "PURE_FAVORITE", "ML_TREND", "OUTSIDER", "LIGHTGBM_TREND", "COMBINED", "SKIP"
-]
+StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "LIGHTGBM_TREND", "COMBINED", "SKIP"]
 ActionType = Literal["BUY_YES", "BUY_NO", "SKIP"]
 
 
@@ -69,29 +61,23 @@ class TradeDecision:
     decision_details: Optional[dict] = None
 
 
+
 def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     """
     PURE_FAVORITE стратегия.
     Покупает фаворита (YES если mid_price > threshold, NO если < 1-threshold).
-
+    
     Важно: обе стороны проверяются независимо.
     YES-side out-of-bounds НЕ блокирует проверку NO-side.
     Если обе стороны подходят — выбирается с бо́льшим edge.
     """
     yes_bid = getattr(signal, "yes_bid", None)
     yes_ask = getattr(signal, "yes_ask", None)
-    if (
-        yes_bid is not None
-        and yes_bid > 0
-        and yes_ask is not None
-        and signal.mid_price > 0
-    ):
+    if yes_bid is not None and yes_bid > 0 and yes_ask is not None and signal.mid_price > 0:
         spread_pct = (yes_ask - yes_bid) / signal.mid_price
         max_spread = float(config.get("MAX_SPREAD_PCT", 0.08))
         if spread_pct > max_spread:
-            return TradeDecision(
-                "SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0
-            )
+            return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
 
     raw_fav = str(config.get("FAVORITE_THRESHOLD", "")).strip()
     if not raw_fav:
@@ -99,24 +85,22 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
         logger.warning(
             "favorite_threshold_default_used",
             threshold=threshold,
-            note="Default changed from 0.65 to 0.55 in v1.x — set FAVORITE_THRESHOLD explicitly",
+            note="Default changed from 0.65 to 0.55 in v1.x — set FAVORITE_THRESHOLD explicitly"
         )
     else:
         try:
             threshold = float(raw_fav)
         except ValueError:
             threshold = 0.55
-            logger.warning(
-                "favorite_threshold_invalid", raw=raw_fav, fallback=threshold
-            )
+            logger.warning("favorite_threshold_invalid", raw=raw_fav, fallback=threshold)
 
     dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
 
     if is_in_dead_zone(signal.mid_price, dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", edge=0.0)
 
-    fav_min = float(config.get("FAVORITE_MIN_PRICE", 0.55))
-    fav_max = float(config.get("FAVORITE_MAX_PRICE", 0.95))
+    fav_min  = float(config.get("FAVORITE_MIN_PRICE", 0.55))
+    fav_max  = float(config.get("FAVORITE_MAX_PRICE", 0.95))
     global_min = float(config.get("MIN_EDGE", 0.05))
     fav_raw = config.get("FAVORITE_MIN_EDGE")
     if fav_raw is not None and str(fav_raw).strip() != "":
@@ -126,13 +110,14 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
                 "favorite_min_edge_below_global_floor",
                 favorite_min_edge=fav_override,
                 global_min=global_min,
-                note="FAVORITE_MIN_EDGE < global MIN_EDGE — using global floor",
+                note="FAVORITE_MIN_EDGE < global MIN_EDGE — using global floor"
             )
             min_edge = max(global_min, fav_override)
         else:
             min_edge = fav_override
     else:
         min_edge = global_min
+
 
     candidates: list[TradeDecision] = []
 
@@ -147,19 +132,12 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             edge = compute_edge(p_win_yes, eff_yes_ask)
             if edge >= min_edge:
                 bet = _resolve_final_bet(edge, signal.volume_5min, config)
-                candidates.append(
-                    TradeDecision(
-                        "BUY_YES",
-                        eff_yes_ask,
-                        bet,
-                        f"favorite YES edge={edge:.4f}",
-                        "PURE_FAVORITE",
-                        edge=edge,
-                        p_up=p_win_yes,
-                        p_win_effective=p_win_yes,
-                        p_win_raw=p_win_yes,
-                    )
-                )
+                candidates.append(TradeDecision(
+                    "BUY_YES", eff_yes_ask, bet,
+                    f"favorite YES edge={edge:.4f}", "PURE_FAVORITE",
+                    edge=edge, p_up=p_win_yes,
+                    p_win_effective=p_win_yes, p_win_raw=p_win_yes
+                ))
 
     # --- NO side --- проверяется НЕЗАВИСИМО от YES-side
     if signal.mid_price <= (1.0 - threshold):
@@ -172,19 +150,12 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             edge = compute_edge(no_prob, eff_no_ask)
             if edge >= min_edge:
                 bet = _resolve_final_bet(edge, signal.volume_5min, config)
-                candidates.append(
-                    TradeDecision(
-                        "BUY_NO",
-                        eff_no_ask,
-                        bet,
-                        f"favorite NO edge={edge:.4f}",
-                        "PURE_FAVORITE",
-                        edge=edge,
-                        p_up=1.0 - no_prob,
-                        p_win_effective=no_prob,
-                        p_win_raw=no_prob,
-                    )
-                )
+                candidates.append(TradeDecision(
+                    "BUY_NO", eff_no_ask, bet,
+                    f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
+                    edge=edge, p_up=1.0 - no_prob,
+                    p_win_effective=no_prob, p_win_raw=no_prob
+                ))
 
     if not candidates:
         eff_yes = signal.get_yes_ask()
@@ -194,36 +165,22 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
             if not (fav_min <= eff_yes <= fav_max):
                 reason = f"YES price {eff_yes:.3f} out of bounds [{fav_min},{fav_max}]"
             else:
-                p_win_yes = (
-                    float(signal.yes_bid)
-                    if signal.yes_bid is not None and float(signal.yes_bid) > 0
-                    else signal.mid_price
-                )
+                p_win_yes = float(signal.yes_bid) if signal.yes_bid is not None and float(signal.yes_bid) > 0 else signal.mid_price
                 skipped_edge = compute_edge(p_win_yes, eff_yes)
-                reason = (
-                    f"favorite YES edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
-                )
+                reason = f"favorite YES edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
         elif signal.mid_price <= (1.0 - threshold):
             if not (fav_min <= eff_no <= fav_max):
                 reason = f"NO price {eff_no:.3f} out of bounds [{fav_min},{fav_max}]"
             else:
-                no_prob = (
-                    float(signal.no_bid)
-                    if signal.no_bid is not None and float(signal.no_bid) > 0
-                    else (1.0 - signal.mid_price)
-                )
+                no_prob = float(signal.no_bid) if signal.no_bid is not None and float(signal.no_bid) > 0 else (1.0 - signal.mid_price)
                 skipped_edge = compute_edge(no_prob, eff_no)
-                reason = (
-                    f"favorite NO edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
-                )
+                reason = f"favorite NO edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
         else:
             reason = "no clear favorite"
         return TradeDecision("SKIP", 0.0, 0.0, reason, "SKIP", edge=skipped_edge)
 
     # Выбираем кандидата с наибольшим edge
-    best_candidate = max(
-        candidates, key=lambda c: c.edge if c.edge is not None else -999.0
-    )
+    best_candidate = max(candidates, key=lambda c: c.edge if c.edge is not None else -999.0)
     return best_candidate
 
 
@@ -254,15 +211,9 @@ def decide_ml_trend(
 
     # 2. Порог P(flip) < no_flip_threshold
     if p_flip_effective >= no_flip_thresh:
-        return TradeDecision(
-            "SKIP",
-            0,
-            0,
-            f"p_flip_effective={p_flip_effective:.3f} >= threshold={no_flip_thresh:.3f}",
-            "SKIP",
-            p_flip=p_flip,
-            edge=0.0,
-        )
+        return TradeDecision("SKIP", 0, 0,
+            f"p_flip_effective={p_flip_effective:.3f} >= threshold={no_flip_thresh:.3f}", "SKIP",
+            p_flip=p_flip, edge=0.0)
 
     fav_min = float(config.get("FAVORITE_MIN_PRICE", 0.55))
     fav_max = float(config.get("FAVORITE_MAX_PRICE", 0.95))
@@ -272,58 +223,30 @@ def decide_ml_trend(
         action: ActionType = "BUY_YES"
         buy_price = signal.get_yes_ask()
         if not (fav_min <= buy_price <= fav_max):
-            return TradeDecision(
-                "SKIP",
-                0,
-                0,
-                f"YES price {buy_price:.3f} out of [{fav_min},{fav_max}]",
-                "SKIP",
-                p_flip=p_flip,
-                edge=0.0,
-            )
+            return TradeDecision("SKIP", 0, 0,
+                f"YES price {buy_price:.3f} out of [{fav_min},{fav_max}]", "SKIP", p_flip=p_flip, edge=0.0)
     else:
         action: ActionType = "BUY_NO"
         buy_price = signal.get_no_ask()
         if not (fav_min <= buy_price <= fav_max):
-            return TradeDecision(
-                "SKIP",
-                0,
-                0,
-                f"NO price {buy_price:.3f} out of [{fav_min},{fav_max}]",
-                "SKIP",
-                p_flip=p_flip,
-                edge=0.0,
-            )
+            return TradeDecision("SKIP", 0, 0,
+                f"NO price {buy_price:.3f} out of [{fav_min},{fav_max}]", "SKIP", p_flip=p_flip, edge=0.0)
 
     if ece and ece > ECE_WARN_THRESHOLD:
-        logger.warning(
-            "poor_calibration_model",
-            asset=signal.asset,
-            ece=ece,
-            note="p_flip estimates may be unreliable",
-        )
+        logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
 
     # 4. Единый ML-edge
     edge = compute_edge(p_win, buy_price)
     min_edge = float(config.get("MIN_EDGE", 0.05))
     if edge < min_edge:
-        return TradeDecision(
-            "SKIP",
-            0,
-            0,
-            f"Edge={edge:.4f} < min={min_edge:.4f}",
-            "SKIP",
-            p_flip=p_flip,
-            edge=edge,
-        )
+        return TradeDecision("SKIP", 0, 0,
+            f"Edge={edge:.4f} < min={min_edge:.4f}", "SKIP", p_flip=p_flip, edge=edge)
 
     # 5. Ставка на основе ML-edge
     bet = _resolve_final_bet(edge, signal.volume_5min, config)
     bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
     if bet <= 0 and not bypass:
-        return TradeDecision(
-            "SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge
-        )
+        return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
     decision_details = {
         "p_flip_raw": round(p_flip, 4),
@@ -334,16 +257,12 @@ def decide_ml_trend(
     }
 
     return TradeDecision(
-        action,
-        buy_price,
-        bet,
+        action, buy_price, bet,
         f"ML_TREND p_flip_effective={p_flip_effective:.3f} < {no_flip_thresh:.3f}",
         "ML_TREND",
-        p_flip=p_flip,
-        edge=edge,
-        p_win_effective=p_win,
-        p_win_raw=1.0 - p_flip,
-        decision_details=decision_details,
+        p_flip=p_flip, edge=edge,
+        p_win_effective=p_win, p_win_raw=1.0 - p_flip,
+        decision_details=decision_details
     )
 
 
@@ -373,9 +292,7 @@ def decide_outsider(
     outsider_action: ActionType = "BUY_NO" if is_yes_fav else "BUY_YES"
 
     if outsider_ask <= 0:
-        return TradeDecision(
-            "SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip, edge=0.0
-        )
+        return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip, edge=0.0)
 
     outsider_pwin_discount = float(config.get("OUTSIDER_PWIN_DISCOUNT", 0.65))
     p_win_outsider = p_flip_effective * outsider_pwin_discount
@@ -392,77 +309,43 @@ def decide_outsider(
 
     # 2. Потом проверяем порог p_flip
     if p_flip_effective < flip_thresh:
-        return TradeDecision(
-            "SKIP",
-            0,
-            0,
-            f"p_flip_effective={p_flip_effective:.3f} < threshold={flip_thresh:.3f}",
-            "SKIP",
-            p_flip=p_flip,
-            edge=outsider_edge,
-        )
+        return TradeDecision("SKIP", 0, 0,
+            f"p_flip_effective={p_flip_effective:.3f} < threshold={flip_thresh:.3f}", "SKIP",
+            p_flip=p_flip, edge=outsider_edge)
 
     max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", 0.45))
     global_min = float(config.get("MIN_EDGE", 0.05))
     no_min_raw = config.get("NO_MIN_EDGE")
-    no_min = (
-        float(no_min_raw)
-        if no_min_raw is not None and str(no_min_raw).strip() != ""
-        else 0.0
-    )
+    no_min = float(no_min_raw) if no_min_raw is not None and str(no_min_raw).strip() != "" else 0.0
     min_edge = max(global_min, no_min)
 
-    if (
-        no_min_raw is not None
-        and str(no_min_raw).strip() != ""
-        and float(no_min_raw) < global_min
-    ):
+    if no_min_raw is not None and str(no_min_raw).strip() != "" and float(no_min_raw) < global_min:
         logger.warning(
             "no_min_edge_overridden_by_global_min",
             no_min_edge=no_min,
             global_min_edge=global_min,
             effective_min_edge=min_edge,
-            note="NO_MIN_EDGE in DB is below global MIN_EDGE floor — using global MIN_EDGE",
+            note="NO_MIN_EDGE in DB is below global MIN_EDGE floor — using global MIN_EDGE"
         )
 
     edge = outsider_edge
 
     if outsider_ask > max_outsider_price:
-        return TradeDecision(
-            "SKIP",
-            0,
-            0,
-            f"{outsider_action} ask {outsider_ask:.3f} > max_outsider {max_outsider_price}",
-            "SKIP",
-            p_flip=p_flip,
-            edge=edge,
-        )
+        return TradeDecision("SKIP", 0, 0,
+            f"{outsider_action} ask {outsider_ask:.3f} > max_outsider {max_outsider_price}", "SKIP",
+            p_flip=p_flip, edge=edge)
 
     if ece and ece > ECE_WARN_THRESHOLD:
-        logger.warning(
-            "poor_calibration_model",
-            asset=signal.asset,
-            ece=ece,
-            note="p_flip estimates may be unreliable",
-        )
+        logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
 
     if edge < min_edge:
-        return TradeDecision(
-            "SKIP",
-            0,
-            0,
-            f"edge={edge:.3f} < min={min_edge:.3f}",
-            "SKIP",
-            p_flip=p_flip,
-            edge=edge,
-        )
+        return TradeDecision("SKIP", 0, 0,
+            f"edge={edge:.3f} < min={min_edge:.3f}", "SKIP", p_flip=p_flip, edge=edge)
 
     bet = _resolve_final_bet(edge, signal.volume_5min, config)
     bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
     if bet <= 0 and not bypass:
-        return TradeDecision(
-            "SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge
-        )
+        return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
     decision_details = {
         "market_role": "OUTSIDER",
@@ -476,22 +359,18 @@ def decide_outsider(
     }
 
     return TradeDecision(
-        outsider_action,
-        outsider_ask,
-        bet,
+        outsider_action, outsider_ask, bet,
         f"OUTSIDER p_flip_effective={p_flip_effective:.3f} >= {flip_thresh:.3f}",
         "OUTSIDER",
-        p_flip=p_flip,
-        edge=edge,
-        p_win_effective=p_win_outsider,
-        p_win_raw=p_flip * outsider_pwin_discount,
-        decision_details=decision_details,
+        p_flip=p_flip, edge=edge,
+        p_win_effective=p_win_outsider, p_win_raw=p_flip * outsider_pwin_discount,
+        decision_details=decision_details
     )
 
 
 def decide_crypto_trend(
     crypto: CryptoSignal,
-    entry_price: float,  # Текущая цена YES токена Polymarket рынка
+    entry_price: float,       # Текущая цена YES токена Polymarket рынка
     volume_5min: float,
     config: dict,
     no_ask: Optional[float] = None,
@@ -504,38 +383,24 @@ def decide_crypto_trend(
     """
     if entry_price <= 0.0:
         return TradeDecision(
-            action="SKIP",
-            buy_price=0.0,
-            bet_size_usdc=0.0,
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason=f"entry_price={entry_price} invalid",
             strategy_type="LIGHTGBM_TREND",
-            p_up=crypto.p_up,
-            strike=crypto.strike,
-            edge=0.0,
+            p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
 
     if not crypto.features_ok:
         return TradeDecision(
-            action="SKIP",
-            buy_price=0.0,
-            bet_size_usdc=0.0,
-            reason="Invalid crypto features",
-            strategy_type="LIGHTGBM_TREND",
-            p_up=crypto.p_up,
-            strike=crypto.strike,
-            edge=0.0,
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
+            reason="Invalid crypto features", strategy_type="LIGHTGBM_TREND", 
+            p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
 
     if crypto.risk_vetoed:
         return TradeDecision(
-            action="SKIP",
-            buy_price=0.0,
-            bet_size_usdc=0.0,
-            reason=f"Risk Veto: {crypto.risk_reason} (funding={crypto.funding_rate:.5f})",
-            strategy_type="LIGHTGBM_TREND",
-            p_up=crypto.p_up,
-            strike=crypto.strike,
-            edge=0.0,
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
+            reason=f"Risk Veto: {crypto.risk_reason} (funding={crypto.funding_rate:.5f})", strategy_type="LIGHTGBM_TREND", 
+            p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
 
     flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
@@ -543,48 +408,33 @@ def decide_crypto_trend(
         flip_thresh = flip_thresh / 100.0
 
     is_yes_fav = entry_price >= 0.50
-    buying_yes = crypto.direction == "UP"
+    buying_yes = (crypto.direction == "UP")
     buying_fav = (buying_yes and is_yes_fav) or (not buying_yes and not is_yes_fav)
-
+    
     if p_flip_ml is None:
         return TradeDecision(
-            action="SKIP",
-            buy_price=0.0,
-            bet_size_usdc=0.0,
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason="Trade blocked: p_flip_ml not provided",
-            strategy_type="LIGHTGBM_TREND",
-            p_up=crypto.p_up,
-            strike=crypto.strike,
-            edge=0.0,
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
-
+        
     no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", 0.35))
-
+    
     if buying_fav:
         # Buying favorite requires low flip probability (no reversal expected)
         if p_flip_ml >= no_flip_thresh:
             return TradeDecision(
-                action="SKIP",
-                buy_price=0.0,
-                bet_size_usdc=0.0,
+                action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
                 reason=f"Fav trade blocked: p_flip={p_flip_ml:.3f} >= NO_FLIP_THRESHOLD ({no_flip_thresh:.2f})",
-                strategy_type="LIGHTGBM_TREND",
-                p_up=crypto.p_up,
-                strike=crypto.strike,
-                edge=0.0,
+                strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
             )
     else:
         # Buying outsider requires high flip probability (reversal expected)
         if p_flip_ml < flip_thresh:
             return TradeDecision(
-                action="SKIP",
-                buy_price=0.0,
-                bet_size_usdc=0.0,
+                action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
                 reason=f"Outsider trade blocked: p_flip={p_flip_ml:.3f} < FLIP_THRESHOLD ({flip_thresh:.2f})",
-                strategy_type="LIGHTGBM_TREND",
-                p_up=crypto.p_up,
-                strike=crypto.strike,
-                edge=0.0,
+                strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
             )
 
     min_edge = float(config.get("CRYPTO_MIN_EDGE", config.get("MIN_EDGE", 0.05)))
@@ -593,14 +443,9 @@ def decide_crypto_trend(
 
     if crypto.direction == "NONE" or crypto.signal_strength <= 0.0:
         return TradeDecision(
-            action="SKIP",
-            buy_price=0.0,
-            bet_size_usdc=0.0,
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason=f"crypto signal_strength={crypto.signal_strength:.4f} <= 0",
-            strategy_type="LIGHTGBM_TREND",
-            p_up=crypto.p_up,
-            strike=crypto.strike,
-            edge=0.0,
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
 
     if crypto.direction == "UP":
@@ -616,34 +461,20 @@ def decide_crypto_trend(
 
     if actual_buy_price is None or actual_buy_price <= 0.0:
         return TradeDecision(
-            action="SKIP",
-            buy_price=0.0,
-            bet_size_usdc=0.0,
+            action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason="actual_buy_price is not available",
-            strategy_type="LIGHTGBM_TREND",
-            p_up=crypto.p_up,
-            strike=crypto.strike,
-            edge=0.0,
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
         )
 
     from polyflip.crypto.edge import compute_economic_edge
-
-    economic_edge = compute_economic_edge(
-        p_win, actual_buy_price, fee_rate, slippage_rate
-    )
+    economic_edge = compute_economic_edge(p_win, actual_buy_price, fee_rate, slippage_rate)
 
     if economic_edge < min_edge:
         return TradeDecision(
-            action="SKIP",
-            buy_price=actual_buy_price,
-            bet_size_usdc=0.0,
+            action="SKIP", buy_price=actual_buy_price, bet_size_usdc=0.0,
             reason=f"economic edge={economic_edge:.4f} < min_edge={min_edge:.4f}",
-            strategy_type="LIGHTGBM_TREND",
-            p_up=crypto.p_up,
-            strike=crypto.strike,
-            edge=economic_edge,
-            p_win_effective=p_win,
-            p_win_raw=p_win,
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge,
+            p_win_effective=p_win, p_win_raw=p_win
         )
 
     bet = _resolve_final_bet(economic_edge, volume_5min, config)
@@ -653,21 +484,23 @@ def decide_crypto_trend(
     bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
     if bet <= 0 and not bypass:
         return TradeDecision(
-            action="SKIP",
-            buy_price=actual_buy_price,
-            bet_size_usdc=0.0,
-            reason="Bet size 0 (or stake multiplier 0)",
-            strategy_type="LIGHTGBM_TREND",
-            p_up=crypto.p_up,
-            strike=crypto.strike,
-            edge=economic_edge,
-            p_win_effective=p_win,
-            p_win_raw=p_win,
+            action="SKIP", buy_price=actual_buy_price, bet_size_usdc=0.0, 
+            reason="Bet size 0 (or stake multiplier 0)", strategy_type="LIGHTGBM_TREND", 
+            p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge,
+            p_win_effective=p_win, p_win_raw=p_win
         )
 
-    market_role = "OUTSIDER" if actual_buy_price < 0.50 else "FAVORITE"
+    market_role = (
+        "OUTSIDER"
+        if actual_buy_price < 0.50
+        else "FAVORITE"
+    )
 
-    signal_type = "FLIP" if market_role == "OUTSIDER" else "TREND"
+    signal_type = (
+        "FLIP"
+        if market_role == "OUTSIDER"
+        else "TREND"
+    )
 
     return TradeDecision(
         action=action,
@@ -691,3 +524,5 @@ def decide_crypto_trend(
             "p_flip_effective": p_flip_ml,
         },
     )
+
+

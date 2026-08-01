@@ -7,7 +7,6 @@ from polyflip.db.models import TradeHistory
 
 from datetime import datetime, timezone
 
-
 @pytest.mark.asyncio
 async def test_enqueue_open_request_dedup(db_session):
     """Два вызова enqueue_open_request с одинаковым (mode, market_id) должны создать ОДИН запрос."""

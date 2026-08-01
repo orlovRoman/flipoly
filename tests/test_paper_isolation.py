@@ -8,7 +8,6 @@ from polyflip.execution.config import ExecutionMode
 from polyflip.execution.risk_checks import check_risk_limits
 from decimal import Decimal
 
-
 @pytest.mark.asyncio
 async def test_live_disabled_does_not_change_paper_flow(db_session):
     """Когда LIVE выключен (LIVE_TRADING_ENABLED=false), поведение PAPER не меняется."""

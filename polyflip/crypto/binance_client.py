@@ -9,7 +9,6 @@ Endpoint: GET https://data-api.binance.vision/api/v3/klines
 
 Маппинг символов: 'bitcoin' → 'BTCUSDT', 'ethereum' → 'ETHUSDT'
 """
-
 from __future__ import annotations
 
 import time
@@ -19,19 +18,18 @@ from datetime import datetime, timezone, timedelta
 from typing import Iterator
 
 BINANCE_BASE = "https://data-api.binance.vision"
-KLINES_LIMIT = 1000  # максимум за один запрос
+KLINES_LIMIT = 1000   # максимум за один запрос
 
 # human-readable name → Binance symbol
 COIN_TO_SYMBOL: dict[str, str] = {
-    "bitcoin": "BTCUSDT",
+    "bitcoin":  "BTCUSDT",
     "ethereum": "ETHUSDT",
     "dogecoin": "DOGEUSDT",
-    "ripple": "XRPUSDT",
-    "solana": "SOLUSDT",
+    "ripple":   "XRPUSDT",
+    "solana":   "SOLUSDT",
 }
 
-_transport = HTTPTransport(retries=3)  # автоматический retry на network errors
-
+_transport = HTTPTransport(retries=3)   # автоматический retry на network errors
 
 def fetch_klines(
     symbol: str,
@@ -59,7 +57,7 @@ def fetch_klines(
 
     with httpx.Client(
         transport=_transport,
-        timeout=httpx.Timeout(connect=5.0, read=20.0, write=5.0, pool=5.0),
+        timeout=httpx.Timeout(connect=5.0, read=20.0, write=5.0, pool=5.0)
     ) as client:
         resp = client.get(f"{BINANCE_BASE}/api/v3/klines", params=params)
         resp.raise_for_status()
@@ -71,19 +69,17 @@ def fetch_klines(
     for row in raw:
         close_time_dt = datetime.fromtimestamp(row[6] / 1000, tz=timezone.utc)
         is_closed = close_time_dt <= now_utc - timedelta(seconds=2)
-        candles.append(
-            {
-                "open_time": datetime.fromtimestamp(row[0] / 1000, tz=timezone.utc),
-                "close_time": close_time_dt,
-                "is_closed": is_closed,
-                "open": float(row[1]),
-                "high": float(row[2]),
-                "low": float(row[3]),
-                "close": float(row[4]),
-                "volume": float(row[5]),
-                "taker_buy_volume": float(row[9]),
-            }
-        )
+        candles.append({
+            "open_time":        datetime.fromtimestamp(row[0] / 1000, tz=timezone.utc),
+            "close_time":       close_time_dt,
+            "is_closed":        is_closed,
+            "open":             float(row[1]),
+            "high":             float(row[2]),
+            "low":              float(row[3]),
+            "close":            float(row[4]),
+            "volume":           float(row[5]),
+            "taker_buy_volume": float(row[9]),
+        })
     return candles
 
 

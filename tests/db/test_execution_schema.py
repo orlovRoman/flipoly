@@ -6,7 +6,6 @@ from sqlalchemy.exc import IntegrityError
 from polyflip.db.models import TradeHistory
 from polyflip.db.execution_models import ExecutionRequest
 
-
 def test_trade_history_has_close_price_column():
     from sqlalchemy import inspect
     from polyflip.db.models import TradeHistory
@@ -14,26 +13,23 @@ def test_trade_history_has_close_price_column():
     columns = {c.name for c in inspect(TradeHistory).columns}
     assert "close_price" in columns
 
-
 @pytest.mark.asyncio
 async def test_legacy_trade_allows_null_accounting_fields(db_session):
     trade = TradeHistory(
         market_id="mock_legacy",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=100.0,
-        remaining_shares=200.0,
+        amount_usdc=100.0, remaining_shares=200.0,
         executed_price=0.5,
         predicted_flip_prob=0.6,
         active_features="test",
         status="SUCCESS",
         position_accounting_version=0,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc)
     )
     db_session.add(trade)
     await db_session.commit()
     assert trade.id is not None
-
 
 @pytest.mark.asyncio
 async def test_new_trade_requires_accounting_initialization(db_session):
@@ -41,14 +37,13 @@ async def test_new_trade_requires_accounting_initialization(db_session):
         market_id="mock_new",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=100.0,
-        remaining_shares=200.0,
+        amount_usdc=100.0, remaining_shares=200.0,
         executed_price=0.5,
         predicted_flip_prob=0.6,
         active_features="test",
         status="SUCCESS",
         position_accounting_version=1,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc)
     )
     db_session.add(trade)
     with pytest.raises(IntegrityError) as exc_info:
@@ -64,21 +59,19 @@ async def test_new_trade_requires_accounting_initialization(db_session):
     await db_session.commit()
     assert trade.id is not None
 
-
 @pytest.mark.asyncio
 async def test_duplicate_active_open_request_is_rejected(db_session):
     trade = TradeHistory(
         market_id="dup_open_market",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=100.0,
-        remaining_shares=200.0,
+        amount_usdc=100.0, remaining_shares=200.0,
         executed_price=0.5,
         predicted_flip_prob=0.6,
         active_features="test",
         status="PENDING",
         position_accounting_version=0,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc)
     )
     db_session.add(trade)
     await db_session.commit()
@@ -94,7 +87,7 @@ async def test_duplicate_active_open_request_is_rejected(db_session):
         ttl_seconds=60,
         state="READY",
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
     )
     db_session.add(req1)
     await db_session.commit()
@@ -110,16 +103,13 @@ async def test_duplicate_active_open_request_is_rejected(db_session):
         ttl_seconds=60,
         state="CLAIMED",
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
     )
     db_session.add(req2)
     with pytest.raises(IntegrityError) as exc_info:
         await db_session.commit()
-    assert "UNIQUE constraint failed" in str(
-        exc_info.value
-    ) or "uq_active_open_request" in str(exc_info.value)
+    assert "UNIQUE constraint failed" in str(exc_info.value) or "uq_active_open_request" in str(exc_info.value)
     await db_session.rollback()
-
 
 @pytest.mark.asyncio
 async def test_two_active_close_requests_are_rejected(db_session):
@@ -127,14 +117,13 @@ async def test_two_active_close_requests_are_rejected(db_session):
         market_id="close_market",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=100.0,
-        remaining_shares=200.0,
+        amount_usdc=100.0, remaining_shares=200.0,
         executed_price=0.5,
         predicted_flip_prob=0.6,
         active_features="test",
         status="SUCCESS",
         position_accounting_version=0,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc)
     )
     db_session.add(trade)
     await db_session.commit()
@@ -151,7 +140,7 @@ async def test_two_active_close_requests_are_rejected(db_session):
         ttl_seconds=60,
         state="READY",
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
     )
     db_session.add(req1)
     await db_session.commit()
@@ -168,16 +157,13 @@ async def test_two_active_close_requests_are_rejected(db_session):
         ttl_seconds=60,
         state="READY",
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
     )
     db_session.add(req2)
     with pytest.raises(IntegrityError) as exc_info:
         await db_session.commit()
-    assert "UNIQUE constraint failed" in str(
-        exc_info.value
-    ) or "uq_active_close_request" in str(exc_info.value)
+    assert "UNIQUE constraint failed" in str(exc_info.value) or "uq_active_close_request" in str(exc_info.value)
     await db_session.rollback()
-
 
 @pytest.mark.asyncio
 async def test_completed_request_allows_new_request(db_session):
@@ -185,14 +171,13 @@ async def test_completed_request_allows_new_request(db_session):
         market_id="seq_market",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=100.0,
-        remaining_shares=200.0,
+        amount_usdc=100.0, remaining_shares=200.0,
         executed_price=0.5,
         predicted_flip_prob=0.6,
         active_features="test",
         status="PENDING",
         position_accounting_version=0,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc)
     )
     db_session.add(trade)
     await db_session.commit()
@@ -208,7 +193,7 @@ async def test_completed_request_allows_new_request(db_session):
         ttl_seconds=60,
         state="FILLED",
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
     )
     db_session.add(req1)
     await db_session.commit()
@@ -217,14 +202,13 @@ async def test_completed_request_allows_new_request(db_session):
         market_id="seq_market_2",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=100.0,
-        remaining_shares=200.0,
+        amount_usdc=100.0, remaining_shares=200.0,
         executed_price=0.5,
         predicted_flip_prob=0.6,
         active_features="test",
         status="PENDING",
         position_accounting_version=0,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc)
     )
     db_session.add(trade2)
     await db_session.commit()
@@ -240,12 +224,11 @@ async def test_completed_request_allows_new_request(db_session):
         ttl_seconds=60,
         state="READY",
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
     )
     db_session.add(req2)
     await db_session.commit()
     assert req2.id is not None
-
 
 @pytest.mark.asyncio
 async def test_execution_financial_columns_use_numeric(db_session):
@@ -255,14 +238,13 @@ async def test_execution_financial_columns_use_numeric(db_session):
         market_id="numeric_market",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=100.0,
-        remaining_shares=200.0,
+        amount_usdc=100.0, remaining_shares=200.0,
         executed_price=0.5,
         predicted_flip_prob=0.6,
         active_features="test",
         status="PENDING",
         position_accounting_version=0,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc)
     )
     db_session.add(trade)
     await db_session.commit()
@@ -280,18 +262,18 @@ async def test_execution_financial_columns_use_numeric(db_session):
         filled_shares=Decimal("987.654321098765432109"),
         filled_cost_usdc=Decimal("123.456789012345678901"),
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
     )
     db_session.add(req)
     await db_session.commit()
-
+    
     await db_session.refresh(req)
     val = req.target_amount_usdc
     assert isinstance(val, Decimal) or isinstance(val, float)
     assert abs(float(val) - 123.45678901234568) < 1e-9
 
-
 @pytest.mark.asyncio
+
 @pytest.mark.asyncio
 async def test_stoploss_and_takeprofit_create_one_close_request(engine, db_session):
     import asyncio
@@ -305,39 +287,42 @@ async def test_stoploss_and_takeprofit_create_one_close_request(engine, db_sessi
         market_id="concurrent_close_market",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=100.0,
-        remaining_shares=200.0,
+        amount_usdc=100.0, remaining_shares=200.0,
         executed_price=0.5,
         predicted_flip_prob=0.6,
         active_features="test",
         status="SUCCESS",
         position_accounting_version=0,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc)
     )
     db_session.add(trade)
     await db_session.commit()
 
     async_session = async_sessionmaker(engine, expire_on_commit=False)
-
+    
     async def run_enqueue(trigger):
         async with async_session() as session:
             res = await enqueue_close_request(
-                session, trade_id=trade.id, trigger_reason=trigger, limit_price=0.5
+                session,
+                trade_id=trade.id,
+                trigger_reason=trigger,
+                limit_price=0.5
             )
             await session.commit()
             return res
 
-    results = await asyncio.gather(run_enqueue("STOP_LOSS"), run_enqueue("TAKE_PROFIT"))
-
+    results = await asyncio.gather(
+        run_enqueue("STOP_LOSS"),
+        run_enqueue("TAKE_PROFIT")
+    )
+    
     successful_ids = [r.request_id for r in results if r is not None]
-    assert (
-        len(set(successful_ids)) == 1
-    ), "Only one unique close request ID should be returned"
+    assert len(set(successful_ids)) == 1, "Only one unique close request ID should be returned"
 
     stmt = select(func.count()).where(
         ExecutionRequest.trade_history_id == trade.id,
-        ExecutionRequest.intent == "CLOSE",
-        ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES),
+        ExecutionRequest.intent == 'CLOSE',
+        ExecutionRequest.state.in_(ACTIVE_REQUEST_STATES)
     )
     count = (await db_session.execute(stmt)).scalar_one()
     assert count == 1

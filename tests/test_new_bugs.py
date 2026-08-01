@@ -3,27 +3,23 @@ from unittest.mock import AsyncMock, MagicMock
 
 # ── BUG-05: engine.py — нет AttributeError при crypto_sig=None ──────────────
 
-
 def test_engine_no_crash_when_crypto_sig_none():
     """BUG-05: безусловное обращение к crypto_sig.model_version падает если sig=None."""
     crypto_sig = None
     decision_obj = None
-
+    
     try:
         model_ver = crypto_sig.model_version if crypto_sig else None
         edge = decision_obj.edge if decision_obj else None
     except AttributeError as e:
         pytest.fail(f"BUG-05: AttributeError при crypto_sig=None: {e}")
 
-
 # ── BUG-06: backtester._empty_result принимает epsilon ──────────────────────
-
 
 def test_empty_result_accepts_epsilon():
     """BUG-06: _empty_result должна иметь параметр epsilon."""
     import inspect
     from polyflip.crypto.backtester import _empty_result, _EPSILON
-
     sig = inspect.signature(_empty_result)
     assert "epsilon" in sig.parameters, (
         "BUG-06: _empty_result не имеет параметра epsilon — "
@@ -33,22 +29,17 @@ def test_empty_result_accepts_epsilon():
     assert default == _EPSILON or default != inspect.Parameter.empty
 
 
-# ── BUG-08: takeprofit_worker заполняет take_profit_sell_size ────────────────
 
+# ── BUG-08: takeprofit_worker заполняет take_profit_sell_size ────────────────
 
 @pytest.mark.skip(reason="Outbox arch changed this")
 def test_tp_worker_sets_sell_size():
     """BUG-08: воркер должен записывать take_profit_sell_size."""
     source = open("polyflip/trading/takeprofit_worker.py", encoding="utf-8").read()
-    assert (
-        "take_profit_sell_size" in source
-        or "take_profit_sell_size"
-        in open("polyflip/trading/position_closer.py", encoding="utf-8").read()
-    ), (
+    assert "take_profit_sell_size" in source or "take_profit_sell_size" in open("polyflip/trading/position_closer.py", encoding="utf-8").read(), (
         "BUG-08: takeprofit_worker (or closer) не заполняет поле take_profit_sell_size. "
         "Колонка добавлена в БД, но воркер её не пишет."
     )
-
 
 @pytest.mark.skip(reason="Broken mock")
 @pytest.mark.skip(reason="Broken mock")
@@ -61,54 +52,33 @@ async def test_tp_worker_sell_size_written_to_db(db_session):
     from polyflip.trading.takeprofit_worker import takeprofit_worker_cycle
 
     now = datetime.now(timezone.utc)
-    db_session.add(
-        RuntimeSettings(
-            key="TAKE_PROFIT_ENABLED", value="true", updated_at=now, updated_by="test"
-        )
-    )
-    db_session.add(
-        LiveMarket(
-            market_id="m_size_test",
-            asset="BTC",
-            question="Q?",
-            yes_token_id="t_y",
-            no_token_id="t_n",
-            current_yes_price=0.85,
-            current_no_price=0.15,
-            current_spread=0.01,
-            volume_5min=100.0,
-            price_velocity=0.0,
-            end_time_est=now + timedelta(minutes=5),
-            last_updated=now,
-        )
-    )
+    db_session.add(RuntimeSettings(
+        key="TAKE_PROFIT_ENABLED", value="true",
+        updated_at=now, updated_by="test"
+    ))
+    db_session.add(LiveMarket(
+        market_id="m_size_test", asset="BTC", question="Q?",
+        yes_token_id="t_y", no_token_id="t_n",
+        current_yes_price=0.85, current_no_price=0.15,
+        current_spread=0.01, volume_5min=100.0, price_velocity=0.0,
+        end_time_est=now + timedelta(minutes=5), last_updated=now,
+    ))
     trade = TradeHistory(
-        market_id="m_size_test",
-        asset="BTC",
-        outcome_bought="YES",
-        amount_usdc=10.0,
-        executed_price=0.40,
-        status="SUCCESS",
-        predicted_flip_prob=0.8,
-        active_features="mid_price",
-        take_profit_enabled=True,
-        take_profit_multiplier=2.0,
-        take_profit_price=0.80,
-        take_profit_status="ACTIVE",
-        market_end_time=now + timedelta(minutes=5),
-        created_at=now,
+        market_id="m_size_test", asset="BTC", outcome_bought="YES",
+        amount_usdc=10.0, executed_price=0.40, status="SUCCESS",
+        predicted_flip_prob=0.8, active_features="mid_price",
+        take_profit_enabled=True, take_profit_multiplier=2.0,
+        take_profit_price=0.80, take_profit_status="ACTIVE",
+        market_end_time=now + timedelta(minutes=5), created_at=now,
     )
     db_session.add(trade)
     await db_session.commit()
 
     from tests.helpers import make_dummy_execution
-
     trader_mock = AsyncMock()
-    trader_mock.execute_trade = AsyncMock(
-        return_value=make_dummy_execution(
-            mode="PAPER", executed_price=0.85, filled_shares=25.0
-        )
-    )
+    trader_mock.execute_trade = AsyncMock(return_value=make_dummy_execution(
+        mode="PAPER", executed_price=0.85, filled_shares=25.0
+    ))
     api_mock = AsyncMock()
     api_mock.get_market_prices = AsyncMock(return_value={"best_bid": 0.85})
 
@@ -119,8 +89,8 @@ async def test_tp_worker_sell_size_written_to_db(db_session):
     )
     t = result.scalar_one()
     assert t.take_profit_status == "TRIGGERED"
-    assert (
-        t.take_profit_sell_size is not None
-    ), "BUG-08: take_profit_sell_size не заполнен после срабатывания TP"
+    assert t.take_profit_sell_size is not None, (
+        "BUG-08: take_profit_sell_size не заполнен после срабатывания TP"
+    )
     expected_shares = round(10.0 / 0.40, 2)
     assert t.take_profit_sell_size == expected_shares

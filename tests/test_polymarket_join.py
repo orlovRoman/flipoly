@@ -9,7 +9,6 @@
   - Снапшот за пределами tolerance → NaN
   - Пустой DataFrame свечей → возвращаем пустой DataFrame
 """
-
 from __future__ import annotations
 
 import pandas as pd
@@ -29,10 +28,10 @@ def _make_snapshots(times_outcomes: list[tuple]) -> list[MagicMock]:
     rows = []
     for t, price, outcome in times_outcomes:
         r = MagicMock()
-        r.market_id = "mkt-test"
-        r.mid_price = price
+        r.market_id     = "mkt-test"
+        r.mid_price     = price
         r.final_outcome = outcome
-        r.recorded_at = t
+        r.recorded_at   = t
         rows.append(r)
     return rows
 
@@ -46,16 +45,14 @@ class TestJoinPolymarketPrices:
         from polyflip.crypto.polymarket_join import join_polymarket_prices
 
         candles = _make_candles(self.BASE, 3)
-        snaps = _make_snapshots(
-            [
-                (self.BASE, 0.55, "YES"),
-                (self.BASE + timedelta(minutes=15), 0.60, "NO"),
-                (self.BASE + timedelta(minutes=30), 0.48, "YES"),
-            ]
-        )
+        snaps = _make_snapshots([
+            (self.BASE,                         0.55, "YES"),
+            (self.BASE + timedelta(minutes=15), 0.60, "NO"),
+            (self.BASE + timedelta(minutes=30), 0.48, "YES"),
+        ])
 
         mock_session = AsyncMock()
-        mock_result = MagicMock()
+        mock_result  = MagicMock()
         mock_result.all.return_value = snaps
         mock_session.execute = AsyncMock(return_value=mock_result)
 
@@ -73,7 +70,7 @@ class TestJoinPolymarketPrices:
         candles = _make_candles(self.BASE, 5)
 
         mock_session = AsyncMock()
-        mock_result = MagicMock()
+        mock_result  = MagicMock()
         mock_result.all.return_value = []
         mock_session.execute = AsyncMock(return_value=mock_result)
 
@@ -87,18 +84,16 @@ class TestJoinPolymarketPrices:
         """Снапшот за пределами tolerance (20 мин > 7.5 мин) → NaN."""
         from polyflip.crypto.polymarket_join import join_polymarket_prices
 
-        candles = _make_candles(self.BASE, 1)
+        candles  = _make_candles(self.BASE, 1)
         far_time = self.BASE + timedelta(minutes=20)  # 20 мин > tolerance=7.5 мин
-        snaps = _make_snapshots([(far_time, 0.55, "YES")])
+        snaps    = _make_snapshots([(far_time, 0.55, "YES")])
 
         mock_session = AsyncMock()
-        mock_result = MagicMock()
+        mock_result  = MagicMock()
         mock_result.all.return_value = snaps
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        result = await join_polymarket_prices(
-            mock_session, candles, "BTC", tolerance_sec=450
-        )
+        result = await join_polymarket_prices(mock_session, candles, "BTC", tolerance_sec=450)
         assert result["pm_yes_price"].isna().all(), "Outside tolerance → NaN"
 
     @pytest.mark.asyncio
@@ -110,21 +105,19 @@ class TestJoinPolymarketPrices:
         """
         from polyflip.crypto.polymarket_join import join_polymarket_prices
 
-        candles = _make_candles(self.BASE, 1)
+        candles   = _make_candles(self.BASE, 1)
         snap_time = self.BASE - timedelta(minutes=2)  # 2 мин до t_min, внутри 7.5 мин
-        snaps = _make_snapshots([(snap_time, 0.62, "YES")])
+        snaps     = _make_snapshots([(snap_time, 0.62, "YES")])
 
         mock_session = AsyncMock()
-        mock_result = MagicMock()
+        mock_result  = MagicMock()
         mock_result.all.return_value = snaps
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        result = await join_polymarket_prices(
-            mock_session, candles, "BTC", tolerance_sec=450
+        result = await join_polymarket_prices(mock_session, candles, "BTC", tolerance_sec=450)
+        assert result["pm_yes_price"].iloc[0] == pytest.approx(0.62), (
+            "Snapshot 2 min before t_min must match with expanded SQL range"
         )
-        assert result["pm_yes_price"].iloc[0] == pytest.approx(
-            0.62
-        ), "Snapshot 2 min before t_min must match with expanded SQL range"
 
     @pytest.mark.asyncio
     async def test_empty_candles(self):

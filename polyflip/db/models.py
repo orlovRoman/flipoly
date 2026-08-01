@@ -19,7 +19,6 @@ from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
-
 class MarketSnapshot(Base):
     __tablename__ = "market_snapshots"
 
@@ -34,9 +33,7 @@ class MarketSnapshot(Base):
     volume_5min = Column(Float, nullable=False)
     price_velocity = Column(Float, nullable=False)
     hour_of_day = Column(Integer, nullable=False)
-    final_outcome = Column(
-        String(16), nullable=False
-    )  # "YES", "NO", "INVALID", "PENDING"
+    final_outcome = Column(String(16), nullable=False)  # "YES", "NO", "INVALID", "PENDING"
     flip_vs_final = Column(Boolean, nullable=True)
     recorded_at = Column(DateTime(timezone=True), nullable=False)
 
@@ -45,12 +42,8 @@ class MarketSnapshot(Base):
         Index("idx_market_snapshots_asset", "asset"),
         Index("idx_market_snapshots_asset_time", "asset", "time_left_min"),
         Index("idx_market_snapshots_recorded_at", "recorded_at"),
-        CheckConstraint(
-            "final_outcome IN ('PENDING', 'YES', 'NO', 'INVALID')",
-            name="ck_market_snapshot_outcome",
-        ),
+        CheckConstraint("final_outcome IN ('PENDING', 'YES', 'NO', 'INVALID')", name="ck_market_snapshot_outcome"),
     )
-
 
 class ModelRegistry(Base):
     __tablename__ = "model_registry"
@@ -67,11 +60,14 @@ class ModelRegistry(Base):
     backtest_trades = Column(Integer, nullable=True)
     backtest_wr = Column(Float, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    interval = Column(String(5), nullable=False, server_default="15m")
+    interval = Column(String(5), nullable=False, server_default='15m')
     dataset_fingerprint = Column(String(32), nullable=True)
     trained_at = Column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (Index("idx_model_registry_asset_active", "asset", "is_active"),)
+    __table_args__ = (
+        Index("idx_model_registry_asset_active", "asset", "is_active"),
+    )
+
 
 
 class CollectorStatus(Base):
@@ -85,7 +81,6 @@ class CollectorStatus(Base):
     error_message = Column(String, nullable=True)
     duration_sec = Column(Float, nullable=False)
 
-
 class RuntimeSettings(Base):
     __tablename__ = "runtime_settings"
 
@@ -93,7 +88,6 @@ class RuntimeSettings(Base):
     value = Column(String, nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
     updated_by = Column(String(64), nullable=False)
-
 
 class LiveMarket(Base):
     __tablename__ = "live_markets"
@@ -111,8 +105,9 @@ class LiveMarket(Base):
     price_velocity = Column(Float, nullable=False, default=0.0)
     last_updated = Column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (Index("idx_live_markets_asset", "asset"),)
-
+    __table_args__ = (
+        Index("idx_live_markets_asset", "asset"),
+    )
 
 class TradeHistory(Base):
     __tablename__ = "trade_history"
@@ -126,7 +121,7 @@ class TradeHistory(Base):
     predicted_flip_prob = Column(Float, nullable=False)
     active_features = Column(String, nullable=False)
     model_version = Column(Integer, nullable=True)
-    status = Column(String(32), nullable=False)  # "SUCCESS", "FAILED"
+    status = Column(String(32), nullable=False) # "SUCCESS", "FAILED"
     error_msg = Column(String, nullable=True)
     mode = Column(String(16), nullable=False, default="LIVE")
     source_paper_trade_id = Column(
@@ -143,54 +138,50 @@ class TradeHistory(Base):
     strike = Column(Float, nullable=True)
     lgbm_metadata = Column(String, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)
-
+    
     strategy_type = Column(String(32), nullable=True)
     market_role = Column(String(16), nullable=True)
     p_flip_effective = Column(Float, nullable=True)
     p_win_effective = Column(Float, nullable=True)
-
+    
     # --- Stop-loss ---
-    market_end_time = Column(DateTime(timezone=True), nullable=True)
-    stop_loss_pct = Column(Float, nullable=True)
-    stop_loss_price = Column(Float, nullable=True)
-    stop_loss_status = Column(String(20), nullable=True, default="ACTIVE")
-    stop_loss_hit_at = Column(DateTime(timezone=True), nullable=True)
+    market_end_time      = Column(DateTime(timezone=True), nullable=True)
+    stop_loss_pct        = Column(Float, nullable=True)
+    stop_loss_price      = Column(Float, nullable=True)
+    stop_loss_status     = Column(String(20), nullable=True, default="ACTIVE")
+    stop_loss_hit_at     = Column(DateTime(timezone=True), nullable=True)
     stop_loss_sell_price = Column(Float, nullable=True)
-    stop_loss_sell_size = Column(Numeric(38, 18), nullable=True)
-
+    stop_loss_sell_size  = Column(Numeric(38, 18), nullable=True)
+    
     # --- Take Profit ---
-    take_profit_enabled = Column(Boolean, nullable=True, default=False)
+    take_profit_enabled    = Column(Boolean, nullable=True, default=False)
     take_profit_multiplier = Column(Float, nullable=True)
-    take_profit_price = Column(Float, nullable=True)
-    take_profit_status = Column(String(20), nullable=True, default="ACTIVE")
-    take_profit_hit_at = Column(DateTime(timezone=True), nullable=True)
+    take_profit_price      = Column(Float, nullable=True)
+    take_profit_status     = Column(String(20), nullable=True, default="ACTIVE")
+    take_profit_hit_at     = Column(DateTime(timezone=True), nullable=True)
     take_profit_sell_price = Column(Float, nullable=True)
-    take_profit_sell_size = Column(Numeric(38, 18), nullable=True)
-
+    take_profit_sell_size  = Column(Numeric(38, 18), nullable=True)
+    
     # --- Financial Fields & Accounting ---
-    position_accounting_version = Column(
-        SmallInteger, nullable=False, server_default="0"
-    )
+    position_accounting_version = Column(SmallInteger, nullable=False, server_default="0")
     position_version = Column(Integer, nullable=False, default=1, server_default="1")
     entry_filled_shares = Column(Numeric(38, 18), nullable=True)
     entry_cost_usdc = Column(Numeric(38, 18), nullable=True)
     remaining_shares = Column(Numeric(38, 18), nullable=True)
     realized_pnl_usdc = Column(Numeric(38, 18), nullable=True)
-
+    
     # --- Unified Exit Status ---
     position_status = Column(String(32), nullable=False, default="OPEN")
-    exit_reason = Column(String(32), nullable=True)
-    exit_order_id = Column(String(128), nullable=True)
+    exit_reason     = Column(String(32), nullable=True)
+    exit_order_id   = Column(String(128), nullable=True)
     exit_attempt_id = Column(UUID(as_uuid=True), nullable=True)
     exit_claimed_at = Column(DateTime(timezone=True), nullable=True)
     last_exit_error = Column(Text, nullable=True)
-    exit_attempts = Column(Integer, nullable=False, default=0)
-    closed_at = Column(DateTime(timezone=True), nullable=True)
-    close_price = Column(Float, nullable=True)
+    exit_attempts   = Column(Integer, nullable=False, default=0)
+    closed_at       = Column(DateTime(timezone=True), nullable=True)
+    close_price     = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
-    config_snapshot = Column(
-        Text, nullable=True
-    )  # JSON паспорт настроек на момент сделки
+    config_snapshot = Column(Text, nullable=True)   # JSON паспорт настроек на момент сделки
     model_key = Column(String(64), nullable=True)
     confirm_model_key = Column(String(64), nullable=True)
     confirm_model_version = Column(Integer, nullable=True)
@@ -198,45 +189,29 @@ class TradeHistory(Base):
 
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),
-        Index(
-            "idx_trade_history_model_version",
-            "asset",
-            "model_version",
-            "status",
-            "created_at",
-        ),
-        Index(
-            "idx_trade_history_exact_model",
-            "model_key",
-            "model_version",
-            "mode",
-            "position_status",
-            "closed_at",
-        ),
+        Index("idx_trade_history_model_version", "asset", "model_version", "status", "created_at"),
+        Index("idx_trade_history_exact_model", "model_key", "model_version", "mode", "position_status", "closed_at"),
         CheckConstraint(
             "position_accounting_version = 0 OR (entry_filled_shares IS NOT NULL AND entry_cost_usdc IS NOT NULL AND remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
             name="ck_trade_position_accounting_initialized",
         ),
     )
 
-
 class SlippageLog(Base):
     __tablename__ = "slippage_log"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    trade_id = Column(Integer, nullable=False)  # FK → trade_history.id
+    trade_id = Column(Integer, nullable=False)          # FK → trade_history.id
     market_id = Column(String(128), nullable=False)
     asset = Column(String(32), nullable=False)
     outcome_bought = Column(String(16), nullable=False)  # YES / NO
-    expected_price = Column(Float, nullable=False)  # buy_price в момент решения
-    executed_price = Column(Float, nullable=False)  # реально исполненная цена
-    slippage = Column(Float, nullable=False)  # executed - expected
-    slippage_pct = Column(Float, nullable=False)  # slippage / expected * 100
+    expected_price = Column(Float, nullable=False)       # buy_price в момент решения
+    executed_price = Column(Float, nullable=False)       # реально исполненная цена
+    slippage = Column(Float, nullable=False)             # executed - expected
+    slippage_pct = Column(Float, nullable=False)         # slippage / expected * 100
     bet_size_usdc = Column(Float, nullable=False)
-    slippage_cost_usdc = Column(
-        Float, nullable=False
-    )  # slippage * (bet / executed_price)
-    mode = Column(String(16), nullable=False)  # LIVE / PAPER
+    slippage_cost_usdc = Column(Float, nullable=False)   # slippage * (bet / executed_price)
+    mode = Column(String(16), nullable=False)             # LIVE / PAPER
     created_at = Column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
@@ -245,26 +220,22 @@ class SlippageLog(Base):
         Index("idx_slippage_log_trade_id", "trade_id"),
     )
 
-
 class StrategyConfig(Base):
     __tablename__ = "strategy_config"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     key = Column(String(64), nullable=False)
-    old_value = Column(
-        String, nullable=True
-    )  # предыдущее значение (None при первом set)
+    old_value = Column(String, nullable=True)      # предыдущее значение (None при первом set)
     new_value = Column(String, nullable=False)
     changed_at = Column(DateTime(timezone=True), nullable=False)
     changed_by = Column(String(64), nullable=False)  # "user", "trainer", "system"
-    source_ip = Column(String(64), nullable=True)  # IP дашборда при ручном изменении
-    note = Column(String, nullable=True)  # опциональный комментарий
+    source_ip = Column(String(64), nullable=True)    # IP дашборда при ручном изменении
+    note = Column(String, nullable=True)             # опциональный комментарий
 
     __table_args__ = (
         Index("idx_strategy_config_key", "key"),
         Index("idx_strategy_config_changed_at", "changed_at"),
     )
-
 
 class CryptoCandle(Base):
     """
@@ -272,25 +243,25 @@ class CryptoCandle(Base):
     interval: '1m' | '5m' | '15m' | '1h' | '4h'
     symbol:   'BTCUSDT' | 'ETHUSDT'
     """
-
     __tablename__ = "crypto_candles"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    symbol = Column(String(32), nullable=False)  # 'BTCUSDT', 'ETHUSDT'
-    interval = Column(String(8), nullable=False)  # '15m', '1h', etc.
-    open_time = Column(DateTime(timezone=True), nullable=False)
-    close_time = Column(DateTime(timezone=True), nullable=True)  # Добавлено для Stage 2
-    is_closed = Column(Boolean, nullable=True)  # Добавлено для Stage 2
-    open = Column(Float, nullable=False)
-    high = Column(Float, nullable=False)
-    low = Column(Float, nullable=False)
-    close = Column(Float, nullable=False)
-    volume = Column(Float, nullable=False)  # base asset volume
-    taker_buy_volume = Column(Float, nullable=True)  # агрессивные покупки
-    source = Column(String(16), nullable=False, default="binance")
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    symbol     = Column(String(32), nullable=False)   # 'BTCUSDT', 'ETHUSDT'
+    interval   = Column(String(8),  nullable=False)   # '15m', '1h', etc.
+    open_time  = Column(DateTime(timezone=True), nullable=False)
+    close_time = Column(DateTime(timezone=True), nullable=True) # Добавлено для Stage 2
+    is_closed  = Column(Boolean, nullable=True)                 # Добавлено для Stage 2
+    open       = Column(Float, nullable=False)
+    high       = Column(Float, nullable=False)
+    low        = Column(Float, nullable=False)
+    close      = Column(Float, nullable=False)
+    volume     = Column(Float, nullable=False)          # base asset volume
+    taker_buy_volume = Column(Float, nullable=True)    # агрессивные покупки
+    source     = Column(String(16), nullable=False, default="binance")
 
     __table_args__ = (
-        UniqueConstraint("symbol", "interval", "open_time", name="uix_crypto_candle"),
+        UniqueConstraint("symbol", "interval", "open_time",
+                         name="uix_crypto_candle"),
         Index("idx_crypto_candles_symbol_interval", "symbol", "interval"),
         Index("idx_crypto_candles_open_time", "open_time"),
     )
@@ -301,46 +272,45 @@ class DecisionFunnelLog(Base):
     Одна запись = один проход через decide_ml_mode / decide_combined_mode.
     Каждый гейт: True = прошёл, False = заблокировал, None = не применялся.
     """
-
     __tablename__ = "decision_funnel_log"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    created_at   = Column(DateTime(timezone=True), nullable=False)
 
     # Контекст рынка
-    market_id = Column(String(128), nullable=False)
-    asset = Column(String(32), nullable=False)
-    trading_mode = Column(String(32), nullable=False)  # ML, COMBINED, CRYPTO, FAVORITE
-    used_model = Column(String(64), nullable=True)  # "BTC_contested", "ETH" и т.д.
+    market_id    = Column(String(128), nullable=False)
+    asset        = Column(String(32),  nullable=False)
+    trading_mode = Column(String(32),  nullable=False)  # ML, COMBINED, CRYPTO, FAVORITE
+    used_model   = Column(String(64),  nullable=True)   # "BTC_contested", "ETH" и т.д.
 
     # ML-метрики
-    p_flip = Column(Float, nullable=True)
-    edge = Column(Float, nullable=True)
-    fresh_price = Column(Float, nullable=True)
+    p_flip       = Column(Float, nullable=True)
+    edge         = Column(Float, nullable=True)
+    fresh_price  = Column(Float, nullable=True)
 
     # Пороги, применявшиеся в этом прогоне (для дебага изменений настроек)
-    threshold_lower = Column(Float, nullable=True)  # NO_FLIP_THRESHOLD (lower)
-    threshold_upper = Column(Float, nullable=True)  # FLIP_THRESHOLD (upper)
-    min_edge_used = Column(Float, nullable=True)
+    threshold_lower = Column(Float, nullable=True)   # NO_FLIP_THRESHOLD (lower)
+    threshold_upper = Column(Float, nullable=True)   # FLIP_THRESHOLD (upper)
+    min_edge_used   = Column(Float, nullable=True)
 
     # Гейты (True=passed, False=blocked, None=not_reached)
-    g1_model_loaded = Column(Boolean, nullable=True)  # модель в кеше
-    g2_price_fetched = Column(Boolean, nullable=True)  # API цена получена
-    g3_dead_zone = Column(Boolean, nullable=True)  # НЕ в dead zone → True
-    g4_no_flip = Column(Boolean, nullable=True)  # p_flip < lower (тренд)
-    g5_min_edge = Column(Boolean, nullable=True)  # edge >= MIN_EDGE
-    g6_price_range = Column(Boolean, nullable=True)  # цена в [MIN_PRICE, MAX_PRICE]
-    g7_crypto_confirm = Column(Boolean, nullable=True)  # LightGBM согласен
-    g8_combined_vote = Column(Boolean, nullable=True)  # финальный голос COMBINED
+    g1_model_loaded     = Column(Boolean, nullable=True)  # модель в кеше
+    g2_price_fetched    = Column(Boolean, nullable=True)  # API цена получена
+    g3_dead_zone        = Column(Boolean, nullable=True)  # НЕ в dead zone → True
+    g4_no_flip          = Column(Boolean, nullable=True)  # p_flip < lower (тренд)
+    g5_min_edge         = Column(Boolean, nullable=True)  # edge >= MIN_EDGE
+    g6_price_range      = Column(Boolean, nullable=True)  # цена в [MIN_PRICE, MAX_PRICE]
+    g7_crypto_confirm   = Column(Boolean, nullable=True)  # LightGBM согласен
+    g8_combined_vote    = Column(Boolean, nullable=True)  # финальный голос COMBINED
 
     # Итог
-    final_action = Column(String(16), nullable=False)  # BUY_YES, BUY_NO, SKIP
-    skip_reason = Column(String(256), nullable=True)  # краткая причина если SKIP
+    final_action = Column(String(16), nullable=False)   # BUY_YES, BUY_NO, SKIP
+    skip_reason  = Column(String(256), nullable=True)   # краткая причина если SKIP
 
     __table_args__ = (
         Index("idx_funnel_asset_created", "asset", "created_at"),
-        Index("idx_funnel_market_id", "market_id"),
-        Index("idx_funnel_trading_mode", "trading_mode", "created_at"),
+        Index("idx_funnel_market_id",     "market_id"),
+        Index("idx_funnel_trading_mode",  "trading_mode", "created_at"),
     )
 
 
@@ -349,21 +319,22 @@ class ConfigPreset(Base):
     Слепок всех параметров торгового движка на момент сохранения.
     preset_type: 'manual' | 'ath_capital' | 'ath_pnl'
     """
-
     __tablename__ = "config_presets"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(128), nullable=False)  # "BTC_Profitable_July10"
-    description = Column(String(512), nullable=True)
-    preset_type = Column(String(32), nullable=False, default="manual")
-    snapshot = Column(Text, nullable=False)  # JSON-дамп всех RuntimeSettings
-    capital_at_save = Column(Float, nullable=True)  # баланс на момент сохранения
-    pnl_at_save = Column(Float, nullable=True)  # суммарный PnL на момент
-    created_at = Column(DateTime(timezone=True), nullable=False)
-    created_by = Column(String(64), nullable=False, default="user")
-    is_active = Column(Boolean, nullable=False, default=True)  # False = удалён
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    name            = Column(String(128), nullable=False)          # "BTC_Profitable_July10"
+    description     = Column(String(512), nullable=True)
+    preset_type     = Column(String(32),  nullable=False, default="manual")
+    snapshot        = Column(Text, nullable=False)                 # JSON-дамп всех RuntimeSettings
+    capital_at_save = Column(Float, nullable=True)            # баланс на момент сохранения
+    pnl_at_save     = Column(Float, nullable=True)            # суммарный PnL на момент
+    created_at      = Column(DateTime(timezone=True), nullable=False)
+    created_by      = Column(String(64), nullable=False, default="user")
+    is_active       = Column(Boolean, nullable=False, default=True)  # False = удалён
 
     __table_args__ = (
         Index("idx_config_presets_created_at", "created_at"),
-        Index("idx_config_presets_type", "preset_type"),
+        Index("idx_config_presets_type",       "preset_type"),
     )
+
+

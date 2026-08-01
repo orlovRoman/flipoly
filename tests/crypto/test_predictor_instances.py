@@ -4,7 +4,6 @@ import weakref
 import pytest
 from polyflip.crypto.predictor import CryptoPredictor
 
-
 def test_dead_weakrefs_cleaned_up_on_init():
     """__init__ очищает мертвые ссылки из _instances."""
     p1 = CryptoPredictor()
@@ -18,7 +17,6 @@ def test_dead_weakrefs_cleaned_up_on_init():
     alive = [ref for ref in CryptoPredictor._instances if ref() is not None]
     assert len(alive) <= initial_count
 
-
 def test_vol_tertile_cold_start_defaults():
     """При отсутствии данных в БД, волатильность = 1.0 должна попадать в mid_vol."""
     predictor = CryptoPredictor()
@@ -26,15 +24,11 @@ def test_vol_tertile_cold_start_defaults():
     vol_p67 = predictor._vol_p67s.get("BTCUSDT", 1.2)
 
     vol_trend = 1.0
-    assert (
-        vol_p33 < vol_trend <= vol_p67
-    ), "1.0 trend must fall into mid_vol default range"
-
+    assert vol_p33 < vol_trend <= vol_p67, "1.0 trend must fall into mid_vol default range"
 
 def test_predict_signature_no_funding_rate_ma3():
     """predict() signature should not contain dead funding_rate_ma3 parameter."""
     import inspect
-
     sig = inspect.signature(CryptoPredictor.predict)
     params = list(sig.parameters.keys())
     assert "funding_rate_ma3" not in params

@@ -2,7 +2,6 @@
 Модуль вычисления силы сигнала для крипто-модели LightGBM и экономического преимущества.
 """
 
-
 def compute_crypto_signal_strength(
     p_up: float,
     threshold_up: float,
@@ -21,7 +20,6 @@ def compute_crypto_signal_strength(
     if p_up <= threshold_down:
         return round(threshold_down - p_up, 4), "DOWN"
     return 0.0, "NONE"
-
 
 def compute_economic_edge(
     p_win: float,

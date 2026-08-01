@@ -3,56 +3,28 @@ from polyflip.collector.resolver import extract_final_outcome
 from polyflip.db.models import MarketSnapshot
 from datetime import datetime, timezone
 
-
-@pytest.mark.parametrize(
-    "market_data, expected",
-    [
-        ({"answer": "Yes"}, "YES"),
-        ({"answer": "Up"}, "YES"),
-        ({"winnerOutcome": "Down"}, "NO"),
-        ({"resolvedBy": "0x123..."}, None),
-        # Closed markets use terminal prices if no answer
-        (
-            {"closed": True, "outcomePrices": ["1", "0"], "outcomes": ["Yes", "No"]},
-            "YES",
-        ),
-        (
-            {"closed": True, "outcomePrices": ["0", "1"], "outcomes": ["Yes", "No"]},
-            "NO",
-        ),
-        (
-            {
-                "closed": True,
-                "outcomePrices": ["0.52", "0.48"],
-                "outcomes": ["Yes", "No"],
-            },
-            None,
-        ),
-        (
-            {
-                "closed": True,
-                "outcomePrices": '["1", "0"]',
-                "outcomes": '["Yes", "No"]',
-            },
-            "YES",
-        ),
-        # Open markets should NOT use terminal prices
-        (
-            {"closed": False, "outcomePrices": ["1", "0"], "outcomes": ["Yes", "No"]},
-            None,
-        ),
-        # Explicit answer wins
-        ({"answer": "INVALID"}, "INVALID"),
-        ({"answer": "unknown value"}, None),
-        ({"answer": "No"}, "NO"),
-        # Malformed strings/types
-        ({"answer": {"some": "dict"}}, None),
-        ({"answer": True}, None),
-    ],
-)
+@pytest.mark.parametrize("market_data, expected", [
+    ({"answer": "Yes"}, "YES"),
+    ({"answer": "Up"}, "YES"),
+    ({"winnerOutcome": "Down"}, "NO"),
+    ({"resolvedBy": "0x123..."}, None),
+    # Closed markets use terminal prices if no answer
+    ({"closed": True, "outcomePrices": ["1", "0"], "outcomes": ["Yes", "No"]}, "YES"),
+    ({"closed": True, "outcomePrices": ["0", "1"], "outcomes": ["Yes", "No"]}, "NO"),
+    ({"closed": True, "outcomePrices": ["0.52", "0.48"], "outcomes": ["Yes", "No"]}, None),
+    ({"closed": True, "outcomePrices": "[\"1\", \"0\"]", "outcomes": "[\"Yes\", \"No\"]"}, "YES"),
+    # Open markets should NOT use terminal prices
+    ({"closed": False, "outcomePrices": ["1", "0"], "outcomes": ["Yes", "No"]}, None),
+    # Explicit answer wins
+    ({"answer": "INVALID"}, "INVALID"),
+    ({"answer": "unknown value"}, None),
+    ({"answer": "No"}, "NO"),
+    # Malformed strings/types
+    ({"answer": {"some": "dict"}}, None),
+    ({"answer": True}, None),
+])
 def test_extract_final_outcome(market_data, expected):
     assert extract_final_outcome(market_data) == expected
-
 
 @pytest.mark.asyncio
 async def test_invalid_commits_successfully(db_session):
@@ -70,12 +42,14 @@ async def test_invalid_commits_successfully(db_session):
         hour_of_day=12,
         final_outcome="INVALID",
         flip_vs_final=None,
-        recorded_at=datetime.now(timezone.utc),
+        recorded_at=datetime.now(timezone.utc)
     )
     db_session.add(snap)
     await db_session.commit()
-
+    
     # Verify
     saved = await db_session.get(MarketSnapshot, snap.id)
     assert saved.final_outcome == "INVALID"
     assert saved.flip_vs_final is None
+
+

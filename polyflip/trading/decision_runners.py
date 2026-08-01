@@ -10,14 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 from polyflip.db.models import LiveMarket, TradeHistory, MarketSnapshot
 from polyflip.trading.trading_config import TradingConfig
-from polyflip.trading.decision_logic import (
-    TradeDecision,
-    MarketSignal,
-    decide_favorite,
-    decide_crypto_trend,
-    decide_ml_trend,
-    decide_outsider,
-)
+from polyflip.trading.decision_logic import TradeDecision, MarketSignal, decide_favorite, decide_crypto_trend, decide_ml_trend, decide_outsider
 from polyflip.trading.ml_inference import build_inference_dataframe, run_model_inference
 from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
 from polyflip.crypto.candle_repository import get_recent_candles
@@ -25,7 +18,6 @@ from polyflip.trading.utils import compute_dead_zone
 from polyflip.trading.funnel_logger import log_funnel
 
 logger = structlog.get_logger(__name__)
-
 
 def _get_float_setting(raw_settings: dict, key: str) -> Optional[float]:
     """
@@ -39,7 +31,6 @@ def _get_float_setting(raw_settings: dict, key: str) -> Optional[float]:
         return float(val)
     except ValueError:
         return None
-
 
 @dataclass
 class DecisionResult:
@@ -55,7 +46,6 @@ class DecisionResult:
     applied_lower: Optional[float] = None
     applied_upper: Optional[float] = None
 
-
 async def decide_favorite_mode(
     market: LiveMarket,
     cfg: TradingConfig,
@@ -66,9 +56,7 @@ async def decide_favorite_mode(
 ) -> DecisionResult:
     if market.current_yes_price == 0.5:
         logger.info("favorite_mode_skip_no_favorite", market_id=market.market_id)
-        return DecisionResult(
-            None, 0.0, None, None, "Pure Favorite: no clear favorite (price == 0.5)"
-        )
+        return DecisionResult(None, 0.0, None, None, "Pure Favorite: no clear favorite (price == 0.5)")
 
     signal = MarketSignal(
         asset=market.asset,
@@ -83,7 +71,7 @@ async def decide_favorite_mode(
         no_bid=getattr(market, "current_no_bid", None),
         no_ask=getattr(market, "current_no_ask", None),
     )
-
+    
     local_fav_config = {
         "FAVORITE_THRESHOLD": str(cfg.favorite_threshold),
         "FAVORITE_MIN_EDGE": str(cfg.favorite_min_edge),
@@ -97,27 +85,20 @@ async def decide_favorite_mode(
         "LIQUIDITY_FRACTION": str(cfg.liquidity_fraction),
         "BET_SIZING_MODE": str(cfg.bet_sizing_mode),
     }
-
+    
     decision_obj = decide_favorite(signal, local_fav_config)
     if not decision_obj.decision_details:
-        decision_obj = dataclasses.replace(
-            decision_obj, decision_details={"market_role": "FAVORITE"}
-        )
+        decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "FAVORITE"})
     if not cfg.trade_on_favorite:
-        decision_obj = dataclasses.replace(
-            decision_obj,
-            action="SKIP",
-            reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)",
-        )
-
+        decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
+    
     return DecisionResult(
         decision_obj=decision_obj,
         p_flip=0.0,
         model_ver=None,
         edge=decision_obj.edge,
-        skip_reason=decision_obj.reason if decision_obj.action == "SKIP" else None,
+        skip_reason=decision_obj.reason if decision_obj.action == "SKIP" else None
     )
-
 
 async def infer_flip_for_market(
     db_session: AsyncSession,
@@ -131,64 +112,49 @@ async def infer_flip_for_market(
     max_time_left: float,
 ) -> float:
     from datetime import timedelta
-
     cutoff_time = start_time - timedelta(seconds=max_time_left)
 
-    snapshots_stmt = (
-        select(MarketSnapshot)
-        .where(
-            MarketSnapshot.market_id == market.market_id,
-            MarketSnapshot.recorded_at >= cutoff_time,
-        )
-        .order_by(MarketSnapshot.recorded_at.asc())
-    )
+    snapshots_stmt = select(MarketSnapshot).where(
+        MarketSnapshot.market_id == market.market_id,
+        MarketSnapshot.recorded_at >= cutoff_time
+    ).order_by(MarketSnapshot.recorded_at.asc())
     snapshots_res = await db_session.execute(snapshots_stmt)
     history_snaps = snapshots_res.scalars().all()
 
     filtered_prices = [
-        float(s.mid_price) for s in history_snaps if s.recorded_at >= cutoff_time
+        float(s.mid_price) for s in history_snaps
+        if s.recorded_at >= cutoff_time
     ] + [fresh_price]
     global_max = max(filtered_prices) if filtered_prices else fresh_price
 
     df = build_inference_dataframe(
         market=market,
-        history_snaps=list(history_snaps),
+        history_snaps=list(history_snaps), 
         fresh_yes_price=fresh_price,
         fresh_spread=fresh_spread,
         global_max=global_max,
         start_time=start_time,
         time_left_sec=time_left_sec,
     )
-
+    
     return float(run_model_inference(df, model, active_features))
 
-
-async def _get_funding_rate(
-    db_session: AsyncSession, binance_symbol: str
-) -> float | None:
+async def _get_funding_rate(db_session: AsyncSession, binance_symbol: str) -> float | None:
     from sqlalchemy import select
     from polyflip.db.models import RuntimeSettings
     from datetime import datetime, timezone, timedelta
-
     fr_key = f"FUNDING_RATE_{binance_symbol}"
     try:
-        row = (
-            await db_session.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
-            )
-        ).scalar_one_or_none()
+        row = (await db_session.execute(select(RuntimeSettings).where(RuntimeSettings.key == fr_key))).scalar_one_or_none()
         if not row:
             return None
         if row.updated_at and row.updated_at.tzinfo is None:
             row.updated_at = row.updated_at.replace(tzinfo=timezone.utc)
-        if row.updated_at and datetime.now(timezone.utc) - row.updated_at > timedelta(
-            hours=12
-        ):
+        if row.updated_at and datetime.now(timezone.utc) - row.updated_at > timedelta(hours=12):
             return None
         return float(row.value)
     except Exception:
         return None
-
 
 async def decide_ml_mode(
     db_session: AsyncSession,
@@ -211,18 +177,13 @@ async def decide_ml_mode(
         return DecisionResult(None, 0.0, None, None, "Models cache is empty")
     fresh_yes_prices = await api_client.get_market_prices(market.yes_token_id)
     if not fresh_yes_prices or "current_yes_price" not in fresh_yes_prices:
-        error_msg = (
-            fresh_yes_prices.get("error", "No fresh YES prices from API")
-            if fresh_yes_prices
-            else "No fresh YES prices from API"
-        )
+        error_msg = fresh_yes_prices.get("error", "No fresh YES prices from API") if fresh_yes_prices else "No fresh YES prices from API"
         return DecisionResult(None, 0.0, None, None, error_msg)
 
     fresh_yes_price = fresh_yes_prices["current_yes_price"]
     fresh_spread = fresh_yes_prices.get("current_spread", market.current_spread)
-
+    
     from polyflip.constants import get_price_phase
-
     phase = get_price_phase(fresh_yes_price)
     phase_asset = f"{market.asset.upper()}_{phase}"
 
@@ -236,7 +197,7 @@ async def decide_ml_mode(
         model_ver = models_cache.versions.get(market.asset.upper())
         active_features = models_cache.features.get(market.asset.upper(), [])
         used_model = market.asset.upper()
-
+    
     logger.info(
         "ml_model_selected",
         asset=market.asset,
@@ -246,12 +207,10 @@ async def decide_ml_mode(
         phase_available=(phase_asset in models_cache.models),
         used_model=used_model,
     )
-
+    
     if not model:
-        return DecisionResult(
-            None, 0.0, None, None, f"No active model found for {market.asset.upper()}"
-        )
-
+        return DecisionResult(None, 0.0, None, None, f"No active model found for {market.asset.upper()}")
+        
     try:
         p_flip = await infer_flip_for_market(
             db_session=db_session,
@@ -297,13 +256,13 @@ async def decide_ml_mode(
 
     _asset_upper = market.asset.upper()
     _priority_chain = [
-        f"FLIP_THRESHOLD_{_asset_upper}",  # per-asset из дашборда
-        "FLIP_THRESHOLD",  # глобальный из дашборда
+        f"FLIP_THRESHOLD_{_asset_upper}",              # per-asset из дашборда
+        "FLIP_THRESHOLD",                              # глобальный из дашборда
         f"AUTO_FLIP_THRESHOLD_{used_model}_contested",  # авто: фаза contested
-        f"AUTO_FLIP_THRESHOLD_{used_model}_leaning",  # авто: фаза leaning
-        f"AUTO_FLIP_THRESHOLD_{used_model}_decided",  # авто: фаза decided
-        f"AUTO_FLIP_THRESHOLD_{used_model}",  # авто: базовый для модели
-        f"AUTO_FLIP_THRESHOLD_{_asset_upper}",  # авто: по символу
+        f"AUTO_FLIP_THRESHOLD_{used_model}_leaning",    # авто: фаза leaning
+        f"AUTO_FLIP_THRESHOLD_{used_model}_decided",    # авто: фаза decided
+        f"AUTO_FLIP_THRESHOLD_{used_model}",            # авто: базовый для модели
+        f"AUTO_FLIP_THRESHOLD_{_asset_upper}",          # авто: по символу
     ]
 
     base_flip_threshold = None
@@ -371,7 +330,6 @@ async def decide_ml_mode(
 
     ece = getattr(models_cache, "eces", {}).get(used_model, 0.0)
     from polyflip.trading.position_sizing import apply_ece_correction
-
     calibrated = apply_ece_correction(p_flip, ece)
     logger.info(
         "ml_ece_diagnostics",
@@ -386,19 +344,9 @@ async def decide_ml_mode(
     if cfg.trade_on_favorite:
         decision_obj = decide_ml_trend(signal, p_flip, local_config, ece=ece)
         if decision_obj.action == "SKIP" and not decision_obj.decision_details:
-            decision_obj = dataclasses.replace(
-                decision_obj, decision_details={"market_role": "FAVORITE"}
-            )
+            decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "FAVORITE"})
     else:
-        decision_obj = TradeDecision(
-            action="SKIP",
-            buy_price=0.0,
-            bet_size_usdc=0.0,
-            strategy_type="ML_TREND",
-            reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)",
-            edge=0.0,
-            decision_details={"market_role": "FAVORITE"},
-        )
+        decision_obj = TradeDecision(action="SKIP", buy_price=0.0, bet_size_usdc=0.0, strategy_type="ML_TREND", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)", edge=0.0, decision_details={"market_role": "FAVORITE"})
 
     if decision_obj.action == "SKIP" and cfg.trade_on_flip:
         trend_edge = decision_obj.edge
@@ -407,9 +355,7 @@ async def decide_ml_mode(
             "decide_outsider_actual_threshold",
             asset=signal.asset,
             p_flip=round(p_flip, 4),
-            flip_threshold_in_local_config=float(
-                local_config.get("FLIP_THRESHOLD", 0.0)
-            ),
+            flip_threshold_in_local_config=float(local_config.get("FLIP_THRESHOLD", 0.0)),
             resolved_key=_resolved_key,
             base_flip_threshold=round(base_flip_threshold, 4),
             applied_upper=round(upper, 4),
@@ -424,9 +370,7 @@ async def decide_ml_mode(
                 edge=final_edge,
             )
             if not decision_obj.decision_details:
-                decision_obj = dataclasses.replace(
-                    decision_obj, decision_details={"market_role": "OUTSIDER"}
-                )
+                decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "OUTSIDER"})
             else:
                 decision_obj.decision_details["market_role"] = "OUTSIDER"
         else:
@@ -437,52 +381,36 @@ async def decide_ml_mode(
     g7_crypto_confirm = None
 
     # Confirm Gate
-    use_crypto_confirm = getattr(cfg, "use_crypto_confirm", False)
+    use_crypto_confirm = getattr(cfg, 'use_crypto_confirm', False)
     if decision_obj.action != "SKIP" and use_crypto_confirm and crypto_predictor:
         from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
-
         binance_symbol = ASSET_TO_BINANCE_SYMBOL.get(market.asset.upper())
         if not binance_symbol:
             decision_obj = dataclasses.replace(
-                decision_obj,
-                action="SKIP",
-                reason=f"Crypto confirm: unsupported asset {market.asset.upper()}",
+                decision_obj, action="SKIP", reason=f"Crypto confirm: unsupported asset {market.asset.upper()}"
             )
         else:
             await crypto_predictor.load(db_session, binance_symbol)
             model_interval = crypto_predictor.get_interval(binance_symbol)
-            candles = await get_recent_candles(
-                db_session,
-                binance_symbol,
-                interval=model_interval,
-                limit=MIN_CANDLES_REQUIRED,
-            )
+            candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
             fr = await _get_funding_rate(db_session, binance_symbol)
-            crypto_sig = crypto_predictor.predict(
-                candles, binance_symbol, funding_rate=fr
-            )
-
+            crypto_sig = crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
+            
             if not crypto_sig.features_ok:
                 decision_obj = dataclasses.replace(
-                    decision_obj,
-                    action="SKIP",
-                    reason="Crypto confirm: features invalid",
+                    decision_obj, action="SKIP", reason="Crypto confirm: features invalid"
                 )
             else:
                 market_direction = "UP" if decision_obj.action == "BUY_YES" else "DOWN"
                 if crypto_sig.direction != market_direction:
                     decision_obj = dataclasses.replace(
-                        decision_obj,
-                        action="SKIP",
-                        reason=f"Crypto confirm veto: direction is {crypto_sig.direction} vs market {market_direction}",
+                        decision_obj, action="SKIP", reason=f"Crypto confirm veto: direction is {crypto_sig.direction} vs market {market_direction}"
                     )
-        g7_crypto_confirm = decision_obj.action != "SKIP"
+        g7_crypto_confirm = (decision_obj.action != "SKIP")
 
     _min_edge = float(local_config.get("MIN_EDGE", 0.0))
-    g5_min_edge = decision_obj.edge is not None and decision_obj.edge >= _min_edge
-    g6_price_range = not (
-        decision_obj.action == "SKIP" and "price" in (decision_obj.reason or "").lower()
-    )
+    g5_min_edge = (decision_obj.edge is not None and decision_obj.edge >= _min_edge)
+    g6_price_range = not (decision_obj.action == "SKIP" and "price" in (decision_obj.reason or "").lower())
 
     await log_funnel(
         db_session,
@@ -504,11 +432,7 @@ async def decide_ml_mode(
         g6_price_range=g6_price_range,
         g7_crypto_confirm=g7_crypto_confirm,
         final_action=decision_obj.action if decision_obj else "SKIP",
-        skip_reason=(
-            decision_obj.reason
-            if decision_obj and decision_obj.action == "SKIP"
-            else None
-        ),
+        skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None,
     )
 
     return DecisionResult(
@@ -516,16 +440,11 @@ async def decide_ml_mode(
         p_flip=p_flip,
         model_ver=model_ver,
         edge=decision_obj.edge if decision_obj else None,
-        skip_reason=(
-            decision_obj.reason
-            if decision_obj and decision_obj.action == "SKIP"
-            else None
-        ),
+        skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None,
         used_model_key=used_model,
         applied_lower=lower,
         applied_upper=upper,
     )
-
 
 async def decide_crypto_mode(
     db_session: AsyncSession,
@@ -549,66 +468,32 @@ async def decide_crypto_mode(
             pass
 
     from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
-
     binance_symbol = ASSET_TO_BINANCE_SYMBOL.get(market.asset.upper())
     if not binance_symbol:
-        return DecisionResult(
-            None, 0.0, None, None, f"Unsupported crypto asset: {market.asset.upper()}"
-        )
-
+        return DecisionResult(None, 0.0, None, None, f"Unsupported crypto asset: {market.asset.upper()}")
+    
     await crypto_predictor.load(db_session, binance_symbol)
-
+    
     model_interval = crypto_predictor.get_interval(binance_symbol)
-    candles = await get_recent_candles(
-        db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED
-    )
+    candles = await get_recent_candles(db_session, binance_symbol, interval=model_interval, limit=MIN_CANDLES_REQUIRED)
     fr = await _get_funding_rate(db_session, binance_symbol)
     crypto_sig = crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
-
+    
     if not crypto_sig.features_ok:
-        return DecisionResult(
-            None,
-            0.0,
-            crypto_sig.model_version,
-            None,
-            "Invalid crypto features",
-            used_model_key=crypto_sig.model_key,
-        )
+        return DecisionResult(None, 0.0, crypto_sig.model_version, None, "Invalid crypto features", used_model_key=crypto_sig.model_key)
 
     fresh_yes_prices = await api_client.get_market_prices(market.yes_token_id)
     if not fresh_yes_prices or "current_yes_price" not in fresh_yes_prices:
-        error_detail = (
-            fresh_yes_prices.get("error", "unknown")
-            if fresh_yes_prices
-            else "None returned"
-        )
-        return DecisionResult(
-            None,
-            0.0,
-            crypto_sig.model_version,
-            None,
-            f"No fresh yes price: {error_detail}",
-            used_model_key=crypto_sig.model_key,
-        )
-
+        error_detail = fresh_yes_prices.get("error", "unknown") if fresh_yes_prices else "None returned"
+        return DecisionResult(None, 0.0, crypto_sig.model_version, None, f"No fresh yes price: {error_detail}", used_model_key=crypto_sig.model_key)
+        
     fresh_yes_price = fresh_yes_prices["current_yes_price"]
     yes_ask = fresh_yes_prices.get("best_ask")
     if yes_ask is None and crypto_sig.direction == "UP":
-        return DecisionResult(
-            None,
-            0.0,
-            crypto_sig.model_version,
-            None,
-            "No YES ask price available",
-            used_model_key=crypto_sig.model_key,
-        )
+        return DecisionResult(None, 0.0, crypto_sig.model_version, None, "No YES ask price available", used_model_key=crypto_sig.model_key)
 
     p_flip_ml = None
-    if (
-        models_cache
-        and getattr(models_cache, "models", None)
-        and market.asset.upper() in models_cache.models
-    ):
+    if models_cache and getattr(models_cache, "models", None) and market.asset.upper() in models_cache.models:
         try:
             model = models_cache.models.get(market.asset.upper())
             active_features = models_cache.features.get(market.asset.upper(), [])
@@ -626,14 +511,7 @@ async def decide_crypto_mode(
                 )
         except Exception as e:
             logger.error("crypto_mode_ml_pflip_error", asset=market.asset, error=str(e))
-            return DecisionResult(
-                None,
-                0.0,
-                crypto_sig.model_version,
-                None,
-                "flip inference failed",
-                used_model_key=crypto_sig.model_key,
-            )
+            return DecisionResult(None, 0.0, crypto_sig.model_version, None, "flip inference failed", used_model_key=crypto_sig.model_key)
 
     no_ask = None
     if crypto_sig.direction == "DOWN":
@@ -642,52 +520,22 @@ async def decide_crypto_mode(
             if no_prices and no_prices.get("best_ask") is not None:
                 no_ask = float(no_prices["best_ask"])
         if no_ask is None:
-            return DecisionResult(
-                None,
-                0.0,
-                crypto_sig.model_version,
-                None,
-                "No NO ask price available",
-                used_model_key=crypto_sig.model_key,
-            )
+            return DecisionResult(None, 0.0, crypto_sig.model_version, None, "No NO ask price available", used_model_key=crypto_sig.model_key)
 
-    decision_obj = decide_crypto_trend(
-        crypto_sig,
-        yes_ask or fresh_yes_price,
-        market.volume_5min or 0.0,
-        raw_settings,
-        no_ask=no_ask,
-        p_flip_ml=p_flip_ml,
-    )
+    decision_obj = decide_crypto_trend(crypto_sig, yes_ask or fresh_yes_price, market.volume_5min or 0.0, raw_settings, no_ask=no_ask, p_flip_ml=p_flip_ml)
     if decision_obj.action == "SKIP" and not decision_obj.decision_details:
-        decision_obj = dataclasses.replace(
-            decision_obj,
-            decision_details={
-                "market_role": (
-                    "OUTSIDER" if (yes_ask or fresh_yes_price) < 0.50 else "FAVORITE"
-                )
-            },
-        )
+        decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "OUTSIDER" if (yes_ask or fresh_yes_price) < 0.50 else "FAVORITE"})
     if not cfg.trade_on_favorite:
-        decision_obj = dataclasses.replace(
-            decision_obj,
-            action="SKIP",
-            reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)",
-        )
-
+        decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
+    
     return DecisionResult(
         decision_obj=decision_obj,
         p_flip=0.0,
         model_ver=crypto_sig.model_version if crypto_sig else None,
         edge=decision_obj.edge if decision_obj else None,
-        skip_reason=(
-            decision_obj.reason
-            if decision_obj and decision_obj.action == "SKIP"
-            else None
-        ),
+        skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None,
         used_model_key=crypto_sig.model_key,
     )
-
 
 async def _fetch_lgbm_signal(
     crypto_predictor: Any,
@@ -699,37 +547,23 @@ async def _fetch_lgbm_signal(
     from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
     from polyflip.crypto.candle_repository import get_recent_candles
     from polyflip.db.connection import async_session
-
+    
     try:
         async with async_session() as db_session:
             await crypto_predictor.load(db_session, binance_symbol)
             interval = crypto_predictor.get_interval(binance_symbol)
-            candles = await get_recent_candles(
-                db_session,
-                binance_symbol,
-                interval=interval,
-                limit=MIN_CANDLES_REQUIRED,
-            )
+            candles = await get_recent_candles(db_session, binance_symbol, interval=interval, limit=MIN_CANDLES_REQUIRED)
             fr = await _get_funding_rate(db_session, binance_symbol)
             return crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
     except Exception as exc:
         logger.error("combined_lgbm_error_fallback", asset=asset_upper, error=str(exc))
         from polyflip.crypto.predictor import CryptoSignal
-
         return CryptoSignal(
-            symbol=binance_symbol,
-            p_up=0.0,
-            p_down=0.0,
-            direction="NONE",
-            signal_strength=0.0,
-            strike=0.0,
-            threshold_up=0.0,
-            threshold_down=0.0,
-            model_version=0,
-            features_ok=False,
-            risk_vetoed=False,
+            symbol=binance_symbol, p_up=0.0, p_down=0.0,
+            direction="NONE", signal_strength=0.0, strike=0.0,
+            threshold_up=0.0, threshold_down=0.0, model_version=0,
+            features_ok=False, risk_vetoed=False
         )
-
 
 async def decide_combined_mode(
     db_session: AsyncSession,
@@ -747,10 +581,7 @@ async def decide_combined_mode(
     COMBINED-режим: ML (LogReg) + LightGBM голосуют, решение по таблице.
     Поддерживается только для активов из COMBINED_MODE_SUPPORTED_ASSETS.
     """
-    from polyflip.constants import (
-        COMBINED_MODE_SUPPORTED_ASSETS,
-        COMBINED_BINANCE_SYMBOLS,
-    )
+    from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS, COMBINED_BINANCE_SYMBOLS
     from polyflip.trading.combined_voting import combine_votes, CryptoSignalProxy
 
     asset_upper = market.asset.upper()
@@ -767,16 +598,9 @@ async def decide_combined_mode(
         # Когда актив войдет в COMBINED_MODE_SUPPORTED_ASSETS, он автоматически
         # получит полный COMBINED-флоу без изменений здесь.
         return await decide_ml_mode(
-            db_session,
-            api_client,
-            market,
-            cfg,
-            raw_settings,
-            models_cache,
-            None,
-            start_time,
-            time_left_sec,
-            existing_skipped,
+            db_session, api_client, market, cfg,
+            raw_settings, models_cache, None,
+            start_time, time_left_sec, existing_skipped,
         )
 
     t0 = time.monotonic()
@@ -789,16 +613,9 @@ async def decide_combined_mode(
     # Если в будущем понадобится Confirm Gate в ML-ветке COMBINED — передавать predictor
     # только при USE_CRYPTO_CONFIRM=True И явном флаге cfg.combined_confirm_gate=True.
     ml_task = decide_ml_mode(
-        db_session,
-        api_client,
-        market,
-        cfg,
-        raw_settings,
-        models_cache,
-        None,
-        start_time,
-        time_left_sec,
-        existing_skipped,
+        db_session, api_client, market, cfg,
+        raw_settings, models_cache, None,
+        start_time, time_left_sec, existing_skipped,
     )
 
     # --- Шаг B: готовим LightGBM-ветку ---
@@ -811,30 +628,20 @@ async def decide_combined_mode(
     else:
         ml_result = await ml_task
         from polyflip.crypto.predictor import CryptoSignal
-
         crypto_proxy = CryptoSignal(
-            symbol=binance_symbol or "UNKNOWN",
-            p_up=0.0,
-            p_down=0.0,
-            direction="NONE",
-            signal_strength=0.0,
-            strike=0.0,
-            threshold_up=0.0,
-            threshold_down=0.0,
-            model_version=0,
-            features_ok=False,
-            risk_vetoed=False,
+            symbol=binance_symbol or "UNKNOWN", p_up=0.0, p_down=0.0,
+            direction="NONE", signal_strength=0.0, strike=0.0,
+            threshold_up=0.0, threshold_down=0.0, model_version=0,
+            features_ok=False, risk_vetoed=False
         )
         logger.warning("combined_no_crypto_predictor", asset=asset_upper)
 
     elapsed = time.monotonic() - t0
-    logger.info(
-        "combined_mode_latency", asset=asset_upper, elapsed_ms=round(elapsed * 1000, 1)
-    )
+    logger.info("combined_mode_latency", asset=asset_upper, elapsed_ms=round(elapsed * 1000, 1))
 
     # --- Шаг C: голосование ---
     ml_action = ml_result.decision_obj.action if ml_result.decision_obj else "SKIP"
-    ml_edge = ml_result.edge or 0.0
+    ml_edge   = ml_result.edge or 0.0
 
     _raw_mult = raw_settings.get("COMBINED_NONE_BET_MULTIPLIER")
     if _raw_mult is not None and str(_raw_mult).strip() != "":
@@ -846,17 +653,8 @@ async def decide_combined_mode(
     else:
         none_bet_multiplier = 0.5
 
-    ml_skip_reason = ml_result.skip_reason or (
-        ml_result.decision_obj.reason if ml_result.decision_obj else ""
-    )
-    vote = combine_votes(
-        ml_action,
-        ml_edge,
-        crypto_proxy,
-        asset_upper,
-        none_bet_multiplier=none_bet_multiplier,
-        ml_skip_reason=ml_skip_reason,
-    )
+    ml_skip_reason = ml_result.skip_reason or (ml_result.decision_obj.reason if ml_result.decision_obj else "")
+    vote = combine_votes(ml_action, ml_edge, crypto_proxy, asset_upper, none_bet_multiplier=none_bet_multiplier, ml_skip_reason=ml_skip_reason)
 
     logger.info(
         "combined_vote_result",
@@ -885,12 +683,11 @@ async def decide_combined_mode(
         lgbm_meta_dict["original_strategy"] = ml_result.decision_obj.strategy_type
     else:
         lgbm_meta_dict["original_strategy"] = "COMBINED"
-
+        
     lgbm_meta = json.dumps(lgbm_meta_dict)
 
     # --- Шаг D: применяем результат голосования к decision_obj ---
     import dataclasses
-
     if ml_result.decision_obj is None:
         return DecisionResult(
             None,
@@ -905,11 +702,7 @@ async def decide_combined_mode(
         )
 
     _strategy = ml_result.decision_obj.strategy_type
-    _reason = (
-        ml_result.decision_obj.reason
-        if vote.action == "SKIP" and ml_action == "SKIP"
-        else vote.reason
-    )
+    _reason = ml_result.decision_obj.reason if vote.action == "SKIP" and ml_action == "SKIP" else vote.reason
     final_decision = dataclasses.replace(
         ml_result.decision_obj,
         action=vote.action,
@@ -932,17 +725,9 @@ async def decide_combined_mode(
             effective_min=effective_min,
         )
 
-    g8_combined_vote = vote.action != "SKIP"
-    _combined_lower = (
-        ml_result.applied_lower
-        if (ml_result and ml_result.applied_lower is not None)
-        else float(raw_settings.get("NO_FLIP_THRESHOLD", 0.35))
-    )
-    _combined_upper = (
-        ml_result.applied_upper
-        if (ml_result and ml_result.applied_upper is not None)
-        else float(raw_settings.get("FLIP_THRESHOLD", 0.65))
-    )
+    g8_combined_vote = (vote.action != "SKIP")
+    _combined_lower = ml_result.applied_lower if (ml_result and ml_result.applied_lower is not None) else float(raw_settings.get("NO_FLIP_THRESHOLD", 0.35))
+    _combined_upper = ml_result.applied_upper if (ml_result and ml_result.applied_upper is not None) else float(raw_settings.get("FLIP_THRESHOLD", 0.65))
     _combined_min_edge = float(raw_settings.get("MIN_EDGE", 0.0))
 
     await log_funnel(
@@ -952,16 +737,8 @@ async def decide_combined_mode(
         trading_mode="COMBINED",
         used_model=ml_result.used_model_key if ml_result else None,
         p_flip=ml_result.p_flip if ml_result else 0.0,
-        edge=(
-            final_decision.edge
-            if final_decision and final_decision.edge is not None
-            else (ml_result.edge if ml_result else None)
-        ),
-        fresh_price=(
-            ml_result.decision_obj.buy_price
-            if ml_result and ml_result.decision_obj
-            else None
-        ),
+        edge=final_decision.edge if final_decision and final_decision.edge is not None else (ml_result.edge if ml_result else None),
+        fresh_price=ml_result.decision_obj.buy_price if ml_result and ml_result.decision_obj else None,
         threshold_lower=_combined_lower,
         threshold_upper=_combined_upper,
         min_edge_used=_combined_min_edge,
@@ -976,9 +753,7 @@ async def decide_combined_mode(
         decision_obj=final_decision,
         p_flip=ml_result.p_flip,
         model_ver=ml_result.model_ver,
-        edge=(
-            final_decision.edge if final_decision.edge is not None else ml_result.edge
-        ),  # сохраняем edge всегда — важно для анализа вето
+        edge=final_decision.edge if final_decision.edge is not None else ml_result.edge,  # сохраняем edge всегда — важно для анализа вето
         skip_reason=_reason if vote.action == "SKIP" else None,
         lgbm_metadata=lgbm_meta,
         used_model_key=ml_result.used_model_key if ml_result else None,

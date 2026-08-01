@@ -10,15 +10,13 @@ from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 def dummy_data():
     np.random.seed(42)
     n = 300  # увеличено для стабильности calibration_curve
-    X = pd.DataFrame(
-        {
-            "feature1": np.random.randn(n),
-            "feature2": np.random.randn(n) * 2 + 1,
-        }
-    )
-    prob = 1 / (1 + np.exp(-X["feature1"]))
-    y = pd.Series((np.random.rand(n) < prob).astype(int), name="target")
-    groups = pd.Series(np.repeat(np.arange(n // 2), 2), name="group")
+    X = pd.DataFrame({
+        'feature1': np.random.randn(n),
+        'feature2': np.random.randn(n) * 2 + 1,
+    })
+    prob = 1 / (1 + np.exp(-X['feature1']))
+    y = pd.Series((np.random.rand(n) < prob).astype(int), name='target')
+    groups = pd.Series(np.repeat(np.arange(n // 2), 2), name='group')
     return X, y, groups
 
 
@@ -81,7 +79,6 @@ def test_no_data_leakage_oof_scores_honest(dummy_data):
     model = pickle.loads(model_bytes)
     # Train accuracy финальной модели должна быть >= val_acc
     from sklearn.metrics import roc_auc_score
-
     train_auc = roc_auc_score(y, model.predict_proba(X)[:, 1])
     # Если есть leakage — val_acc будет подозрительно близок к train_auc
     # Честный gap: train_auc > val_acc на realistic данных

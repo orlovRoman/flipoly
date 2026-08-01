@@ -2,7 +2,6 @@
 Удаление устаревших свечей из БД.
 Запускается раз в сутки из scheduler/jobs.py.
 """
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -19,7 +18,7 @@ DEFAULT_RETENTION_DAYS = 90
 
 
 async def prune_old_candles(
-    db: AsyncSession,
+    db:             AsyncSession,
     retention_days: int = DEFAULT_RETENTION_DAYS,
 ) -> int:
     """
@@ -38,10 +37,5 @@ async def prune_old_candles(
     await db.commit()
 
     deleted = result.rowcount
-    logger.info(
-        "candle_pruner_done",
-        deleted=deleted,
-        cutoff=cutoff.isoformat(),
-        retention_days=retention_days,
-    )
+    logger.info("candle_pruner_done", deleted=deleted, cutoff=cutoff.isoformat(), retention_days=retention_days)
     return deleted

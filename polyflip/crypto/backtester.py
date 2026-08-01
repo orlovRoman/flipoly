@@ -19,7 +19,6 @@ PnL-режимы:
 Walk-forward: обучение на первых BACKTEST_TRAIN_RATIO данных,
 тест на оставшихся. Нет data leakage.
 """
-
 from __future__ import annotations
 
 import pickle
@@ -48,23 +47,23 @@ _EPSILON: float = 1e-9
 
 @dataclass
 class BacktestResult:
-    symbol: str
-    n_candles_total: int
-    n_candles_test: int
-    n_trades: int
-    win_rate: float
-    total_return: float
+    symbol:           str
+    n_candles_total:  int
+    n_candles_test:   int
+    n_trades:         int
+    win_rate:         float
+    total_return:     float
     total_return_net: float
-    sharpe_ratio: float
-    max_drawdown: float
-    edge_rate: float
-    epsilon: float
-    train_auc: float
-    pnl_mode: str = "binance"
+    sharpe_ratio:     float
+    max_drawdown:     float
+    edge_rate:        float
+    epsilon:          float
+    train_auc:        float
+    pnl_mode:         str = "binance"
     n_polymarket_matched: int = 0
-    avg_buy_price: float | None = None
-    coverage_pct: float = 0.0  # % сделок (signals) с совпавшим снапшотом
-    pnl_curve: list[dict] = field(default_factory=list)
+    avg_buy_price:    float | None = None
+    coverage_pct:     float = 0.0  # % сделок (signals) с совпавшим снапшотом
+    pnl_curve:        list[dict] = field(default_factory=list)
 
     def is_profitable(self, min_sharpe: float = 0.5) -> bool:
         return self.sharpe_ratio >= min_sharpe and self.win_rate >= 0.52
@@ -133,7 +132,7 @@ def run_backtest(
     n_train = int(n_total * BACKTEST_TRAIN_RATIO)
 
     df_train_raw = df_features.iloc[:n_train].copy()
-    df_test_raw = df_features.iloc[n_train:].copy()
+    df_test_raw  = df_features.iloc[n_train:].copy()
 
     if epsilon_quantile is not None:
         epsilon_val = float(df_train_raw["ret_1"].abs().quantile(epsilon_quantile))
@@ -141,44 +140,26 @@ def run_backtest(
         epsilon_val = _EPSILON
 
     df_train = _build_target(df_train_raw)
-    df_test = _build_target(df_test_raw)
+    df_test  = _build_target(df_test_raw)
 
     if epsilon_quantile is not None:
         df_train = df_train[df_train["abs_ret_next"] >= epsilon_val].copy()
-        df_test = df_test[df_test["abs_ret_next"] >= epsilon_val].copy()
+        df_test  = df_test[df_test["abs_ret_next"] >= epsilon_val].copy()
 
     feature_list = features if features is not None else CRYPTO_FEATURES
-    available = [f for f in feature_list if f in df_train.columns]
+    available    = [f for f in feature_list if f in df_train.columns]
 
     if len(df_train) < 300 or len(available) == 0:
         return _empty_result(symbol, n_total, len(df_test), epsilon_val, pnl_mode)
 
-    vol_median = (
-        float(df_train["vol_trend"].median())
-        if "vol_trend" in df_train.columns
-        else 1.0
-    )
+    vol_median = float(df_train["vol_trend"].median()) if "vol_trend" in df_train.columns else 1.0
     models: dict[str, Any] = {}
     train_aucs: list[float] = []
 
     has_vol = "vol_trend" in df_train.columns
     regime_masks = [
-        (
-            "low_vol",
-            (
-                df_train["vol_trend"] <= vol_median
-                if has_vol
-                else pd.Series(True, index=df_train.index)
-            ),
-        ),
-        (
-            "high_vol",
-            (
-                df_train["vol_trend"] > vol_median
-                if has_vol
-                else pd.Series(False, index=df_train.index)
-            ),
-        ),
+        ("low_vol",  df_train["vol_trend"] <= vol_median if has_vol else pd.Series(True, index=df_train.index)),
+        ("high_vol", df_train["vol_trend"] >  vol_median if has_vol else pd.Series(False, index=df_train.index)),
     ]
     for regime, mask in regime_masks:
         df_r = df_train[mask]
@@ -186,8 +167,7 @@ def run_backtest(
             continue
         _lgbm = lgbm_params or {}
         model_bytes, auc, *_ = _fit_lgbm_and_serialize(
-            df_r[available],
-            df_r["target"],
+            df_r[available], df_r["target"],
             n_splits=min(CV_N_SPLITS, 3),
             **_lgbm,
         )
@@ -199,36 +179,26 @@ def run_backtest(
 
     train_auc = float(np.mean(train_aucs))
 
-    X_test = df_test[available]
-    probas = np.full(len(df_test), 0.5)
+    X_test    = df_test[available]
+    probas    = np.full(len(df_test), 0.5)
     has_vol_test = "vol_trend" in df_test.columns
-    low_mask = (
-        df_test["vol_trend"] <= vol_median
-        if has_vol_test
-        else pd.Series(True, index=df_test.index)
-    )
+    low_mask  = df_test["vol_trend"] <= vol_median if has_vol_test else pd.Series(True, index=df_test.index)
     high_mask = ~low_mask if has_vol_test else pd.Series(False, index=df_test.index)
 
     if "low_vol" in models and low_mask.any():
-        probas[low_mask.values] = models["low_vol"].predict_proba(X_test[low_mask])[
-            :, 1
-        ]
+        probas[low_mask.values] = models["low_vol"].predict_proba(X_test[low_mask])[:, 1]
     if "high_vol" in models and high_mask.any():
-        probas[high_mask.values] = models["high_vol"].predict_proba(X_test[high_mask])[
-            :, 1
-        ]
+        probas[high_mask.values] = models["high_vol"].predict_proba(X_test[high_mask])[:, 1]
     elif "low_vol" in models and high_mask.any():
-        probas[high_mask.values] = models["low_vol"].predict_proba(X_test[high_mask])[
-            :, 1
-        ]
+        probas[high_mask.values] = models["low_vol"].predict_proba(X_test[high_mask])[:, 1]
 
-    _min_edge = min_edge if min_edge is not None else BACKTEST_MIN_EDGE
+    _min_edge   = min_edge   if min_edge   is not None else BACKTEST_MIN_EDGE
     _commission = commission if commission is not None else BACKTEST_COMMISSION
 
     df_test = df_test.copy()
-    df_test["prob_up"] = probas
-    df_test["edge"] = probas - 0.5
-    df_test["signal"] = df_test["edge"].abs() >= _min_edge
+    df_test["prob_up"]  = probas
+    df_test["edge"]     = probas - 0.5
+    df_test["signal"]   = df_test["edge"].abs() >= _min_edge
     df_test["ret_next"] = df_test["ret_1"].shift(-1)
     df_test = df_test.dropna(subset=["ret_next"])
 
@@ -271,9 +241,7 @@ def run_backtest(
         )
 
         # FIX: явная нормализация trades["open_time"] → datetime64[ns, UTC]
-        trades["open_time"] = pd.to_datetime(
-            trades["open_time"], utc=True
-        ).dt.tz_convert("UTC")
+        trades["open_time"] = pd.to_datetime(trades["open_time"], utc=True).dt.tz_convert("UTC")
         trades = trades.sort_values("open_time").reset_index(drop=True)
 
         trades = pd.merge_asof(
@@ -284,12 +252,12 @@ def run_backtest(
             tolerance=pd.Timedelta(seconds=450),
         )
 
-        matched = trades.dropna(subset=["pm_yes_price", "pm_outcome"]).copy()
+        matched   = trades.dropna(subset=["pm_yes_price", "pm_outcome"]).copy()
         n_matched = len(matched)
         n_signals = len(trades)  # общее число сгенерированных сигналов
 
         # FIX: coverage = % сделок (сигналов) с совпавшим снапшотом, не % всех свечей
-        coverage = round(n_matched / n_signals * 100, 1) if n_signals > 0 else 0.0
+        coverage  = round(n_matched / n_signals * 100, 1) if n_signals > 0 else 0.0
         avg_buy_p = float(matched["pm_yes_price"].mean()) if n_matched > 0 else None
 
         if n_matched == 0:
@@ -326,26 +294,26 @@ def run_backtest(
             matched["pm_outcome"] == "NO",
         )
 
-        pnl_raw = np.where(won, (1.0 - buy_price) / buy_price, -1.0)
+        pnl_raw       = np.where(won, (1.0 - buy_price) / buy_price, -1.0)
         fee_per_trade = POLYMARKET_FEE_RATE / buy_price
-        pnl_net_arr = pnl_raw - fee_per_trade
+        pnl_net_arr   = pnl_raw - fee_per_trade
 
         matched = matched.copy()
-        matched["pnl"] = pnl_raw
+        matched["pnl"]     = pnl_raw
         matched["pnl_net"] = pnl_net_arr
 
-        win_rate = float((matched["pnl"] > 0).mean())
+        win_rate     = float((matched["pnl"] > 0).mean())
         total_return = float(matched["pnl"].sum())
-        total_net = float(matched["pnl_net"].sum())
+        total_net    = float(matched["pnl_net"].sum())
 
         pnl_std = matched["pnl_net"].std()
-        sharpe = 0.0
+        sharpe  = 0.0
         if pnl_std > 0:
             ann_factor = (len(matched) / len(df_test)) * BACKTEST_SHARPE_ANNUALIZE
             sharpe = float(matched["pnl_net"].mean() / pnl_std * np.sqrt(ann_factor))
 
         cum_pnl = matched["pnl_net"].cumsum()
-        max_dd = float((cum_pnl - cum_pnl.cummax()).min())
+        max_dd  = float((cum_pnl - cum_pnl.cummax()).min())
 
         return BacktestResult(
             symbol=symbol,
@@ -370,7 +338,7 @@ def run_backtest(
     # ═══════════════════════════════════════════════════
     # PnL-РЕЖИМ: BINANCE (legacy — лог-доход свечи)
     # ═══════════════════════════════════════════════════
-    trades["pnl"] = trades["direction"] * trades["ret_next"]
+    trades["pnl"]     = trades["direction"] * trades["ret_next"]
     trades["pnl_net"] = trades["pnl"] - _commission * 2
 
     significant = trades
@@ -382,16 +350,16 @@ def run_backtest(
     )
 
     total_return = float(trades["pnl"].sum())
-    total_net = float(trades["pnl_net"].sum())
+    total_net    = float(trades["pnl_net"].sum())
 
     pnl_std = trades["pnl_net"].std()
-    sharpe = 0.0
+    sharpe  = 0.0
     if pnl_std > 0:
         ann_factor = (len(trades) / len(df_test)) * BACKTEST_SHARPE_ANNUALIZE
         sharpe = float(trades["pnl_net"].mean() / pnl_std * np.sqrt(ann_factor))
 
     cum_pnl = trades["pnl_net"].cumsum()
-    max_dd = float((cum_pnl - cum_pnl.cummax()).min())
+    max_dd  = float((cum_pnl - cum_pnl.cummax()).min())
 
     return BacktestResult(
         symbol=symbol,
@@ -418,19 +386,9 @@ def _build_pnl_curve(trades: pd.DataFrame, cum_pnl: pd.Series) -> list[dict]:
         return pnl_curve
     step = max(1, len(trades) // 100)
     for i in range(0, len(trades), step):
-        pnl_curve.append(
-            {
-                "time": _format_time(trades, i),
-                "pnl": round(float(cum_pnl.iloc[i]) * 100, 2),
-            }
-        )
+        pnl_curve.append({"time": _format_time(trades, i), "pnl": round(float(cum_pnl.iloc[i]) * 100, 2)})
     if len(trades) % step != 0:
-        pnl_curve.append(
-            {
-                "time": _format_time(trades, -1),
-                "pnl": round(float(cum_pnl.iloc[-1]) * 100, 2),
-            }
-        )
+        pnl_curve.append({"time": _format_time(trades, -1), "pnl": round(float(cum_pnl.iloc[-1]) * 100, 2)})
     return pnl_curve
 
 

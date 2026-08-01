@@ -1,6 +1,5 @@
 from polyflip.crypto.risk_guard import check_funding_veto, FUNDING_EXTREME_THRESHOLD
 
-
 def test_funding_extreme_computation():
     """Проверяет корректность расчета вето по экстремальной ставке фандинга (>= 0.0005 / 0.05%)."""
     # При экстремальной ставке 0.0006 с позицией по толпе -> vetoed == True

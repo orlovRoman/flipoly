@@ -1,11 +1,10 @@
 """Самотесты для проверки исправлений BUG-01, BUG-02, BUG-03, BUG-04."""
-
 import inspect
 import pytest
 from unittest.mock import AsyncMock, patch
 
-# ─── BUG-01: engine.py — условие crypto-решения ────────────────────────────
 
+# ─── BUG-01: engine.py — условие crypto-решения ────────────────────────────
 
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
 def test_decide_crypto_trend_buy_no_price():
@@ -14,23 +13,16 @@ def test_decide_crypto_trend_buy_no_price():
     from polyflip.crypto.predictor import CryptoSignal
 
     crypto = CryptoSignal(
-        symbol="BTCUSDT",
-        p_up=0.1,
-        p_down=0.9,
-        direction="DOWN",
-        edge=0.1,
-        strike=60000,
-        threshold_up=0.55,
-        threshold_down=0.45,
-        model_version=1,
-        features_ok=True,
+        symbol="BTCUSDT", p_up=0.1, p_down=0.9, direction="DOWN",
+        edge=0.1, strike=60000, threshold_up=0.55, threshold_down=0.45,
+        model_version=1, features_ok=True
     )
     # entry_price - это цена YES
     entry_price = 0.80
     config = {"CRYPTO_MIN_EDGE": 0.05, "MAX_BET_EDGE": 0.5, "BET_SIZE_FIXED_USDC": 10.0}
-
+    
     decision = decide_crypto_trend(crypto, entry_price, 1000.0, config)
-
+    
     assert decision.action == "BUY_NO"
     # Цена для NO должна быть 1.0 - 0.80 = 0.20
     assert decision.buy_price == 0.20
@@ -42,17 +34,11 @@ def test_crypto_action_trade_should_execute():
     from polyflip.trading.decision_logic import TradeDecision
 
     decision = TradeDecision(
-        action="BUY_YES",
-        buy_price=0.40,
-        bet_size_usdc=5.0,
-        strategy_type="LIGHTGBM_TREND",
-        reason="test",
-        edge=0.12,
+        action="BUY_YES", buy_price=0.40, bet_size_usdc=5.0,
+        strategy_type="LIGHTGBM_TREND", reason="test", edge=0.12
     )
     # Правильное условие: BUY_YES != SKIP → True → устанавливаем переменные (edge, model_ver, p_flip)
-    assert (
-        not decision or decision.action != "SKIP"
-    ) is True, (
+    assert (not decision or decision.action != "SKIP") is True, (
         "BUG-01: условие должно быть True для BUY_YES (блок инициализации p_flip/edge)"
     )
 
@@ -67,19 +53,16 @@ def test_crypto_action_skip_should_skip_init_block():
     from polyflip.trading.decision_logic import TradeDecision
 
     decision = TradeDecision(
-        action="SKIP",
-        buy_price=0.0,
-        bet_size_usdc=0.0,
-        strategy_type="LIGHTGBM_TREND",
-        reason="No signal",
-        edge=0.0,
+        action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
+        strategy_type="LIGHTGBM_TREND", reason="No signal", edge=0.0
     )
     # Правильное условие: SKIP != SKIP = False → блок не выполняется (OK — SKIP попадёт в единый обработчик ниже)
-    assert (
-        not decision or decision.action != "SKIP"
-    ) is False, (
+    assert (not decision or decision.action != "SKIP") is False, (
         "BUG-01: условие должно быть False для SKIP (блок инициализации не запускается)"
     )
+
+
+
 
 
 def test_engine_py_no_action_trade_condition():
@@ -93,27 +76,22 @@ def test_engine_py_no_action_trade_condition():
 
 # ─── BUG-02: backtester.py — epsilon не должен быть 0.0 ─────────────────────
 
-
 def test_run_backtest_epsilon_not_zero():
     """BUG-02: epsilon=0.0 не должен быть захардкожен в backtester.py."""
     source = open("polyflip/crypto/backtester.py", encoding="utf-8").read()
-    assert (
-        "epsilon=0.0," not in source
-    ), "BUG-02: epsilon=0.0 захардкожен! Используй константу _EPSILON = 1e-9"
+    assert "epsilon=0.0," not in source, (
+        "BUG-02: epsilon=0.0 захардкожен! Используй константу _EPSILON = 1e-9"
+    )
 
 
 def test_backtester_epsilon_constant_positive():
     """BUG-02: константа _EPSILON в backtester.py должна быть > 0."""
     from polyflip.crypto import backtester
-
     assert hasattr(backtester, "_EPSILON"), "_EPSILON не найдена в backtester.py"
-    assert (
-        backtester._EPSILON > 0
-    ), f"_EPSILON должен быть > 0, получено: {backtester._EPSILON}"
+    assert backtester._EPSILON > 0, f"_EPSILON должен быть > 0, получено: {backtester._EPSILON}"
 
 
 # ─── BUG-03: jobs.py — stoploss_job должен иметь try/except ─────────────────
-
 
 def test_stoploss_job_has_try_except():
     """BUG-03: stoploss_job должен содержать try/except для перехвата исключений."""
@@ -122,12 +100,12 @@ def test_stoploss_job_has_try_except():
     stoploss_start = source.find("async def stoploss_job")
     next_func = source.find("async def ", stoploss_start + 1)
     job_body = source[stoploss_start:next_func]
-    assert (
-        "try:" in job_body
-    ), "BUG-03: stoploss_job не имеет try/except — необработанное исключение упадёт в планировщик"
-    assert (
-        "except Exception" in job_body
-    ), "BUG-03: stoploss_job не перехватывает Exception"
+    assert "try:" in job_body, (
+        "BUG-03: stoploss_job не имеет try/except — необработанное исключение упадёт в планировщик"
+    )
+    assert "except Exception" in job_body, (
+        "BUG-03: stoploss_job не перехватывает Exception"
+    )
 
 
 @pytest.mark.skip(reason="Outbox handles differently")
@@ -142,7 +120,7 @@ async def test_stoploss_job_handles_exception():
 
     with patch(
         "polyflip.scheduler.jobs.stoploss_worker_cycle",
-        side_effect=RuntimeError("DB connection failed"),
+        side_effect=RuntimeError("DB connection failed")
     ):
         # Не должно бросить исключение
         try:
@@ -152,7 +130,6 @@ async def test_stoploss_job_handles_exception():
 
 
 # ─── BUG-04: takeprofit — должен использовать best_bid, а не best_ask ───────
-
 
 def test_tp_worker_uses_bid_not_ask():
     """BUG-04: TP-воркер должен использовать best_bid, а не best_ask."""
@@ -167,12 +144,11 @@ def test_tp_worker_uses_bid_not_ask():
 def test_tp_function_uses_current_bid_param():
     """BUG-04: evaluate_take_profit должна принимать current_bid, а не current_ask."""
     from polyflip.trading.takeprofit import evaluate_take_profit
-
     sig = inspect.signature(evaluate_take_profit)
     params = list(sig.parameters.keys())
-    assert (
-        "current_bid" in params
-    ), f"BUG-04: evaluate_take_profit не имеет параметра current_bid. Параметры: {params}"
-    assert (
-        "current_ask" not in params
-    ), f"BUG-04: evaluate_take_profit всё ещё имеет current_ask. Параметры: {params}"
+    assert "current_bid" in params, (
+        f"BUG-04: evaluate_take_profit не имеет параметра current_bid. Параметры: {params}"
+    )
+    assert "current_ask" not in params, (
+        f"BUG-04: evaluate_take_profit всё ещё имеет current_ask. Параметры: {params}"
+    )

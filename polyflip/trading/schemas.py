@@ -15,7 +15,6 @@ ExecutionStatus = Literal[
     "PAPER_FILLED",
 ]
 
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ExecutionFees:
     platform_fee_usdc: Decimal | None
@@ -31,7 +30,6 @@ class ExecutionFees:
         "CONFIRMED_ZERO",
         "UNKNOWN",
     ]
-
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TradeExecution:
@@ -59,7 +57,6 @@ class TradeExecution:
     error_code: str | None = None
     error_message: str | None = None
 
-
 BalanceStatus = Literal[
     "OK",
     "TRANSPORT_ERROR",
@@ -68,7 +65,6 @@ BalanceStatus = Literal[
     "STALE",
     "PAPER",
 ]
-
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BalanceResult:

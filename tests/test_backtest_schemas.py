@@ -2,13 +2,12 @@
 Тесты валидации BacktestConfig.
 Запуск: pytest tests/test_backtest_schemas.py -v
 """
-
 import pytest
 from pydantic import ValidationError
 from polyflip.api.backtest_schemas import BacktestConfig
 
-# ─── min_time_left_min ───────────────────────────────────────────────────────
 
+# ─── min_time_left_min ───────────────────────────────────────────────────────
 
 class TestTimeWindow:
     def test_min_time_zero_allowed(self):
@@ -36,7 +35,6 @@ class TestTimeWindow:
 
 # ─── favorite_threshold ──────────────────────────────────────────────────────
 
-
 class TestFavoriteThreshold:
     def test_default_is_065(self):
         cfg = BacktestConfig()
@@ -49,15 +47,14 @@ class TestFavoriteThreshold:
     def test_below_half_allowed_with_warning(self):
         """ge=0.01 — значения < 0.5 допустимы, но должны генерировать предупреждение."""
         import warnings
-
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             cfg = BacktestConfig(favorite_threshold=0.30)
             assert cfg.favorite_threshold == pytest.approx(0.30)
             # Проверяем что предупреждение выдано
-            assert any(
-                "0.5" in str(warning.message) for warning in w
-            ), "Expected UserWarning when favorite_threshold < 0.5"
+            assert any("0.5" in str(warning.message) for warning in w), (
+                "Expected UserWarning when favorite_threshold < 0.5"
+            )
 
     def test_zero_rejected(self):
         with pytest.raises(ValidationError, match="greater than or equal to"):
@@ -86,7 +83,6 @@ class TestFavoriteThresholdBoundaries:
     def test_exactly_050_no_warning(self):
         """Ровно 0.5 — НЕ должен давать warning (условие строгое <)."""
         import warnings
-
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             BacktestConfig(favorite_threshold=0.50)
@@ -96,7 +92,6 @@ class TestFavoriteThresholdBoundaries:
     def test_just_below_050_gives_warning(self):
         """0.499 < 0.5 → должен дать UserWarning."""
         import warnings
-
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             BacktestConfig(favorite_threshold=0.499)
@@ -105,7 +100,6 @@ class TestFavoriteThresholdBoundaries:
 
 
 # ─── to_runner_config round-trip ─────────────────────────────────────────────
-
 
 class TestRunnerConfigConversion:
     def test_favorite_threshold_in_runner_config(self):
@@ -122,9 +116,9 @@ class TestRunnerConfigConversion:
         """Проверяем что TRADE_ON_FLIP не стал строкой после рефакторинга."""
         cfg = BacktestConfig(trade_on_flip=True)
         rc = cfg.to_runner_config()
-        assert isinstance(
-            rc["TRADE_ON_FLIP"], bool
-        ), f"TRADE_ON_FLIP should be bool, got {type(rc['TRADE_ON_FLIP'])}"
+        assert isinstance(rc["TRADE_ON_FLIP"], bool), (
+            f"TRADE_ON_FLIP should be bool, got {type(rc['TRADE_ON_FLIP'])}"
+        )
         assert rc["TRADE_ON_FLIP"] is True
 
     def test_entry_strategy_default(self):

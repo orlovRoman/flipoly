@@ -8,7 +8,6 @@
   4. Фикс поля max_bet_edge (не max_edge)
   5. Базовую валидацию Pydantic-схемы
 """
-
 import pytest
 from pydantic import ValidationError
 from polyflip.api.backtest_schemas import BacktestConfig
@@ -29,19 +28,19 @@ def live_settings_to_backtest_config(live: dict) -> dict:
 
     return {
         "strategy_mode": mode_map.get(live.get("TRADING_MODE", "ml"), "ML"),
-        "no_flip_threshold": pct_to_frac("TRADE_NO_FLIP_THRESHOLD", 0.35),
-        "flip_threshold": pct_to_frac("FLIP_THRESHOLD", 0.60),
+        "no_flip_threshold":    pct_to_frac("TRADE_NO_FLIP_THRESHOLD", 0.35),
+        "flip_threshold":       pct_to_frac("FLIP_THRESHOLD", 0.60),
         "auto_dead_zone_width": pct_to_frac("DEAD_ZONE_WIDTH", 0.10),
-        "favorite_threshold": float(live.get("FAVORITE_THRESHOLD", 0.65)),
-        "min_time_left_min": float(live.get("TRADE_MIN_TIME_LEFT_SEC", 60)) / 60,
-        "max_time_left_min": float(live.get("TRADE_MAX_TIME_LEFT_SEC", 3600)) / 60,
-        "trade_bet_size_usdc": float(live.get("TRADE_BET_SIZE_USDC", 5)),
-        "max_bet_size_usdc": float(live.get("MAX_BET_SIZE_USDC", 50)),
-        "min_edge": float(live.get("MIN_EDGE", -0.05)),
-        "max_bet_edge": float(live.get("MAX_BET_EDGE", 0.50)),  # ← правильное поле
-        "slippage_pct": float(live.get("SLIPPAGE_PCT", 0.005)),
-        "trade_on_flip": live.get("TRADE_ON_FLIP") == "true",
-        "bet_sizing_mode": live.get("BET_SIZING_MODE", "scaled"),
+        "favorite_threshold":   float(live.get("FAVORITE_THRESHOLD", 0.65)),
+        "min_time_left_min":    float(live.get("TRADE_MIN_TIME_LEFT_SEC", 60)) / 60,
+        "max_time_left_min":    float(live.get("TRADE_MAX_TIME_LEFT_SEC", 3600)) / 60,
+        "trade_bet_size_usdc":  float(live.get("TRADE_BET_SIZE_USDC", 5)),
+        "max_bet_size_usdc":    float(live.get("MAX_BET_SIZE_USDC", 50)),
+        "min_edge":             float(live.get("MIN_EDGE", -0.05)),
+        "max_bet_edge":         float(live.get("MAX_BET_EDGE", 0.50)),  # ← правильное поле
+        "slippage_pct":         float(live.get("SLIPPAGE_PCT", 0.005)),
+        "trade_on_flip":        live.get("TRADE_ON_FLIP") == "true",
+        "bet_sizing_mode":      live.get("BET_SIZING_MODE", "scaled"),
     }
 
 
@@ -51,12 +50,12 @@ def typical_live_settings():
     """Типичные Live-настройки торгового бота (проценты 0-100)."""
     return {
         "TRADING_MODE": "ml",
-        "TRADE_NO_FLIP_THRESHOLD": "45",  # → 0.45
-        "FLIP_THRESHOLD": "65",  # → 0.65
-        "DEAD_ZONE_WIDTH": "12",  # → 0.12
+        "TRADE_NO_FLIP_THRESHOLD": "45",   # → 0.45
+        "FLIP_THRESHOLD": "65",            # → 0.65
+        "DEAD_ZONE_WIDTH": "12",           # → 0.12
         "FAVORITE_THRESHOLD": "0.68",
-        "TRADE_MIN_TIME_LEFT_SEC": "60",  # → 1.0 мин
-        "TRADE_MAX_TIME_LEFT_SEC": "3600",  # → 60.0 мин
+        "TRADE_MIN_TIME_LEFT_SEC": "60",   # → 1.0 мин
+        "TRADE_MAX_TIME_LEFT_SEC": "3600", # → 60.0 мин
         "TRADE_BET_SIZE_USDC": "10",
         "MAX_BET_SIZE_USDC": "50",
         "MIN_EDGE": "-0.03",
@@ -114,15 +113,12 @@ class TestPydanticValidationPassesAfterConversion:
 # ── Тест 3: Маппинг TRADING_MODE ─────────────────────────────────────────
 class TestTradingModeMapping:
 
-    @pytest.mark.parametrize(
-        "live_mode,expected_bt_mode",
-        [
-            ("ml", "ML"),
-            ("favorite", "PURE_FAVORITE"),
-            ("CRYPTO", "ML"),  # CRYPTO маппится в ML как наиболее близкий
-            ("unknown", "ML"),  # неизвестный режим → ML (дефолт)
-        ],
-    )
+    @pytest.mark.parametrize("live_mode,expected_bt_mode", [
+        ("ml",       "ML"),
+        ("favorite", "PURE_FAVORITE"),
+        ("CRYPTO",   "ML"),          # CRYPTO маппится в ML как наиболее близкий
+        ("unknown",  "ML"),          # неизвестный режим → ML (дефолт)
+    ])
     def test_mode_mapping(self, typical_live_settings, live_mode, expected_bt_mode):
         typical_live_settings["TRADING_MODE"] = live_mode
         cfg_dict = live_settings_to_backtest_config(typical_live_settings)
@@ -131,10 +127,8 @@ class TestTradingModeMapping:
     def test_mode_accepted_by_pydantic(self, typical_live_settings):
         for mode in ("ML", "PURE_FAVORITE"):
             cfg = BacktestConfig(
-                **{
-                    **live_settings_to_backtest_config(typical_live_settings),
-                    "strategy_mode": mode,
-                }
+                **{**live_settings_to_backtest_config(typical_live_settings),
+                   "strategy_mode": mode}
             )
             assert cfg.strategy_mode == mode
 
@@ -145,12 +139,10 @@ class TestFieldNameMaxBetEdge:
     def test_max_bet_edge_field_present_in_schema(self):
         """Поле в схеме называется max_bet_edge, не max_edge."""
         cfg = BacktestConfig()
-        assert hasattr(
-            cfg, "max_bet_edge"
-        ), "BacktestConfig должна иметь поле max_bet_edge"
-        assert not hasattr(
-            cfg, "max_edge"
-        ), "Поле max_edge не должно существовать — это старое имя из JS"
+        assert hasattr(cfg, "max_bet_edge"), "BacktestConfig должна иметь поле max_bet_edge"
+        assert not hasattr(cfg, "max_edge"), (
+            "Поле max_edge не должно существовать — это старое имя из JS"
+        )
 
     def test_max_bet_edge_from_live(self, typical_live_settings):
         cfg_dict = live_settings_to_backtest_config(typical_live_settings)
@@ -164,11 +156,8 @@ class TestFieldNameMaxBetEdge:
 class TestBoundaryValues:
 
     def test_threshold_0_percent(self):
-        live = {
-            "TRADE_NO_FLIP_THRESHOLD": "0",
-            "FLIP_THRESHOLD": "0",
-            "DEAD_ZONE_WIDTH": "0",
-        }
+        live = {"TRADE_NO_FLIP_THRESHOLD": "0", "FLIP_THRESHOLD": "0",
+                "DEAD_ZONE_WIDTH": "0"}
         cfg_dict = live_settings_to_backtest_config(live)
         cfg = BacktestConfig(**cfg_dict)
         assert cfg.no_flip_threshold == pytest.approx(0.0)
@@ -195,7 +184,7 @@ class TestBoundaryValues:
         """min_time >= max_time должно бросать ValidationError."""
         with pytest.raises(ValidationError, match="must be <"):
             BacktestConfig(min_time_left_min=60.0, max_time_left_min=60.0)
-
+            
         with pytest.raises(ValidationError, match="must be <"):
             BacktestConfig(min_time_left_min=65.0, max_time_left_min=60.0)
 
@@ -204,32 +193,19 @@ class TestBoundaryValues:
         cfg_dict = live_settings_to_backtest_config({})
         cfg = BacktestConfig(**cfg_dict)
         assert cfg.no_flip_threshold == pytest.approx(0.35)
-        assert cfg.flip_threshold == pytest.approx(0.60)
+        assert cfg.flip_threshold    == pytest.approx(0.60)
 
 
 # ── Тест 6: to_runner_config() полнота ───────────────────────────────────
 class TestRunnerConfigCompleteness:
 
     REQUIRED_RUNNER_KEYS = {
-        "MIN_TIME_LEFT_MIN",
-        "MAX_TIME_LEFT_MIN",
-        "STRATEGY_MODE",
-        "ENTRY_STRATEGY",
-        "TRADE_ON_FLIP",
-        "NO_FLIP_THRESHOLD",
-        "FLIP_THRESHOLD",
-        "FAVORITE_THRESHOLD",
-        "FAVORITE_MIN_PRICE",
-        "FAVORITE_MAX_PRICE",
-        "OUTSIDER_MAX_PRICE",
-        "AUTO_DEAD_ZONE_WIDTH",
-        "INITIAL_CAPITAL",
-        "BET_SIZING_MODE",
-        "TRADE_BET_SIZE_USDC",
-        "MAX_BET_SIZE_USDC",
-        "MIN_EDGE",
-        "MAX_BET_EDGE",
-        "SLIPPAGE_PCT",
+        "MIN_TIME_LEFT_MIN", "MAX_TIME_LEFT_MIN", "STRATEGY_MODE",
+        "ENTRY_STRATEGY", "TRADE_ON_FLIP", "NO_FLIP_THRESHOLD",
+        "FLIP_THRESHOLD", "FAVORITE_THRESHOLD", "FAVORITE_MIN_PRICE",
+        "FAVORITE_MAX_PRICE", "OUTSIDER_MAX_PRICE", "AUTO_DEAD_ZONE_WIDTH",
+        "INITIAL_CAPITAL", "BET_SIZING_MODE", "TRADE_BET_SIZE_USDC",
+        "MAX_BET_SIZE_USDC", "MIN_EDGE", "MAX_BET_EDGE", "SLIPPAGE_PCT",
     }
 
     def test_runner_config_has_all_required_keys(self, typical_live_settings):

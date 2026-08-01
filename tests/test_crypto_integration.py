@@ -4,35 +4,22 @@ from unittest.mock import MagicMock, patch
 from polyflip.crypto.predictor import CryptoPredictor, CryptoSignal
 from polyflip.trading.decision_logic import decide_crypto_trend
 
-
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
 async def test_crypto_predictor_flow():
     # 1. Мокаем сессию базы данных и модель
     db_mock = MagicMock()
-
+    
     predictor = CryptoPredictor()
-
+    
     # Мокаем саму обученную модель LightGBM
     mock_lgb = MagicMock()
     # predict_proba должна возвращать массив вида [[p_down, p_up]]
     mock_lgb.predict_proba.return_value = [[0.2, 0.8]]
-
-    predictor._models["BTCUSDT"] = {
-        "low_vol": mock_lgb,
-        "mid_vol": mock_lgb,
-        "high_vol": mock_lgb,
-    }
-    predictor._model_versions["BTCUSDT"] = {
-        "low_vol": 42,
-        "mid_vol": 42,
-        "high_vol": 42,
-    }
-    predictor._thresholds["BTCUSDT"] = {
-        "low_vol": (0.65, 0.35),
-        "mid_vol": (0.65, 0.35),
-        "high_vol": (0.65, 0.35),
-    }
+    
+    predictor._models["BTCUSDT"] = {"low_vol": mock_lgb, "mid_vol": mock_lgb, "high_vol": mock_lgb}
+    predictor._model_versions["BTCUSDT"] = {"low_vol": 42, "mid_vol": 42, "high_vol": 42}
+    predictor._thresholds["BTCUSDT"] = {"low_vol": (0.65, 0.35), "mid_vol": (0.65, 0.35), "high_vol": (0.65, 0.35)}
     predictor._vol_p33s["BTCUSDT"] = 0.5
     predictor._vol_p67s["BTCUSDT"] = 1.5
     predictor._loaded_symbols.add("BTCUSDT")
@@ -41,7 +28,7 @@ async def test_crypto_predictor_flow():
     mock_features = MagicMock()
     mock_features.valid = True
     # 23 значения (все поля Validator заполнены)
-    mock_features.features = [np.array([0.01] * 22)]
+    mock_features.features = [np.array([0.01]*22)]
 
     # Создаем фейковую свечу для страйка
     class FakeCandle:
@@ -50,12 +37,10 @@ async def test_crypto_predictor_flow():
 
     fake_candles = [FakeCandle()]
 
-    with patch(
-        "polyflip.crypto.predictor.build_crypto_features", return_value=mock_features
-    ):
+    with patch("polyflip.crypto.predictor.build_crypto_features", return_value=mock_features):
         # 3. Вызываем predict
         signal = predictor.predict(fake_candles, "BTCUSDT")
-
+        
     assert signal.features_ok is True
     assert signal.p_up == 0.8
     assert signal.direction == "UP"
@@ -70,12 +55,10 @@ async def test_crypto_predictor_flow():
         "TRADE_BET_SIZE_USDC": 10.0,
         "MAX_BET_SIZE_USDC": 100.0,
         "LIQUIDITY_FRACTION": 0.05,
-        "BYPASS_BET_SIZE_CHECK": "true",
+        "BYPASS_BET_SIZE_CHECK": "true"
     }
-
-    decision = decide_crypto_trend(
-        signal, entry_price=0.65, volume_5min=5000.0, config=config
-    )
+    
+    decision = decide_crypto_trend(signal, entry_price=0.65, volume_5min=5000.0, config=config)
     assert decision.action == "BUY_YES"
     assert decision.strategy_type == "LIGHTGBM_TREND"
     assert decision.bet_size_usdc == 70.0
@@ -85,10 +68,9 @@ async def test_crypto_predictor_flow():
 
 def test_crypto_features_count_matches_mock():
     from polyflip.crypto.trainer import CRYPTO_FEATURES
+    assert len(CRYPTO_FEATURES) == 22, \
+        f"Ожидалось 22 фичи после интеграции Funding Rate, фактически: {len(CRYPTO_FEATURES)}"
 
-    assert (
-        len(CRYPTO_FEATURES) == 22
-    ), f"Ожидалось 22 фичи после интеграции Funding Rate, фактически: {len(CRYPTO_FEATURES)}"
 
 
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
@@ -96,7 +78,6 @@ def test_validator_matches_crypto_features():
     """Гарантирует что CryptoFeaturesValidator == CRYPTO_FEATURES (порядок не важен)."""
     from polyflip.crypto.predictor import CryptoFeaturesValidator
     from polyflip.crypto.trainer import CRYPTO_FEATURES
-
     validator_fields = set(CryptoFeaturesValidator.model_fields.keys())
     features_set = set(CRYPTO_FEATURES)
     assert validator_fields == features_set, (

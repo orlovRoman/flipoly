@@ -4,26 +4,20 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Literal, Optional
 from datetime import datetime
 
+
 # ──────────────────────────────────────────
 # INPUT: параметры запуска бэктеста
 # ──────────────────────────────────────────
-
 
 class BacktestConfig(BaseModel):
     """Параметры одного прогона бэктеста. Все поля с дефолтами → можно запустить без настроек."""
 
     # Фильтрация данных
-    assets: list[str] = Field(
-        default=["BTC", "ETH"], description="Список ассетов для теста"
-    )
-    date_from: Optional[datetime] = Field(
-        default=None, description="Начало периода (UTC)"
-    )
+    assets: list[str] = Field(default=["BTC", "ETH"], description="Список ассетов для теста")
+    date_from: Optional[datetime] = Field(default=None, description="Начало периода (UTC)")
     date_to: Optional[datetime] = Field(default=None, description="Конец периода (UTC)")
     min_snapshots_per_market: int = Field(default=3, ge=1, le=50)
-    max_markets: int = Field(
-        default=500, ge=10, le=2000, description="Максимум рынков в одном прогоне"
-    )
+    max_markets: int = Field(default=500, ge=10, le=2000, description="Максимум рынков в одном прогоне")
 
     # Торговое окно
     min_time_left_min: float = Field(default=1.0, ge=0.0, le=1440.0)
@@ -33,11 +27,9 @@ class BacktestConfig(BaseModel):
     strategy_mode: Literal["ML", "PURE_FAVORITE"] = Field(default="ML")
     entry_strategy: Literal["first", "best_edge", "confirmed"] = Field(
         default="first",
-        description="Стратегия выбора точки входа: first=первый сигнал, best_edge=лучший edge, confirmed=2 подтверждения",
+        description="Стратегия выбора точки входа: first=первый сигнал, best_edge=лучший edge, confirmed=2 подтверждения"
     )
-    trade_on_flip: bool = Field(
-        default=False, description="Включить OUTSIDER стратегию"
-    )
+    trade_on_flip: bool = Field(default=False, description="Включить OUTSIDER стратегию")
 
     # Пороги ML
     no_flip_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
@@ -45,22 +37,17 @@ class BacktestConfig(BaseModel):
 
     # Пороги PURE_FAVORITE
     favorite_threshold: float = Field(
-        default=0.65,
-        ge=0.10,
+        default=0.65, 
+        ge=0.10, 
         le=0.99,
         description=(
             "Порог PURE_FAVORITE. Значения < 0.5 означают торговлю "
             "против фаворита — убедитесь что это намеренно."
-        ),
+        )
     )
     favorite_min_price: float = Field(default=0.55, ge=0.01, le=0.99)
     favorite_max_price: float = Field(default=0.95, ge=0.01, le=0.99)
-    outsider_max_price: float = Field(
-        default=0.45,
-        ge=0.01,
-        le=0.99,
-        description="Максимальная цена входа для аутсайдера",
-    )
+    outsider_max_price: float = Field(default=0.45, ge=0.01, le=0.99, description="Максимальная цена входа для аутсайдера")
 
     # Dead zone
     auto_dead_zone_width: float = Field(default=0.10, ge=0.0, le=0.5)
@@ -91,7 +78,6 @@ class BacktestConfig(BaseModel):
     @model_validator(mode="after")
     def warn_favorite_below_half(self) -> "BacktestConfig":
         import warnings
-
         if self.favorite_threshold < 0.5:
             warnings.warn(
                 f"favorite_threshold={self.favorite_threshold} < 0.5. "
@@ -131,7 +117,6 @@ class BacktestConfig(BaseModel):
 # OUTPUT: результаты прогона
 # ──────────────────────────────────────────
 
-
 class StrategyBreakdown(BaseModel):
     strategy: str
     trades: int
@@ -154,7 +139,7 @@ class EquityCurvePoint(BaseModel):
     market_id: str
     asset: str
     strategy: str
-    outcome: str  # "WIN" / "LOSS"
+    outcome: str          # "WIN" / "LOSS"
     p_flip: Optional[float]
     edge: Optional[float]
     bet_size: float
@@ -163,7 +148,7 @@ class EquityCurvePoint(BaseModel):
 
 class BacktestResult(BaseModel):
     # Мета
-    run_id: str  # uuid4 для кэша
+    run_id: str                   # uuid4 для кэша
     config: BacktestConfig
     started_at: datetime
     finished_at: datetime
@@ -181,9 +166,9 @@ class BacktestResult(BaseModel):
     roi_pct: float
     win_rate_pct: float
     avg_trade_pnl: float
-    max_drawdown_pct: float  # максимальная просадка в %
+    max_drawdown_pct: float       # максимальная просадка в %
     sharpe_ratio: Optional[float]
-    profit_factor: float  # gross_profit / gross_loss
+    profit_factor: float          # gross_profit / gross_loss
 
     # Детализация
     strategies: list[StrategyBreakdown]

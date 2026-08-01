@@ -11,19 +11,10 @@ from polyflip.api.backtest_schemas import EquityCurvePoint, BacktestConfig
 # Тест утилиты max drawdown
 def test_max_drawdown_flat():
     curve = [
-        EquityCurvePoint(
-            trade_index=i,
-            cumulative_pnl=float(i),
-            trade_pnl=1.0,
-            market_id="m1",
-            asset="BTC",
-            strategy="ML_TREND",
-            outcome="WIN",
-            p_flip=0.2,
-            edge=0.1,
-            bet_size=10,
-            executed_price=0.7,
-        )
+        EquityCurvePoint(trade_index=i, cumulative_pnl=float(i),
+            trade_pnl=1.0, market_id="m1", asset="BTC",
+            strategy="ML_TREND", outcome="WIN",
+            p_flip=0.2, edge=0.1, bet_size=10, executed_price=0.7)
         for i in range(5)
     ]
     dd = _compute_max_drawdown(curve)
@@ -37,21 +28,12 @@ def test_max_drawdown_with_loss():
     curve = []
     for i, pnl in enumerate(pnls):
         cumulative += pnl
-        curve.append(
-            EquityCurvePoint(
-                trade_index=i,
-                cumulative_pnl=cumulative,
-                trade_pnl=pnl,
-                market_id="m1",
-                asset="BTC",
-                strategy="ML_TREND",
-                outcome="WIN" if pnl > 0 else "LOSS",
-                p_flip=0.2,
-                edge=0.1,
-                bet_size=10,
-                executed_price=0.7,
-            )
-        )
+        curve.append(EquityCurvePoint(
+            trade_index=i, cumulative_pnl=cumulative,
+            trade_pnl=pnl, market_id="m1", asset="BTC",
+            strategy="ML_TREND", outcome="WIN" if pnl > 0 else "LOSS",
+            p_flip=0.2, edge=0.1, bet_size=10, executed_price=0.7
+        ))
     assert _compute_max_drawdown(curve) == pytest.approx(50.0, abs=1.0)
 
 
@@ -60,26 +42,17 @@ def test_max_drawdown_first_trade_is_loss():
     → просадка считалась неверно (отрицательной или заниженной).
     После фикса peak=max(0, values[0])=0, первая же убыточная сделка
     даёт правильную просадку."""
-    pnls = [-5.0, 3.0]  # первая сделка: убыток -5, потом прибыль +3
+    pnls = [-5.0, 3.0]   # первая сделка: убыток -5, потом прибыль +3
     cumulative = 0.0
     curve = []
     for i, pnl in enumerate(pnls):
         cumulative += pnl
-        curve.append(
-            EquityCurvePoint(
-                trade_index=i,
-                cumulative_pnl=cumulative,
-                trade_pnl=pnl,
-                market_id="m1",
-                asset="BTC",
-                strategy="ML_TREND",
-                outcome="LOSS" if pnl < 0 else "WIN",
-                p_flip=0.2,
-                edge=0.1,
-                bet_size=10,
-                executed_price=0.7,
-            )
-        )
+        curve.append(EquityCurvePoint(
+            trade_index=i, cumulative_pnl=cumulative,
+            trade_pnl=pnl, market_id="m1", asset="BTC",
+            strategy="ML_TREND", outcome="LOSS" if pnl < 0 else "WIN",
+            p_flip=0.2, edge=0.1, bet_size=10, executed_price=0.7
+        ))
     dd = _compute_max_drawdown(curve, initial_capital=1000.0)
     # peak=0, val=-5, denominator=1000 → dd=(0-(-5))/1000*100=0.5%
     # при старом баге: peak=-5, abs(peak)>1e-9, dd=(peak-val)/|peak|=(0)/5*100=0 → не фиксировалось
@@ -94,36 +67,29 @@ async def test_run_backtest_no_data_returns_422():
         headers = {"X-API-Key": "test-key"}
         payload = {
             "assets": ["NONEXISTENT_ASSET_XYZ"],
-            "strategy_mode": "PURE_FAVORITE",
+            "strategy_mode": "PURE_FAVORITE"
         }
         # Мокируем async_session чтобы вернуть пустой список
         with patch("polyflip.api.backtest_api.async_session") as mock_session_maker:
             mock_session = AsyncMock()
             mock_session.execute.return_value.all = MagicMock(return_value=[])
             mock_session_maker.return_value = MagicMock()
-            mock_session_maker.return_value.__aenter__ = AsyncMock(
-                return_value=mock_session
-            )
-
-            resp = await client.post(
-                "/api/backtest/submit", json=payload, headers=headers
-            )
+            mock_session_maker.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            
+            resp = await client.post("/api/backtest/submit", json=payload, headers=headers)
             assert resp.status_code == 200
             run_id = resp.json()["run_id"]
-
+            
             import asyncio
-
             status_data = {}
             for _ in range(20):
                 await asyncio.sleep(0.1)
-                status_resp = await client.get(
-                    f"/api/backtest/status/{run_id}", headers=headers
-                )
+                status_resp = await client.get(f"/api/backtest/status/{run_id}", headers=headers)
                 assert status_resp.status_code == 200
                 status_data = status_resp.json()
                 if status_data["status"] in ("completed", "failed"):
                     break
-
+            
             assert status_data["status"] == "failed"
             assert "No resolved snapshots" in status_data["error"]
 
@@ -133,9 +99,7 @@ async def test_get_result_not_found():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         headers = {"X-API-Key": "test-key"}
-        resp = await client.get(
-            "/api/backtest/result/nonexistent-run-id", headers=headers
-        )
+        resp = await client.get("/api/backtest/result/nonexistent-run-id", headers=headers)
         assert resp.status_code == 404
 
 

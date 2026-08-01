@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from polyflip.db.models import TradeHistory
 from polyflip.api.dashboard import get_trade_logs
 
-
 @pytest.mark.asyncio
 async def test_trade_logs_pagination(db_session):
     # Создаём 60 записей TradeHistory
@@ -13,13 +12,12 @@ async def test_trade_logs_pagination(db_session):
             market_id=f"m_{i}",
             asset="BTC",
             outcome_bought="YES",
-            amount_usdc=10.0,
-            remaining_shares=20.0,
+            amount_usdc=10.0, remaining_shares=20.0,
             executed_price=0.5,
             predicted_flip_prob=0.8,
             active_features="test",
             status="SUCCESS",
-            created_at=now,
+            created_at=now
         )
         db_session.add(t)
     await db_session.commit()
@@ -53,16 +51,12 @@ async def test_max_edge_mapping(db_session):
     from sqlalchemy import select
 
     # Обновляем настройку с ключом "MAX_EDGE"
-    await update_setting(
-        "MAX_EDGE", SettingValue(value="25.0"), db=db_session, request=None
-    )
+    await update_setting("MAX_EDGE", SettingValue(value="25.0"), db=db_session, request=None)
 
     # Проверяем, что в базе данных значение записалось именно в "MAX_BET_EDGE"
-    row = (
-        await db_session.execute(
-            select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE")
-        )
-    ).scalar_one_or_none()
+    row = (await db_session.execute(
+        select(RuntimeSettings).where(RuntimeSettings.key == "MAX_BET_EDGE")
+    )).scalar_one_or_none()
     assert row is not None
     assert row.value == "0.25"  # 25% переведено в долю 0.25
 
@@ -70,23 +64,21 @@ async def test_max_edge_mapping(db_session):
 @pytest.mark.asyncio
 async def test_get_daily_pnl(db_session):
     from polyflip.api.dashboard import get_daily_pnl
-
     now = datetime.now(timezone.utc)
-
+    
     # Добавляем сделку без active_features, но с executed_price
     t = TradeHistory(
         market_id="m_pnl_1",
         asset="BTC",
         outcome_bought="YES",
-        amount_usdc=10.0,
-        remaining_shares=20.0,
+        amount_usdc=10.0, remaining_shares=20.0,
         executed_price=0.6,
         predicted_flip_prob=0.8,
         active_features="other",
         status="SUCCESS",
         position_status="CLOSED",
         pnl=1.5,
-        created_at=now,
+        created_at=now
     )
     db_session.add(t)
     await db_session.commit()
@@ -95,3 +87,6 @@ async def test_get_daily_pnl(db_session):
     assert res["status"] == "success"
     assert len(res["data"]) == 1
     assert res["data"][0]["strategy"] == "Фаворит"
+
+
+

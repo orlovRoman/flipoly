@@ -5,7 +5,6 @@
 Подключается в main.py одной строкой.
 
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -45,7 +44,6 @@ _cache: dict = {}
 _CACHE_TTL = 10  # снизим до 10 секунд для лучшей отзывчивости настроек
 _active_trainings: dict[str, dict] = {}
 
-
 @router.get("")
 async def crypto_page(request: Request):
     """HTML-страница крипто-дашборда."""
@@ -63,20 +61,15 @@ async def crypto_page(request: Request):
                 "learning_rate": float(defs.get("CRYPTO_LGBM_LEARNING_RATE", "0.05")),
                 "num_leaves": int(defs.get("CRYPTO_LGBM_NUM_LEAVES", "31")),
                 "max_depth": int(defs.get("CRYPTO_LGBM_MAX_DEPTH", "5")),
-                "min_child_samples": int(
-                    defs.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20")
-                ),
+                "min_child_samples": int(defs.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20")),
                 "subsample": float(defs.get("CRYPTO_LGBM_SUBSAMPLE", "0.8")),
-                "colsample_bytree": float(
-                    defs.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8")
-                ),
+                "colsample_bytree": float(defs.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8")),
                 "reg_alpha": float(defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1")),
                 "reg_lambda": float(defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0")),
                 "min_edge": float(defs.get("BACKTEST_MIN_EDGE", "0.04")),
-            },
+            }
         },
     )
-
 
 @router.get("/api/status", dependencies=[Depends(verify_api_key)])
 async def crypto_status(db: AsyncSession = Depends(get_db_session)):
@@ -94,22 +87,16 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     for s in CRYPTO_SYMBOLS:
         allowed_assets.extend([f"{s}_low_vol", f"{s}_mid_vol", f"{s}_high_vol", s])
 
-    stmt = (
-        select(ModelRegistry)
-        .where(
-            ModelRegistry.asset.in_(allowed_assets),
-        )
-        .order_by(ModelRegistry.asset, ModelRegistry.version.desc())
-    )
+    stmt = select(ModelRegistry).where(
+        ModelRegistry.asset.in_(allowed_assets),
+    ).order_by(ModelRegistry.asset, ModelRegistry.version.desc())
     rows = (await db.execute(stmt)).scalars().all()
 
     # Пороги из RuntimeSettings
     thr_keys = [f"CRYPTO_THRESHOLD_{a}" for a in allowed_assets]
     thr_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(thr_keys))
     thr_rows = (await db.execute(thr_stmt)).scalars().all()
-    thresholds = {
-        r.key.replace("CRYPTO_THRESHOLD_", ""): float(r.value) for r in thr_rows
-    }
+    thresholds = {r.key.replace("CRYPTO_THRESHOLD_", ""): float(r.value) for r in thr_rows}
 
     # Важность признаков из RuntimeSettings
     fi_keys = [f"CRYPTO_FI_{a}" for a in allowed_assets]
@@ -125,17 +112,10 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
 
     # Текущие гиперпараметры обучения из БД
     settings_keys = [
-        "CRYPTO_LGBM_N_ESTIMATORS",
-        "CRYPTO_LGBM_LEARNING_RATE",
-        "CRYPTO_LGBM_NUM_LEAVES",
-        "CRYPTO_LGBM_MAX_DEPTH",
-        "CRYPTO_LGBM_MIN_CHILD_SAMPLES",
-        "CRYPTO_LGBM_SUBSAMPLE",
-        "CRYPTO_LGBM_COLSAMPLE_BYTREE",
-        "CRYPTO_LGBM_REG_ALPHA",
-        "CRYPTO_LGBM_REG_LAMBDA",
-        "BACKTEST_MIN_EDGE",
-        "LGBM_EPSILON_QUANTILE",
+        "CRYPTO_LGBM_N_ESTIMATORS", "CRYPTO_LGBM_LEARNING_RATE", "CRYPTO_LGBM_NUM_LEAVES",
+        "CRYPTO_LGBM_MAX_DEPTH", "CRYPTO_LGBM_MIN_CHILD_SAMPLES", "CRYPTO_LGBM_SUBSAMPLE",
+        "CRYPTO_LGBM_COLSAMPLE_BYTREE", "CRYPTO_LGBM_REG_ALPHA", "CRYPTO_LGBM_REG_LAMBDA",
+        "BACKTEST_MIN_EDGE", "LGBM_EPSILON_QUANTILE"
     ]
     set_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     set_rows = (await db.execute(set_stmt)).scalars().all()
@@ -143,79 +123,32 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
 
     defs = registry_defaults()
     active_settings = {
-        "n_estimators": int(
-            db_settings.get(
-                "CRYPTO_LGBM_N_ESTIMATORS", defs.get("CRYPTO_LGBM_N_ESTIMATORS", "300")
-            )
-        ),
-        "learning_rate": float(
-            db_settings.get(
-                "CRYPTO_LGBM_LEARNING_RATE",
-                defs.get("CRYPTO_LGBM_LEARNING_RATE", "0.05"),
-            )
-        ),
-        "num_leaves": int(
-            db_settings.get(
-                "CRYPTO_LGBM_NUM_LEAVES", defs.get("CRYPTO_LGBM_NUM_LEAVES", "31")
-            )
-        ),
-        "max_depth": int(
-            db_settings.get(
-                "CRYPTO_LGBM_MAX_DEPTH", defs.get("CRYPTO_LGBM_MAX_DEPTH", "5")
-            )
-        ),
-        "min_child_samples": int(
-            db_settings.get(
-                "CRYPTO_LGBM_MIN_CHILD_SAMPLES",
-                defs.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20"),
-            )
-        ),
-        "subsample": float(
-            db_settings.get(
-                "CRYPTO_LGBM_SUBSAMPLE", defs.get("CRYPTO_LGBM_SUBSAMPLE", "0.8")
-            )
-        ),
-        "colsample_bytree": float(
-            db_settings.get(
-                "CRYPTO_LGBM_COLSAMPLE_BYTREE",
-                defs.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8"),
-            )
-        ),
-        "reg_alpha": float(
-            db_settings.get(
-                "CRYPTO_LGBM_REG_ALPHA", defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1")
-            )
-        ),
-        "reg_lambda": float(
-            db_settings.get(
-                "CRYPTO_LGBM_REG_LAMBDA", defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0")
-            )
-        ),
-        "min_edge": float(
-            db_settings.get("BACKTEST_MIN_EDGE", defs.get("BACKTEST_MIN_EDGE", "0.04"))
-        ),
-        "epsilon_quantile": float(
-            db_settings.get(
-                "LGBM_EPSILON_QUANTILE", defs.get("LGBM_EPSILON_QUANTILE", "0.6")
-            )
-        ),
+        "n_estimators": int(db_settings.get("CRYPTO_LGBM_N_ESTIMATORS", defs.get("CRYPTO_LGBM_N_ESTIMATORS", "300"))),
+        "learning_rate": float(db_settings.get("CRYPTO_LGBM_LEARNING_RATE", defs.get("CRYPTO_LGBM_LEARNING_RATE", "0.05"))),
+        "num_leaves": int(db_settings.get("CRYPTO_LGBM_NUM_LEAVES", defs.get("CRYPTO_LGBM_NUM_LEAVES", "31"))),
+        "max_depth": int(db_settings.get("CRYPTO_LGBM_MAX_DEPTH", defs.get("CRYPTO_LGBM_MAX_DEPTH", "5"))),
+        "min_child_samples": int(db_settings.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", defs.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20"))),
+        "subsample": float(db_settings.get("CRYPTO_LGBM_SUBSAMPLE", defs.get("CRYPTO_LGBM_SUBSAMPLE", "0.8"))),
+        "colsample_bytree": float(db_settings.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", defs.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8"))),
+        "reg_alpha": float(db_settings.get("CRYPTO_LGBM_REG_ALPHA", defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1"))),
+        "reg_lambda": float(db_settings.get("CRYPTO_LGBM_REG_LAMBDA", defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0"))),
+        "min_edge": float(db_settings.get("BACKTEST_MIN_EDGE", defs.get("BACKTEST_MIN_EDGE", "0.04"))),
+        "epsilon_quantile": float(db_settings.get("LGBM_EPSILON_QUANTILE", defs.get("LGBM_EPSILON_QUANTILE", "0.6"))),
     }
 
     models_info = {}
     for m in rows:
         key = f"{m.asset}_v{m.version}"
         models_info[key] = {
-            "asset": m.asset,
-            "version": m.version,
-            "is_active": m.is_active,
-            "auc": round(m.accuracy, 4),
-            "baseline": round(m.baseline, 4),
-            "ece": round(m.ece, 4) if getattr(m, "ece", None) else None,
-            "threshold": thresholds.get(m.asset),
-            "features": m.features.split(",") if getattr(m, "features", None) else [],
-            "trained_at": (
-                m.trained_at.isoformat() if getattr(m, "trained_at", None) else None
-            ),
+            "asset":      m.asset,
+            "version":    m.version,
+            "is_active":  m.is_active,
+            "auc":        round(m.accuracy, 4),
+            "baseline":   round(m.baseline, 4),
+            "ece":        round(m.ece, 4) if getattr(m, 'ece', None) else None,
+            "threshold":  thresholds.get(m.asset),
+            "features":   m.features.split(",") if getattr(m, 'features', None) else [],
+            "trained_at": m.trained_at.isoformat() if getattr(m, 'trained_at', None) else None,
             "feature_importance": feature_importances.get(m.asset, {}),
         }
 
@@ -227,15 +160,15 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "feature_importances": {
             asset: feature_importances.get(asset, {})
             for asset in set(m.asset for m in rows if m.is_active)
-        },
+        }
     }
     _cache["status"] = {"ts": now, "data": result}
     return result
 
-
 @router.post("/api/settings", dependencies=[Depends(verify_api_key)])
 async def save_crypto_settings(
-    settings: dict, db: AsyncSession = Depends(get_db_session)
+    settings: dict,
+    db: AsyncSession = Depends(get_db_session)
 ):
     """Сохраняет измененные гиперпараметры в RuntimeSettings."""
     now = datetime.now(timezone.utc)
@@ -256,29 +189,22 @@ async def save_crypto_settings(
     for key, db_key in keys_map.items():
         if key in settings:
             val_str = str(settings[key])
-            row = (
-                await db.execute(
-                    select(RuntimeSettings).where(RuntimeSettings.key == db_key)
-                )
-            ).scalar_one_or_none()
+            row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == db_key))).scalar_one_or_none()
             if row:
                 row.value = val_str
                 row.updated_at = now
                 row.updated_by = "crypto_dashboard_ui"
             else:
-                db.add(
-                    RuntimeSettings(
-                        key=db_key,
-                        value=val_str,
-                        updated_at=now,
-                        updated_by="crypto_dashboard_ui",
-                    )
-                )
+                db.add(RuntimeSettings(
+                    key=db_key,
+                    value=val_str,
+                    updated_at=now,
+                    updated_by="crypto_dashboard_ui"
+                ))
 
     await db.commit()
     _cache.pop("status", None)
     return {"status": "success", "message": "Настройки успешно сохранены!"}
-
 
 @router.get("/api/backtest", dependencies=[Depends(verify_api_key)])
 async def crypto_backtest(
@@ -303,55 +229,48 @@ async def crypto_backtest(
             min_edge = await get_float(session, "BACKTEST_MIN_EDGE")
 
         lgbm_params = {
-            "subsample": await get_float(session, "CRYPTO_LGBM_SUBSAMPLE"),
-            "colsample_bytree": await get_float(
-                session, "CRYPTO_LGBM_COLSAMPLE_BYTREE"
-            ),
-            "num_leaves": await get_int(session, "CRYPTO_LGBM_NUM_LEAVES"),
-            "max_depth": await get_int(session, "CRYPTO_LGBM_MAX_DEPTH"),
-            "min_child_samples": await get_int(
-                session, "CRYPTO_LGBM_MIN_CHILD_SAMPLES"
-            ),
-            "n_estimators": await get_int(session, "CRYPTO_LGBM_N_ESTIMATORS"),
-            "reg_alpha": await get_float(session, "CRYPTO_LGBM_REG_ALPHA"),
-            "reg_lambda": await get_float(session, "CRYPTO_LGBM_REG_LAMBDA"),
+            "subsample":        await get_float(session, "CRYPTO_LGBM_SUBSAMPLE"),
+            "colsample_bytree": await get_float(session, "CRYPTO_LGBM_COLSAMPLE_BYTREE"),
+            "num_leaves":       await get_int(session, "CRYPTO_LGBM_NUM_LEAVES"),
+            "max_depth":        await get_int(session, "CRYPTO_LGBM_MAX_DEPTH"),
+            "min_child_samples":await get_int(session, "CRYPTO_LGBM_MIN_CHILD_SAMPLES"),
+            "n_estimators":     await get_int(session, "CRYPTO_LGBM_N_ESTIMATORS"),
+            "reg_alpha":        await get_float(session, "CRYPTO_LGBM_REG_ALPHA"),
+            "reg_lambda":       await get_float(session, "CRYPTO_LGBM_REG_LAMBDA"),
         }
 
         candles = await get_recent_candles(session, symbol, interval, limit=10_000)
 
     if len(candles) < 600:
-        return {
-            "error": f"Недостаточно свечей: {len(candles)} < 600. Пожалуйста, сделайте backfill.",
-            "symbol": symbol,
-        }
+        return {"error": f"Недостаточно свечей: {len(candles)} < 600. Пожалуйста, сделайте backfill.", "symbol": symbol}
 
     df = build_features(candles)
-
+    
     # Запускаем backtest в пуле потоков (CPU-bound)
     result = await asyncio.to_thread(
-        run_backtest, df, symbol, min_edge, commission, lgbm_params=lgbm_params
+        run_backtest, df, symbol, min_edge, commission, 
+        lgbm_params=lgbm_params
     )
 
     data = {
-        "symbol": result.symbol,
-        "n_candles_total": result.n_candles_total,
-        "n_candles_test": result.n_candles_test,
-        "n_trades": result.n_trades,
-        "win_rate": round(result.win_rate, 4),
+        "symbol":           result.symbol,
+        "n_candles_total":  result.n_candles_total,
+        "n_candles_test":   result.n_candles_test,
+        "n_trades":         result.n_trades,
+        "win_rate":         round(result.win_rate, 4),
         "total_return_net": round(result.total_return_net, 5),
-        "sharpe_ratio": round(result.sharpe_ratio, 3),
-        "max_drawdown": round(result.max_drawdown, 5),
-        "edge_rate": round(result.edge_rate, 4),
-        "epsilon": round(result.epsilon, 6),
-        "train_auc": round(result.train_auc, 4),
-        "is_profitable": result.is_profitable(),
-        "summary": result.summary(),
-        "pnl_curve": result.pnl_curve,
+        "sharpe_ratio":     round(result.sharpe_ratio, 3),
+        "max_drawdown":     round(result.max_drawdown, 5),
+        "edge_rate":        round(result.edge_rate, 4),
+        "epsilon":          round(result.epsilon, 6),
+        "train_auc":        round(result.train_auc, 4),
+        "is_profitable":    result.is_profitable(),
+        "summary":          result.summary(),
+        "pnl_curve":        result.pnl_curve
     }
-
+    
     _cache[cache_key] = {"ts": now, "data": data}
     return data
-
 
 @router.post("/api/train", dependencies=[Depends(verify_api_key)])
 async def crypto_train(
@@ -394,16 +313,13 @@ async def crypto_train(
 
     background_tasks.add_task(_train)
     return {
-        "status": "started",
-        "symbol": symbol,
+        "status":  "started",
+        "symbol":  symbol,
         "message": f"Переобучение {symbol} запущено в фоне.",
     }
 
-
 @router.get("/api/model_pnl", dependencies=[Depends(verify_api_key)])
-async def crypto_model_pnl(
-    requested_mode: str = "PAPER", db: AsyncSession = Depends(get_db_session)
-):
+async def crypto_model_pnl(requested_mode: str = "PAPER", db: AsyncSession = Depends(get_db_session)):
     cache_key = f"crypto_model_pnl_{requested_mode}"
     now = time.time()
     if cache_key in _cache:
@@ -416,19 +332,13 @@ async def crypto_model_pnl(
         allowed_assets.extend([f"{s}_low_vol", f"{s}_mid_vol", f"{s}_high_vol", s])
 
     # 1. Запрашиваем модели
-    stmt = (
-        select(ModelRegistry)
-        .where(
-            ModelRegistry.asset.in_(allowed_assets),
-        )
-        .order_by(ModelRegistry.asset, ModelRegistry.version.desc())
-    )
+    stmt = select(ModelRegistry).where(
+        ModelRegistry.asset.in_(allowed_assets),
+    ).order_by(ModelRegistry.asset, ModelRegistry.version.desc())
     models = (await db.execute(stmt)).scalars().all()
 
     # 2. Запрашиваем закрытые сделки с точной атрибуцией
-    pnl_expr = func.coalesce(
-        TradeHistory.realized_pnl_usdc, cast(TradeHistory.pnl, Numeric)
-    )
+    pnl_expr = func.coalesce(TradeHistory.realized_pnl_usdc, cast(TradeHistory.pnl, Numeric))
     trades_stmt = select(
         TradeHistory.model_key,
         TradeHistory.model_version,
@@ -453,9 +363,7 @@ async def crypto_model_pnl(
         if row.model_key and row.model_version is not None:
             primary_trades[(row.model_key, row.model_version)].append(pnl_val)
         if row.confirm_model_key and row.confirm_model_version is not None:
-            confirm_trades[(row.confirm_model_key, row.confirm_model_version)].append(
-                pnl_val
-            )
+            confirm_trades[(row.confirm_model_key, row.confirm_model_version)].append(pnl_val)
 
     # 4. Считаем метрики для каждой версии в реестре
     result = {}
@@ -478,29 +386,26 @@ async def crypto_model_pnl(
             "total_trades": total,
             "confirmed_trades": c_total,
             "confirmed_pnl": round(c_pnl_sum, 4),
-            "confirmed_win_rate": (
-                round(c_wins / c_total * 100, 1) if c_total > 0 else None
-            ),
+            "confirmed_win_rate": round(c_wins / c_total * 100, 1) if c_total > 0 else None,
         }
 
     _cache[cache_key] = {"ts": now, "data": result}
     return result
 
-
-@router.post(
-    "/api/models/{asset}/activate/{version}", dependencies=[Depends(verify_api_key)]
-)
+@router.post("/api/models/{asset}/activate/{version}", dependencies=[Depends(verify_api_key)])
 async def activate_crypto_model(
-    asset: str, version: int, db: AsyncSession = Depends(get_db_session)
+    asset: str,
+    version: int,
+    db: AsyncSession = Depends(get_db_session)
 ):
     """Активирует указанную версию крипто-модели, деактивируя остальные."""
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
         allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
-
+    
     if asset not in allowed_assets:
         raise HTTPException(status_code=404, detail=f"Актив {asset} не найден")
-
+    
     # Деактивировать все версии этого актива
     await db.execute(
         update(ModelRegistry)
@@ -515,47 +420,40 @@ async def activate_crypto_model(
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail=f"Версия {version} не найдена")
-
+    
     await db.commit()
     _cache.clear()  # сбросить весь кэш
     return {"status": "success", "asset": asset, "version": version}
 
-
 @router.delete("/api/models/{asset}/{version}", dependencies=[Depends(verify_api_key)])
 async def delete_crypto_model(
-    asset: str, version: int, db: AsyncSession = Depends(get_db_session)
+    asset: str,
+    version: int,
+    db: AsyncSession = Depends(get_db_session)
 ):
     """Удаляет указанную версию крипто-модели из БД."""
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
         allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
-
+        
     if asset not in allowed_assets:
         raise HTTPException(status_code=404, detail=f"Актив {asset} не найден")
-
+        
     # Check if active
-    stmt = select(ModelRegistry).where(
-        ModelRegistry.asset == asset, ModelRegistry.version == version
-    )
+    stmt = select(ModelRegistry).where(ModelRegistry.asset == asset, ModelRegistry.version == version)
     model = (await db.execute(stmt)).scalar_one_or_none()
-
+    
     if not model:
-        raise HTTPException(
-            status_code=404, detail=f"Модель {asset} v{version} не найдена"
-        )
-
+        raise HTTPException(status_code=404, detail=f"Модель {asset} v{version} не найдена")
+        
     if model.is_active:
-        raise HTTPException(
-            status_code=400,
-            detail="Нельзя удалить активную модель. Сначала активируйте другую.",
-        )
-
+        raise HTTPException(status_code=400, detail="Нельзя удалить активную модель. Сначала активируйте другую.")
+        
     # Delete
-    del_stmt = delete(ModelRegistry).where(
-        ModelRegistry.asset == asset, ModelRegistry.version == version
-    )
+    del_stmt = delete(ModelRegistry).where(ModelRegistry.asset == asset, ModelRegistry.version == version)
     await db.execute(del_stmt)
     await db.commit()
-
+    
     _cache.clear()
     return {"status": "success", "detail": f"Модель {asset} v{version} удалена"}
+

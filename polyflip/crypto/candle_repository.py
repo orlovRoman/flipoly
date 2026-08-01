@@ -2,7 +2,6 @@
 Единственное место для чтения и записи CryptoCandle.
 Не знает ни про Binance, ни про фичи — только БД.
 """
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -30,18 +29,18 @@ async def upsert_candles(
 
     rows = [
         {
-            "symbol": symbol,
-            "interval": interval,
-            "open_time": c["open_time"],
-            "close_time": c.get("close_time"),
-            "is_closed": c.get("is_closed"),
-            "open": c["open"],
-            "high": c["high"],
-            "low": c["low"],
-            "close": c["close"],
-            "volume": c.get("volume", 0.0),
+            "symbol":           symbol,
+            "interval":         interval,
+            "open_time":        c["open_time"],
+            "close_time":       c.get("close_time"),
+            "is_closed":        c.get("is_closed"),
+            "open":             c["open"],
+            "high":             c["high"],
+            "low":              c["low"],
+            "close":            c["close"],
+            "volume":           c.get("volume", 0.0),
             "taker_buy_volume": c.get("taker_buy_volume"),
-            "source": "binance",
+            "source":           "binance",
         }
         for c in candles
     ]
@@ -49,14 +48,14 @@ async def upsert_candles(
     total_inserted = 0
     batch_size = 500
     for i in range(0, len(rows), batch_size):
-        batch = rows[i : i + batch_size]
+        batch = rows[i:i + batch_size]
         stmt = pg_insert(CryptoCandle).values(batch)
         stmt = stmt.on_conflict_do_update(
             constraint="uix_crypto_candle",
             set_={
                 "is_closed": case(
                     (CryptoCandle.is_closed.is_(True), True),
-                    else_=stmt.excluded.is_closed,
+                    else_=stmt.excluded.is_closed
                 ),
                 "close_time": stmt.excluded.close_time,
                 "close": stmt.excluded.close,
@@ -64,11 +63,11 @@ async def upsert_candles(
                 "low": stmt.excluded.low,
                 "volume": stmt.excluded.volume,
                 "taker_buy_volume": stmt.excluded.taker_buy_volume,
-            },
+            }
         )
         result = await session.execute(stmt)
         total_inserted += result.rowcount
-
+        
     await session.commit()
     return total_inserted
 
@@ -85,7 +84,7 @@ async def get_recent_candles(
         .where(
             CryptoCandle.symbol == symbol,
             CryptoCandle.interval == interval,
-            CryptoCandle.is_closed.is_(True),
+            CryptoCandle.is_closed.is_(True)
         )
         .order_by(desc(CryptoCandle.open_time))
         .limit(limit)
@@ -101,7 +100,8 @@ async def get_latest_open_time(
 ) -> datetime | None:
     """open_time самой свежей свечи или None если таблица пуста."""
     result = await session.execute(
-        select(func.max(CryptoCandle.open_time)).where(
+        select(func.max(CryptoCandle.open_time))
+        .where(
             CryptoCandle.symbol == symbol,
             CryptoCandle.interval == interval,
         )
@@ -111,10 +111,11 @@ async def get_latest_open_time(
 
 async def has_incomplete_candles(session, symbol, interval):
     result = await session.execute(
-        select(func.count(CryptoCandle.id)).where(
+        select(func.count(CryptoCandle.id))
+        .where(
             CryptoCandle.symbol == symbol,
             CryptoCandle.interval == interval,
-            (CryptoCandle.is_closed.is_(None) | CryptoCandle.close_time.is_(None)),
+            (CryptoCandle.is_closed.is_(None) | CryptoCandle.close_time.is_(None))
         )
     )
     return result.scalar_one_or_none() > 0

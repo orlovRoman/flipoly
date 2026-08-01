@@ -2,7 +2,6 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from polyflip.api.trading_dashboard import get_funnel_stats, get_funnel_detail
 
-
 @pytest.mark.asyncio
 async def test_funnel_stats_empty():
     mock_row = MagicMock()
@@ -18,23 +17,15 @@ async def test_funnel_stats_empty():
     assert res["traded"] == 0
     assert res["by_gate"] == {}
 
-
 @pytest.mark.asyncio
 async def test_funnel_stats_pct_calculation():
     """g4_no_flip заблокировал 40 из 100 → pct должен быть 40.0"""
     mock_row = MagicMock()
     mock_row.total = 100
     mock_row.traded = 10
-    for g in [
-        "g1_model_loaded",
-        "g2_price_fetched",
-        "g3_dead_zone",
-        "g4_no_flip",
-        "g5_min_edge",
-        "g6_price_range",
-        "g7_crypto_confirm",
-        "g8_combined_vote",
-    ]:
+    for g in ["g1_model_loaded","g2_price_fetched","g3_dead_zone",
+              "g4_no_flip","g5_min_edge","g6_price_range",
+              "g7_crypto_confirm","g8_combined_vote"]:
         setattr(mock_row, f"blocked_{g}", 40 if g == "g4_no_flip" else 0)
 
     mock_db = AsyncMock()
@@ -45,7 +36,6 @@ async def test_funnel_stats_pct_calculation():
     res = await get_funnel_stats(hours=24, asset=None, db=mock_db)
     assert res["by_gate"]["g4_no_flip"]["pct"] == 40.0
     assert res["by_gate"]["g1_model_loaded"]["pct"] == 0.0
-
 
 @pytest.mark.asyncio
 async def test_funnel_detail_empty():

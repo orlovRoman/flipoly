@@ -8,16 +8,10 @@ def make_tick(mid: float, ask: float, time_left: float, dt: datetime) -> MarketT
     # spread / 2 = ask - mid => spread = (ask - mid) * 2
     spread = (ask - mid) * 2
     return MarketTick(
-        market_id="m1",
-        asset="BTC",
-        time_left_min=time_left,
-        mid_price=mid,
-        spread=spread,
-        volume_5min=1000.0,
-        price_velocity=0.0,
-        hour_of_day=12,
-        final_outcome="YES",
-        recorded_at=dt,
+        market_id="m1", asset="BTC", time_left_min=time_left,
+        mid_price=mid, spread=spread, volume_5min=1000.0,
+        price_velocity=0.0, hour_of_day=12, final_outcome="YES",
+        recorded_at=dt
     )
 
 
@@ -25,15 +19,9 @@ def test_entry_strategy_first():
     """first должен брать самый первый подходящий сигнал (самый ранний)."""
     now = datetime.now()
     ticks = [
-        make_tick(
-            0.60, 0.61, 30.0, now - timedelta(minutes=30)
-        ),  # edge = 0.60/0.61 - 1 = -0.016
-        make_tick(
-            0.80, 0.70, 20.0, now - timedelta(minutes=20)
-        ),  # edge = 0.80/0.70 - 1 = 0.14
-        make_tick(
-            0.90, 0.80, 10.0, now - timedelta(minutes=10)
-        ),  # edge = 0.90/0.80 - 1 = 0.125
+        make_tick(0.60, 0.61, 30.0, now - timedelta(minutes=30)),  # edge = 0.60/0.61 - 1 = -0.016
+        make_tick(0.80, 0.70, 20.0, now - timedelta(minutes=20)),  # edge = 0.80/0.70 - 1 = 0.14
+        make_tick(0.90, 0.80, 10.0, now - timedelta(minutes=10)),  # edge = 0.90/0.80 - 1 = 0.125
     ]
     # Насильно подменяем ticks в replay, обходя __init__
     replay = MarketReplay.__new__(MarketReplay)
@@ -58,7 +46,7 @@ def test_entry_strategy_first():
     }
     runner = BacktestRunner(config, b"", "")
     runner.run_market(replay)
-
+    
     assert len(runner.trader.trades) == 1
     trade = runner.trader.trades[0]
     assert trade.timestamp == ticks[0].recorded_at
@@ -94,7 +82,7 @@ def test_entry_strategy_best_edge():
     }
     runner = BacktestRunner(config, b"", "")
     runner.run_market(replay)
-
+    
     assert len(runner.trader.trades) == 1
     trade = runner.trader.trades[0]
     assert trade.timestamp == ticks[1].recorded_at
@@ -147,9 +135,7 @@ def test_confirmed_enters_after_stable_sequence():
     now = datetime.now()
     ticks = [
         make_tick(0.80, 0.70, 30.0, now - timedelta(minutes=30)),  # BUY_YES #1
-        make_tick(
-            0.82, 0.72, 20.0, now - timedelta(minutes=20)
-        ),  # BUY_YES #2 ← вход здесь
+        make_tick(0.82, 0.72, 20.0, now - timedelta(minutes=20)),  # BUY_YES #2 ← вход здесь
         make_tick(0.84, 0.74, 10.0, now - timedelta(minutes=10)),  # BUY_YES #3
     ]
     replay = MarketReplay.__new__(MarketReplay)
@@ -212,12 +198,9 @@ def test_bet_sizing_consistency_between_resolve_and_liquidity():
 
     # Путь через position_sizing
     bet_via_sizing = compute_bet_size_with_liquidity(
-        edge=edge,
-        volume_5min=volume,
-        min_bet_usdc=min_bet,
-        max_bet_usdc=max_bet,
-        min_edge=min_edge,
-        max_edge=max_edge,
+        edge=edge, volume_5min=volume,
+        min_bet_usdc=min_bet, max_bet_usdc=max_bet,
+        min_edge=min_edge, max_edge=max_edge,
         liquidity_fraction=fraction,
     )
 
@@ -234,7 +217,6 @@ def test_evaluate_tick_no_import_overhead():
     Проверяем косвенно: 1000 вызовов должны выполниться быстро (< 1 сек).
     """
     import time
-
     now = datetime.now()
     tick = make_tick(0.80, 0.70, 30.0, now)
 

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://polyflip:secret@db/polyflip"
     API_KEY: str = "test-key"
     ASSETS: str = "BTC,ETH"
-
+    
     # Инфраструктура / Мониторинг
     ALERT_WEBHOOK_URL: str = ""
     COLLECTOR_STALE_HOURS: int = 2
@@ -18,11 +18,9 @@ class Settings(BaseSettings):
     LIVE_POLL_INTERVAL_SECONDS: int = _DEFAULT_POLL_INTERVAL
     RETRAIN_INTERVAL_HOURS: int = 24
     MIN_SAMPLES_FOR_MODEL: int = 50
-
+    
     # Новые параметры Фазы 5
-    ACTIVE_FEATURES: str = (
-        "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day"
-    )
+    ACTIVE_FEATURES: str = "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day"
     TRADE_EXECUTION_TIME_SEC: int = 30
     TRADE_MIN_TIME_LEFT_SEC: int = 10
     TRADE_MAX_TIME_LEFT_SEC: int = 360
@@ -37,7 +35,7 @@ class Settings(BaseSettings):
     TRADING_MODE: str = "ml"
     FAVORITE_MODE_ENTRY_SEC: int = 180
     FAVORITE_THRESHOLD: float = 0.55
-
+    
     # Unified Fallbacks
     BET_SIZING_MODE: str = "scaled"
     MAX_BET_SIZE_USDC: float = 50.0
@@ -57,8 +55,9 @@ class Settings(BaseSettings):
         return [a.strip() for a in self.ASSETS.split(",") if a.strip()]
 
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
     )
-
 
 settings = Settings()

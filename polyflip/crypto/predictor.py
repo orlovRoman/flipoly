@@ -11,17 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from polyflip.db.models import ModelRegistry, RuntimeSettings
-from polyflip.crypto.feature_builder import (
-    build_crypto_features,
-    CRYPTO_FEATURE_COLUMNS,
-)
+from polyflip.crypto.feature_builder import build_crypto_features, CRYPTO_FEATURE_COLUMNS
 from polyflip.crypto.edge import compute_crypto_signal_strength
 from polyflip.crypto.trainer import CRYPTO_FEATURES
 
 logger = structlog.get_logger(__name__)
 
-MIN_CANDLES_REQUIRED = 110  # запас +10% к min_candles=100
-
+MIN_CANDLES_REQUIRED = 110   # запас +10% к min_candles=100
 
 # Схема валидации входного вектора признаков перед инференсом
 class CryptoFeaturesValidator(BaseModel):
@@ -56,7 +52,6 @@ class CryptoFeaturesValidator(BaseModel):
     hour_cos: float
     dow_sin: float
     dow_cos: float
-
     @field_validator("*", mode="before")
     @classmethod
     def check_nan_or_none(cls, v: Any) -> float:
@@ -67,36 +62,27 @@ class CryptoFeaturesValidator(BaseModel):
             raise ValueError("Feature value cannot be NaN or Inf")
         return fval
 
-
 @dataclass(frozen=True)
 class CryptoSignal:
-    symbol: str  # "BTCUSDT" | "ETHUSDT"
-    p_up: float  # Вероятность роста [0, 1]
-    p_down: float  # = 1 - p_up
-    direction: str  # "UP" | "DOWN" | "NONE"
-    signal_strength: float  # Сила сигнала относительно порога
-    strike: float  # close-цена последней закрытой свечи Binance
-    threshold_up: float  # Порог для лонга (BUY_UP)
-    threshold_down: float  # Порог для шорта (BUY_DOWN)
-    model_version: int  # Версия модели из реестра
-    features_ok: bool  # False, если не прошли Pydantic-валидацию
-    risk_vetoed: bool = (
-        False  # Флаг: вето из-за риска наложено предторговой проверкой модели
-    )
-    risk_reason: str = ""  # Причина вето (если vetoed=True)
-    stake_multiplier: float = 1.0  # Множитель размера ставки на основе фандинга
-    funding_rate: float = (
-        0.0  # Значение ставки финансирования, использованное для расчета
-    )
-    ece: float = 0.0  # BUG-AO
-    model_key: str = (
-        ""  # Точный ключ фактически загруженной модели (напр. BTCUSDT_low_vol)
-    )
-
+    symbol: str              # "BTCUSDT" | "ETHUSDT"
+    p_up: float              # Вероятность роста [0, 1]
+    p_down: float            # = 1 - p_up
+    direction: str           # "UP" | "DOWN" | "NONE"
+    signal_strength: float   # Сила сигнала относительно порога
+    strike: float            # close-цена последней закрытой свечи Binance
+    threshold_up: float      # Порог для лонга (BUY_UP)
+    threshold_down: float    # Порог для шорта (BUY_DOWN)
+    model_version: int       # Версия модели из реестра
+    features_ok: bool        # False, если не прошли Pydantic-валидацию
+    risk_vetoed: bool = False # Флаг: вето из-за риска наложено предторговой проверкой модели
+    risk_reason: str = ""    # Причина вето (если vetoed=True)
+    stake_multiplier: float = 1.0 # Множитель размера ставки на основе фандинга
+    funding_rate: float = 0.0     # Значение ставки финансирования, использованное для расчета
+    ece: float = 0.0         # BUG-AO
+    model_key: str = ""      # Точный ключ фактически загруженной модели (напр. BTCUSDT_low_vol)
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
-
     _instances: list[weakref.ref] = []
 
     def __init__(self) -> None:
@@ -108,7 +94,7 @@ class CryptoPredictor:
         self._model_versions: dict[str, dict[str, int]] = {}
         self._model_intervals: dict[str, dict[str, str]] = {}
         self._thresholds: dict[str, dict[str, tuple[float, float]]] = {}
-        self._model_eces: dict[str, dict[str, float]] = {}  # BUG-AO
+        self._model_eces: dict[str, dict[str, float]] = {} # BUG-AO
         self._vol_p33s: dict[str, float] = {}
         self._vol_p67s: dict[str, float] = {}
         self._funding_rates: dict[str, float] = {}
@@ -130,7 +116,7 @@ class CryptoPredictor:
                 inst._loaded_symbols.discard(symbol)
                 inst._models.pop(symbol, None)
                 inst._model_versions.pop(symbol, None)
-                inst._model_eces.pop(symbol, None)  # BUG-AO
+                inst._model_eces.pop(symbol, None) # BUG-AO
                 inst._model_intervals.pop(symbol, None)
                 inst._thresholds.pop(symbol, None)
                 inst._vol_p33s.pop(symbol, None)
@@ -149,12 +135,14 @@ class CryptoPredictor:
         self._model_versions.pop(symbol, None)
         self._model_intervals.pop(symbol, None)
         self._thresholds.pop(symbol, None)
-        self._model_eces.pop(symbol, None)  # BUG-AO
+        self._model_eces.pop(symbol, None) # BUG-AO
         self._vol_p33s.pop(symbol, None)
         self._vol_p67s.pop(symbol, None)
         self._funding_rates.pop(symbol, None)
         self._funding_rate_ma3s.pop(symbol, None)
         self._loading_locks.pop(symbol, None)
+
+
 
     def _get_lock(self, symbol: str) -> asyncio.Lock:
         if symbol not in self._loading_locks:
@@ -171,28 +159,26 @@ class CryptoPredictor:
     async def load(self, db: AsyncSession, symbol: str) -> bool:
         """Ленивая загрузка моделей и порогов для low_vol и high_vol с авто-обновлением по БД."""
         try:
-            allowed_assets = [
-                f"{symbol}_low_vol",
-                f"{symbol}_mid_vol",
-                f"{symbol}_high_vol",
-            ]
+            allowed_assets = [f"{symbol}_low_vol", f"{symbol}_mid_vol", f"{symbol}_high_vol"]
             stmt = select(ModelRegistry.asset, ModelRegistry.version).where(
-                ModelRegistry.asset.in_(allowed_assets), ModelRegistry.is_active
+                ModelRegistry.asset.in_(allowed_assets),
+                ModelRegistry.is_active
             )
             db_versions = (await db.execute(stmt)).all()
             db_ver_dict = {row.asset: row.version for row in db_versions}
-
+            
             # Если для какого-то режима модель еще не обучалась, делаем fallback на "CRYPTO"
             for regime in ["low_vol", "mid_vol", "high_vol"]:
                 reg_asset = f"{symbol}_{regime}"
                 if reg_asset not in db_ver_dict:
                     fallback_stmt = select(ModelRegistry.version).where(
-                        ModelRegistry.asset == "CRYPTO", ModelRegistry.is_active
+                        ModelRegistry.asset == "CRYPTO",
+                        ModelRegistry.is_active
                     )
                     f_ver = (await db.execute(fallback_stmt)).scalar()
                     if f_ver is not None:
                         db_ver_dict[reg_asset] = f_ver
-
+            
             # Проверяем, совпадает ли то, что загружено в память, с актуальным в БД
             if symbol in self._loaded_symbols:
                 cache_ok = True
@@ -204,17 +190,10 @@ class CryptoPredictor:
                 if cache_ok:
                     return True
                 else:
-                    logger.info(
-                        "new_models_detected_in_db",
-                        symbol=symbol,
-                        old_versions=self._model_versions.get(symbol),
-                        new_versions=db_ver_dict,
-                    )
+                    logger.info("new_models_detected_in_db", symbol=symbol, old_versions=self._model_versions.get(symbol), new_versions=db_ver_dict)
                     self.invalidate(symbol)
         except Exception as e:
-            logger.warning(
-                "failed_to_check_db_model_versions", symbol=symbol, error=str(e)
-            )
+            logger.warning("failed_to_check_db_model_versions", symbol=symbol, error=str(e))
             if symbol in self._loaded_symbols:
                 return True
 
@@ -225,38 +204,29 @@ class CryptoPredictor:
             try:
                 # 1. Загружаем квантили волатильности и ставки финансирования из RuntimeSettings
                 p33_key = f"CRYPTO_VOL_P33_{symbol}"
-                p33_row = (
-                    await db.execute(
-                        select(RuntimeSettings).where(RuntimeSettings.key == p33_key)
-                    )
-                ).scalar_one_or_none()
+                p33_row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == p33_key)
+                )).scalar_one_or_none()
                 self._vol_p33s[symbol] = float(p33_row.value) if p33_row else 0.8
 
                 p67_key = f"CRYPTO_VOL_P67_{symbol}"
-                p67_row = (
-                    await db.execute(
-                        select(RuntimeSettings).where(RuntimeSettings.key == p67_key)
-                    )
-                ).scalar_one_or_none()
+                p67_row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == p67_key)
+                )).scalar_one_or_none()
                 self._vol_p67s[symbol] = float(p67_row.value) if p67_row else 1.2
 
                 fr_key = f"FUNDING_RATE_{symbol}"
-                fr_row = (
-                    await db.execute(
-                        select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
-                    )
-                ).scalar_one_or_none()
+                fr_row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
+                )).scalar_one_or_none()
                 self._funding_rates[symbol] = float(fr_row.value) if fr_row else 0.0
 
                 fr_ma3_key = f"FUNDING_RATE_MA3_{symbol}"
-                fr_ma3_row = (
-                    await db.execute(
-                        select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
-                    )
-                ).scalar_one_or_none()
-                self._funding_rate_ma3s[symbol] = (
-                    float(fr_ma3_row.value) if fr_ma3_row else 0.0
-                )
+                fr_ma3_row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
+                )).scalar_one_or_none()
+                self._funding_rate_ma3s[symbol] = float(fr_ma3_row.value) if fr_ma3_row else 0.0
+
 
                 self._models[symbol] = {}
                 self._model_versions[symbol] = {}
@@ -268,21 +238,19 @@ class CryptoPredictor:
                     regime_asset = f"{symbol}_{regime}"
                     stmt = select(ModelRegistry).where(
                         ModelRegistry.asset == regime_asset,
-                        ModelRegistry.is_active.is_(True),
+                        ModelRegistry.is_active.is_(True)
                     )
                     row = (await db.execute(stmt)).scalars().first()
-
+                    
                     # Обратная совместимость: если нет двухрежимной модели, ищем старую общую по "CRYPTO"
                     if not row:
-                        logger.warning(
-                            "no_active_regime_model_found", asset=regime_asset
-                        )
+                        logger.warning("no_active_regime_model_found", asset=regime_asset)
                         fallback_stmt = select(ModelRegistry).where(
                             ModelRegistry.asset == "CRYPTO",
-                            ModelRegistry.is_active.is_(True),
+                            ModelRegistry.is_active.is_(True)
                         )
                         row = (await db.execute(fallback_stmt)).scalars().first()
-
+                        
                     if not row:
                         logger.error("no_fallback_model_found", symbol=symbol)
                         # ВАЖНО: при неудаче не добавляем в loaded_symbols и очищаем частично загруженное
@@ -291,23 +259,16 @@ class CryptoPredictor:
 
                     self._models[symbol][regime] = pickle.loads(row.model_blob)
                     self._model_versions[symbol][regime] = row.version
-                    self._model_intervals[symbol][regime] = getattr(
-                        row, "interval", "15m"
-                    )
-                    self._model_eces[symbol][regime] = row.ece or 0.0  # BUG-AO
+                    self._model_intervals[symbol][regime] = getattr(row, 'interval', '15m')
+                    self._model_eces[symbol][regime] = row.ece or 0.0 # BUG-AO
 
                     # Пороги: берем CRYPTO_THRESHOLD_BTCUSDT_low_vol или общие CRYPTO_THRESHOLD_UP_BTC / DOWN_BTC
                     thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
-                    thr_row = (
-                        await db.execute(
-                            select(RuntimeSettings).where(
-                                RuntimeSettings.key == thr_key
-                            )
-                        )
-                    ).scalar_one_or_none()
+                    thr_row = (await db.execute(
+                        select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+                    )).scalar_one_or_none()
 
                     from polyflip.services.settings_service import get_float
-
                     min_valid_thresh = await get_float(db, "LGBM_MIN_VALID_THRESHOLD")
                     max_valid_thresh = await get_float(db, "LGBM_MAX_VALID_THRESHOLD")
                     threshold_fallback = await get_float(db, "LGBM_THRESHOLD_FALLBACK")
@@ -328,17 +289,9 @@ class CryptoPredictor:
                         coin_prefix = symbol.replace("USDT", "")
                         up_key = f"CRYPTO_THRESHOLD_UP_{coin_prefix}"
                         down_key = f"CRYPTO_THRESHOLD_DOWN_{coin_prefix}"
-                        rows = (
-                            (
-                                await db.execute(
-                                    select(RuntimeSettings).where(
-                                        RuntimeSettings.key.in_([up_key, down_key])
-                                    )
-                                )
-                            )
-                            .scalars()
-                            .all()
-                        )
+                        rows = (await db.execute(
+                            select(RuntimeSettings).where(RuntimeSettings.key.in_([up_key, down_key]))
+                        )).scalars().all()
                         settings = {r.key: float(r.value) for r in rows}
                         th_up = settings.get(up_key, 0.55)
                         th_down = settings.get(down_key, 0.45)
@@ -346,13 +299,8 @@ class CryptoPredictor:
                     self._thresholds[symbol][regime] = (th_up, th_down)
                     logger.info(
                         "crypto_regime_model_loaded",
-                        symbol=symbol,
-                        regime=regime,
-                        version=row.version,
-                        th_up=th_up,
-                        th_down=th_down,
-                        vol_p33=self._vol_p33s[symbol],
-                        vol_p67=self._vol_p67s[symbol],
+                        symbol=symbol, regime=regime, version=row.version,
+                        th_up=th_up, th_down=th_down, vol_p33=self._vol_p33s[symbol], vol_p67=self._vol_p67s[symbol]
                     )
 
                 self._loaded_symbols.add(symbol)
@@ -361,6 +309,7 @@ class CryptoPredictor:
                 logger.exception("failed_to_load_crypto_models", error=str(e))
                 self.invalidate(symbol)
                 return False
+
 
     def predict(
         self,
@@ -376,49 +325,17 @@ class CryptoPredictor:
                        НЕ используется в построении признаков ML (см. feature_builder.py).
         """
         if symbol not in self._loaded_symbols:
-            return CryptoSignal(
-                symbol,
-                0.5,
-                0.5,
-                "NONE",
-                0.0,
-                0.0,
-                0.5,
-                0.5,
-                -1,
-                False,
-                False,
-                "",
-                1.0,
-                0.0,
-                0.0,
-            )
+            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0)
 
         try:
             # 1. Сборка вектора признаков
             feature_vector = build_crypto_features(candles)
 
             if not feature_vector.valid:
-                return CryptoSignal(
-                    symbol,
-                    0.5,
-                    0.5,
-                    "NONE",
-                    0.0,
-                    0.0,
-                    0.5,
-                    0.5,
-                    -1,
-                    False,
-                    False,
-                    "",
-                    1.0,
-                    0.0,
-                    0.0,
-                )
+                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0)
 
             fv_dict = dict(zip(CRYPTO_FEATURE_COLUMNS, feature_vector.features[0]))
-
+            
             # Определяем режим волатильности
             vol_trend = fv_dict.get("vol_trend", 1.0)
             vol_p33 = self._vol_p33s.get(symbol, 0.8)
@@ -433,11 +350,9 @@ class CryptoPredictor:
 
             # 2. Pydantic-валидация признаков
             validated = CryptoFeaturesValidator(**fv_dict)
-
+            
             # Порядок фичей для LightGBM
-            fv_array = np.array(
-                [getattr(validated, f) for f in CRYPTO_FEATURES], dtype=np.float64
-            )
+            fv_array = np.array([getattr(validated, f) for f in CRYPTO_FEATURES], dtype=np.float64)
 
             # Выбор модели с защитой от отсутствия конкретного режима (fallback)
             symbol_models = self._models.get(symbol, {})
@@ -449,33 +364,12 @@ class CryptoPredictor:
                 selected_regime = None
 
             if selected_regime is None:
-                logger.warning(
-                    "no_model_available_for_predict", symbol=symbol, regime=regime
-                )
-                return CryptoSignal(
-                    symbol,
-                    0.5,
-                    0.5,
-                    "NONE",
-                    0.0,
-                    0.0,
-                    0.5,
-                    0.5,
-                    -1,
-                    False,
-                    False,
-                    "",
-                    1.0,
-                    0.0,
-                    0.0,
-                    model_key="",
-                )
+                logger.warning("no_model_available_for_predict", symbol=symbol, regime=regime)
+                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0, model_key="")
 
             model = symbol_models[selected_regime]
             version = self._model_versions.get(symbol, {}).get(selected_regime, -1)
-            th_up, th_down = self._thresholds.get(symbol, {}).get(
-                selected_regime, (0.55, 0.45)
-            )
+            th_up, th_down = self._thresholds.get(symbol, {}).get(selected_regime, (0.55, 0.45))
             model_key = f"{symbol}_{selected_regime}"
 
             # 3. Инференс
@@ -491,25 +385,17 @@ class CryptoPredictor:
                     p_up=round(p_up, 4),
                     hint="Model likely trained on different feature set — retrain required",
                 )
-
-            signal_strength, direction = compute_crypto_signal_strength(
-                p_up, th_up, th_down
-            )
-
+            
+            signal_strength, direction = compute_crypto_signal_strength(p_up, th_up, th_down)
+            
             # Страйк (цена последней закрытой свечи)
             strike = float(candles[-1].close)
 
-            ece = self._model_eces.get(symbol, {}).get(selected_regime) or next(
-                iter(self._model_eces.get(symbol, {}).values()), 0.0
-            )
+            ece = (self._model_eces.get(symbol, {}).get(selected_regime)
+                   or next(iter(self._model_eces.get(symbol, {}).values()), 0.0))
 
-            fr = (
-                funding_rate
-                if funding_rate is not None
-                else self._funding_rates.get(symbol)
-            )
+            fr = funding_rate if funding_rate is not None else self._funding_rates.get(symbol)
             from polyflip.crypto.risk_guard import check_funding_veto
-
             veto = check_funding_veto(funding_rate=fr, direction=direction)
 
             if veto.vetoed:
@@ -534,12 +420,9 @@ class CryptoPredictor:
 
             logger.debug(
                 "crypto_signal",
-                symbol=symbol,
-                regime=regime,
-                p_up=round(p_up, 4),
-                direction=direction,
-                th_up=round(th_up, 4),
-                th_down=round(th_down, 4),
+                symbol=symbol, regime=regime,
+                p_up=round(p_up, 4), direction=direction,
+                th_up=round(th_up, 4), th_down=round(th_down, 4),
                 signal_strength=round(signal_strength, 4),
             )
 
@@ -563,21 +446,5 @@ class CryptoPredictor:
             )
         except Exception as e:
             logger.exception("crypto_inference_failed", symbol=symbol, error=str(e))
-            return CryptoSignal(
-                symbol,
-                0.5,
-                0.5,
-                "NONE",
-                0.0,
-                0.0,
-                0.5,
-                0.5,
-                -1,
-                False,
-                False,
-                str(e),
-                1.0,
-                0.0,
-                0.0,
-                model_key="",
-            )
+            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, str(e), 1.0, 0.0, 0.0, model_key="")
+

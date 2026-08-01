@@ -3,7 +3,6 @@ tests/services/test_settings_service.py
 
 Тесты для polyflip/services/settings_service.py.
 """
-
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
