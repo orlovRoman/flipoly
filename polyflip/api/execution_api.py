@@ -417,8 +417,15 @@ async def get_live_trading_requests(
     res = await db.execute(stmt)
     requests = res.scalars().all()
 
-    return [
-        {
+    from polyflip.execution.manual_review_service import evaluate_no_fill_eligibility
+    
+    request_dtos = []
+    for r in requests:
+        eligibility = None
+        if r.state == "MANUAL_REVIEW_REQUIRED":
+            eligibility = await evaluate_no_fill_eligibility(db, r)
+
+        request_dtos.append({
             "id": str(r.id),
             "trade_history_id": r.trade_history_id,
             "intent": r.intent,
@@ -440,9 +447,12 @@ async def get_live_trading_requests(
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
             "error_reason": r.error_reason,
-        }
-        for r in requests
-    ]
+            "can_mark_no_fill": bool(eligibility and eligibility.allowed),
+            "review_blockers": list(eligibility.blockers) if eligibility else [],
+            "available_actions": ["MARK_FAILED_NO_FILL"] if eligibility and eligibility.allowed else [],
+        })
+
+    return request_dtos
 
 
 # ---------------------------------------------------------------------------
@@ -482,12 +492,19 @@ async def resolve_manual_review(
 
     req = (
         await db.execute(
-            select(ExecutionRequest).where(ExecutionRequest.id == req_uuid)
+            select(ExecutionRequest).where(ExecutionRequest.id == req_uuid).with_for_update()
         )
     ).scalar_one_or_none()
 
     if req is None:
         raise HTTPException(status_code=404, detail="Request not found")
+
+    if req.state == "MANUAL_REVIEW_FAILED":
+        return {
+            "request_id": str(req.id),
+            "new_state": req.state,
+            "already_resolved": True,
+        }
 
     if req.state != "MANUAL_REVIEW_REQUIRED":
         raise HTTPException(
@@ -525,22 +542,18 @@ async def resolve_manual_review(
         req.updated_at = now
 
     elif body.action == "MARK_FAILED_NO_FILL":
-        from polyflip.db.execution_models import ExecutionAttempt
+        from polyflip.execution.manual_review_service import evaluate_no_fill_eligibility
         from polyflip.execution.outbox import finalize_request
 
-        last_attempt = (
-            await db.execute(
-                select(ExecutionAttempt)
-                .where(ExecutionAttempt.request_id == req.id)
-                .order_by(ExecutionAttempt.started_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
+        eligibility = await evaluate_no_fill_eligibility(db, req)
 
-        if last_attempt and last_attempt.provider_order_id:
+        if not eligibility.allowed:
             raise HTTPException(
-                status_code=422,
-                detail="У попытки есть provider_order_id: сначала выполните reconciliation",
+                status_code=409,
+                detail={
+                    "message": "Заявку нельзя завершить без исполнения",
+                    "blockers": list(eligibility.blockers),
+                },
             )
 
         await finalize_request(
@@ -549,7 +562,7 @@ async def resolve_manual_review(
             state="MANUAL_REVIEW_FAILED",
             error=(
                 f"Confirmed no fill by {body.operator}: "
-                f"{body.note or 'provider order absent'}"
+                f"{body.note or 'provider evidence absent'}"
             ),
         )
 
@@ -584,6 +597,58 @@ async def resolve_manual_review(
         "action": body.action,
         "operator": body.operator,
     }
+
+
+class BatchNoFillRequest(BaseModel):
+    request_ids: list[uuid.UUID]
+    operator: str
+    note: str = ""
+
+
+@router.post("/requests/resolve-no-fill-batch")
+async def resolve_no_fill_batch(
+    payload: BatchNoFillRequest,
+    db: AsyncSession = Depends(get_db_session)
+):
+    from polyflip.execution.manual_review_service import evaluate_no_fill_eligibility
+    from polyflip.execution.outbox import finalize_request
+    
+    resolved = []
+    skipped = []
+
+    requests = (
+        await db.execute(
+            select(ExecutionRequest)
+            .where(ExecutionRequest.id.in_(payload.request_ids))
+            .with_for_update()
+        )
+    ).scalars().all()
+
+    for req in requests:
+        eligibility = await evaluate_no_fill_eligibility(db, req)
+
+        if not eligibility.allowed:
+            skipped.append({
+                "request_id": str(req.id),
+                "blockers": list(eligibility.blockers),
+            })
+            continue
+
+        await finalize_request(
+            db,
+            req,
+            state="MANUAL_REVIEW_FAILED",
+            error=f"Batch no-fill confirmation by {payload.operator}",
+        )
+        resolved.append(str(req.id))
+
+    await db.commit()
+
+    return {
+        "resolved": resolved,
+        "skipped": skipped,
+    }
+
 
 
 # ── LIVE Sessions, Readiness & Control Endpoints ──────────────────────────────

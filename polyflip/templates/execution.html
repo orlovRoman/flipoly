@@ -188,7 +188,10 @@
 
             <!-- Блок 4. Заявки -->
             <div class="panel" style="margin-bottom: 20px;">
-                <h3>LIVE-Заявки (Execution Requests)</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3>LIVE-Заявки (Execution Requests)</h3>
+                    <button id="btn-batch-no-fill" class="btn-action btn-danger" style="display:none;" onclick="resolveBatchNoFill()">Mark No Fill (Selected)</button>
+                </div>
                 <div style="overflow-x: auto;">
                     <table class="data-table" id="requests-table">
                         <thead>
@@ -200,6 +203,7 @@
                                 <th>Сумма</th>
                                 <th>Статус</th>
                                 <th>Причина Ошибки</th>
+                                <th>Действия</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -314,21 +318,85 @@
 
         function renderRequests(requests) {
             const tbody = document.querySelector('#requests-table tbody');
+            const batchBtn = document.getElementById('btn-batch-no-fill');
+            
             if (!requests.length) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Нет LIVE-заявок</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Нет LIVE-заявок</td></tr>';
+                batchBtn.style.display = 'none';
                 return;
             }
-            tbody.innerHTML = requests.map(r => `
+            
+            let hasNoFillOptions = false;
+            
+            tbody.innerHTML = requests.map(r => {
+                if (r.can_mark_no_fill) hasNoFillOptions = true;
+                
+                return `
                 <tr>
                     <td>${r.created_at ? r.created_at.substring(11, 19) : '--'}</td>
                     <td><strong>${r.intent}</strong></td>
                     <td>${r.asset}</td>
-                    <td>${r.outcome_to_buy}</td>
+                    <td>${r.outcome_to_buy || r.outcome_bought || '--'}</td>
                     <td>$${(r.target_amount_usdc || 0).toFixed(2)}</td>
                     <td><span class="status-badge ${r.state === 'FILLED' ? 'status-ready' : 'status-shadow'}">${r.state}</span></td>
-                    <td style="color: #e53e3e;">${r.error_reason || '--'}</td>
+                    <td style="color: #e53e3e; max-width: 200px; word-wrap: break-word;">${r.error_reason || '--'}</td>
+                    <td>
+                        ${r.can_mark_no_fill ? `
+                            <button class="btn-action btn-danger" onclick="resolveNoFill('${r.id}')" style="padding: 4px 8px; font-size: 0.8rem;">
+                                No Fill
+                            </button>
+                            <input type="checkbox" class="batch-no-fill-cb" value="${r.id}" style="margin-left: 5px;">
+                        ` : ''}
+                    </td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
+            
+            batchBtn.style.display = hasNoFillOptions ? 'inline-block' : 'none';
+        }
+        
+        async function resolveNoFill(reqId) {
+            if (!confirm("Подтверждаете отсутствие исполнения по заявке?")) return;
+            const res = await fetch(window.API_BASE + `/api/execution/requests/${reqId}/resolve-review`, {
+                method: 'POST', 
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    action: "MARK_FAILED_NO_FILL",
+                    operator: "dashboard_ui",
+                    note: "Manual confirmation"
+                })
+            });
+            if (res.ok) { alert("Заявка отмечена как NO FILL."); loadLiveDashboard(); }
+            else { const err = await res.json(); alert("Ошибка: " + JSON.stringify(err)); }
+        }
+
+        async function resolveBatchNoFill() {
+            const checkboxes = document.querySelectorAll('.batch-no-fill-cb:checked');
+            if (checkboxes.length === 0) return alert("Выберите хотя бы одну заявку");
+            
+            if (!confirm(`Отметить ${checkboxes.length} заявок как NO FILL?`)) return;
+            
+            const reqIds = Array.from(checkboxes).map(cb => cb.value);
+            
+            const res = await fetch(window.API_BASE + `/api/execution/requests/resolve-no-fill-batch`, {
+                method: 'POST', 
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    request_ids: reqIds,
+                    operator: "dashboard_ui_batch",
+                    note: "Batch manual confirmation"
+                })
+            });
+            
+            if (res.ok) { 
+                const data = await res.json();
+                alert(`Успешно обработано: ${data.resolved.length}. Пропущено: ${data.skipped.length}`); 
+                loadLiveDashboard(); 
+            }
+            else { 
+                const err = await res.json(); 
+                alert("Ошибка: " + JSON.stringify(err)); 
+            }
         }
 
         // Actions
