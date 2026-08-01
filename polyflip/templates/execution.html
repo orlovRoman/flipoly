@@ -119,6 +119,22 @@
                     <progress id="budget-progress" max="100" value="0" style="width: 100%; height: 12px;"></progress>
                 </div>
 
+                <!-- Лимиты активной сессии -->
+                <div id="session-limits-block" class="form-grid" style="display: none; background: var(--bg-color); padding: 10px; border-radius: 6px; margin-bottom: 15px;">
+                    <div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Макс. Ставка</div>
+                        <div id="limit-max-order" style="font-weight: 600;">-- USDC</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Макс. Позиций</div>
+                        <div id="limit-max-positions" style="font-weight: 600;">--</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Макс. Экспозиция</div>
+                        <div id="limit-max-exposure" style="font-weight: 600;">-- USDC</div>
+                    </div>
+                </div>
+
                 <!-- Форма создания -->
                 <div id="session-create-form" class="form-grid">
                     <div>
@@ -285,11 +301,19 @@
                     
                     const pct = s.budget_usdc > 0 ? (s.committed_usdc / s.budget_usdc) * 100 : 0;
                     document.getElementById('budget-progress').value = pct;
+
+                    document.getElementById('session-create-form').style.display = 'none';
+                    document.getElementById('session-limits-block').style.display = 'grid';
+                    document.getElementById('limit-max-order').textContent = (s.max_single_order_usdc || 0).toFixed(2) + " USDC";
+                    document.getElementById('limit-max-positions').textContent = s.max_open_positions || 0;
+                    document.getElementById('limit-max-exposure').textContent = (s.max_total_exposure_usdc || 0).toFixed(2) + " USDC";
                 } else {
                     currentSessionId = null;
                     badge.textContent = "БЕЗ СЕССИИ";
                     badge.className = "status-badge status-shadow";
                     document.getElementById('session-info-block').style.display = 'none';
+                    document.getElementById('session-create-form').style.display = 'grid';
+                    document.getElementById('session-limits-block').style.display = 'none';
                 }
 
                 // Render Positions & Requests
