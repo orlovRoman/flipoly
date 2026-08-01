@@ -171,3 +171,24 @@ async def test_readiness_reports_signer_mismatch():
     assert result.credentials_loaded is True
     assert result.client_initialized is False
     assert "does not match" in result.error_message
+
+
+@pytest.mark.asyncio
+async def test_client_close_failure_does_not_break_invalidation():
+    gateway = PolymarketExecutionGateway(
+        private_key=KNOWN_PRIVATE_KEY,
+        wallet_address="0xPolymarketWallet",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address=KNOWN_SIGNER_ADDRESS,
+    )
+
+    mock_client = AsyncMock()
+    # Force close to raise an exception
+    mock_client.close.side_effect = Exception("Test close error")
+    gateway._client = mock_client
+
+    # invalidation should suppress the exception and still set _client to None
+    await gateway.invalidate_client()
+
+    assert gateway._client is None
+    mock_client.close.assert_awaited_once()

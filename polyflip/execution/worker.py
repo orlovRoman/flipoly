@@ -977,8 +977,11 @@ async def refresh_gateway_readiness_once(
             }:
                 try:
                     await gateway.invalidate_client()
-                except AttributeError:
-                    pass
+                except Exception as exc:
+                    logger.warning(
+                        "gateway_client_invalidation_failed",
+                        error=str(exc),
+                    )
 
             ws.gateway_ready = False
             ws.readiness_checked_at = now
@@ -1016,8 +1019,11 @@ async def refresh_gateway_readiness_once(
         }:
             try:
                 await gateway.invalidate_client()
-            except AttributeError:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "gateway_client_invalidation_failed",
+                    error=str(exc),
+                )
 
         ws.gateway_ready = False
         ws.readiness_checked_at = now

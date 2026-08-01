@@ -121,11 +121,17 @@ class PolymarketExecutionGateway:
         if client is None:
             return
 
-        close = getattr(client, "close", None)
-        if close:
-            result = close()
-            if inspect.isawaitable(result):
-                await result
+        try:
+            close_fn = getattr(client, "close", None)
+            if close_fn:
+                result = close_fn()
+                if inspect.isawaitable(result):
+                    await result
+        except Exception as exc:
+            logger.warning(
+                "polymarket_client_close_failed",
+                error=str(exc),
+            )
 
     async def submit(self, order: GatewayOrder) -> SubmissionResult:
         client = await self.get_client()

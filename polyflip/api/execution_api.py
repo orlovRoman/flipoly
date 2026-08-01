@@ -814,6 +814,17 @@ async def update_live_session_limits(
     )
 
     # Валидируем консистентность обновлённых лимитов
+    if new_budget <= 0:
+        raise HTTPException(422, detail="Бюджет должен быть больше нуля")
+
+    if new_max_total_exposure <= 0:
+        raise HTTPException(
+            422, detail="Максимальная экспозиция должна быть больше нуля"
+        )
+
+    if new_max_order <= 0:
+        raise HTTPException(422, detail="Максимальная ставка должна быть больше нуля")
+
     from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
 
     if new_max_order < LIVE_MIN_GROSS_BUY_USDC:
