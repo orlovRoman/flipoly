@@ -600,7 +600,7 @@ async def resolve_manual_review(
 
 
 class BatchNoFillRequest(BaseModel):
-    request_ids: list[uuid.UUID]
+    request_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
     operator: str
     note: str = ""
 
@@ -1122,25 +1122,7 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
                 .where(
                     TradeHistory.mode == "LIVE",
                     TradeHistory.position_status.in_(
-                        ["OPEN", "PARTIALLY_CLOSED", "CLOSING"]
-                    ),
-                )
-                .order_by(TradeHistory.created_at.desc())
-                .limit(50)
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    failed_positions = (
-        (
-            await db.execute(
-                select(TradeHistory)
-                .where(
-                    TradeHistory.mode == "LIVE",
-                    TradeHistory.position_status.in_(
-                        ["ENTRY_FAILED", "CLOSED"]
+                        list(ACTIVE_POSITION_STATES) + ["ENTRY_FAILED", "CLOSED"]
                     ),
                 )
                 .order_by(TradeHistory.created_at.desc())
@@ -1238,17 +1220,5 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
             for r in requests
-        ],
-        "failed_positions": [
-            {
-                "id": p.id,
-                "asset": p.asset,
-                "market_id": p.market_id,
-                "outcome_bought": p.outcome_bought,
-                "position_status": p.position_status,
-                "amount_usdc": float(p.amount_usdc),
-                "created_at": p.created_at.isoformat() if p.created_at else None,
-            }
-            for p in failed_positions
         ],
     }

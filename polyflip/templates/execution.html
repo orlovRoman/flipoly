@@ -380,7 +380,7 @@
                                 No Fill
                             </button>
                             <input type="checkbox" class="batch-no-fill-cb" value="${r.id}" style="margin-left: 5px;">
-                        ` : (r.state === 'MANUAL_REVIEW_REQUIRED' ? '<span style="font-size: 0.85rem; color: #dd6b20;">Требуется сверка</span>' : '')}
+                        ` : (r.state === 'MANUAL_REVIEW_REQUIRED' ? `<span style="font-size: 0.85rem; color: #dd6b20;">${r.review_blockers && r.review_blockers.length ? escapeHtml(r.review_blockers.join(', ')) : 'Требуется сверка'}</span>` : '')}
                     </td>
                 </tr>
                 `;
