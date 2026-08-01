@@ -12,7 +12,7 @@ from polyflip.db.execution_models import (
     ExecutionWorkerStatus,
     ExposureReservation,
 )
-from polyflip.db.models import TradeHistory, RuntimeSettings
+from polyflip.db.models import TradeHistory, RuntimeSettings, LiveMarket
 from polyflip.execution.release_gate import (
     validate_live_release,
     ReleaseDeferred,
@@ -83,7 +83,21 @@ async def test_worker_readiness_persists_polygon_chain_id(db_session):
         checked_at=datetime.now(timezone.utc),
     )
 
-    # Need a worker status first for readiness to update
+    # Need a live market and worker status first for readiness to update
+    db_session.add(
+        LiveMarket(
+            market_id="test_m1",
+            asset="BTC",
+            question="BTC up?",
+            yes_token_id="probe_token_123",
+            no_token_id="probe_token_456",
+            end_time_est=datetime.now(timezone.utc) + timedelta(hours=1),
+            current_yes_price=0.5,
+            current_no_price=0.5,
+            current_spread=0.01,
+            last_updated=datetime.now(timezone.utc),
+        )
+    )
     db_session.add(
         ExecutionWorkerStatus(
             worker_id="test_worker_1",
@@ -529,3 +543,134 @@ async def test_patch_live_session_limits_cases_negative(db_session, field, value
 
     assert excinfo.value.status_code == 422
     assert message in str(excinfo.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_readiness_uses_one_global_approval_probe(db_session):
+    from polyflip.execution.worker import refresh_gateway_readiness_once
+
+    now = datetime.now(timezone.utc)
+    for i in range(70):
+        db_session.add(
+            LiveMarket(
+                market_id=f"market_{i}",
+                asset="BTC",
+                question=f"Question {i}",
+                yes_token_id=f"yes_token_{i}",
+                no_token_id=f"no_token_{i}",
+                end_time_est=now + timedelta(hours=1),
+                current_yes_price=0.5,
+                current_no_price=0.5,
+                current_spread=0.01,
+                last_updated=now,
+            )
+        )
+
+    db_session.add(
+        ExecutionWorkerStatus(
+            worker_id="LIVE:test:1",
+            execution_mode="LIVE",
+            heartbeat_at=now,
+        )
+    )
+    await db_session.commit()
+
+    mock_gateway = AsyncMock()
+    mock_gateway.get_readiness.return_value = GatewayReadiness(
+        ready=True,
+        gateway="POLYMARKET",
+        wallet_address="0x334b3732225B105d1764E257CAcc5Bf939fc6a9D",
+        balance=BalanceResult(
+            balance_usdc=Decimal("67.88709"),
+            collateral_allowances={},
+            conditional_allowances_checked=1,
+            conditional_allowance_ready=True,
+            checked_at=now,
+        ),
+        credentials_loaded=True,
+        client_initialized=True,
+        collateral_allowance_ready=True,
+        conditional_allowance_ready=True,
+        network_chain_id=137,
+        checked_at=now,
+    )
+
+    await refresh_gateway_readiness_once(
+        db_session,
+        worker_id="LIVE:test:1",
+        execution_mode="LIVE",
+        gateway=mock_gateway,
+    )
+
+    args = mock_gateway.get_readiness.await_args.kwargs
+    assert len(args["conditional_token_ids"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_readiness_persists_success_with_single_probe(db_session):
+    from polyflip.execution.worker import refresh_gateway_readiness_once
+
+    now = datetime.now(timezone.utc)
+    db_session.add(
+        LiveMarket(
+            market_id="probe_market_1",
+            asset="ETH",
+            question="ETH up?",
+            yes_token_id="probe_yes_token",
+            no_token_id="probe_no_token",
+            end_time_est=now + timedelta(hours=2),
+            current_yes_price=0.5,
+            current_no_price=0.5,
+            current_spread=0.01,
+            last_updated=now,
+        )
+    )
+    db_session.add(
+        ExecutionWorkerStatus(
+            worker_id="LIVE:test:1",
+            execution_mode="LIVE",
+            heartbeat_at=now,
+        )
+    )
+    await db_session.commit()
+
+    mock_gateway = AsyncMock()
+    mock_gateway.get_readiness.return_value = GatewayReadiness(
+        ready=True,
+        gateway="POLYMARKET",
+        wallet_address="0x334b3732225B105d1764E257CAcc5Bf939fc6a9D",
+        balance=BalanceResult(
+            balance_usdc=Decimal("67.88709"),
+            collateral_allowances={},
+            conditional_allowances_checked=1,
+            conditional_allowance_ready=True,
+            checked_at=now,
+        ),
+        credentials_loaded=True,
+        client_initialized=True,
+        collateral_allowance_ready=True,
+        conditional_allowance_ready=True,
+        network_chain_id=137,
+        checked_at=now,
+    )
+
+    await refresh_gateway_readiness_once(
+        db_session,
+        worker_id="LIVE:test:1",
+        execution_mode="LIVE",
+        gateway=mock_gateway,
+    )
+
+    status = await db_session.get(
+        ExecutionWorkerStatus,
+        "LIVE:test:1",
+    )
+
+    assert status.gateway_ready is True
+    assert status.credentials_loaded is True
+    assert round(status.balance_usdc, 5) == Decimal("67.88709")
+    assert status.collateral_allowance_ready is True
+    assert status.conditional_allowance_ready is True
+    assert status.network_chain_id == 137
+    assert status.last_error_code is None
+
