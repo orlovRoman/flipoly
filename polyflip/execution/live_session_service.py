@@ -252,7 +252,7 @@ async def evaluate_live_readiness(
             Decimal(str(session.max_total_exposure_usdc)),
         )
 
-        transport_failure = getattr(ws, 'last_error_code', None) in {
+        transport_failure = getattr(ws, "last_error_code", None) in {
             "READINESS_TIMEOUT",
             "TLS_TRANSPORT_ERROR",
             "NETWORK_TRANSPORT_ERROR",
@@ -260,15 +260,21 @@ async def evaluate_live_readiness(
 
         if transport_failure:
             errors.append(
-                f"Polymarket временно недоступен: "
-                f"{ws.last_error_message}"
+                f"Polymarket временно недоступен: " f"{ws.last_error_message}"
             )
+
+            checks["balance"] = (
+                ws.balance_usdc is not None
+                and Decimal(str(ws.balance_usdc)) >= required_bal
+            )
+            checks["collateral_allowance"] = bool(ws.collateral_allowance_ready)
+            checks["conditional_allowance"] = bool(ws.conditional_allowance_ready)
+
             warnings.append(
-                "Баланс и approvals не удалось перепроверить. "
-                "Показаны последние подтверждённые значения."
+                "Баланс и approvals показаны по последней " "успешной проверке"
             )
         else:
-            if getattr(ws, 'balance_usdc', None) is None:
+            if getattr(ws, "balance_usdc", None) is None:
                 errors.append("Баланс Polymarket пока не получен")
             else:
                 current_bal = Decimal(str(ws.balance_usdc))
@@ -279,12 +285,12 @@ async def evaluate_live_readiness(
                         f"Баланс {current_bal} USDC меньше требуемого предела {required_bal} USDC"
                     )
 
-            if getattr(ws, 'collateral_allowance_ready', False):
+            if getattr(ws, "collateral_allowance_ready", False):
                 checks["collateral_allowance"] = True
             else:
                 errors.append("USDC collateral allowance не подтвержден")
 
-            if getattr(ws, 'conditional_allowance_ready', False):
+            if getattr(ws, "conditional_allowance_ready", False):
                 checks["conditional_allowance"] = True
             else:
                 errors.append(
@@ -385,7 +391,11 @@ def serialize_live_session_dto(
         "remaining_budget_usdc": remaining_val,
         "filled_usdc": filled_val,
         "max_single_order_usdc": float(session.max_single_order_usdc),
-        "order_amount_usdc": float(session.order_amount_usdc) if getattr(session, "order_amount_usdc", None) is not None else None,
+        "order_amount_usdc": (
+            float(session.order_amount_usdc)
+            if getattr(session, "order_amount_usdc", None) is not None
+            else None
+        ),
         "max_total_exposure_usdc": float(session.max_total_exposure_usdc),
         "max_open_positions": session.max_open_positions,
         "started_at": session.started_at.isoformat() if session.started_at else None,

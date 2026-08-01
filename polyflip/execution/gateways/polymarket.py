@@ -112,8 +112,20 @@ class PolymarketExecutionGateway:
 
     async def invalidate_client(self) -> None:
         """Сбрасывает кэшированный клиент при сетевых/SSL ошибках."""
+        import inspect
+
         async with self._client_lock:
+            client = self._client_cache
             self._client_cache = None
+
+        if client is None:
+            return
+
+        close = getattr(client, "close", None)
+        if close:
+            result = close()
+            if inspect.isawaitable(result):
+                await result
 
     async def submit(self, order: GatewayOrder) -> SubmissionResult:
         client = await self.get_client()

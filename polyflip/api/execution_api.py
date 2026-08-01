@@ -419,6 +419,7 @@ async def get_live_trading_requests(
     requests = res.scalars().all()
 
     from polyflip.execution.serializers import serialize_execution_requests
+
     request_dtos = await serialize_execution_requests(db, requests)
 
     return request_dtos
@@ -461,7 +462,9 @@ async def resolve_manual_review(
 
     req = (
         await db.execute(
-            select(ExecutionRequest).where(ExecutionRequest.id == req_uuid).with_for_update()
+            select(ExecutionRequest)
+            .where(ExecutionRequest.id == req_uuid)
+            .with_for_update()
         )
     ).scalar_one_or_none()
 
@@ -511,7 +514,9 @@ async def resolve_manual_review(
         req.updated_at = now
 
     elif body.action == "MARK_FAILED_NO_FILL":
-        from polyflip.execution.manual_review_service import evaluate_no_fill_eligibility
+        from polyflip.execution.manual_review_service import (
+            evaluate_no_fill_eligibility,
+        )
         from polyflip.execution.outbox import finalize_request
 
         eligibility = await evaluate_no_fill_eligibility(db, req)
@@ -576,10 +581,11 @@ class BatchNoFillRequest(BaseModel):
 
 @router.post("/requests/resolve-no-fill-batch")
 async def resolve_no_fill_batch(
-    payload: BatchNoFillRequest,
-    db: AsyncSession = Depends(get_db_session)
+    payload: BatchNoFillRequest, db: AsyncSession = Depends(get_db_session)
 ):
-    from polyflip.execution.manual_review_service import evaluate_no_fill_eligibility_batch
+    from polyflip.execution.manual_review_service import (
+        evaluate_no_fill_eligibility_batch,
+    )
     from polyflip.execution.outbox import finalize_request
     from polyflip.db.execution_models import ExecutionEvent
     from datetime import datetime, timezone
@@ -589,12 +595,16 @@ async def resolve_no_fill_batch(
     now = datetime.now(timezone.utc)
 
     requests = (
-        await db.execute(
-            select(ExecutionRequest)
-            .where(ExecutionRequest.id.in_(payload.request_ids))
-            .with_for_update()
+        (
+            await db.execute(
+                select(ExecutionRequest)
+                .where(ExecutionRequest.id.in_(payload.request_ids))
+                .with_for_update()
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     eligibility_map = await evaluate_no_fill_eligibility_batch(db, requests)
 
@@ -602,10 +612,14 @@ async def resolve_no_fill_batch(
         eligibility = eligibility_map.get(req.id)
 
         if not eligibility or not eligibility.allowed:
-            skipped.append({
-                "request_id": str(req.id),
-                "blockers": list(eligibility.blockers) if eligibility else ["Unknown"],
-            })
+            skipped.append(
+                {
+                    "request_id": str(req.id),
+                    "blockers": (
+                        list(eligibility.blockers) if eligibility else ["Unknown"]
+                    ),
+                }
+            )
             continue
 
         await finalize_request(
@@ -643,7 +657,6 @@ async def resolve_no_fill_batch(
     }
 
 
-
 # ── LIVE Sessions, Readiness & Control Endpoints ──────────────────────────────
 
 from decimal import Decimal
@@ -675,30 +688,29 @@ class CreateLiveSessionRequest(BaseModel):
 
         if self.max_single_order_usdc < LIVE_MIN_GROSS_BUY_USDC:
             raise ValueError(
-                "Максимальная LIVE-ставка должна быть "
-                "не меньше 1.10 USDC"
+                "Максимальная LIVE-ставка должна быть " "не меньше 1.10 USDC"
             )
 
         if self.max_single_order_usdc > self.budget_usdc:
-            raise ValueError(
-                "Максимальная ставка не может превышать бюджет сессии"
-            )
+            raise ValueError("Максимальная ставка не может превышать бюджет сессии")
 
         if self.max_total_exposure_usdc > self.budget_usdc:
-            raise ValueError(
-                "Максимальная экспозиция не может превышать бюджет"
-            )
+            raise ValueError("Максимальная экспозиция не может превышать бюджет")
 
         if not 1 <= self.max_open_positions <= 100:
             raise ValueError("Некорректный лимит открытых позиций")
-            
+
         if self.order_amount_usdc is not None:
             if self.order_amount_usdc < LIVE_MIN_GROSS_BUY_USDC:
                 raise ValueError("Размер LIVE-заявки не может быть меньше 1.10 USDC")
             if self.order_amount_usdc > self.max_single_order_usdc:
-                raise ValueError("Размер LIVE-заявки не может превышать лимит максимальной ставки")
+                raise ValueError(
+                    "Размер LIVE-заявки не может превышать лимит максимальной ставки"
+                )
             if self.order_amount_usdc > self.max_total_exposure_usdc:
-                raise ValueError("Размер LIVE-заявки не может превышать лимит экспозиции")
+                raise ValueError(
+                    "Размер LIVE-заявки не может превышать лимит экспозиции"
+                )
             if self.order_amount_usdc > self.budget_usdc:
                 raise ValueError("Размер LIVE-заявки не может превышать бюджет")
 
@@ -760,7 +772,9 @@ async def update_live_session_limits(
 
     session_obj = (
         await db.execute(
-            select(LiveTradingSession).where(LiveTradingSession.id == sess_uuid).with_for_update()
+            select(LiveTradingSession)
+            .where(LiveTradingSession.id == sess_uuid)
+            .with_for_update()
         )
     ).scalar_one_or_none()
 
@@ -770,51 +784,101 @@ async def update_live_session_limits(
     if session_obj.status not in {"DRAFT", "READY", "STOPPED"}:
         raise HTTPException(
             status_code=409,
-            detail=f"Лимиты нельзя обновлять в состоянии {session_obj.status}"
+            detail=f"Лимиты нельзя обновлять в состоянии {session_obj.status}",
         )
 
-    if payload.budget_usdc is not None:
-        session_obj.budget_usdc = payload.budget_usdc
-    if payload.order_amount_usdc is not None:
-        session_obj.order_amount_usdc = payload.order_amount_usdc
-    if payload.max_single_order_usdc is not None:
-        session_obj.max_single_order_usdc = payload.max_single_order_usdc
-    if payload.max_total_exposure_usdc is not None:
-        session_obj.max_total_exposure_usdc = payload.max_total_exposure_usdc
-    if payload.max_open_positions is not None:
-        session_obj.max_open_positions = payload.max_open_positions
+    new_budget = (
+        payload.budget_usdc
+        if payload.budget_usdc is not None
+        else session_obj.budget_usdc
+    )
+    new_order_amount = (
+        payload.order_amount_usdc
+        if "order_amount_usdc" in payload.model_fields_set
+        else session_obj.order_amount_usdc
+    )
+    new_max_order = (
+        payload.max_single_order_usdc
+        if payload.max_single_order_usdc is not None
+        else session_obj.max_single_order_usdc
+    )
+    new_max_total_exposure = (
+        payload.max_total_exposure_usdc
+        if payload.max_total_exposure_usdc is not None
+        else session_obj.max_total_exposure_usdc
+    )
+    new_max_open_positions = (
+        payload.max_open_positions
+        if payload.max_open_positions is not None
+        else session_obj.max_open_positions
+    )
 
     # Валидируем консистентность обновлённых лимитов
     from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
 
-    if session_obj.max_single_order_usdc < LIVE_MIN_GROSS_BUY_USDC:
-        raise HTTPException(status_code=422, detail="Максимальная ставка должна быть не меньше 1.10 USDC")
-    
-    if session_obj.max_single_order_usdc > session_obj.budget_usdc:
-        raise HTTPException(status_code=422, detail="Максимальная ставка не может превышать бюджет сессии")
-        
-    if session_obj.max_total_exposure_usdc > session_obj.budget_usdc:
-        raise HTTPException(status_code=422, detail="Максимальная экспозиция не может превышать бюджет")
-        
-    if not 1 <= session_obj.max_open_positions <= 100:
-        raise HTTPException(status_code=422, detail="Некорректный лимит открытых позиций")
-        
-    if session_obj.order_amount_usdc is not None:
-        if session_obj.order_amount_usdc < LIVE_MIN_GROSS_BUY_USDC:
-            raise HTTPException(status_code=422, detail="Размер LIVE-заявки не может быть меньше 1.10 USDC")
-        if session_obj.order_amount_usdc > session_obj.max_single_order_usdc:
-            raise HTTPException(status_code=422, detail="Размер LIVE-заявки не может превышать лимит максимальной ставки")
-        if session_obj.order_amount_usdc > session_obj.max_total_exposure_usdc:
-            raise HTTPException(status_code=422, detail="Размер LIVE-заявки не может превышать лимит экспозиции")
-        if session_obj.order_amount_usdc > session_obj.budget_usdc:
-            raise HTTPException(status_code=422, detail="Размер LIVE-заявки не может превышать бюджет")
+    if new_max_order < LIVE_MIN_GROSS_BUY_USDC:
+        raise HTTPException(
+            status_code=422,
+            detail="Максимальная ставка должна быть не меньше 1.10 USDC",
+        )
 
-    if session_obj.status == "READY":
+    if new_max_order > new_budget:
+        raise HTTPException(
+            status_code=422,
+            detail="Максимальная ставка не может превышать бюджет сессии",
+        )
+
+    if new_max_total_exposure > new_budget:
+        raise HTTPException(
+            status_code=422, detail="Максимальная экспозиция не может превышать бюджет"
+        )
+
+    if not 1 <= new_max_open_positions <= 100:
+        raise HTTPException(
+            status_code=422, detail="Некорректный лимит открытых позиций"
+        )
+
+    if new_order_amount is not None:
+        if new_order_amount < LIVE_MIN_GROSS_BUY_USDC:
+            raise HTTPException(
+                status_code=422,
+                detail="Размер LIVE-заявки не может быть меньше 1.10 USDC",
+            )
+        if new_order_amount > new_max_order:
+            raise HTTPException(
+                status_code=422,
+                detail="Размер LIVE-заявки не может превышать лимит максимальной ставки",
+            )
+        if new_order_amount > new_max_total_exposure:
+            raise HTTPException(
+                status_code=422,
+                detail="Размер LIVE-заявки не может превышать лимит экспозиции",
+            )
+        if new_order_amount > new_budget:
+            raise HTTPException(
+                status_code=422, detail="Размер LIVE-заявки не может превышать бюджет"
+            )
+
+    budget_snapshot = await get_session_budget_snapshot(db, session_obj)
+    if new_budget < budget_snapshot.committed_usdc:
+        raise HTTPException(
+            status_code=422,
+            detail="Бюджет нельзя установить ниже уже использованной и зарезервированной суммы",
+        )
+
+    # Присваиваем значения
+    session_obj.budget_usdc = new_budget
+    session_obj.order_amount_usdc = new_order_amount
+    session_obj.max_single_order_usdc = new_max_order
+    session_obj.max_total_exposure_usdc = new_max_total_exposure
+    session_obj.max_open_positions = new_max_open_positions
+
+    if session_obj.status in {"READY", "STOPPED"}:
         session_obj.status = "DRAFT"
 
     await db.commit()
     await db.refresh(session_obj)
-    
+
     budget_snap = await get_session_budget_snapshot(db, session_obj)
     return serialize_live_session_dto(session_obj, budget_snap)
 
@@ -1156,9 +1220,7 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         await db.execute(
             select(LiveTradingSession)
             .where(
-                LiveTradingSession.status.in_(
-                    ["DRAFT", "READY", "ACTIVE", "STOPPED"]
-                )
+                LiveTradingSession.status.in_(["DRAFT", "READY", "ACTIVE", "STOPPED"])
             )
             .order_by(LiveTradingSession.created_at.desc())
             .limit(1)
@@ -1239,6 +1301,7 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         budget_snap = await get_session_budget_snapshot(db, active_session)
 
     from polyflip.execution.serializers import serialize_execution_requests
+
     request_dtos = await serialize_execution_requests(db, requests)
 
     def serialize_positions(pos_list):
@@ -1260,23 +1323,25 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
             for p in pos_list
         ]
 
-
     readiness = None
     if active_session:
         readiness = await evaluate_live_readiness(db, active_session)
 
     status = active_session.status if active_session else None
-    active_pos_count = len([p for p in active_positions if p.position_status not in ("CLOSED", "RESOLVED", "ENTRY_FAILED")])
+    active_pos_count = len(
+        [
+            p
+            for p in active_positions
+            if p.position_status not in ("CLOSED", "RESOLVED", "ENTRY_FAILED")
+        ]
+    )
 
     readiness_ready = bool(readiness and readiness.ready)
 
     if status:
         available_actions = {
             "check_readiness": status in {"DRAFT", "READY", "STOPPED"},
-            "activate": (
-                readiness_ready
-                and status in {"DRAFT", "READY", "STOPPED"}
-            ),
+            "activate": (readiness_ready and status in {"DRAFT", "READY", "STOPPED"}),
             "stop": status == "ACTIVE",
             "close_all": active_pos_count > 0,
             "finish": status in {"DRAFT", "READY", "STOPPED"},
@@ -1285,14 +1350,14 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
             "activate": (
                 None
                 if available_actions["activate"]
-                else "; ".join(readiness.errors or [])
-                if readiness
-                else "Сначала выполните проверку готовности"
+                else (
+                    "; ".join(readiness.errors or [])
+                    if readiness
+                    else "Сначала выполните проверку готовности"
+                )
             ),
             "stop": None if status == "ACTIVE" else "Сессия не активна",
-            "close_all": (
-                None if active_pos_count > 0 else "Нет открытых позиций"
-            ),
+            "close_all": (None if active_pos_count > 0 else "Нет открытых позиций"),
             "finish": None,
             "check_readiness": None,
         }
@@ -1309,12 +1374,16 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
     return {
         "available_actions": available_actions,
         "action_reasons": action_reasons,
-        "readiness": {
-            "ready": readiness.ready,
-            "checks": readiness.checks,
-            "errors": readiness.errors,
-            "warnings": readiness.warnings,
-        } if readiness else None,
+        "readiness": (
+            {
+                "ready": readiness.ready,
+                "checks": readiness.checks,
+                "errors": readiness.errors,
+                "warnings": readiness.warnings,
+            }
+            if readiness
+            else None
+        ),
         "session": (
             serialize_live_session_dto(active_session, budget_snap)
             if active_session

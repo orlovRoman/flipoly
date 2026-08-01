@@ -435,9 +435,7 @@ async def process_ready_requests():
             attempt.status = "FAILED"
             attempt.error_msg = str(e)
             attempt.finished_at = datetime.now(timezone.utc)
-            await finalize_request(
-                session, req, state="REJECTED", error=str(e)
-            )
+            await finalize_request(session, req, state="REJECTED", error=str(e))
             req.updated_at = datetime.now(timezone.utc)
             if req.trade_history_id:
                 await rebuild_trade_accounting(session, req.trade_history_id)
@@ -653,7 +651,10 @@ async def rebuild_trade_accounting(session, trade_id: int):
     # Общий статус
     if open_shares > Decimal("0"):
         trade.status = "SUCCESS"
-        if remaining_shares > Decimal("0") and trade.position_status not in ("PARTIALLY_CLOSED", "CLOSED"):
+        if remaining_shares > Decimal("0") and trade.position_status not in (
+            "PARTIALLY_CLOSED",
+            "CLOSED",
+        ):
             trade.position_status = "OPEN"
     else:
         # Защита от установки OPEN/SUCCESS при zero-fills.
@@ -898,17 +899,21 @@ async def publish_liveness_once(
     dialect_name = await _get_dialect(session)
     insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
-    stmt = insert_func(ExecutionWorkerStatus).values(
-        worker_id=worker_id,
-        execution_mode=execution_mode,
-        heartbeat_at=now,
-        gateway_ready=False,
-    ).on_conflict_do_update(
-        index_elements=["worker_id"],
-        set_={
-            "heartbeat_at": now,
-            "execution_mode": execution_mode,
-        },
+    stmt = (
+        insert_func(ExecutionWorkerStatus)
+        .values(
+            worker_id=worker_id,
+            execution_mode=execution_mode,
+            heartbeat_at=now,
+            gateway_ready=False,
+        )
+        .on_conflict_do_update(
+            index_elements=["worker_id"],
+            set_={
+                "heartbeat_at": now,
+                "execution_mode": execution_mode,
+            },
+        )
     )
 
     await session.execute(stmt)
@@ -949,7 +954,7 @@ async def refresh_gateway_readiness_once(
 
     READINESS_TIMEOUT_SECONDS = 8
     now = datetime.now(timezone.utc)
-    
+
     ws = await session.get(ExecutionWorkerStatus, worker_id)
     if not ws:
         return
@@ -961,7 +966,20 @@ async def refresh_gateway_readiness_once(
         )
 
         if getattr(readiness, "error_message", None):
-            error_code = getattr(readiness, "error_code", None) or classify_readiness_error(Exception(readiness.error_message))
+            error_code = getattr(
+                readiness, "error_code", None
+            ) or classify_readiness_error(Exception(readiness.error_message))
+
+            if error_code in {
+                "TLS_TRANSPORT_ERROR",
+                "NETWORK_TRANSPORT_ERROR",
+                "READINESS_TIMEOUT",
+            }:
+                try:
+                    await gateway.invalidate_client()
+                except AttributeError:
+                    pass
+
             ws.gateway_ready = False
             ws.readiness_checked_at = now
             ws.last_error_code = error_code
@@ -987,16 +1005,20 @@ async def refresh_gateway_readiness_once(
     except Exception as exc:
         if isinstance(exc, asyncio.CancelledError):
             raise
-            
+
         error_code = classify_readiness_error(exc)
-        
+
         # Сбросить клиент при сетевой/SSL ошибке
-        if error_code in {"TLS_TRANSPORT_ERROR", "NETWORK_TRANSPORT_ERROR", "READINESS_TIMEOUT"}:
+        if error_code in {
+            "TLS_TRANSPORT_ERROR",
+            "NETWORK_TRANSPORT_ERROR",
+            "READINESS_TIMEOUT",
+        }:
             try:
                 await gateway.invalidate_client()
             except AttributeError:
                 pass
-                
+
         ws.gateway_ready = False
         ws.readiness_checked_at = now
         ws.last_error_code = error_code
@@ -1035,12 +1057,20 @@ async def execution_worker_loop():
     worker_id = f"{execution_mode}:{socket.gethostname()}:{os.getpid()}"
 
     heartbeat_task = asyncio.create_task(publish_liveness(worker_id, execution_mode))
-    readiness_task = asyncio.create_task(refresh_gateway_readiness(worker_id, execution_mode, gateway))
+    readiness_task = asyncio.create_task(
+        refresh_gateway_readiness(worker_id, execution_mode, gateway)
+    )
 
     try:
         while True:
-            await process_ready_requests()
-            await reconcile_active_requests()
+            try:
+                await process_ready_requests()
+                await reconcile_active_requests()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception("execution_worker_error", error=str(exc))
+
             await asyncio.sleep(1)
     finally:
         heartbeat_task.cancel()
@@ -1066,4 +1096,3 @@ if __name__ == "__main__":
         ]
     )
     asyncio.run(execution_worker_loop())
-
