@@ -700,16 +700,30 @@ class CreateLiveSessionRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_limits(self):
+        from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
+        
         if self.budget_usdc <= 0:
             raise ValueError("Бюджет должен быть больше нуля")
-        if self.max_single_order_usdc <= 0:
-            raise ValueError("Размер ставки должен быть больше нуля")
+
+        if self.max_single_order_usdc < LIVE_MIN_GROSS_BUY_USDC:
+            raise ValueError(
+                "Максимальная LIVE-ставка должна быть "
+                "не меньше 1.10 USDC"
+            )
+
         if self.max_single_order_usdc > self.budget_usdc:
-            raise ValueError("Одна ставка не может превышать бюджет сессии")
+            raise ValueError(
+                "Максимальная ставка не может превышать бюджет сессии"
+            )
+
         if self.max_total_exposure_usdc > self.budget_usdc:
-            raise ValueError("Экспозиция не может превышать бюджет сессии")
+            raise ValueError(
+                "Максимальная экспозиция не может превышать бюджет"
+            )
+
         if not 1 <= self.max_open_positions <= 100:
             raise ValueError("Некорректный лимит открытых позиций")
+
         return self
 
 

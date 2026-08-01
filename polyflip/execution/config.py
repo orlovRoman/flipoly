@@ -1,4 +1,7 @@
+from decimal import Decimal
 from enum import StrEnum
+
+LIVE_MIN_GROSS_BUY_USDC = Decimal("1.10")
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 

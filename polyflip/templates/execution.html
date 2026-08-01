@@ -433,9 +433,14 @@
 
         // Actions
         document.getElementById('btn-create-session').onclick = async () => {
+            const maxOrderUsdc = parseFloat(document.getElementById('input-max-order').value);
+            if (maxOrderUsdc < 1.10) {
+                alert("Минимальная ставка (Max Single Order) для LIVE должна быть не менее 1.10 USDC!");
+                return;
+            }
             const body = {
                 budget_usdc: parseFloat(document.getElementById('input-budget').value),
-                max_single_order_usdc: parseFloat(document.getElementById('input-max-order').value),
+                max_single_order_usdc: maxOrderUsdc,
                 max_open_positions: parseInt(document.getElementById('input-max-positions').value),
                 max_total_exposure_usdc: parseFloat(document.getElementById('input-max-exposure').value)
             };

@@ -542,3 +542,89 @@ async def test_two_release_gates_cannot_exceed_total_exposure(pg_session_factory
     assert released_candidates == 1
     assert len(live_request_ids) == 1
     assert res_sum == Decimal("4.0")
+
+@pytest.mark.asyncio
+async def test_one_dollar_paper_becomes_1_10_live(db_session):
+    """PAPER заявка на 1.00 USDC превращается в LIVE на 1.10 USDC."""
+    from polyflip.execution.release_gate import release_candidate_by_id
+    from polyflip.db.execution_models import LiveTradingSession, ExposureReservation, ExecutionWorkerStatus
+    from polyflip.db.models import RuntimeSettings
+    import uuid
+
+    # Настраиваем окружение
+    now = datetime.now(timezone.utc)
+    db_session.add(
+        RuntimeSettings(
+            key="LIVE_TRADING_ENABLED",
+            value="true",
+            updated_at=now,
+            updated_by="test",
+        )
+    )
+
+    # Добавляем LIVE worker status
+    db_session.add(
+        ExecutionWorkerStatus(
+            worker_id=str(uuid.uuid4()),
+            execution_mode="LIVE",
+            heartbeat_at=now,
+            gateway_ready=True,
+            collateral_allowance_ready=True,
+            conditional_allowance_ready=True,
+            balance_usdc=Decimal("100.0"),
+        )
+    )
+
+    # Создаём сессию
+    session_obj = LiveTradingSession(
+        status="ACTIVE",
+        budget_usdc=Decimal("10.0"),
+        max_single_order_usdc=Decimal("1.10"),
+        max_open_positions=5,
+        max_total_exposure_usdc=Decimal("10.0"),
+        reserved_usdc=Decimal("0"),
+        filled_usdc=Decimal("0"),
+    )
+    db_session.add(session_obj)
+    await db_session.commit()
+
+    # PAPER-заявка и сделка
+    trade = await _make_paper_trade(db_session)
+    req = await _make_paper_request(db_session, trade, amount_usdc=Decimal("1.00"))
+    
+    # обновляем таймстемпы, чтобы не было ошибки Signal is too old
+    trade.created_at = now
+    req.created_at = now
+    req.updated_at = now
+    await db_session.commit()
+
+    candidate = await _make_candidate(
+        db_session, req, trade, state="ELIGIBLE", target_mode="LIVE"
+    )
+
+    # Релизим
+    success = await release_candidate_by_id(db_session, candidate.id, "LIVE")
+    assert success is True
+
+    await db_session.refresh(candidate)
+    assert candidate.state == "RELEASED"
+
+    # Проверяем LIVE-заявку и резерв
+    live_req = await db_session.get(ExecutionRequest, candidate.released_request_id)
+    live_trade = await db_session.get(TradeHistory, candidate.released_trade_id)
+    reservation = await db_session.scalar(
+        select(ExposureReservation).where(
+            ExposureReservation.request_id == live_req.id
+        )
+    )
+
+    # Проверки по заданию
+    assert Decimal(str(round(live_req.target_amount_usdc, 2))) == Decimal("1.10")
+    assert Decimal(str(round(live_req.max_spend_usdc, 2))) == Decimal("1.10")
+    assert Decimal(str(round(live_trade.amount_usdc, 2))) == Decimal("1.10")
+    assert Decimal(str(round(reservation.amount_usdc, 2))) == Decimal("1.10")
+
+    # PAPER не изменён
+    await db_session.refresh(req)
+    assert req.target_amount_usdc == Decimal("1.00")
+

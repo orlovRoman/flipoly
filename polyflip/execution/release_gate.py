@@ -55,8 +55,39 @@ from polyflip.execution.live_mirror_worker import (
     _compute_hash,
 )
 from polyflip.execution.risk_checks import check_risk_limits
+from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
+from polyflip.db.execution_models import LiveTradingSession
 
 logger = logging.getLogger("release_gate")
+
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class LiveReleasePlan:
+    order_amount_usdc: Decimal
+    max_spend_usdc: Decimal
+    session: LiveTradingSession | None
+
+def calculate_live_order_amount(
+    paper_request: ExecutionRequest,
+    session: LiveTradingSession,
+) -> Decimal:
+    from polyflip.execution.live_session_service import get_max_order_cost
+    source_amount = get_max_order_cost(paper_request)
+
+    live_amount = max(
+        source_amount,
+        LIVE_MIN_GROSS_BUY_USDC,
+    )
+
+    if live_amount > Decimal(str(session.max_single_order_usdc)):
+        raise ReleaseDeferred(
+            f"LIVE-сумма {live_amount} USDC превышает лимит "
+            f"сессии {session.max_single_order_usdc} USDC"
+        )
+
+    return live_amount
+
 
 # ── Настройки ────────────────────────────────────────────────────────────────
 
@@ -250,7 +281,7 @@ async def _release_one_locked(
 
     # 2. Валидация выпуска
     try:
-        live_amount = await validate_live_release(
+        release_plan = await validate_live_release(
             session, candidate, paper_request, paper_trade, target_mode
         )
     except ReleaseDeferred as e:
@@ -264,21 +295,12 @@ async def _release_one_locked(
         return False
 
     # 3. Достаем активную LIVE-сессию для связки (если target_mode == LIVE)
-    active_session = None
-    if target_mode == "LIVE":
-        from polyflip.db.execution_models import LiveTradingSession
-
-        active_session = (
-            await session.execute(
-                select(LiveTradingSession)
-                .where(LiveTradingSession.status == "ACTIVE")
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+    active_session = release_plan.session if isinstance(release_plan, LiveReleasePlan) else None
 
     # 4. Создаём LIVE-строки
     live_trade = _build_live_trade(
-        candidate, paper_trade, now, target_mode, live_amount
+        candidate, paper_trade, now, target_mode, 
+        order_amount_usdc=release_plan.order_amount_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan
     )
     if active_session:
         live_trade.live_session_id = active_session.id
@@ -286,7 +308,9 @@ async def _release_one_locked(
     await session.flush()
 
     live_request = _build_live_request(
-        candidate, paper_request, live_trade, now, target_mode, live_amount
+        candidate, paper_request, live_trade, now, target_mode, 
+        order_amount_usdc=release_plan.order_amount_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan,
+        max_spend_usdc=release_plan.max_spend_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan
     )
     if active_session:
         live_request.live_session_id = active_session.id
@@ -294,7 +318,7 @@ async def _release_one_locked(
     await session.flush()
 
     # 5. Резервируем экспозицию (ExposureReservation) и бюджет сессии
-    exposure_amount = live_amount
+    exposure_amount = release_plan.max_spend_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan
     exposure_res = ExposureReservation(
         id=uuid.uuid4(),
         request_id=live_request.id,
@@ -333,7 +357,7 @@ async def validate_live_release(
     paper_request: ExecutionRequest,
     paper_trade: TradeHistory,
     target_mode: str,
-) -> Decimal:
+) -> LiveReleasePlan | Decimal:
     """
     Проверяет, можно ли сейчас выпустить кандидата в LIVE-исполнение (или SHADOW).
     Возвращает live_amount (Decimal), который нужно использовать для создания заявок.
@@ -422,18 +446,8 @@ async def validate_live_release(
             raise ReleaseDeferred("No active LIVE trading session")
 
         # 5.2 Проверка стоимости ордера max(target_amount_usdc, max_spend_usdc)
-        LIVE_MIN_MARKETABLE_BUY_USDC = Decimal("1.10")
-        source_amount = get_max_order_cost(paper_request)
-        live_amount = max(source_amount, LIVE_MIN_MARKETABLE_BUY_USDC)
+        live_amount = calculate_live_order_amount(paper_request, active_session)
         order_amount = live_amount
-
-        # Лимит единичной ставки
-        if live_amount > Decimal(str(active_session.max_single_order_usdc)):
-            raise ReleaseDeferred(
-                "Order amount "
-                f"{live_amount} exceeds single-order limit "
-                f"{active_session.max_single_order_usdc}"
-            )
 
         # Лимит бюджета сессии через SessionBudgetSnapshot
         from polyflip.execution.live_session_service import get_session_budget_snapshot
@@ -508,11 +522,18 @@ async def validate_live_release(
     risk_error = await check_risk_limits(
         session,
         intent="OPEN",
-        max_spend_usdc=Decimal(str(paper_request.target_amount_usdc)),
+        max_spend_usdc=order_amount,
         requested_mode=target_mode,
     )
     if risk_error:
         raise ReleaseRejected(f"Risk check failed: {risk_error}")
+
+    if target_mode == "LIVE":
+        return LiveReleasePlan(
+            order_amount_usdc=order_amount,
+            max_spend_usdc=order_amount,
+            session=active_session,
+        )
 
     return order_amount
 
@@ -522,7 +543,7 @@ def _build_live_trade(
     paper_trade: TradeHistory,
     now: datetime,
     target_mode: str,
-    live_amount: Decimal,
+    order_amount_usdc: Decimal,
 ) -> TradeHistory:
     """
     Создаёт новый TradeHistory(mode=target_mode) на основе PAPER-снимка.
@@ -531,7 +552,7 @@ def _build_live_trade(
         market_id=paper_trade.market_id,
         asset=paper_trade.asset,
         outcome_bought=paper_trade.outcome_bought,
-        amount_usdc=live_amount,
+        amount_usdc=order_amount_usdc,
         executed_price=0.0,  # заполняется средней ценой после fill
         predicted_flip_prob=paper_trade.predicted_flip_prob,
         active_features=paper_trade.active_features,
@@ -571,7 +592,8 @@ def _build_live_request(
     live_trade: TradeHistory,
     now: datetime,
     target_mode: str,
-    live_amount: Decimal,
+    order_amount_usdc: Decimal,
+    max_spend_usdc: Decimal,
 ) -> ExecutionRequest:
     """
     Создаёт новый ExecutionRequest(requested_mode=target_mode, state='READY').
@@ -590,11 +612,11 @@ def _build_live_request(
         market_id=paper_request.market_id,
         asset=paper_request.asset,
         outcome_to_buy=paper_request.outcome_to_buy,
-        target_amount_usdc=live_amount,
-        requested_shares=paper_request.requested_shares,
+        target_amount_usdc=order_amount_usdc,
+        requested_shares=None,
         limit_price=paper_request.limit_price,
         max_slippage_pct=paper_request.max_slippage_pct,
-        max_spend_usdc=live_amount,
+        max_spend_usdc=max_spend_usdc,
         ttl_seconds=ttl_seconds,
         expires_at=expires_at,
         state="READY",

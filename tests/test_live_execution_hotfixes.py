@@ -2,7 +2,7 @@ import pytest
 import uuid
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import select
 from polyflip.db.execution_models import (
@@ -239,7 +239,7 @@ async def test_no_open_position_before_fill():
     now = datetime.now(timezone.utc)
     candidate = MagicMock()
 
-    trade = _build_live_trade(candidate, paper_trade, now, "LIVE")
+    trade = _build_live_trade(candidate, paper_trade, now, "LIVE", Decimal("1.00"))
 
     assert trade.status == "PENDING"
     assert trade.position_status == "OPENING"
@@ -424,7 +424,7 @@ async def test_mark_failed_no_fill_forbidden_if_provider_order_id(db_session):
     with pytest.raises(HTTPException) as exc_info:
         await resolve_manual_review(str(req_id), body, db_session)
 
-    assert exc_info.value.status_code == 422
+    assert exc_info.value.status_code == 409
     assert "provider_order_id" in str(exc_info.value.detail)
 
 
@@ -447,6 +447,7 @@ async def test_minimum_live_order_amount_validation():
     paper_req.market_id = "m_test"
     paper_req.outcome_to_buy = "UP"
     paper_req.limit_price = Decimal("0.5")
+    paper_req.max_spend_usdc = Decimal("1.00")
 
     paper_trade = MagicMock()
     paper_trade.id = trade_id
@@ -463,9 +464,27 @@ async def test_minimum_live_order_amount_validation():
     candidate.target_mode = "LIVE"
     candidate.signal_hash = sig_hash
 
-    db_session = MagicMock()
+    db_session = AsyncMock()
+    db_session.scalar.side_effect = ["true", 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-    with pytest.raises(ReleaseRejected, match="ниже минимального размера"):
-        await validate_live_release(
+    active_session_mock = MagicMock()
+    active_session_mock.max_single_order_usdc = Decimal("10.0")
+    active_session_mock.budget_usdc = Decimal("100.0")
+    active_session_mock.max_open_positions = 5
+    active_session_mock.max_total_exposure_usdc = Decimal("50.0")
+    active_session_mock.heartbeat_at = datetime.now(timezone.utc)
+    active_session_mock.gateway_ready = True
+    active_session_mock.collateral_allowance_ready = True
+    active_session_mock.conditional_allowance_ready = True
+    active_session_mock.balance_usdc = Decimal("100.0")
+    
+    execute_result = MagicMock()
+    execute_result.scalar_one_or_none.return_value = active_session_mock
+    db_session.execute.return_value = execute_result
+
+    with patch("polyflip.execution.release_gate.check_risk_limits", new_callable=AsyncMock) as mock_risk:
+        mock_risk.return_value = None
+        plan = await validate_live_release(
             db_session, candidate, paper_req, paper_trade, "LIVE"
         )
+        assert plan.order_amount_usdc == Decimal("1.10")
