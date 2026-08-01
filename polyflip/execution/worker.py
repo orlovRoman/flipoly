@@ -23,6 +23,10 @@ from polyflip.db.models import LiveMarket, TradeHistory
 from polyflip.execution.config import ExecutionSettings
 from polyflip.execution.gateways.factory import build_execution_gateway
 from polyflip.execution.contracts import GatewayOrder, GatewayUnavailable
+from polyflip.execution.gateways.exceptions import (
+    GatewayOrderRejected,
+    GatewaySubmissionUnknown,
+)
 from polyflip.execution.outbox import finalize_request
 from polyflip.execution.states import (
     RECONCILABLE_REQUEST_STATES,
@@ -119,6 +123,7 @@ async def _finish_submit_exception(
     attempt_no: int,
     requested_mode: str,
     error: str,
+    is_deterministic_rejection: bool = False,
 ) -> None:
     """
     Восстанавливает сессию после любой ошибки submit/persist/accounting.
@@ -126,7 +131,8 @@ async def _finish_submit_exception(
     SQL-ошибка переводит транзакцию SQLAlchemy в failed state. Поэтому перед
     изменением ExecutionRequest обязателен rollback и повторная загрузка строк.
     PAPER можно безопасно повторить: Fake gateway не создаёт внешнего ордера.
-    LIVE/SHADOW требуют ручной проверки, поскольку внешний результат неизвестен.
+    LIVE/SHADOW детерминированно отклоняются при is_deterministic_rejection=True.
+    В противном случае требуют ручной проверки (MANUAL_REVIEW_REQUIRED).
     """
     await session.rollback()
 
@@ -148,7 +154,7 @@ async def _finish_submit_exception(
         attempt.error_msg = error[:2000]
         attempt.finished_at = now
 
-    if requested_mode == "PAPER" and attempt_no < 3:
+    if requested_mode == "PAPER" and attempt_no < 3 and not is_deterministic_rejection:
         req.state = "READY"
         req.claimed_by = None
         req.claimed_at = None
@@ -158,7 +164,9 @@ async def _finish_submit_exception(
         req.updated_at = now
     else:
         terminal_state = (
-            "REJECTED" if requested_mode == "PAPER" else "MANUAL_REVIEW_REQUIRED"
+            "REJECTED"
+            if (is_deterministic_rejection or requested_mode == "PAPER")
+            else "MANUAL_REVIEW_REQUIRED"
         )
         await finalize_request(
             session,
@@ -419,9 +427,9 @@ async def process_ready_requests():
 
             await session.commit()
 
-        except GatewayUnavailable as e:
+        except GatewayOrderRejected as e:
             logger.warning(
-                "gateway_unavailable_submit", error=str(e), attempt_id=str(attempt_id)
+                "gateway_order_rejected", error=str(e), attempt_id=str(attempt_id)
             )
             await _finish_submit_exception(
                 session,
@@ -429,7 +437,22 @@ async def process_ready_requests():
                 attempt_id=attempt_id,
                 attempt_no=attempt_no,
                 requested_mode=requested_mode,
-                error=f"Gateway unavailable: {e}",
+                error=f"Order rejected: {e}",
+                is_deterministic_rejection=True,
+            )
+
+        except (GatewaySubmissionUnknown, GatewayUnavailable) as e:
+            logger.warning(
+                "gateway_submission_unknown", error=str(e), attempt_id=str(attempt_id)
+            )
+            await _finish_submit_exception(
+                session,
+                request_id=request_id,
+                attempt_id=attempt_id,
+                attempt_no=attempt_no,
+                requested_mode=requested_mode,
+                error=f"Submission unknown: {e}",
+                is_deterministic_rejection=False,
             )
 
         except Exception as e:
@@ -443,6 +466,7 @@ async def process_ready_requests():
                 attempt_no=attempt_no,
                 requested_mode=requested_mode,
                 error=str(e),
+                is_deterministic_rejection=False,
             )
 
 

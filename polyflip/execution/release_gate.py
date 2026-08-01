@@ -384,6 +384,17 @@ async def validate_live_release(
         if end_time <= now or (end_time - now).total_seconds() < 120:
             raise ReleaseRejected("Market is closed or ending soon (< 120s)")
 
+    # 4.1 Проверка минимального размера ордера
+    order_amount = Decimal(str(paper_request.target_amount_usdc or 0))
+    if order_amount < Decimal("1.00"):
+        raise ReleaseRejected(
+            f"Сумма ордера {order_amount} USDC ниже минимальной суммы Polymarket 1.00 USDC"
+        )
+    if target_mode == "LIVE" and order_amount < Decimal("1.10"):
+        raise ReleaseRejected(
+            f"Эффективная сумма LIVE BUY {order_amount} USDC ниже минимального размера с учетом спреда ($1.10 USDC)"
+        )
+
     # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance, session)
     if target_mode == "LIVE":
         live_enabled = await session.scalar(
@@ -518,11 +529,11 @@ def _build_live_trade(
         asset=paper_trade.asset,
         outcome_bought=paper_trade.outcome_bought,
         amount_usdc=paper_trade.amount_usdc,
-        executed_price=0.0,  # заполняется после fill
+        executed_price=0.0,  # заполняется средней ценой после fill
         predicted_flip_prob=paper_trade.predicted_flip_prob,
         active_features=paper_trade.active_features,
         model_version=paper_trade.model_version,
-        status="SUCCESS",
+        status="PENDING",
         mode=target_mode,
         edge=paper_trade.edge,
         market_role=paper_trade.market_role,
@@ -534,7 +545,10 @@ def _build_live_trade(
         take_profit_enabled=paper_trade.take_profit_enabled,
         take_profit_multiplier=paper_trade.take_profit_multiplier,
         take_profit_price=paper_trade.take_profit_price,
-        position_status="OPEN",
+        position_status="OPENING",
+        entry_filled_shares=Decimal("0"),
+        entry_cost_usdc=Decimal("0"),
+        remaining_shares=Decimal("0"),
         position_accounting_version=0,  # инициализируется после FILLED
         model_key=paper_trade.model_key,
         confirm_model_key=paper_trade.confirm_model_key,

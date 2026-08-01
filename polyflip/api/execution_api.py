@@ -475,9 +475,14 @@ async def resolve_manual_review(
     """
     now = datetime.now(timezone.utc)
 
+    try:
+        req_uuid = uuid.UUID(request_id) if isinstance(request_id, str) else request_id
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid request UUID format")
+
     req = (
         await db.execute(
-            select(ExecutionRequest).where(ExecutionRequest.id == request_id)
+            select(ExecutionRequest).where(ExecutionRequest.id == req_uuid)
         )
     ).scalar_one_or_none()
 
@@ -520,8 +525,34 @@ async def resolve_manual_review(
         req.updated_at = now
 
     elif body.action == "MARK_FAILED_NO_FILL":
-        req.state = "FAILED"
-        req.error_reason = f"Manually marked as failed by {body.operator}: {body.note}"
+        from polyflip.db.execution_models import ExecutionAttempt
+        from polyflip.execution.outbox import finalize_request
+
+        last_attempt = (
+            await db.execute(
+                select(ExecutionAttempt)
+                .where(ExecutionAttempt.request_id == req.id)
+                .order_by(ExecutionAttempt.started_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if last_attempt and last_attempt.provider_order_id:
+            raise HTTPException(
+                status_code=422,
+                detail="У попытки есть provider_order_id: сначала выполните reconciliation",
+            )
+
+        await finalize_request(
+            db,
+            req,
+            state="MANUAL_REVIEW_FAILED",
+            error=(
+                f"Confirmed no fill by {body.operator}: "
+                f"{body.note or 'provider order absent'}"
+            ),
+        )
+
     db.add(
         ExecutionEvent(
             level="INFO",

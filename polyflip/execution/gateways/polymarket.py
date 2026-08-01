@@ -20,6 +20,10 @@ from polyflip.execution.contracts import (
     GatewayReadiness,
     BalanceResult,
 )
+from polyflip.execution.gateways.exceptions import (
+    GatewayOrderRejected,
+    GatewaySubmissionUnknown,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -165,9 +169,39 @@ class PolymarketExecutionGateway:
                 transaction_hashes=transaction_hashes,
             )
 
+        except (GatewayOrderRejected, GatewaySubmissionUnknown, GatewayUnavailable):
+            raise
         except Exception as e:
-            logger.error("polymarket_submit_error", error=str(e))
-            raise GatewayUnavailable(f"Transport/Network error during submit: {e}")
+            err_msg = str(e)
+            logger.error("polymarket_submit_error", error=err_msg)
+            err_lower = err_msg.lower()
+
+            rejection_keywords = [
+                "invalid amount",
+                "min size",
+                "validation error",
+                "insufficient funds",
+                "invalid price",
+                "order size too small",
+                "bad request",
+                "below minimum",
+            ]
+            if any(kw in err_lower for kw in rejection_keywords):
+                raise GatewayOrderRejected(f"Order rejected by Polymarket: {e}")
+            elif any(
+                kw in err_lower
+                for kw in [
+                    "connectionterminated",
+                    "timeout",
+                    "connecterror",
+                    "connection reset",
+                ]
+            ):
+                raise GatewaySubmissionUnknown(
+                    f"Submission unknown due to network error: {e}"
+                )
+            else:
+                raise GatewayUnavailable(f"Transport/Network error during submit: {e}")
 
     async def get_order(self, provider_order_id: str) -> SubmissionResult:
         client = await self.get_client()

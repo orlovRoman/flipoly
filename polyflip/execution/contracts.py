@@ -119,3 +119,11 @@ class ExecutionGateway(Protocol):
     ) -> GatewayReadiness:
         """Get the current readiness status of the gateway."""
         ...
+
+
+from polyflip.execution.gateways.exceptions import (
+    GatewayError,
+    GatewayUnavailable,
+    GatewayOrderRejected,
+    GatewaySubmissionUnknown,
+)

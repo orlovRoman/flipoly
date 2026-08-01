@@ -213,7 +213,8 @@ async def test_release_creates_live_trade_and_request(db_session):
 
     assert live_trade is not None
     assert live_trade.mode == "SHADOW"
-    assert live_trade.position_status == "OPEN"
+    assert live_trade.position_status == "OPENING"
+    assert live_trade.status == "PENDING"
     assert live_trade.source_paper_trade_id == trade.id
 
     assert live_req is not None

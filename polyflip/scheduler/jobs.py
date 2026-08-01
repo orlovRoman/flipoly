@@ -216,9 +216,11 @@ async def resolve_trades_job():
             # Также находим LIVE-позиции для перевода в RESOLVED_REDEEMABLE
             live_stmt = select(TradeHistory).where(
                 and_(
-                    TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
-                    TradeHistory.status.in_(["SUCCESS"]),
                     TradeHistory.mode == "LIVE",
+                    TradeHistory.position_status.in_(["OPEN", "PARTIALLY_CLOSED"]),
+                    TradeHistory.status.in_(["SUCCESS"]),
+                    TradeHistory.entry_filled_shares > 0,
+                    TradeHistory.remaining_shares > 0,
                 )
             )
             live_trades = (await session.execute(live_stmt)).scalars().all()
@@ -277,6 +279,12 @@ async def resolve_trades_job():
             for t in live_trades:
                 raw_outcome = market_outcomes.get(t.market_id)
                 if not raw_outcome:
+                    continue
+                if Decimal(str(t.entry_filled_shares or 0)) <= 0:
+                    logger.error(
+                        "resolver_skipped_zero_fill_trade",
+                        trade_id=t.id,
+                    )
                     continue
                 if t.position_status not in ("RESOLVED_REDEEMABLE",):
                     t.position_status = "RESOLVED_REDEEMABLE"
