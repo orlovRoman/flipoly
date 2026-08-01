@@ -710,10 +710,10 @@ async def reconcile_active_requests():
             if time_in_reconciling > MAX_RECONCILIATION_AGE_SEC:
                 logger.warning("request_timed_out_in_unknown", request_id=str(req.id))
                 if attempt:
-                    attempt.status = "FAILED"
+                    attempt.status = "UNKNOWN"
                     attempt.error_msg = (
-                        f"Timed out after {MAX_RECONCILIATION_AGE_SEC}s "
-                        "in unknown state"
+                        "Automatic reconciliation timed out; "
+                        "provider evidence remains unresolved"
                     )
                 await finalize_request(
                     session,
@@ -762,15 +762,74 @@ async def reconcile_active_requests():
             gateway = build_execution_gateway(settings)
 
             try:
+                market = await session.scalar(
+                    select(LiveMarket).where(
+                        LiveMarket.market_id == req.market_id
+                    )
+                )
+                token_id = (
+                    market.yes_token_id
+                    if market and req.outcome_to_buy == "YES"
+                    else market.no_token_id if market else ""
+                )
+
+                fills = await gateway.fetch_order_fills(
+                    attempt.provider_order_id,
+                    token_id,
+                )
+                if fills:
+                    await _persist_fills(session, attempt, fills)
+
+                    filled_shares = sum(
+                        (fill.shares for fill in fills),
+                        Decimal("0"),
+                    )
+                    filled_cost = sum(
+                        (fill.gross_quote_usdc for fill in fills),
+                        Decimal("0"),
+                    )
+                    req.filled_shares = filled_shares
+                    req.filled_cost_usdc = filled_cost
+                    attempt.status = "SUCCESS"
+                    attempt.provider_status = "MATCHED"
+                    attempt.provider_trade_ids = [
+                        fill.provider_trade_id for fill in fills
+                    ]
+                    attempt.transaction_hashes = list(
+                        {fill.transaction_hash for fill in fills if fill.transaction_hash}
+                    )
+                    attempt.settlement_state = "CONFIRMED"
+                    attempt.finished_at = now
+
+                    if filled_shares < (req.requested_shares or Decimal("0")):
+                        await finalize_request(session, req, state="PARTIALLY_FILLED_FINAL")
+                    else:
+                        await finalize_request(session, req, state="FILLED")
+
+                    if req.trade_history_id:
+                        await rebuild_trade_accounting(
+                            session,
+                            req.trade_history_id,
+                        )
+
+                    await session.commit()
+                    continue
+
                 sub_res = await gateway.get_order(attempt.provider_order_id)
                 attempt.provider_status = sub_res.provider_status
                 if sub_res.settlement_state:
                     attempt.settlement_state = sub_res.settlement_state
 
-                # Статусы, при которых ордер ещё не финализирован
                 PENDING_ORDER_STATUSES = frozenset(
-                    {"MATCHED", "ACCEPTED", "UNKNOWN", "PENDING", "LIVE", "DELAYED"}
+                    {"ACCEPTED", "UNKNOWN", "PENDING", "LIVE", "DELAYED"}
                 )
+
+                if sub_res.provider_status.upper() == "MATCHED":
+                    attempt.status = "UNKNOWN"
+                    attempt.provider_status = "MATCHED"
+                    req.state = "RECONCILING"
+                    await session.commit()
+                    continue
 
                 if (
                     sub_res.provider_status.upper() in PENDING_ORDER_STATUSES
@@ -782,56 +841,18 @@ async def reconcile_active_requests():
                         provider_status=sub_res.provider_status,
                     )
                     req.state = "RECONCILING"
-                    # НЕ обновляем req.updated_at — таймер отсчитывается
-                    # с момента перехода в RECONCILING, а не с последнего poll.
                     await session.commit()
                     continue
 
                 if sub_res.settlement_state == "CONFIRMED":
-                    market_stmt = select(LiveMarket).where(
-                        LiveMarket.market_id == req.market_id
+                    logger.info(
+                        "reconcile_confirmed_no_fills_waiting",
+                        request_id=str(req.id),
                     )
-                    market = (await session.execute(market_stmt)).scalar_one_or_none()
-                    token_id = (
-                        market.yes_token_id
-                        if market and req.outcome_to_buy == "YES"
-                        else (market.no_token_id if market else "")
-                    )
-
-                    fills = await gateway.fetch_order_fills(
-                        attempt.provider_order_id, token_id
-                    )
-                    if len(fills) == 0:
-                        logger.info(
-                            "reconcile_confirmed_no_fills_waiting",
-                            request_id=str(req.id),
-                        )
-                        req.state = "RECONCILING"
-                        req.updated_at = now
-                        await session.commit()
-                        continue
-
-                    attempt.status = "SUCCESS"
-                    filled_shares = sum((fill.shares for fill in fills), Decimal("0"))
-                    filled_quote = sum(
-                        (fill.gross_quote_usdc for fill in fills), Decimal("0")
-                    )
-                    req.filled_shares = filled_shares
-                    req.filled_cost_usdc = filled_quote
-
-                    await _persist_fills(session, attempt, fills)
-
-                    if filled_shares < (req.requested_shares or Decimal("0")):
-                        await finalize_request(
-                            session, req, state="PARTIALLY_FILLED_FINAL"
-                        )
-                    else:
-                        await finalize_request(session, req, state="FILLED")
-
-                    if req.trade_history_id:
-                        await rebuild_trade_accounting(session, req.trade_history_id)
-
+                    req.state = "RECONCILING"
+                    req.updated_at = now
                     await session.commit()
+                    continue
 
                 elif sub_res.settlement_state in (
                     "FAILED",

@@ -72,6 +72,7 @@ class TradeExecution(BaseModel):
     shares: Decimal
     fee_usdc: Decimal
     matched_at: datetime
+    transaction_hash: str | None = None
 
 
 class SubmissionResult(BaseModel):

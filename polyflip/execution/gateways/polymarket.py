@@ -224,7 +224,7 @@ class PolymarketExecutionGateway:
 
             if any(marker in err_lower for marker in fak_no_liquidity_markers):
                 raise GatewayOrderRejected(
-                    "NO_LIQUIDITY_FAK: В стакане отсутствовала подходящая ликвидность"
+                    "NO_LIQUIDITY_FAK: FAK-заявка не нашла встречной ликвидности и не была исполнена"
                 ) from e
 
             if any(keyword in err_lower for keyword in rejection_keywords):
@@ -380,6 +380,7 @@ class PolymarketExecutionGateway:
                             shares=size,
                             fee_usdc=fee,
                             matched_at=trade.matched_at,
+                            transaction_hash=getattr(trade, "transaction_hash", None),
                         )
                     )
         except Exception as e:
