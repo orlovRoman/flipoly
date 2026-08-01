@@ -10,6 +10,7 @@ from polyflip.settings_registry import editable_keys
 
 logger = structlog.get_logger(__name__)
 
+
 class PresetService:
 
     @staticmethod
@@ -82,17 +83,24 @@ class PresetService:
                     changed += 1
                     updated_params[key] = str(value)
             else:
-                db.add(RuntimeSettings(
-                    key=key,
-                    value=str(value),
-                    updated_at=now,
-                    updated_by=f"preset_restore:{preset_id}:{restored_by}",
-                ))
+                db.add(
+                    RuntimeSettings(
+                        key=key,
+                        value=str(value),
+                        updated_at=now,
+                        updated_by=f"preset_restore:{preset_id}:{restored_by}",
+                    )
+                )
                 changed += 1
                 updated_params[key] = str(value)
 
         await db.commit()
-        logger.info("preset_restored", id=preset_id, changed_keys=changed, restored_by=restored_by)
+        logger.info(
+            "preset_restored",
+            id=preset_id,
+            changed_keys=changed,
+            restored_by=restored_by,
+        )
         return changed, updated_params
 
     @staticmethod
@@ -112,12 +120,16 @@ class PresetService:
         now = datetime.now(timezone.utc)
 
         # 1. Получаем существующие ATH-пресеты
-        q = select(ConfigPreset).where(
-            and_(
-                ConfigPreset.preset_type.in_(["ath_capital", "ath_pnl"]),
-                ConfigPreset.is_active == True,  # noqa: E712
+        q = (
+            select(ConfigPreset)
+            .where(
+                and_(
+                    ConfigPreset.preset_type.in_(["ath_capital", "ath_pnl"]),
+                    ConfigPreset.is_active == True,  # noqa: E712
+                )
             )
-        ).order_by(ConfigPreset.created_at.desc())
+            .order_by(ConfigPreset.created_at.desc())
+        )
         ath_presets = (await db.execute(q)).scalars().all()
 
         # 2. Проверка 1-часового интервала от последнего ATH
@@ -127,11 +139,13 @@ class PresetService:
                 return None
 
         # 3. Вычисляем текущие максимумы
-        prev_max_capital = max((p.capital_at_save or 0.0 for p in ath_presets), default=0.0)
-        prev_max_pnl     = max((p.pnl_at_save     or 0.0 for p in ath_presets), default=0.0)
+        prev_max_capital = max(
+            (p.capital_at_save or 0.0 for p in ath_presets), default=0.0
+        )
+        prev_max_pnl = max((p.pnl_at_save or 0.0 for p in ath_presets), default=0.0)
 
         is_capital_ath = (current_capital - prev_max_capital) >= min_pnl_diff
-        is_pnl_ath     = (current_pnl - prev_max_pnl) >= min_pnl_diff
+        is_pnl_ath = (current_pnl - prev_max_pnl) >= min_pnl_diff
 
         if not (is_capital_ath or is_pnl_ath):
             return None

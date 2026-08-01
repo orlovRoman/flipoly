@@ -11,6 +11,7 @@ from polyflip.trading.decision_logic import TradeDecision
 from polyflip.trading.pre_trade_validator import PreTradeValidation
 from polyflip.execution.config import ExecutionSettings, ExecutionMode
 
+
 @pytest.mark.asyncio
 async def test_trade_recorder_creates_execution_request(db_session):
     # Setup
@@ -24,19 +25,36 @@ async def test_trade_recorder_creates_execution_request(db_session):
         current_yes_price=0.5,
         current_no_price=0.5,
         current_spread=0.01,
-        last_updated=datetime.now(timezone.utc)
+        last_updated=datetime.now(timezone.utc),
     )
     db_session.add(market)
     await db_session.commit()
 
-    decision = TradeDecision(action="BUY_YES", p_up=0.6, strike=0.5, strategy_type="ML", buy_price=0.5, bet_size_usdc=10.0, reason="test")
-    validation = PreTradeValidation(valid=True, buy_price=0.5, actual_bet_size=10.0, edge=0.1, skip_reason=None, market_role="FAVORITE")
+    decision = TradeDecision(
+        action="BUY_YES",
+        p_up=0.6,
+        strike=0.5,
+        strategy_type="ML",
+        buy_price=0.5,
+        bet_size_usdc=10.0,
+        reason="test",
+    )
+    validation = PreTradeValidation(
+        valid=True,
+        buy_price=0.5,
+        actual_bet_size=10.0,
+        edge=0.1,
+        skip_reason=None,
+        market_role="FAVORITE",
+    )
     from unittest.mock import MagicMock
+
     cfg = MagicMock()
     cfg.stop_loss_enabled = False
     cfg.take_profit_enabled = False
 
     import os
+
     os.environ["EXECUTION_MODE"] = "PAPER"
 
     # Execution
@@ -51,22 +69,28 @@ async def test_trade_recorder_creates_execution_request(db_session):
         model_ver=1,
         cfg=cfg,
         existing_skipped=None,
-        start_time=datetime.now(timezone.utc)
+        start_time=datetime.now(timezone.utc),
     )
 
     # Verification
     # Check that TradeHistory is created
-    result_trade = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "test_market_outbox"))
+    result_trade = await db_session.execute(
+        select(TradeHistory).where(TradeHistory.market_id == "test_market_outbox")
+    )
     trade = result_trade.scalar_one_or_none()
     assert trade is not None
     assert trade.position_status == "OPENING"
-    
+
     # Check that ExecutionRequest is created
-    result_req = await db_session.execute(select(ExecutionRequest).where(ExecutionRequest.market_id == "test_market_outbox"))
+    result_req = await db_session.execute(
+        select(ExecutionRequest).where(
+            ExecutionRequest.market_id == "test_market_outbox"
+        )
+    )
     req = result_req.scalar_one_or_none()
-    
+
     assert req is not None
     assert req.intent == "OPEN"
     assert req.state == "READY"
     assert req.target_amount_usdc == Decimal("10.0")
-    assert req.requested_shares == Decimal("20.0") # 10 / 0.5 = 20.0
+    assert req.requested_shares == Decimal("20.0")  # 10 / 0.5 = 20.0

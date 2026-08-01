@@ -1,7 +1,10 @@
 import pytest
 from polyflip.trading.position_sizing import (
-    compute_edge, compute_bet_size_edge_scaled,
-    compute_bet_size_with_liquidity, is_in_dead_zone, apply_polymarket_fee,
+    compute_edge,
+    compute_bet_size_edge_scaled,
+    compute_bet_size_with_liquidity,
+    is_in_dead_zone,
+    apply_polymarket_fee,
 )
 from polyflip.constants import INVALID_EDGE_SENTINEL, FLIP_MIDPOINT
 
@@ -28,15 +31,13 @@ class TestComputeEdge:
 class TestBetSizing:
     def test_min_bet_at_min_edge(self):
         result = compute_bet_size_edge_scaled(
-            edge=0.05, min_bet_usdc=5.0, max_bet_usdc=50.0,
-            min_edge=0.05, max_edge=0.40
+            edge=0.05, min_bet_usdc=5.0, max_bet_usdc=50.0, min_edge=0.05, max_edge=0.40
         )
         assert result == pytest.approx(5.0)
 
     def test_max_bet_at_max_edge(self):
         result = compute_bet_size_edge_scaled(
-            edge=0.40, min_bet_usdc=5.0, max_bet_usdc=50.0,
-            min_edge=0.05, max_edge=0.40
+            edge=0.40, min_bet_usdc=5.0, max_bet_usdc=50.0, min_edge=0.05, max_edge=0.40
         )
         assert result == pytest.approx(50.0)
 
@@ -49,16 +50,21 @@ class TestBetSizing:
     def test_linear_midpoint(self):
         # edge посередине → ставка посередине
         result = compute_bet_size_edge_scaled(
-            edge=0.225, min_bet_usdc=5.0, max_bet_usdc=55.0,
-            min_edge=0.05, max_edge=0.40
+            edge=0.225,
+            min_bet_usdc=5.0,
+            max_bet_usdc=55.0,
+            min_edge=0.05,
+            max_edge=0.40,
         )
         assert result == pytest.approx(30.0, abs=0.1)
 
     def test_liquidity_cap_applied(self):
         # volume_5min=10, liquidity_fraction=0.05 → cap=0.5 → min_bet=5 → cap=max(0.5,5)=5
         result = compute_bet_size_with_liquidity(
-            edge=0.30, volume_5min=10.0,
-            min_bet_usdc=5.0, max_bet_usdc=50.0,
+            edge=0.30,
+            volume_5min=10.0,
+            min_bet_usdc=5.0,
+            max_bet_usdc=50.0,
             liquidity_fraction=0.05,
         )
         assert result == pytest.approx(5.0)
@@ -66,8 +72,10 @@ class TestBetSizing:
     def test_liquidity_cap_not_applied_on_high_volume(self):
         # volume_5min=10000 → cap=500 >> bet → не обрезается
         result = compute_bet_size_with_liquidity(
-            edge=0.10, volume_5min=10_000.0,
-            min_bet_usdc=5.0, max_bet_usdc=50.0,
+            edge=0.10,
+            volume_5min=10_000.0,
+            min_bet_usdc=5.0,
+            max_bet_usdc=50.0,
         )
         assert result > 5.0
 

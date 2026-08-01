@@ -5,6 +5,7 @@ LightGBM-тренер для крипто-модели Up/Down на OHLCV-све
 Фичи: из feature_builder.build_features().
 Сериализация: pickle в ModelRegistry (та же схема, что и LogReg-модель).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +18,11 @@ import numpy as np
 import pandas as pd
 import structlog
 from lightgbm import LGBMClassifier
-from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator, calibration_curve
+from sklearn.calibration import (
+    CalibratedClassifierCV,
+    FrozenEstimator,
+    calibration_curve,
+)
 from sklearn.metrics import roc_auc_score, precision_recall_curve
 from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import func, select, update
@@ -37,29 +42,43 @@ logger = structlog.get_logger(__name__)
 
 CRYPTO_FEATURES = [
     # Returns — только короткие горизонты
-    "ret_1", "ret_3", "ret_6",
+    "ret_1",
+    "ret_3",
+    "ret_6",
     # Volatility — только короткие
-    "vol_6", "vol_24",
+    "vol_6",
+    "vol_24",
     # Volume & CVD
-    "vol_z_1", "taker_buy_ratio", "cvd_1", "cvd_6",
+    "vol_z_1",
+    "taker_buy_ratio",
+    "cvd_1",
+    "cvd_6",
     # Technical
-    "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
+    "rsi_14",
+    "ema_ratio_9_21",
+    "bb_width",
+    "bb_position",
     # Position vs extremes — только 24h
-    "dist_to_high_24", "dist_to_low_24",
+    "dist_to_high_24",
+    "dist_to_low_24",
     # Range
-    "range_1", "range_avg_24",
+    "range_1",
+    "range_avg_24",
     # Consecutive
     "consec_balance",
     # Time (Cyclic)
-    "hour_sin", "hour_cos", "dow_sin", "dow_cos",
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos",
 ]
 
 
 # Fail fast при старте: CRYPTO_FEATURES должен быть подмножеством CRYPTO_FEATURE_COLUMNS
 _unknown = set(CRYPTO_FEATURES) - set(CRYPTO_FEATURE_COLUMNS)
-assert not _unknown, (
-    f"CRYPTO_FEATURES содержит фичи, которых нет в feature_builder: {_unknown}"
-)
+assert (
+    not _unknown
+), f"CRYPTO_FEATURES содержит фичи, которых нет в feature_builder: {_unknown}"
 
 
 def _build_target(df: pd.DataFrame, epsilon_quantile: float = 0.70) -> pd.DataFrame:
@@ -94,18 +113,18 @@ def _build_target(df: pd.DataFrame, epsilon_quantile: float = 0.70) -> pd.DataFr
 def _make_lgbm(**params) -> LGBMClassifier:
     """Вспомогательная функция для создания квалифицированного LGBMClassifier."""
     defaults = {
-        "n_estimators":      300,
-        "learning_rate":     0.05,
-        "num_leaves":        15,
-        "max_depth":         4,
+        "n_estimators": 300,
+        "learning_rate": 0.05,
+        "num_leaves": 15,
+        "max_depth": 4,
         "min_child_samples": 50,
-        "subsample":         0.8,
-        "colsample_bytree":  1.0,
-        "reg_alpha":         0.1,
-        "reg_lambda":        1.0,
-        "random_state":      CV_RANDOM_STATE,
-        "n_jobs":            1,
-        "verbose":          -1,
+        "subsample": 0.8,
+        "colsample_bytree": 1.0,
+        "reg_alpha": 0.1,
+        "reg_lambda": 1.0,
+        "random_state": CV_RANDOM_STATE,
+        "n_jobs": 1,
+        "verbose": -1,
     }
     defaults.update(params)
     return LGBMClassifier(**defaults)
@@ -142,7 +161,7 @@ def _fit_lgbm_and_serialize(
         cal_idx, eval_idx = val_idx[:mid], val_idx[mid:]
 
         if len(cal_idx) >= 20 and len(eval_idx) >= 20:
-            X_cal,  y_cal  = X.iloc[cal_idx],  y.iloc[cal_idx]
+            X_cal, y_cal = X.iloc[cal_idx], y.iloc[cal_idx]
             X_eval, y_eval = X.iloc[eval_idx], y.iloc[eval_idx]
             calibration_method = "sigmoid" if len(cal_idx) < 200 else "isotonic"
             fold_cal = CalibratedClassifierCV(
@@ -165,7 +184,9 @@ def _fit_lgbm_and_serialize(
     valid_mask = ~np.isnan(oof_scores)
     try:
         if valid_mask.sum() > 10:
-            frac_pos, mean_pred = calibration_curve(y[valid_mask], oof_scores[valid_mask], n_bins=10, strategy="uniform")
+            frac_pos, mean_pred = calibration_curve(
+                y[valid_mask], oof_scores[valid_mask], n_bins=10, strategy="uniform"
+            )
             ece = float(np.mean(np.abs(frac_pos - mean_pred)))
         else:
             ece = 0.5
@@ -188,7 +209,9 @@ def _fit_lgbm_and_serialize(
     final_cal.fit(X_cal_final, y_cal_final)
 
     # Оптимальный порог через OOF (без leakage)
-    prec_arr, rec_arr, thr_arr = precision_recall_curve(y[valid_mask], oof_scores[valid_mask])
+    prec_arr, rec_arr, thr_arr = precision_recall_curve(
+        y[valid_mask], oof_scores[valid_mask]
+    )
     if len(thr_arr) > 0:
         valid = prec_arr[:-1] >= min_precision
         f1 = 2 * prec_arr[:-1] * rec_arr[:-1] / (prec_arr[:-1] + rec_arr[:-1] + 1e-8)
@@ -206,15 +229,19 @@ def _fit_lgbm_and_serialize(
     if predictions_at_thr.sum() > 20:
         real_precision = float((y_valid[predictions_at_thr] == 1).mean())
         signal_rate = float(predictions_at_thr.mean())
-        logger.info("oof_real_precision",
+        logger.info(
+            "oof_real_precision",
             precision=round(real_precision, 4),
             signal_rate=round(signal_rate, 4),
-            threshold=round(optimal_threshold, 4))
+            threshold=round(optimal_threshold, 4),
+        )
         # Если precision < 0.52 — порог бесполезен
         if real_precision < 0.52:
-            logger.warning("precision_below_random",
+            logger.warning(
+                "precision_below_random",
                 real_precision=real_precision,
-                action="threshold_raised_or_model_rejected")
+                action="threshold_raised_or_model_rejected",
+            )
 
     # Защита от leakage и неадекватных порогов
     if optimal_threshold >= max_valid_thr:
@@ -234,10 +261,7 @@ def _fit_lgbm_and_serialize(
         optimal_threshold = thr_fallback
 
     # Feature importance для логирования и дашборда
-    fi = {
-        col: int(imp)
-        for col, imp in zip(X.columns, final_lgbm.feature_importances_)
-    }
+    fi = {col: int(imp) for col, imp in zip(X.columns, final_lgbm.feature_importances_)}
     zero_imp = [f for f, v in fi.items() if v == 0]
     if zero_imp:
         logger.warning(
@@ -245,7 +269,10 @@ def _fit_lgbm_and_serialize(
             features=zero_imp,
             hint="Consider removing these features in next refactor",
         )
-    logger.info("crypto_feature_importance", top5=dict(sorted(fi.items(), key=lambda x: -x[1])[:5]))
+    logger.info(
+        "crypto_feature_importance",
+        top5=dict(sorted(fi.items(), key=lambda x: -x[1])[:5]),
+    )
 
     return pickle.dumps(final_cal), val_auc, baseline_auc, optimal_threshold, ece, fi
 
@@ -254,7 +281,9 @@ async def _get_float_setting(db: AsyncSession, key: str, default: float = 0.0) -
     try:
         return await get_float(db, key)
     except KeyError:
-        row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+        row = (
+            await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))
+        ).scalar_one_or_none()
         return float(row.value) if row else default
 
 
@@ -262,7 +291,9 @@ async def _get_int_setting(db: AsyncSession, key: str, default: int = 0) -> int:
     try:
         return await get_int(db, key)
     except KeyError:
-        row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+        row = (
+            await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))
+        ).scalar_one_or_none()
         return int(row.value) if row else default
 
 
@@ -274,21 +305,25 @@ class CryptoModelTrainer:
         logger.info("crypto_training_start", symbol=symbol, interval=interval)
 
         # Загружаем все свечи для символа
-        candles = await get_recent_candles(
-            self.db, symbol, interval, limit=10_000
-        )
+        candles = await get_recent_candles(self.db, symbol, interval, limit=10_000)
         if len(candles) < 500:
             logger.warning("not_enough_candles", symbol=symbol, count=len(candles))
             return False
 
         # Считываем динамические гиперпараметры из RuntimeSettings
         n_estimators = await _get_int_setting(self.db, "CRYPTO_LGBM_N_ESTIMATORS", 300)
-        learning_rate = await _get_float_setting(self.db, "CRYPTO_LGBM_LEARNING_RATE", 0.05)
+        learning_rate = await _get_float_setting(
+            self.db, "CRYPTO_LGBM_LEARNING_RATE", 0.05
+        )
         num_leaves = await _get_int_setting(self.db, "CRYPTO_LGBM_NUM_LEAVES", 31)
         max_depth = await _get_int_setting(self.db, "CRYPTO_LGBM_MAX_DEPTH", 5)
-        min_child_samples = await _get_int_setting(self.db, "CRYPTO_LGBM_MIN_CHILD_SAMPLES", 20)
+        min_child_samples = await _get_int_setting(
+            self.db, "CRYPTO_LGBM_MIN_CHILD_SAMPLES", 20
+        )
         subsample = await _get_float_setting(self.db, "CRYPTO_LGBM_SUBSAMPLE", 0.8)
-        colsample_bytree = await _get_float_setting(self.db, "CRYPTO_LGBM_COLSAMPLE_BYTREE", 0.8)
+        colsample_bytree = await _get_float_setting(
+            self.db, "CRYPTO_LGBM_COLSAMPLE_BYTREE", 0.8
+        )
         reg_alpha = await _get_float_setting(self.db, "CRYPTO_LGBM_REG_ALPHA", 0.1)
         reg_lambda = await _get_float_setting(self.db, "CRYPTO_LGBM_REG_LAMBDA", 1.0)
         lgbm_params = {
@@ -313,12 +348,16 @@ class CryptoModelTrainer:
         # Читаем актуальные funding rates из БД
         fr_key = f"FUNDING_RATE_{symbol}"
         fr_ma3_key = f"FUNDING_RATE_MA3_{symbol}"
-        fr_row = (await self.db.execute(
-            select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
-        )).scalar_one_or_none()
-        fr_ma3_row = (await self.db.execute(
-            select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
-        )).scalar_one_or_none()
+        fr_row = (
+            await self.db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
+            )
+        ).scalar_one_or_none()
+        fr_ma3_row = (
+            await self.db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
+            )
+        ).scalar_one_or_none()
 
         funding_rate = float(fr_row.value) if fr_row else 0.0
         funding_rate_ma3 = float(fr_ma3_row.value) if fr_ma3_row else 0.0
@@ -361,24 +400,44 @@ class CryptoModelTrainer:
         )
 
         now = datetime.now(timezone.utc)
-        for key, val in [(f"CRYPTO_VOL_P33_{symbol}", vol_p33), (f"CRYPTO_VOL_P67_{symbol}", vol_p67)]:
-            row = (await self.db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+        for key, val in [
+            (f"CRYPTO_VOL_P33_{symbol}", vol_p33),
+            (f"CRYPTO_VOL_P67_{symbol}", vol_p67),
+        ]:
+            row = (
+                await self.db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == key)
+                )
+            ).scalar_one_or_none()
             if row:
                 row.value = str(round(val, 4))
                 row.updated_at = now
                 row.updated_by = "crypto_train_job"
             else:
-                self.db.add(RuntimeSettings(key=key, value=str(round(val, 4)), updated_at=now, updated_by="crypto_train_job"))
+                self.db.add(
+                    RuntimeSettings(
+                        key=key,
+                        value=str(round(val, 4)),
+                        updated_at=now,
+                        updated_by="crypto_train_job",
+                    )
+                )
 
         # Разбиваем датасет на 3 режима
-        df_low  = df_filtered[df_filtered["vol_trend"] <= vol_p33]
-        df_mid  = df_filtered[(df_filtered["vol_trend"] > vol_p33) & (df_filtered["vol_trend"] <= vol_p67)]
+        df_low = df_filtered[df_filtered["vol_trend"] <= vol_p33]
+        df_mid = df_filtered[
+            (df_filtered["vol_trend"] > vol_p33) & (df_filtered["vol_trend"] <= vol_p67)
+        ]
         df_high = df_filtered[df_filtered["vol_trend"] > vol_p67]
 
         trained_any = False
         from polyflip.crypto.predictor import CryptoPredictor
 
-        for regime, df_regime in [("low_vol", df_low), ("mid_vol", df_mid), ("high_vol", df_high)]:
+        for regime, df_regime in [
+            ("low_vol", df_low),
+            ("mid_vol", df_mid),
+            ("high_vol", df_high),
+        ]:
             if len(df_regime) < 500:
                 logger.warning("regime_too_small", regime=regime, rows=len(df_regime))
                 continue
@@ -386,7 +445,7 @@ class CryptoModelTrainer:
             try:
                 X_r = df_regime[available].reset_index(drop=True)
                 y_r = df_regime["target"].reset_index(drop=True)
-                
+
                 n_regime = len(df_regime)
                 adaptive_params = lgbm_params.copy()
                 if n_regime < 500:
@@ -398,8 +457,13 @@ class CryptoModelTrainer:
                     adaptive_params["num_leaves"] = 20
                     adaptive_params["max_depth"] = 5
                     adaptive_params["min_child_samples"] = 25
-                
-                logger.info("adaptive_lgbm_params", regime=regime, n_regime=n_regime, num_leaves=adaptive_params["num_leaves"])
+
+                logger.info(
+                    "adaptive_lgbm_params",
+                    regime=regime,
+                    n_regime=n_regime,
+                    num_leaves=adaptive_params["num_leaves"],
+                )
 
                 # CPU-bound в thread
                 t0 = time.monotonic()
@@ -407,21 +471,27 @@ class CryptoModelTrainer:
                     result = await asyncio.wait_for(
                         asyncio.to_thread(
                             _fit_lgbm_and_serialize,
-                            X_r, y_r, cv_n_splits,
+                            X_r,
+                            y_r,
+                            cv_n_splits,
                             min_precision,
                             min_valid_thr,
                             max_valid_thr,
                             thr_fallback,
-                            **adaptive_params
+                            **adaptive_params,
                         ),
-                        timeout=1800.0,   # 30 минут — hard limit
+                        timeout=1800.0,  # 30 минут — hard limit
                     )
                 except asyncio.TimeoutError:
                     logger.error("regime_train_timeout", symbol=symbol, regime=regime)
                     continue
                 finally:
-                    logger.info("regime_train_duration", symbol=symbol, regime=regime,
-                                elapsed_sec=round(time.monotonic() - t0, 1))
+                    logger.info(
+                        "regime_train_duration",
+                        symbol=symbol,
+                        regime=regime,
+                        elapsed_sec=round(time.monotonic() - t0, 1),
+                    )
 
                 model_bytes, val_auc, baseline_auc, threshold, ece, fi = result
 
@@ -443,7 +513,10 @@ class CryptoModelTrainer:
 
                 active_crypto_stmt = (
                     select(ModelRegistry)
-                    .where(ModelRegistry.asset == regime_asset, ModelRegistry.is_active == True)
+                    .where(
+                        ModelRegistry.asset == regime_asset,
+                        ModelRegistry.is_active == True,
+                    )
                     .limit(1)
                 )
                 active_res = await self.db.execute(active_crypto_stmt)
@@ -454,20 +527,31 @@ class CryptoModelTrainer:
 
                 if lift < max_lift_loss:
                     passed_quality_gate = False
-                    gate_reasons.append(f"Negative lift vs baseline: {lift:+.4f} (accuracy={val_auc:.4f}, baseline={baseline_auc:.4f})")
+                    gate_reasons.append(
+                        f"Negative lift vs baseline: {lift:+.4f} (accuracy={val_auc:.4f}, baseline={baseline_auc:.4f})"
+                    )
 
                 if ece > 0.15:
                     passed_quality_gate = False
-                    gate_reasons.append(f"Excessive ECE calibration error: {ece:.4f} > 0.15")
+                    gate_reasons.append(
+                        f"Excessive ECE calibration error: {ece:.4f} > 0.15"
+                    )
 
-                if active_crypto_model is not None and active_crypto_model.accuracy is not None:
+                if (
+                    active_crypto_model is not None
+                    and active_crypto_model.accuracy is not None
+                ):
                     acc_diff = val_auc - active_crypto_model.accuracy
                     if acc_diff < -0.02:
                         passed_quality_gate = False
-                        gate_reasons.append(f"Accuracy degraded vs active model v{active_crypto_model.version}: {acc_diff:+.4f} < -0.02")
+                        gate_reasons.append(
+                            f"Accuracy degraded vs active model v{active_crypto_model.version}: {acc_diff:+.4f} < -0.02"
+                        )
 
                 if threshold < MODEL_THRESHOLD_MIN or threshold > MODEL_THRESHOLD_MAX:
-                    clipped = max(MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, threshold))
+                    clipped = max(
+                        MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, threshold)
+                    )
                     passed_quality_gate = False
                     gate_reasons.append(
                         f"Threshold {threshold:.4f} outside safe bounds [{MODEL_THRESHOLD_MIN}, {MODEL_THRESHOLD_MAX}], clipped to {clipped:.4f}"
@@ -483,10 +567,15 @@ class CryptoModelTrainer:
                         val_auc=val_auc,
                         baseline=baseline_auc,
                         ece=ece,
-                        action="Crypto model saved as is_active=False. Retaining current active model."
+                        action="Crypto model saved as is_active=False. Retaining current active model.",
                     )
                 else:
-                    logger.info("crypto_model_quality_gate_passed", asset=regime_asset, val_auc=val_auc, baseline=baseline_auc)
+                    logger.info(
+                        "crypto_model_quality_gate_passed",
+                        asset=regime_asset,
+                        val_auc=val_auc,
+                        baseline=baseline_auc,
+                    )
 
                 # Деактивируем старые записи только если новая модель прошла Quality Gate
                 if should_activate:
@@ -507,9 +596,11 @@ class CryptoModelTrainer:
 
                 # Сохраняем порог в RuntimeSettings
                 thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
-                thr_row = (await self.db.execute(
-                    select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
-                )).scalar_one_or_none()
+                thr_row = (
+                    await self.db.execute(
+                        select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+                    )
+                ).scalar_one_or_none()
 
                 threshold_quality = "ok"
                 if threshold < 0.40 or threshold > 0.65:
@@ -528,53 +619,64 @@ class CryptoModelTrainer:
                         thr_row.updated_at = now
                         thr_row.updated_by = "crypto_train_job"
                     else:
-                        self.db.add(RuntimeSettings(
-                            key=thr_key,
-                            value=str(round(threshold, 4)),
-                            updated_at=now,
-                            updated_by="crypto_train_job",
-                        ))
+                        self.db.add(
+                            RuntimeSettings(
+                                key=thr_key,
+                                value=str(round(threshold, 4)),
+                                updated_at=now,
+                                updated_by="crypto_train_job",
+                            )
+                        )
 
                 # Сохраняем feature importance в RuntimeSettings
                 fi_key = f"CRYPTO_FI_{regime_asset}"
-                fi_row = (await self.db.execute(
-                    select(RuntimeSettings).where(RuntimeSettings.key == fi_key)
-                )).scalar_one_or_none()
+                fi_row = (
+                    await self.db.execute(
+                        select(RuntimeSettings).where(RuntimeSettings.key == fi_key)
+                    )
+                ).scalar_one_or_none()
                 if fi_row:
                     fi_row.value = json.dumps(fi)
                     fi_row.updated_at = now
                     fi_row.updated_by = "crypto_train_job"
                 else:
-                    self.db.add(RuntimeSettings(
-                        key=fi_key,
-                        value=json.dumps(fi),
-                        updated_at=now,
-                        updated_by="crypto_train_job",
-                    ))
+                    self.db.add(
+                        RuntimeSettings(
+                            key=fi_key,
+                            value=json.dumps(fi),
+                            updated_at=now,
+                            updated_by="crypto_train_job",
+                        )
+                    )
 
                 # Сохраняем модель
-                self.db.add(ModelRegistry(
-                    asset=regime_asset,
-                    version=next_version,
-                    model_blob=model_bytes,
-                    accuracy=val_auc,
-                    baseline=baseline_auc,
-                    features=",".join(available),
-                    ece=ece,
-                    is_active=should_activate,
-                    interval=interval,
-                    trained_at=now,
-                ))
+                self.db.add(
+                    ModelRegistry(
+                        asset=regime_asset,
+                        version=next_version,
+                        model_blob=model_bytes,
+                        accuracy=val_auc,
+                        baseline=baseline_auc,
+                        features=",".join(available),
+                        ece=ece,
+                        is_active=should_activate,
+                        interval=interval,
+                        trained_at=now,
+                    )
+                )
                 await self.db.commit()
                 trained_any = True
-                logger.info("crypto_model_saved", asset=regime_asset, version=next_version)
+                logger.info(
+                    "crypto_model_saved", asset=regime_asset, version=next_version
+                )
             except Exception as e:
                 await self.db.rollback()
-                logger.exception("regime_train_failed", symbol=symbol, regime=regime, error=str(e))
+                logger.exception(
+                    "regime_train_failed", symbol=symbol, regime=regime, error=str(e)
+                )
 
         if trained_any:
             # Инвалидируем кэш у инстансов предсказателя после коммита в базу
             CryptoPredictor.invalidate_all(symbol)
             return True
         return False
-

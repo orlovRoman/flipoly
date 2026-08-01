@@ -3,6 +3,7 @@
 Запрашивает только новые свечи — с момента последней записи в БД.
 Вызывается из scheduler/jobs.py каждые 15 минут.
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,11 +19,13 @@ from polyflip.crypto.funding_collector import fetch_and_store_funding_rate
 
 log = logging.getLogger(__name__)
 
-SYMBOLS   = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"]
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"]
 INTERVALS = ["5m", "15m"]
 
 
-async def refresh_funding_rates(session: AsyncSession, symbols: list[str] | None = None) -> dict[str, float | None]:
+async def refresh_funding_rates(
+    session: AsyncSession, symbols: list[str] | None = None
+) -> dict[str, float | None]:
     """Обновляет и сохраняет ставки финансирования для всех передаваемых символов."""
     target_symbols = symbols or SYMBOLS
     results = {}
@@ -51,13 +54,21 @@ async def collect_new_candles(session: AsyncSession) -> dict[str, int]:
 
             if latest:
                 # Берём с небольшим перекрытием (на 1 свечу назад), чтобы обновить незакрытую свечу
-                interval_minutes = int(interval[:-1]) if interval.endswith("m") else int(interval[:-1]) * 60
+                interval_minutes = (
+                    int(interval[:-1])
+                    if interval.endswith("m")
+                    else int(interval[:-1]) * 60
+                )
                 overlap = timedelta(minutes=interval_minutes)
                 start_ms = int((latest - overlap).timestamp() * 1000)
             else:
                 # Без backfill: берём стандартный lookback для интервала
-                lookback = timedelta(hours=4) if interval == "5m" else timedelta(hours=12)
-                start_ms = int((datetime.now(timezone.utc) - lookback).timestamp() * 1000)
+                lookback = (
+                    timedelta(hours=4) if interval == "5m" else timedelta(hours=12)
+                )
+                start_ms = int(
+                    (datetime.now(timezone.utc) - lookback).timestamp() * 1000
+                )
 
             try:
                 candles = await asyncio.wait_for(
@@ -74,15 +85,23 @@ async def collect_new_candles(session: AsyncSession) -> dict[str, int]:
                 results[f"{symbol}_{interval}"] = -1
                 continue
             except Exception as exc:
-                log.warning("candle_fetch_failed", symbol=symbol, interval=interval, error=str(exc))
+                log.warning(
+                    "candle_fetch_failed",
+                    symbol=symbol,
+                    interval=interval,
+                    error=str(exc),
+                )
                 results[f"{symbol}_{interval}"] = -1
                 continue
 
             inserted = await upsert_candles(session, symbol, interval, candles)
-            log.info("candle_collector_done", symbol=symbol, interval=interval, inserted=inserted)
+            log.info(
+                "candle_collector_done",
+                symbol=symbol,
+                interval=interval,
+                inserted=inserted,
+            )
             results[f"{symbol}_{interval}"] = inserted
 
     await refresh_funding_rates(session)
     return results
-
-

@@ -4,7 +4,10 @@ from polyflip.db.connection import async_session
 from polyflip.db.models import SlippageLog
 from polyflip.api.auth import verify_api_key
 
-router = APIRouter(prefix="/api/slippage", tags=["Slippage"], dependencies=[Depends(verify_api_key)])
+router = APIRouter(
+    prefix="/api/slippage", tags=["Slippage"], dependencies=[Depends(verify_api_key)]
+)
+
 
 @router.get("/summary")
 async def get_slippage_summary():
@@ -22,6 +25,7 @@ async def get_slippage_summary():
         )
         rows = result.all()
     return [dict(r._mapping) for r in rows]
+
 
 @router.get("/list")
 async def get_slippage_list(limit: int = 100):

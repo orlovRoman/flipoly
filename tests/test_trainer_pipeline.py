@@ -4,20 +4,25 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 
+
 def test_trainer_pipeline_serialization():
     # Эмулируем данные с разными масштабами
-    X = pd.DataFrame({
-        "time_left_min": [5.0, 2.0, 10.0],
-        "mid_price":     [0.7, 0.3, 0.5],
-        "volume_5min":   [8000.0, 100.0, 4000.0],
-    })
+    X = pd.DataFrame(
+        {
+            "time_left_min": [5.0, 2.0, 10.0],
+            "mid_price": [0.7, 0.3, 0.5],
+            "volume_5min": [8000.0, 100.0, 4000.0],
+        }
+    )
     y = pd.Series([1, 0, 1])
 
     # Создаем и обучаем pipeline
-    pipeline = Pipeline([
-        ("scaler", StandardScaler()), 
-        ("model", LogisticRegression(class_weight="balanced", random_state=42))
-    ])
+    pipeline = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            ("model", LogisticRegression(class_weight="balanced", random_state=42)),
+        ]
+    )
     pipeline.fit(X, y)
 
     # Проверяем сериализацию

@@ -2,6 +2,7 @@
 """
 Backtest API: запуск, получение результатов, история, UI-страница.
 """
+
 from __future__ import annotations
 import os
 import uuid
@@ -26,10 +27,17 @@ from polyflip.db.models import MarketSnapshot, ModelRegistry
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
 from polyflip.api.backtest_schemas import (
-    BacktestConfig, BacktestResult, BacktestRunResponse,
-    StrategyBreakdown, AssetBreakdown, EquityCurvePoint
+    BacktestConfig,
+    BacktestResult,
+    BacktestRunResponse,
+    StrategyBreakdown,
+    AssetBreakdown,
+    EquityCurvePoint,
 )
-from polyflip.backtesting.market_replay import group_snapshots_into_replays, rows_to_replays
+from polyflip.backtesting.market_replay import (
+    group_snapshots_into_replays,
+    rows_to_replays,
+)
 from polyflip.backtesting.runner import BacktestRunner
 from polyflip.backtesting.metrics import compute_trade_pnl
 
@@ -47,44 +55,44 @@ _MAX_CACHE_SIZE = 20  # храним последние 20 прогонов
 
 # ─── UI Page ───────────────────────────────────────────────────────────────
 
+
 @router.get("/backtest")
 async def backtest_page(request: Request):
     """Страница дашборда бэктестов."""
     return templates.TemplateResponse(
-        "backtest.html",
-        {
-            "request": request,
-            "api_key": settings.API_KEY
-        }
+        "backtest.html", {"request": request, "api_key": settings.API_KEY}
     )
 
 
 # ─── Run Backtest ───────────────────────────────────────────────────────────
 
+
 class JobStatus(str, Enum):
-    PENDING   = "pending"
-    RUNNING   = "running"
+    PENDING = "pending"
+    RUNNING = "running"
     COMPLETED = "completed"
-    FAILED    = "failed"
+    FAILED = "failed"
+
 
 class Job:
     def __init__(self, run_id: str):
-        self.run_id    = run_id
-        self.status    = JobStatus.PENDING
-        self.progress  = 0
-        self.result    = None
-        self.error     = None
-        self.started   = datetime.now(timezone.utc)
-        self.finished  = None
+        self.run_id = run_id
+        self.status = JobStatus.PENDING
+        self.progress = 0
+        self.result = None
+        self.error = None
+        self.started = datetime.now(timezone.utc)
+        self.finished = None
+
 
 _jobs: dict[str, Job] = {}
 _MAX_JOBS = 10
 _semaphore = asyncio.Semaphore(1)
 
 _executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=1,
-    thread_name_prefix="backtest"
+    max_workers=1, thread_name_prefix="backtest"
 )
+
 
 async def _run_cpu_task(fn, *args, timeout_sec=120, **kwargs):
     loop = asyncio.get_running_loop()
@@ -92,14 +100,14 @@ async def _run_cpu_task(fn, *args, timeout_sec=120, **kwargs):
         fn = functools.partial(fn, **kwargs)
     try:
         return await asyncio.wait_for(
-            loop.run_in_executor(_executor, fn, *args),
-            timeout=timeout_sec
+            loop.run_in_executor(_executor, fn, *args), timeout=timeout_sec
         )
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=504,
-            detail=f"Backtest exceeded {timeout_sec}s time limit. Reduce dataset size."
+            detail=f"Backtest exceeded {timeout_sec}s time limit. Reduce dataset size.",
         )
+
 
 @router.post("/api/backtest/submit", dependencies=[Depends(verify_api_key)])
 async def submit_backtest(
@@ -108,22 +116,29 @@ async def submit_backtest(
 ):
     """Принимает задачу, отвечает мгновенно, запускает в фоне."""
     if any(j.status == JobStatus.RUNNING for j in list(_jobs.values())):
-        raise HTTPException(status_code=429, detail="Another backtest is already running. Please wait.")
+        raise HTTPException(
+            status_code=429, detail="Another backtest is already running. Please wait."
+        )
 
     run_id = str(uuid.uuid4())
-    job    = Job(run_id)
+    job = Job(run_id)
     _jobs[run_id] = job
 
     if len(_jobs) > _MAX_JOBS:
         oldest = min(
             (j for j in list(_jobs.values()) if j.status != JobStatus.RUNNING),
-            key=lambda j: j.started, default=None
+            key=lambda j: j.started,
+            default=None,
         )
         if oldest:
             del _jobs[oldest.run_id]
 
     background_tasks.add_task(_run_backtest_bg, run_id, config)
-    return {"run_id": run_id, "status": "pending", "poll_url": f"/api/backtest/status/{run_id}"}
+    return {
+        "run_id": run_id,
+        "status": "pending",
+        "poll_url": f"/api/backtest/status/{run_id}",
+    }
 
 
 @router.get("/api/backtest/status/{run_id}", dependencies=[Depends(verify_api_key)])
@@ -132,12 +147,14 @@ async def get_job_status(run_id: str):
     if not job:
         raise HTTPException(404, detail="Job not found")
     return {
-        "run_id":   run_id,
-        "status":   job.status,
+        "run_id": run_id,
+        "status": job.status,
         "progress": job.progress,
-        "error":    job.error,
-        "result":   job.result if job.status == JobStatus.COMPLETED else None,
-        "elapsed_sec": ((job.finished or datetime.now(timezone.utc)) - job.started).total_seconds(),
+        "error": job.error,
+        "result": job.result if job.status == JobStatus.COMPLETED else None,
+        "elapsed_sec": (
+            (job.finished or datetime.now(timezone.utc)) - job.started
+        ).total_seconds(),
     }
 
 
@@ -150,10 +167,10 @@ async def _run_backtest_bg(run_id: str, config: BacktestConfig):
             async with async_session() as db:
                 job.progress = 10
                 result = await _execute_backtest_logic(db, config, run_id, job)
-                job.result   = result
-                job.status   = JobStatus.COMPLETED
+                job.result = result
+                job.status = JobStatus.COMPLETED
                 job.progress = 100
-                
+
                 # Кэшируем для совместимости с get_backtest_result
                 if len(_results_cache) >= _MAX_CACHE_SIZE:
                     oldest_key = next(iter(_results_cache))
@@ -162,12 +179,14 @@ async def _run_backtest_bg(run_id: str, config: BacktestConfig):
         except Exception as e:
             logger.exception("backtest_bg_failed", run_id=run_id, error=str(e))
             job.status = JobStatus.FAILED
-            job.error  = str(e)
+            job.error = str(e)
         finally:
             job.finished = datetime.now(timezone.utc)
 
 
-async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_id: str, job: Job):
+async def _execute_backtest_logic(
+    db: AsyncSession, config: BacktestConfig, run_id: str, job: Job
+):
     started_at = datetime.now(timezone.utc)
 
     # 1. Загружаем стартовые тики для каждого рынка в торговом окне
@@ -193,10 +212,12 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
         select(
             MarketSnapshot.id.label("snap_id"),
             MarketSnapshot.market_id.label("market_id"),
-            func.row_number().over(
+            func.row_number()
+            .over(
                 partition_by=MarketSnapshot.market_id,
-                order_by=MarketSnapshot.time_left_min.desc()
-            ).label("rn"),
+                order_by=MarketSnapshot.time_left_min.desc(),
+            )
+            .label("rn"),
             count_cte.c.total_snaps,
         )
         .join(count_cte, MarketSnapshot.market_id == count_cte.c.market_id)
@@ -204,17 +225,23 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
         .subquery("ranked_snaps")
     )
 
-    qualified_stmt = select(rank_sub.c.market_id).where(
-        rank_sub.c.rn == 1,
-        rank_sub.c.total_snaps >= config.min_snapshots_per_market,
-    ).limit(config.max_markets)
-    
+    qualified_stmt = (
+        select(rank_sub.c.market_id)
+        .where(
+            rank_sub.c.rn == 1,
+            rank_sub.c.total_snaps >= config.min_snapshots_per_market,
+        )
+        .limit(config.max_markets)
+    )
+
     qualified_res = await db.execute(qualified_stmt)
     market_ids = [row[0] for row in qualified_res.all()]
     job.progress = 20
 
     if not market_ids:
-        raise ValueError("No resolved snapshots found for given filters. Check assets and date range.")
+        raise ValueError(
+            "No resolved snapshots found for given filters. Check assets and date range."
+        )
 
     SNAPSHOT_COLS = [
         MarketSnapshot.id,
@@ -243,7 +270,7 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
     async for partition in result.partitions(1000):
         rows.extend(partition)
         await asyncio.sleep(0)
-    
+
     job.progress = 40
     total_loaded = len(rows)
 
@@ -261,10 +288,12 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
     if config.strategy_mode == "ML":
         model_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
         if config.model_id:
-            model_stmt = select(ModelRegistry).where(ModelRegistry.id == config.model_id)
+            model_stmt = select(ModelRegistry).where(
+                ModelRegistry.id == config.model_id
+            )
         elif config.assets:
             model_stmt = model_stmt.where(ModelRegistry.asset == config.assets[0])
-        
+
         model_row = (await db.execute(model_stmt)).scalars().first()
         if model_row:
             model_blob = model_row.model_blob
@@ -272,7 +301,7 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
 
     runner_config = config.to_runner_config()
     runner = BacktestRunner(runner_config, model_blob, features_str)
-    
+
     job.progress = 70
     trades = await _run_cpu_task(runner.run_all, replays, timeout_sec=180)
     job.progress = 90
@@ -280,19 +309,27 @@ async def _execute_backtest_logic(db: AsyncSession, config: BacktestConfig, run_
     finished_at = datetime.now(timezone.utc)
     backtest_result = await _run_cpu_task(
         _build_result,
-        run_id, config, started_at, finished_at,
-        total_loaded, tradeable, skipped, trades, replays,
-        timeout_sec=180
+        run_id,
+        config,
+        started_at,
+        finished_at,
+        total_loaded,
+        tradeable,
+        skipped,
+        trades,
+        replays,
+        timeout_sec=180,
     )
     return backtest_result
 
 
 # ─── Get Result ─────────────────────────────────────────────────────────────
 
+
 @router.get(
     "/api/backtest/result/{run_id}",
     response_model=BacktestRunResponse,
-    dependencies=[Depends(verify_api_key)]
+    dependencies=[Depends(verify_api_key)],
 )
 async def get_backtest_result(run_id: str):
     """Возвращает результат прогона по run_id."""
@@ -300,43 +337,38 @@ async def get_backtest_result(run_id: str):
     if not result:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found in cache")
     return BacktestRunResponse(
-        run_id=run_id,
-        status="completed",
-        message="Cached result",
-        result=result
+        run_id=run_id, status="completed", message="Cached result", result=result
     )
 
 
 # ─── List Recent Runs ────────────────────────────────────────────────────────
 
-@router.get(
-    "/api/backtest/history",
-    dependencies=[Depends(verify_api_key)]
-)
+
+@router.get("/api/backtest/history", dependencies=[Depends(verify_api_key)])
 async def list_backtest_history():
     """Список последних прогонов (без equity_curve для экономии трафика)."""
     history = []
     for run_id, res in reversed(list(_results_cache.items())):
-        history.append({
-            "run_id": run_id,
-            "started_at": res.started_at.isoformat(),
-            "duration_sec": res.duration_sec,
-            "assets": res.config.assets,
-            "strategy_mode": res.config.strategy_mode,
-            "total_trades": res.total_trades,
-            "net_profit": res.net_profit,
-            "roi_pct": res.roi_pct,
-            "win_rate_pct": res.win_rate_pct,
-        })
+        history.append(
+            {
+                "run_id": run_id,
+                "started_at": res.started_at.isoformat(),
+                "duration_sec": res.duration_sec,
+                "assets": res.config.assets,
+                "strategy_mode": res.config.strategy_mode,
+                "total_trades": res.total_trades,
+                "net_profit": res.net_profit,
+                "roi_pct": res.roi_pct,
+                "win_rate_pct": res.win_rate_pct,
+            }
+        )
     return {"runs": history}
 
 
 # ─── Available Models ────────────────────────────────────────────────────────
 
-@router.get(
-    "/api/backtest/models",
-    dependencies=[Depends(verify_api_key)]
-)
+
+@router.get("/api/backtest/models", dependencies=[Depends(verify_api_key)])
 async def list_available_models(db: AsyncSession = Depends(get_db_session)):
     """Список доступных моделей для выбора в UI."""
     stmt = select(
@@ -365,13 +397,12 @@ async def list_available_models(db: AsyncSession = Depends(get_db_session)):
 
 # ─── Dataset Stats ────────────────────────────────────────────────────────────
 
-@router.get(
-    "/api/backtest/dataset_stats",
-    dependencies=[Depends(verify_api_key)]
-)
+
+@router.get("/api/backtest/dataset_stats", dependencies=[Depends(verify_api_key)])
 async def get_dataset_stats(db: AsyncSession = Depends(get_db_session)):
     """Статистика доступных данных: кол-во снепшотов, рынков, период по каждому ассету."""
     from sqlalchemy import func, distinct
+
     stmt = select(
         MarketSnapshot.asset,
         MarketSnapshot.final_outcome,
@@ -397,6 +428,7 @@ async def get_dataset_stats(db: AsyncSession = Depends(get_db_session)):
 
 # ─── Internal: build BacktestResult ──────────────────────────────────────────
 
+
 def _build_result(
     run_id: str,
     config: BacktestConfig,
@@ -413,16 +445,28 @@ def _build_result(
 
     if not trades:
         return BacktestResult(
-            run_id=run_id, config=config,
-            started_at=started_at, finished_at=finished_at,
+            run_id=run_id,
+            config=config,
+            started_at=started_at,
+            finished_at=finished_at,
             duration_sec=duration,
             total_markets_loaded=total_loaded,
-            tradeable_markets=tradeable, skipped_markets=skipped,
-            total_trades=0, total_invested=0, net_profit=0,
-            roi_pct=0, win_rate_pct=0, avg_trade_pnl=0,
-            max_drawdown_pct=0, sharpe_ratio=None, profit_factor=0,
-            strategies=[], assets=[], equity_curve=[],
-            top_trades=[], worst_trades=[]
+            tradeable_markets=tradeable,
+            skipped_markets=skipped,
+            total_trades=0,
+            total_invested=0,
+            net_profit=0,
+            roi_pct=0,
+            win_rate_pct=0,
+            avg_trade_pnl=0,
+            max_drawdown_pct=0,
+            sharpe_ratio=None,
+            profit_factor=0,
+            strategies=[],
+            assets=[],
+            equity_curve=[],
+            top_trades=[],
+            worst_trades=[],
         )
 
     # Считаем PnL по каждой сделке
@@ -433,23 +477,32 @@ def _build_result(
             continue
         pnl = compute_trade_pnl(t, replay)
         won = pnl > 0
-        trade_results.append({
-            "trade": t, "pnl": pnl, "won": won,
-            "replay": replay
-        })
+        trade_results.append({"trade": t, "pnl": pnl, "won": won, "replay": replay})
 
     if not trade_results:
         return BacktestResult(
-            run_id=run_id, config=config,
-            started_at=started_at, finished_at=finished_at,
+            run_id=run_id,
+            config=config,
+            started_at=started_at,
+            finished_at=finished_at,
             duration_sec=duration,
             total_markets_loaded=total_loaded,
-            tradeable_markets=tradeable, skipped_markets=skipped,
-            total_trades=0, total_invested=0, net_profit=0,
-            roi_pct=0, win_rate_pct=0, avg_trade_pnl=0,
-            max_drawdown_pct=0, sharpe_ratio=None, profit_factor=0,
-            strategies=[], assets=[], equity_curve=[],
-            top_trades=[], worst_trades=[]
+            tradeable_markets=tradeable,
+            skipped_markets=skipped,
+            total_trades=0,
+            total_invested=0,
+            net_profit=0,
+            roi_pct=0,
+            win_rate_pct=0,
+            avg_trade_pnl=0,
+            max_drawdown_pct=0,
+            sharpe_ratio=None,
+            profit_factor=0,
+            strategies=[],
+            assets=[],
+            equity_curve=[],
+            top_trades=[],
+            worst_trades=[],
         )
 
     # Базовые метрики
@@ -467,19 +520,21 @@ def _build_result(
     for i, tr in enumerate(trade_results):
         t = tr["trade"]
         cumulative += tr["pnl"]
-        equity_curve.append(EquityCurvePoint(
-            trade_index=i,
-            cumulative_pnl=round(cumulative, 4),
-            trade_pnl=round(tr["pnl"], 4),
-            market_id=t.market_id,
-            asset=t.asset,
-            strategy=t.decision.strategy_type,
-            outcome="WIN" if tr["won"] else "LOSS",
-            p_flip=t.p_flip,
-            edge=t.decision.edge,
-            bet_size=t.bet_size,
-            executed_price=t.executed_price,
-        ))
+        equity_curve.append(
+            EquityCurvePoint(
+                trade_index=i,
+                cumulative_pnl=round(cumulative, 4),
+                trade_pnl=round(tr["pnl"], 4),
+                market_id=t.market_id,
+                asset=t.asset,
+                strategy=t.decision.strategy_type,
+                outcome="WIN" if tr["won"] else "LOSS",
+                p_flip=t.p_flip,
+                edge=t.decision.edge,
+                bet_size=t.bet_size,
+                executed_price=t.executed_price,
+            )
+        )
 
     # Max Drawdown
     max_dd = _compute_max_drawdown(equity_curve, initial_capital=config.initial_capital)
@@ -509,14 +564,20 @@ def _build_result(
     strategies = []
     for strat, items in strat_map.items():
         s_wins = [x for x in items if x["won"]]
-        edges = [x["trade"].decision.edge for x in items if x["trade"].decision.edge is not None]
-        strategies.append(StrategyBreakdown(
-            strategy=strat,
-            trades=len(items),
-            net_pnl=round(sum(x["pnl"] for x in items), 4),
-            win_rate_pct=round(len(s_wins) / len(items) * 100, 2),
-            avg_edge=round(statistics.mean(edges), 4) if edges else None,
-        ))
+        edges = [
+            x["trade"].decision.edge
+            for x in items
+            if x["trade"].decision.edge is not None
+        ]
+        strategies.append(
+            StrategyBreakdown(
+                strategy=strat,
+                trades=len(items),
+                net_pnl=round(sum(x["pnl"] for x in items), 4),
+                win_rate_pct=round(len(s_wins) / len(items) * 100, 2),
+                avg_edge=round(statistics.mean(edges), 4) if edges else None,
+            )
+        )
 
     # По ассетам
     asset_map: dict[str, list] = {}
@@ -527,23 +588,28 @@ def _build_result(
     assets_breakdown = []
     for asset, items in asset_map.items():
         a_wins = [x for x in items if x["won"]]
-        assets_breakdown.append(AssetBreakdown(
-            asset=asset,
-            trades=len(items),
-            net_pnl=round(sum(x["pnl"] for x in items), 4),
-            win_rate_pct=round(len(a_wins) / len(items) * 100, 2),
-        ))
+        assets_breakdown.append(
+            AssetBreakdown(
+                asset=asset,
+                trades=len(items),
+                net_pnl=round(sum(x["pnl"] for x in items), 4),
+                win_rate_pct=round(len(a_wins) / len(items) * 100, 2),
+            )
+        )
 
     # Топ/Худшие
     sorted_desc = sorted(equity_curve, key=lambda x: x.trade_pnl, reverse=True)
-    sorted_asc  = sorted(equity_curve, key=lambda x: x.trade_pnl)
+    sorted_asc = sorted(equity_curve, key=lambda x: x.trade_pnl)
 
     return BacktestResult(
-        run_id=run_id, config=config,
-        started_at=started_at, finished_at=finished_at,
+        run_id=run_id,
+        config=config,
+        started_at=started_at,
+        finished_at=finished_at,
         duration_sec=round(duration, 3),
         total_markets_loaded=total_loaded,
-        tradeable_markets=tradeable, skipped_markets=skipped,
+        tradeable_markets=tradeable,
+        skipped_markets=skipped,
         total_trades=len(trade_results),
         total_invested=round(total_invested, 2),
         net_profit=round(net_profit, 4),
@@ -561,14 +627,18 @@ def _build_result(
     )
 
 
-def _compute_max_drawdown(equity_curve: list[EquityCurvePoint], initial_capital: float = 1000.0) -> float:
+def _compute_max_drawdown(
+    equity_curve: list[EquityCurvePoint], initial_capital: float = 1000.0
+) -> float:
     """Максимальная просадка от пика к впадине в %.
     Если peak=0 (первые сделки убыточны), знаменатель = initial_capital.
     """
     if not equity_curve:
         return 0.0
     values = [p.cumulative_pnl for p in equity_curve]
-    peak = max(0.0, values[0])  # пик не ниже нуля: капитал не может быть отрицательным в начале
+    peak = max(
+        0.0, values[0]
+    )  # пик не ниже нуля: капитал не может быть отрицательным в начале
     max_dd = 0.0
     for val in values:
         if val > peak:

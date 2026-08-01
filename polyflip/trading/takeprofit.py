@@ -1,4 +1,5 @@
 """Take-profit логика: расчёт целевой цены и принятие решения о срабатывании."""
+
 from dataclasses import dataclass
 
 
@@ -21,7 +22,7 @@ class TakeProfitDecision:
 def evaluate_take_profit(
     entry_price: float,
     tp_multiplier: float,
-    current_bid: float,   # лучший bid в стакане (цена, по которой покупатели готовы выкупить токен)
+    current_bid: float,  # лучший bid в стакане (цена, по которой покупатели готовы выкупить токен)
 ) -> TakeProfitDecision:
     """Возвращает решение: зафиксировать прибыль или нет.
 
@@ -34,5 +35,9 @@ def evaluate_take_profit(
         should_sell=should_sell,
         current_price=current_bid,
         tp_price=tp_price,
-        reason=f"bid={current_bid:.4f} >= tp={tp_price:.4f}" if should_sell else "below_target"
+        reason=(
+            f"bid={current_bid:.4f} >= tp={tp_price:.4f}"
+            if should_sell
+            else "below_target"
+        ),
     )

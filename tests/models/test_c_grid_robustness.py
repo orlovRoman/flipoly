@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from polyflip.models.trainer import _fit_and_serialize
 
+
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
 def test_c_grid_survives_single_class_folds():
     """_fit_and_serialize не должен падать если некоторые фолды имеют один класс."""
@@ -13,26 +14,28 @@ def test_c_grid_survives_single_class_folds():
     rows = []
     for mid in range(n_markets):
         for t in range(snaps):
-            rows.append({
-                "mid_price": 0.5 + 0.01 * t,
-                "time_left_min": 60 - t * 5,
-                "spread": 0.01,
-                "volume_5min": 100,
-                "price_velocity": 0.001 * t,
-                "hour_of_day": t,
-                "day_of_week": t % 7,
-                "price_distance_from_max": 0.0,
-                "is_final_phase": 0.0,
-                "price_deviation": abs(0.5 + 0.01 * t - 0.5),
-                "high_price_final": 0.0,
-                "spread_pct": 0.02,
-                "log_time_left": np.log1p(60 - t * 5),
-                "price_momentum": 0.0,
-                "spread_trend": 1.0,
-                "volume_trend": 1.0,
-                "_group": f"market_{mid}",
-                "_target": int(mid < 4),  # почти все 1
-            })
+            rows.append(
+                {
+                    "mid_price": 0.5 + 0.01 * t,
+                    "time_left_min": 60 - t * 5,
+                    "spread": 0.01,
+                    "volume_5min": 100,
+                    "price_velocity": 0.001 * t,
+                    "hour_of_day": t,
+                    "day_of_week": t % 7,
+                    "price_distance_from_max": 0.0,
+                    "is_final_phase": 0.0,
+                    "price_deviation": abs(0.5 + 0.01 * t - 0.5),
+                    "high_price_final": 0.0,
+                    "spread_pct": 0.02,
+                    "log_time_left": np.log1p(60 - t * 5),
+                    "price_momentum": 0.0,
+                    "spread_trend": 1.0,
+                    "volume_trend": 1.0,
+                    "_group": f"market_{mid}",
+                    "_target": int(mid < 4),  # почти все 1
+                }
+            )
     df = pd.DataFrame(rows)
     X = df[[c for c in df.columns if not c.startswith("_")]]
     y = pd.Series(df["_target"].values)

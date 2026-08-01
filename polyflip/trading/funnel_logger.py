@@ -3,6 +3,7 @@ FunnelLogger — записывает один DecisionFunnelLog на кажды
 Вызывается в конце decide_ml_mode и decide_combined_mode.
 Ошибки записи логируются, но НЕ пробрасываются — торговая логика не прерывается.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -30,14 +31,14 @@ async def log_funnel(
     threshold_upper: Optional[float],
     min_edge_used: Optional[float],
     # Гейты
-    g1_model_loaded: Optional[bool]   = None,
-    g2_price_fetched: Optional[bool]  = None,
-    g3_dead_zone: Optional[bool]      = None,
-    g4_no_flip: Optional[bool]        = None,
-    g5_min_edge: Optional[bool]       = None,
-    g6_price_range: Optional[bool]    = None,
+    g1_model_loaded: Optional[bool] = None,
+    g2_price_fetched: Optional[bool] = None,
+    g3_dead_zone: Optional[bool] = None,
+    g4_no_flip: Optional[bool] = None,
+    g5_min_edge: Optional[bool] = None,
+    g6_price_range: Optional[bool] = None,
     g7_crypto_confirm: Optional[bool] = None,
-    g8_combined_vote: Optional[bool]  = None,
+    g8_combined_vote: Optional[bool] = None,
     # Итог
     final_action: str = "SKIP",
     skip_reason: Optional[str] = None,

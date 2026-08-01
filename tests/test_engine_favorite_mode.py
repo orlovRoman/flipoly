@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 from polyflip.trading.engine import trade_worker_cycle
 from polyflip.db.models import TradeHistory
 
+
 def make_market(
     market_id="test-market-1",
     asset="BTC",
@@ -63,23 +64,25 @@ def make_settings_db(
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
 async def test_pure_favorite_buys_yes_when_yes_is_favorite():
     """YES фаворит (цена 0.70) → бот покупает YES, predicted_flip_prob = None."""
-    market = make_market(yes_price=0.70, end_offset_sec=200)  # 200 сек = в окне [180, 240]
-    
+    market = make_market(
+        yes_price=0.70, end_offset_sec=200
+    )  # 200 сек = в окне [180, 240]
+
     db_session = AsyncMock()
     db_session.execute = AsyncMock()
-    
+
     settings_scalars = MagicMock()
     settings_scalars.scalars.return_value.all.return_value = make_settings_db()
-    
+
     empty_scalars = MagicMock()
     empty_scalars.scalars.return_value.all.return_value = []
-    
+
     markets_scalars = MagicMock()
     markets_scalars.scalars.return_value.all.return_value = [market]
 
     daily_pnl_scalar = MagicMock()
     daily_pnl_scalar.scalar.return_value = 0.0  # нет потерь сегодня
-    
+
     trade_check_scalars = MagicMock()
     trade_check_scalars.scalars.return_value.first.return_value = None  # нет дублей
 
@@ -87,28 +90,32 @@ async def test_pure_favorite_buys_yes_when_yes_is_favorite():
     skipped_check_scalars.scalar_one_or_none.return_value = None
 
     db_session.execute.side_effect = [
-        settings_scalars,        # 1. settings_keys
-        empty_scalars,           # 2. per-asset thresholds
-        markets_scalars,         # 3. live markets
-        daily_pnl_scalar,        # 4. daily PnL (т.к. есть рынки)
-        trade_check_scalars,     # 5. trade history check
-        skipped_check_scalars,   # 6. skipped trade check
+        settings_scalars,  # 1. settings_keys
+        empty_scalars,  # 2. per-asset thresholds
+        markets_scalars,  # 3. live markets
+        daily_pnl_scalar,  # 4. daily PnL (т.к. есть рынки)
+        trade_check_scalars,  # 5. trade history check
+        skipped_check_scalars,  # 6. skipped trade check
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
-    
+
     trader = AsyncMock()
-    trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "mode": "PAPER"})
-    
+    trader.execute_trade = AsyncMock(
+        return_value={"status": "SUCCESS", "mode": "PAPER"}
+    )
+
     api_client = AsyncMock()
-    api_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.70, "best_bid": 0.68})
-    
+    api_client.get_market_prices = AsyncMock(
+        return_value={"best_ask": 0.70, "best_bid": 0.68}
+    )
+
     await trade_worker_cycle(db_session, api_client)
-    
+
     trader.execute_trade.assert_called_once()
     call_kwargs = trader.execute_trade.call_args.kwargs
     assert call_kwargs["token_id"] == "yes-token-123"
     assert call_kwargs["side"] == "BUY"
-    
+
     # Проверяем запись в историю
     added = db_session.add.call_args_list
     trade_record = next(
@@ -126,22 +133,22 @@ async def test_pure_favorite_buys_yes_when_yes_is_favorite():
 async def test_pure_favorite_buys_no_when_no_is_favorite():
     """NO фаворит (YES цена 0.30) → покупаем NO токен."""
     market = make_market(yes_price=0.30, end_offset_sec=200)
-    
+
     db_session = AsyncMock()
     db_session.execute = AsyncMock()
-    
+
     settings_scalars = MagicMock()
     settings_scalars.scalars.return_value.all.return_value = make_settings_db()
-    
+
     empty_scalars = MagicMock()
     empty_scalars.scalars.return_value.all.return_value = []
-    
+
     markets_scalars = MagicMock()
     markets_scalars.scalars.return_value.all.return_value = [market]
 
     daily_pnl_scalar = MagicMock()
     daily_pnl_scalar.scalar.return_value = 0.0
-    
+
     trade_check_scalars = MagicMock()
     trade_check_scalars.scalars.return_value.first.return_value = None
 
@@ -149,28 +156,32 @@ async def test_pure_favorite_buys_no_when_no_is_favorite():
     skipped_check_scalars.scalar_one_or_none.return_value = None
 
     db_session.execute.side_effect = [
-        settings_scalars,        # 1. settings_keys
-        empty_scalars,           # 2. per-asset thresholds
-        markets_scalars,         # 3. live markets
-        daily_pnl_scalar,        # 4. daily PnL
-        trade_check_scalars,     # 5. trade history check
-        skipped_check_scalars,   # 6. skipped trade check
+        settings_scalars,  # 1. settings_keys
+        empty_scalars,  # 2. per-asset thresholds
+        markets_scalars,  # 3. live markets
+        daily_pnl_scalar,  # 4. daily PnL
+        trade_check_scalars,  # 5. trade history check
+        skipped_check_scalars,  # 6. skipped trade check
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
-    
+
     trader = AsyncMock()
-    trader.execute_trade = AsyncMock(return_value={"status": "SUCCESS", "mode": "PAPER"})
-    
+    trader.execute_trade = AsyncMock(
+        return_value={"status": "SUCCESS", "mode": "PAPER"}
+    )
+
     api_client = AsyncMock()
-    api_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.70, "best_bid": 0.68})
-    
+    api_client.get_market_prices = AsyncMock(
+        return_value={"best_ask": 0.70, "best_bid": 0.68}
+    )
+
     await trade_worker_cycle(db_session, api_client)
-    
+
     trader.execute_trade.assert_called_once()
     call_kwargs = trader.execute_trade.call_args.kwargs
     assert call_kwargs["token_id"] == "no-token-456"
     assert call_kwargs["side"] == "BUY"
-    
+
     added = db_session.add.call_args_list
     trade_record = next(
         (a.args[0] for a in added if isinstance(a.args[0], TradeHistory)), None
@@ -184,35 +195,35 @@ async def test_pure_favorite_buys_no_when_no_is_favorite():
 async def test_pure_favorite_skips_when_outside_time_window():
     """Рынок закрывается через 500 сек — вне окна [180, 240] → пропускаем."""
     market = make_market(yes_price=0.70, end_offset_sec=500)
-    
+
     db_session = AsyncMock()
     db_session.execute = AsyncMock()
-    
+
     settings_scalars = MagicMock()
     settings_scalars.scalars.return_value.all.return_value = make_settings_db()
-    
+
     empty_scalars = MagicMock()
     empty_scalars.scalars.return_value.all.return_value = []
-    
+
     markets_scalars = MagicMock()
     markets_scalars.scalars.return_value.all.return_value = [market]
 
     daily_pnl_scalar = MagicMock()
     daily_pnl_scalar.scalar.return_value = 0.0
-    
+
     db_session.execute.side_effect = [
-        settings_scalars,   # 1. settings_keys
-        empty_scalars,      # 2. per-asset thresholds
-        markets_scalars,    # 3. live markets
-        daily_pnl_scalar,   # 4. daily PnL (поскольку рынок вернулся в моке, но время не пройдет)
+        settings_scalars,  # 1. settings_keys
+        empty_scalars,  # 2. per-asset thresholds
+        markets_scalars,  # 3. live markets
+        daily_pnl_scalar,  # 4. daily PnL (поскольку рынок вернулся в моке, но время не пройдет)
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
-    
+
     trader = AsyncMock()
     api_client = AsyncMock()
-    
+
     await trade_worker_cycle(db_session, api_client)
-    
+
     trader.execute_trade.assert_not_called()
 
 
@@ -220,42 +231,42 @@ async def test_pure_favorite_skips_when_outside_time_window():
 async def test_pure_favorite_skips_duplicate_trade():
     """Уже есть SUCCESS-сделка на этом рынке → пропускаем."""
     market = make_market(yes_price=0.70, end_offset_sec=200)
-    
+
     existing_trade = MagicMock()
     existing_trade.status = "SUCCESS"
-    
+
     db_session = AsyncMock()
     db_session.execute = AsyncMock()
-    
+
     settings_scalars = MagicMock()
     settings_scalars.scalars.return_value.all.return_value = make_settings_db()
-    
+
     empty_scalars = MagicMock()
     empty_scalars.scalars.return_value.all.return_value = []
-    
+
     markets_scalars = MagicMock()
     markets_scalars.scalars.return_value.all.return_value = [market]
 
     daily_pnl_scalar = MagicMock()
     daily_pnl_scalar.scalar.return_value = 0.0
-    
+
     trade_check_scalars = MagicMock()
     trade_check_scalars.scalars.return_value.all.return_value = [existing_trade]
-    
+
     db_session.execute.side_effect = [
         settings_scalars,
         empty_scalars,
         markets_scalars,
         daily_pnl_scalar,
-        trade_check_scalars
+        trade_check_scalars,
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
-    
+
     trader = AsyncMock()
     api_client = AsyncMock()
-    
+
     await trade_worker_cycle(db_session, api_client)
-    
+
     trader.execute_trade.assert_not_called()
 
 
@@ -264,22 +275,22 @@ async def test_pure_favorite_skips_duplicate_trade():
 async def test_pure_favorite_skips_when_price_exactly_05():
     """Цена YES == 0.5 → нет явного фаворита → SKIPPED."""
     market = make_market(yes_price=0.5, end_offset_sec=200)
-    
+
     db_session = AsyncMock()
     db_session.execute = AsyncMock()
-    
+
     settings_scalars = MagicMock()
     settings_scalars.scalars.return_value.all.return_value = make_settings_db()
-    
+
     empty_scalars = MagicMock()
     empty_scalars.scalars.return_value.all.return_value = []
-    
+
     markets_scalars = MagicMock()
     markets_scalars.scalars.return_value.all.return_value = [market]
 
     daily_pnl_scalar = MagicMock()
     daily_pnl_scalar.scalar.return_value = 0.0
-    
+
     trade_check_scalars = MagicMock()
     trade_check_scalars.scalars.return_value.first.return_value = None
 
@@ -295,14 +306,14 @@ async def test_pure_favorite_skips_when_price_exactly_05():
         skipped_check_scalars,
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
-    
+
     trader = AsyncMock()
     api_client = AsyncMock()
-    
+
     await trade_worker_cycle(db_session, api_client)
-    
+
     trader.execute_trade.assert_not_called()
-    
+
     added = db_session.add.call_args_list
     trade_record = next(
         (a.args[0] for a in added if isinstance(a.args[0], TradeHistory)), None
@@ -317,23 +328,25 @@ async def test_pure_favorite_skips_when_price_exactly_05():
 async def test_ml_mode_unchanged_when_trading_mode_is_ml():
     """При TRADING_MODE=ml ветка Pure Favorite не выполняется, и код идет по ML пути (где пытается загрузить модели)."""
     market = make_market(yes_price=0.70, end_offset_sec=200)
-    
+
     db_session = AsyncMock()
     db_session.execute = AsyncMock()
-    
+
     settings_scalars = MagicMock()
     # Устанавливаем режим 'ml'
-    settings_scalars.scalars.return_value.all.return_value = make_settings_db(trading_mode="ml")
-    
+    settings_scalars.scalars.return_value.all.return_value = make_settings_db(
+        trading_mode="ml"
+    )
+
     empty_scalars = MagicMock()
     empty_scalars.scalars.return_value.all.return_value = []
-    
+
     markets_scalars = MagicMock()
     markets_scalars.scalars.return_value.all.return_value = [market]
 
     daily_pnl_scalar = MagicMock()
     daily_pnl_scalar.scalar.return_value = 0.0
-    
+
     # Поскольку мы в ML режиме, код будет грузить активные модели
     # Нам нужно, чтобы execute вернул пустой список моделей, чтобы код пропустил сделку с "No active model"
     active_models_scalars = MagicMock()
@@ -346,19 +359,21 @@ async def test_ml_mode_unchanged_when_trading_mode_is_ml():
     skipped_check_scalars.scalar_one_or_none.return_value = None
 
     db_session.execute.side_effect = [
-        settings_scalars,      # 1. settings_keys
-        empty_scalars,         # 2. per-asset thresholds
-        markets_scalars,       # 3. live markets
-        daily_pnl_scalar,      # 4. daily PnL
-        trade_check_scalars,   # 5. trade history check (guards)
-        skipped_check_scalars, # 6. skipped check (guards)
-        active_models_scalars, # 7. active models (decide_ml_mode)
+        settings_scalars,  # 1. settings_keys
+        empty_scalars,  # 2. per-asset thresholds
+        markets_scalars,  # 3. live markets
+        daily_pnl_scalar,  # 4. daily PnL
+        trade_check_scalars,  # 5. trade history check (guards)
+        skipped_check_scalars,  # 6. skipped check (guards)
+        active_models_scalars,  # 7. active models (decide_ml_mode)
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
 
     trader = AsyncMock()
     api_client = AsyncMock()
-    api_client.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.70, "current_spread": 0.02})
+    api_client.get_market_prices = AsyncMock(
+        return_value={"current_yes_price": 0.70, "current_spread": 0.02}
+    )
 
     await trade_worker_cycle(db_session, api_client)
 
@@ -372,7 +387,10 @@ async def test_ml_mode_unchanged_when_trading_mode_is_ml():
     )
     assert trade_record is not None
     assert trade_record.status == "SKIPPED"
-    assert "No active model" in trade_record.error_msg or "Models cache is empty" in trade_record.error_msg
+    assert (
+        "No active model" in trade_record.error_msg
+        or "Models cache is empty" in trade_record.error_msg
+    )
 
 
 @pytest.mark.asyncio
@@ -411,20 +429,25 @@ async def test_pure_favorite_skips_no_when_yes_becomes_favorite():
         skipped_check_scalars,
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
-    
+
     trader = AsyncMock()
     api_client = AsyncMock()
     # Мокаем цену NO-токена равной 0.30 (т.е. NO теперь аутсайдер, YES = 0.70)
-    api_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.30, "best_bid": 0.28})
-    
+    api_client.get_market_prices = AsyncMock(
+        return_value={"best_ask": 0.30, "best_bid": 0.28}
+    )
+
     await trade_worker_cycle(db_session, api_client)
-    
+
     trader.execute_trade.assert_not_called()
-    
+
     added = db_session.add.call_args_list
     trade_record = next(
         (a.args[0] for a in added if isinstance(a.args[0], TradeHistory)), None
     )
     assert trade_record is not None
     assert trade_record.status == "SKIPPED"
-    assert "Price drift" in trade_record.error_msg or "out of bounds" in trade_record.error_msg
+    assert (
+        "Price drift" in trade_record.error_msg
+        or "out of bounds" in trade_record.error_msg
+    )

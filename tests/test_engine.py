@@ -7,12 +7,15 @@ from datetime import datetime, timezone, timedelta
 from polyflip.db.models import RuntimeSettings, LiveMarket, ModelRegistry, TradeHistory
 from polyflip.trading.engine import trade_worker_cycle
 
+
 class MockModel:
     def __init__(self, proba):
         self.proba = proba
         self.feature_names_in_ = ["mid_price"]
+
     def predict_proba(self, X):
-        return [self.proba] # [[p_no, p_yes_flip]]
+        return [self.proba]  # [[p_no, p_yes_flip]]
+
 
 @pytest.mark.asyncio
 async def test_engine_skips_when_trading_disabled(db_session):
@@ -21,170 +24,334 @@ async def test_engine_skips_when_trading_disabled(db_session):
     res = await db_session.execute(select(TradeHistory))
     assert len(res.scalars().all()) == 0
 
+
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
 async def test_engine_enters_on_confident_favorite(db_session):
     now = datetime.now(timezone.utc)
     settings = [
-        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_EXECUTION_TIME_SEC", value="30", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_BET_EDGE", value="0.50", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="FAVORITE_MAX_EDGE", value="0.50", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MIN_EDGE", value="-0.10", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="FAVORITE_MIN_EDGE", value="-0.10", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_EDGE_FILTER", value="1.0", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
+        RuntimeSettings(
+            key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_EXECUTION_TIME_SEC",
+            value="30",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_NO_FLIP_THRESHOLD",
+            value="0.15",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MAX_BET_EDGE", value="0.50", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="FAVORITE_MAX_EDGE", value="0.50", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MIN_EDGE", value="-0.10", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="FAVORITE_MIN_EDGE", value="-0.10", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MAX_EDGE_FILTER", value="1.0", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"
+        ),
     ]
     db_session.add_all(settings)
-    
+
     market = LiveMarket(
-        market_id="m1", asset="BTC", question="Test?",
-        current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
+        market_id="m1",
+        asset="BTC",
+        question="Test?",
+        current_yes_price=0.6,
+        current_no_price=0.4,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
         end_time_est=now + timedelta(seconds=30),
-        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+        yes_token_id="t_yes",
+        no_token_id="t_no",
+        last_updated=now,
     )
     db_session.add(market)
-    
+
     # Model predicts flip prob = 0.10 (confident favorite YES)
     model = MockModel([0.9, 0.1])
-    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
+    db_session.add(
+        ModelRegistry(
+            asset="BTC",
+            model_blob=pickle.dumps(model),
+            is_active=True,
+            version=1,
+            accuracy=0.9,
+            features="mid_price",
+            trained_at=now,
+        )
+    )
     await db_session.commit()
-    
+
     with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         
-         mock_api = mock_api_cls.return_value
-         mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.605})
-         mock_api.close = AsyncMock()
-         
-         await trade_worker_cycle(db_session, mock_api)
-         
-         res = await db_session.execute(select(TradeHistory))
-         trades = res.scalars().all()
-         
-         assert len(trades) == 1
-         if trades[0].outcome_bought != "YES":
-             pytest.fail(f"Trade was skipped with error: {trades[0].error_msg}")
-         assert trades[0].executed_price == 0.605
-         assert trades[0].status == "SUCCESS"
+
+        mock_api = mock_api_cls.return_value
+        mock_api.get_market_prices = AsyncMock(
+            return_value={
+                "current_yes_price": 0.60,
+                "current_spread": 0.01,
+                "best_ask": 0.605,
+            }
+        )
+        mock_api.close = AsyncMock()
+
+        await trade_worker_cycle(db_session, mock_api)
+
+        res = await db_session.execute(select(TradeHistory))
+        trades = res.scalars().all()
+
+        assert len(trades) == 1
+        if trades[0].outcome_bought != "YES":
+            pytest.fail(f"Trade was skipped with error: {trades[0].error_msg}")
+        assert trades[0].executed_price == 0.605
+        assert trades[0].status == "SUCCESS"
+
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
 async def test_engine_skips_in_dead_zone(db_session):
     now = datetime.now(timezone.utc)
     settings = [
-        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_EXECUTION_TIME_SEC", value="30", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_BET_EDGE", value="0.40", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
+        RuntimeSettings(
+            key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_EXECUTION_TIME_SEC",
+            value="30",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_NO_FLIP_THRESHOLD",
+            value="0.15",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MAX_BET_EDGE", value="0.40", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"
+        ),
     ]
     db_session.add_all(settings)
-    
+
     market = LiveMarket(
-        market_id="m2", asset="BTC", question="Test?",
-        current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
+        market_id="m2",
+        asset="BTC",
+        question="Test?",
+        current_yes_price=0.6,
+        current_no_price=0.4,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
         end_time_est=now + timedelta(seconds=30),
-        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+        yes_token_id="t_yes",
+        no_token_id="t_no",
+        last_updated=now,
     )
     db_session.add(market)
-    
+
     # Model predicts flip prob = 0.20 (dead zone [0.15 - 0.30])
     model = MockModel([0.8, 0.2])
-    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
+    db_session.add(
+        ModelRegistry(
+            asset="BTC",
+            model_blob=pickle.dumps(model),
+            is_active=True,
+            version=1,
+            accuracy=0.9,
+            features="mid_price",
+            trained_at=now,
+        )
+    )
     await db_session.commit()
-    
+
     with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         mock_api = mock_api_cls.return_value
-         mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.61})
-         mock_api.close = AsyncMock()
-         
-         await trade_worker_cycle(db_session, mock_api)
-         
-         res = await db_session.execute(select(TradeHistory))
-         trades = res.scalars().all()
-         
-         assert len(trades) == 1
-         assert trades[0].status == "SKIPPED"
-         assert "Мёртвая зона" in trades[0].error_msg
+        mock_api = mock_api_cls.return_value
+        mock_api.get_market_prices = AsyncMock(
+            return_value={
+                "current_yes_price": 0.60,
+                "current_spread": 0.01,
+                "best_ask": 0.61,
+            }
+        )
+        mock_api.close = AsyncMock()
+
+        await trade_worker_cycle(db_session, mock_api)
+
+        res = await db_session.execute(select(TradeHistory))
+        trades = res.scalars().all()
+
+        assert len(trades) == 1
+        assert trades[0].status == "SKIPPED"
+        assert "Мёртвая зона" in trades[0].error_msg
+
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
 async def test_engine_skips_on_high_flip_risk(db_session):
     now = datetime.now(timezone.utc)
     settings = [
-        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_EXECUTION_TIME_SEC", value="30", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(
+            key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_EXECUTION_TIME_SEC",
+            value="30",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_NO_FLIP_THRESHOLD",
+            value="0.15",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"
+        ),
     ]
     db_session.add_all(settings)
-    
+
     market = LiveMarket(
-        market_id="m3", asset="BTC", question="Test?",
-        current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
+        market_id="m3",
+        asset="BTC",
+        question="Test?",
+        current_yes_price=0.6,
+        current_no_price=0.4,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
         end_time_est=now + timedelta(seconds=30),
-        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+        yes_token_id="t_yes",
+        no_token_id="t_no",
+        last_updated=now,
     )
     db_session.add(market)
-    
+
     # Model predicts flip prob = 0.40 (expected flip >= 0.30)
     model = MockModel([0.6, 0.4])
-    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
+    db_session.add(
+        ModelRegistry(
+            asset="BTC",
+            model_blob=pickle.dumps(model),
+            is_active=True,
+            version=1,
+            accuracy=0.9,
+            features="mid_price",
+            trained_at=now,
+        )
+    )
     await db_session.commit()
-    
+
     with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         mock_api = mock_api_cls.return_value
-         mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.61})
-         mock_api.close = AsyncMock()
-         
-         await trade_worker_cycle(db_session, mock_api)
-         
-         res = await db_session.execute(select(TradeHistory))
-         trades = res.scalars().all()
-         
-         assert len(trades) == 1
-         assert trades[0].status == "SKIPPED"
-         assert "Ожидается флип" in trades[0].error_msg
+        mock_api = mock_api_cls.return_value
+        mock_api.get_market_prices = AsyncMock(
+            return_value={
+                "current_yes_price": 0.60,
+                "current_spread": 0.01,
+                "best_ask": 0.61,
+            }
+        )
+        mock_api.close = AsyncMock()
+
+        await trade_worker_cycle(db_session, mock_api)
+
+        res = await db_session.execute(select(TradeHistory))
+        trades = res.scalars().all()
+
+        assert len(trades) == 1
+        assert trades[0].status == "SKIPPED"
+        assert "Ожидается флип" in trades[0].error_msg
+
 
 @pytest.mark.asyncio
 async def test_save_or_update_no_extra_select(db_session):
     """Функция save_or_update_skipped_trade не должна делать SELECT, если передан existing_skipped."""
     from polyflip.trading.engine import save_or_update_skipped_trade
-    
+
     # Мокаем execute на сессии БД
     original_execute = db_session.execute
     mock_execute = AsyncMock(side_effect=original_execute)
     db_session.execute = mock_execute
-    
+
     class FakeMarket:
         market_id = "m1"
         asset = "BTC"
-    
+
     now = datetime.now(timezone.utc)
     existing = TradeHistory(
-        market_id="m1", asset="BTC", outcome_bought="NONE", amount_usdc=0.0, remaining_shares=20.0,
-        executed_price=0.0, predicted_flip_prob=0.5, active_features="",
-        model_version=1, status="SKIPPED", error_msg="Old reason", created_at=now
+        market_id="m1",
+        asset="BTC",
+        outcome_bought="NONE",
+        amount_usdc=0.0,
+        remaining_shares=20.0,
+        executed_price=0.0,
+        predicted_flip_prob=0.5,
+        active_features="",
+        model_version=1,
+        status="SKIPPED",
+        error_msg="Old reason",
+        created_at=now,
     )
-    
+
     await save_or_update_skipped_trade(
         db_session=db_session,
         market=FakeMarket(),
@@ -192,9 +359,9 @@ async def test_save_or_update_no_extra_select(db_session):
         p_flip_val=0.6,
         model_version=1,
         start_time=now,
-        existing_skipped=existing
+        existing_skipped=existing,
     )
-    
+
     # Ни одного execute не должно быть вызвано (объект обновляется прямо в памяти)
     assert mock_execute.call_count == 0
     assert existing.error_msg == "New reason"
@@ -206,90 +373,174 @@ async def test_engine_skips_when_no_fresh_prices(db_session):
     """При отсутствии цен от API движок должен записывать пропуск (SKIPPED)."""
     now = datetime.now(timezone.utc)
     settings = [
-        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_EXECUTION_TIME_SEC", value="30", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_FLIP_THRESHOLD", value="0.85", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
+        RuntimeSettings(
+            key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_EXECUTION_TIME_SEC",
+            value="30",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_NO_FLIP_THRESHOLD",
+            value="0.15",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="TRADE_FLIP_THRESHOLD", value="0.85", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"
+        ),
     ]
     db_session.add_all(settings)
-    
+
     market = LiveMarket(
-        market_id="m_no_price", asset="BTC", question="Test?",
-        current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
+        market_id="m_no_price",
+        asset="BTC",
+        question="Test?",
+        current_yes_price=0.6,
+        current_no_price=0.4,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
         end_time_est=now + timedelta(seconds=30),
-        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+        yes_token_id="t_yes",
+        no_token_id="t_no",
+        last_updated=now,
     )
     db_session.add(market)
-    
+
     # Модель предсказывает низкий риск флипа (0.05)
     model = MockModel([0.95, 0.05])
-    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
+    db_session.add(
+        ModelRegistry(
+            asset="BTC",
+            model_blob=pickle.dumps(model),
+            is_active=True,
+            version=1,
+            accuracy=0.9,
+            features="mid_price",
+            trained_at=now,
+        )
+    )
     await db_session.commit()
-    
+
     with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         mock_api = mock_api_cls.return_value
-         # API возвращает пустой словарь (нет свежих цен)
-         mock_api.get_market_prices = AsyncMock(return_value={})
-         mock_api.close = AsyncMock()
-         
-         await trade_worker_cycle(db_session, mock_api)
-         
-         res = await db_session.execute(select(TradeHistory))
-         trades = res.scalars().all()
-                  
-         assert len(trades) == 1
-         assert trades[0].status == "SKIPPED"
-         assert "No fresh YES prices" in trades[0].error_msg
+        mock_api = mock_api_cls.return_value
+        # API возвращает пустой словарь (нет свежих цен)
+        mock_api.get_market_prices = AsyncMock(return_value={})
+        mock_api.close = AsyncMock()
+
+        await trade_worker_cycle(db_session, mock_api)
+
+        res = await db_session.execute(select(TradeHistory))
+        trades = res.scalars().all()
+
+        assert len(trades) == 1
+        assert trades[0].status == "SKIPPED"
+        assert "No fresh YES prices" in trades[0].error_msg
 
 
 @pytest.mark.asyncio
 async def test_engine_skips_when_clob_error(db_session):
     now = datetime.now(timezone.utc)
     settings = [
-        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_EXECUTION_TIME_SEC", value="30", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_FLIP_THRESHOLD", value="0.85", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.02", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(
+            key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_EXECUTION_TIME_SEC",
+            value="30",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_NO_FLIP_THRESHOLD",
+            value="0.15",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="TRADE_FLIP_THRESHOLD", value="0.85", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="DEAD_ZONE_WIDTH", value="0.02", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"
+        ),
     ]
     db_session.add_all(settings)
 
     market = LiveMarket(
-        market_id="m_clob_err", asset="BTC", question="Test?",
-        current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
+        market_id="m_clob_err",
+        asset="BTC",
+        question="Test?",
+        current_yes_price=0.6,
+        current_no_price=0.4,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
         end_time_est=now + timedelta(seconds=30),
-        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+        yes_token_id="t_yes",
+        no_token_id="t_no",
+        last_updated=now,
     )
     db_session.add(market)
 
     model = MockModel([0.95, 0.05])
-    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
+    db_session.add(
+        ModelRegistry(
+            asset="BTC",
+            model_blob=pickle.dumps(model),
+            is_active=True,
+            version=1,
+            accuracy=0.9,
+            features="mid_price",
+            trained_at=now,
+        )
+    )
     await db_session.commit()
 
     with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         mock_api = mock_api_cls.return_value
-         mock_api.get_market_prices = AsyncMock(return_value={"error": "API HTTP Error 429"})
-         mock_api.close = AsyncMock()
+        mock_api = mock_api_cls.return_value
+        mock_api.get_market_prices = AsyncMock(
+            return_value={"error": "API HTTP Error 429"}
+        )
+        mock_api.close = AsyncMock()
 
-         await trade_worker_cycle(db_session, mock_api)
+        await trade_worker_cycle(db_session, mock_api)
 
-         res = await db_session.execute(select(TradeHistory))
-         trades = res.scalars().all()
-         
-         target_trade = next(t for t in trades if t.market_id == "m_clob_err")
-         assert target_trade.status == "SKIPPED"
-         assert "API HTTP Error 429" in target_trade.error_msg
+        res = await db_session.execute(select(TradeHistory))
+        trades = res.scalars().all()
+
+        target_trade = next(t for t in trades if t.market_id == "m_clob_err")
+        assert target_trade.status == "SKIPPED"
+        assert "API HTTP Error 429" in target_trade.error_msg
 
 
 @pytest.mark.asyncio
@@ -297,47 +548,94 @@ async def test_engine_skips_when_clob_error(db_session):
 async def test_engine_skips_when_edge_too_small(db_session):
     now = datetime.now(timezone.utc)
     settings = [
-        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_EXECUTION_TIME_SEC", value="30", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.50", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(
+            key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_EXECUTION_TIME_SEC",
+            value="30",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_NO_FLIP_THRESHOLD",
+            value="0.50",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="DEAD_ZONE_WIDTH", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"
+        ),
     ]
     db_session.add_all(settings)
-    
+
     market = LiveMarket(
-        market_id="m_edge", asset="BTC", question="Test?",
-        current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
+        market_id="m_edge",
+        asset="BTC",
+        question="Test?",
+        current_yes_price=0.6,
+        current_no_price=0.4,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
         end_time_est=now + timedelta(seconds=30),
-        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+        yes_token_id="t_yes",
+        no_token_id="t_no",
+        last_updated=now,
     )
     db_session.add(market)
-    
+
     # p_flip = 0.40 -> p_win = 0.60
     model = MockModel([0.60, 0.40])
-    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
+    db_session.add(
+        ModelRegistry(
+            asset="BTC",
+            model_blob=pickle.dumps(model),
+            is_active=True,
+            version=1,
+            accuracy=0.9,
+            features="mid_price",
+            trained_at=now,
+        )
+    )
     await db_session.commit()
-    
+
     with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         mock_api = mock_api_cls.return_value
-         # buy_price = 0.58. Edge = 0.60 - 0.58 = 0.02 < 0.05
-         mock_api.get_market_prices = AsyncMock(return_value={"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.58})
-         mock_api.close = AsyncMock()
-         
-         await trade_worker_cycle(db_session, mock_api)
-         
-         res = await db_session.execute(select(TradeHistory))
-         trades = res.scalars().all()
-                  
-         assert len(trades) == 1
-         assert trades[0].status == "SKIPPED"
-         assert "Edge out of bounds" in trades[0].error_msg
-         assert abs(trades[0].edge - (-0.0083)) < 1e-4
+        mock_api = mock_api_cls.return_value
+        # buy_price = 0.58. Edge = 0.60 - 0.58 = 0.02 < 0.05
+        mock_api.get_market_prices = AsyncMock(
+            return_value={
+                "current_yes_price": 0.60,
+                "current_spread": 0.01,
+                "best_ask": 0.58,
+            }
+        )
+        mock_api.close = AsyncMock()
+
+        await trade_worker_cycle(db_session, mock_api)
+
+        res = await db_session.execute(select(TradeHistory))
+        trades = res.scalars().all()
+
+        assert len(trades) == 1
+        assert trades[0].status == "SKIPPED"
+        assert "Edge out of bounds" in trades[0].error_msg
+        assert abs(trades[0].edge - (-0.0083)) < 1e-4
 
 
 @pytest.mark.asyncio
@@ -345,57 +643,117 @@ async def test_engine_skips_when_edge_too_small(db_session):
 async def test_engine_skips_no_deal_when_edge_too_small(db_session):
     now = datetime.now(timezone.utc)
     settings = [
-        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADING_MODE_BTC", value="ml", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_EXECUTION_TIME_SEC", value="30", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_BET_EDGE", value="0.40", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
+        RuntimeSettings(
+            key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADING_MODE_BTC", value="ml", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="FLIP_THRESHOLD", value="0.70", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_EXECUTION_TIME_SEC",
+            value="30",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_NO_FLIP_THRESHOLD",
+            value="0.70",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="DEAD_ZONE_WIDTH", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MAX_BET_EDGE", value="0.40", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"
+        ),
     ]
     db_session.add_all(settings)
-    
+
     market = LiveMarket(
-        market_id="m_edge_no", asset="BTC", question="Test?",
-        current_yes_price=0.3, current_no_price=0.7, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
+        market_id="m_edge_no",
+        asset="BTC",
+        question="Test?",
+        current_yes_price=0.3,
+        current_no_price=0.7,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
         end_time_est=now + timedelta(seconds=30),
-        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+        yes_token_id="t_yes",
+        no_token_id="t_no",
+        last_updated=now,
     )
     db_session.add(market)
-    
+
     # p_flip = 0.60 -> p_win = 0.40
     model = MockModel([0.40, 0.60])
-    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
+    db_session.add(
+        ModelRegistry(
+            asset="BTC",
+            model_blob=pickle.dumps(model),
+            is_active=True,
+            version=1,
+            accuracy=0.9,
+            features="mid_price",
+            trained_at=now,
+        )
+    )
     await db_session.commit()
-    
+
     with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         mock_api = mock_api_cls.return_value
-         
-         # Мокаем get_market_prices: первый раз для YES, второй для NO
-         mock_api.get_market_prices = AsyncMock(side_effect=[
-             {"current_yes_price": 0.30, "current_spread": 0.01, "best_ask": 0.35},  # YES
-             {"current_yes_price": 0.70, "current_spread": 0.01, "best_ask": 0.68}   # NO
-         ])
-         mock_api.close = AsyncMock()
-         
-         await trade_worker_cycle(db_session, mock_api)
-         
-         res = await db_session.execute(select(TradeHistory))
-         trades = res.scalars().all()
-                  
-         # Ищем сделку с market_id = "m_edge_no"
-         target_trade = next(t for t in trades if t.market_id == "m_edge_no")
-         assert target_trade.status == "SKIPPED"
-         assert "Edge out of bounds" in target_trade.error_msg
-         # edge = (p_win / buy_price) - 1 = (0.4 / 0.705) - 1 = -0.4326
-         assert abs(target_trade.edge - (-0.4326)) < 1e-4
+        mock_api = mock_api_cls.return_value
+
+        # Мокаем get_market_prices: первый раз для YES, второй для NO
+        mock_api.get_market_prices = AsyncMock(
+            side_effect=[
+                {
+                    "current_yes_price": 0.30,
+                    "current_spread": 0.01,
+                    "best_ask": 0.35,
+                },  # YES
+                {
+                    "current_yes_price": 0.70,
+                    "current_spread": 0.01,
+                    "best_ask": 0.68,
+                },  # NO
+            ]
+        )
+        mock_api.close = AsyncMock()
+
+        await trade_worker_cycle(db_session, mock_api)
+
+        res = await db_session.execute(select(TradeHistory))
+        trades = res.scalars().all()
+
+        # Ищем сделку с market_id = "m_edge_no"
+        target_trade = next(t for t in trades if t.market_id == "m_edge_no")
+        assert target_trade.status == "SKIPPED"
+        assert "Edge out of bounds" in target_trade.error_msg
+        # edge = (p_win / buy_price) - 1 = (0.4 / 0.705) - 1 = -0.4326
+        assert abs(target_trade.edge - (-0.4326)) < 1e-4
+
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
@@ -403,53 +761,106 @@ async def test_outsider_respects_edge_limits(db_session):
     """Outsider-стратегия должна пропускать сделки с edge вне лимитов."""
     now = datetime.now(timezone.utc)
     settings = [
-        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_EXECUTION_TIME_SEC", value="30", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_ON_FLIP", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="FLIP_THRESHOLD", value="0.30", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_BET_EDGE", value="0.10", updated_at=now, updated_by="test"),
+        RuntimeSettings(
+            key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_EXECUTION_TIME_SEC",
+            value="30",
+            updated_at=now,
+            updated_by="test",
+        ),
+        RuntimeSettings(
+            key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_ON_FLIP", value="true", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="FLIP_THRESHOLD", value="0.30", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="DEAD_ZONE_WIDTH", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MAX_BET_EDGE", value="0.10", updated_at=now, updated_by="test"
+        ),
     ]
     db_session.add_all(settings)
 
     # YES - фаворит (0.6), покупаем NO (аутсайдера).
     market = LiveMarket(
-        market_id="m_outsider_edge", asset="BTC", question="Test?",
-        current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
+        market_id="m_outsider_edge",
+        asset="BTC",
+        question="Test?",
+        current_yes_price=0.6,
+        current_no_price=0.4,
+        current_spread=0.01,
+        volume_5min=100.0,
+        price_velocity=0.0,
         end_time_est=now + timedelta(seconds=30),
-        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+        yes_token_id="t_yes",
+        no_token_id="t_no",
+        last_updated=now,
     )
     db_session.add(market)
 
     # p_flip = 0.50 -> p_win = 0.50 for underdog NO.
     model = MockModel([0.50, 0.50])
-    db_session.add(ModelRegistry(asset="BTC", model_blob=pickle.dumps(model), is_active=True, version=1, accuracy=0.9, features="mid_price", trained_at=now))
+    db_session.add(
+        ModelRegistry(
+            asset="BTC",
+            model_blob=pickle.dumps(model),
+            is_active=True,
+            version=1,
+            accuracy=0.9,
+            features="mid_price",
+            trained_at=now,
+        )
+    )
     await db_session.commit()
 
     with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls:
-         mock_api = mock_api_cls.return_value
+        mock_api = mock_api_cls.return_value
 
-         # buy_price for NO = 0.41.
-         # edge = (0.50 / 0.41) - 1.0 = 0.2195 > MAX_BET_EDGE (0.10)
-         mock_api.get_market_prices = AsyncMock(side_effect=[
-             {"current_yes_price": 0.60, "current_spread": 0.01, "best_ask": 0.61}, # YES
-             {"current_yes_price": 0.40, "current_spread": 0.01, "best_ask": 0.41}  # NO
-         ])
-         mock_api.close = AsyncMock()
-         
-         await trade_worker_cycle(db_session, mock_api)
-         
-         res = await db_session.execute(select(TradeHistory))
-         trades = res.scalars().all()
-         target_trade = next(t for t in trades if t.market_id == "m_outsider_edge")
-         assert target_trade.status == "SKIPPED"
-         assert "Edge out of bounds" in target_trade.error_msg
+        # buy_price for NO = 0.41.
+        # edge = (0.50 / 0.41) - 1.0 = 0.2195 > MAX_BET_EDGE (0.10)
+        mock_api.get_market_prices = AsyncMock(
+            side_effect=[
+                {
+                    "current_yes_price": 0.60,
+                    "current_spread": 0.01,
+                    "best_ask": 0.61,
+                },  # YES
+                {
+                    "current_yes_price": 0.40,
+                    "current_spread": 0.01,
+                    "best_ask": 0.41,
+                },  # NO
+            ]
+        )
+        mock_api.close = AsyncMock()
+
+        await trade_worker_cycle(db_session, mock_api)
+
+        res = await db_session.execute(select(TradeHistory))
+        trades = res.scalars().all()
+        target_trade = next(t for t in trades if t.market_id == "m_outsider_edge")
+        assert target_trade.status == "SKIPPED"
+        assert "Edge out of bounds" in target_trade.error_msg
+
 
 @pytest.mark.asyncio
 async def test_skipped_crypto_trade_has_active_features_set(db_session):
@@ -459,64 +870,105 @@ async def test_skipped_crypto_trade_has_active_features_set(db_session):
     """
     now = datetime.now(timezone.utc)
     settings = [
-        RuntimeSettings(key="TRADING_MODE", value="lightgbm", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="CRYPTO_MIN_EDGE", value="0.10", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MAX_EDGE_FILTER", value="1.0", updated_at=now, updated_by="test"),
+        RuntimeSettings(
+            key="TRADING_MODE", value="lightgbm", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="CRYPTO_MIN_EDGE", value="0.10", updated_at=now, updated_by="test"
+        ),
+        RuntimeSettings(
+            key="MAX_EDGE_FILTER", value="1.0", updated_at=now, updated_by="test"
+        ),
     ]
     db_session.add_all(settings)
 
     market = LiveMarket(
-        market_id="m_crypto_skip", asset="BTC", question="Price up?",
-        current_yes_price=0.5, current_no_price=0.5, current_spread=0.01,
-        volume_5min=1000.0, price_velocity=0.0,
+        market_id="m_crypto_skip",
+        asset="BTC",
+        question="Price up?",
+        current_yes_price=0.5,
+        current_no_price=0.5,
+        current_spread=0.01,
+        volume_5min=1000.0,
+        price_velocity=0.0,
         end_time_est=now + timedelta(seconds=300),
-        yes_token_id="t_yes", no_token_id="t_no", last_updated=now
+        yes_token_id="t_yes",
+        no_token_id="t_no",
+        last_updated=now,
     )
     db_session.add(market)
     await db_session.commit()
 
-    with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls, \
-         patch("polyflip.trading.engine._get_crypto_predictor") as mock_pred_factory, \
-         patch("polyflip.trading.engine.get_recent_candles") as mock_candles, \
-         patch("polyflip.trading.engine.decide_crypto_trend") as mock_decide:
-         mock_api = mock_api_cls.return_value
-         mock_api.get_market_prices = AsyncMock(side_effect=[
-             {"current_yes_price": 0.5, "current_spread": 0.01, "best_ask": 0.51},
-             {"current_yes_price": 0.5, "current_spread": 0.01, "best_ask": 0.51}
-         ])
+    with patch("polyflip.trading.engine.PolymarketClient") as mock_api_cls, patch(
+        "polyflip.trading.engine._get_crypto_predictor"
+    ) as mock_pred_factory, patch(
+        "polyflip.trading.engine.get_recent_candles"
+    ) as mock_candles, patch(
+        "polyflip.trading.engine.decide_crypto_trend"
+    ) as mock_decide:
+        mock_api = mock_api_cls.return_value
+        mock_api.get_market_prices = AsyncMock(
+            side_effect=[
+                {"current_yes_price": 0.5, "current_spread": 0.01, "best_ask": 0.51},
+                {"current_yes_price": 0.5, "current_spread": 0.01, "best_ask": 0.51},
+            ]
+        )
 
-         mock_candles.return_value = []
+        mock_candles.return_value = []
 
-         from unittest.mock import MagicMock
-         from polyflip.crypto.predictor import CryptoSignal
-         mock_predictor = MagicMock()
-         mock_pred_factory.return_value = mock_predictor
-         mock_predictor.load = AsyncMock()
-         mock_predictor.get_interval.return_value = "15m"
-         mock_predictor.predict.return_value = CryptoSignal(
-             symbol="BTCUSDT", p_up=0.51, p_down=0.49, direction="UP", signal_strength=0.01,
-                 strike=60000.0, threshold_up=0.50, threshold_down=0.50, model_version=1, features_ok=True
-         )
-         
-         from polyflip.trading.decision_logic import TradeDecision
-         mock_decide.return_value = TradeDecision(
-             action="SKIP", buy_price=0.0, bet_size_usdc=0.0, p_up=0.51, edge=0.01, strategy_type="LIGHTGBM_TREND", reason="Edge < min_edge", strike=60000.0
-         )
-         
-         await trade_worker_cycle(db_session, mock_api)
-         
-         res = await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == "m_crypto_skip"))
-         trade = res.scalar_one_or_none()
-         
-         if trade is None:
-             all_trades = (await db_session.execute(select(TradeHistory))).scalars().all()
-             print(f"DEBUG all_trades: {all_trades}")
-             pytest.fail("Trade is None")
+        from unittest.mock import MagicMock
+        from polyflip.crypto.predictor import CryptoSignal
 
-         assert trade is not None
-         assert trade.status == "SKIPPED"
-         assert trade.active_features != "", "active_features должны быть заполнены даже для skipped крипто-сделок"
-         assert "lightgbm" in trade.active_features.lower()
+        mock_predictor = MagicMock()
+        mock_pred_factory.return_value = mock_predictor
+        mock_predictor.load = AsyncMock()
+        mock_predictor.get_interval.return_value = "15m"
+        mock_predictor.predict.return_value = CryptoSignal(
+            symbol="BTCUSDT",
+            p_up=0.51,
+            p_down=0.49,
+            direction="UP",
+            signal_strength=0.01,
+            strike=60000.0,
+            threshold_up=0.50,
+            threshold_down=0.50,
+            model_version=1,
+            features_ok=True,
+        )
 
+        from polyflip.trading.decision_logic import TradeDecision
 
+        mock_decide.return_value = TradeDecision(
+            action="SKIP",
+            buy_price=0.0,
+            bet_size_usdc=0.0,
+            p_up=0.51,
+            edge=0.01,
+            strategy_type="LIGHTGBM_TREND",
+            reason="Edge < min_edge",
+            strike=60000.0,
+        )
+
+        await trade_worker_cycle(db_session, mock_api)
+
+        res = await db_session.execute(
+            select(TradeHistory).where(TradeHistory.market_id == "m_crypto_skip")
+        )
+        trade = res.scalar_one_or_none()
+
+        if trade is None:
+            all_trades = (
+                (await db_session.execute(select(TradeHistory))).scalars().all()
+            )
+            print(f"DEBUG all_trades: {all_trades}")
+            pytest.fail("Trade is None")
+
+        assert trade is not None
+        assert trade.status == "SKIPPED"
+        assert (
+            trade.active_features != ""
+        ), "active_features должны быть заполнены даже для skipped крипто-сделок"
+        assert "lightgbm" in trade.active_features.lower()

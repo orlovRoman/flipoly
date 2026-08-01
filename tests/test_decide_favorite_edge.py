@@ -5,9 +5,13 @@ from polyflip.trading.feature_builder import MarketSignal
 
 def make_signal(mid: float, spread: float = 0.02) -> MarketSignal:
     return MarketSignal(
-        asset="BTC", mid_price=mid, spread=spread,
-        volume_5min=500.0, price_velocity=0.0,
-        hour_of_day=12, time_left_min=30.0
+        asset="BTC",
+        mid_price=mid,
+        spread=spread,
+        volume_5min=500.0,
+        price_velocity=0.0,
+        hour_of_day=12,
+        time_left_min=30.0,
     )
 
 
@@ -33,7 +37,10 @@ def test_favorite_yes_edge_positive_with_small_spread():
 
 def test_favorite_yes_skips_when_edge_below_min():
     """SKIP если edge < MIN_EDGE"""
-    config = {**BASE_CONFIG, "MIN_EDGE": "0.10"}  # требуем 10% ROI, FAVORITE_MIN_EDGE не задан
+    config = {
+        **BASE_CONFIG,
+        "MIN_EDGE": "0.10",
+    }  # требуем 10% ROI, FAVORITE_MIN_EDGE не задан
     decision = decide_favorite(make_signal(mid=0.75), config)
     assert decision.action == "SKIP"
     assert "edge" in decision.reason.lower()
@@ -49,9 +56,19 @@ def test_favorite_no_has_real_edge():
 
 def test_favorite_edge_wires_to_bet_sizing():
     """Размер ставки должен зависеть от edge (scaled режим)"""
-    config_low_edge = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "-0.05", "TRADE_BET_SIZE_USDC": "5", "MAX_BET_SIZE_USDC": "50"}
-    config_high_min_edge = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "-0.05", "MAX_BET_EDGE": "0.01",
-                            "TRADE_BET_SIZE_USDC": "5", "MAX_BET_SIZE_USDC": "50"}
+    config_low_edge = {
+        **BASE_CONFIG,
+        "FAVORITE_MIN_EDGE": "-0.05",
+        "TRADE_BET_SIZE_USDC": "5",
+        "MAX_BET_SIZE_USDC": "50",
+    }
+    config_high_min_edge = {
+        **BASE_CONFIG,
+        "FAVORITE_MIN_EDGE": "-0.05",
+        "MAX_BET_EDGE": "0.01",
+        "TRADE_BET_SIZE_USDC": "5",
+        "MAX_BET_SIZE_USDC": "50",
+    }
     d1 = decide_favorite(make_signal(mid=0.75, spread=0.001), config_low_edge)
     d2 = decide_favorite(make_signal(mid=0.75, spread=0.001), config_high_min_edge)
     if d1.action != "SKIP":

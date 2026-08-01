@@ -25,10 +25,11 @@ from polyflip.config import settings
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ]
 )
 logger = structlog.get_logger()
+
 
 class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, limit: int = 60, window: int = 60):
@@ -52,17 +53,21 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
             self.request_count += 1
             if self.request_count % 1000 == 0:
                 for ip in list(self.requests.keys()):
-                    self.requests[ip] = [t for t in self.requests[ip] if now - t < self.window]
+                    self.requests[ip] = [
+                        t for t in self.requests[ip] if now - t < self.window
+                    ]
                     if not self.requests[ip]:
                         self.requests.pop(ip, None)
 
             # Очищаем запросы за пределами окна
-            self.requests[client_ip] = [t for t in self.requests[client_ip] if now - t < self.window]
+            self.requests[client_ip] = [
+                t for t in self.requests[client_ip] if now - t < self.window
+            ]
 
             if len(self.requests[client_ip]) >= self.limit:
                 return JSONResponse(
                     status_code=429,
-                    content={"detail": "Too many requests. Rate limit exceeded."}
+                    content={"detail": "Too many requests. Rate limit exceeded."},
                 )
 
             self.requests[client_ip].append(now)
@@ -70,15 +75,24 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
 
+
 from polyflip.db.connection import async_session
-from polyflip.db.init_runtime_settings import seed_runtime_settings, migrate_auto_dead_zone_width, migrate_stop_loss_pct, migrate_crypto_to_lightgbm
+from polyflip.db.init_runtime_settings import (
+    seed_runtime_settings,
+    migrate_auto_dead_zone_width,
+    migrate_stop_loss_pct,
+    migrate_crypto_to_lightgbm,
+)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("application_startup")
     if settings.API_KEY == "test-key":
-        logger.warning("API key is set to insecure default 'test-key'. Please change it in production.")
-    
+        logger.warning(
+            "API key is set to insecure default 'test-key'. Please change it in production."
+        )
+
     async with async_session() as session:
         # Сначала миграция (переименование AUTO_DEAD_ZONE_WIDTH → DEAD_ZONE_WIDTH)
         await migrate_auto_dead_zone_width(session)
@@ -88,16 +102,18 @@ async def lifespan(app: FastAPI):
         await migrate_crypto_to_lightgbm(session)
         # Потом посев дефолтов для новых ключей
         await seed_runtime_settings(session)
-        
+
         # Прогрев кэша моделей при старте (BUG-AL)
         try:
             from polyflip.trading.ml_inference import populate_models_cache
+
             await populate_models_cache(session)
             logger.info("models_cache_warmed_up")
         except Exception as e:
             logger.exception("models_cache_warmup_failed", error=str(e))
-        
+
     yield
+
 
 app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)
 
@@ -117,17 +133,18 @@ app.include_router(execution_router)
 
 # Подключение статических файлов
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-app.mount("/static", StaticFiles(directory=os.path.join(base_dir, "static")), name="static")
+app.mount(
+    "/static", StaticFiles(directory=os.path.join(base_dir, "static")), name="static"
+)
+
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint, open to public."""
     return {"status": "ok"}
 
+
 @app.get("/stats/{asset}", dependencies=[Depends(verify_api_key)])
 async def get_stats(asset: str):
     """Stub for stats endpoint."""
-    return {
-        "asset": asset,
-        "bins": []
-    }
+    return {"asset": asset, "bins": []}

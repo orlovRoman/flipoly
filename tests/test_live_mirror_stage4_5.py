@@ -24,10 +24,12 @@ from sqlalchemy import select, func
 from polyflip.db.execution_models import ExecutionRequest, LiveMirrorCandidate
 from polyflip.db.models import TradeHistory
 
-
 # ─── Вспомогательные фикстуры ────────────────────────────────────────────────
 
-async def _make_paper_trade(session, *, market_id: str = "MKT-1", asset: str = "BTC") -> TradeHistory:
+
+async def _make_paper_trade(
+    session, *, market_id: str = "MKT-1", asset: str = "BTC"
+) -> TradeHistory:
     t = TradeHistory(
         market_id=market_id,
         asset=asset,
@@ -103,8 +105,8 @@ from polyflip.execution.live_mirror_worker import (
     TARGET_MODE,
 )
 
-
 # ─── Тесты Этапа 4: структура БД ─────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_live_mirror_candidate_table_exists(db_session):
@@ -173,6 +175,7 @@ async def test_live_mirror_candidate_unique_constraint(db_session):
 
 # ─── Тесты Этапа 5: mirror_batch ─────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_mirror_batch_creates_candidate_for_filled_paper_open(db_session):
     """mirror_batch создаёт кандидата для FILLED PAPER OPEN."""
@@ -200,7 +203,9 @@ async def test_mirror_batch_skips_ready_paper_open(db_session):
     created = await mirror_batch(db_session)
 
     assert created == 0
-    count = await db_session.scalar(select(func.count()).select_from(LiveMirrorCandidate))
+    count = await db_session.scalar(
+        select(func.count()).select_from(LiveMirrorCandidate)
+    )
     assert count == 0
 
 
@@ -216,7 +221,9 @@ async def test_mirror_batch_idempotent_on_repeat_run(db_session):
     assert first_run == 1
     assert second_run == 0
 
-    count = await db_session.scalar(select(func.count()).select_from(LiveMirrorCandidate))
+    count = await db_session.scalar(
+        select(func.count()).select_from(LiveMirrorCandidate)
+    )
     assert count == 1
 
 
@@ -248,12 +255,16 @@ async def test_mirror_batch_no_live_trade_or_request_created(db_session):
 
     await mirror_batch(db_session)
 
-    live_trades = (await db_session.scalars(
-        select(TradeHistory).where(TradeHistory.mode == "LIVE")
-    )).all()
-    live_reqs = (await db_session.scalars(
-        select(ExecutionRequest).where(ExecutionRequest.requested_mode == "LIVE")
-    )).all()
+    live_trades = (
+        await db_session.scalars(
+            select(TradeHistory).where(TradeHistory.mode == "LIVE")
+        )
+    ).all()
+    live_reqs = (
+        await db_session.scalars(
+            select(ExecutionRequest).where(ExecutionRequest.requested_mode == "LIVE")
+        )
+    ).all()
 
     assert len(live_trades) == 0
     assert len(live_reqs) == 0
@@ -273,7 +284,9 @@ async def test_mirror_batch_multiple_filled_creates_multiple_candidates(db_sessi
     created = await mirror_batch(db_session)
 
     assert created == 3
-    count = await db_session.scalar(select(func.count()).select_from(LiveMirrorCandidate))
+    count = await db_session.scalar(
+        select(func.count()).select_from(LiveMirrorCandidate)
+    )
     assert count == 3
 
     # Проверяем уникальность signal_hash у кандидатов
@@ -317,7 +330,11 @@ async def test_mirror_switch_changes_behavior_without_restart(db_session):
     """Флаг LIVE_MIRROR_ENABLED из БД динамически управляет поведением без рестарта."""
     # Выключаем
     now = datetime.now(timezone.utc)
-    db_session.add(RuntimeSettings(key="LIVE_MIRROR_ENABLED", value="false", updated_at=now, updated_by="test"))
+    db_session.add(
+        RuntimeSettings(
+            key="LIVE_MIRROR_ENABLED", value="false", updated_at=now, updated_by="test"
+        )
+    )
     await db_session.commit()
 
     assert await runtime_bool(db_session, "LIVE_MIRROR_ENABLED") is False
@@ -326,7 +343,9 @@ async def test_mirror_switch_changes_behavior_without_restart(db_session):
     await _make_paper_request(db_session, trade, state="FILLED")
 
     # Включаем через БД
-    setting = await db_session.scalar(select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_MIRROR_ENABLED"))
+    setting = await db_session.scalar(
+        select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_MIRROR_ENABLED")
+    )
     setting.value = "true"
     await db_session.commit()
 
@@ -354,7 +373,9 @@ async def test_mirror_switch_persists_both_settings(db_session, engine):
             select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_MIRROR_ENABLED")
         )
         started_row = await check_session.scalar(
-            select(RuntimeSettings).where(RuntimeSettings.key == "LIVE_MIRROR_STARTED_AT")
+            select(RuntimeSettings).where(
+                RuntimeSettings.key == "LIVE_MIRROR_STARTED_AT"
+            )
         )
 
     assert enabled_row is not None and enabled_row.value == "true"

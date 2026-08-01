@@ -12,6 +12,7 @@ Join Binance candles с историческими ценами Polymarket (Mark
   df_merged = await join_polymarket_prices(session, df_candles, "BTC")
   run_backtest(..., polymarket_prices=df_merged, pnl_mode="polymarket")
 """
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -28,9 +29,9 @@ logger = structlog.get_logger(__name__)
 
 async def join_polymarket_prices(
     session: AsyncSession,
-    df_candles: pd.DataFrame,      # колонка open_time (tz-aware, UTC)
-    asset: str,                    # "BTC" или "ETH"
-    tolerance_sec: int = 450,      # ±7.5 мин для 15m-свечей
+    df_candles: pd.DataFrame,  # колонка open_time (tz-aware, UTC)
+    asset: str,  # "BTC" или "ETH"
+    tolerance_sec: int = 450,  # ±7.5 мин для 15m-свечей
 ) -> pd.DataFrame:
     """
     Для каждой свечи находит ближайший MarketSnapshot по времени.
@@ -70,7 +71,9 @@ async def join_polymarket_prices(
             MarketSnapshot.asset == asset,
             MarketSnapshot.recorded_at >= t_query_min,
             MarketSnapshot.recorded_at <= t_query_max,
-            MarketSnapshot.final_outcome.in_(["YES", "NO"]),  # INVALID отфильтрован в SQL
+            MarketSnapshot.final_outcome.in_(
+                ["YES", "NO"]
+            ),  # INVALID отфильтрован в SQL
         )
         .order_by(MarketSnapshot.recorded_at)
     )
@@ -85,7 +88,7 @@ async def join_polymarket_prices(
         )
         df_out = df_candles.copy()
         df_out["pm_yes_price"] = float("nan")
-        df_out["pm_outcome"]   = None
+        df_out["pm_outcome"] = None
         df_out["pm_market_id"] = None
         return df_out
 
@@ -95,12 +98,16 @@ async def join_polymarket_prices(
     )
 
     # Нормализуем timezone: оба должны быть datetime64[ns, UTC]
-    df_snaps["recorded_at"] = pd.to_datetime(df_snaps["recorded_at"], utc=True).dt.tz_convert("UTC")
+    df_snaps["recorded_at"] = pd.to_datetime(
+        df_snaps["recorded_at"], utc=True
+    ).dt.tz_convert("UTC")
     df_snaps = df_snaps.sort_values("recorded_at").reset_index(drop=True)
 
     df_left = df_candles.copy()
     # FIX: явное приведение к datetime64[ns, UTC] — защита от несовместимых tz-типов pandas
-    df_left["open_time"] = pd.to_datetime(df_left["open_time"], utc=True).dt.tz_convert("UTC")
+    df_left["open_time"] = pd.to_datetime(df_left["open_time"], utc=True).dt.tz_convert(
+        "UTC"
+    )
     df_left = df_left.sort_values("open_time").reset_index(drop=True)
 
     tolerance_td = pd.Timedelta(seconds=tolerance_sec)
@@ -113,8 +120,8 @@ async def join_polymarket_prices(
         tolerance=tolerance_td,
     )
 
-    matched      = df_merged["pm_yes_price"].notna().sum()
-    total        = len(df_merged)
+    matched = df_merged["pm_yes_price"].notna().sum()
+    total = len(df_merged)
     coverage_pct = round(matched / total * 100, 1) if total > 0 else 0.0
 
     logger.info(

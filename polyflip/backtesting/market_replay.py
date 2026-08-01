@@ -2,6 +2,7 @@
 MarketReplay: загружает снимки одного рынка и предоставляет интерфейс реплея.
 Не зависит от БД напрямую — получает уже загруженные ORM-объекты.
 """
+
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,19 +11,29 @@ from typing import Optional
 from polyflip.trading.feature_builder import MarketSignal, signal_from_snapshot_row
 from collections import namedtuple
 
-SnapshotRow = namedtuple("SnapshotRow", [
-    "id", "market_id", "asset", "recorded_at",
-    "mid_price", "price_velocity", "time_left_min",
-    "final_outcome", "volume_5min",
-    "spread",
-    "hour_of_day",
-    "flip_vs_final",
-])
+SnapshotRow = namedtuple(
+    "SnapshotRow",
+    [
+        "id",
+        "market_id",
+        "asset",
+        "recorded_at",
+        "mid_price",
+        "price_velocity",
+        "time_left_min",
+        "final_outcome",
+        "volume_5min",
+        "spread",
+        "hour_of_day",
+        "flip_vs_final",
+    ],
+)
 
 
 @dataclass(frozen=True)
 class MarketTick:
     """Один момент времени в рынке."""
+
     market_id: str
     asset: str
     time_left_min: float
@@ -31,7 +42,7 @@ class MarketTick:
     volume_5min: float
     price_velocity: float
     hour_of_day: int
-    final_outcome: str       # "YES" / "NO" — известен только постфактум
+    final_outcome: str  # "YES" / "NO" — известен только постфактум
     recorded_at: datetime
 
     def to_signal(self) -> MarketSignal:
@@ -49,7 +60,7 @@ class MarketTick:
 class MarketReplay:
     """
     Реплей одного рынка по его историческим снимкам.
-    
+
     Тики отсортированы от начала рынка к концу:
       ticks[0] → самый ранний снимок (max time_left_min)
       ticks[-1] → самый поздний снимок (min time_left_min)
@@ -61,7 +72,7 @@ class MarketReplay:
 
         self.ticks: list[MarketTick] = sorted(
             [self._to_tick(s) for s in snapshots],
-            key=lambda t: -t.time_left_min   # убывающий time_left = от начала к концу
+            key=lambda t: -t.time_left_min,  # убывающий time_left = от начала к концу
         )
         self.market_id: str = snapshots[0].market_id
         self.asset: str = snapshots[0].asset
@@ -101,7 +112,9 @@ class MarketReplay:
         min_time_min: float,
         max_time_min: float,
     ) -> list[MarketTick]:
-        return [t for t in self.ticks if min_time_min <= t.time_left_min <= max_time_min]
+        return [
+            t for t in self.ticks if min_time_min <= t.time_left_min <= max_time_min
+        ]
 
     @property
     def is_tradeable(self) -> bool:
@@ -113,7 +126,9 @@ class MarketReplay:
         return len(self.ticks)
 
 
-def group_snapshots_into_replays(snapshots: list, min_snapshots: int = 3) -> dict[str, MarketReplay]:
+def group_snapshots_into_replays(
+    snapshots: list, min_snapshots: int = 3
+) -> dict[str, MarketReplay]:
     """
     Группирует список MarketSnapshot по market_id.
     Возвращает dict: market_id → MarketReplay.
@@ -142,6 +157,7 @@ def rows_to_replays(rows: list, min_snapshots: int = 1) -> dict[str, MarketRepla
     В 5x быстрее group_snapshots_into_replays на ORM-объектах.
     """
     from collections import defaultdict
+
     groups: dict[str, list[SnapshotRow]] = defaultdict(list)
     for row in rows:
         snap = SnapshotRow(*row)

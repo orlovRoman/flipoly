@@ -40,6 +40,7 @@ def test_market_replay_sorting():
     # По убыванию time_left
     assert [t.time_left_min for t in replay.ticks] == [15.0, 5.0, 1.0]
 
+
 def test_market_replay_get_entry():
     snaps = [
         MockSnapshot("m1", "BTC", 15.0, 0.6, "YES"),
@@ -51,13 +52,15 @@ def test_market_replay_get_entry():
     assert tick is not None
     assert tick.time_left_min == 5.0
 
+
 def test_simulated_trader_slippage():
-    trader = SimulatedTrader(slippage_pct=0.01) # 1% slippage
+    trader = SimulatedTrader(slippage_pct=0.01)  # 1% slippage
     decision = TradeDecision("BUY_YES", 0.50, 10.0, "test", "ML_TREND")
     trade = trader.execute_trade("m1", "BTC", decision, datetime.now(), 0.2)
     assert trade.executed_price == 0.505
     assert trade.slippage == pytest.approx(0.005)
     assert trade.shares == pytest.approx(10.0 / 0.505)
+
 
 def test_metrics_pnl_win():
     snaps = [MockSnapshot("m1", "BTC", 5.0, 0.7, "YES")]
@@ -65,11 +68,12 @@ def test_metrics_pnl_win():
     trader = SimulatedTrader(slippage_pct=0.0)
     decision = TradeDecision("BUY_YES", 0.50, 10.0, "test", "ML_TREND")
     trade = trader.execute_trade("m1", "BTC", decision, datetime.now(), 0.2)
-    
+
     pnl = compute_trade_pnl(trade, replay)
     # Выиграли. Revenue = 1.0 * (10 / 0.5) = 20.0
     # Profit = 20.0 - 10.0 = 10.0. Minus 2% fee = 9.8
     assert pnl == pytest.approx(9.8)
+
 
 def test_metrics_pnl_loss():
     snaps = [MockSnapshot("m1", "BTC", 5.0, 0.7, "NO")]
@@ -77,10 +81,11 @@ def test_metrics_pnl_loss():
     trader = SimulatedTrader(slippage_pct=0.0)
     decision = TradeDecision("BUY_YES", 0.50, 10.0, "test", "ML_TREND")
     trade = trader.execute_trade("m1", "BTC", decision, datetime.now(), 0.2)
-    
+
     pnl = compute_trade_pnl(trade, replay)
     # Проиграли. Потеряли ставку.
     assert pnl == -10.0
+
 
 def test_backtest_runner_integration():
     config = {
@@ -89,23 +94,28 @@ def test_backtest_runner_integration():
         "TRADE_ON_FLIP": "false",
         "NO_FLIP_THRESHOLD": 0.35,
         "FAVORITE_THRESHOLD": 0.65,
-        "FAVORITE_MIN_PRICE": 0.55, "FAVORITE_MAX_PRICE": 0.95,
-        "MIN_EDGE": -0.10, # Разрешаем любой эдж для теста
+        "FAVORITE_MIN_PRICE": 0.55,
+        "FAVORITE_MAX_PRICE": 0.95,
+        "MIN_EDGE": -0.10,  # Разрешаем любой эдж для теста
         "KELLY_ENABLED": "false",
         "TRADE_BET_SIZE_USDC": 10.0,
         "AUTO_DEAD_ZONE_WIDTH": 0.0,
     }
     model = MockModel()
-    runner = BacktestRunner(config, pickle.dumps(model), "mid_price,spread,volume_5min,price_velocity,hour_of_day,time_left_min")
-    
+    runner = BacktestRunner(
+        config,
+        pickle.dumps(model),
+        "mid_price,spread,volume_5min,price_velocity,hour_of_day,time_left_min",
+    )
+
     snaps = [
-        MockSnapshot("m1", "BTC", 35.0, 0.7, "YES"), # Out of window
-        MockSnapshot("m1", "BTC", 15.0, 0.75, "YES"), # First in window -> BUY_YES
+        MockSnapshot("m1", "BTC", 35.0, 0.7, "YES"),  # Out of window
+        MockSnapshot("m1", "BTC", 15.0, 0.75, "YES"),  # First in window -> BUY_YES
         MockSnapshot("m1", "BTC", 5.0, 0.8, "YES"),
     ]
     replay = MarketReplay(snaps)
     runner.run_all({"m1": replay})
-    
+
     assert len(runner.trader.trades) == 1
     trade = runner.trader.trades[0]
     assert trade.market_id == "m1"

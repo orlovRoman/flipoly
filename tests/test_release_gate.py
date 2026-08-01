@@ -79,9 +79,7 @@ async def _make_paper_trade(session, market_id="MKT-TEST"):
     return t
 
 
-async def _make_paper_request(
-    session, trade, amount_usdc: Decimal = Decimal("5")
-):
+async def _make_paper_request(session, trade, amount_usdc: Decimal = Decimal("5")):
     req = ExecutionRequest(
         id=uuid.uuid4(),
         idempotency_key=f"PAPER-OPEN-{uuid.uuid4()}",

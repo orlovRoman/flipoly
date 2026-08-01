@@ -18,11 +18,13 @@ LightGBM-модель предсказывает направление крип
 │ любой        │ features_ok=F  │ fallback → ML                     │
 └──────────────┴────────────────┴──────────────────────────────────┘
 """
+
 from dataclasses import dataclass
 from typing import Literal, Optional
 import structlog
 
 logger = structlog.get_logger(__name__)
+
 
 @dataclass(frozen=True)
 class CryptoSignalProxy:
@@ -31,15 +33,17 @@ class CryptoSignalProxy:
     model_version: Optional[int] = None
     risk_vetoed: bool = False
 
+
 @dataclass(frozen=True)
 class VotingResult:
     action: Literal["BUY_YES", "BUY_NO", "SKIP"]
     reason: str
-    confidence: float            # 0.0–1.0, для логирования
+    confidence: float  # 0.0–1.0, для логирования
     ml_action: str
     lgbm_direction: Optional[str]
     lgbm_features_ok: bool
     bet_size_multiplier: float = 1.0  # 1.0 = полный, 0.5 = уменьшенный, 0.0 = вето
+
 
 def combine_votes(
     ml_action: str,
@@ -67,7 +71,9 @@ def combine_votes(
         )
 
     if crypto_sig.risk_vetoed:
-        logger.warning("combined_lgbm_risk_vetoed", asset=asset, direction=crypto_sig.direction)
+        logger.warning(
+            "combined_lgbm_risk_vetoed", asset=asset, direction=crypto_sig.direction
+        )
         return VotingResult(
             action="SKIP",
             reason="Hard Veto: LightGBM risk veto",
@@ -78,19 +84,25 @@ def combine_votes(
             bet_size_multiplier=0.0,
         )
 
-
     if ml_action == "SKIP":
         skip_reason_lower = (ml_skip_reason or "").lower()
 
         # Soft SKIP = технические причины (зона, цена вне диапазона)
         # LightGBM может торговать автономно с 50% ставкой
-        SOFT_SKIP_PATTERNS = ("dead zone", "dead_zone", "price out of", "out of bounds", "мёртвая зона", "мёртвая")
+        SOFT_SKIP_PATTERNS = (
+            "dead zone",
+            "dead_zone",
+            "price out of",
+            "out of bounds",
+            "мёртвая зона",
+            "мёртвая",
+        )
         is_soft = any(p in skip_reason_lower for p in SOFT_SKIP_PATTERNS)
 
         # Если ML скипнул из-за FLIP_THRESHOLD / p_flip (и не из-за dead zone) — Hard Veto
         flip_threshold_veto = (
-            ("threshold" in skip_reason_lower or "p_flip" in skip_reason_lower) and not is_soft
-        )
+            "threshold" in skip_reason_lower or "p_flip" in skip_reason_lower
+        ) and not is_soft
 
         if flip_threshold_veto:
             return VotingResult(
@@ -106,10 +118,19 @@ def combine_votes(
         # Soft SKIP = технические причины (зона, цена вне диапазона)
         # LightGBM может торговать автономно с 50% ставкой
         # ВРЕМЕННО ОТКЛЮЧЕНО
-        SOFT_SKIP_PATTERNS = ("dead zone", "price out of", "out of bounds", "мёртвая зона")
-        is_soft = False # any(p in skip_reason_lower for p in SOFT_SKIP_PATTERNS)
+        SOFT_SKIP_PATTERNS = (
+            "dead zone",
+            "price out of",
+            "out of bounds",
+            "мёртвая зона",
+        )
+        is_soft = False  # any(p in skip_reason_lower for p in SOFT_SKIP_PATTERNS)
 
-        if is_soft and crypto_sig.features_ok and crypto_sig.direction not in (None, "NONE"):
+        if (
+            is_soft
+            and crypto_sig.features_ok
+            and crypto_sig.direction not in (None, "NONE")
+        ):
             lgbm_action = "BUY_YES" if crypto_sig.direction == "UP" else "BUY_NO"
             return VotingResult(
                 action=lgbm_action,
@@ -160,7 +181,9 @@ def combine_votes(
         return VotingResult(
             action=ml_action,
             reason=f"Both models agree: ML={ml_action}, LightGBM={crypto_sig.direction}",
-            confidence=min(1.0, ml_edge * 1.2),  # небольшой буст при согласии (только для логов)
+            confidence=min(
+                1.0, ml_edge * 1.2
+            ),  # небольшой буст при согласии (только для логов)
             ml_action=ml_action,
             lgbm_direction=crypto_sig.direction,
             lgbm_features_ok=True,
@@ -176,4 +199,3 @@ def combine_votes(
             lgbm_features_ok=True,
             bet_size_multiplier=0.0,
         )
-

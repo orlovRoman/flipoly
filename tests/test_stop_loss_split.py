@@ -1,6 +1,7 @@
 """
 Тесты раздельного стоп-лосса: выбор % по strategy_type + миграция.
 """
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -11,10 +12,11 @@ def test_engine_picks_outsider_pct():
     При strategy_type='OUTSIDER' должен выбираться STOP_LOSS_PCT_OUTSIDER.
     При strategy_type='ML_TREND' / None — STOP_LOSS_PCT_FAVORITE.
     """
+
     def pick_stop_pct(decision_obj, settings_db):
         """Точная копия логики из engine.py (строки 744–752)."""
         is_outsider = (
-            hasattr(decision_obj, 'strategy_type')
+            hasattr(decision_obj, "strategy_type")
             and isinstance(decision_obj.strategy_type, str)
             and decision_obj.strategy_type.upper() == "OUTSIDER"
         )
@@ -41,9 +43,10 @@ def test_engine_picks_outsider_pct():
 # ── Тест 2: strategy_type не строка — fallback к FAVORITE ─────────────────────
 def test_engine_picks_favorite_pct_for_non_string_strategy():
     """Если strategy_type — int или другой не-строковый тип, берём FAVORITE."""
+
     def pick_stop_pct(decision_obj, settings_db):
         is_outsider = (
-            hasattr(decision_obj, 'strategy_type')
+            hasattr(decision_obj, "strategy_type")
             and isinstance(decision_obj.strategy_type, str)
             and decision_obj.strategy_type.upper() == "OUTSIDER"
         )
@@ -59,15 +62,18 @@ def test_engine_picks_favorite_pct_for_non_string_strategy():
 
     # Объект без strategy_type (dict-like)
     plain_dict = {"strategy_type": "OUTSIDER"}
-    assert pick_stop_pct(plain_dict, settings) == 30.0  # dict не имеет hasattr→ True, но isinstance check
+    assert (
+        pick_stop_pct(plain_dict, settings) == 30.0
+    )  # dict не имеет hasattr→ True, но isinstance check
 
 
 # ── Тест 3: Дефолты fallback (нет ключей в settings_db) ──────────────────────
 def test_engine_uses_defaults_when_no_settings():
     """Если в settings_db нет ключей, должны использоваться дефолты: 40 и 60."""
+
     def pick_stop_pct(decision_obj, settings_db):
         is_outsider = (
-            hasattr(decision_obj, 'strategy_type')
+            hasattr(decision_obj, "strategy_type")
             and isinstance(decision_obj.strategy_type, str)
             and decision_obj.strategy_type.upper() == "OUTSIDER"
         )
@@ -93,23 +99,35 @@ def test_engine_with_real_trade_decision():
     from polyflip.trading.decision_logic import TradeDecision
 
     outsider = TradeDecision(
-        action="BUY_NO", buy_price=0.3, bet_size_usdc=10.0,
-        reason="flip expected", strategy_type="OUTSIDER", edge=0.05
+        action="BUY_NO",
+        buy_price=0.3,
+        bet_size_usdc=10.0,
+        reason="flip expected",
+        strategy_type="OUTSIDER",
+        edge=0.05,
     )
     ml = TradeDecision(
-        action="BUY_YES", buy_price=0.6, bet_size_usdc=10.0,
-        reason="trend follow", strategy_type="ML_TREND", edge=0.03
+        action="BUY_YES",
+        buy_price=0.6,
+        bet_size_usdc=10.0,
+        reason="trend follow",
+        strategy_type="ML_TREND",
+        edge=0.03,
     )
 
     settings = {"STOP_LOSS_PCT_FAVORITE": "40.0", "STOP_LOSS_PCT_OUTSIDER": "60.0"}
 
     def pick(dec):
         is_outsider = (
-            hasattr(dec, 'strategy_type')
+            hasattr(dec, "strategy_type")
             and isinstance(dec.strategy_type, str)
             and dec.strategy_type.upper() == "OUTSIDER"
         )
-        return float(settings.get("STOP_LOSS_PCT_OUTSIDER" if is_outsider else "STOP_LOSS_PCT_FAVORITE"))
+        return float(
+            settings.get(
+                "STOP_LOSS_PCT_OUTSIDER" if is_outsider else "STOP_LOSS_PCT_FAVORITE"
+            )
+        )
 
     assert pick(outsider) == 60.0
     assert pick(ml) == 40.0

@@ -1,4 +1,5 @@
 """Фоновый воркер: мониторит открытые позиции и триггерит стоп-лосс."""
+
 import asyncio
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,8 +33,11 @@ async def _process_single_stoploss(
             market_end = market_end.replace(tzinfo=timezone.utc)
         if now >= market_end:
             trade.stop_loss_status = "EXPIRED"
-            logger.info("stoploss_market_expired", trade_id=trade.id,
-                        market_end=market_end.isoformat())
+            logger.info(
+                "stoploss_market_expired",
+                trade_id=trade.id,
+                market_end=market_end.isoformat(),
+            )
             return
 
     mkt_result = await db_session.execute(
@@ -42,16 +46,23 @@ async def _process_single_stoploss(
     market = mkt_result.scalar_one_or_none()
     if not market:
         trade.stop_loss_status = "EXPIRED"
-        logger.warning("stoploss_market_not_in_live", trade_id=trade.id,
-                       market_id=trade.market_id)
+        logger.warning(
+            "stoploss_market_not_in_live", trade_id=trade.id, market_id=trade.market_id
+        )
         return
 
-    token_id = market.yes_token_id if trade.outcome_bought == "YES" else market.no_token_id
+    token_id = (
+        market.yes_token_id if trade.outcome_bought == "YES" else market.no_token_id
+    )
 
     # HTTP — ВНЕ транзакции
     prices = await api_client.get_market_prices(token_id)
     if not prices or "error" in prices or prices.get("best_bid") is None:
-        logger.warning("stoploss_no_bid", trade_id=trade.id, error=prices.get("error") if prices else "No response")
+        logger.warning(
+            "stoploss_no_bid",
+            trade_id=trade.id,
+            error=prices.get("error") if prices else "No response",
+        )
         return
 
     current_bid = float(prices["best_bid"])
@@ -81,16 +92,16 @@ async def _process_single_stoploss(
     )
 
     from polyflip.execution.outbox import enqueue_close_request
-    
+
     sell_floor = max(0.01, current_bid - 0.01)
-    
+
     res = await enqueue_close_request(
         db_session,
         trade_id=trade.id,
         trigger_reason="STOP_LOSS",
         limit_price=sell_floor,
     )
-    if res is None or res.disposition != 'CREATED':
+    if res is None or res.disposition != "CREATED":
         return
 
     # После успешной постановки меняем статус стоп-лосса
@@ -103,7 +114,7 @@ async def _process_single_stoploss(
         "stoploss_outbox_request_created",
         trade_id=trade.id,
         sell_price=current_bid,
-        request_id=str(res.request_id)
+        request_id=str(res.request_id),
     )
 
 
@@ -115,9 +126,7 @@ async def stoploss_worker_cycle(
 
     # 1. Проверяем включён ли стоп-лосс
     result = await db_session.execute(
-        select(RuntimeSettings).where(
-            RuntimeSettings.key == "STOP_LOSS_ENABLED"
-        )
+        select(RuntimeSettings).where(RuntimeSettings.key == "STOP_LOSS_ENABLED")
     )
     setting = result.scalar_one_or_none()
     if not setting or setting.value.lower() != "true":
@@ -139,7 +148,11 @@ async def stoploss_worker_cycle(
             select(LiveMarket).where(LiveMarket.market_id == t.market_id)
         )
         mkt = mkt_res.scalar_one_or_none()
-        token_id = (mkt.yes_token_id if t.outcome_bought == "YES" else mkt.no_token_id) if mkt else None
+        token_id = (
+            (mkt.yes_token_id if t.outcome_bought == "YES" else mkt.no_token_id)
+            if mkt
+            else None
+        )
 
         positions = await api_client.get_positions(t.market_id) if token_id else None
         if not positions or positions.get("size", 0) == 0:
@@ -155,7 +168,9 @@ async def stoploss_worker_cycle(
     # 2. Загружаем ACTIVE позиции с выставленным stop_loss_price
     stmt = select(TradeHistory).where(
         and_(
-            TradeHistory.position_status.in_(["OPEN", "EXIT_FAILED", "PARTIALLY_CLOSED"]),
+            TradeHistory.position_status.in_(
+                ["OPEN", "EXIT_FAILED", "PARTIALLY_CLOSED"]
+            ),
             TradeHistory.exit_attempts < 10,
             TradeHistory.stop_loss_status == "ACTIVE",
             TradeHistory.stop_loss_price.is_not(None),

@@ -1,11 +1,15 @@
 import pytest
 from polyflip.trading.decision_logic import (
-    decide_favorite, decide_ml_trend, decide_outsider, decide_crypto_trend
+    decide_favorite,
+    decide_ml_trend,
+    decide_outsider,
+    decide_crypto_trend,
 )
 from polyflip.crypto.edge import compute_crypto_signal_strength
 from polyflip.crypto.predictor import CryptoSignal
 
 from polyflip.trading.feature_builder import MarketSignal
+
 FAVORITE_THRESHOLD = 0.55
 FLIP_THRESHOLD = 0.60
 NO_FLIP_THRESHOLD = 0.35
@@ -59,6 +63,7 @@ BASE_CONFIG = {
 # decide_favorite
 # ─────────────────────────────────────────
 
+
 class TestDecideFavorite:
 
     def test_buy_yes_when_mid_above_threshold(self):
@@ -69,7 +74,9 @@ class TestDecideFavorite:
         assert d.strategy_type == "PURE_FAVORITE"
 
     def test_buy_no_when_mid_below_threshold(self):
-        sig = _signal(mid=0.28, spread=0.01) # no_prob=0.72, no_ask=0.725, edge=-0.0068 > -0.01
+        sig = _signal(
+            mid=0.28, spread=0.01
+        )  # no_prob=0.72, no_ask=0.725, edge=-0.0068 > -0.01
         d = decide_favorite(sig, BASE_CONFIG)
         assert d.action == "BUY_NO"
         assert d.strategy_type == "PURE_FAVORITE"
@@ -128,6 +135,7 @@ class TestDecideFavorite:
 # decide_ml_trend
 # ─────────────────────────────────────────
 
+
 class TestDecideMlTrend:
 
     def test_skip_when_p_flip_above_threshold(self):
@@ -151,7 +159,7 @@ class TestDecideMlTrend:
         # ML edge = 0.90 / 0.72 - 1 = 1.25 -> 0.25 > MAX_EDGE_FILTER (0.20) -> SKIP.
         # So we need yes_ask such that 0.90 / yes_ask - 1 <= 0.20 -> yes_ask >= 0.90 / 1.20 = 0.75.
         # But yes_ask >= 0.75 means pure_favorite_edge = 0.72 / 0.75 - 1 = -0.04 < -0.01 -> SKIP.
-        # 
+        #
         # This implies with current BASE_CONFIG, ML_TREND can NEVER trigger if p_flip=0.10 and mid=0.72,
         # because the two edge constraints are mutually exclusive!
         # ML_TREND uses decide_favorite which enforces FAVORITE_MIN_EDGE=-0.01 on mid_price.
@@ -187,6 +195,7 @@ class TestDecideMlTrend:
 # ─────────────────────────────────────────
 # decide_outsider
 # ─────────────────────────────────────────
+
 
 class TestDecideOutsider:
 
@@ -253,8 +262,11 @@ def test_favorite_price_bounds_unified():
 
 def test_favorite_price_fallback_defaults():
     """Если FAVORITE_MIN/MAX_PRICE нет в конфиге — используются дефолты 0.55/0.95."""
-    cfg_no_bounds = {k: v for k, v in BASE_CONFIG.items()
-                     if k not in ("FAVORITE_MIN_PRICE", "FAVORITE_MAX_PRICE")}
+    cfg_no_bounds = {
+        k: v
+        for k, v in BASE_CONFIG.items()
+        if k not in ("FAVORITE_MIN_PRICE", "FAVORITE_MAX_PRICE")
+    }
 
     # Цена 0.54 — ниже дефолтного min 0.55 → должен быть SKIP
     # mid=0.72, yes_ask=0.54 -> spread = -0.36
@@ -263,11 +275,17 @@ def test_favorite_price_fallback_defaults():
 
 
 def test_backtest_schema_no_old_keys():
-    """BacktestConfig ignores unknown fields or raises ValidationError, depending on pydantic config. 
+    """BacktestConfig ignores unknown fields or raises ValidationError, depending on pydantic config.
     Here we just verify that old keys don't break dict exports if they are ignored."""
     from polyflip.api.backtest_schemas import BacktestConfig
+
     cfg = BacktestConfig(
-        **{"yes_min_price": 0.55, "yes_max_price": 0.95, "favorite_min_price": 0.60, "favorite_max_price": 0.90}
+        **{
+            "yes_min_price": 0.55,
+            "yes_max_price": 0.95,
+            "favorite_min_price": 0.60,
+            "favorite_max_price": 0.90,
+        }
     )
     runner = cfg.to_runner_config()
     assert runner["FAVORITE_MIN_PRICE"] == 0.60
@@ -278,6 +296,7 @@ def test_backtest_schema_no_old_keys():
 def test_backtest_schema_new_keys():
     """BacktestConfig принимает favorite_min/max_price."""
     from polyflip.api.backtest_schemas import BacktestConfig
+
     cfg = BacktestConfig(favorite_min_price=0.60, favorite_max_price=0.90)
     runner = cfg.to_runner_config()
     assert runner["FAVORITE_MIN_PRICE"] == 0.60
@@ -290,44 +309,81 @@ def test_backtest_schema_new_keys():
 # Crypto Trend / Edge Tests
 # ─────────────────────────────────────────
 
+
 def test_crypto_edge_up():
-    edge, direction = compute_crypto_signal_strength(p_up=0.75, threshold_up=0.65, threshold_down=0.35)
+    edge, direction = compute_crypto_signal_strength(
+        p_up=0.75, threshold_up=0.65, threshold_down=0.35
+    )
     assert direction == "UP"
     assert edge == pytest.approx(0.10)
 
+
 def test_crypto_edge_down():
-    edge, direction = compute_crypto_signal_strength(p_up=0.25, threshold_up=0.65, threshold_down=0.35)
+    edge, direction = compute_crypto_signal_strength(
+        p_up=0.25, threshold_up=0.65, threshold_down=0.35
+    )
     assert direction == "DOWN"
     assert edge == pytest.approx(0.10)
 
+
 def test_crypto_edge_dead_zone():
-    edge, direction = compute_crypto_signal_strength(p_up=0.50, threshold_up=0.65, threshold_down=0.35)
+    edge, direction = compute_crypto_signal_strength(
+        p_up=0.50, threshold_up=0.65, threshold_down=0.35
+    )
     assert direction == "NONE"
     assert edge == 0.0
+
 
 def test_decide_crypto_trend_buy_yes():
     # p_up = 0.75 -> UP, edge = 0.15 > CRYPTO_MIN_EDGE (0.05)
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.75, p_down=0.25, direction="UP", signal_strength=0.15,
-        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+        symbol="BTCUSDT",
+        p_up=0.75,
+        p_down=0.25,
+        direction="UP",
+        signal_strength=0.15,
+        strike=60000.0,
+        threshold_up=0.60,
+        threshold_down=0.40,
+        model_version=1,
+        features_ok=True,
     )
-    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG, p_flip_ml=0.20)
+    d = decide_crypto_trend(
+        crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG, p_flip_ml=0.20
+    )
     assert d.action == "BUY_YES"
     assert d.strategy_type == "LIGHTGBM_TREND"
     assert d.p_up == 0.75
     assert d.strike == 60000.0
     assert d.edge == pytest.approx(0.1538, abs=1e-3)
 
+
 def test_decide_crypto_trend_buy_no():
     # p_up = 0.25 -> DOWN, edge = 0.15 > CRYPTO_MIN_EDGE (0.05)
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", signal_strength=0.15,
-        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+        symbol="BTCUSDT",
+        p_up=0.25,
+        p_down=0.75,
+        direction="DOWN",
+        signal_strength=0.15,
+        strike=60000.0,
+        threshold_up=0.60,
+        threshold_down=0.40,
+        model_version=1,
+        features_ok=True,
     )
-    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG, p_flip_ml=0.65, no_ask=0.35)
+    d = decide_crypto_trend(
+        crypto,
+        entry_price=0.65,
+        volume_5min=1000.0,
+        config=BASE_CONFIG,
+        p_flip_ml=0.65,
+        no_ask=0.35,
+    )
     assert d.action == "BUY_NO"
     assert d.strategy_type == "LIGHTGBM_TREND"
     assert d.p_up == 0.25
+
 
 def test_outsider_flip_threshold_40_as_percent():
     config = {"FLIP_THRESHOLD": "40", "MIN_EDGE": 0.05, "DEAD_ZONE_WIDTH": 0.10}
@@ -337,70 +393,129 @@ def test_outsider_flip_threshold_40_as_percent():
     assert result.action == "SKIP"
     assert "0.400" in result.reason
 
+
 def test_crypto_trend_down_blocked_without_p_flip_ml():
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", signal_strength=0.15,
-        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+        symbol="BTCUSDT",
+        p_up=0.25,
+        p_down=0.75,
+        direction="DOWN",
+        signal_strength=0.15,
+        strike=60000.0,
+        threshold_up=0.60,
+        threshold_down=0.40,
+        model_version=1,
+        features_ok=True,
     )
-    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "40"}, p_flip_ml=None, no_ask=0.30)
+    result = decide_crypto_trend(
+        crypto,
+        entry_price=0.70,
+        volume_5min=100,
+        config={"FLIP_THRESHOLD": "40"},
+        p_flip_ml=None,
+        no_ask=0.30,
+    )
     assert result.action == "SKIP"
     assert "p_flip_ml not provided" in result.reason
 
+
 def test_crypto_trend_down_passes_flip_threshold():
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", signal_strength=0.15,
-        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+        symbol="BTCUSDT",
+        p_up=0.25,
+        p_down=0.75,
+        direction="DOWN",
+        signal_strength=0.15,
+        strike=60000.0,
+        threshold_up=0.60,
+        threshold_down=0.40,
+        model_version=1,
+        features_ok=True,
     )
-    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "40"}, p_flip_ml=0.261, no_ask=0.30)
+    result = decide_crypto_trend(
+        crypto,
+        entry_price=0.70,
+        volume_5min=100,
+        config={"FLIP_THRESHOLD": "40"},
+        p_flip_ml=0.261,
+        no_ask=0.30,
+    )
     assert result.action == "SKIP"
     assert "0.40" in result.reason
 
+
 def test_crypto_trend_down_passes_above_threshold():
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", signal_strength=0.15,
-        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+        symbol="BTCUSDT",
+        p_up=0.25,
+        p_down=0.75,
+        direction="DOWN",
+        signal_strength=0.15,
+        strike=60000.0,
+        threshold_up=0.60,
+        threshold_down=0.40,
+        model_version=1,
+        features_ok=True,
     )
-    result = decide_crypto_trend(crypto, entry_price=0.70, volume_5min=100, config={"FLIP_THRESHOLD": "0.40"}, p_flip_ml=0.50, no_ask=0.30)
+    result = decide_crypto_trend(
+        crypto,
+        entry_price=0.70,
+        volume_5min=100,
+        config={"FLIP_THRESHOLD": "0.40"},
+        p_flip_ml=0.50,
+        no_ask=0.30,
+    )
     assert result.action == "BUY_NO"
+
 
 def test_decide_crypto_trend_skip_dead_zone():
     # direction = NONE
     crypto = CryptoSignal(
-        symbol="BTCUSDT", p_up=0.50, p_down=0.50, direction="NONE", signal_strength=0.0,
-        strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
+        symbol="BTCUSDT",
+        p_up=0.50,
+        p_down=0.50,
+        direction="NONE",
+        signal_strength=0.0,
+        strike=60000.0,
+        threshold_up=0.60,
+        threshold_down=0.40,
+        model_version=1,
+        features_ok=True,
     )
-    d = decide_crypto_trend(crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG, p_flip_ml=0.65)
+    d = decide_crypto_trend(
+        crypto, entry_price=0.65, volume_5min=1000.0, config=BASE_CONFIG, p_flip_ml=0.65
+    )
     assert d.action == "SKIP"
     assert d.strategy_type == "LIGHTGBM_TREND"
     assert "crypto signal_strength" in d.reason
 
+
 def test_combine_votes_flip_threshold_veto():
     from polyflip.trading.combined_voting import combine_votes, CryptoSignalProxy
+
     proxy = CryptoSignalProxy(direction="DOWN", features_ok=True)
     vote = combine_votes(
         ml_action="SKIP",
         ml_edge=0.0,
         crypto_sig=proxy,
         asset="SOL",
-        ml_skip_reason="p_flip_calibrated=0.2490 < threshold=0.4005"
+        ml_skip_reason="p_flip_calibrated=0.2490 < threshold=0.4005",
     )
     assert vote.action == "SKIP"
     assert "FLIP_THRESHOLD veto" in vote.reason
 
+
 def test_combine_votes_soft_skip_allows_lgbm():
     from polyflip.trading.combined_voting import combine_votes, CryptoSignalProxy
+
     proxy = CryptoSignalProxy(direction="DOWN", features_ok=True)
     vote = combine_votes(
         ml_action="SKIP",
         ml_edge=0.0,
         crypto_sig=proxy,
         asset="SOL",
-        ml_skip_reason="p_flip 0.41 in dead zone [0.35, 0.45]"
+        ml_skip_reason="p_flip 0.41 in dead zone [0.35, 0.45]",
     )
     # The feature is temporarily disabled, so it acts as Hard SKIP
     assert vote.action == "SKIP"
     assert "hard-SKIP" in vote.reason
-
-
-
-

@@ -3,15 +3,18 @@ import pandas as pd
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+
 def _make_filtered_df(n: int = 600) -> pd.DataFrame:
     """Детерминированный df_filtered: равномерное распределение vol_ratio."""
     # Используем linspace вместо exponential — каждый tertile ровно n//3 строк
     vol_ratios = np.linspace(0.01, 3.0, n)
     np.random.seed(0)
-    return pd.DataFrame({
-        "vol_ratio": vol_ratios,
-        "ret_1": np.random.normal(0, 0.002, n),
-    })
+    return pd.DataFrame(
+        {
+            "vol_ratio": vol_ratios,
+            "ret_1": np.random.normal(0, 0.002, n),
+        }
+    )
 
 
 def test_tertile_sizes_balanced():
@@ -20,8 +23,8 @@ def test_tertile_sizes_balanced():
     p33 = df["vol_ratio"].quantile(0.33)
     p67 = df["vol_ratio"].quantile(0.67)
 
-    low  = df[df["vol_ratio"] <= p33]
-    mid  = df[(df["vol_ratio"] > p33) & (df["vol_ratio"] <= p67)]
+    low = df[df["vol_ratio"] <= p33]
+    mid = df[(df["vol_ratio"] > p33) & (df["vol_ratio"] <= p67)]
     high = df[df["vol_ratio"] > p67]
 
     # Каждая часть ≈ 33% ± 5%
@@ -37,8 +40,8 @@ def test_tertile_no_overlap():
     p33 = df["vol_ratio"].quantile(0.33)
     p67 = df["vol_ratio"].quantile(0.67)
 
-    idx_low  = set(df[df["vol_ratio"] <= p33].index)
-    idx_mid  = set(df[(df["vol_ratio"] > p33) & (df["vol_ratio"] <= p67)].index)
+    idx_low = set(df[df["vol_ratio"] <= p33].index)
+    idx_mid = set(df[(df["vol_ratio"] > p33) & (df["vol_ratio"] <= p67)].index)
     idx_high = set(df[df["vol_ratio"] > p67].index)
 
     assert idx_low & idx_mid == set()
@@ -52,8 +55,8 @@ def test_tertile_covers_all_rows():
     p33 = df["vol_ratio"].quantile(0.33)
     p67 = df["vol_ratio"].quantile(0.67)
 
-    low  = df[df["vol_ratio"] <= p33]
-    mid  = df[(df["vol_ratio"] > p33) & (df["vol_ratio"] <= p67)]
+    low = df[df["vol_ratio"] <= p33]
+    mid = df[(df["vol_ratio"] > p33) & (df["vol_ratio"] <= p67)]
     high = df[df["vol_ratio"] > p67]
 
     assert len(low) + len(mid) + len(high) == len(df)
@@ -65,8 +68,8 @@ def test_tertile_min_regime_size():
     p33 = df["vol_ratio"].quantile(0.33)
     p67 = df["vol_ratio"].quantile(0.67)
 
-    low  = df[df["vol_ratio"] <= p33]
-    mid  = df[(df["vol_ratio"] > p33) & (df["vol_ratio"] <= p67)]
+    low = df[df["vol_ratio"] <= p33]
+    mid = df[(df["vol_ratio"] > p33) & (df["vol_ratio"] <= p67)]
     high = df[df["vol_ratio"] > p67]
 
     # При linspace каждый tertile = ровно 33% ± 1 строка

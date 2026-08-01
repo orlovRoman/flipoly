@@ -336,18 +336,25 @@ async def test_mark_failed_no_fill_releases_reservation(db_session):
     assert res.released_at is not None
 
     from polyflip.db.execution_models import ExecutionEvent
+
     events = (
-        await db_session.execute(
-            select(ExecutionEvent)
-            .where(ExecutionEvent.request_id == req.id)
-            .order_by(ExecutionEvent.created_at.desc())
+        (
+            await db_session.execute(
+                select(ExecutionEvent)
+                .where(ExecutionEvent.request_id == req.id)
+                .order_by(ExecutionEvent.created_at.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(events) >= 1
     event_types = [e.event_type for e in events]
     assert "MANUAL_REVIEW_MARK_FAILED_NO_FILL" in event_types
-    
-    target_event = next(e for e in events if e.event_type == "MANUAL_REVIEW_MARK_FAILED_NO_FILL")
+
+    target_event = next(
+        e for e in events if e.event_type == "MANUAL_REVIEW_MARK_FAILED_NO_FILL"
+    )
     assert target_event.created_at is not None
 
 

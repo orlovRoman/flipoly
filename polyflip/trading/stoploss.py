@@ -1,4 +1,5 @@
 """Stop-loss логика: расчёт порога и принятие решения о срабатывании."""
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -22,7 +23,7 @@ class StopLossDecision:
 def evaluate_stop_loss(
     entry_price: float,
     stop_loss_pct: float,
-    current_bid: float,   # лучший bid в стакане (цена продажи)
+    current_bid: float,  # лучший bid в стакане (цена продажи)
 ) -> StopLossDecision:
     """Возвращает решение: продавать или нет."""
     stop_price = compute_stop_price(entry_price, stop_loss_pct)
@@ -31,5 +32,9 @@ def evaluate_stop_loss(
         should_sell=should_sell,
         current_price=current_bid,
         stop_price=stop_price,
-        reason=f"bid={current_bid:.4f} <= stop={stop_price:.4f}" if should_sell else "above_stop"
+        reason=(
+            f"bid={current_bid:.4f} <= stop={stop_price:.4f}"
+            if should_sell
+            else "above_stop"
+        ),
     )

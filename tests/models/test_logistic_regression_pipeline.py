@@ -9,6 +9,7 @@ from polyflip.models.trainer import (
 )
 from polyflip.models.feature_lags import add_lag_features, LAG_FEATURE_NAMES
 
+
 def make_snapshot_row(
     market_id: str,
     flip_vs_final: bool,
@@ -32,23 +33,27 @@ def make_snapshot_row(
         "target": 1 if flip_vs_final else 0,
     }
 
+
 def build_test_df(n_markets: int = 5, snaps_per_market: int = 8) -> pd.DataFrame:
     rows = []
     for i in range(n_markets):
         market_id = f"market_{i}"
         flip = bool(i % 2)
         for t in range(snaps_per_market):
-            rows.append(make_snapshot_row(
-                market_id=market_id,
-                flip_vs_final=flip,
-                mid_price=0.5 + 0.1 * np.sin(t),
-                spread=0.01 + 0.005 * t,
-                price_velocity=0.001 * t,
-                volume_5min=200 + 50 * t,
-                time_left_min=max(0.0, 60 - t * 5),
-                minutes_ago=snaps_per_market - t,
-            ))
+            rows.append(
+                make_snapshot_row(
+                    market_id=market_id,
+                    flip_vs_final=flip,
+                    mid_price=0.5 + 0.1 * np.sin(t),
+                    spread=0.01 + 0.005 * t,
+                    price_velocity=0.001 * t,
+                    volume_5min=200 + 50 * t,
+                    time_left_min=max(0.0, 60 - t * 5),
+                    minutes_ago=snaps_per_market - t,
+                )
+            )
     return pd.DataFrame(rows)
+
 
 class TestTargetEncoding:
     def test_flip_true_maps_to_1(self):
@@ -67,6 +72,7 @@ class TestTargetEncoding:
         df = build_test_df(n_markets=6)
         assert len(df["target"].unique()) == 2
 
+
 class TestDerivedFeatures:
     @pytest.fixture
     def df_with_derived(self):
@@ -75,16 +81,24 @@ class TestDerivedFeatures:
 
     def test_all_derived_columns_present(self, df_with_derived):
         base_derived = [
-            "price_deviation", "is_final_phase", "high_price_final",
-            "spread_pct", "log_time_left", "price_distance_from_max"
+            "price_deviation",
+            "is_final_phase",
+            "high_price_final",
+            "spread_pct",
+            "log_time_left",
+            "price_distance_from_max",
         ]
         for col in base_derived:
             assert col in df_with_derived.columns
 
     def test_no_nan_in_derived(self, df_with_derived):
         base_derived = [
-            "price_deviation", "is_final_phase", "high_price_final",
-            "spread_pct", "log_time_left", "price_distance_from_max"
+            "price_deviation",
+            "is_final_phase",
+            "high_price_final",
+            "spread_pct",
+            "log_time_left",
+            "price_distance_from_max",
         ]
         nan_counts = df_with_derived[base_derived].isna().sum()
         assert nan_counts.sum() == 0
@@ -97,6 +111,7 @@ class TestDerivedFeatures:
 
     def test_spread_pct_is_clipped(self, df_with_derived):
         assert (df_with_derived["spread_pct"] <= 10.0 + 1e-9).all()
+
 
 class TestLagFeatures:
     @pytest.fixture
@@ -122,6 +137,7 @@ class TestLagFeatures:
     def test_volume_trend_clipped(self, df_with_lags):
         assert (df_with_lags["volume_trend"] <= 10.0 + 1e-9).all()
 
+
 class TestFullFeaturePipeline:
     def test_all_derived_features_no_nan_after_full_pipeline(self):
         df = build_test_df(n_markets=10, snaps_per_market=10)
@@ -134,8 +150,10 @@ class TestFullFeaturePipeline:
         nan_counts = df[DERIVED_FEATURES].isna().sum()
         assert nan_counts.sum() == 0
 
+
 from sklearn.model_selection import GroupKFold
 from polyflip.constants import CV_N_SPLITS
+
 
 class TestCrossValidationScheme:
     @pytest.fixture
@@ -194,6 +212,7 @@ class TestCrossValidationScheme:
         splits = list(gkf.split(X, y, groups=groups))
         assert len(splits) == CV_N_SPLITS
 
+
 from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -201,26 +220,40 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.frozen import FrozenEstimator
 from sklearn.metrics import (
-    roc_auc_score, precision_recall_curve,
-    precision_score, recall_score, f1_score,
+    roc_auc_score,
+    precision_recall_curve,
+    precision_score,
+    recall_score,
+    f1_score,
 )
 from polyflip.constants import CV_RANDOM_STATE
+
 MIN_PRECISION_FOR_THRESHOLD = 0.52
 MAX_SUSPICIOUS_THRESHOLD = 0.95
 
+
 def run_full_oof_pipeline(df: pd.DataFrame):
-    feature_cols = [c for c in df.columns if c not in ("market_id", "target", "recorded_at")]
+    feature_cols = [
+        c for c in df.columns if c not in ("market_id", "target", "recorded_at")
+    ]
     X = df[feature_cols]
     y = df["target"]
     groups = df["market_id"]
 
-    base_model = Pipeline([
-        ("scaler", StandardScaler()),
-        ("model", LogisticRegression(
-            class_weight="balanced", C=5.0,
-            random_state=CV_RANDOM_STATE, max_iter=1000,
-        )),
-    ])
+    base_model = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "model",
+                LogisticRegression(
+                    class_weight="balanced",
+                    C=5.0,
+                    random_state=CV_RANDOM_STATE,
+                    max_iter=1000,
+                ),
+            ),
+        ]
+    )
 
     gkf = GroupKFold(n_splits=CV_N_SPLITS)
     aucs, oof_scores = [], np.zeros(len(y))
@@ -243,7 +276,11 @@ def run_full_oof_pipeline(df: pd.DataFrame):
 
     precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, oof_scores)
     valid_mask = precision_arr[:-1] >= MIN_PRECISION_FOR_THRESHOLD
-    f1 = 2 * (precision_arr[:-1] * recall_arr[:-1]) / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
+    f1 = (
+        2
+        * (precision_arr[:-1] * recall_arr[:-1])
+        / (precision_arr[:-1] + recall_arr[:-1] + 1e-8)
+    )
 
     if valid_mask.any():
         f1_filtered = np.where(valid_mask, f1, 0)
@@ -251,7 +288,9 @@ def run_full_oof_pipeline(df: pd.DataFrame):
     else:
         best_idx = int(np.argmax(f1))
 
-    optimal_threshold = float(thresholds_pr[best_idx]) if len(thresholds_pr) > 0 else 0.65
+    optimal_threshold = (
+        float(thresholds_pr[best_idx]) if len(thresholds_pr) > 0 else 0.65
+    )
 
     y_pred_oof = (oof_scores >= optimal_threshold).astype(int)
     precision_at_threshold = float(precision_score(y, y_pred_oof, zero_division=0))
@@ -260,7 +299,9 @@ def run_full_oof_pipeline(df: pd.DataFrame):
     mean_auc = float(np.mean(aucs))
     baseline_auc = float(max(y.mean(), 1.0 - y.mean()))
 
-    frac_pos, mean_pred_prob = calibration_curve(y, oof_scores, n_bins=10, strategy="uniform")
+    frac_pos, mean_pred_prob = calibration_curve(
+        y, oof_scores, n_bins=10, strategy="uniform"
+    )
     ece = float(np.mean(np.abs(frac_pos - mean_pred_prob)))
 
     return {
@@ -275,6 +316,7 @@ def run_full_oof_pipeline(df: pd.DataFrame):
         "y": y,
         "fold_aucs": aucs,
     }
+
 
 class TestThresholdAnalytics:
     @pytest.fixture(scope="class")

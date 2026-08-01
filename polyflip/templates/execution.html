@@ -58,6 +58,16 @@
     </style>
     <script>
         window.API_BASE = "{{ root_path }}";
+        
+        function escapeHtml(unsafe) {
+            if (unsafe == null) return '--';
+            return String(unsafe)
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
     </script>
 </head>
 <body>
@@ -117,7 +127,7 @@
                     </div>
                     <div>
                         <label style="font-size: 0.85rem;">Макс. Ставка (USDC)</label>
-                        <input type="number" id="input-max-order" class="form-control" value="1.00" step="0.5">
+                        <input type="number" id="input-max-order" class="form-control" value="1.10" min="1.10" step="0.5">
                     </div>
                     <div>
                         <label style="font-size: 0.85rem;">Макс. Позиций</label>
@@ -161,7 +171,7 @@
             <!-- Блок 3. Позиции -->
             <div class="panel" style="margin-bottom: 20px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h3>Открытые LIVE-Позиции</h3>
+                    <h3>Последние LIVE-позиции</h3>
                 </div>
                 <div style="overflow-x: auto;">
                     <table class="data-table" id="positions-table">
@@ -299,10 +309,10 @@
             }
             tbody.innerHTML = positions.map(p => `
                 <tr>
-                    <td>${p.id}</td>
-                    <td>${p.created_at ? p.created_at.substring(11, 19) : '--'}</td>
-                    <td>${p.asset} (${p.market_id.substring(0, 8)}...)</td>
-                    <td>${p.outcome_bought}</td>
+                    <td>${escapeHtml(p.id)}</td>
+                    <td>${p.created_at ? escapeHtml(p.created_at.substring(11, 19)) : '--'}</td>
+                    <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
+                    <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.amount_usdc || 0).toFixed(2)}</td>
                     <td>${(p.remaining_shares || 0).toFixed(2)}</td>
                     <td>$${(p.executed_price || 0).toFixed(3)}</td>
@@ -333,20 +343,20 @@
                 
                 return `
                 <tr>
-                    <td>${r.created_at ? r.created_at.substring(11, 19) : '--'}</td>
-                    <td><strong>${r.intent}</strong></td>
-                    <td>${r.asset}</td>
-                    <td>${r.outcome_to_buy || r.outcome_bought || '--'}</td>
+                    <td>${r.created_at ? escapeHtml(r.created_at.substring(11, 19)) : '--'}</td>
+                    <td><strong>${escapeHtml(r.intent)}</strong></td>
+                    <td>${escapeHtml(r.asset)}</td>
+                    <td>${escapeHtml(r.outcome_to_buy || r.outcome_bought || '--')}</td>
                     <td>$${(r.target_amount_usdc || 0).toFixed(2)}</td>
-                    <td><span class="status-badge ${r.state === 'FILLED' ? 'status-ready' : 'status-shadow'}">${r.state}</span></td>
-                    <td style="color: #e53e3e; max-width: 200px; word-wrap: break-word;">${r.error_reason || '--'}</td>
+                    <td><span class="status-badge ${r.state === 'FILLED' ? 'status-ready' : 'status-shadow'}">${escapeHtml(r.state)}</span></td>
+                    <td style="color: #e53e3e; max-width: 200px; word-wrap: break-word;">${escapeHtml(r.error_reason)}</td>
                     <td>
                         ${r.can_mark_no_fill ? `
-                            <button class="btn-action btn-danger" onclick="resolveNoFill('${r.id}')" style="padding: 4px 8px; font-size: 0.8rem;">
+                            <button id="btn-no-fill-${r.id}" class="btn-action btn-danger" onclick="resolveNoFill('${r.id}')" style="padding: 4px 8px; font-size: 0.8rem;">
                                 No Fill
                             </button>
                             <input type="checkbox" class="batch-no-fill-cb" value="${r.id}" style="margin-left: 5px;">
-                        ` : ''}
+                        ` : (r.state === 'MANUAL_REVIEW_REQUIRED' ? '<span style="font-size: 0.85rem; color: #dd6b20;">Требуется сверка</span>' : '')}
                     </td>
                 </tr>
                 `;
@@ -357,6 +367,10 @@
         
         async function resolveNoFill(reqId) {
             if (!confirm("Подтверждаете отсутствие исполнения по заявке?")) return;
+            
+            const btn = document.getElementById(`btn-no-fill-${reqId}`);
+            if (btn) { btn.disabled = true; btn.textContent = 'Обработка...'; }
+            
             const res = await fetch(window.API_BASE + `/api/execution/requests/${reqId}/resolve-review`, {
                 method: 'POST', 
                 headers: getAuthHeaders(),
@@ -367,7 +381,11 @@
                 })
             });
             if (res.ok) { alert("Заявка отмечена как NO FILL."); loadLiveDashboard(); }
-            else { const err = await res.json(); alert("Ошибка: " + JSON.stringify(err)); }
+            else { 
+                const err = await res.json(); 
+                alert("Ошибка: " + JSON.stringify(err)); 
+                if (btn) { btn.disabled = false; btn.textContent = 'No Fill'; }
+            }
         }
 
         async function resolveBatchNoFill() {
@@ -375,6 +393,11 @@
             if (checkboxes.length === 0) return alert("Выберите хотя бы одну заявку");
             
             if (!confirm(`Отметить ${checkboxes.length} заявок как NO FILL?`)) return;
+            
+            const btn = document.getElementById('btn-batch-no-fill');
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = 'Обработка...';
             
             const reqIds = Array.from(checkboxes).map(cb => cb.value);
             
@@ -390,12 +413,21 @@
             
             if (res.ok) { 
                 const data = await res.json();
-                alert(`Успешно обработано: ${data.resolved.length}. Пропущено: ${data.skipped.length}`); 
+                let msg = `Успешно обработано: ${data.resolved.length}.\nПропущено: ${data.skipped.length}.`;
+                if (data.skipped.length > 0) {
+                    msg += `\n\nПричины пропуска:\n`;
+                    data.skipped.forEach(s => {
+                        msg += `- ${s.request_id.substring(0,8)}: ${s.blockers.join(', ')}\n`;
+                    });
+                }
+                alert(msg); 
                 loadLiveDashboard(); 
             }
             else { 
                 const err = await res.json(); 
                 alert("Ошибка: " + JSON.stringify(err)); 
+                btn.disabled = false;
+                btn.textContent = originalText;
             }
         }
 

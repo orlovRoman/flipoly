@@ -1,5 +1,3 @@
-
-
 def compute_dead_zone(
     flip_threshold: float,
     dead_zone_width: float,
@@ -7,10 +5,10 @@ def compute_dead_zone(
 ) -> tuple[float, float]:
     """
     Возвращает (no_flip_upper, flip_lower) — границы мёртвой зоны.
-    
-    В авторежиме: зона симметрична вокруг середины между flip_threshold 
+
+    В авторежиме: зона симметрична вокруг середины между flip_threshold
     и (1 - flip_threshold).
-    
+
     Пример: flip_threshold=0.70, width=0.10
         lower = 0.70 - 0.05 = 0.65
         upper = 0.70 + 0.05 = 0.75

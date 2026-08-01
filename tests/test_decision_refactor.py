@@ -40,8 +40,8 @@ _CFG = {
     "FAVORITE_THRESHOLD": "0.40",
     "FAVORITE_MIN_PRICE": "0.55",
     "FAVORITE_MAX_PRICE": "0.95",
-    "DEAD_ZONE_WIDTH":    "0.05",
-    "FAVORITE_MIN_EDGE":  "-1.0",
+    "DEAD_ZONE_WIDTH": "0.05",
+    "FAVORITE_MIN_EDGE": "-1.0",
     "TRADE_BET_SIZE_USDC": "5.0",
     "BET_SIZING_MODE": "fixed",
 }

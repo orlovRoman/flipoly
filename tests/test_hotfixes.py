@@ -27,7 +27,9 @@ async def test_draft_readiness_without_live_worker_returns_result(db_session):
     await db_session.commit()
 
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
             response = await client.post(
                 f"/api/execution/live/sessions/{session_obj.id}/readiness",
                 headers={"X-API-Key": "test-key"},
@@ -45,8 +47,11 @@ async def test_draft_readiness_without_live_worker_returns_result(db_session):
 
 
 @pytest.mark.asyncio
-async def test_security_setting_update_does_not_require_ws_manager(db_session, monkeypatch):
+async def test_security_setting_update_does_not_require_ws_manager(
+    db_session, monkeypatch
+):
     """Тест: обновление защитной настройки BYPASS_BET_SIZE_CHECK проходит успешно без ws_manager."""
+
     class DummyAsyncContextManager:
         def __init__(self, session):
             self.session = session
@@ -57,11 +62,16 @@ async def test_security_setting_update_does_not_require_ws_manager(db_session, m
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
 
-    monkeypatch.setattr("polyflip.api.settings.async_session", lambda: DummyAsyncContextManager(db_session))
+    monkeypatch.setattr(
+        "polyflip.api.settings.async_session",
+        lambda: DummyAsyncContextManager(db_session),
+    )
     app.dependency_overrides[get_db_session] = lambda: db_session
 
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
             response = await client.put(
                 "/api/settings/security/BYPASS_BET_SIZE_CHECK",
                 json={"value": "false"},

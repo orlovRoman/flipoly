@@ -37,6 +37,7 @@ async def test_concurrent_enqueue_open(db_session: AsyncSession):
     await db_session.commit()
 
     from polyflip.execution.config import ExecutionMode
+
     async def worker_enqueue():
         # Each worker needs its own session to test concurrency properly,
         # but for this simple outbox test, we are just verifying idempotency key

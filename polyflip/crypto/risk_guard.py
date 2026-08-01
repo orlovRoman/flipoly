@@ -5,15 +5,15 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-FUNDING_EXTREME_THRESHOLD = 0.0005   # 0.05% — аномальная зона (Binance стандарт)
-FUNDING_HIGH_THRESHOLD    = 0.0003   # 0.03% — повышенный риск, снижаем ставку
+FUNDING_EXTREME_THRESHOLD = 0.0005  # 0.05% — аномальная зона (Binance стандарт)
+FUNDING_HIGH_THRESHOLD = 0.0003  # 0.03% — повышенный риск, снижаем ставку
 
 
 @dataclass(frozen=True)
 class RiskVeto:
     vetoed: bool
     reason: str
-    stake_multiplier: float = 1.0   # 1.0 = норма, 0.5 = снизить, 0.0 = запрет
+    stake_multiplier: float = 1.0  # 1.0 = норма, 0.5 = снизить, 0.0 = запрет
 
     def __bool__(self) -> bool:
         return self.vetoed
@@ -23,7 +23,7 @@ def check_funding_veto(funding_rate: float | None, direction: str) -> RiskVeto:
     """
     Внешнее ВЕТО на основе funding rate.
     direction: "UP" | "DOWN"
-    
+
     Логика:
     - Экстремально положительный фандинг → толпа в лонгах → ожидается шорт-сквиз.
       Ставка UP (с толпой) = ЗАПРЕТ. Ставка DOWN (против толпы) = снизить.
@@ -43,8 +43,8 @@ def check_funding_veto(funding_rate: float | None, direction: str) -> RiskVeto:
         return RiskVeto(vetoed=False, reason="normal_funding", stake_multiplier=1.0)
 
     crowd_direction = "UP" if funding_rate > 0 else "DOWN"
-    is_with_crowd   = (direction == crowd_direction)
-    is_extreme      = abs_fr >= FUNDING_EXTREME_THRESHOLD
+    is_with_crowd = direction == crowd_direction
+    is_extreme = abs_fr >= FUNDING_EXTREME_THRESHOLD
 
     if is_extreme and is_with_crowd:
         logger.warning(

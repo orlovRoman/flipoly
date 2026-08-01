@@ -4,22 +4,23 @@
 
 Это статический анализ файлов — не требует запуска браузера.
 """
+
 import re
 from pathlib import Path
 import pytest
 
-BACKTEST_JS  = Path("polyflip/static/backtest.js")
-TRADING_JS   = Path("polyflip/static/js/trading.js")
+BACKTEST_JS = Path("polyflip/static/backtest.js")
+TRADING_JS = Path("polyflip/static/js/trading.js")
 
 
 def _extract_redis_keys_read(js_text: str) -> set[str]:
     """Ключи вида s.KEY_NAME в applyLiveSettings / loadSettings."""
-    return set(re.findall(r's\.([A-Z_]{3,})', js_text))
+    return set(re.findall(r"s\.([A-Z_]{3,})", js_text))
 
 
 def _extract_redis_keys_written(js_text: str) -> set[str]:
     """Ключи вида settingsToSave.KEY_NAME = ..."""
-    return set(re.findall(r'settingsToSave\.([A-Z_]{3,})\s*=', js_text))
+    return set(re.findall(r"settingsToSave\.([A-Z_]{3,})\s*=", js_text))
 
 
 class TestSettingsConsistency:
@@ -70,8 +71,7 @@ class TestSettingsConsistency:
     def test_favorite_threshold_not_using_or_operator(self):
         """cfg-fav-thresh должен использовать != null, а не ||."""
         text = BACKTEST_JS.read_text(encoding="utf-8")
-        lines = [l for l in text.splitlines()
-                 if "cfg-fav-thresh" in l and "||" in l]
+        lines = [l for l in text.splitlines() if "cfg-fav-thresh" in l and "||" in l]
         assert len(lines) == 0, (
             "cfg-fav-thresh still uses || operator — "
             "replace with != null check. Lines: " + str(lines)

@@ -1,10 +1,11 @@
 import numpy as np
 from sklearn.metrics import precision_recall_curve, precision_score
 
+
 def test_threshold_calibration_logic():
     # Синтетические скоры
     np.random.seed(42)
-    y_true = np.array([1]*50 + [0]*150)
+    y_true = np.array([1] * 50 + [0] * 150)
     y_scores = np.random.beta(3, 1, 50).tolist() + np.random.beta(1, 3, 150).tolist()
 
     precision_arr, recall_arr, thresholds = precision_recall_curve(y_true, y_scores)
@@ -21,4 +22,6 @@ def test_threshold_calibration_logic():
     # Проверяем, что при этом пороге precision действительно >= 60%
     preds_at_threshold = (np.array(y_scores) >= optimal).astype(int)
     actual_precision = precision_score(y_true, preds_at_threshold)
-    assert actual_precision >= 0.55, f"Precision={actual_precision:.2f} — ниже ожидаемого"
+    assert (
+        actual_precision >= 0.55
+    ), f"Precision={actual_precision:.2f} — ниже ожидаемого"

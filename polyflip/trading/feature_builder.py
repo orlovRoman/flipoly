@@ -2,6 +2,7 @@
 Построение feature-вектора для ML-модели.
 Единственный источник правды для порядка и состава фичей.
 """
+
 from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass
@@ -27,8 +28,9 @@ FEATURE_COLUMNS: list[str] = [
     "is_final_phase",
     "high_price_final",
     # Лаговые (динамические)
-    *LAG_FEATURE_NAMES,   # price_momentum, spread_trend, volume_trend
+    *LAG_FEATURE_NAMES,  # price_momentum, spread_trend, volume_trend
 ]
+
 
 @dataclass(frozen=True)
 class MarketSignal:
@@ -37,15 +39,20 @@ class MarketSignal:
     Не зависит от БД, API или других внешних систем.
     Используется и движком, и бэктестом.
     """
+
     asset: str
-    mid_price: float          # вероятность YES по mid
-    spread: float             # best_ask - best_bid
-    volume_5min: float        # объём за последние 5 минут
-    price_velocity: float     # скорость изменения mid_price
-    hour_of_day: int          # час дня в UTC (0–23); намеренно UTC — зафиксировано как стандарт.
-                              # Переход на ET (UTC-5/UTC-4) отложен до v2.x: потребует переобучения моделей.
-    time_left_min: float      # минут до закрытия рынка
-    market_duration_min: float = 60.0  # полная длительность рынка в минутах (default 60.0)
+    mid_price: float  # вероятность YES по mid
+    spread: float  # best_ask - best_bid
+    volume_5min: float  # объём за последние 5 минут
+    price_velocity: float  # скорость изменения mid_price
+    hour_of_day: (
+        int  # час дня в UTC (0–23); намеренно UTC — зафиксировано как стандарт.
+    )
+    # Переход на ET (UTC-5/UTC-4) отложен до v2.x: потребует переобучения моделей.
+    time_left_min: float  # минут до закрытия рынка
+    market_duration_min: float = (
+        60.0  # полная длительность рынка в минутах (default 60.0)
+    )
 
     yes_bid: float | None = None
     yes_ask: float | None = None
@@ -106,7 +113,9 @@ def build_feature_vector(
         df = pd.DataFrame(rows)
         df = add_derived_features(df)
         if price_max_observed is not None:
-            df["price_distance_from_max"] = (price_max_observed - df["mid_price"]).clip(lower=0.0)
+            df["price_distance_from_max"] = (price_max_observed - df["mid_price"]).clip(
+                lower=0.0
+            )
         else:
             df["price_distance_from_max"] = 0.02
         df = add_lag_features(df)
@@ -115,7 +124,9 @@ def build_feature_vector(
         df = pd.DataFrame([current_row])
         df = add_derived_features(df)
         if price_max_observed is not None:
-            df["price_distance_from_max"] = max(price_max_observed - signal.mid_price, 0.0)
+            df["price_distance_from_max"] = max(
+                price_max_observed - signal.mid_price, 0.0
+            )
         else:
             df["price_distance_from_max"] = 0.02
         df = add_lag_features(df)

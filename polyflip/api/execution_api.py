@@ -610,11 +610,14 @@ async def resolve_no_fill_batch(
     payload: BatchNoFillRequest,
     db: AsyncSession = Depends(get_db_session)
 ):
-    from polyflip.execution.manual_review_service import evaluate_no_fill_eligibility
+    from polyflip.execution.manual_review_service import evaluate_no_fill_eligibility_batch
     from polyflip.execution.outbox import finalize_request
-    
+    from polyflip.db.execution_models import ExecutionEvent
+    from datetime import datetime, timezone
+
     resolved = []
     skipped = []
+    now = datetime.now(timezone.utc)
 
     requests = (
         await db.execute(
@@ -624,13 +627,15 @@ async def resolve_no_fill_batch(
         )
     ).scalars().all()
 
-    for req in requests:
-        eligibility = await evaluate_no_fill_eligibility(db, req)
+    eligibility_map = await evaluate_no_fill_eligibility_batch(db, requests)
 
-        if not eligibility.allowed:
+    for req in requests:
+        eligibility = eligibility_map.get(req.id)
+
+        if not eligibility or not eligibility.allowed:
             skipped.append({
                 "request_id": str(req.id),
-                "blockers": list(eligibility.blockers),
+                "blockers": list(eligibility.blockers) if eligibility else ["Unknown"],
             })
             continue
 
@@ -640,6 +645,25 @@ async def resolve_no_fill_batch(
             state="MANUAL_REVIEW_FAILED",
             error=f"Batch no-fill confirmation by {payload.operator}",
         )
+
+        db.add(
+            ExecutionEvent(
+                level="INFO",
+                event_type="MANUAL_REVIEW_BATCH_NO_FILL",
+                message=f"Operator {payload.operator!r} resolved MANUAL_REVIEW_REQUIRED via batch. Note: {payload.note or '—'}",
+                source="execution_api",
+                request_id=req.id,
+                trade_history_id=req.trade_history_id,
+                created_at=now,
+                payload={
+                    "operator": payload.operator,
+                    "action": "MARK_FAILED_NO_FILL",
+                    "batch": True,
+                    "note": payload.note,
+                },
+            )
+        )
+
         resolved.append(str(req.id))
 
     await db.commit()
@@ -1081,7 +1105,30 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         (
             await db.execute(
                 select(TradeHistory)
-                .where(TradeHistory.mode == "LIVE")
+                .where(
+                    TradeHistory.mode == "LIVE",
+                    TradeHistory.position_status.in_(
+                        ["OPEN", "PARTIALLY_CLOSED", "CLOSING"]
+                    ),
+                )
+                .order_by(TradeHistory.created_at.desc())
+                .limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    failed_positions = (
+        (
+            await db.execute(
+                select(TradeHistory)
+                .where(
+                    TradeHistory.mode == "LIVE",
+                    TradeHistory.position_status.in_(
+                        ["ENTRY_FAILED", "CLOSED"]
+                    ),
+                )
                 .order_by(TradeHistory.created_at.desc())
                 .limit(50)
             )
@@ -1177,5 +1224,17 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
             for r in requests
+        ],
+        "failed_positions": [
+            {
+                "id": p.id,
+                "asset": p.asset,
+                "market_id": p.market_id,
+                "outcome_bought": p.outcome_bought,
+                "position_status": p.position_status,
+                "amount_usdc": float(p.amount_usdc),
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in failed_positions
         ],
     }
