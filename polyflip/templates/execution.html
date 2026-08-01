@@ -125,18 +125,58 @@
                 </div>
 
                 <!-- Лимиты активной сессии -->
-                <div id="session-limits-block" class="form-grid" style="display: none; background: var(--bg-color); padding: 10px; border-radius: 6px; margin-bottom: 15px;">
-                    <div>
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Макс. Ставка</div>
-                        <div id="limit-max-order" style="font-weight: 600;">-- USDC</div>
+                <div id="session-limits-block" style="display: none; background: var(--bg-color); padding: 10px; border-radius: 6px; margin-bottom: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h4 style="margin:0;">Текущие лимиты</h4>
+                        <button id="btn-edit-limits" class="btn-action" style="background:#4a5568; padding: 4px 8px; font-size: 0.85rem;" onclick="toggleEditLimits(true)">Изменить</button>
                     </div>
-                    <div>
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Макс. Позиций</div>
-                        <div id="limit-max-positions" style="font-weight: 600;">--</div>
+                    <div class="form-grid">
+                        <div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted);">Размер Заявки</div>
+                            <div id="limit-order-amount" style="font-weight: 600;">--</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted);">Макс. Ставка</div>
+                            <div id="limit-max-order" style="font-weight: 600;">-- USDC</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted);">Макс. Позиций</div>
+                            <div id="limit-max-positions" style="font-weight: 600;">--</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted);">Макс. Экспозиция</div>
+                            <div id="limit-max-exposure" style="font-weight: 600;">-- USDC</div>
+                        </div>
                     </div>
-                    <div>
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Макс. Экспозиция</div>
-                        <div id="limit-max-exposure" style="font-weight: 600;">-- USDC</div>
+                </div>
+                
+                <div id="session-limits-edit-block" style="display:none; background: var(--bg-color); padding: 10px; border-radius: 6px; margin-bottom: 15px;">
+                    <h4 style="margin-top:0; margin-bottom: 10px;">Изменение лимитов</h4>
+                    <div class="form-grid">
+                        <div>
+                            <label style="font-size: 0.85rem;">Размер заявки (USDC)</label>
+                            <input type="number" id="edit-order-amount" class="form-control" step="0.01">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.85rem;">Бюджет (USDC)</label>
+                            <input type="number" id="edit-budget" class="form-control" step="0.01">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.85rem;">Макс. Ставка (USDC)</label>
+                            <input type="number" id="edit-max-order" class="form-control" step="0.01">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.85rem;">Макс. Экспозиция (USDC)</label>
+                            <input type="number" id="edit-max-exposure" class="form-control" step="0.01">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.85rem;">Макс. Позиций</label>
+                            <input type="number" id="edit-max-positions" class="form-control">
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <button class="btn-action" onclick="saveSessionLimits()">Сохранить лимиты</button>
+                        <button class="btn-action" style="background:#4a5568;" onclick="toggleEditLimits(false)">Отмена</button>
                     </div>
                 </div>
 
@@ -145,6 +185,11 @@
                     <div>
                         <label style="font-size: 0.85rem;">Бюджет Сессии (USDC)</label>
                         <input type="number" id="input-budget" class="form-control" value="10.00" step="0.01">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.85rem;">Размер Заявки (USDC)</label>
+                        <input type="number" id="input-order-amount" class="form-control" value="1.10" step="0.01">
+                        <div style="font-size: 0.75rem; color:var(--text-muted);">Оставьте пустым для авто-размера из PAPER</div>
                     </div>
                     <div>
                         <label style="font-size: 0.85rem;">Макс. Ставка (USDC)</label>
@@ -354,10 +399,26 @@
 
                     document.getElementById('session-create-form').style.display = 'none';
 
-                    document.getElementById('session-limits-block').style.display = 'grid';
+                    document.getElementById('session-limits-block').style.display = 'block';
+                    document.getElementById('limit-order-amount').textContent = s.order_amount_usdc !== null ? s.order_amount_usdc.toFixed(2) + " USDC" : "АВТО (из PAPER)";
                     document.getElementById('limit-max-order').textContent = (s.max_single_order_usdc || 0).toFixed(2) + " USDC";
                     document.getElementById('limit-max-positions').textContent = s.max_open_positions || 0;
                     document.getElementById('limit-max-exposure').textContent = (s.max_total_exposure_usdc || 0).toFixed(2) + " USDC";
+                    
+                    const btnEdit = document.getElementById('btn-edit-limits');
+                    if (btnEdit) {
+                        if (s.status === 'DRAFT' || s.status === 'READY' || s.status === 'STOPPED') {
+                            btnEdit.style.display = 'inline-block';
+                            document.getElementById('edit-order-amount').value = s.order_amount_usdc !== null ? s.order_amount_usdc : "";
+                            document.getElementById('edit-budget').value = s.budget_usdc;
+                            document.getElementById('edit-max-order').value = s.max_single_order_usdc;
+                            document.getElementById('edit-max-exposure').value = s.max_total_exposure_usdc;
+                            document.getElementById('edit-max-positions').value = s.max_open_positions;
+                        } else {
+                            btnEdit.style.display = 'none';
+                            toggleEditLimits(false);
+                        }
+                    }
 
                     // Button visibility
                     document.getElementById('btn-create-session').style.display = 'none';
@@ -611,12 +672,14 @@
         // Actions
         document.getElementById('btn-create-session').onclick = async () => {
             const maxOrderUsdc = parseFloat(document.getElementById('input-max-order').value);
+            const orderAmountStr = document.getElementById('input-order-amount').value;
             if (maxOrderUsdc < 1.10) {
                 alert("Минимальная ставка (Max Single Order) для LIVE должна быть не менее 1.10 USDC!");
                 return;
             }
             const body = {
                 budget_usdc: parseFloat(document.getElementById('input-budget').value),
+                order_amount_usdc: orderAmountStr ? parseFloat(orderAmountStr) : null,
                 max_single_order_usdc: maxOrderUsdc,
                 max_open_positions: parseInt(document.getElementById('input-max-positions').value),
                 max_total_exposure_usdc: parseFloat(document.getElementById('input-max-exposure').value)
@@ -627,6 +690,36 @@
             if (res.ok) { alert("Сессия создана!"); loadLiveDashboard(); }
             else { const err = await res.json(); alert("Ошибка: " + (err.detail || JSON.stringify(err))); }
         };
+
+        function toggleEditLimits(show) {
+            document.getElementById('session-limits-edit-block').style.display = show ? 'block' : 'none';
+            document.getElementById('session-limits-block').style.display = show ? 'none' : 'block';
+        }
+
+        async function saveSessionLimits() {
+            if (!currentSessionId) return;
+            const amtStr = document.getElementById('edit-order-amount').value;
+            const body = {
+                order_amount_usdc: amtStr ? parseFloat(amtStr) : null,
+                budget_usdc: parseFloat(document.getElementById('edit-budget').value),
+                max_single_order_usdc: parseFloat(document.getElementById('edit-max-order').value),
+                max_total_exposure_usdc: parseFloat(document.getElementById('edit-max-exposure').value),
+                max_open_positions: parseInt(document.getElementById('edit-max-positions').value)
+            };
+            
+            const res = await fetch(window.API_BASE + `/api/execution/live/sessions/${currentSessionId}/limits`, {
+                method: 'PATCH', headers: getAuthHeaders(), body: JSON.stringify(body)
+            });
+            
+            if (res.ok) {
+                alert("Лимиты успешно обновлены!");
+                toggleEditLimits(false);
+                loadLiveDashboard();
+            } else {
+                const err = await res.json();
+                alert("Ошибка: " + (err.detail || JSON.stringify(err)));
+            }
+        }
 
         document.getElementById('btn-check-readiness').onclick = async () => {
             if (!currentSessionId) return alert("Сначала создайте сессию");

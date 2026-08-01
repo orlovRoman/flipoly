@@ -106,8 +106,14 @@ class PolymarketExecutionGateway:
                 self._client_cache = client
                 return client
             except Exception as e:
+                self._client_cache = None
                 logger.error("failed_to_init_async_secure_client", error=str(e))
-                return None
+                raise GatewayUnavailable(f"Polymarket client init failed: {e}")
+
+    async def invalidate_client(self) -> None:
+        """Сбрасывает кэшированный клиент при сетевых/SSL ошибках."""
+        async with self._client_lock:
+            self._client_cache = None
 
     async def submit(self, order: GatewayOrder) -> SubmissionResult:
         client = await self.get_client()

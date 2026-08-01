@@ -472,6 +472,7 @@ async def test_minimum_live_order_amount_validation():
     active_session_mock.budget_usdc = Decimal("100.0")
     active_session_mock.max_open_positions = 5
     active_session_mock.max_total_exposure_usdc = Decimal("50.0")
+    active_session_mock.order_amount_usdc = None
     active_session_mock.heartbeat_at = datetime.now(timezone.utc)
     active_session_mock.gateway_ready = True
     active_session_mock.collateral_allowance_ready = True

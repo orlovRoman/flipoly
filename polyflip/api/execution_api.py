@@ -661,6 +661,7 @@ from polyflip.execution.live_session_service import (
 
 class CreateLiveSessionRequest(BaseModel):
     budget_usdc: Decimal
+    order_amount_usdc: Optional[Decimal] = None
     max_single_order_usdc: Decimal
     max_open_positions: int
     max_total_exposure_usdc: Decimal
@@ -690,6 +691,16 @@ class CreateLiveSessionRequest(BaseModel):
 
         if not 1 <= self.max_open_positions <= 100:
             raise ValueError("Некорректный лимит открытых позиций")
+            
+        if self.order_amount_usdc is not None:
+            if self.order_amount_usdc < LIVE_MIN_GROSS_BUY_USDC:
+                raise ValueError("Размер LIVE-заявки не может быть меньше 1.10 USDC")
+            if self.order_amount_usdc > self.max_single_order_usdc:
+                raise ValueError("Размер LIVE-заявки не может превышать лимит максимальной ставки")
+            if self.order_amount_usdc > self.max_total_exposure_usdc:
+                raise ValueError("Размер LIVE-заявки не может превышать лимит экспозиции")
+            if self.order_amount_usdc > self.budget_usdc:
+                raise ValueError("Размер LIVE-заявки не может превышать бюджет")
 
         return self
 
@@ -710,6 +721,7 @@ async def create_live_session(
     session = LiveTradingSession(
         status="DRAFT",
         budget_usdc=payload.budget_usdc,
+        order_amount_usdc=payload.order_amount_usdc,
         reserved_usdc=Decimal("0"),
         filled_usdc=Decimal("0"),
         max_single_order_usdc=payload.max_single_order_usdc,
@@ -721,6 +733,90 @@ async def create_live_session(
     await db.refresh(session)
     budget_snap = await get_session_budget_snapshot(db, session)
     return serialize_live_session_dto(session, budget_snap)
+
+
+class UpdateLiveSessionLimitsRequest(BaseModel):
+    order_amount_usdc: Optional[Decimal] = None
+    max_single_order_usdc: Optional[Decimal] = None
+    max_total_exposure_usdc: Optional[Decimal] = None
+    max_open_positions: Optional[int] = None
+    budget_usdc: Optional[Decimal] = None
+
+
+@router.patch("/live/sessions/{session_id}/limits")
+async def update_live_session_limits(
+    session_id: str,
+    payload: UpdateLiveSessionLimitsRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Обновляет лимиты и параметры сессии, когда она находится в состоянии DRAFT, READY или STOPPED.
+    Обновление размера заявок и бюджета запрещено для ACTIVE или BUDGET_EXHAUSTED.
+    """
+    try:
+        sess_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
+
+    session_obj = (
+        await db.execute(
+            select(LiveTradingSession).where(LiveTradingSession.id == sess_uuid).with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if not session_obj:
+        raise HTTPException(status_code=404, detail="LiveTradingSession not found")
+
+    if session_obj.status not in {"DRAFT", "READY", "STOPPED"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Лимиты нельзя обновлять в состоянии {session_obj.status}"
+        )
+
+    if payload.budget_usdc is not None:
+        session_obj.budget_usdc = payload.budget_usdc
+    if payload.order_amount_usdc is not None:
+        session_obj.order_amount_usdc = payload.order_amount_usdc
+    if payload.max_single_order_usdc is not None:
+        session_obj.max_single_order_usdc = payload.max_single_order_usdc
+    if payload.max_total_exposure_usdc is not None:
+        session_obj.max_total_exposure_usdc = payload.max_total_exposure_usdc
+    if payload.max_open_positions is not None:
+        session_obj.max_open_positions = payload.max_open_positions
+
+    # Валидируем консистентность обновлённых лимитов
+    from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
+
+    if session_obj.max_single_order_usdc < LIVE_MIN_GROSS_BUY_USDC:
+        raise HTTPException(status_code=422, detail="Максимальная ставка должна быть не меньше 1.10 USDC")
+    
+    if session_obj.max_single_order_usdc > session_obj.budget_usdc:
+        raise HTTPException(status_code=422, detail="Максимальная ставка не может превышать бюджет сессии")
+        
+    if session_obj.max_total_exposure_usdc > session_obj.budget_usdc:
+        raise HTTPException(status_code=422, detail="Максимальная экспозиция не может превышать бюджет")
+        
+    if not 1 <= session_obj.max_open_positions <= 100:
+        raise HTTPException(status_code=422, detail="Некорректный лимит открытых позиций")
+        
+    if session_obj.order_amount_usdc is not None:
+        if session_obj.order_amount_usdc < LIVE_MIN_GROSS_BUY_USDC:
+            raise HTTPException(status_code=422, detail="Размер LIVE-заявки не может быть меньше 1.10 USDC")
+        if session_obj.order_amount_usdc > session_obj.max_single_order_usdc:
+            raise HTTPException(status_code=422, detail="Размер LIVE-заявки не может превышать лимит максимальной ставки")
+        if session_obj.order_amount_usdc > session_obj.max_total_exposure_usdc:
+            raise HTTPException(status_code=422, detail="Размер LIVE-заявки не может превышать лимит экспозиции")
+        if session_obj.order_amount_usdc > session_obj.budget_usdc:
+            raise HTTPException(status_code=422, detail="Размер LIVE-заявки не может превышать бюджет")
+
+    if session_obj.status == "READY":
+        session_obj.status = "DRAFT"
+
+    await db.commit()
+    await db.refresh(session_obj)
+    
+    budget_snap = await get_session_budget_snapshot(db, session_obj)
+    return serialize_live_session_dto(session_obj, budget_snap)
 
 
 @router.post("/live/sessions/{session_id}/readiness")

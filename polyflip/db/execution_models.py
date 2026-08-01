@@ -263,6 +263,8 @@ class ExecutionWorkerStatus(Base):
     network_chain_id = Column(Integer, nullable=True)
     last_error_code = Column(String(64), nullable=True)
     last_error_message = Column(Text, nullable=True)
+    readiness_checked_at = Column(DateTime(timezone=True), nullable=True)
+    readiness_success_at = Column(DateTime(timezone=True), nullable=True)
     details = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
 
 
@@ -392,6 +394,7 @@ class LiveTradingSession(Base):
         String(24), nullable=False, default="DRAFT"
     )  # DRAFT, READY, ACTIVE, BUDGET_EXHAUSTED, STOPPED, ERROR
     budget_usdc = Column(Numeric(18, 6), nullable=False)
+    order_amount_usdc = Column(Numeric(18, 6), nullable=True)
     reserved_usdc = Column(Numeric(18, 6), nullable=False, default=0)
     filled_usdc = Column(Numeric(18, 6), nullable=False, default=0)
     max_single_order_usdc = Column(Numeric(18, 6), nullable=False)

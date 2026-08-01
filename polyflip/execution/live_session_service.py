@@ -247,6 +247,10 @@ async def evaluate_live_readiness(
             checks["gateway"] = True
         else:
             errors.append(f"Gateway не готов: {ws.last_error_message or 'неизвестно'}")
+        required_bal = min(
+            Decimal(str(session.budget_usdc)),
+            Decimal(str(session.max_total_exposure_usdc)),
+        )
 
         transport_failure = getattr(ws, 'last_error_code', None) in {
             "READINESS_TIMEOUT",
