@@ -885,7 +885,21 @@ async def publish_heartbeat_once(
     ).all()
     token_ids = tuple({t for row in token_rows for t in row if t})
 
-    readiness = await gateway.get_readiness(conditional_token_ids=token_ids)
+    READINESS_TIMEOUT_SECONDS = 8
+    try:
+        readiness = await asyncio.wait_for(
+            gateway.get_readiness(conditional_token_ids=token_ids),
+            timeout=READINESS_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        from polyflip.execution.contracts import GatewayReadiness
+        readiness = GatewayReadiness(
+            ready=False,
+            gateway="POLYMARKET",
+            error_message="Polymarket readiness timeout",
+            checked_at=datetime.now(timezone.utc),
+        )
+
     now = datetime.now(timezone.utc)
 
     dialect_name = await _get_dialect(session)

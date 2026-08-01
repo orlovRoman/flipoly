@@ -744,8 +744,8 @@ async def check_live_session_readiness(
 
     readiness = await evaluate_live_readiness(db, session_obj)
 
-    if readiness.ready and session_obj.status == "DRAFT":
-        session_obj.status = "READY"
+    if session_obj.status in {"DRAFT", "STOPPED"}:
+        session_obj.status = "READY" if readiness.ready else "DRAFT"
         await db.commit()
         await db.refresh(session_obj)
 
@@ -781,12 +781,12 @@ async def activate_live_session(
     if not session_obj:
         raise HTTPException(status_code=404, detail="LiveTradingSession not found")
 
-    if session_obj.status not in {"DRAFT", "READY"}:
+    if session_obj.status not in {"DRAFT", "READY", "STOPPED"}:
         raise HTTPException(
             status_code=409,
             detail=(
                 "Активация разрешена только для сессии "
-                f"DRAFT/READY, текущий статус: {session_obj.status}"
+                f"DRAFT/READY/STOPPED, текущий статус: {session_obj.status}"
             ),
         )
 
@@ -824,7 +824,8 @@ async def activate_live_session(
             )
 
     session_obj.status = "ACTIVE"
-    session_obj.started_at = now
+    if session_obj.started_at is None:
+        session_obj.started_at = now
     await db.commit()
     await db.refresh(session_obj)
 
@@ -1172,25 +1173,46 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
     active_pos_count = len([p for p in active_positions if p.position_status not in ("CLOSED", "RESOLVED", "ENTRY_FAILED")])
 
     readiness_ready = bool(readiness and readiness.ready)
-    session_actions = {
-        "check_readiness": status in {"DRAFT", "READY", "STOPPED"},
-        "activate": (
-            readiness_ready
-            and status in {"DRAFT", "READY"}
-        ),
-        "stop": status == "ACTIVE",
-        "close_all": active_pos_count > 0,
-        "finish": status in {"DRAFT", "READY", "STOPPED"},
-    } if status else {
-        "check_readiness": False,
-        "activate": False,
-        "stop": False,
-        "close_all": False,
-        "finish": False,
-    }
+
+    if status:
+        available_actions = {
+            "check_readiness": status in {"DRAFT", "READY", "STOPPED"},
+            "activate": (
+                readiness_ready
+                and status in {"DRAFT", "READY", "STOPPED"}
+            ),
+            "stop": status == "ACTIVE",
+            "close_all": active_pos_count > 0,
+            "finish": status in {"DRAFT", "READY", "STOPPED"},
+        }
+        action_reasons = {
+            "activate": (
+                None
+                if available_actions["activate"]
+                else "; ".join(readiness.errors or [])
+                if readiness
+                else "Сначала выполните проверку готовности"
+            ),
+            "stop": None if status == "ACTIVE" else "Сессия не активна",
+            "close_all": (
+                None if active_pos_count > 0 else "Нет открытых позиций"
+            ),
+            "finish": None,
+            "check_readiness": None,
+        }
+    else:
+        available_actions = {
+            "check_readiness": False,
+            "activate": False,
+            "stop": False,
+            "close_all": False,
+            "finish": False,
+        }
+        action_reasons = {}
 
     return {
-        "available_actions": session_actions,
+        "available_actions": available_actions,
+        "action_reasons": action_reasons,
         "readiness": {
             "ready": readiness.ready,
             "checks": readiness.checks,

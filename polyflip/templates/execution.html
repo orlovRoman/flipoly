@@ -11,6 +11,11 @@
 
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ timestamp }}">
     <style>
+        .btn-action:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            filter: grayscale(35%);
+        }
         .status-badge {
             display: inline-block;
             padding: 4px 8px;
@@ -357,12 +362,20 @@
                     // Button visibility
                     document.getElementById('btn-create-session').style.display = 'none';
 
+                    function configureAction(buttonId, enabled, reason) {
+                        const button = document.getElementById(buttonId);
+                        if (!button) return;
+                        button.style.display = 'inline-block';
+                        button.disabled = !enabled;
+                        button.title = enabled ? '' : (reason || 'Действие сейчас недоступно');
+                    }
+
                     if (data.available_actions) {
-                        document.getElementById('btn-check-readiness').style.display = data.available_actions.check_readiness ? 'inline-block' : 'none';
-                        document.getElementById('btn-activate-session').style.display = data.available_actions.activate ? 'inline-block' : 'none';
-                        document.getElementById('btn-stop-session').style.display = data.available_actions.stop ? 'inline-block' : 'none';
-                        document.getElementById('btn-finish-session').style.display = data.available_actions.finish ? 'inline-block' : 'none';
-                        document.getElementById('btn-close-all').style.display = data.available_actions.close_all ? 'inline-block' : 'none';
+                        configureAction('btn-check-readiness', data.available_actions.check_readiness, data.action_reasons?.check_readiness);
+                        configureAction('btn-activate-session', data.available_actions.activate, data.action_reasons?.activate);
+                        configureAction('btn-stop-session', data.available_actions.stop, data.action_reasons?.stop);
+                        configureAction('btn-finish-session', data.available_actions.finish, data.action_reasons?.finish);
+                        configureAction('btn-close-all', data.available_actions.close_all, data.action_reasons?.close_all);
                     }
 
                 } else {
@@ -375,11 +388,10 @@
                     document.getElementById('session-limits-block').style.display = 'none';
 
                     document.getElementById('btn-create-session').style.display = 'inline-block';
-                    document.getElementById('btn-check-readiness').style.display = 'none';
-                    document.getElementById('btn-activate-session').style.display = 'none';
-                    document.getElementById('btn-stop-session').style.display = 'none';
-                    document.getElementById('btn-finish-session').style.display = 'none';
-                    document.getElementById('btn-close-all').style.display = 'none';
+                    
+                    ['btn-check-readiness', 'btn-activate-session', 'btn-stop-session', 'btn-finish-session', 'btn-close-all'].forEach(id => {
+                        document.getElementById(id).style.display = 'none';
+                    });
 
                 }
 

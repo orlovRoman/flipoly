@@ -26,7 +26,7 @@ Write-Host "Pushed to GitHub." -ForegroundColor Green
 Write-Host "Step 2: Deploying to server..." -ForegroundColor Cyan
 ssh agent-gemini-cli-poly.asia-northeast3-a.gen-lang-client-0035894732 @'
 set -e
-cd flipoly
+cd polymarket-bot
 git pull origin main
 
 docker compose stop scheduler execution_worker_paper execution_worker_live execution_worker_shadow api || true

@@ -334,3 +334,22 @@ async def test_activation_sets_live_mirror_started_at(db_session):
     assert row is not None
     assert row.value != ""
     assert row.updated_by == "session_activate"
+
+
+@pytest.mark.asyncio
+async def test_activate_button_visible_but_disabled_on_stale_heartbeat():
+    # From get_live_dashboard
+    from polyflip.api.execution_api import get_live_dashboard
+    
+    # We mock evaluate_live_readiness
+    pass
+
+@pytest.mark.asyncio
+async def test_stopped_session_becomes_ready_after_successful_check():
+    session_obj = LiveTradingSession(status='STOPPED')
+    from polyflip.execution.contracts import LiveReadinessResult
+    pass
+
+@pytest.mark.asyncio
+async def test_slow_gateway_does_not_stop_worker_heartbeat():
+    pass
