@@ -234,13 +234,13 @@
                 <div id="readiness-errors-list" style="margin-top: 10px; font-size: 0.9rem;"></div>
             </div>
 
-            <!-- Блок 3. Позиции -->
+            <!-- Блок 3. Торгуемые позиции -->
             <div class="panel" style="margin-bottom: 20px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h3>Последние LIVE-позиции</h3>
+                    <h3>Торгуемые позиции</h3>
                 </div>
                 <div style="overflow-x: auto;">
-                    <table class="data-table" id="positions-table">
+                    <table class="data-table" id="tradable-positions-table">
                         <thead>
                             <tr>
                                 <th>ID</th>
@@ -262,25 +262,55 @@
                 </div>
             </div>
 
-
-            <!-- Блок 3.5. Неисполненные входы / архив ошибок -->
+            <!-- Блок 3.5. Завершённые рынки -->
             <div class="panel" style="margin-bottom: 20px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h3>Неисполненные входы / архив ошибок</h3>
+                    <h3>Завершённые рынки</h3>
                 </div>
                 <div style="overflow-x: auto;">
-                    <table class="data-table" id="failed-entries-table">
+                    <table class="data-table" id="resolved-markets-table">
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Время</th>
+                                <th>Открыта</th>
                                 <th>Рынок</th>
                                 <th>Исход</th>
+                                <th>Вложено</th>
+                                <th>Shares</th>
+                                <th>PnL</th>
+                                <th>Статус Позиции</th>
+                                <th>Статус Погашения</th>
+                                <th>Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="10" style="text-align: center;">Загрузка...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Блок 3.6. Архив -->
+            <div class="panel" style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3>Архив</h3>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="data-table" id="archive-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Открыта</th>
+                                <th>Рынок</th>
+                                <th>Исход</th>
+                                <th>Вложено</th>
+                                <th>Shares</th>
+                                <th>PnL</th>
                                 <th>Статус</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr><td colspan="5" style="text-align: center;">Загрузка...</td></tr>
+                            <tr><td colspan="8" style="text-align: center;">Загрузка...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -488,28 +518,97 @@
         }
 
         function renderPositions(positions) {
-            const tbody = document.querySelector('#positions-table tbody');
-            if (!positions.length) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">Нет LIVE-позиций</td></tr>';
-                return;
+            const tradable = [];
+            const resolved = [];
+            const archive = [];
+
+            for (const p of positions) {
+                if (p.position_status === 'OPEN' || p.position_status === 'PARTIALLY_CLOSED') {
+                    tradable.push(p);
+                } else if (p.position_status === 'RESOLVED_REDEEMABLE' || p.position_status === 'REDEEMING' || p.position_status === 'REDEMPTION_UNKNOWN') {
+                    resolved.push(p);
+                } else {
+                    archive.push(p);
+                }
             }
-            tbody.innerHTML = positions.map(p => `
-                <tr>
-                    <td>${escapeHtml(p.id)}</td>
-                    <td>${p.created_at ? escapeHtml(p.created_at.substring(11, 19)) : '--'}</td>
-                    <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
-                    <td>${escapeHtml(p.outcome_bought)}</td>
-                    <td>$${(p.amount_usdc || 0).toFixed(2)}</td>
-                    <td>${(p.remaining_shares || 0).toFixed(2)}</td>
-                    <td>$${(p.executed_price || 0).toFixed(3)}</td>
-                    <td style="color: ${p.pnl >= 0 ? '#48bb78' : '#e53e3e'};">${p.pnl != null ? p.pnl.toFixed(2) : '--'}</td>
-                    <td><span class="status-badge ${p.position_status === 'OPEN' ? 'status-live' : 'status-shadow'}">${p.position_status}</span></td>
-                    <td>
-                        ${(p.position_status === 'OPEN' || p.position_status === 'PARTIALLY_CLOSED') ?
-                            `<button class="btn-action btn-danger" onclick="closePosition(${p.id})">Закрыть</button>` : '--'}
-                    </td>
-                </tr>
-            `).join('');
+
+            const tbodyTradable = document.querySelector('#tradable-positions-table tbody');
+            if (!tradable.length) {
+                tbodyTradable.innerHTML = '<tr><td colspan="10" style="text-align: center;">Нет торгуемых позиций</td></tr>';
+            } else {
+                tbodyTradable.innerHTML = tradable.map(p => {
+                    const act = p.available_actions || {};
+                    let actionHtml = '--';
+                    if (act.close) {
+                        actionHtml = `<button class="btn-action btn-danger" onclick="closePosition(${p.id})">Закрыть</button>`;
+                    } else if (act.reconcile_resolution) {
+                        actionHtml = `<button class="btn-action" style="background:#3182ce;" onclick="reconcileResolution(${p.id}, this)">Сверить результат</button>`;
+                    }
+                    return `
+                    <tr>
+                        <td>${escapeHtml(p.id)}</td>
+                        <td>${p.created_at ? escapeHtml(p.created_at.substring(11, 19)) : '--'}</td>
+                        <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
+                        <td>${escapeHtml(p.outcome_bought)}</td>
+                        <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
+                        <td>${(p.remaining_shares || 0).toFixed(2)}</td>
+                        <td>$${(p.executed_price || 0).toFixed(3)}</td>
+                        <td style="color: ${p.realized_pnl_usdc >= 0 ? '#48bb78' : '#e53e3e'};">${p.realized_pnl_usdc != null ? p.realized_pnl_usdc.toFixed(2) : '--'}</td>
+                        <td><span class="status-badge status-live">${p.position_status}</span></td>
+                        <td>${actionHtml}</td>
+                    </tr>
+                `;}).join('');
+            }
+
+            const tbodyResolved = document.querySelector('#resolved-markets-table tbody');
+            if (!resolved.length) {
+                tbodyResolved.innerHTML = '<tr><td colspan="10" style="text-align: center;">Нет завершённых рынков</td></tr>';
+            } else {
+                tbodyResolved.innerHTML = resolved.map(p => {
+                    const act = p.available_actions || {};
+                    let actions = [];
+                    if (act.reconcile_resolution) {
+                        actions.push(`<button class="btn-action" style="background:#3182ce; font-size:0.8rem; margin:2px;" onclick="reconcileResolution(${p.id}, this)">Сверить результат</button>`);
+                    }
+                    if (act.redeem) {
+                        actions.push(`<button class="btn-action" style="background:#38a169; font-size:0.8rem; margin:2px;" onclick="redeemPosition(${p.id}, this)">Погасить</button>`);
+                    }
+                    if (act.reconcile_redemption) {
+                        actions.push(`<button class="btn-action" style="background:#3182ce; font-size:0.8rem; margin:2px;" onclick="reconcileRedemption(${p.id}, this)">Проверить погашение</button>`);
+                    }
+                    return `
+                    <tr>
+                        <td>${escapeHtml(p.id)}</td>
+                        <td>${p.created_at ? escapeHtml(p.created_at.substring(11, 19)) : '--'}</td>
+                        <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
+                        <td>${escapeHtml(p.outcome_bought)}</td>
+                        <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
+                        <td>${(p.remaining_shares || 0).toFixed(2)}</td>
+                        <td style="color: ${p.realized_pnl_usdc >= 0 ? '#48bb78' : '#e53e3e'};">${p.realized_pnl_usdc != null ? p.realized_pnl_usdc.toFixed(2) : '--'}</td>
+                        <td><span class="status-badge status-shadow">${p.position_status}</span></td>
+                        <td><span class="status-badge status-shadow">${p.redemption_status || 'UNKNOWN'}</span></td>
+                        <td>${actions.join('')}</td>
+                    </tr>
+                `;}).join('');
+            }
+
+            const tbodyArchive = document.querySelector('#archive-table tbody');
+            if (!archive.length) {
+                tbodyArchive.innerHTML = '<tr><td colspan="8" style="text-align: center;">Архив пуст</td></tr>';
+            } else {
+                tbodyArchive.innerHTML = archive.map(p => `
+                    <tr>
+                        <td>${escapeHtml(p.id)}</td>
+                        <td>${p.created_at ? escapeHtml(p.created_at.substring(11, 19)) : '--'}</td>
+                        <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
+                        <td>${escapeHtml(p.outcome_bought)}</td>
+                        <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
+                        <td>${(p.remaining_shares || 0).toFixed(2)}</td>
+                        <td style="color: ${p.realized_pnl_usdc >= 0 ? '#48bb78' : '#e53e3e'};">${p.realized_pnl_usdc != null ? p.realized_pnl_usdc.toFixed(2) : '--'}</td>
+                        <td><span class="status-badge status-shadow">${p.position_status}</span></td>
+                    </tr>
+                `).join('');
+            }
         }
 
         function renderRequests(requests) {
@@ -569,6 +668,61 @@
                 const err = await res.json();
                 alert("Ошибка: " + (err.detail || JSON.stringify(err)));
             }
+        }
+
+        async function reconcileResolution(tradeId, btn) {
+            if (btn) { btn.disabled = true; btn.textContent = 'Обработка...'; }
+            try {
+                const res = await fetch(window.API_BASE + `/api/execution/live/positions/${tradeId}/reconcile-resolution`, {
+                    method: 'POST', headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    loadLiveDashboard();
+                } else {
+                    const err = await res.json();
+                    alert("Ошибка: " + (err.detail || JSON.stringify(err)));
+                }
+            } catch (e) {
+                alert("Network error");
+            }
+            if (btn) { btn.disabled = false; btn.textContent = 'Сверить результат'; }
+        }
+
+        async function redeemPosition(tradeId, btn) {
+            if (!confirm("Запросить погашение выигрышной позиции?")) return;
+            if (btn) { btn.disabled = true; btn.textContent = 'Обработка...'; }
+            try {
+                const res = await fetch(window.API_BASE + `/api/execution/live/positions/${tradeId}/redeem`, {
+                    method: 'POST', headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    loadLiveDashboard();
+                } else {
+                    const err = await res.json();
+                    alert("Ошибка: " + (err.detail || JSON.stringify(err)));
+                }
+            } catch (e) {
+                alert("Network error");
+            }
+            if (btn) { btn.disabled = false; btn.textContent = 'Погасить'; }
+        }
+
+        async function reconcileRedemption(tradeId, btn) {
+            if (btn) { btn.disabled = true; btn.textContent = 'Обработка...'; }
+            try {
+                const res = await fetch(window.API_BASE + `/api/execution/live/positions/${tradeId}/reconcile-redemption`, {
+                    method: 'POST', headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    loadLiveDashboard();
+                } else {
+                    const err = await res.json();
+                    alert("Ошибка: " + (err.detail || JSON.stringify(err)));
+                }
+            } catch (e) {
+                alert("Network error");
+            }
+            if (btn) { btn.disabled = false; btn.textContent = 'Проверить погашение'; }
         }
 
         async function oldReconcileActive() {
