@@ -248,29 +248,44 @@ async def evaluate_live_readiness(
         else:
             errors.append(f"Gateway не готов: {ws.last_error_message or 'неизвестно'}")
 
-        if ws.collateral_allowance_ready:
-            checks["collateral_allowance"] = True
-        else:
-            errors.append("USDC collateral allowance не подтвержден")
+        transport_failure = getattr(ws, 'last_error_code', None) in {
+            "READINESS_TIMEOUT",
+            "TLS_TRANSPORT_ERROR",
+            "NETWORK_TRANSPORT_ERROR",
+        }
 
-        if ws.conditional_allowance_ready:
-            checks["conditional_allowance"] = True
-        else:
+        if transport_failure:
             errors.append(
-                "Conditional token allowance (продажа токенов) не подтвержден"
+                f"Polymarket временно недоступен: "
+                f"{ws.last_error_message}"
             )
+            warnings.append(
+                "Баланс и approvals не удалось перепроверить. "
+                "Показаны последние подтверждённые значения."
+            )
+        else:
+            if getattr(ws, 'balance_usdc', None) is None:
+                errors.append("Баланс Polymarket пока не получен")
+            else:
+                current_bal = Decimal(str(ws.balance_usdc))
+                if current_bal >= required_bal:
+                    checks["balance"] = True
+                else:
+                    errors.append(
+                        f"Баланс {current_bal} USDC меньше требуемого предела {required_bal} USDC"
+                    )
 
-        required_bal = min(
-            Decimal(str(session.budget_usdc)),
-            Decimal(str(session.max_total_exposure_usdc)),
-        )
-        current_bal = Decimal(str(ws.balance_usdc or 0))
-        if current_bal >= required_bal:
-            checks["balance"] = True
-        else:
-            errors.append(
-                f"Баланс {current_bal} USDC меньше требуемого предела {required_bal} USDC"
-            )
+            if getattr(ws, 'collateral_allowance_ready', False):
+                checks["collateral_allowance"] = True
+            else:
+                errors.append("USDC collateral allowance не подтвержден")
+
+            if getattr(ws, 'conditional_allowance_ready', False):
+                checks["conditional_allowance"] = True
+            else:
+                errors.append(
+                    "Conditional token allowance (продажа токенов) не подтвержден"
+                )
 
     # 2. Активные/зависшие LIVE-заявки
     active_cnt = (
@@ -366,6 +381,7 @@ def serialize_live_session_dto(
         "remaining_budget_usdc": remaining_val,
         "filled_usdc": filled_val,
         "max_single_order_usdc": float(session.max_single_order_usdc),
+        "order_amount_usdc": float(session.order_amount_usdc) if getattr(session, "order_amount_usdc", None) is not None else None,
         "max_total_exposure_usdc": float(session.max_total_exposure_usdc),
         "max_open_positions": session.max_open_positions,
         "started_at": session.started_at.isoformat() if session.started_at else None,

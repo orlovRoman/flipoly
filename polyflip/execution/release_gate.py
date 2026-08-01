@@ -73,12 +73,16 @@ def calculate_live_order_amount(
     session: LiveTradingSession,
 ) -> Decimal:
     from polyflip.execution.live_session_service import get_max_order_cost
-    source_amount = get_max_order_cost(paper_request)
-
-    live_amount = max(
-        source_amount,
-        LIVE_MIN_GROSS_BUY_USDC,
-    )
+    
+    if session.order_amount_usdc is not None:
+        live_amount = Decimal(str(session.order_amount_usdc))
+    else:
+        # Fallback (old behavior) for old sessions where order_amount_usdc is NULL
+        source_amount = get_max_order_cost(paper_request)
+        live_amount = max(
+            source_amount,
+            LIVE_MIN_GROSS_BUY_USDC,
+        )
 
     if live_amount > Decimal(str(session.max_single_order_usdc)):
         raise ReleaseDeferred(

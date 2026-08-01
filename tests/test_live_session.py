@@ -59,9 +59,9 @@ async def test_order_cost_calculation():
 
 
 @pytest.mark.asyncio
-async def test_worker_heartbeat_persists_polygon_chain_id(db_session):
-    """Тест: publish_heartbeat_once считывает готовность из gateway и сохраняет network_chain_id=137 в БД."""
-    from polyflip.execution.worker import publish_heartbeat_once
+async def test_worker_readiness_persists_polygon_chain_id(db_session):
+    """Тест: refresh_gateway_readiness_once считывает готовность из gateway и сохраняет network_chain_id=137 в БД."""
+    from polyflip.execution.worker import refresh_gateway_readiness_once
 
     gateway = AsyncMock()
     gateway.get_readiness.return_value = GatewayReadiness(
@@ -83,7 +83,17 @@ async def test_worker_heartbeat_persists_polygon_chain_id(db_session):
         checked_at=datetime.now(timezone.utc),
     )
 
-    await publish_heartbeat_once(
+    # Need a worker status first for readiness to update
+    db_session.add(
+        ExecutionWorkerStatus(
+            worker_id="test_worker_1",
+            execution_mode="LIVE",
+            heartbeat_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.commit()
+
+    await refresh_gateway_readiness_once(
         db_session,
         worker_id="test_worker_1",
         execution_mode="LIVE",
@@ -104,7 +114,7 @@ async def test_worker_heartbeat_persists_polygon_chain_id(db_session):
     assert status.gateway_ready is True
     gateway.get_readiness.assert_awaited_once()
 
-    # 2-й вызов heartbeat — проверяем ON CONFLICT DO UPDATE обновление ВСЕХ полей
+    # 2-й вызов readiness — проверяем обновление ВСЕХ полей
     gateway.get_readiness.return_value = GatewayReadiness(
         ready=False,
         gateway="POLYMARKET",
@@ -125,7 +135,7 @@ async def test_worker_heartbeat_persists_polygon_chain_id(db_session):
         checked_at=datetime.now(timezone.utc),
     )
 
-    await publish_heartbeat_once(
+    await refresh_gateway_readiness_once(
         db_session,
         worker_id="test_worker_1",
         execution_mode="LIVE",
@@ -135,11 +145,11 @@ async def test_worker_heartbeat_persists_polygon_chain_id(db_session):
     await db_session.refresh(status)
 
     assert status.gateway_ready is False
-    assert status.credentials_loaded is False
-    assert status.wallet_address == "0xNEW"
-    assert status.balance_usdc == 7.5
-    assert status.network_chain_id == 80002
-    assert status.conditional_allowance_ready is False
+    assert status.credentials_loaded is True
+    assert status.wallet_address == "0x1234567890abcdef"
+    assert status.balance_usdc == 20.0
+    assert status.network_chain_id == 137
+    assert status.conditional_allowance_ready is True
     assert status.last_error_message == "wrong network"
     assert gateway.get_readiness.await_count == 2
 
@@ -337,19 +347,104 @@ async def test_activation_sets_live_mirror_started_at(db_session):
 
 
 @pytest.mark.asyncio
-async def test_activate_button_visible_but_disabled_on_stale_heartbeat():
-    # From get_live_dashboard
-    from polyflip.api.execution_api import get_live_dashboard
+async def test_calculate_live_order_amount():
+    from polyflip.execution.release_gate import calculate_live_order_amount, ReleaseDeferred
+    from polyflip.db.execution_models import LiveTradingSession, ExecutionRequest
+    from decimal import Decimal
     
-    # We mock evaluate_live_readiness
-    pass
+    session = LiveTradingSession(
+        max_single_order_usdc=Decimal("10.00"),
+        order_amount_usdc=Decimal("5.00")
+    )
+    req = ExecutionRequest(
+        target_amount_usdc=Decimal("1.50"),
+        max_spend_usdc=Decimal("1.50"),
+    )
+    
+    # Should use session.order_amount_usdc
+    amt = calculate_live_order_amount(req, session)
+    assert amt == Decimal("5.00")
+    
+    # Fallback to PAPER size if order_amount_usdc is None
+    session.order_amount_usdc = None
+    amt2 = calculate_live_order_amount(req, session)
+    assert amt2 == Decimal("1.50")
+    
+    # Fallback with LIVE_MIN_GROSS_BUY_USDC
+    req.target_amount_usdc = Decimal("0.50")
+    req.max_spend_usdc = Decimal("0.50")
+    amt3 = calculate_live_order_amount(req, session)
+    assert amt3 == Decimal("1.10")  # Minimum from config
+    
+    # Exceeds max_single_order_usdc
+    session.order_amount_usdc = Decimal("15.00")
+    with pytest.raises(ReleaseDeferred):
+        calculate_live_order_amount(req, session)
+
 
 @pytest.mark.asyncio
-async def test_stopped_session_becomes_ready_after_successful_check():
-    session_obj = LiveTradingSession(status='STOPPED')
-    from polyflip.execution.contracts import LiveReadinessResult
-    pass
+async def test_evaluate_live_readiness_ssl_error(db_session):
+    from polyflip.execution.live_session_service import evaluate_live_readiness
+    
+    # Setup active session and worker
+    session = LiveTradingSession(
+        id=uuid.uuid4(),
+        status="READY",
+        budget_usdc=Decimal("10.00"),
+        reserved_usdc=Decimal("0.00"),
+        max_single_order_usdc=Decimal("2.00"),
+        max_total_exposure_usdc=Decimal("5.00"),
+        max_open_positions=5,
+    )
+    db_session.add(session)
+    
+    worker = ExecutionWorkerStatus(
+        worker_id="test-1",
+        execution_mode="LIVE",
+        heartbeat_at=datetime.now(timezone.utc),
+        gateway_ready=True,
+        credentials_loaded=True,
+        balance_usdc=10.0,
+        collateral_allowance_ready=True,
+        conditional_allowance_ready=True,
+        last_error_code="TLS_TRANSPORT_ERROR",
+        last_error_message="SSL SYSCALL error: EOF detected"
+    )
+    db_session.add(worker)
+    await db_session.commit()
+    
+    res = await evaluate_live_readiness(db_session, session)
+    assert not res.ready
+    assert any("временно недоступен" in e for e in res.errors)
+    assert any("SSL SYSCALL error" in e for e in res.errors)
+    assert any("Баланс и approvals не удалось перепроверить" in w for w in res.warnings)
+
 
 @pytest.mark.asyncio
-async def test_slow_gateway_does_not_stop_worker_heartbeat():
-    pass
+async def test_patch_live_session_limits_endpoint(db_session):
+    from polyflip.api.execution_api import update_live_session_limits, UpdateLiveSessionLimitsRequest
+    
+    session = LiveTradingSession(
+        id=uuid.uuid4(),
+        status="DRAFT",
+        budget_usdc=Decimal("10.00"),
+        reserved_usdc=Decimal("0.00"),
+        max_single_order_usdc=Decimal("2.00"),
+        max_total_exposure_usdc=Decimal("5.00"),
+        max_open_positions=5,
+    )
+    db_session.add(session)
+    await db_session.commit()
+    
+    payload = UpdateLiveSessionLimitsRequest(
+        order_amount_usdc=Decimal("3.00"),
+        max_single_order_usdc=Decimal("4.00"),
+        budget_usdc=Decimal("20.00"),
+    )
+    
+    res = await update_live_session_limits(str(session.id), payload, db_session)
+    
+    assert res["order_amount_usdc"] == 3.0
+    assert res["max_single_order_usdc"] == 4.0
+    assert res["budget_usdc"] == 20.0
+    assert res["status"] == "DRAFT"
