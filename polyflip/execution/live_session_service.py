@@ -364,10 +364,7 @@ async def evaluate_live_readiness(
     if transport_failure:
         checks["gateway"] = False
 
-    ready = (
-        not transport_failure
-        and all(checks[key] for key in critical_keys)
-    )
+    ready = not transport_failure and all(checks[key] for key in critical_keys)
 
     return LiveReadinessResult(
         ready=ready, checks=checks, errors=errors, warnings=warnings

@@ -8,23 +8,16 @@ from sqlalchemy import select
 from polyflip.db.execution_models import (
     ExecutionRequest,
     ExecutionAttempt,
-    LiveMirrorCandidate,
     ExposureReservation,
-    LiveTradingSession,
 )
-from polyflip.db.models import TradeHistory, RuntimeSettings
-from polyflip.execution.gateways.exceptions import (
-    GatewayOrderRejected,
-    GatewaySubmissionUnknown,
-)
+from polyflip.db.models import TradeHistory
 from polyflip.execution.release_gate import (
     _build_live_trade,
     validate_live_release,
-    ReleaseRejected,
     _build_signal_snapshot,
     _compute_hash,
 )
-from polyflip.execution.worker import _finish_submit_exception, rebuild_trade_accounting
+from polyflip.execution.worker import _finish_submit_exception
 from polyflip.api.execution_api import resolve_manual_review, ResolveReviewRequest
 from fastapi import HTTPException
 
@@ -483,12 +476,15 @@ async def test_minimum_live_order_amount_validation():
     execute_result.scalar_one_or_none.return_value = active_session_mock
     db_session.execute.return_value = execute_result
 
-    with patch("polyflip.execution.release_gate.check_risk_limits", new_callable=AsyncMock) as mock_risk:
+    with patch(
+        "polyflip.execution.release_gate.check_risk_limits", new_callable=AsyncMock
+    ) as mock_risk:
         mock_risk.return_value = None
         plan = await validate_live_release(
             db_session, candidate, paper_req, paper_trade, "LIVE"
         )
         assert plan.order_amount_usdc == Decimal("1.10")
+
 
 @pytest.mark.asyncio
 async def test_reconcile_manual_review_with_provider_id(db_session):
@@ -496,9 +492,19 @@ async def test_reconcile_manual_review_with_provider_id(db_session):
     req_id = uuid.uuid4()
 
     trade = TradeHistory(
-        market_id="m1", asset="ETH", outcome_bought="UP", amount_usdc=Decimal("1.00"),
-        executed_price=0.0, predicted_flip_prob=0.5, active_features="{}", model_version=1,
-        status="PENDING", mode="LIVE", position_status="OPENING", created_at=now, updated_at=now
+        market_id="m1",
+        asset="ETH",
+        outcome_bought="UP",
+        amount_usdc=Decimal("1.00"),
+        executed_price=0.0,
+        predicted_flip_prob=0.5,
+        active_features="{}",
+        model_version=1,
+        status="PENDING",
+        mode="LIVE",
+        position_status="OPENING",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(trade)
     await db_session.commit()
@@ -537,6 +543,7 @@ async def test_reconcile_manual_review_with_provider_id(db_session):
     await db_session.commit()
 
     from polyflip.api.execution_api import reconcile_request
+
     res = await reconcile_request(req_id, db_session)
 
     assert res["state"] == "RECONCILING"
@@ -550,9 +557,19 @@ async def test_reconcile_without_provider_id_rejected(db_session):
     req_id = uuid.uuid4()
 
     trade = TradeHistory(
-        market_id="m1", asset="ETH", outcome_bought="UP", amount_usdc=Decimal("1.00"),
-        executed_price=0.0, predicted_flip_prob=0.5, active_features="{}", model_version=1,
-        status="PENDING", mode="LIVE", position_status="OPENING", created_at=now, updated_at=now
+        market_id="m1",
+        asset="ETH",
+        outcome_bought="UP",
+        amount_usdc=Decimal("1.00"),
+        executed_price=0.0,
+        predicted_flip_prob=0.5,
+        active_features="{}",
+        model_version=1,
+        status="PENDING",
+        mode="LIVE",
+        position_status="OPENING",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(trade)
     await db_session.commit()
@@ -580,6 +597,7 @@ async def test_reconcile_without_provider_id_rejected(db_session):
     await db_session.commit()
 
     from polyflip.api.execution_api import reconcile_request
+
     with pytest.raises(HTTPException) as exc:
         await reconcile_request(req_id, db_session)
 
@@ -593,9 +611,19 @@ async def test_reconcile_filled_request_rejected(db_session):
     req_id = uuid.uuid4()
 
     trade = TradeHistory(
-        market_id="m1", asset="ETH", outcome_bought="UP", amount_usdc=Decimal("1.00"),
-        executed_price=0.0, predicted_flip_prob=0.5, active_features="{}", model_version=1,
-        status="PENDING", mode="LIVE", position_status="OPENING", created_at=now, updated_at=now
+        market_id="m1",
+        asset="ETH",
+        outcome_bought="UP",
+        amount_usdc=Decimal("1.00"),
+        executed_price=0.0,
+        predicted_flip_prob=0.5,
+        active_features="{}",
+        model_version=1,
+        status="PENDING",
+        mode="LIVE",
+        position_status="OPENING",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(trade)
     await db_session.commit()
@@ -623,6 +651,7 @@ async def test_reconcile_filled_request_rejected(db_session):
     await db_session.commit()
 
     from polyflip.api.execution_api import reconcile_request
+
     with pytest.raises(HTTPException) as exc:
         await reconcile_request(req_id, db_session)
 
@@ -636,9 +665,19 @@ async def test_serializer_combines_no_fill_and_reconcile_actions(db_session):
     req_id = uuid.uuid4()
 
     trade = TradeHistory(
-        market_id="m1", asset="ETH", outcome_bought="UP", amount_usdc=Decimal("1.00"),
-        executed_price=0.0, predicted_flip_prob=0.5, active_features="{}", model_version=1,
-        status="PENDING", mode="LIVE", position_status="OPENING", created_at=now, updated_at=now
+        market_id="m1",
+        asset="ETH",
+        outcome_bought="UP",
+        amount_usdc=Decimal("1.00"),
+        executed_price=0.0,
+        predicted_flip_prob=0.5,
+        active_features="{}",
+        model_version=1,
+        status="PENDING",
+        mode="LIVE",
+        position_status="OPENING",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(trade)
     await db_session.commit()
@@ -677,9 +716,11 @@ async def test_serializer_combines_no_fill_and_reconcile_actions(db_session):
     await db_session.commit()
 
     from polyflip.execution.serializers import serialize_execution_requests
-    import polyflip.execution.manual_review_service
 
-    with patch("polyflip.execution.serializers.evaluate_no_fill_eligibility_batch", new_callable=AsyncMock) as mock_check:
+    with patch(
+        "polyflip.execution.serializers.evaluate_no_fill_eligibility_batch",
+        new_callable=AsyncMock,
+    ) as mock_check:
         mock_eligibility = MagicMock()
         mock_eligibility.allowed = True
         mock_eligibility.blockers = []
