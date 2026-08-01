@@ -781,10 +781,13 @@ async def activate_live_session(
     if not session_obj:
         raise HTTPException(status_code=404, detail="LiveTradingSession not found")
 
-    if session_obj.status != "READY":
+    if session_obj.status not in {"DRAFT", "READY"}:
         raise HTTPException(
             status_code=409,
-            detail=f"Сначала выполните проверку готовности (текущий статус: {session_obj.status})",
+            detail=(
+                "Активация разрешена только для сессии "
+                f"DRAFT/READY, текущий статус: {session_obj.status}"
+            ),
         )
 
     # Повторный прогон готовности непосредственно перед активацией
@@ -793,7 +796,7 @@ async def activate_live_session(
         raise HTTPException(
             status_code=409,
             detail={
-                "message": "Параметры готовности изменились с момента прошлой проверки",
+                "message": "Сессия не прошла проверку готовности",
                 "errors": readiness.errors,
             },
         )
@@ -1055,6 +1058,11 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
     active_session = (
         await db.execute(
             select(LiveTradingSession)
+            .where(
+                LiveTradingSession.status.in_(
+                    ["DRAFT", "READY", "ACTIVE", "STOPPED"]
+                )
+            )
             .order_by(LiveTradingSession.created_at.desc())
             .limit(1)
         )
@@ -1163,9 +1171,13 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
     status = active_session.status if active_session else None
     active_pos_count = len([p for p in active_positions if p.position_status not in ("CLOSED", "RESOLVED", "ENTRY_FAILED")])
 
+    readiness_ready = bool(readiness and readiness.ready)
     session_actions = {
         "check_readiness": status in {"DRAFT", "READY", "STOPPED"},
-        "activate": status == "READY",
+        "activate": (
+            readiness_ready
+            and status in {"DRAFT", "READY"}
+        ),
         "stop": status == "ACTIVE",
         "close_all": active_pos_count > 0,
         "finish": status in {"DRAFT", "READY", "STOPPED"},
