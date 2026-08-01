@@ -1,3 +1,5 @@
+import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 from sqlalchemy import select, func, or_
@@ -87,10 +89,6 @@ async def evaluate_no_fill_eligibility_batch(
     db: AsyncSession,
     requests: list[ExecutionRequest],
 ) -> dict[uuid.UUID, NoFillEligibility]:
-    import uuid
-    from typing import Dict
-    from collections import defaultdict
-
     if not requests:
         return {}
 

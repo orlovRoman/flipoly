@@ -417,40 +417,8 @@ async def get_live_trading_requests(
     res = await db.execute(stmt)
     requests = res.scalars().all()
 
-    from polyflip.execution.manual_review_service import evaluate_no_fill_eligibility
-    
-    request_dtos = []
-    for r in requests:
-        eligibility = None
-        if r.state == "MANUAL_REVIEW_REQUIRED":
-            eligibility = await evaluate_no_fill_eligibility(db, r)
-
-        request_dtos.append({
-            "id": str(r.id),
-            "trade_history_id": r.trade_history_id,
-            "intent": r.intent,
-            "trigger_reason": r.trigger_reason,
-            "market_id": r.market_id,
-            "asset": r.asset,
-            "state": r.state,
-            "requested_mode": r.requested_mode,
-            "requested_shares": (
-                float(r.requested_shares) if r.requested_shares else None
-            ),
-            "limit_price": float(r.limit_price) if r.limit_price else None,
-            "target_amount_usdc": (
-                float(r.target_amount_usdc) if r.target_amount_usdc else None
-            ),
-            "filled_shares": float(r.filled_shares) if r.filled_shares else 0,
-            "filled_cost_usdc": float(r.filled_cost_usdc) if r.filled_cost_usdc else 0,
-            "ttl_seconds": r.ttl_seconds,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
-            "error_reason": r.error_reason,
-            "can_mark_no_fill": bool(eligibility and eligibility.allowed),
-            "review_blockers": list(eligibility.blockers) if eligibility else [],
-            "available_actions": ["MARK_FAILED_NO_FILL"] if eligibility and eligibility.allowed else [],
-        })
+    from polyflip.execution.serializers import serialize_execution_requests
+    request_dtos = await serialize_execution_requests(db, requests)
 
     return request_dtos
 
@@ -1113,18 +1081,34 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         .all()
     )
 
-    positions = (
+    active_positions = (
         (
             await db.execute(
                 select(TradeHistory)
                 .where(
                     TradeHistory.mode == "LIVE",
-                    TradeHistory.position_status.in_(
-                        list(ACTIVE_POSITION_STATES) + ["ENTRY_FAILED", "CLOSED"]
-                    ),
+                    TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
+                    TradeHistory.remaining_shares > 0,
+                    TradeHistory.entry_filled_shares > 0,
                 )
                 .order_by(TradeHistory.created_at.desc())
                 .limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    failed_entries = (
+        (
+            await db.execute(
+                select(TradeHistory)
+                .where(
+                    TradeHistory.mode == "LIVE",
+                    TradeHistory.position_status == "ENTRY_FAILED",
+                )
+                .order_by(TradeHistory.created_at.desc())
+                .limit(20)
             )
         )
         .scalars()
@@ -1147,6 +1131,28 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
     budget_snap = None
     if active_session:
         budget_snap = await get_session_budget_snapshot(db, active_session)
+
+    from polyflip.execution.serializers import serialize_execution_requests
+    request_dtos = await serialize_execution_requests(db, requests)
+
+    def serialize_positions(pos_list):
+        return [
+            {
+                "id": p.id,
+                "asset": p.asset,
+                "market_id": p.market_id,
+                "outcome_bought": p.outcome_bought,
+                "amount_usdc": p.amount_usdc,
+                "executed_price": p.executed_price,
+                "pnl": p.pnl,
+                "position_status": p.position_status,
+                "remaining_shares": (
+                    float(p.remaining_shares) if p.remaining_shares else 0.0
+                ),
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in pos_list
+        ]
 
     return {
         "session": (
@@ -1188,35 +1194,7 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
             }
             for c in candidates
         ],
-        "positions": [
-            {
-                "id": p.id,
-                "asset": p.asset,
-                "market_id": p.market_id,
-                "outcome_bought": p.outcome_bought,
-                "amount_usdc": p.amount_usdc,
-                "executed_price": p.executed_price,
-                "pnl": p.pnl,
-                "position_status": p.position_status,
-                "remaining_shares": (
-                    float(p.remaining_shares) if p.remaining_shares else 0.0
-                ),
-                "created_at": p.created_at.isoformat() if p.created_at else None,
-            }
-            for p in positions
-        ],
-        "requests": [
-            {
-                "id": str(r.id),
-                "intent": r.intent,
-                "asset": r.asset,
-                "market_id": r.market_id,
-                "outcome_to_buy": r.outcome_to_buy,
-                "target_amount_usdc": float(r.target_amount_usdc),
-                "state": r.state,
-                "error_reason": r.error_reason,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in requests
-        ],
+        "positions": serialize_positions(active_positions),
+        "failed_entries": serialize_positions(failed_entries),
+        "requests": request_dtos,
     }

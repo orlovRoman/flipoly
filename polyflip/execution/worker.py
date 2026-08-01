@@ -431,15 +431,16 @@ async def process_ready_requests():
             logger.warning(
                 "gateway_order_rejected", error=str(e), attempt_id=str(attempt_id)
             )
-            await _finish_submit_exception(
-                session,
-                request_id=request_id,
-                attempt_id=attempt_id,
-                attempt_no=attempt_no,
-                requested_mode=requested_mode,
-                error=f"Order rejected: {e}",
-                is_deterministic_rejection=True,
+            attempt.status = "FAILED"
+            attempt.error_msg = str(e)
+            attempt.finished_at = datetime.now(timezone.utc)
+            await finalize_request(
+                session, req, state="REJECTED", error=str(e)
             )
+            req.updated_at = datetime.now(timezone.utc)
+            if req.trade_history_id:
+                await rebuild_trade_accounting(session, req.trade_history_id)
+            await session.commit()
 
         except (GatewaySubmissionUnknown, GatewayUnavailable) as e:
             logger.warning(
@@ -649,12 +650,16 @@ async def rebuild_trade_accounting(session, trade_id: int):
                 )
 
     # Общий статус
-    if open_shares > Decimal("0") or close_shares > Decimal("0"):
+    if open_shares > Decimal("0"):
         trade.status = "SUCCESS"
+        if remaining_shares > Decimal("0") and trade.position_status not in ("PARTIALLY_CLOSED", "CLOSED"):
+            trade.position_status = "OPEN"
     else:
-        all_failed = all(r.state in ("REJECTED", "FAILED") for r in reqs)
-        if all_failed and reqs:
-            trade.status = "FAILED"
+        # Защита от установки OPEN/SUCCESS при zero-fills.
+        # Учитываем, что finalize_request может перевести позицию в FAILED / ENTRY_FAILED
+        if trade.status != "FAILED" and trade.position_status != "ENTRY_FAILED":
+            trade.status = "PENDING"
+            trade.position_status = "OPENING"
 
     trade.position_accounting_version = (trade.position_accounting_version or 0) + 1
     # НЕ делаем session.commit() здесь — вызывающая функция владеет транзакцией.

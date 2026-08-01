@@ -179,6 +179,7 @@ class PolymarketExecutionGateway:
             rejection_keywords = [
                 "invalid amount",
                 "min size",
+                "minimum order",
                 "validation error",
                 "insufficient funds",
                 "invalid price",
@@ -187,7 +188,7 @@ class PolymarketExecutionGateway:
                 "below minimum",
             ]
             if any(kw in err_lower for kw in rejection_keywords):
-                raise GatewayOrderRejected(f"Order rejected by Polymarket: {e}")
+                raise GatewayOrderRejected(f"Order rejected by Polymarket: {e}") from e
             elif any(
                 kw in err_lower
                 for kw in [
