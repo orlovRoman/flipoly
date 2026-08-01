@@ -240,7 +240,7 @@
             <div class="panel" style="margin-bottom: 20px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <h3>LIVE-Заявки (Execution Requests)</h3>
-                    <button id="btn-reconcile" class="btn-action" style="background: #3182ce;" onclick="reconcileActive()">Сверить с Polymarket</button>
+
                     <button id="btn-batch-no-fill" class="btn-action btn-danger" style="display:none;" onclick="resolveBatchNoFill()">Mark No Fill (Selected)</button>
                 </div>
                 <div style="overflow-x: auto;">
@@ -356,14 +356,14 @@
 
                     // Button visibility
                     document.getElementById('btn-create-session').style.display = 'none';
-                    if (s.status === 'ACTIVE') {
-                        document.getElementById('btn-activate-session').style.display = 'none';
-                        document.getElementById('btn-stop-session').style.display = 'inline-block';
-                    } else {
-                        document.getElementById('btn-activate-session').style.display = 'inline-block';
-                        document.getElementById('btn-stop-session').style.display = 'none';
+
+                    if (data.available_actions) {
+                        document.getElementById('btn-check-readiness').style.display = data.available_actions.check_readiness ? 'inline-block' : 'none';
+                        document.getElementById('btn-activate-session').style.display = data.available_actions.activate ? 'inline-block' : 'none';
+                        document.getElementById('btn-stop-session').style.display = data.available_actions.stop ? 'inline-block' : 'none';
+                        document.getElementById('btn-finish-session').style.display = data.available_actions.finish ? 'inline-block' : 'none';
+                        document.getElementById('btn-close-all').style.display = data.available_actions.close_all ? 'inline-block' : 'none';
                     }
-                    document.getElementById('btn-finish-session').style.display = 'inline-block';
 
                 } else {
                     currentSessionId = null;
@@ -375,15 +375,21 @@
                     document.getElementById('session-limits-block').style.display = 'none';
 
                     document.getElementById('btn-create-session').style.display = 'inline-block';
+                    document.getElementById('btn-check-readiness').style.display = 'none';
                     document.getElementById('btn-activate-session').style.display = 'none';
                     document.getElementById('btn-stop-session').style.display = 'none';
                     document.getElementById('btn-finish-session').style.display = 'none';
+                    document.getElementById('btn-close-all').style.display = 'none';
 
                 }
 
                 // Render Positions & Requests
                 renderPositions(data.positions || []);
                 renderRequests(data.requests || []);
+
+                if (data.readiness) {
+                    updateChecklistUI(data.readiness);
+                }
 
             } catch (e) {
                 console.error("Error loading live dashboard:", e);
@@ -456,7 +462,7 @@
                     <td>${escapeHtml(r.outcome_to_buy || r.outcome_bought || '--')}</td>
                     <td>$${(r.target_amount_usdc || 0).toFixed(2)}</td>
                     <td><span class="status-badge ${r.state === 'FILLED' ? 'status-ready' : 'status-shadow'}">${escapeHtml(r.state)}</span></td>
-                    <td style="color: #e53e3e; max-width: 200px; word-wrap: break-word;">${translateError(r.error_reason)}</td>
+                    <td style="color: #e53e3e; max-width: 200px; word-wrap: break-word;">${r.error_details && r.error_details.error_message_ru ? escapeHtml(r.error_details.error_message_ru) : (r.error_reason ? escapeHtml(r.error_reason) : '--')}</td>
                     <td>
                         ${r.can_mark_no_fill ? `
                             <button id="btn-no-fill-${r.id}" class="btn-action btn-danger" onclick="resolveNoFill('${r.id}')" style="padding: 4px 8px; font-size: 0.8rem;">
@@ -464,6 +470,11 @@
                             </button>
                             <input type="checkbox" class="batch-no-fill-cb" value="${r.id}" style="margin-left: 5px;">
                         ` : (r.state === 'MANUAL_REVIEW_REQUIRED' ? `<span style="font-size: 0.85rem; color: #dd6b20;">${r.review_blockers && r.review_blockers.length ? escapeHtml(r.review_blockers.join(', ')) : 'Требуется сверка'}</span>` : '')}
+                        ${r.available_actions && r.available_actions.includes('RECONCILE_WITH_POLYMARKET') ? `
+                            <button class="btn-action" style="background: #3182ce; padding: 4px 8px; font-size: 0.8rem; margin-top: 4px;" onclick="reconcileRequest('${r.id}')">
+                                Сверить
+                            </button>
+                        ` : ''}
                     </td>
                 </tr>
                 `;
@@ -473,7 +484,21 @@
         }
 
 
-        async function reconcileActive() {
+
+        async function reconcileRequest(reqId) {
+            const res = await fetch(window.API_BASE + `/api/execution/requests/${reqId}/reconcile`, {
+                method: 'POST', headers: getAuthHeaders()
+            });
+            if (res.ok) {
+                alert("Заявка переведена в RECONCILING");
+                loadLiveDashboard();
+            } else {
+                const err = await res.json();
+                alert("Ошибка: " + (err.detail || JSON.stringify(err)));
+            }
+        }
+
+        async function oldReconcileActive() {
             const btn = document.getElementById('btn-reconcile');
             if (btn) { btn.disabled = true; btn.textContent = 'Обработка...'; }
             // Try to find the reconcile endpoint, maybe it exists? Actually just triggering a refresh.

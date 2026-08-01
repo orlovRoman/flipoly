@@ -15,6 +15,7 @@ from polyflip.db.execution_models import (
     ExecutionWorkerStatus,
     ExecutionRequest,
     ExecutionEvent,
+    ExecutionAttempt,
     LiveMirrorCandidate,
 )
 from polyflip.execution.config import ExecutionSettings
@@ -667,7 +668,7 @@ class CreateLiveSessionRequest(BaseModel):
     @model_validator(mode="after")
     def validate_limits(self):
         from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
-        
+
         if self.budget_usdc <= 0:
             raise ValueError("Бюджет должен быть больше нуля")
 
@@ -1154,7 +1155,36 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
             for p in pos_list
         ]
 
+
+    readiness = None
+    if active_session:
+        readiness = await evaluate_live_readiness(db, active_session)
+
+    status = active_session.status if active_session else None
+    active_pos_count = len([p for p in active_positions if p.position_status not in ("CLOSED", "RESOLVED", "ENTRY_FAILED")])
+
+    session_actions = {
+        "check_readiness": status in {"DRAFT", "READY", "STOPPED"},
+        "activate": status == "READY",
+        "stop": status == "ACTIVE",
+        "close_all": active_pos_count > 0,
+        "finish": status in {"DRAFT", "READY", "STOPPED"},
+    } if status else {
+        "check_readiness": False,
+        "activate": False,
+        "stop": False,
+        "close_all": False,
+        "finish": False,
+    }
+
     return {
+        "available_actions": session_actions,
+        "readiness": {
+            "ready": readiness.ready,
+            "checks": readiness.checks,
+            "errors": readiness.errors,
+            "warnings": readiness.warnings,
+        } if readiness else None,
         "session": (
             serialize_live_session_dto(active_session, budget_snap)
             if active_session
@@ -1198,3 +1228,37 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         "failed_entries": serialize_positions(failed_entries),
         "requests": request_dtos,
     }
+
+
+@router.post("/requests/{request_id}/reconcile")
+async def reconcile_request(
+    request_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+):
+    req = await db.scalar(
+        select(ExecutionRequest)
+        .where(ExecutionRequest.id == request_id)
+        .with_for_update()
+    )
+
+    if req is None:
+        raise HTTPException(404, "Заявка не найдена")
+
+    provider_evidence = await db.scalar(
+        select(func.count(ExecutionAttempt.id)).where(
+            ExecutionAttempt.request_id == request_id,
+            ExecutionAttempt.provider_order_id.is_not(None),
+        )
+    )
+
+    if not provider_evidence:
+        raise HTTPException(
+            422,
+            "Нет provider_order_id — сверка с Polymarket невозможна",
+        )
+
+    req.state = "RECONCILING"
+    req.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return {"request_id": str(req.id), "state": "RECONCILING"}

@@ -323,7 +323,7 @@ async def test_mark_no_fill_releases_reservation(db_session):
 async def test_concurrent_no_fill_resolution_is_idempotent(pg_session_factory):
     from polyflip.api.main import app
     import asyncio
-    
+
     async with pg_session_factory() as db_session:
         trade = make_trade()
         db_session.add(trade)
@@ -347,7 +347,7 @@ async def test_concurrent_no_fill_resolution_is_idempotent(pg_session_factory):
         )
         db_session.add(res)
         await db_session.commit()
-        
+
         req_id = req.id
         trade_id = trade.id
         res_id = res.id
@@ -380,12 +380,12 @@ async def test_concurrent_no_fill_resolution_is_idempotent(pg_session_factory):
     statuses = [r.status_code for r in responses]
     assert 200 in statuses
     # The others could be 200 (if handled idempotently and we return 200) or 409
-    
+
     async with pg_session_factory() as db_session:
         req = await db_session.get(ExecutionRequest, req_id)
         trade = await db_session.get(TradeHistory, trade_id)
         res = await db_session.get(ExposureReservation, res_id)
-        
+
         assert req.state == "MANUAL_REVIEW_FAILED"
         assert trade.position_status == "ENTRY_FAILED"
         assert res.released_at is not None

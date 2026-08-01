@@ -1,7 +1,25 @@
+from polyflip.execution.states import RECONCILABLE_REQUEST_STATES
 from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.execution_models import ExecutionRequest
 from polyflip.execution.manual_review_service import evaluate_no_fill_eligibility_batch
 
+
+
+def _parse_error(error_reason: str | None) -> dict:
+    if not error_reason:
+        return {"error_code": None, "error_message_ru": None}
+
+    normalized = error_reason.lower()
+    if "insufficient funds" in normalized:
+        return {"error_code": "INSUFFICIENT_FUNDS", "error_message_ru": "Недостаточно средств на балансе или allowance"}
+    if "minimum order size" in normalized or "below minimum" in normalized:
+        return {"error_code": "ORDER_BELOW_MINIMUM", "error_message_ru": "Сумма заявки меньше минимальной суммы Polymarket ($0.50)"}
+    if "max_slippage" in normalized or "slippage" in normalized:
+        return {"error_code": "SLIPPAGE_EXCEEDED", "error_message_ru": "Превышено допустимое проскальзывание (slippage)"}
+    if "market closed" in normalized or "market is closed" in normalized:
+        return {"error_code": "MARKET_CLOSED", "error_message_ru": "Рынок уже закрыт или разрешен"}
+
+    return {"error_code": "UNKNOWN_ERROR", "error_message_ru": error_reason}
 
 async def serialize_execution_requests(
     db: AsyncSession,
@@ -17,6 +35,7 @@ async def serialize_execution_requests(
             "trigger_reason": req.trigger_reason,
             "market_id": req.market_id,
             "asset": req.asset,
+            "outcome_to_buy": req.outcome_to_buy,
             "state": req.state,
             "requested_mode": req.requested_mode,
             "requested_shares": (
@@ -31,7 +50,13 @@ async def serialize_execution_requests(
             "ttl_seconds": req.ttl_seconds,
             "created_at": req.created_at.isoformat() if req.created_at else None,
             "updated_at": req.updated_at.isoformat() if req.updated_at else None,
+
             "error_reason": req.error_reason,
+
+            "error_details": _parse_error(req.error_reason),
+            "available_actions": ["RECONCILE_WITH_POLYMARKET"] if req.state in RECONCILABLE_REQUEST_STATES else [],
+
+
             "can_mark_no_fill": (
                 req.id in eligibility and eligibility[req.id].allowed
             ),

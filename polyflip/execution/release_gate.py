@@ -299,7 +299,7 @@ async def _release_one_locked(
 
     # 4. Создаём LIVE-строки
     live_trade = _build_live_trade(
-        candidate, paper_trade, now, target_mode, 
+        candidate, paper_trade, now, target_mode,
         order_amount_usdc=release_plan.order_amount_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan
     )
     if active_session:
@@ -308,7 +308,7 @@ async def _release_one_locked(
     await session.flush()
 
     live_request = _build_live_request(
-        candidate, paper_request, live_trade, now, target_mode, 
+        candidate, paper_request, live_trade, now, target_mode,
         order_amount_usdc=release_plan.order_amount_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan,
         max_spend_usdc=release_plan.max_spend_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan
     )

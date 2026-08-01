@@ -591,7 +591,7 @@ async def test_one_dollar_paper_becomes_1_10_live(db_session):
     # PAPER-заявка и сделка
     trade = await _make_paper_trade(db_session)
     req = await _make_paper_request(db_session, trade, amount_usdc=Decimal("1.00"))
-    
+
     # обновляем таймстемпы, чтобы не было ошибки Signal is too old
     trade.created_at = now
     req.created_at = now

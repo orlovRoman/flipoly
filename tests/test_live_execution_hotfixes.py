@@ -477,7 +477,7 @@ async def test_minimum_live_order_amount_validation():
     active_session_mock.collateral_allowance_ready = True
     active_session_mock.conditional_allowance_ready = True
     active_session_mock.balance_usdc = Decimal("100.0")
-    
+
     execute_result = MagicMock()
     execute_result.scalar_one_or_none.return_value = active_session_mock
     db_session.execute.return_value = execute_result
