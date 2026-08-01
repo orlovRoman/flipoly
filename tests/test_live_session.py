@@ -674,3 +674,102 @@ async def test_readiness_persists_success_with_single_probe(db_session):
     assert status.network_chain_id == 137
     assert status.last_error_code is None
 
+
+@pytest.mark.asyncio
+@patch("polyflip.execution.worker.build_execution_gateway")
+async def test_fak_no_liquidity_releases_reservation(mock_build_gateway, db_session):
+    from polyflip.execution.worker import process_ready_requests
+    from polyflip.execution.contracts import GatewayOrderRejected
+    from polyflip.db.execution_models import ExecutionRequest, ExposureReservation
+    from polyflip.db.models import TradeHistory, LiveMarket
+
+    now = datetime.now(timezone.utc)
+    db_session.add(
+        LiveMarket(
+            market_id="test_market",
+            asset="BTC",
+            question="BTC up?",
+            yes_token_id="token-yes",
+            no_token_id="token-no",
+            end_time_est=now + timedelta(hours=2),
+            current_yes_price=0.5,
+            current_no_price=0.5,
+            current_spread=0.01,
+            last_updated=now,
+        )
+    )
+
+    trade = TradeHistory(
+        market_id="test_market",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=5.0,
+        executed_price=0.5,
+        predicted_flip_prob=0.8,
+        active_features="test",
+        status="PENDING",
+        position_status="OPENING",
+        mode="LIVE",
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add(trade)
+    await db_session.flush()
+
+    req = ExecutionRequest(
+        id=uuid.uuid4(),
+        trade_history_id=trade.id,
+        intent="OPEN",
+        target_amount_usdc=Decimal("5"),
+        max_spend_usdc=Decimal("5"),
+        limit_price=Decimal("0.5"),
+        max_slippage_pct=2.0,
+        requested_mode="LIVE",
+        outcome_to_buy="YES",
+        market_id="test_market",
+        asset="BTC",
+        idempotency_key="test-key",
+        state="READY",
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add(req)
+    await db_session.flush()
+
+    reservation = ExposureReservation(
+        request_id=req.id,
+        trade_history_id=trade.id,
+        market_id="test_market",
+        amount_usdc=Decimal("5"),
+        expires_at=now + timedelta(seconds=60),
+    )
+    db_session.add(reservation)
+    await db_session.commit()
+
+    mock_gateway = AsyncMock()
+    mock_gateway.name = "POLYMARKET"
+    mock_gateway.submit.side_effect = GatewayOrderRejected("NO_LIQUIDITY_FAK")
+    mock_build_gateway.return_value = mock_gateway
+
+    import contextlib
+
+    @contextlib.asynccontextmanager
+    async def mock_async_session():
+        yield db_session
+
+    with patch("polyflip.execution.worker.async_session", new=mock_async_session), \
+         patch("polyflip.execution.worker.ExecutionSettings") as MockSettings, \
+         patch("polyflip.execution.worker.check_risk_limits", return_value=None):
+         
+        MockSettings.return_value.execution_mode.value = "LIVE"
+        await process_ready_requests()
+
+    await db_session.refresh(req)
+    await db_session.refresh(reservation)
+    await db_session.refresh(trade)
+
+    assert req.state == "REJECTED"
+    assert req.filled_shares == Decimal("0")
+    assert reservation.released_at is not None
+    assert trade.position_status == "ENTRY_FAILED"
+

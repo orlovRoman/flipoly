@@ -192,3 +192,38 @@ async def test_client_close_failure_does_not_break_invalidation():
 
     assert gateway._client_cache is None
     mock_client.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_fak_no_liquidity_is_deterministic_rejection():
+    from polyflip.execution.contracts import GatewayOrderRejected
+
+    gateway = PolymarketExecutionGateway(
+        private_key=KNOWN_PRIVATE_KEY,
+        wallet_address="0xPolymarketWallet",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address=KNOWN_SIGNER_ADDRESS,
+    )
+    mock_client = AsyncMock()
+    gateway._client_cache = mock_client
+
+    mock_client.place_market_order.side_effect = Exception(
+        "no orders found to match with FAK order. "
+        "FAK orders are partially filled or killed if no match is found."
+    )
+
+    order = GatewayOrder(
+        attempt_id="00000000-0000-0000-0000-000000000001",
+        market_id="m1",
+        asset="BTC",
+        outcome_to_buy="YES",
+        side="BUY",
+        intent="OPEN",
+        token_id="token-yes",
+        requested_shares=Decimal("5"),
+        requested_amount_usdc=Decimal("5"),
+        limit_price=Decimal("0.5"),
+    )
+
+    with pytest.raises(GatewayOrderRejected, match="NO_LIQUIDITY_FAK"):
+        await gateway.submit(order)

@@ -211,22 +211,35 @@ class PolymarketExecutionGateway:
                 "bad request",
                 "below minimum",
             ]
-            if any(kw in err_lower for kw in rejection_keywords):
-                raise GatewayOrderRejected(f"Order rejected by Polymarket: {e}") from e
-            elif any(
-                kw in err_lower
-                for kw in [
-                    "connectionterminated",
-                    "timeout",
-                    "connecterror",
-                    "connection reset",
-                ]
-            ):
+            network_keywords = [
+                "connectionterminated",
+                "timeout",
+                "connecterror",
+                "connection reset",
+            ]
+            fak_no_liquidity_markers = (
+                "no orders found to match with fak order",
+                "there are no matching orders",
+            )
+
+            if any(marker in err_lower for marker in fak_no_liquidity_markers):
+                raise GatewayOrderRejected(
+                    "NO_LIQUIDITY_FAK: В стакане отсутствовала подходящая ликвидность"
+                ) from e
+
+            if any(keyword in err_lower for keyword in rejection_keywords):
+                raise GatewayOrderRejected(
+                    f"Order rejected by Polymarket: {e}"
+                ) from e
+
+            if any(keyword in err_lower for keyword in network_keywords):
                 raise GatewaySubmissionUnknown(
                     f"Submission unknown due to network error: {e}"
-                )
-            else:
-                raise GatewayUnavailable(f"Transport/Network error during submit: {e}")
+                ) from e
+
+            raise GatewayUnavailable(
+                f"Unexpected Polymarket submission error: {e}"
+            ) from e
 
     async def get_order(self, provider_order_id: str) -> SubmissionResult:
         client = await self.get_client()
