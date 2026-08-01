@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal, Optional, List
 from sqlalchemy import select, and_, or_, desc, func
 from datetime import datetime, timezone, timedelta
@@ -679,13 +679,11 @@ async def resolve_no_fill_batch(
 
 from decimal import Decimal
 from pydantic import model_validator
-from polyflip.db.execution_models import LiveTradingSession, LiveMirrorCandidate
-from polyflip.db.models import TradeHistory, RuntimeSettings
+from polyflip.db.execution_models import LiveTradingSession
 from polyflip.execution.outbox import enqueue_close_request, EnqueueDisposition
 from polyflip.execution.live_session_service import (
     get_active_session_for_update,
     count_session_positions,
-    get_session_exposure,
     get_session_budget_snapshot,
     evaluate_live_readiness,
     serialize_live_session_dto,

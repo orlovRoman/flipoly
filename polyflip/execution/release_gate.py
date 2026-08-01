@@ -429,7 +429,6 @@ async def validate_live_release(
         # 5.1 Проверка активной LIVE-сессии и лимитов сессии
         from polyflip.db.execution_models import LiveTradingSession
         from polyflip.execution.live_session_service import (
-            get_max_order_cost,
             count_session_positions,
             get_session_exposure,
         )
