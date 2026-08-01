@@ -696,17 +696,16 @@ async def activate_live_session(
             },
         )
 
-    # Автоматически атомарно включаем все три тумблера в БД
+    # Автоматически атомарно включаем все тумблера и метку старта в БД
     now = datetime.now(timezone.utc)
     for key, val in [
         ("LIVE_MIRROR_ENABLED", "true"),
         ("LIVE_RELEASE_MODE", "AUTO"),
         ("LIVE_TRADING_ENABLED", "true"),
+        ("LIVE_MIRROR_STARTED_AT", now.isoformat()),
     ]:
         row = (
-            await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == key)
-            )
+            await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))
         ).scalar_one_or_none()
         if row:
             row.value = val
@@ -751,23 +750,26 @@ async def stop_live_session(
 
     now = datetime.now(timezone.utc)
 
-    # Выключаем переключатели в БД
+    # Выключаем переключатели и сбрасываем метку в БД
     for key, val in [
         ("LIVE_MIRROR_ENABLED", "false"),
         ("LIVE_RELEASE_MODE", "DISABLED"),
         ("LIVE_TRADING_ENABLED", "false"),
+        ("LIVE_MIRROR_STARTED_AT", ""),
     ]:
         row = (
-            await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == key)
-            )
+            await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))
         ).scalar_one_or_none()
         if row:
             row.value = val
             row.updated_at = now
             row.updated_by = "user_stop"
         else:
-            db.add(RuntimeSettings(key=key, value=val, updated_at=now, updated_by="user_stop"))
+            db.add(
+                RuntimeSettings(
+                    key=key, value=val, updated_at=now, updated_by="user_stop"
+                )
+            )
 
     session_obj.status = "STOPPED"
     session_obj.stopped_at = now
@@ -852,9 +854,7 @@ async def close_live_position(
 ):
     trade = (
         await db.execute(
-            select(TradeHistory)
-            .where(TradeHistory.id == trade_id)
-            .with_for_update()
+            select(TradeHistory).where(TradeHistory.id == trade_id).with_for_update()
         )
     ).scalar_one_or_none()
 
@@ -865,7 +865,9 @@ async def close_live_position(
         raise HTTPException(status_code=409, detail="Позиция уже закрыта")
 
     if not trade.remaining_shares or trade.remaining_shares <= 0:
-        raise HTTPException(status_code=409, detail="У позиции нет токенов для закрытия")
+        raise HTTPException(
+            status_code=409, detail="У позиции нет токенов для закрытия"
+        )
 
     limit_price = float(trade.executed_price or 0.5)
 
@@ -907,14 +909,18 @@ async def close_all_session_positions(
         raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
 
     open_trades = (
-        await db.execute(
-            select(TradeHistory).where(
-                TradeHistory.mode == "LIVE",
-                TradeHistory.position_status.in_(["OPEN", "PARTIALLY_CLOSED"]),
-                TradeHistory.live_session_id == sess_uuid,
+        (
+            await db.execute(
+                select(TradeHistory).where(
+                    TradeHistory.mode == "LIVE",
+                    TradeHistory.position_status.in_(["OPEN", "PARTIALLY_CLOSED"]),
+                    TradeHistory.live_session_id == sess_uuid,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     results = []
     for trade in open_trades:
@@ -1021,9 +1027,7 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
             "credentials_loaded": (
                 worker_status.credentials_loaded if worker_status else False
             ),
-            "wallet_address": (
-                worker_status.wallet_address if worker_status else None
-            ),
+            "wallet_address": (worker_status.wallet_address if worker_status else None),
             "balance_usdc": (
                 float(worker_status.balance_usdc)
                 if worker_status and worker_status.balance_usdc is not None

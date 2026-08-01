@@ -2,7 +2,7 @@ import pytest
 import uuid
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import select, func, or_
 from polyflip.db.execution_models import (
@@ -295,3 +295,42 @@ def test_live_mode_requires_relayer_credentials(monkeypatch):
 
     with pytest.raises(ValueError, match="POLYMARKET_RELAYER_API_KEY"):
         ExecutionSettings()
+
+
+@pytest.mark.asyncio
+async def test_activation_sets_live_mirror_started_at(db_session):
+    from polyflip.api.execution_api import activate_live_session
+    from polyflip.db.execution_models import LiveTradingSession
+    from polyflip.db.models import RuntimeSettings
+    from sqlalchemy import select
+
+    session_id = uuid.uuid4()
+    session_obj = LiveTradingSession(
+        id=session_id,
+        status="READY",
+        budget_usdc=Decimal("10.00"),
+        reserved_usdc=Decimal("0.00"),
+        max_single_order_usdc=Decimal("2.00"),
+        max_total_exposure_usdc=Decimal("5.00"),
+        max_open_positions=5,
+    )
+    db_session.add(session_obj)
+    await db_session.commit()
+
+    with patch("polyflip.api.execution_api.evaluate_live_readiness") as mock_eval:
+        mock_eval.return_value = MagicMock(ready=True, errors=[])
+        res = await activate_live_session(str(session_id), db_session)
+
+    assert res["status"] == "ACTIVE"
+
+    row = (
+        await db_session.execute(
+            select(RuntimeSettings).where(
+                RuntimeSettings.key == "LIVE_MIRROR_STARTED_AT"
+            )
+        )
+    ).scalar_one_or_none()
+
+    assert row is not None
+    assert row.value != ""
+    assert row.updated_by == "session_activate"
