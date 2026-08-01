@@ -204,6 +204,10 @@ async def evaluate_live_readiness(
     warnings: list[str] = []
 
     # 1. LIVE worker checks
+    # NOTE: transport_failure must be initialised before the `if not ws` branch
+    # to prevent UnboundLocalError when no LIVE worker row exists in the DB.
+    transport_failure: bool = False
+
     ws = (
         await db.execute(
             select(ExecutionWorkerStatus)
@@ -361,10 +365,12 @@ async def evaluate_live_readiness(
         "active_requests",
         "old_positions",
     ]
-    if transport_failure:
-        checks["gateway"] = False
-
-    ready = not transport_failure and all(checks[key] for key in critical_keys)
+    # transport_failure already forces checks["gateway"]=False inside the else-branch;
+    # no need to repeat here. ready requires all critical checks to pass.
+    ready = (
+        not transport_failure
+        and all(checks[key] for key in critical_keys)
+    )
 
     return LiveReadinessResult(
         ready=ready, checks=checks, errors=errors, warnings=warnings
