@@ -19,6 +19,9 @@ class LivePositionNotFound(Exception):
 class MarketNotResolved(Exception):
     pass
 
+class GammaApiError(Exception):
+    pass
+
 @dataclass
 class ResolutionResult:
     final_outcome: str  # "YES" or "NO"
@@ -34,10 +37,12 @@ async def fetch_polymarket_market(market_id: str) -> dict:
                 return resp.json()
             else:
                 logger.error("gamma_api_market_fetch_failed", status=resp.status_code, market_id=market_id)
-                return {}
+                raise GammaApiError(f"HTTP {resp.status_code}")
         except Exception as e:
-            logger.error("gamma_api_market_fetch_error", error=str(e), market_id=market_id)
-            return {}
+            if not isinstance(e, GammaApiError):
+                logger.error("gamma_api_market_fetch_error", error=str(e), market_id=market_id)
+                raise GammaApiError(str(e))
+            raise
 
 def parse_confirmed_resolution(market: dict) -> Optional[ResolutionResult]:
     """Определяет результат по outcomes + outcomePrices, а не доверяет недокументированному winning_outcome."""
@@ -103,6 +108,19 @@ async def save_market_resolution(db: AsyncSession, market_id: str, resolution: R
         market.accepting_orders = False
         await db.flush()
 
+async def refresh_market_trading_state(db: AsyncSession, market: LiveMarket, gamma_data: dict) -> None:
+    market.resolution_checked_at = datetime.now(timezone.utc)
+
+    if gamma_data.get("closed"):
+        market.trading_status = "RESOLVED"
+        market.accepting_orders = False
+    else:
+        accepting = bool(gamma_data.get("acceptingOrders"))
+        market.accepting_orders = accepting
+        market.trading_status = "TRADABLE" if accepting else "CLOSED"
+
+    await db.flush()
+
 async def reconcile_live_resolution(db: AsyncSession, trade_id: int) -> TradeHistory:
     """
     Проверяет, завершился ли рынок, и если да — обновляет позицию до RESOLVED_REDEEMABLE или RESOLVED_LOST.
@@ -121,6 +139,13 @@ async def reconcile_live_resolution(db: AsyncSession, trade_id: int) -> TradeHis
         return trade
 
     market_data = await fetch_polymarket_market(trade.market_id)
+    
+    market = await db.scalar(
+        select(LiveMarket).where(LiveMarket.market_id == trade.market_id).with_for_update()
+    )
+    if market:
+        await refresh_market_trading_state(db, market, market_data)
+
     resolution = parse_confirmed_resolution(market_data)
 
     if resolution is None:

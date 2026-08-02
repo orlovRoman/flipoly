@@ -390,11 +390,9 @@ async def _get_positions_dict(db: AsyncSession, mode: str):
         if trade.position_status in {"RESOLVED_REDEEMABLE", "REDEEMING", "REDEMPTION_UNKNOWN"}:
             available_actions["reconcile_resolution"] = True
 
-        if trade.position_status == "RESOLVED_REDEEMABLE" and getattr(trade, 'redemption_status', 'NOT_REQUIRED') in {"PENDING", "FAILED"} and getattr(trade, 'redeemable_shares', 0) and getattr(trade, 'redeemable_shares', 0) > 0 and not getattr(trade, 'redemption_tx_hash', None):
-            available_actions["redeem"] = True
-
-        if trade.position_status in {"REDEEMING", "REDEMPTION_UNKNOWN", "RESOLVED_REDEEMABLE"}:
-            available_actions["reconcile_redemption"] = True
+        # Пока реальная on-chain отправка не реализована
+        available_actions["redeem"] = False
+        available_actions["reconcile_redemption"] = False
 
         item = {
             "id": trade.id,
@@ -419,9 +417,9 @@ async def _get_positions_dict(db: AsyncSession, mode: str):
             "available_actions": available_actions,
         }
         
-        if trade.position_status in ("OPEN", "PARTIALLY_CLOSED", "ENTRY_FAILED"):
+        if trade.position_status in {"OPEN", "PARTIALLY_CLOSED"}:
             result["tradable"].append(item)
-        elif trade.position_status in ("RESOLVED_REDEEMABLE", "REDEEMING", "REDEMPTION_UNKNOWN"):
+        elif trade.position_status in {"RESOLVED_REDEEMABLE", "REDEEMING", "REDEMPTION_UNKNOWN"}:
             result["resolved"].append(item)
         else:
             result["archive"].append(item)
@@ -1189,21 +1187,6 @@ async def close_live_position(
 
     market = await db.scalar(select(LiveMarket).where(LiveMarket.market_id == trade.market_id))
     if not market:
-        raise HTTPException(status_code=409, detail="Рынок не найден")
-        
-    if getattr(market, 'resolution_status', 'PENDING') != "PENDING":
-        raise HTTPException(status_code=409, detail="Рынок уже завершён")
-        
-    if getattr(market, 'trading_status', 'TRADABLE') != "TRADABLE" or not getattr(market, 'accepting_orders', True):
-        raise HTTPException(status_code=409, detail="Рынок не принимает ордера")
-
-    if not trade.remaining_shares or trade.remaining_shares <= 0:
-        raise HTTPException(
-            status_code=409, detail="Нет доступных долей для закрытия"
-        )
-
-    market = await db.scalar(select(LiveMarket).where(LiveMarket.market_id == trade.market_id))
-    if not market:
         raise HTTPException(status_code=404, detail="Рынок не найден")
 
     if market.resolution_status != "PENDING":
@@ -1216,6 +1199,11 @@ async def close_live_position(
         raise HTTPException(
             status_code=409,
             detail="Рынок больше не принимает торговые заявки",
+        )
+
+    if not trade.remaining_shares or trade.remaining_shares <= 0:
+        raise HTTPException(
+            status_code=409, detail="Нет доступных долей для закрытия"
         )
 
     limit_price = float(trade.executed_price or 0.5)
@@ -1589,7 +1577,7 @@ async def reconcile_resolution_endpoint(
     trade_id: int,
     db: AsyncSession = Depends(get_db_session),
 ):
-    from polyflip.execution.live_settlement_service import reconcile_live_resolution, LivePositionNotFound, MarketNotResolved
+    from polyflip.execution.live_settlement_service import reconcile_live_resolution, LivePositionNotFound, MarketNotResolved, GammaApiError
     try:
         trade = await reconcile_live_resolution(db, trade_id)
         await db.commit()
@@ -1598,6 +1586,8 @@ async def reconcile_resolution_endpoint(
         raise HTTPException(404, "LIVE-позиция не найдена")
     except MarketNotResolved:
         raise HTTPException(409, "Рынок еще не завершен")
+    except GammaApiError as e:
+        raise HTTPException(503, f"Ошибка Gamma API: {str(e)}")
     except Exception as e:
         logger.exception("reconcile_resolution_error")
         raise HTTPException(500, f"Ошибка сверки: {str(e)}")
@@ -1607,33 +1597,10 @@ async def redeem_position_endpoint(
     trade_id: int,
     db: AsyncSession = Depends(get_db_session),
 ):
-    trade = await db.scalar(
-        select(TradeHistory)
-        .where(TradeHistory.id == trade_id)
-        .with_for_update()
+    raise HTTPException(
+        status_code=501,
+        detail="Погашение через дашборд пока не реализовано",
     )
-    if not trade or trade.mode != "LIVE":
-        raise HTTPException(404, "LIVE-позиция не найдена")
-        
-    if trade.position_status != "RESOLVED_REDEEMABLE":
-        raise HTTPException(409, "Позиция не подлежит погашению (не RESOLVED_REDEEMABLE)")
-        
-    if trade.redemption_status not in {"PENDING", "FAILED"}:
-        raise HTTPException(409, f"Недопустимый статус погашения: {trade.redemption_status}")
-        
-    if not trade.redeemable_shares or trade.redeemable_shares <= 0:
-        raise HTTPException(409, "Нет токенов для погашения")
-        
-    if trade.redemption_tx_hash:
-        raise HTTPException(409, "Погашение уже отправлено (есть tx_hash)")
-
-    # Переводим в REDEEMING до внедрения on-chain логики в следующем PR.
-    trade.position_status = "REDEEMING"
-    trade.redemption_status = "SUBMITTED"
-    trade.redemption_tx_hash = "mock_tx_hash_for_now"
-    await db.commit()
-    
-    return {"status": "queued", "position_status": trade.position_status}
 
 @router.post("/live/positions/{trade_id}/reconcile-redemption")
 async def reconcile_redemption_endpoint(
