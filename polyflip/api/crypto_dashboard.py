@@ -239,8 +239,6 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
 async def save_crypto_settings(
     settings: dict, db: AsyncSession = Depends(get_db_session)
 ):
-    if requested_mode not in ("PAPER", "LIVE", "SHADOW"):
-        requested_mode = "PAPER"
     """Сохраняет измененные гиперпараметры в RuntimeSettings."""
     now = datetime.now(timezone.utc)
     keys_map = {
@@ -411,8 +409,11 @@ async def crypto_models_analytics(
     date_to: str = None,
     db: AsyncSession = Depends(get_db_session)
 ):
-    if requested_mode not in ("PAPER", "LIVE", "SHADOW"):
-        requested_mode = "PAPER"
+    if requested_mode not in {"PAPER", "LIVE", "SHADOW"}:
+        raise HTTPException(
+            status_code=422,
+            detail="requested_mode должен быть PAPER, SHADOW или LIVE",
+        )
     cache_key = f"crypto_model_analytics_{requested_mode}_{date_from}_{date_to}"
     now = time.time()
     if cache_key in _cache:
@@ -656,8 +657,6 @@ async def crypto_models_analytics(
 async def activate_crypto_model(
     asset: str, version: int, db: AsyncSession = Depends(get_db_session)
 ):
-    if requested_mode not in ("PAPER", "LIVE", "SHADOW"):
-        requested_mode = "PAPER"
     """Активирует указанную версию крипто-модели, деактивируя остальные."""
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
@@ -690,8 +689,6 @@ async def activate_crypto_model(
 async def delete_crypto_model(
     asset: str, version: int, db: AsyncSession = Depends(get_db_session)
 ):
-    if requested_mode not in ("PAPER", "LIVE", "SHADOW"):
-        requested_mode = "PAPER"
     """Удаляет указанную версию крипто-модели из БД."""
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:

@@ -478,9 +478,7 @@
 
                 // Рендер карточек моделей с PnL
                 
-                if (document.getElementById('sort-field')) {
-                    updateSortUI();
-                }
+                updateSortUI();
                 lastModelsData = d.models;
                 lastPnlData = pnlData;
                 renderModelCards(lastModelsData, lastPnlData);
@@ -696,4 +694,9 @@
                     </div>
                 </div>
                 `;
-            }).join('');\n                el.innerHTML = html;\n            })\n            .catch(err => console.error(err));\n        }\n    </script>\n</body>\n</html>
+            }).join('');
+            el.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

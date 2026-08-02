@@ -18,7 +18,7 @@ import pandas as pd
 import structlog
 from lightgbm import LGBMClassifier
 from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator, calibration_curve
-from sklearn.metrics import roc_auc_score, precision_recall_curve
+from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, brier_score_loss, precision_recall_curve
 from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -247,7 +247,27 @@ def _fit_lgbm_and_serialize(
         )
     logger.info("crypto_feature_importance", top5=dict(sorted(fi.items(), key=lambda x: -x[1])[:5]))
 
-    return pickle.dumps(final_cal), val_auc, baseline_auc, optimal_threshold, ece, fi
+    y_oof = y[valid_mask].astype(int)
+    p_oof = oof_scores[valid_mask]
+    y_pred = (p_oof >= optimal_threshold).astype(int)
+
+    precision = float(precision_score(y_oof, y_pred, zero_division=0))
+    recall = float(recall_score(y_oof, y_pred, zero_division=0))
+    f1_metric = float(f1_score(y_oof, y_pred, zero_division=0))
+    brier = float(brier_score_loss(y_oof, p_oof))
+
+    return (
+        pickle.dumps(final_cal),
+        val_auc,
+        baseline_auc,
+        optimal_threshold,
+        ece,
+        fi,
+        precision,
+        recall,
+        f1_metric,
+        brier,
+    )
 
 
 async def _get_float_setting(db: AsyncSession, key: str, default: float = 0.0) -> float:
@@ -563,8 +583,8 @@ class CryptoModelTrainer:
                     recall_at_threshold=recall,
                     f1_at_threshold=f1,
                     brier_score=brier,
-                    decision_threshold=0.5,
-                    training_params=json.dumps(lgbm_params),
+                    decision_threshold=threshold,
+                    training_params=lgbm_params,
                     features=",".join(available),
                     ece=ece,
                     is_active=should_activate,
