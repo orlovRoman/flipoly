@@ -382,6 +382,15 @@ async def decide_ml_mode(
 
     # Confirm Gate
     use_crypto_confirm = getattr(cfg, 'use_crypto_confirm', False)
+    
+    confirm_model_key = None
+    confirm_model_version = None
+    confirm_direction = None
+    confirm_passed = None
+    proposed_action = decision_obj.action
+    proposed_price = getattr(decision_obj, "price", fresh_yes_price)
+    proposed_amount_usdc = getattr(decision_obj, "amount_usdc", cfg.bet_size)
+
     if decision_obj.action != "SKIP" and use_crypto_confirm and crypto_predictor:
         from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
         binance_symbol = ASSET_TO_BINANCE_SYMBOL.get(market.asset.upper())
@@ -396,16 +405,24 @@ async def decide_ml_mode(
             fr = await _get_funding_rate(db_session, binance_symbol)
             crypto_sig = crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
             
+            confirm_model_key = crypto_sig.model_key
+            confirm_model_version = crypto_sig.model_version
+            confirm_direction = crypto_sig.direction
+
             if not crypto_sig.features_ok:
+                confirm_passed = False
                 decision_obj = dataclasses.replace(
                     decision_obj, action="SKIP", reason="Crypto confirm: features invalid"
                 )
             else:
                 market_direction = "UP" if decision_obj.action == "BUY_YES" else "DOWN"
                 if crypto_sig.direction != market_direction:
+                    confirm_passed = False
                     decision_obj = dataclasses.replace(
                         decision_obj, action="SKIP", reason=f"Crypto confirm veto: direction is {crypto_sig.direction} vs market {market_direction}"
                     )
+                else:
+                    confirm_passed = True
         g7_crypto_confirm = (decision_obj.action != "SKIP")
 
     _min_edge = float(local_config.get("MIN_EDGE", 0.0))
@@ -431,6 +448,15 @@ async def decide_ml_mode(
         g5_min_edge=g5_min_edge,
         g6_price_range=g6_price_range,
         g7_crypto_confirm=g7_crypto_confirm,
+        primary_model_key=used_model,
+        primary_model_version=model_ver,
+        confirm_model_key=confirm_model_key,
+        confirm_model_version=confirm_model_version,
+        proposed_action=proposed_action,
+        proposed_price=proposed_price,
+        proposed_amount_usdc=proposed_amount_usdc,
+        confirm_direction=confirm_direction,
+        confirm_passed=confirm_passed,
         final_action=decision_obj.action if decision_obj else "SKIP",
         skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None,
     )
@@ -442,6 +468,8 @@ async def decide_ml_mode(
         edge=decision_obj.edge if decision_obj else None,
         skip_reason=decision_obj.reason if decision_obj and decision_obj.action == "SKIP" else None,
         used_model_key=used_model,
+        confirm_model_key=confirm_model_key,
+        confirm_model_version=confirm_model_version,
         applied_lower=lower,
         applied_upper=upper,
     )
@@ -745,6 +773,15 @@ async def decide_combined_mode(
         g1_model_loaded=True,
         g2_price_fetched=True,
         g8_combined_vote=g8_combined_vote,
+        primary_model_key=ml_result.used_model_key if ml_result else None,
+        primary_model_version=ml_result.model_ver if ml_result else None,
+        confirm_model_key=getattr(crypto_proxy, "model_key", None),
+        confirm_model_version=getattr(crypto_proxy, "model_version", None),
+        proposed_action=ml_action,
+        proposed_price=ml_result.decision_obj.buy_price if ml_result and ml_result.decision_obj else None,
+        proposed_amount_usdc=ml_result.decision_obj.bet_size_usdc if ml_result and ml_result.decision_obj else None,
+        confirm_direction=crypto_proxy.direction,
+        confirm_passed=vote.lgbm_features_ok and vote.action != "SKIP",
         final_action=final_decision.action if final_decision else "SKIP",
         skip_reason=_reason if vote.action == "SKIP" else None,
     )

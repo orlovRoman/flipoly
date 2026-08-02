@@ -38,6 +38,17 @@ async def log_funnel(
     g6_price_range: Optional[bool]    = None,
     g7_crypto_confirm: Optional[bool] = None,
     g8_combined_vote: Optional[bool]  = None,
+    # Veto Passport
+    primary_model_key: Optional[str] = None,
+    primary_model_version: Optional[int] = None,
+    confirm_model_key: Optional[str] = None,
+    confirm_model_version: Optional[int] = None,
+    proposed_action: Optional[str] = None,
+    proposed_price: Optional[float] = None,
+    proposed_amount_usdc: Optional[float] = None,
+    confirm_direction: Optional[str] = None,
+    confirm_passed: Optional[bool] = None,
+
     # Итог
     final_action: str = "SKIP",
     skip_reason: Optional[str] = None,
@@ -63,6 +74,16 @@ async def log_funnel(
             g6_price_range=g6_price_range,
             g7_crypto_confirm=g7_crypto_confirm,
             g8_combined_vote=g8_combined_vote,
+            primary_model_key=primary_model_key,
+            primary_model_version=primary_model_version,
+            confirm_model_key=confirm_model_key,
+            confirm_model_version=confirm_model_version,
+            proposed_action=proposed_action,
+            proposed_price=proposed_price,
+            proposed_amount_usdc=proposed_amount_usdc,
+            confirm_direction=confirm_direction,
+            confirm_passed=confirm_passed,
+
             final_action=final_action,
             skip_reason=skip_reason[:256] if skip_reason else None,
         )
