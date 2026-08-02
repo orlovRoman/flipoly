@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+STATIC_VERSION = os.getenv("POLYFLIP_BUILD_SHA", "dev")
 import json
 import time
 from datetime import datetime, timezone

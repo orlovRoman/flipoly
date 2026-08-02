@@ -14,7 +14,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ timestamp }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ static_version }}">
     
     <style>
         /* Дополнительные стили для настроек и графиков */
@@ -101,7 +101,7 @@
             to { transform: rotate(360deg); }
         }
     </style>
-    <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ timestamp }}"></script>
+    <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ static_version }}"></script>
     <script>
         window.API_BASE = "{{ root_path }}";
     </script>

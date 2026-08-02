@@ -4,6 +4,7 @@ Backtest API: запуск, получение результатов, исто�
 """
 from __future__ import annotations
 import os
+STATIC_VERSION = os.getenv("POLYFLIP_BUILD_SHA", "dev")
 import uuid
 import time
 import pickle

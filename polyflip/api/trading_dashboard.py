@@ -1,4 +1,5 @@
 import os
+STATIC_VERSION = os.getenv("POLYFLIP_BUILD_SHA", "dev")
 import time
 import asyncio
 from fastapi.templating import Jinja2Templates
@@ -28,6 +29,8 @@ async def get_trading_dashboard(request: Request):
         {
             "request": request,
             "timestamp": int(time.time()),
+            "static_version": STATIC_VERSION,
+            "static_version": STATIC_VERSION,
             "root_path": request.scope.get("root_path", ""), 
             "assets": settings.asset_list
         }
@@ -387,6 +390,7 @@ async def get_pnl_markers(
 
         markers.append({
             "timestamp": ts,
+            "static_version": STATIC_VERSION,
             "label": f"⚙️ {len(changes)} param(s)",
             "marker_type": "setting_change",
             "changes": changes,

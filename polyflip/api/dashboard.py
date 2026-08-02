@@ -1,4 +1,5 @@
 import os
+STATIC_VERSION = os.getenv("POLYFLIP_BUILD_SHA", "dev")
 import time
 import asyncio
 from datetime import datetime, timezone, timedelta
@@ -31,6 +32,8 @@ async def get_dashboard(request: Request):
         {
             "request": request, 
             "timestamp": int(time.time()),
+            "static_version": STATIC_VERSION,
+            "static_version": STATIC_VERSION,
             "assets": settings.asset_list,
             "root_path": request.scope.get("root_path", ""),
         }
@@ -43,7 +46,9 @@ async def get_execution_dashboard(request: Request):
         "execution.html", 
         {
             "request": request, 
-            "timestamp": int(time.time()), 
+            "timestamp": int(time.time()),
+            "static_version": STATIC_VERSION,
+            "static_version": STATIC_VERSION, 
             "root_path": request.scope.get("root_path", "")
         }
     )
