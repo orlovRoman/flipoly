@@ -436,14 +436,25 @@ async def crypto_models_analytics(
     models = (await db.execute(stmt)).scalars().all()
 
     # Фильтры дат
-    date_filter = ""
+    from datetime import timedelta
+    
     params = {"mode": requested_mode}
+    date_filter = ""
+    veto_date_filter = ""
+    
     if date_from:
+        date_from_value = datetime.strptime(date_from, "%Y-%m-%d")
+        params["date_from"] = date_from_value
         date_filter += " AND created_at >= :date_from"
-        params["date_from"] = date_from
+        veto_date_filter += " AND created_at >= :date_from"
+        
     if date_to:
-        date_filter += " AND created_at <= :date_to_plus_one"
-        params["date_to_plus_one"] = date_to + " 23:59:59"
+        date_to_exclusive = (
+            datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)
+        )
+        params["date_to_exclusive"] = date_to_exclusive
+        date_filter += " AND created_at < :date_to_exclusive"
+        veto_date_filter += " AND created_at < :date_to_exclusive"
 
     # 2. PRIMARY CTE
     primary_sql = text(f"""
@@ -472,7 +483,7 @@ async def crypto_models_analytics(
         ),
         cumulatives AS (
             SELECT 
-                model_key, model_version, pnl,
+                model_key, model_version, pnl, created_at, id,
                 SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY created_at ASC, id ASC) as equity
             FROM all_trades
         ),
@@ -514,10 +525,6 @@ async def crypto_models_analytics(
         LEFT JOIN agg_drawdowns d ON t.model_key = d.model_key AND t.model_version = d.model_version
     """)
     
-    params = {"mode": requested_mode}
-    if date_from: params["date_from"] = date_from
-    if date_to: params["date_to"] = date_to
-    
     primary_rows = (await db.execute(primary_sql, params)).fetchall()
     primary_stats = {(row.model_key, row.model_version): row for row in primary_rows}
 
@@ -548,7 +555,7 @@ async def crypto_models_analytics(
         ),
         cumulatives AS (
             SELECT 
-                model_key, model_version, pnl,
+                model_key, model_version, pnl, created_at, id,
                 SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY created_at ASC, id ASC) as equity
             FROM all_trades
         ),
@@ -593,7 +600,10 @@ async def crypto_models_analytics(
     confirm_stats = {(row.model_key, row.model_version): row for row in confirm_rows}
 
     # 3.5 VETO CTE
-    veto_sql = text("""
+    veto_params = dict(params)
+    veto_params["decision_mode"] = "PAPER"
+
+    veto_sql = text(f"""
         SELECT 
             confirm_model_key as model_key,
             confirm_model_version as model_version,
@@ -601,10 +611,11 @@ async def crypto_models_analytics(
             SUM(CASE WHEN confirm_passed = false THEN 1 ELSE 0 END) as veto_count
         FROM decision_funnel_log
         WHERE confirm_model_key IS NOT NULL
-          AND execution_mode = :mode
+          AND execution_mode = :decision_mode
+          {veto_date_filter}
         GROUP BY confirm_model_key, confirm_model_version
     """)
-    veto_rows = (await db.execute(veto_sql, params)).fetchall()
+    veto_rows = (await db.execute(veto_sql, veto_params)).fetchall()
     veto_stats = {(row.model_key, row.model_version): row for row in veto_rows}
 
     # 4. Считаем метрики для каждой версии в реестре
