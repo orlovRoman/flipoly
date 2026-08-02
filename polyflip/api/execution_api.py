@@ -1317,53 +1317,6 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         )
     ).scalar_one_or_none()
 
-    candidates = (
-        (
-            await db.execute(
-                select(LiveMirrorCandidate)
-                .where(LiveMirrorCandidate.target_mode == "LIVE")
-                .order_by(LiveMirrorCandidate.created_at.desc())
-                .limit(50)
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    active_positions = (
-        (
-            await db.execute(
-                select(TradeHistory)
-                .where(
-                    TradeHistory.mode == "LIVE",
-                    TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
-                    TradeHistory.remaining_shares > 0,
-                    TradeHistory.entry_filled_shares > 0,
-                )
-                .order_by(TradeHistory.created_at.desc())
-                .limit(50)
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    failed_entries = (
-        (
-            await db.execute(
-                select(TradeHistory)
-                .where(
-                    TradeHistory.mode == "LIVE",
-                    TradeHistory.position_status == "ENTRY_FAILED",
-                )
-                .order_by(TradeHistory.created_at.desc())
-                .limit(20)
-            )
-        )
-        .scalars()
-        .all()
-    )
-
     requests = (
         (
             await db.execute(
@@ -1385,36 +1338,17 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
 
     request_dtos = await serialize_execution_requests(db, requests)
 
-    def serialize_positions(pos_list):
-        return [
-            {
-                "id": p.id,
-                "asset": p.asset,
-                "market_id": p.market_id,
-                "outcome_bought": p.outcome_bought,
-                "amount_usdc": p.amount_usdc,
-                "executed_price": p.executed_price,
-                "pnl": p.pnl,
-                "position_status": p.position_status,
-                "remaining_shares": (
-                    float(p.remaining_shares) if p.remaining_shares else 0.0
-                ),
-                "created_at": p.created_at.isoformat() if p.created_at else None,
-            }
-            for p in pos_list
-        ]
-
     readiness = None
     if active_session:
         readiness = await evaluate_live_readiness(db, active_session)
 
     status = active_session.status if active_session else None
-    active_pos_count = len(
-        [
-            p
-            for p in active_positions
-            if p.position_status not in ("CLOSED", "RESOLVED", "ENTRY_FAILED")
-        ]
+    
+    positions_payload = await _get_positions_dict(db, "LIVE")
+    positions = positions_payload.get("positions", {"tradable": [], "resolved": [], "archive": []})
+    
+    active_pos_count = sum(
+        1 for position in positions.get("tradable", []) if position.get("remaining_shares", 0) > 0
     )
 
     readiness_ready = bool(readiness and readiness.ready)
@@ -1494,17 +1428,8 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
                 worker_status.conditional_allowance_ready if worker_status else False
             ),
         },
-        "candidates": [
-            {
-                "id": str(c.id),
-                "source_paper_request_id": str(c.source_paper_request_id),
-                "state": c.state,
-                "rejection_reason": c.rejection_reason,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
-            }
-            for c in candidates
-        ],
-        "positions": (await _get_positions_dict(db, "LIVE")).get("positions"),
+        "candidates": [],
+        "positions": positions,
         "requests": request_dtos,
     }
 
