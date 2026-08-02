@@ -402,11 +402,11 @@ async def crypto_train(
     }
 
 
-@router.get("/api/model_pnl", dependencies=[Depends(verify_api_key)])
-async def crypto_model_pnl(
+@router.get("/api/models/analytics", dependencies=[Depends(verify_api_key)])
+async def crypto_models_analytics(
     requested_mode: str = "PAPER", db: AsyncSession = Depends(get_db_session)
 ):
-    cache_key = f"crypto_model_pnl_{requested_mode}"
+    cache_key = f"crypto_model_analytics_{requested_mode}"
     now = time.time()
     if cache_key in _cache:
         c = _cache[cache_key]
@@ -427,63 +427,136 @@ async def crypto_model_pnl(
     )
     models = (await db.execute(stmt)).scalars().all()
 
-    # 2. Запрашиваем закрытые сделки с точной атрибуцией
-    pnl_expr = func.coalesce(
-        TradeHistory.realized_pnl_usdc, cast(TradeHistory.pnl, Numeric)
-    )
-    trades_stmt = select(
-        TradeHistory.model_key,
-        TradeHistory.model_version,
-        TradeHistory.confirm_model_key,
-        TradeHistory.confirm_model_version,
-        pnl_expr.label("pnl"),
-    ).where(
-        TradeHistory.position_status == "CLOSED",
-        TradeHistory.mode == requested_mode,
-        TradeHistory.model_key.is_not(None),
-        TradeHistory.model_attribution_source.in_(["EXACT", "RECONSTRUCTED"]),
-        pnl_expr.is_not(None),
-    )
-    trades = (await db.execute(trades_stmt)).all()
+    # 2. PRIMARY CTE
+    primary_sql = text("""
+        WITH trades AS (
+            SELECT 
+                model_key,
+                model_version,
+                COALESCE(realized_pnl_usdc, pnl) as pnl,
+                id
+            FROM trade_history
+            WHERE mode = :mode
+              AND position_status = 'CLOSED'
+              AND model_key IS NOT NULL
+              AND model_attribution_source IN ('EXACT', 'RECONSTRUCTED')
+              AND COALESCE(realized_pnl_usdc, pnl) IS NOT NULL
+        ),
+        cumulatives AS (
+            SELECT 
+                model_key, model_version, pnl,
+                SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY id ASC) as equity
+            FROM trades
+        ),
+        peaks AS (
+            SELECT 
+                model_key, model_version, pnl, equity,
+                MAX(equity) OVER (PARTITION BY model_key, model_version ORDER BY id ASC) as running_peak
+            FROM cumulatives
+        ),
+        drawdowns AS (
+            SELECT 
+                model_key, model_version, pnl, equity, running_peak,
+                (equity - running_peak) as drawdown
+            FROM peaks
+        )
+        SELECT 
+            model_key, model_version,
+            COUNT(*) as total_trades,
+            SUM(pnl) as total_pnl,
+            SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as win_count,
+            SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END) as gross_profit,
+            ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)) as gross_loss,
+            MIN(drawdown) as max_drawdown
+        FROM drawdowns
+        GROUP BY model_key, model_version
+    """)
+    primary_rows = (await db.execute(primary_sql, {"mode": requested_mode})).fetchall()
+    primary_stats = {(row.model_key, row.model_version): row for row in primary_rows}
 
-    # 3. Группируем сделки по точным ключам модели
-    primary_trades = defaultdict(list)
-    confirm_trades = defaultdict(list)
-
-    for row in trades:
-        pnl_val = float(row.pnl) if row.pnl is not None else 0.0
-        if row.model_key and row.model_version is not None:
-            primary_trades[(row.model_key, row.model_version)].append(pnl_val)
-        if row.confirm_model_key and row.confirm_model_version is not None:
-            confirm_trades[(row.confirm_model_key, row.confirm_model_version)].append(
-                pnl_val
-            )
+    # 3. CONFIRM CTE
+    confirm_sql = text("""
+        WITH trades AS (
+            SELECT 
+                confirm_model_key as model_key,
+                confirm_model_version as model_version,
+                COALESCE(realized_pnl_usdc, pnl) as pnl,
+                id
+            FROM trade_history
+            WHERE mode = :mode
+              AND position_status = 'CLOSED'
+              AND confirm_model_key IS NOT NULL
+              AND model_attribution_source IN ('EXACT', 'RECONSTRUCTED')
+              AND COALESCE(realized_pnl_usdc, pnl) IS NOT NULL
+        ),
+        cumulatives AS (
+            SELECT 
+                model_key, model_version, pnl,
+                SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY id ASC) as equity
+            FROM trades
+        ),
+        peaks AS (
+            SELECT 
+                model_key, model_version, pnl, equity,
+                MAX(equity) OVER (PARTITION BY model_key, model_version ORDER BY id ASC) as running_peak
+            FROM cumulatives
+        ),
+        drawdowns AS (
+            SELECT 
+                model_key, model_version, pnl, equity, running_peak,
+                (equity - running_peak) as drawdown
+            FROM peaks
+        )
+        SELECT 
+            model_key, model_version,
+            COUNT(*) as total_trades,
+            SUM(pnl) as total_pnl,
+            SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as win_count,
+            SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END) as gross_profit,
+            ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)) as gross_loss,
+            MIN(drawdown) as max_drawdown
+        FROM drawdowns
+        GROUP BY model_key, model_version
+    """)
+    confirm_rows = (await db.execute(confirm_sql, {"mode": requested_mode})).fetchall()
+    confirm_stats = {(row.model_key, row.model_version): row for row in confirm_rows}
 
     # 4. Считаем метрики для каждой версии в реестре
     result = {}
     for m in models:
         key = f"{m.asset}_v{m.version}"
-        pnls = primary_trades.get((m.asset, m.version), [])
-        c_pnls = confirm_trades.get((m.asset, m.version), [])
+        p = primary_stats.get((m.asset, m.version))
+        c = confirm_stats.get((m.asset, m.version))
 
-        total = len(pnls)
-        wins = sum(1 for p in pnls if p > 0)
-        pnl_sum = sum(pnls) if total > 0 else 0.0
+        def calc_pf(profit, loss):
+            if not profit and not loss: return 0.0
+            if not loss: return round(float(profit), 2)
+            return round(float(profit) / float(loss), 2)
 
-        c_total = len(c_pnls)
-        c_wins = sum(1 for p in c_pnls if p > 0)
-        c_pnl_sum = sum(c_pnls) if c_total > 0 else 0.0
-
-        result[key] = {
-            "pnl": round(pnl_sum, 4),
-            "win_rate": round(wins / total * 100, 1) if total > 0 else None,
-            "total_trades": total,
-            "confirmed_trades": c_total,
-            "confirmed_pnl": round(c_pnl_sum, 4),
-            "confirmed_win_rate": (
-                round(c_wins / c_total * 100, 1) if c_total > 0 else None
-            ),
+        metrics = {
+            "pnl": round(float(p.total_pnl), 4) if p else 0.0,
+            "win_rate": round(float(p.win_count) / float(p.total_trades) * 100, 1) if p and p.total_trades > 0 else None,
+            "total_trades": int(p.total_trades) if p else 0,
+            "max_drawdown": round(float(p.max_drawdown), 4) if p and p.max_drawdown is not None else 0.0,
+            "profit_factor": calc_pf(p.gross_profit, p.gross_loss) if p else 0.0,
+            
+            "confirmed_pnl": round(float(c.total_pnl), 4) if c else 0.0,
+            "confirmed_win_rate": round(float(c.win_count) / float(c.total_trades) * 100, 1) if c and c.total_trades > 0 else None,
+            "confirmed_trades": int(c.total_trades) if c else 0,
+            "confirmed_max_drawdown": round(float(c.max_drawdown), 4) if c and c.max_drawdown is not None else 0.0,
+            "confirmed_profit_factor": calc_pf(c.gross_profit, c.gross_loss) if c else 0.0,
         }
+        
+        # Добавляем метрики модели
+        metrics.update({
+            "auc_lift": round(m.accuracy - m.baseline, 4) if (m.accuracy and m.baseline) else None,
+            "precision": round(m.precision_at_threshold, 4) if m.precision_at_threshold else None,
+            "recall": round(m.recall_at_threshold, 4) if m.recall_at_threshold else None,
+            "f1": round(m.f1_at_threshold, 4) if m.f1_at_threshold else None,
+            "brier_score": round(m.brier_score, 4) if m.brier_score else None,
+        })
+
+        result[key] = metrics
 
     _cache[cache_key] = {"ts": now, "data": result}
     return result

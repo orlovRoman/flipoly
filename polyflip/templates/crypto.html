@@ -393,7 +393,658 @@
                 // Параллельно загружаем статус и PnL
                 const [statusRes, pnlRes] = await Promise.all([
                     fetch('/crypto/api/status', { headers: H }),
-                    fetch('/crypto/api/model_pnl', { headers: H }),
+                    fetch(`/crypto/api/models/analytics?requested_mode=${currentMode}`, { headers: H }),
+                ]);
+
+                if (statusRes.status === 401) {
+                    document.getElementById('models-status').innerHTML = `
+                        <div style="color: #dc3545; text-align: center; padding: 2rem;">
+                            <b>Ошибка 401: Неавторизован.</b><br>
+                            Пожалуйста, <a href="#" onclick="resetApiKey(); return false;" style="color: #ffc107; text-decoration: underline;">сбросьте API-ключ</a> и введите его заново.
+                        </div>`;
+                    return;
+                }
+                if (!statusRes.ok) {
+                    const errorData = await statusRes.json().catch(() => ({}));
+                    document.getElementById('models-status').innerHTML = `
+                        <div style="color: #dc3545; text-align: center; padding: 2rem;">
+                            <b>Ошибка загрузки статуса:</b> ${errorData.detail || statusRes.statusText || 'Неизвестная ошибка'}
+                        </div>`;
+                    return;
+                }
+
+                const d = await statusRes.json();
+                statusData = d;
+                
+                // Синхронизируем состояние активных обучений
+                localActiveTrainings = d.active_trainings || {};
+                updateTrainButtonsAndBanner(localActiveTrainings);
+
+                // PnL — не критичен, грузим с fallback
+                let pnlData = {};
+                if (pnlRes.ok) {
+                    try { pnlData = await pnlRes.json(); } 
+                    catch (e) { console.warn("[CryptoPnL] Parse error", e); }
+                }
+
+                // Заполняем настройки гиперпараметров
+                if (d.settings) {
+                    document.getElementById('p-n-estimators').value = d.settings.n_estimators;
+                    document.getElementById('p-learning-rate').value = d.settings.learning_rate;
+                    document.getElementById('p-num-leaves').value = d.settings.num_leaves;
+                    document.getElementById('p-max-depth').value = d.settings.max_depth;
+                    document.getElementById('p-min-child-samples').value = d.settings.min_child_samples;
+                    document.getElementById('p-subsample').value = d.settings.subsample;
+                    document.getElementById('p-colsample-bytree').value = d.settings.colsample_bytree;
+                    document.getElementById('p-epsilon-quantile').value = d.settings.epsilon_quantile;
+                    document.getElementById('p-min-edge').value = d.settings.min_edge;
+                }
+
+                // Заполняем селектор важности признаков
+                const fiSelector = document.getElementById('fi-symbol-selector');
+                if (fiSelector && d.feature_importances) {
+                    const currentVal = fiSelector.value;
+                    const fiKeys = Object.keys(d.feature_importances);
+                    fiSelector.innerHTML = fiKeys.map(k => `<option value="${k}">${k}</option>`).join('');
+                    if (fiKeys.includes(currentVal)) {
+                        fiSelector.value = currentVal;
+                    }
+                }
+
+                // Рендер карточек моделей с PnL
+                
+                if (document.getElementById('sort-field')) {
+                    document.getElementById('sort-field').value = currentSortField;
+                }
+                lastModelsData = d.models;
+                lastPnlData = pnlData;
+                renderModelCards(lastModelsData, lastPnlData);
+                updateFeatureImportanceChart();
+
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        
+        function onSortChange() {
+            const sel = document.getElementById('sort-field');
+            if (sel) currentSortField = sel.value;
+            if (lastModelsData) renderModelCards(lastModelsData, lastPnlData);
+        }
+
+        function toggleSortOrder() {
+            currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc';
+            const btn = document.getElementById('sort-order-btn');
+            if (btn) btn.innerText = currentSortOrder === 'desc' ? '↓' : '↑';
+            if (lastModelsData) renderModelCards(lastModelsData, lastPnlData);
+        }
+
+        function renderModelCards(models, pnlData) {
+            const el = document.getElementById('models-status');
+            if (!models || !Object.keys(models).length) {
+                el.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:2rem;">Моделей нет</div>';
+                return;
+            }
+
+            let modelsArray = Object.values(models).map(m => {
+                const pnlKey = `${m.asset}_v${m.version}`;
+                const pnlInfo = pnlData[pnlKey] || { pnl: 0, win_rate: null, total_trades: 0 };
+                return { ...m, pnlInfo };
+            });
+
+            // Интерактивная сортировка
+            modelsArray.sort((a, b) => {
+                let valA = 0, valB = 0;
+                if (currentSortField === 'pnl') {
+                    valA = a.pnlInfo.pnl || 0;
+                    valB = b.pnlInfo.pnl || 0;
+                } else if (currentSortField === 'win_rate') {
+                    valA = a.pnlInfo.win_rate || 0;
+                    valB = b.pnlInfo.win_rate || 0;
+                } else if (currentSortField === 'trained_at') {
+                    valA = a.trained_at ? new Date(a.trained_at).getTime() : 0;
+                    valB = b.trained_at ? new Date(b.trained_at).getTime() : 0;
+                } else if (currentSortField === 'auc') {
+                    valA = a.auc || 0;
+                    valB = b.auc || 0;
+                } else if (currentSortField === 'ece') {
+                    const nullA = a.ece === null || a.ece === undefined;
+                    const nullB = b.ece === null || b.ece === undefined;
+                    if (nullA && nullB) return 0;
+                    if (nullA) return 1;
+                    if (nullB) return -1;
+                    valA = a.ece;
+                    valB = b.ece;
+                } else if (currentSortField === 'version') {
+                    valA = a.version || 0;
+                    valB = b.version || 0;
+                }
+
+                let diff = 0;
+                if (typeof valA === 'string') {
+                    diff = valA.localeCompare(valB);
+                } else {
+                    diff = valA - valB;
+                }
+
+                if (currentSortOrder === 'desc') {
+                    diff = -diff;
+                }
+
+                if (diff !== 0) return diff;
+                
+                if (b.is_active !== a.is_active) return b.is_active ? 1 : -1;
+                return a.asset.localeCompare(b.asset);
+            });
+
+            // Пагинация
+            const totalPages = Math.ceil(modelsArray.length / pageSize);
+            if (currentPage > totalPages) currentPage = totalPages || 1;
+            
+            const startIdx = (currentPage - 1) * pageSize;
+            const pageModels = modelsArray.slice(startIdx, startIdx + pageSize);
+
+            let html = pageModels.map(m => {
+                const sym = m.asset;
+                const pnl = m.pnlInfo;
+                
+                let pnlHtml;
+                if (!pnl || pnl.total_trades === 0) {
+                    pnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">Нет сделок</span>`;
+                } else {
+                    const color = pnl.pnl > 0 ? 'var(--poly-green, #4ade80)' 
+                                : pnl.pnl < 0 ? '#ff3366' 
+                                : 'var(--text-muted)';
+                    const sign = pnl.pnl > 0 ? '+' : '';
+                    
+                    const draw = pnl.max_drawdown ? pnl.max_drawdown.toFixed(2) : '0.00';
+                    const pf = pnl.profit_factor ? pnl.profit_factor.toFixed(2) : '—';
+                    const c_pnl = pnl.confirmed_pnl ? pnl.confirmed_pnl.toFixed(2) : '0.00';
+                    const c_color = pnl.confirmed_pnl > 0 ? 'var(--poly-green, #4ade80)' : pnl.confirmed_pnl < 0 ? '#ff3366' : 'var(--text-muted)';
+
+                    pnlHtml = `
+                        <div style="display:flex; justify-content:flex-end; gap: 1rem; text-align:right;">
+                            <div>
+                                <div style="font-size:0.65rem; color:var(--text-muted); margin-bottom:0.1rem; text-transform:uppercase;">Primary PnL</div>
+                                <span style="color:${color}; font-weight:700; font-size:1.05rem;">
+                                    ${sign}${pnl.pnl.toFixed(2)}
+                                </span>
+                                <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
+                                    ${pnl.win_rate != null ? pnl.win_rate + '%' : '—'} WR · ${pnl.total_trades} сд.
+                                </div>
+                                <div style="color:var(--text-muted); font-size:0.75rem;">
+                                    PF: <span style="color:white;">${pf}</span> · DD: <span style="color:#ff3366;">${draw}</span>
+                                </div>
+                            </div>
+                            <div style="border-left:1px solid rgba(255,255,255,0.1); padding-left:1rem;">
+                                <div style="font-size:0.65rem; color:var(--text-muted); margin-bottom:0.1rem; text-transform:uppercase;">Confirm PnL</div>
+                                <span style="color:${c_color}; font-weight:700; font-size:1.05rem;">
+                                    ${pnl.confirmed_pnl > 0 ? '+' : ''}${c_pnl}
+                                </span>
+                                <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
+                                    ${pnl.confirmed_win_rate != null ? pnl.confirmed_win_rate + '%' : '—'} WR · ${pnl.confirmed_trades} сд.
+                                </div>
+                                <div style="color:var(--text-muted); font-size:0.75rem;">
+                                    PF: <span style="color:white;">${pnl.confirmed_profit_factor ? pnl.confirmed_profit_factor.toFixed(2) : '—'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                let eceBadge = '—';
+                if (m.ece != null) {
+                    const eceColor = m.ece < 0.03 ? 'var(--poly-green)' 
+                                   : m.ece < 0.07 ? '#ff9f43' 
+                                   : '#ff3366';
+                    eceBadge = `<span style="color:${eceColor}; font-weight:600;">${m.ece.toFixed(4)}</span>`;
+                }
+                
+                const liftBadge = pnl.auc_lift ? `<span style="color:${pnl.auc_lift > 0 ? 'var(--poly-green)' : '#ff3366'}; font-weight:600;">${pnl.auc_lift > 0 ? '+' : ''}${pnl.auc_lift.toFixed(4)}</span>` : '—';
+                const f1Badge = pnl.f1 ? `<span style="color:white; font-weight:600;">${pnl.f1.toFixed(4)}</span>` : '—';
+
+                const activeBadgeHtml = m.is_active 
+                    ? `<span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">Активна</span>`
+                    : `<span style="font-size:0.75rem; background:rgba(255,255,255,0.05); color:var(--text-muted); padding:0.15rem 0.5rem; border-radius:20px;">Архив</span>`;
+
+                const actionButtonHtml = m.is_active
+                    ? `<button class="btn" style="background:rgba(255,255,255,0.04); color:var(--text-muted); pointer-events:none; border:1px solid rgba(255,255,255,0.08); width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; white-space:nowrap;">Текущая</button>`
+                    : `<button class="btn primary-btn btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; white-space:nowrap; font-weight:600;">Активировать</button>`;
+
+                const deleteButtonHtml = m.is_active 
+                    ? `` 
+                    : `<button class="btn btn-delete-model" data-asset="${m.asset}" data-version="${m.version}" style="width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; background:rgba(220, 53, 69, 0.15); color:#ff6b6b; border:1px solid rgba(220,53,69,0.3); white-space:nowrap; display:inline-flex; align-items:center; justify-content:center; gap:0.3rem;"><span>🗑</span> Удалить</button>`;
+
+                return `
+                <div style="
+                    display: grid;
+                    grid-template-columns: 1fr auto auto;
+                    align-items: center;
+                    gap: 1.2rem;
+                    padding: 0.9rem 1.2rem;
+                    margin-bottom: 0.6rem;
+                    background: rgba(255,255,255,0.02);
+                    border: 1px solid var(--border-color);
+                    border-radius: 10px;
+                ">
+                    <div>
+                        <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.35rem;">
+                            <span style="font-size:0.98rem; font-weight:700; color:white;">${sym}</span>
+                            <span style="font-size:0.75rem; color:var(--text-muted);">v${m.version}</span>
+                            ${activeBadgeHtml}
+                        </div>
+                        <div style="display:flex; gap:1.2rem; font-size:0.82rem; flex-wrap:wrap; color: var(--text-muted); margin-bottom: 0.2rem;">
+                            <span title="Base AUC: ${m.baseline}">AUC: <b style="color:white;">${m.auc}</b> (Lift: ${liftBadge})</span>
+                            <span>F1: ${f1Badge}</span>
+                            <span>ECE: ${eceBadge}</span>
+                        </div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">
+                            Обучена: <span style="color:white;">${m.trained_at ? m.trained_at.slice(0,16).replace('T',' ') : '—'}</span>
+                        </div>
+                    </div>
+                    <div style="min-width:250px;">
+                        ${pnlHtml}
+                    </div>
+                    <div style="min-width: 130px; display: flex; flex-direction: column; gap: 0.4rem; justify-content: center; align-items: flex-end;">
+                        ${actionButtonHtml}
+                        ${deleteButtonHtml}
+                    </div>
+                </div>
+                `;
+            }).join('');>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyFlip — Crypto LightGBM Dashboard</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js для графиков -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ static_version }}">
+    
+    <style>
+        /* Дополнительные стили для настроек и графиков */
+        .crypto-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        @media (min-width: 992px) {
+            .crypto-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .settings-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+        .settings-group label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .settings-group input {
+            padding: 0.6rem;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            color: white;
+            border-radius: 8px;
+            outline: none;
+            font-size: 0.95rem;
+            transition: border-color 0.2s;
+        }
+        .settings-group input:focus {
+            border-color: var(--primary-color, #ffc107);
+        }
+        .nav-links .nav-item {
+            cursor: pointer;
+        }
+        
+        /* Стили для оповещения об обучении моделей */
+        .training-banner {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(90deg, rgba(255, 193, 7, 0.15), rgba(255, 152, 0, 0.08));
+            border: 1px solid rgba(255, 193, 7, 0.4);
+            border-radius: 12px;
+            color: #ffc107;
+            animation: pulseBorder 2s infinite alternate;
+        }
+        @keyframes pulseBorder {
+            0% { border-color: rgba(255, 193, 7, 0.3); box-shadow: 0 0 8px rgba(255, 193, 7, 0.1); }
+            100% { border-color: rgba(255, 193, 7, 0.8); box-shadow: 0 0 18px rgba(255, 193, 7, 0.25); }
+        }
+        .btn-training {
+            background: rgba(255, 193, 7, 0.2) !important;
+            border: 1px solid #ffc107 !important;
+            color: #ffc107 !important;
+            cursor: not-allowed !important;
+            opacity: 0.9;
+        }
+        .spinner-icon {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 193, 7, 0.3);
+            border-radius: 50%;
+            border-top-color: #ffc107;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+    <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ static_version }}"></script>
+    <script>
+        window.API_BASE = "{{ root_path }}";
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar / Navigation -->
+        <nav class="sidebar">
+            <div class="logo">
+                <span class="poly">Poly</span><span class="flip">Flip</span>
+            </div>
+            <ul class="nav-links">
+                <li class="nav-item" onclick="window.location.href='/dashboard'">Аналитика</li>
+                <li class="nav-item" onclick="window.location.href='/dashboard?tab=models'">Модели Polymarket (LogReg)</li>
+                <li class="nav-item" onclick="window.location.href='/dashboard?tab=status'">Статус Парсера</li>
+                <li class="nav-item" onclick="window.location.href='/trading'">Торговля (PnL)</li>
+                <li class="nav-item" onclick="window.location.href='/backtest'">Бэктест</li>
+                <li class="nav-item active" onclick="window.location.href='/crypto'">Crypto-модели (LightGBM)</li>
+                <li class="nav-item" onclick="window.location.href='/execution'">Исполнение сделок (LIVE)</li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="tab-header">
+                <h1>🪙 Управление Crypto LightGBM (15m)</h1>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;" id="train-buttons-container">
+                    {% for sym in symbols %}
+                    <button class="btn primary-btn" id="btn-train-{{ sym }}" onclick="retrain('{{ sym }}')">🔄 Обучить {{ sym }}</button>
+                    {% endfor %}
+                </div>
+            </header>
+
+            <!-- Баннер уведомления об активном обучении -->
+            <div id="active-training-banner" style="display: none;"></div>
+
+            <!-- Панель статуса моделей -->
+            <div class="panel" style="margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+                    <div>
+                        <h2 style="margin:0;">Модели LightGBM</h2>
+                        <p class="panel-desc" style="margin: 0.3rem 0 0 0;">
+                            PnL считается за весь период работы модели (с <code>trained_at</code>).
+                        </p>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.6rem;">
+                        <label for="sort-field" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Сортировка:</label>
+                        <select id="sort-field" onchange="onSortChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.8rem; border-radius: 8px; font-size: 0.85rem; outline: none; cursor: pointer;">
+                            <option value="pnl" selected>PnL (прибыль)</option>
+                            <option value="trained_at">Дате обучения (новые сначала)</option>
+                            <option value="win_rate">Win Rate (%)</option>
+                            <option value="auc">AUC</option>
+                            <option value="ece">ECE (калибровка)</option>
+                            <option value="version">Версии (номер)</option>
+                        </select>
+                        <button id="sort-order-btn" onclick="toggleSortOrder()" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.75rem; border-radius: 8px; font-size: 0.85rem; cursor: pointer; font-weight: bold;" title="Переключить направление (убывание / возрастание)">
+                            ↓
+                        </button>
+                    </div>
+                </div>
+                <div id="models-status">Загрузка...</div>
+            </div>
+
+            <!-- Раздел: Настройки и параметры обучения -->
+            <div class="panel" style="margin-bottom: 2rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; gap:10px;">
+                    <div>
+                        <h2>Настройки обучения</h2>
+                        <p class="panel-desc" style="margin:0;">Гиперпараметры LightGBM и фильтрации сигналов.</p>
+                    </div>
+                    <button class="btn primary-btn" onclick="saveSettings()">Сохранить</button>
+                </div>
+                
+                <div class="settings-grid">
+                    <div class="settings-group">
+                        <label for="p-n-estimators">Кол-во деревьев (n_estimators)</label>
+                        <input type="number" id="p-n-estimators" value="{{ defaults.n_estimators }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-learning-rate">Скорость обучения (learning_rate)</label>
+                        <input type="number" id="p-learning-rate" step="0.01" value="{{ defaults.learning_rate }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-num-leaves">Листьев в дереве (num_leaves)</label>
+                        <input type="number" id="p-num-leaves" value="{{ defaults.num_leaves }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-max-depth">Глубина дерева (max_depth)</label>
+                        <input type="number" id="p-max-depth" value="{{ defaults.max_depth }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-min-child-samples">Минимум в листе (min_child)</label>
+                        <input type="number" id="p-min-child-samples" value="{{ defaults.min_child_samples }}">
+                    </div>
+                </div>
+                
+                <div class="settings-grid">
+                    <div class="settings-group">
+                        <label for="p-subsample">Размер подвыборки (subsample)</label>
+                        <input type="number" id="p-subsample" step="0.1" value="{{ defaults.subsample }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-colsample-bytree">Колонок по деревьям (colsample)</label>
+                        <input type="number" id="p-colsample-bytree" step="0.1" value="{{ defaults.colsample_bytree }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-epsilon-quantile">Квантиль фильтра epsilon</label>
+                        <input type="number" id="p-epsilon-quantile" step="0.05" value="{{ defaults.epsilon_quantile }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-min-edge">Порог сигнала (min_edge)</label>
+                        <input type="number" id="p-min-edge" step="0.01" value="{{ defaults.min_edge }}">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Раздел: Бэктестинг -->
+            <div class="panel" style="margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 15px;">
+                    <div>
+                        <h2> Walk-Forward Backtester</h2>
+                        <p class="panel-desc" style="margin: 0;">Обучение модели на 70% данных, тестирование на остальных 30% с расчетом комиссий.</p>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <select id="bt-symbol" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 130px;">
+                            {% for sym in symbols %}<option>{{ sym }}</option>{% endfor %}
+                        </select>
+                        <button class="btn primary-btn" onclick="runBacktester()">▶ Запустить бэктест</button>
+                    </div>
+                </div>
+
+                <div id="backtest-loading" style="display: none; text-align: center; padding: 2rem; color: var(--text-muted);">
+                    ⏳ Запущен расчет бэктеста на сервере, пожалуйста подождите...
+                </div>
+
+                <div id="backtest-container" style="display: none;">
+                    <div class="stats-grid" style="margin-bottom: 1.5rem;">
+                        <div class="stat-card">
+                            <h3>Статус Edge</h3>
+                            <div class="stat-value highlight" id="bt-edge-status">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Сделок</h3>
+                            <div class="stat-value" id="bt-trades">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Win Rate</h3>
+                            <div class="stat-value" id="bt-win-rate">--%</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Доход (нетто)</h3>
+                            <div class="stat-value" id="bt-return">--%</div>
+                        </div>
+                    </div>
+                    <div class="stats-grid" style="margin-bottom: 1.5rem;">
+                        <div class="stat-card">
+                            <h3>Коэф. Шарпа</h3>
+                            <div class="stat-value" id="bt-sharpe">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Макс. Просадка</h3>
+                            <div class="stat-value" id="bt-max-dd">--%</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Доля Сигналов</h3>
+                            <div class="stat-value" id="bt-edge-rate">--%</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>AUC (train)</h3>
+                            <div class="stat-value" id="bt-auc">--</div>
+                        </div>
+                    </div>
+
+                    <!-- График кумулятивного PnL -->
+                    <div style="margin-top: 2rem;">
+                        <h3>Кривая доходности бэктеста (Кумулятивный Net PnL, %)</h3>
+                        <div style="position: relative; height: 350px; width: 100%; margin-top: 1rem;">
+                            <canvas id="pnl-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Панель feature importance (перенесена вниз) -->
+            <div class="panel" style="margin-bottom: 2rem;">
+                <h2>Важность признаков (Feature Importance)</h2>
+                <p class="panel-desc">Относительное влияние признаков при разделении деревьев решений.</p>
+                <div style="margin-bottom: 1rem;">
+                    <select id="fi-symbol-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 150px;" onchange="updateFeatureImportanceChart()">
+                        {% for sym in symbols %}<option value="{{ sym }}">{{ sym }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div style="position: relative; height: 500px; width: 100%;">
+                    <canvas id="fi-chart"></canvas>
+                </div>
+            </div>
+        </main>
+    </div>
+
+
+    <script>
+        let API_KEY = "{{ api_key }}";
+        if (!API_KEY) {
+            try {
+                API_KEY = localStorage.getItem("polyflip_api_key") || "";
+            } catch (e) {
+                console.warn("localStorage unavailable");
+            }
+        }
+
+        // Если ключа нет, запрашиваем его у пользователя
+        if (!API_KEY) {
+            const enteredKey = prompt("Пожалуйста, введите ваш API-ключ для доступа к функциям Crypto ML:");
+            if (enteredKey) {
+                try {
+                    localStorage.setItem("polyflip_api_key", enteredKey);
+                    // Также запишем в куку, чтобы бэкенд на Python тоже видел ключ
+                    document.cookie = `api_key=${enteredKey}; path=/; max-age=31536000`;
+                    window.location.reload();
+                } catch (e) {
+                    console.error("Не удалось сохранить API-ключ", e);
+                }
+            }
+        }
+
+        const H = { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' };
+
+        let statusData = null;
+        let currentPage = 1;
+        let currentSortField = 'pnl';
+        let currentSortOrder = 'desc';
+        let lastModelsData = null;
+        let lastPnlData = {};
+        const pageSize = 10;
+        let fiChart = null;
+        let pnlChart = null;
+        let localActiveTrainings = {};
+
+        function updateTrainButtonsAndBanner(activeTrainings) {
+            const symbols = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"];
+            const activeList = Object.keys(activeTrainings || {});
+            
+            symbols.forEach(sym => {
+                const btn = document.getElementById(`btn-train-${sym}`);
+                if (!btn) return;
+                if (activeList.includes(sym)) {
+                    btn.disabled = true;
+                    btn.className = "btn btn-training";
+                    btn.innerHTML = `<span class="spinner-icon"></span> ⏳ Обучение ${sym}...`;
+                } else {
+                    btn.disabled = false;
+                    btn.className = "btn primary-btn";
+                    btn.innerHTML = `🔄 Обучить ${sym}`;
+                }
+            });
+
+            const bannerEl = document.getElementById('active-training-banner');
+            if (bannerEl) {
+                if (activeList.length > 0) {
+                    bannerEl.style.display = 'flex';
+                    bannerEl.className = 'training-banner';
+                    bannerEl.innerHTML = `
+                        <div style="font-size: 1.5rem;"><span class="spinner-icon" style="width:22px; height:22px; border-width:3px;"></span></div>
+                        <div>
+                            <div style="font-weight: 700; font-size: 1.05rem;">⏳ Идёт обучение модели: ${activeList.join(', ')}</div>
+                            <div style="font-size: 0.85rem; opacity: 0.9; margin-top: 2px;">
+                                Происходит выборка Binance-свечей, расчет параметров волатильности, K-Fold кросс-валидация и калибровка ECE.
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    bannerEl.style.display = 'none';
+                }
+            }
+        }
+
+        function resetApiKey() {
+            try {
+                localStorage.removeItem("polyflip_api_key");
+                document.cookie = "api_key=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                window.location.reload();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function loadStatus() {
+            try {
+                // Параллельно загружаем статус и PnL
+                const [statusRes, pnlRes] = await Promise.all([
+                    fetch('/crypto/api/status', { headers: H }),
+                    fetch(`/crypto/api/models/analytics?requested_mode=${currentMode}`, { headers: H }),
                 ]);
 
                 if (statusRes.status === 401) {
