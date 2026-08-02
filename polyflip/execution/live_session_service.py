@@ -124,41 +124,37 @@ async def get_session_budget_snapshot(
     committed = filled + reserved
     remaining = max(0, budget_usdc - committed)
     """
-    filled = Decimal(
-        str(
-            await db.scalar(
-                select(
-                    func.coalesce(func.sum(ExecutionRequest.filled_cost_usdc), 0)
-                ).where(
-                    ExecutionRequest.live_session_id == session_obj.id,
-                    ExecutionRequest.requested_mode == "LIVE",
-                    ExecutionRequest.intent == "OPEN",
-                )
-            )
-            or 0
-        )
-    )
     diff_expr = ExposureReservation.amount_usdc - func.coalesce(
         ExecutionRequest.filled_cost_usdc, 0
     )
     unfilled_expr = case((diff_expr > 0, diff_expr), else_=0)
 
-    reserved = Decimal(
-        str(
-            await db.scalar(
-                select(func.coalesce(func.sum(unfilled_expr), 0))
-                .join(
-                    ExecutionRequest,
-                    ExecutionRequest.id == ExposureReservation.request_id,
-                )
-                .where(
-                    ExecutionRequest.live_session_id == session_obj.id,
-                    ExposureReservation.released_at.is_(None),
-                )
-            )
-            or 0
+    filled_sq = (
+        select(func.coalesce(func.sum(ExecutionRequest.filled_cost_usdc), 0))
+        .where(
+            ExecutionRequest.live_session_id == session_obj.id,
+            ExecutionRequest.requested_mode == "LIVE",
+            ExecutionRequest.intent == "OPEN",
         )
+        .scalar_subquery()
     )
+    
+    reserved_sq = (
+        select(func.coalesce(func.sum(unfilled_expr), 0))
+        .join(
+            ExecutionRequest,
+            ExecutionRequest.id == ExposureReservation.request_id,
+        )
+        .where(
+            ExecutionRequest.live_session_id == session_obj.id,
+            ExposureReservation.released_at.is_(None),
+        )
+        .scalar_subquery()
+    )
+
+    row = (await db.execute(select(filled_sq, reserved_sq))).one()
+    filled = Decimal(str(row[0] or 0))
+    reserved = Decimal(str(row[1] or 0))
     committed = filled + reserved
     remaining = max(
         Decimal("0"),
@@ -180,8 +176,18 @@ class LiveReadinessResult:
     warnings: list[str]
 
 
+async def get_latest_live_worker_status(
+    db: AsyncSession,
+) -> ExecutionWorkerStatus | None:
+    return await db.scalar(
+        select(ExecutionWorkerStatus)
+        .where(ExecutionWorkerStatus.execution_mode == "LIVE")
+        .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
+        .limit(1)
+    )
+
 async def evaluate_live_readiness(
-    db: AsyncSession, session: LiveTradingSession
+    db: AsyncSession, session: LiveTradingSession, *, worker_status: ExecutionWorkerStatus | None = None
 ) -> LiveReadinessResult:
     """
     Единый реальный модуль проверки 100% готовности системы к LIVE-торговле.
@@ -208,14 +214,9 @@ async def evaluate_live_readiness(
     # to prevent UnboundLocalError when no LIVE worker row exists in the DB.
     transport_failure: bool = False
 
-    ws = (
-        await db.execute(
-            select(ExecutionWorkerStatus)
-            .where(ExecutionWorkerStatus.execution_mode == "LIVE")
-            .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    if worker_status is None:
+        worker_status = await get_latest_live_worker_status(db)
+    ws = worker_status
 
     if not ws:
         errors.append("LIVE worker status не найден в БД")
@@ -301,48 +302,49 @@ async def evaluate_live_readiness(
                     "Conditional token allowance (продажа токенов) не подтвержден"
                 )
 
-    # 2. Активные/зависшие LIVE-заявки
-    active_cnt = (
-        await db.scalar(
-            select(func.count(ExecutionRequest.id)).where(
-                ExecutionRequest.requested_mode == "LIVE",
-                ExecutionRequest.state.in_(
-                    [
-                        "AWAITING_APPROVAL",
-                        "READY",
-                        "CLAIMED",
-                        "SUBMITTING",
-                        "ACCEPTED",
-                        "UNKNOWN",
-                        "PARTIALLY_FILLED",
-                        "RECONCILING",
-                        "MANUAL_REVIEW_REQUIRED",
-                    ]
-                ),
-            )
+    # 2. Активные/зависшие LIVE-заявки и 3. Старые/незакрытые LIVE-позиции
+    active_requests_sq = (
+        select(func.count(ExecutionRequest.id))
+        .where(
+            ExecutionRequest.requested_mode == "LIVE",
+            ExecutionRequest.state.in_(
+                [
+                    "AWAITING_APPROVAL",
+                    "READY",
+                    "CLAIMED",
+                    "SUBMITTING",
+                    "ACCEPTED",
+                    "UNKNOWN",
+                    "PARTIALLY_FILLED",
+                    "RECONCILING",
+                    "MANUAL_REVIEW_REQUIRED",
+                ]
+            ),
         )
-    ) or 0
+        .scalar_subquery()
+    )
+    old_positions_sq = (
+        select(func.count(TradeHistory.id))
+        .where(
+            TradeHistory.mode == "LIVE",
+            TradeHistory.position_status.in_(
+                ["OPEN", "PARTIALLY_CLOSED", "EXIT_REQUESTED", "CLOSING"]
+            ),
+            or_(
+                TradeHistory.live_session_id.is_(None),
+                TradeHistory.live_session_id != session.id,
+            ),
+        )
+        .scalar_subquery()
+    )
+
+    counts_row = (await db.execute(select(active_requests_sq, old_positions_sq))).one()
+    active_cnt, old_pos_cnt = counts_row[0] or 0, counts_row[1] or 0
 
     if active_cnt == 0:
         checks["active_requests"] = True
     else:
         errors.append(f"Обнаружено {active_cnt} незавершенных LIVE-заявок")
-
-    # 3. Старые/незакрытые LIVE-позиции (включая позиции с live_session_id IS NULL)
-    old_pos_cnt = (
-        await db.scalar(
-            select(func.count(TradeHistory.id)).where(
-                TradeHistory.mode == "LIVE",
-                TradeHistory.position_status.in_(
-                    ["OPEN", "PARTIALLY_CLOSED", "EXIT_REQUESTED", "CLOSING"]
-                ),
-                or_(
-                    TradeHistory.live_session_id.is_(None),
-                    TradeHistory.live_session_id != session.id,
-                ),
-            )
-        )
-    ) or 0
 
     if old_pos_cnt == 0:
         checks["old_positions"] = True

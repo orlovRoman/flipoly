@@ -709,7 +709,7 @@ from polyflip.execution.live_session_service import (
     get_active_session_for_update,
     count_session_positions,
     get_session_budget_snapshot,
-    evaluate_live_readiness,
+    evaluate_live_readiness, get_latest_live_worker_status,
     serialize_live_session_dto,
 )
 
@@ -1308,14 +1308,7 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         )
     ).scalar_one_or_none()
 
-    worker_status = (
-        await db.execute(
-            select(ExecutionWorkerStatus)
-            .where(ExecutionWorkerStatus.execution_mode == "LIVE")
-            .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+
 
     requests = (
         (
@@ -1338,9 +1331,10 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
 
     request_dtos = await serialize_execution_requests(db, requests)
 
+    worker_status = await get_latest_live_worker_status(db)
     readiness = None
     if active_session:
-        readiness = await evaluate_live_readiness(db, active_session)
+        readiness = await evaluate_live_readiness(db, active_session, worker_status=worker_status)
 
     status = active_session.status if active_session else None
     
