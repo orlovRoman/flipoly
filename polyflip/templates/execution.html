@@ -564,12 +564,29 @@ if (typeof translateError === 'undefined') {
             }
         });
 
+
+        const renderState = {
+            tradable: null,
+            resolved: null,
+            archive: null,
+            requests: null,
+        };
+
+        function rowsKey(rows, fields) {
+            return JSON.stringify(
+                rows.map(row => fields.map(field => row[field]))
+            );
+        }
+
         function renderPositions(positions) {
             const tradable = positions.tradable || [];
             const resolved = positions.resolved || [];
             const archive = positions.archive || [];
 
-            const tbodyTradable = document.querySelector('#tradable-positions-table tbody');
+            const tradableKey = rowsKey(tradable, ["id", "position_status", "remaining_shares", "realized_pnl_usdc"]);
+            if (tradableKey !== renderState.tradable) {
+                renderState.tradable = tradableKey;
+                const tbodyTradable = document.querySelector('#tradable-positions-table tbody');
             if (!tradable.length) {
                 tbodyTradable.innerHTML = '<tr><td colspan="10" style="text-align: center;">Нет торгуемых позиций</td></tr>';
             } else {
@@ -596,8 +613,12 @@ if (typeof translateError === 'undefined') {
                     </tr>
                 `;}).join('');
             }
+            }
 
-            const tbodyResolved = document.querySelector('#resolved-markets-table tbody');
+            const resolvedKey = rowsKey(resolved, ["id", "position_status", "redemption_status", "remaining_shares", "realized_pnl_usdc"]);
+            if (resolvedKey !== renderState.resolved) {
+                renderState.resolved = resolvedKey;
+                const tbodyResolved = document.querySelector('#resolved-markets-table tbody');
             if (!resolved.length) {
                 tbodyResolved.innerHTML = '<tr><td colspan="10" style="text-align: center;">Нет завершённых рынков</td></tr>';
             } else {
@@ -628,8 +649,12 @@ if (typeof translateError === 'undefined') {
                     </tr>
                 `;}).join('');
             }
+            }
 
-            const tbodyArchive = document.querySelector('#archive-table tbody');
+            const archiveKey = rowsKey(archive, ["id", "position_status"]);
+            if (archiveKey !== renderState.archive) {
+                renderState.archive = archiveKey;
+                const tbodyArchive = document.querySelector('#archive-table tbody');
             if (!archive.length) {
                 tbodyArchive.innerHTML = '<tr><td colspan="8" style="text-align: center;">Архив пуст</td></tr>';
             } else {
@@ -645,10 +670,14 @@ if (typeof translateError === 'undefined') {
                     </tr>
                 `).join('');
             }
+            }
         }
 
         function renderRequests(requests) {
-            const tbody = document.querySelector('#requests-table tbody');
+            const requestsKey = rowsKey(requests, ["id", "state", "updated_at", "filled_shares", "filled_cost_usdc", "error_reason"]);
+            if (requestsKey !== renderState.requests) {
+                renderState.requests = requestsKey;
+                const tbody = document.querySelector('#requests-table tbody');
             const batchBtn = document.getElementById('btn-batch-no-fill');
 
             if (!requests.length) {
@@ -689,6 +718,7 @@ if (typeof translateError === 'undefined') {
             }).join('');
 
             batchBtn.style.display = hasNoFillOptions ? 'inline-block' : 'none';
+            }
         }
 
 
