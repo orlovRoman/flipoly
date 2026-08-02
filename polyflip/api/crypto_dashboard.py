@@ -521,6 +521,21 @@ async def crypto_models_analytics(
     confirm_rows = (await db.execute(confirm_sql, {"mode": requested_mode})).fetchall()
     confirm_stats = {(row.model_key, row.model_version): row for row in confirm_rows}
 
+        # 3.5 VETO CTE
+    veto_sql = text("""
+        SELECT 
+            confirm_model_key as model_key,
+            confirm_model_version as model_version,
+            SUM(CASE WHEN confirm_passed = true THEN 1 ELSE 0 END) as confirm_passed_count,
+            SUM(CASE WHEN confirm_passed = false THEN 1 ELSE 0 END) as veto_count
+        FROM decision_funnel_log
+        WHERE confirm_model_key IS NOT NULL
+          AND trading_mode = :mode
+        GROUP BY confirm_model_key, confirm_model_version
+    """)
+    veto_rows = (await db.execute(veto_sql, {"mode": requested_mode})).fetchall()
+    veto_stats = {(row.model_key, row.model_version): row for row in veto_rows}
+
     # 4. Считаем метрики для каждой версии в реестре
     result = {}
     for m in models:

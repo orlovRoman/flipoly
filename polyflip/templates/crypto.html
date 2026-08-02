@@ -585,8 +585,14 @@
                                 <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
                                     ${pnl.confirmed_win_rate != null ? pnl.confirmed_win_rate + '%' : '—'} WR · ${pnl.confirmed_trades} сд.
                                 </div>
+                                <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
+                                    ${pnl.confirmed_win_rate != null ? pnl.confirmed_win_rate + '%' : '—'} WR · ${pnl.confirmed_trades} сд.
+                                </div>
                                 <div style="color:var(--text-muted); font-size:0.75rem;">
                                     PF: <span style="color:white;">${pnl.confirmed_profit_factor ? pnl.confirmed_profit_factor.toFixed(2) : '—'}</span>
+                                </div>
+                                <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
+                                    <span style="color:var(--poly-green);">${pnl.confirm_passed_count || 0} pass</span> / <span style="color:#ff3366;">${pnl.veto_count || 0} veto</span>
                                 </div>
                             </div>
                         </div>
