@@ -444,7 +444,7 @@ async def crypto_models_analytics(
                 model_key,
                 model_version,
                 COALESCE(realized_pnl_usdc, pnl) as pnl,
-                closed_at,
+                created_at,
                 id
             FROM trade_history
             WHERE mode = :mode
@@ -455,23 +455,23 @@ async def crypto_models_analytics(
               {date_filter}
         ),
         zero_trade AS (
-            SELECT DISTINCT model_key, model_version, 0 as pnl, '1970-01-01' as closed_at, 0 as id FROM trades
+            SELECT DISTINCT model_key, model_version, 0 as pnl, '1970-01-01' as created_at, 0 as id FROM trades
         ),
         all_trades AS (
-            SELECT model_key, model_version, pnl, closed_at, id FROM trades
+            SELECT model_key, model_version, pnl, created_at, id FROM trades
             UNION ALL
-            SELECT model_key, model_version, pnl, closed_at, id FROM zero_trade
+            SELECT model_key, model_version, pnl, created_at, id FROM zero_trade
         ),
         cumulatives AS (
             SELECT 
                 model_key, model_version, pnl,
-                SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY closed_at ASC, id ASC) as equity
+                SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY created_at ASC, id ASC) as equity
             FROM all_trades
         ),
         peaks AS (
             SELECT 
                 model_key, model_version, pnl, equity,
-                MAX(equity) OVER (PARTITION BY model_key, model_version ORDER BY closed_at ASC, id ASC) as running_peak
+                MAX(equity) OVER (PARTITION BY model_key, model_version ORDER BY created_at ASC, id ASC) as running_peak
             FROM cumulatives
         ),
         drawdowns AS (
@@ -520,7 +520,7 @@ async def crypto_models_analytics(
                 confirm_model_key as model_key,
                 confirm_model_version as model_version,
                 COALESCE(realized_pnl_usdc, pnl) as pnl,
-                closed_at,
+                created_at,
                 id
             FROM trade_history
             WHERE mode = :mode
@@ -531,23 +531,23 @@ async def crypto_models_analytics(
               {date_filter}
         ),
         zero_trade AS (
-            SELECT DISTINCT model_key, model_version, 0 as pnl, '1970-01-01' as closed_at, 0 as id FROM trades
+            SELECT DISTINCT model_key, model_version, 0 as pnl, '1970-01-01' as created_at, 0 as id FROM trades
         ),
         all_trades AS (
-            SELECT model_key, model_version, pnl, closed_at, id FROM trades
+            SELECT model_key, model_version, pnl, created_at, id FROM trades
             UNION ALL
-            SELECT model_key, model_version, pnl, closed_at, id FROM zero_trade
+            SELECT model_key, model_version, pnl, created_at, id FROM zero_trade
         ),
         cumulatives AS (
             SELECT 
                 model_key, model_version, pnl,
-                SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY closed_at ASC, id ASC) as equity
+                SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY created_at ASC, id ASC) as equity
             FROM all_trades
         ),
         peaks AS (
             SELECT 
                 model_key, model_version, pnl, equity,
-                MAX(equity) OVER (PARTITION BY model_key, model_version ORDER BY closed_at ASC, id ASC) as running_peak
+                MAX(equity) OVER (PARTITION BY model_key, model_version ORDER BY created_at ASC, id ASC) as running_peak
             FROM cumulatives
         ),
         drawdowns AS (

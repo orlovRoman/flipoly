@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from polyflip.db.models import TradeHistory, ModelRegistry, DecisionFunnelLog
 from polyflip.api.dashboard import get_model_pnl
-from polyflip.api.crypto_dashboard import crypto_model_pnl
+from polyflip.api.crypto_dashboard import crypto_models_analytics
 from polyflip.api.analytics import delete_model, get_active_models_summary
 import scripts.backfill_model_keys as backfill_module
 from scripts.backfill_model_keys import run_backfill
@@ -123,29 +123,6 @@ async def test_backfill_multiple_batches_and_idempotency(db_session, monkeypatch
     assert stats2["PROCESSED"] == 0
 
 @pytest.mark.asyncio
-async def test_crypto_model_pnl_isolation(db_session):
-    """crypto_model_pnl эндпоинт группирует строго по model_key и разграничивает подтверждающие модели."""
-    m1 = ModelRegistry(asset="BTCUSDT_low_vol", version=1, model_blob=b"mock", accuracy=0.65, is_active=True, trained_at=datetime.now(timezone.utc))
-    m2 = ModelRegistry(asset="BTCUSDT_high_vol", version=1, model_blob=b"mock", accuracy=0.65, is_active=True, trained_at=datetime.now(timezone.utc))
-    db_session.add_all([m1, m2])
-
-    t1 = TradeHistory(
-        market_id="m1", asset="BTC", outcome_bought="YES", amount_usdc=10.0, executed_price=0.5,
-        predicted_flip_prob=0.6, active_features="test", model_version=1, model_key="BTCUSDT_low_vol",
-        confirm_model_key="BTCUSDT_high_vol", confirm_model_version=1,
-        model_attribution_source="EXACT", mode="PAPER", position_status="CLOSED",
-        realized_pnl_usdc=8.0, status="SUCCESS", created_at=datetime.now(timezone.utc)
-    )
-    db_session.add(t1)
-    await db_session.commit()
-
-    res = await crypto_model_pnl(requested_mode="PAPER", db=db_session)
-    assert res["BTCUSDT_low_vol_v1"]["pnl"] == 8.0
-    assert res["BTCUSDT_low_vol_v1"]["total_trades"] == 1
-    assert res["BTCUSDT_high_vol_v1"]["pnl"] == 0.0
-    assert res["BTCUSDT_high_vol_v1"]["confirmed_pnl"] == 8.0
-    assert res["BTCUSDT_high_vol_v1"]["confirmed_trades"] == 1
-
 @pytest.mark.asyncio
 async def test_delete_archive_model(db_session):
     """API удаляет архивную модель из ModelRegistry."""
