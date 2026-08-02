@@ -8,19 +8,39 @@ from sqlalchemy import select, and_
 from polyflip.db.models import ConfigPreset, RuntimeSettings
 from polyflip.settings_registry import editable_keys
 
+TRADING_PRESET_KEYS = {
+    "TRADING_MODE",
+    "TRADE_ASSETS",
+    "TRADE_ON_FAVORITE",
+    "TRADE_ON_FLIP",
+    "TRADE_BET_SIZE_USDC",
+    "MAX_BET_SIZE_USDC",
+    "BET_SIZING_MODE",
+    "MIN_EDGE",
+    "FAVORITE_MIN_EDGE",
+    "NO_MIN_EDGE",
+    "FAVORITE_MIN_PRICE",
+    "FAVORITE_MAX_PRICE",
+    "OUTSIDER_MAX_PRICE",
+    "FLIP_THRESHOLD",
+    "TRADE_NO_FLIP_THRESHOLD",
+    "STOP_LOSS_ENABLED",
+    "STOP_LOSS_PCT_FAVORITE",
+    "STOP_LOSS_PCT_OUTSIDER",
+    "TAKE_PROFIT_ENABLED",
+    "TAKE_PROFIT_MULTIPLIER",
+}
+
 logger = structlog.get_logger(__name__)
+
 
 class PresetService:
 
     @staticmethod
     def get_trading_preset_settings(settings: Dict[str, str]) -> Dict[str, str]:
         """Оставляет только те настройки, которые входят в торговый пресет (белый список)."""
-        valid_keys = set(editable_keys())
-        return {
-            key: value
-            for key, value in settings.items()
-            if key in valid_keys
-        }
+        valid_keys = TRADING_PRESET_KEYS
+        return {key: value for key, value in settings.items() if key in valid_keys}
 
     @staticmethod
     async def capture_snapshot(db: AsyncSession) -> Dict[str, str]:
@@ -91,17 +111,24 @@ class PresetService:
                     changed += 1
                     updated_params[key] = str(value)
             else:
-                db.add(RuntimeSettings(
-                    key=key,
-                    value=str(value),
-                    updated_at=now,
-                    updated_by=f"preset_restore:{preset_id}:{restored_by}",
-                ))
+                db.add(
+                    RuntimeSettings(
+                        key=key,
+                        value=str(value),
+                        updated_at=now,
+                        updated_by=f"preset_restore:{preset_id}:{restored_by}",
+                    )
+                )
                 changed += 1
                 updated_params[key] = str(value)
 
         await db.commit()
-        logger.info("preset_restored", id=preset_id, changed_keys=changed, restored_by=restored_by)
+        logger.info(
+            "preset_restored",
+            id=preset_id,
+            changed_keys=changed,
+            restored_by=restored_by,
+        )
         return changed, updated_params
 
     @staticmethod
@@ -121,12 +148,16 @@ class PresetService:
         now = datetime.now(timezone.utc)
 
         # 1. Получаем существующие ATH-пресеты
-        q = select(ConfigPreset).where(
-            and_(
-                ConfigPreset.preset_type.in_(["ath_capital", "ath_pnl"]),
-                ConfigPreset.is_active == True,  # noqa: E712
+        q = (
+            select(ConfigPreset)
+            .where(
+                and_(
+                    ConfigPreset.preset_type.in_(["ath_capital", "ath_pnl"]),
+                    ConfigPreset.is_active == True,  # noqa: E712
+                )
             )
-        ).order_by(ConfigPreset.created_at.desc())
+            .order_by(ConfigPreset.created_at.desc())
+        )
         ath_presets = (await db.execute(q)).scalars().all()
 
         # 2. Проверка 1-часового интервала от последнего ATH
@@ -136,11 +167,13 @@ class PresetService:
                 return None
 
         # 3. Вычисляем текущие максимумы
-        prev_max_capital = max((p.capital_at_save or 0.0 for p in ath_presets), default=0.0)
-        prev_max_pnl     = max((p.pnl_at_save     or 0.0 for p in ath_presets), default=0.0)
+        prev_max_capital = max(
+            (p.capital_at_save or 0.0 for p in ath_presets), default=0.0
+        )
+        prev_max_pnl = max((p.pnl_at_save or 0.0 for p in ath_presets), default=0.0)
 
         is_capital_ath = (current_capital - prev_max_capital) >= min_pnl_diff
-        is_pnl_ath     = (current_pnl - prev_max_pnl) >= min_pnl_diff
+        is_pnl_ath = (current_pnl - prev_max_pnl) >= min_pnl_diff
 
         if not (is_capital_ath or is_pnl_ath):
             return None
