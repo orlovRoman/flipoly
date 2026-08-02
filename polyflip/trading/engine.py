@@ -38,11 +38,14 @@ def _get_crypto_predictor():
 
 _ACTIVE_MARKETS = set()
 
+import os
+
 async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketClient):
     """
     Фоновый процесс торгового движка (оркестратор).
     """
     start_time = datetime.now(timezone.utc)
+    execution_mode = os.getenv("EXECUTION_MODE", "PAPER")
     
     try:
         raw_settings = await load_trading_settings(db_session)
@@ -106,7 +109,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                             models_cache = get_models_cache()
                         decision_res = await decide_ml_mode(
                             db_session, api_client, market, cfg, raw_settings, models_cache, _get_crypto_predictor(),
-                            start_time, time_left_sec, existing_skipped
+                            start_time, time_left_sec, existing_skipped, execution_mode=execution_mode
                         )
                     elif asset_mode == TRADING_MODE_FAVORITE:
                         decision_res = await decide_favorite_mode(
@@ -138,8 +141,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                             models_cache = get_models_cache()
                         decision_res = await decide_combined_mode(
                             db_session, api_client, market, cfg,
-                            raw_settings, models_cache, _get_crypto_predictor(),
-                            start_time, time_left_sec, existing_skipped
+                            raw_settings, models_cache, _get_crypto_predictor(), start_time, time_left_sec, existing_skipped, execution_mode=execution_mode
                         )
                 except Exception as e:
                     logger.exception("decision_logic_error", market=market.market_id, error=str(e))

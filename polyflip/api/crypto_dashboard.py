@@ -239,6 +239,8 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
 async def save_crypto_settings(
     settings: dict, db: AsyncSession = Depends(get_db_session)
 ):
+    if requested_mode not in ("PAPER", "LIVE", "SHADOW"):
+        requested_mode = "PAPER"
     """Сохраняет измененные гиперпараметры в RuntimeSettings."""
     now = datetime.now(timezone.utc)
     keys_map = {
@@ -409,6 +411,8 @@ async def crypto_models_analytics(
     date_to: str = None,
     db: AsyncSession = Depends(get_db_session)
 ):
+    if requested_mode not in ("PAPER", "LIVE", "SHADOW"):
+        requested_mode = "PAPER"
     cache_key = f"crypto_model_analytics_{requested_mode}_{date_from}_{date_to}"
     now = time.time()
     if cache_key in _cache:
@@ -432,10 +436,13 @@ async def crypto_models_analytics(
 
     # Фильтры дат
     date_filter = ""
+    params = {"mode": requested_mode}
     if date_from:
-        date_filter += f" AND closed_at >= :date_from"
+        date_filter += " AND created_at >= :date_from"
+        params["date_from"] = date_from
     if date_to:
-        date_filter += f" AND closed_at <= :date_to"
+        date_filter += " AND created_at <= :date_to_plus_one"
+        params["date_to_plus_one"] = date_to + " 23:59:59"
 
     # 2. PRIMARY CTE
     primary_sql = text(f"""
@@ -596,7 +603,7 @@ async def crypto_models_analytics(
           AND execution_mode = :mode
         GROUP BY confirm_model_key, confirm_model_version
     """)
-    veto_rows = (await db.execute(veto_sql, {"mode": requested_mode})).fetchall()
+    veto_rows = (await db.execute(veto_sql, params)).fetchall()
     veto_stats = {(row.model_key, row.model_version): row for row in veto_rows}
 
     # 4. Считаем метрики для каждой версии в реестре
@@ -649,6 +656,8 @@ async def crypto_models_analytics(
 async def activate_crypto_model(
     asset: str, version: int, db: AsyncSession = Depends(get_db_session)
 ):
+    if requested_mode not in ("PAPER", "LIVE", "SHADOW"):
+        requested_mode = "PAPER"
     """Активирует указанную версию крипто-модели, деактивируя остальные."""
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
@@ -681,6 +690,8 @@ async def activate_crypto_model(
 async def delete_crypto_model(
     asset: str, version: int, db: AsyncSession = Depends(get_db_session)
 ):
+    if requested_mode not in ("PAPER", "LIVE", "SHADOW"):
+        requested_mode = "PAPER"
     """Удаляет указанную версию крипто-модели из БД."""
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:

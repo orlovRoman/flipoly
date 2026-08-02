@@ -159,7 +159,7 @@ def _fit_lgbm_and_serialize(
             aucs.append(roc_auc_score(y.iloc[val_idx], y_proba))
 
     val_auc = float(np.mean(aucs))
-    baseline_auc = float(max(y.mean(), 1.0 - y.mean()))
+    baseline_auc = 0.5
 
     # ECE через OOF
     valid_mask = ~np.isnan(oof_scores)
@@ -423,7 +423,7 @@ class CryptoModelTrainer:
                     logger.info("regime_train_duration", symbol=symbol, regime=regime,
                                 elapsed_sec=round(time.monotonic() - t0, 1))
 
-                model_bytes, val_auc, baseline_auc, threshold, ece, fi = result
+                model_bytes, val_auc, baseline_auc, threshold, ece, fi, precision, recall, f1, brier = result
 
                 logger.info(
                     "crypto_regime_model_trained",
