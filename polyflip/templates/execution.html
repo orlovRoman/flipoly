@@ -493,16 +493,6 @@
                 console.error("Error loading live dashboard:", e);
             }
         }
-            tbody.innerHTML = entries.map(p => `
-                <tr>
-                    <td>${escapeHtml(p.id)}</td>
-                    <td>${p.created_at ? escapeHtml(p.created_at.substring(11, 19)) : '--'}</td>
-                    <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
-                    <td>${escapeHtml(p.outcome_bought)}</td>
-                    <td><span class="status-badge status-shadow">${p.position_status}</span></td>
-                </tr>
-            `).join('');
-        }
 
         function renderPositions(positions) {
             const tradable = positions.tradable || [];
