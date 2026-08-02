@@ -1,4 +1,5 @@
 import os
+
 STATIC_VERSION = os.getenv("POLYFLIP_BUILD_SHA", "dev")
 import time
 import asyncio
@@ -22,6 +23,7 @@ router = APIRouter(tags=["TradingDashboard"])
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
 
+
 @router.get("/trading")
 async def get_trading_dashboard(request: Request):
     return templates.TemplateResponse(
@@ -30,9 +32,9 @@ async def get_trading_dashboard(request: Request):
             "request": request,
             "timestamp": int(time.time()),
             "static_version": STATIC_VERSION,
-"root_path": request.scope.get("root_path", ""),
-            "assets": settings.asset_list
-        }
+            "root_path": request.scope.get("root_path", ""),
+            "assets": settings.asset_list,
+        },
     )
 
 
@@ -45,22 +47,28 @@ _pnl_expr = sa.func.coalesce(
 _stats_cache = {}
 _STATS_CACHE_TTL = 30  # 30 секунд кэша
 
+
 def invalidate_stats_cache():
     _stats_cache.clear()
+
 
 def _utc_cutoff(delta: timedelta) -> datetime:
     """Возвращает naive UTC datetime для сравнения с TIMESTAMP WITHOUT TIME ZONE."""
     return (datetime.now(timezone.utc) - delta).replace(tzinfo=None)
 
+
 @router.get("/api/trading/stats")
 async def get_trading_stats(
     timeframe: Optional[str] = Query("all"),
     requested_mode: str = Query("PAPER"),
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session),
 ):
     current_time = time.time()
     cache_key = f"stats_{timeframe or 'all'}_{requested_mode}"
-    if cache_key in _stats_cache and current_time - _stats_cache[cache_key]["time"] < _STATS_CACHE_TTL:
+    if (
+        cache_key in _stats_cache
+        and current_time - _stats_cache[cache_key]["time"] < _STATS_CACHE_TTL
+    ):
         return _stats_cache[cache_key]["data"]
 
     cutoff_dt = None
@@ -86,59 +94,81 @@ async def get_trading_stats(
                 sa.func.coalesce(
                     TradeHistory.closed_at,
                     TradeHistory.created_at,
-                ) >= cutoff_dt
+                )
+                >= cutoff_dt
             )
         return conds
 
-
     async def fetch_settings():
         async with async_session() as s:
-            stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(["INITIAL_CAPITAL"]))
+            stmt = select(RuntimeSettings).where(
+                RuntimeSettings.key.in_(["INITIAL_CAPITAL"])
+            )
             res = await s.execute(stmt)
             return res.scalars().all()
 
     async def fetch_assets():
         async with async_session() as s:
             conds = _base_conds(requested_mode)
-            stmt = select(
-                TradeHistory.asset,
-                func.count(TradeHistory.id).label("total_trades"),
-                func.sum(_pnl_expr).label("total_pnl"),
-                func.sum(sa_case((_pnl_expr > 0, 1), else_=0)).label("wins")
-            ).where(*conds).group_by(TradeHistory.asset)
+            stmt = (
+                select(
+                    TradeHistory.asset,
+                    func.count(TradeHistory.id).label("total_trades"),
+                    func.sum(_pnl_expr).label("total_pnl"),
+                    func.sum(sa_case((_pnl_expr > 0, 1), else_=0)).label("wins"),
+                )
+                .where(*conds)
+                .group_by(TradeHistory.asset)
+            )
             return (await s.execute(stmt)).all()
 
     async def fetch_daily():
         async with async_session() as s:
             conds = _base_conds(requested_mode, with_cutoff=False)
             date_col = sa.func.coalesce(TradeHistory.closed_at, TradeHistory.created_at)
-            local_date = cast(func.timezone('Asia/Ho_Chi_Minh', date_col), Date)
+            local_date = cast(func.timezone("Asia/Ho_Chi_Minh", date_col), Date)
             if cutoff_dt:
                 conds.append(
                     sa.or_(
                         TradeHistory.closed_at >= cutoff_dt,
                         sa.and_(
                             TradeHistory.closed_at.is_(None),
-                            TradeHistory.created_at >= cutoff_dt
-                        )
+                            TradeHistory.created_at >= cutoff_dt,
+                        ),
                     )
                 )
-            stmt = select(
-                local_date.label("day"),
-                func.sum(_pnl_expr).label("daily_pnl"),
-                func.sum(sa_case((_pnl_expr > 0, 1), else_=0)).label("wins"),
-                func.sum(sa_case((_pnl_expr < 0, 1), else_=0)).label("losses")
-            ).where(*conds).group_by(local_date)
+            stmt = (
+                select(
+                    local_date.label("day"),
+                    func.sum(_pnl_expr).label("daily_pnl"),
+                    func.sum(sa_case((_pnl_expr > 0, 1), else_=0)).label("wins"),
+                    func.sum(sa_case((_pnl_expr < 0, 1), else_=0)).label("losses"),
+                )
+                .where(*conds)
+                .group_by(local_date)
+            )
             return (await s.execute(stmt)).all()
 
     async def fetch_params():
         async with async_session() as s:
             conds = _base_conds(requested_mode)
             stmt = select(
-                func.avg(sa_case((_pnl_expr > 0, TradeHistory.executed_price), else_=None)).label("avg_win_price"),
-                func.avg(sa_case((_pnl_expr <= 0, TradeHistory.executed_price), else_=None)).label("avg_loss_price"),
-                func.avg(sa_case((_pnl_expr > 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_win_prob"),
-                func.avg(sa_case((_pnl_expr <= 0, TradeHistory.predicted_flip_prob), else_=None)).label("avg_loss_prob")
+                func.avg(
+                    sa_case((_pnl_expr > 0, TradeHistory.executed_price), else_=None)
+                ).label("avg_win_price"),
+                func.avg(
+                    sa_case((_pnl_expr <= 0, TradeHistory.executed_price), else_=None)
+                ).label("avg_loss_price"),
+                func.avg(
+                    sa_case(
+                        (_pnl_expr > 0, TradeHistory.predicted_flip_prob), else_=None
+                    )
+                ).label("avg_win_prob"),
+                func.avg(
+                    sa_case(
+                        (_pnl_expr <= 0, TradeHistory.predicted_flip_prob), else_=None
+                    )
+                ).label("avg_loss_prob"),
             ).where(*conds)
             return (await s.execute(stmt)).first()
 
@@ -149,16 +179,18 @@ async def get_trading_stats(
                 func.count(TradeHistory.id).label("total_trades"),
                 func.sum(_pnl_expr).label("total_pnl"),
                 func.sum(sa_case((_pnl_expr > 0, 1), else_=0)).label("wins"),
-                func.sum(sa_case((_pnl_expr < 0, 1), else_=0)).label("losses")
+                func.sum(sa_case((_pnl_expr < 0, 1), else_=0)).label("losses"),
             ).where(*conds)
             return (await s.execute(stmt)).first()
 
-    settings_rows, assets_rows, daily_rows, params_row, totals_row = await asyncio.gather(
-        fetch_settings(),
-        fetch_assets(),
-        fetch_daily(),
-        fetch_params(),
-        fetch_all_time_totals()
+    settings_rows, assets_rows, daily_rows, params_row, totals_row = (
+        await asyncio.gather(
+            fetch_settings(),
+            fetch_assets(),
+            fetch_daily(),
+            fetch_params(),
+            fetch_all_time_totals(),
+        )
     )
 
     initial_capital = settings.INITIAL_CAPITAL
@@ -166,13 +198,15 @@ async def get_trading_stats(
         if row.key == "INITIAL_CAPITAL":
             initial_capital = float(row.value)
 
-    asset_stats = {asset: {"pnl": 0.0, "trades": 0, "wins": 0} for asset in settings.asset_list}
+    asset_stats = {
+        asset: {"pnl": 0.0, "trades": 0, "wins": 0} for asset in settings.asset_list
+    }
     for row in assets_rows:
         if row.asset in asset_stats:
             asset_stats[row.asset] = {
                 "pnl": float(row.total_pnl or 0),
                 "trades": int(row.total_trades or 0),
-                "wins": int(row.wins or 0)
+                "wins": int(row.wins or 0),
             }
 
     # Итоговые KPI карточки дашборда ВСЕГДА считаются за всё время
@@ -190,7 +224,7 @@ async def get_trading_stats(
             daily_pnl_map[day_str] = {
                 "pnl": float(row.daily_pnl or 0),
                 "wins": int(row.wins or 0),
-                "losses": int(row.losses or 0)
+                "losses": int(row.losses or 0),
             }
 
     avg_win_price = float(params_row.avg_win_price or 0) if params_row else 0
@@ -209,8 +243,8 @@ async def get_trading_stats(
             "avg_win_price": round(avg_win_price, 3),
             "avg_loss_price": round(avg_loss_price, 3),
             "avg_win_prob": round(avg_win_prob, 3),
-            "avg_loss_prob": round(avg_loss_prob, 3)
-        }
+            "avg_loss_prob": round(avg_loss_prob, 3),
+        },
     }
 
     _stats_cache[cache_key] = {"time": current_time, "data": result}
@@ -235,17 +269,21 @@ async def get_funnel_stats(
         base_filter.append(DecisionFunnelLog.asset == asset.upper())
 
     gate_names = [
-        "g1_model_loaded", "g2_price_fetched", "g3_dead_zone",
-        "g4_no_flip", "g5_min_edge", "g6_price_range",
-        "g7_crypto_confirm", "g8_combined_vote",
+        "g1_model_loaded",
+        "g2_price_fetched",
+        "g3_dead_zone",
+        "g4_no_flip",
+        "g5_min_edge",
+        "g6_price_range",
+        "g7_crypto_confirm",
+        "g8_combined_vote",
     ]
 
     # Одним SQL-запросом: total, traded, и COUNT blocked по каждому гейту
     gate_cols = [
         func.count(
             sa_case(
-                (getattr(DecisionFunnelLog, g) == False, 1),  # noqa: E712
-                else_=None
+                (getattr(DecisionFunnelLog, g) == False, 1), else_=None  # noqa: E712
             )
         ).label(f"blocked_{g}")
         for g in gate_names
@@ -255,7 +293,7 @@ async def get_funnel_stats(
         func.count(
             sa_case(
                 (DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1),
-                else_=None
+                else_=None,
             )
         ).label("traded"),
         *gate_cols,
@@ -275,16 +313,20 @@ async def get_funnel_stats(
     }
 
     # by_asset — отдельный компактный GROUP BY запрос
-    asset_q = select(
-        DecisionFunnelLog.asset,
-        func.count().label("total"),
-        func.count(
-            sa_case(
-                (DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1),
-                else_=None
-            )
-        ).label("traded"),
-    ).where(and_(*base_filter)).group_by(DecisionFunnelLog.asset)
+    asset_q = (
+        select(
+            DecisionFunnelLog.asset,
+            func.count().label("total"),
+            func.count(
+                sa_case(
+                    (DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1),
+                    else_=None,
+                )
+            ).label("traded"),
+        )
+        .where(and_(*base_filter))
+        .group_by(DecisionFunnelLog.asset)
+    )
     asset_rows = (await db.execute(asset_q)).all()
     by_asset = {r.asset: {"total": r.total, "traded": r.traded} for r in asset_rows}
 
@@ -365,57 +407,81 @@ async def get_pnl_markers(
 
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-    cfg_rows = (await db.execute(
-        select(StrategyConfig)
-        .where(StrategyConfig.changed_at >= since)
-        .order_by(StrategyConfig.changed_at.asc())
-    )).scalars().all()
+    cfg_rows = (
+        (
+            await db.execute(
+                select(StrategyConfig)
+                .where(StrategyConfig.changed_at >= since)
+                .order_by(StrategyConfig.changed_at.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     grouped = defaultdict(list)
     for r in cfg_rows:
         ts_key = r.changed_at.strftime("%Y-%m-%dT%H:%M:00+00:00")
-        grouped[ts_key].append({
-            "key": r.key,
-            "old_value": r.old_value,
-            "new_value": r.new_value,
-            "changed_by": r.changed_by,
-        })
+        grouped[ts_key].append(
+            {
+                "key": r.key,
+                "old_value": r.old_value,
+                "new_value": r.new_value,
+                "changed_by": r.changed_by,
+            }
+        )
 
     markers = []
     for ts, changes in grouped.items():
-        tooltip_lines = [f"{c['key']}: {c['old_value']} ➔ {c['new_value']}" for c in changes[:5]]
+        tooltip_lines = [
+            f"{c['key']}: {c['old_value']} ➔ {c['new_value']}" for c in changes[:5]
+        ]
         if len(changes) > 5:
             tooltip_lines.append(f"... и ещё {len(changes)-5} параметров")
 
-        markers.append({
-            "timestamp": ts,
-            "static_version": STATIC_VERSION,
-            "label": f"⚙️ {len(changes)} param(s)",
-            "marker_type": "setting_change",
-            "changes": changes,
-            "tooltip": "\n".join(tooltip_lines),
-        })
+        markers.append(
+            {
+                "timestamp": ts,
+                "static_version": STATIC_VERSION,
+                "label": f"⚙️ {len(changes)} param(s)",
+                "marker_type": "setting_change",
+                "changes": changes,
+                "tooltip": "\n".join(tooltip_lines),
+            }
+        )
 
-    ath_rows = (await db.execute(
-        select(ConfigPreset)
-        .where(
-            and_(
-                ConfigPreset.preset_type.in_(["ath_capital", "ath_pnl"]),
-                ConfigPreset.created_at >= since,
-                ConfigPreset.is_active == True,  # noqa: E712
+    ath_rows = (
+        (
+            await db.execute(
+                select(ConfigPreset)
+                .where(
+                    and_(
+                        ConfigPreset.preset_type.in_(["ath_capital", "ath_pnl"]),
+                        ConfigPreset.created_at >= since,
+                        ConfigPreset.is_active == True,  # noqa: E712
+                    )
+                )
+                .order_by(ConfigPreset.created_at.asc())
             )
         )
-        .order_by(ConfigPreset.created_at.asc())
-    )).scalars().all()
+        .scalars()
+        .all()
+    )
 
     for a in ath_rows:
-        markers.append({
-            "timestamp": a.created_at.isoformat(),
-            "label": f"🏆 {a.name}",
-            "marker_type": "ath",
-            "changes": [],
-            "tooltip": f"Capital: ${a.capital_at_save:.2f} | PnL: ${a.pnl_at_save:.2f}" if a.capital_at_save else a.name,
-        })
+        markers.append(
+            {
+                "timestamp": a.created_at.isoformat(),
+                "label": f"🏆 {a.name}",
+                "marker_type": "ath",
+                "changes": [],
+                "tooltip": (
+                    f"Capital: ${a.capital_at_save:.2f} | PnL: ${a.pnl_at_save:.2f}"
+                    if a.capital_at_save
+                    else a.name
+                ),
+            }
+        )
 
     markers.sort(key=lambda x: x["timestamp"])
     return {"count": len(markers), "markers": markers}
