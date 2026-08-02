@@ -378,7 +378,15 @@
         let dashboardRefreshPending = false;
         let dashboardTimer = null;
 
+                function resetRenderState() {
+            renderState.tradable = null;
+            renderState.resolved = null;
+            renderState.archive = null;
+            renderState.requests = null;
+        }
+
         function showDashboardLoadError(message) {
+            resetRenderState();
             const safeMessage = escapeHtml(message || "Не удалось загрузить данные");
             [
                 "#tradable-positions-table tbody",
@@ -545,13 +553,15 @@ if (typeof translateError === 'undefined') {
                 dashboardLoading = false;
                 if (dashboardRefreshPending) {
                     dashboardRefreshPending = false;
-                    queueMicrotask(() => loadLiveDashboard({ force: true }));
+                    if (!document.hidden) {
+                        queueMicrotask(() => loadLiveDashboard());
+                    }
                 }
             }
         }
 
         async function dashboardRefreshLoop() {
-            await loadLiveDashboard({ force: true });
+            await loadLiveDashboard();
             dashboardTimer = setTimeout(
                 dashboardRefreshLoop,
                 15000
@@ -572,18 +582,12 @@ if (typeof translateError === 'undefined') {
             requests: null,
         };
 
-        function rowsKey(rows, fields) {
-            return JSON.stringify(
-                rows.map(row => fields.map(field => row[field]))
-            );
-        }
-
         function renderPositions(positions) {
             const tradable = positions.tradable || [];
             const resolved = positions.resolved || [];
             const archive = positions.archive || [];
 
-            const tradableKey = rowsKey(tradable, ["id", "position_status", "remaining_shares", "realized_pnl_usdc"]);
+            const tradableKey = JSON.stringify(tradable);
             if (tradableKey !== renderState.tradable) {
                 renderState.tradable = tradableKey;
                 const tbodyTradable = document.querySelector('#tradable-positions-table tbody');
@@ -615,7 +619,7 @@ if (typeof translateError === 'undefined') {
             }
             }
 
-            const resolvedKey = rowsKey(resolved, ["id", "position_status", "redemption_status", "remaining_shares", "realized_pnl_usdc"]);
+            const resolvedKey = JSON.stringify(resolved);
             if (resolvedKey !== renderState.resolved) {
                 renderState.resolved = resolvedKey;
                 const tbodyResolved = document.querySelector('#resolved-markets-table tbody');
@@ -651,7 +655,7 @@ if (typeof translateError === 'undefined') {
             }
             }
 
-            const archiveKey = rowsKey(archive, ["id", "position_status"]);
+            const archiveKey = JSON.stringify(archive);
             if (archiveKey !== renderState.archive) {
                 renderState.archive = archiveKey;
                 const tbodyArchive = document.querySelector('#archive-table tbody');
@@ -674,7 +678,7 @@ if (typeof translateError === 'undefined') {
         }
 
         function renderRequests(requests) {
-            const requestsKey = rowsKey(requests, ["id", "state", "updated_at", "filled_shares", "filled_cost_usdc", "error_reason"]);
+            const requestsKey = JSON.stringify(requests);
             if (requestsKey !== renderState.requests) {
                 renderState.requests = requestsKey;
                 const tbody = document.querySelector('#requests-table tbody');

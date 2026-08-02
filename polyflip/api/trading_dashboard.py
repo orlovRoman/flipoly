@@ -25,13 +25,12 @@ templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
 @router.get("/trading")
 async def get_trading_dashboard(request: Request):
     return templates.TemplateResponse(
-        "trading.html", 
+        "trading.html",
         {
             "request": request,
             "timestamp": int(time.time()),
             "static_version": STATIC_VERSION,
-            "static_version": STATIC_VERSION,
-            "root_path": request.scope.get("root_path", ""), 
+"root_path": request.scope.get("root_path", ""),
             "assets": settings.asset_list
         }
     )
@@ -213,7 +212,7 @@ async def get_trading_stats(
             "avg_loss_prob": round(avg_loss_prob, 3)
         }
     }
-    
+
     _stats_cache[cache_key] = {"time": current_time, "data": result}
     return result
 

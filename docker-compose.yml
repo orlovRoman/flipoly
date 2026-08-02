@@ -28,6 +28,7 @@ services:
       - "8001:8001"
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - API_KEY=${API_KEY:-test-key}
       - ASSETS=${ASSETS:-BTC,ETH,SOL,XRP,DOGE}
       - EXECUTION_MODE=${EXECUTION_MODE:-PAPER}
@@ -56,6 +57,7 @@ services:
       - db
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - API_KEY=${API_KEY:-test-key}
       - ASSETS=${ASSETS:-BTC,ETH,SOL,XRP,DOGE}
       - EXECUTION_MODE=${EXECUTION_MODE:-PAPER}
@@ -86,6 +88,7 @@ services:
       - db
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - EXECUTION_MODE=PAPER
     volumes:
       - ./polyflip:/app/polyflip
@@ -105,6 +108,7 @@ services:
     profiles: ["live"]
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - POLYGON_PRIVATE_KEY=${POLYGON_PRIVATE_KEY}
       - POLYGON_ADDRESS=${POLYGON_ADDRESS}
       - EXECUTION_MODE=LIVE
@@ -126,6 +130,7 @@ services:
     profiles: ["shadow"]
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - EXECUTION_MODE=SHADOW
     volumes:
       - ./polyflip:/app/polyflip

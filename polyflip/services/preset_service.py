@@ -13,10 +13,21 @@ logger = structlog.get_logger(__name__)
 class PresetService:
 
     @staticmethod
+    def get_trading_preset_settings(settings: Dict[str, str]) -> Dict[str, str]:
+        """Оставляет только те настройки, которые входят в торговый пресет (белый список)."""
+        valid_keys = set(editable_keys())
+        return {
+            key: value
+            for key, value in settings.items()
+            if key in valid_keys
+        }
+
+    @staticmethod
     async def capture_snapshot(db: AsyncSession) -> Dict[str, str]:
-        """Читает ВСЕ RuntimeSettings и возвращает dict {key: value}."""
+        """Читает RuntimeSettings и возвращает только торговые параметры."""
         rows = (await db.execute(select(RuntimeSettings))).scalars().all()
-        return {r.key: r.value for r in rows}
+        all_settings = {r.key: r.value for r in rows}
+        return PresetService.get_trading_preset_settings(all_settings)
 
     @staticmethod
     async def save_preset(
@@ -63,16 +74,14 @@ class PresetService:
             raise ValueError(f"Пресет {preset_id} не найден или был удалён")
 
         params = json.loads(preset.snapshot)
-        valid_editable_keys = set(editable_keys())
+        # Фильтруем параметры через белый список, чтобы старые пресеты не перезаписали лишнее
+        safe_params = PresetService.get_trading_preset_settings(params)
+
         now = datetime.now(timezone.utc)
         changed = 0
         updated_params = {}
 
-        for key, value in params.items():
-            # Безопасность: восстанавливаем только ключи из editable_keys()
-            if key not in valid_editable_keys:
-                continue
-
+        for key, value in safe_params.items():
             row = await db.get(RuntimeSettings, key)
             if row:
                 if row.value != str(value):
