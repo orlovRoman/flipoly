@@ -316,7 +316,6 @@
         </main>
     </div>
 
-
     <script>
         let API_KEY = "{{ api_key }}";
         if (!API_KEY) {
@@ -352,8 +351,10 @@
             currentMode = document.getElementById('mode-select').value;
             filterFrom = document.getElementById('date-from').value;
             filterTo = document.getElementById('date-to').value;
+            currentPage = 1;
             loadStatus();
         }
+
         let statusData = null;
         let currentPage = 1;
         let currentSortField = 'pnl';
@@ -364,6 +365,35 @@
         let fiChart = null;
         let pnlChart = null;
         let localActiveTrainings = {};
+
+        function setSort(field) {
+            if (currentSortField === field) {
+                currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc';
+            } else {
+                currentSortField = field;
+                currentSortOrder = 'desc';
+            }
+            currentPage = 1;
+            updateSortUI();
+
+            if (lastModelsData) {
+                renderModelCards(lastModelsData, lastPnlData);
+            }
+        }
+
+        function updateSortUI() {
+            document.querySelectorAll('.sort-btn').forEach(btn => {
+                btn.classList.remove('active');
+                btn.innerText = btn.innerText
+                    .replace(' ↓', '')
+                    .replace(' ↑', '');
+
+                if (btn.dataset.sort === currentSortField) {
+                    btn.classList.add('active');
+                    btn.innerText += currentSortOrder === 'asc' ? ' ↑' : ' ↓';
+                }
+            });
+        }
 
         function updateTrainButtonsAndBanner(activeTrainings) {
             const symbols = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"];
@@ -448,8 +478,14 @@
                 // PnL — не критичен, грузим с fallback
                 let pnlData = {};
                 if (pnlRes.ok) {
-                    try { pnlData = await pnlRes.json(); } 
-                    catch (e) { console.warn("[CryptoPnL] Parse error", e); }
+                    try {
+                        pnlData = await pnlRes.json();
+                    } catch (e) {
+                        console.warn("[CryptoPnL] Parse error", e);
+                    }
+                } else {
+                    const errorText = await pnlRes.text().catch(() => '');
+                    console.error("[CryptoAnalytics]", pnlRes.status, errorText);
                 }
 
                 // Заполняем настройки гиперпараметров
@@ -477,7 +513,6 @@
                 }
 
                 // Рендер карточек моделей с PnL
-                
                 updateSortUI();
                 lastModelsData = d.models;
                 lastPnlData = pnlData;
@@ -485,38 +520,17 @@
                 updateFeatureImportanceChart();
 
             } catch (err) {
-                console.error(err);
-            }
-        }
-
-        
-        
-
-        function setSort(field) {
-            if (currentSortField === field) {
-                toggleSortOrder();
-            } else {
-                currentSortField = field;
-                sortAscending = false;
-            }
-            updateSortUI();
-            onFilterChange();
-        }
-        function updateSortUI() {
-            document.querySelectorAll('.sort-btn').forEach(btn => {
-                btn.classList.remove('active');
-                btn.innerText = btn.innerText.replace(' ↓', '').replace(' ↑', '');
-                if (btn.dataset.sort === currentSortField) {
-                    btn.classList.add('active');
-                    btn.innerText += sortAscending ? ' ↑' : ' ↓';
+                console.error("[CryptoModels] load failed", err);
+                const el = document.getElementById('models-status');
+                if (el) {
+                    el.innerHTML = `
+                        <div style="color:#ff3366; padding:1rem; text-align:center;">
+                            Не удалось отобразить модели: ${err.message || 'неизвестная ошибка'}<br><br>
+                            <button class="btn primary-btn" onclick="loadStatus()">Повторить</button>
+                        </div>
+                    `;
                 }
-            });
-        }
-
-        function toggleSortOrder() {
-            sortAscending = !sortAscending;
-            updateSortUI();
-            onFilterChange();
+            }
         }
 
         function renderModelCards(models, pnlData) {
@@ -695,8 +709,403 @@
                 </div>
                 `;
             }).join('');
+
+            // Пагинация
+            if (totalPages > 1) {
+                let paginationHtml = `<div style="display:flex; justify-content:center; gap:0.4rem; margin-top: 1.2rem;">`;
+                for (let i = 1; i <= totalPages; i++) {
+                    const activeStyle = i === currentPage ? 'background: var(--poly-blue, #2563eb); color: white; border-color: var(--poly-blue, #2563eb);' : 'background: rgba(255,255,255,0.05); color: var(--text-muted); border-color: var(--border-color);';
+                    paginationHtml += `<button class="btn btn-page" data-page="${i}" style="min-width: 34px; padding: 0.3rem 0.6rem; font-size: 0.82rem; ${activeStyle}">${i}</button>`;
+                }
+                paginationHtml += `</div>`;
+                html += paginationHtml;
+            }
+
             el.innerHTML = html;
+            
+            document.querySelectorAll(".btn-page").forEach(btn => {
+                btn.addEventListener("click", (e) => {
+                    currentPage = parseInt(e.target.dataset.page);
+                    renderModelCards(lastModelsData, lastPnlData);
+                });
+            });
+
+            document.querySelectorAll(".btn-activate-model").forEach(btn => {
+                btn.addEventListener("click", async (e) => {
+                    const asset = e.target.dataset.asset;
+                    const version = e.target.dataset.version;
+                    if (!confirm(`Активировать модель ${asset} версии ${version}?`)) return;
+                    
+                    try {
+                        const r = await fetch(window.API_BASE + `/crypto/api/models/${asset}/activate/${version}`, {
+                            method: "POST", headers: H
+                        });
+                        const d = await r.json();
+                        if (r.ok) {
+                            loadStatus();
+                        } else {
+                            alert("Ошибка активации: " + (d.detail || JSON.stringify(d)));
+                        }
+                    } catch(err) {
+                        alert("Ошибка сети при активации");
+                    }
+                });
+            });
+
+            document.querySelectorAll(".btn-delete-model").forEach(btn => {
+                btn.addEventListener("click", async (e) => {
+                    const asset = e.target.dataset.asset;
+                    const version = e.target.dataset.version;
+                    if (!confirm(`Удалить архивную модель ${asset} версии ${version}? Операция необратима!`)) return;
+                    
+                    try {
+                        const r = await fetch(window.API_BASE + `/crypto/api/models/${asset}/${version}`, {
+                            method: "DELETE", headers: H
+                        });
+                        const d = await r.json();
+                        if (r.ok) {
+                            loadStatus();
+                        } else {
+                            alert("Ошибка удаления: " + (d.detail || JSON.stringify(d)));
+                        }
+                    } catch(err) {
+                        alert("Ошибка сети при удалении");
+                    }
+                });
+            });
         }
+
+        const chartColors = [
+            '#00d2ff', '#3a7bd5', '#8e2de2', '#4a00e0', '#ff416c', 
+            '#ff4b2b', '#f7b733', '#fc4a1a', '#00b4db', '#0083b0',
+            '#56ab2f', '#a8e063', '#fdc830', '#f37335', '#11998e'
+        ];
+
+        function updateFeatureImportanceChart() {
+            const sym = document.getElementById('fi-symbol-selector').value;
+            const ctx = document.getElementById('fi-chart').getContext('2d');
+            
+            if (!statusData || !statusData.feature_importances || !statusData.feature_importances[sym]) {
+                if (fiChart) {
+                    fiChart.destroy();
+                    fiChart = null;
+                }
+                ctx.clearRect(0, 0, 300, 300);
+                return;
+            }
+
+            const fi = statusData.feature_importances[sym];
+            const sorted = Object.entries(fi).sort((a, b) => b[1] - a[1]).slice(0, 15);
+            
+            const labelMap = {
+                'vol_ratio': 'Отношение объемов',
+                'vol_z_6': 'Z-оценка общ 6ч',
+                'vol_48': 'Объем 48ч',
+                'vol_24': 'Объем 24ч',
+                'vol_6': 'Объем 6ч',
+                'vol_1': 'Объем 1ч',
+                'dist_to_low_24': 'Спред до мин 24ч',
+                'dist_to_high_24': 'Спред до макс 24ч',
+                'dist_to_high_96': 'Спред до макс 96ч',
+                'ret_1': 'Доходность 1ч',
+                'ret_3': 'Доходность 3ч',
+                'ret_6': 'Доходность 6ч',
+                'ret_12': 'Доходность 12ч',
+                'ret_24': 'Доходность 24ч',
+                'ret_48': 'Доходность 48ч',
+                'bb_position': 'Позиция BB',
+                'bb_width': 'Ширина BB',
+                'hour_utc': 'Час (UTC)',
+                'range_1': 'Волатильность 1ч',
+                'range_6': 'Волатильность 6ч',
+                'range_24': 'Волатильность 24ч',
+                'range_48': 'Волатильность 48ч',
+                'rsi_14': 'RSI 14',
+                'macd': 'MACD',
+                'macd_signal': 'MACD Сигнал',
+                'macd_hist': 'MACD Гист',
+                'atr_14': 'ATR 14',
+                'taker_buy_ratio': 'Taker Buy Ratio',
+                'range_avg_24': 'Ср. волат-ть 24ч'
+            };
+
+            const labels = sorted.map(x => labelMap[x[0]] || x[0]);
+            const data = sorted.map(x => x[1]);
+            const bgColors = sorted.map((_, i) => chartColors[i % chartColors.length]);
+
+            if (fiChart) {
+                fiChart.data.labels = labels;
+                fiChart.data.datasets[0].data = data;
+                fiChart.data.datasets[0].backgroundColor = bgColors;
+                fiChart.update('none'); // Update without animation to prevent flashing on intervals
+            } else {
+                fiChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Важность фичи',
+                            data: data,
+                            backgroundColor: bgColors,
+                            borderWidth: 0,
+                            borderRadius: 6
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: { duration: 500 },
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            x: { 
+                                grid: { color: 'rgba(255,255,255,0.05)' }, 
+                                ticks: { color: '#a0a0a0', font: { family: 'Inter, sans-serif', size: 11 } } 
+                            },
+                            y: { 
+                                grid: { display: false }, 
+                                ticks: { 
+                                    color: '#E2E8F0', 
+                                    font: { size: 13, family: 'Inter, sans-serif', weight: 'bold' } 
+                                } 
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        async function saveSettings() {
+            const settings = {
+                n_estimators: parseInt(document.getElementById('p-n-estimators').value),
+                learning_rate: parseFloat(document.getElementById('p-learning-rate').value),
+                num_leaves: parseInt(document.getElementById('p-num-leaves').value),
+                max_depth: parseInt(document.getElementById('p-max-depth').value),
+                min_child_samples: parseInt(document.getElementById('p-min-child-samples').value),
+                subsample: parseFloat(document.getElementById('p-subsample').value),
+                colsample_bytree: parseFloat(document.getElementById('p-colsample-bytree').value),
+                epsilon_quantile: parseFloat(document.getElementById('p-epsilon-quantile').value),
+                min_edge: parseFloat(document.getElementById('p-min-edge').value),
+            };
+
+            try {
+                const r = await fetch('/crypto/api/settings', {
+                    method: 'POST',
+                    headers: H,
+                    body: JSON.stringify(settings)
+                });
+                const d = await r.json();
+                if (!r.ok) {
+                    alert(`❌ Ошибка сохранения настроек: ${d.detail || d.message || 'Неизвестная ошибка (код ' + r.status + ')'}`);
+                    return;
+                }
+                alert(d.message);
+                loadStatus();
+            } catch (err) {
+                alert('Не удалось сохранить настройки. Проверьте сеть.');
+            }
+        }
+
+        async function retrain(symbol) {
+            requestNotificationPermission();
+
+            // Мгновенное обновление кнопки и баннера на фронтенде
+            localActiveTrainings[symbol] = { status: 'training' };
+            updateTrainButtonsAndBanner(localActiveTrainings);
+
+            try {
+                const r = await fetch(`/crypto/api/train?symbol=${symbol}`, { method: 'POST', headers: H });
+                const d = await r.json();
+                if (!r.ok || d.status === "already_running") {
+                    if (d.status === "already_running") {
+                        showNotification(`ℹ️ Обучение ${symbol}`, d.message);
+                    } else {
+                        delete localActiveTrainings[symbol];
+                        updateTrainButtonsAndBanner(localActiveTrainings);
+                        alert(`❌ Ошибка запуска обучения: ${d.detail || d.message || 'Неизвестная ошибка'}`);
+                    }
+                    return;
+                }
+
+                const getLatest = (models, asset) => {
+                    if (!models) return null;
+                    return Object.values(models).filter(m => m.asset === asset && m.is_active).sort((a,b) => b.version - a.version)[0] || null;
+                };
+
+                const makeSnapshot = (m) => m ? { version: m.version, auc: m.auc, threshold: m.threshold } : null;
+
+                if (!statusData || !statusData.models) {
+                    await loadStatus();
+                }
+
+                const oldLowM = makeSnapshot(getLatest(statusData?.models, `${symbol}_low_vol`));
+                const oldMidM = makeSnapshot(getLatest(statusData?.models, `${symbol}_mid_vol`));
+                const oldHighM = makeSnapshot(getLatest(statusData?.models, `${symbol}_high_vol`));
+                const oldLow = oldLowM ? oldLowM.version : 0;
+                const oldMid = oldMidM ? oldMidM.version : 0;
+                const oldHigh = oldHighM ? oldHighM.version : 0;
+                
+                // Запускаем опрос статуса каждые 2 секунды
+                const MAX_POLLS = 300; // 10 минут макс
+                let pollCount = 0;
+                let isPolling = false;
+                
+                const intervalId = setInterval(async () => {
+                    if (isPolling) return;
+                    isPolling = true;
+                    pollCount++;
+                    try {
+                        await loadStatus();
+                        
+                        const isStillTraining = !!localActiveTrainings[symbol];
+                        const newLowM = getLatest(statusData?.models, `${symbol}_low_vol`);
+                        const newMidM = getLatest(statusData?.models, `${symbol}_mid_vol`);
+                        const newHighM = getLatest(statusData?.models, `${symbol}_high_vol`);
+                        const newLow = newLowM ? newLowM.version : 0;
+                        const newMid = newMidM ? newMidM.version : 0;
+                        const newHigh = newHighM ? newHighM.version : 0;
+                    
+                        if (!isStillTraining || newLow > oldLow || newHigh > oldHigh || newMid > oldMid) {
+                            clearInterval(intervalId);
+                            delete localActiveTrainings[symbol];
+                            updateTrainButtonsAndBanner(localActiveTrainings);
+                            
+                            const formatMetricDiff = (newObj, oldObj) => {
+                                if (!newObj) return '';
+                                let versionStr = `v${newObj.version}`;
+                                if (oldObj && oldObj.version !== newObj.version) {
+                                    versionStr += ` (было v${oldObj.version})`;
+                                }
+                                
+                                let aucStr = `AUC: ${newObj.auc ?? '?'}`;
+                                if (newObj?.auc != null && oldObj?.auc != null) {
+                                    const diff = Number((newObj.auc - oldObj.auc).toFixed(4));
+                                    if (diff > 0.0001) {
+                                        aucStr += ` (+${diff.toFixed(4)} 📈 🟢 лучше)`;
+                                    } else if (diff < -0.0001) {
+                                        aucStr += ` (${diff.toFixed(4)} 📉 🔴 хуже)`;
+                                    } else {
+                                        aucStr += ` (= ⚖️ без изм.)`;
+                                    }
+                                } else if (!oldObj) {
+                                    aucStr += ` (✨ новая)`;
+                                }
+                                
+                                let thrStr = `Thr: ${newObj.threshold ?? '?'}`;
+                                if (newObj?.threshold != null && oldObj?.threshold != null && newObj.threshold !== oldObj.threshold) {
+                                    thrStr += ` (было ${oldObj.threshold})`;
+                                }
+                                return `${versionStr} | ${aucStr} | ${thrStr}`;
+                            };
+
+                            let msgLines = [`Модель для ${symbol} успешно обновлена!`];
+                            if (newLowM) msgLines.push(`Low: ${formatMetricDiff(newLowM, oldLowM)}`);
+                            if (newMidM) msgLines.push(`Mid: ${formatMetricDiff(newMidM, oldMidM)}`);
+                            if (newHighM) msgLines.push(`High: ${formatMetricDiff(newHighM, oldHighM)}`);
+                            const msg = msgLines.join('\n');
+
+                            showNotification(`✅ Обучение ${symbol} завершено`, msg);
+                            alert(msg);
+                        } else if (pollCount >= MAX_POLLS) {
+                            clearInterval(intervalId);
+                            delete localActiveTrainings[symbol];
+                            updateTrainButtonsAndBanner(localActiveTrainings);
+                            alert(`⚠️ Таймаут ожидания обучения ${symbol}. Проверьте статус вручную.`);
+                        }
+                    } finally {
+                        isPolling = false;
+                    }
+                }, 2000);
+            } catch (err) {
+                delete localActiveTrainings[symbol];
+                updateTrainButtonsAndBanner(localActiveTrainings);
+                alert('Не удалось связаться с сервером для запуска обучения.');
+            }
+        }
+
+        async function runBacktester() {
+            const sym = document.getElementById('bt-symbol').value;
+            const minEdge = parseFloat(document.getElementById('p-min-edge').value);
+            
+            document.getElementById('backtest-loading').style.display = 'block';
+            document.getElementById('backtest-container').style.display = 'none';
+
+            try {
+                const r = await fetch(`/crypto/api/backtest?symbol=${sym}&min_edge=${minEdge}`, { headers: H });
+                const d = await r.json();
+                
+                document.getElementById('backtest-loading').style.display = 'none';
+                
+                if (d.error) {
+                    alert(`❌ Ошибка бэктеста: ${d.error}`);
+                    return;
+                }
+
+                document.getElementById('backtest-container').style.display = 'block';
+                
+                const okEl = document.getElementById('bt-edge-status');
+                if (d.is_profitable) {
+                    okEl.innerHTML = '✅ EDGE ЕСТЬ';
+                    okEl.className = 'stat-value highlight';
+                } else {
+                    okEl.innerHTML = '❌ НЕТ EDGE';
+                    okEl.className = 'stat-value';
+                }
+
+                document.getElementById('bt-trades').innerText = d.n_trades;
+                document.getElementById('bt-win-rate').innerText = `${(d.win_rate * 100).toFixed(1)}%`;
+                document.getElementById('bt-return').innerText = `${(d.total_return_net * 100).toFixed(2)}%`;
+                document.getElementById('bt-sharpe').innerText = d.sharpe_ratio.toFixed(2);
+                document.getElementById('bt-max-dd').innerText = `${(d.max_drawdown * 100).toFixed(2)}%`;
+                document.getElementById('bt-edge-rate').innerText = `${(d.edge_rate * 100).toFixed(1)}%`;
+                document.getElementById('bt-auc').innerText = d.train_auc.toFixed(3);
+
+                // Рендерим график PnL
+                renderPnLChart(d.pnl_curve);
+            } catch (err) {
+                document.getElementById('backtest-loading').style.display = 'none';
+                alert('Не удалось рассчитать бэктест. Проверьте логи.');
+            }
+        }
+
+        function renderPnLChart(curve) {
+            const ctx = document.getElementById('pnl-chart').getContext('2d');
+            if (pnlChart) {
+                pnlChart.destroy();
+            }
+
+            if (!curve || curve.length === 0) {
+                return;
+            }
+
+            pnlChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: curve.map(x => x.time.slice(0, 16).replace('T', ' ')),
+                    datasets: [{
+                        label: 'Net PnL (%)',
+                        data: curve.map(x => x.pnl),
+                        borderColor: '#ffc107',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#888' } },
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#FFF' } }
+                    }
+                }
+            });
+        }
+
+        loadStatus();
     </script>
 </body>
 </html>
