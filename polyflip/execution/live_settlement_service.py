@@ -13,19 +13,24 @@ from polyflip.constants import HTTP_TIMEOUT_SEC
 
 logger = structlog.get_logger(__name__)
 
+
 class LivePositionNotFound(Exception):
     pass
+
 
 class MarketNotResolved(Exception):
     pass
 
+
 class GammaApiError(Exception):
     pass
+
 
 @dataclass
 class ResolutionResult:
     final_outcome: str  # "YES" or "NO"
     resolution_source: str
+
 
 async def fetch_polymarket_market(market_id: str) -> dict:
     """Получает данные рынка напрямую из Gamma API Polymarket."""
@@ -36,37 +41,45 @@ async def fetch_polymarket_market(market_id: str) -> dict:
             if resp.status_code == 200:
                 return resp.json()
             else:
-                logger.error("gamma_api_market_fetch_failed", status=resp.status_code, market_id=market_id)
+                logger.error(
+                    "gamma_api_market_fetch_failed",
+                    status=resp.status_code,
+                    market_id=market_id,
+                )
                 raise GammaApiError(f"HTTP {resp.status_code}")
         except Exception as e:
             if not isinstance(e, GammaApiError):
-                logger.error("gamma_api_market_fetch_error", error=str(e), market_id=market_id)
+                logger.error(
+                    "gamma_api_market_fetch_error", error=str(e), market_id=market_id
+                )
                 raise GammaApiError(str(e))
             raise
 
+
 def parse_confirmed_resolution(market: dict) -> Optional[ResolutionResult]:
-    """Определяет результат по outcomes + outcomePrices, а не доверяет недокументированному winning_outcome."""
+    """Определяет результат по outcomes + outcomePrices,
+    а не доверяет winning_outcome."""
     if not market:
         return None
 
     is_closed = market.get("closed", False)
     if not is_closed:
         return None
-        
+
     outcomes = market.get("outcomes", [])
     if isinstance(outcomes, str):
         try:
             outcomes = json.loads(outcomes)
-        except:
+        except Exception:
             pass
 
     outcome_prices = market.get("outcomePrices", [])
     if isinstance(outcome_prices, str):
         try:
             outcome_prices = json.loads(outcome_prices)
-        except:
+        except Exception:
             pass
-            
+
     if outcomes and outcome_prices and len(outcomes) == len(outcome_prices):
         try:
             for i, p in enumerate(outcome_prices):
@@ -74,14 +87,20 @@ def parse_confirmed_resolution(market: dict) -> Optional[ResolutionResult]:
                     winner = outcomes[i]
                     wo = str(winner).upper()
                     if wo in ("UP", "YES", "1"):
-                        return ResolutionResult(final_outcome="YES", resolution_source="GAMMA_API")
+                        return ResolutionResult(
+                            final_outcome="YES", resolution_source="GAMMA_API"
+                        )
                     elif wo in ("DOWN", "NO", "0"):
-                        return ResolutionResult(final_outcome="NO", resolution_source="GAMMA_API")
+                        return ResolutionResult(
+                            final_outcome="NO", resolution_source="GAMMA_API"
+                        )
                     else:
-                        return ResolutionResult(final_outcome="INVALID", resolution_source="GAMMA_API")
-        except:
+                        return ResolutionResult(
+                            final_outcome="INVALID", resolution_source="GAMMA_API"
+                        )
+        except Exception:
             pass
-            
+
     winning_outcome = market.get("winning_outcome")
     if winning_outcome:
         wo = str(winning_outcome).upper()
@@ -90,17 +109,24 @@ def parse_confirmed_resolution(market: dict) -> Optional[ResolutionResult]:
         elif wo in ("DOWN", "NO", "0"):
             return ResolutionResult(final_outcome="NO", resolution_source="GAMMA_API")
         elif wo == "INVALID":
-            return ResolutionResult(final_outcome="INVALID", resolution_source="GAMMA_API")
+            return ResolutionResult(
+                final_outcome="INVALID", resolution_source="GAMMA_API"
+            )
 
     return None
 
-async def save_market_resolution(db: AsyncSession, market_id: str, resolution: ResolutionResult) -> None:
+
+async def save_market_resolution(
+    db: AsyncSession, market_id: str, resolution: ResolutionResult
+) -> None:
     market = await db.scalar(
         select(LiveMarket).where(LiveMarket.market_id == market_id).with_for_update()
     )
     if market:
         market.trading_status = "RESOLVED"
-        market.resolution_status = "RESOLVED" if resolution.final_outcome != "INVALID" else "INVALID"
+        market.resolution_status = (
+            "RESOLVED" if resolution.final_outcome != "INVALID" else "INVALID"
+        )
         market.final_outcome = resolution.final_outcome
         market.resolution_source = resolution.resolution_source
         market.resolved_at = datetime.now(timezone.utc)
@@ -108,7 +134,10 @@ async def save_market_resolution(db: AsyncSession, market_id: str, resolution: R
         market.accepting_orders = False
         await db.flush()
 
-async def refresh_market_trading_state(db: AsyncSession, market: LiveMarket, gamma_data: dict) -> None:
+
+async def refresh_market_trading_state(
+    db: AsyncSession, market: LiveMarket, gamma_data: dict
+) -> None:
     market.resolution_checked_at = datetime.now(timezone.utc)
 
     if gamma_data.get("closed"):
@@ -121,27 +150,32 @@ async def refresh_market_trading_state(db: AsyncSession, market: LiveMarket, gam
 
     await db.flush()
 
+
 async def reconcile_live_resolution(db: AsyncSession, trade_id: int) -> TradeHistory:
-    """
-    Проверяет, завершился ли рынок, и если да — обновляет позицию до RESOLVED_REDEEMABLE или RESOLVED_LOST.
-    """
+    """Проверяет, завершился ли рынок, и если да — обновляет позицию
+    до RESOLVED_REDEEMABLE или RESOLVED_LOST."""
     trade = await db.scalar(
-        select(TradeHistory)
-        .where(TradeHistory.id == trade_id)
-        .with_for_update()
+        select(TradeHistory).where(TradeHistory.id == trade_id).with_for_update()
     )
 
     if not trade or trade.mode != "LIVE":
         raise LivePositionNotFound("Позиция не найдена или не является LIVE-позицией")
-        
-    if trade.position_status in ("RESOLVED_REDEEMABLE", "RESOLVED_LOST", "REDEEMED", "CLOSED"):
+
+    if trade.position_status in (
+        "RESOLVED_REDEEMABLE",
+        "RESOLVED_LOST",
+        "REDEEMED",
+        "CLOSED",
+    ):
         # Idempotency
         return trade
 
     market_data = await fetch_polymarket_market(trade.market_id)
-    
+
     market = await db.scalar(
-        select(LiveMarket).where(LiveMarket.market_id == trade.market_id).with_for_update()
+        select(LiveMarket)
+        .where(LiveMarket.market_id == trade.market_id)
+        .with_for_update()
     )
     if market:
         await refresh_market_trading_state(db, market, market_data)

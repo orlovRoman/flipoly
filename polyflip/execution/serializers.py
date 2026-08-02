@@ -4,14 +4,16 @@ from polyflip.db.execution_models import ExecutionRequest
 from polyflip.execution.manual_review_service import evaluate_no_fill_eligibility_batch
 
 
-
 def _parse_error(error_reason: str | None) -> dict:
     if not error_reason:
         return {"error_code": None, "error_message_ru": None}
 
     normalized = error_reason.lower()
     if "insufficient funds" in normalized:
-        return {"error_code": "INSUFFICIENT_FUNDS", "error_message_ru": "Недостаточно средств на балансе или allowance"}
+        return {
+            "error_code": "INSUFFICIENT_FUNDS",
+            "error_message_ru": "Недостаточно средств на балансе или allowance",
+        }
     below_minimum_markers = (
         "invalid amount",
         "min size",
@@ -28,24 +30,33 @@ def _parse_error(error_reason: str | None) -> dict:
             ),
         }
     if "max_slippage" in normalized or "slippage" in normalized:
-        return {"error_code": "SLIPPAGE_EXCEEDED", "error_message_ru": "Превышено допустимое проскальзывание (slippage)"}
+        return {
+            "error_code": "SLIPPAGE_EXCEEDED",
+            "error_message_ru": "Превышено допустимое проскальзывание (slippage)",
+        }
     if "market closed" in normalized or "market is closed" in normalized:
-        return {"error_code": "MARKET_CLOSED", "error_message_ru": "Рынок уже закрыт или разрешен"}
+        return {
+            "error_code": "MARKET_CLOSED",
+            "error_message_ru": "Рынок уже закрыт или разрешен",
+        }
 
     return {"error_code": "UNKNOWN_ERROR", "error_message_ru": error_reason}
+
 
 async def serialize_execution_requests(
     db: AsyncSession,
     requests: list[ExecutionRequest],
 ) -> list[dict]:
-    from sqlalchemy import select, func
+    from sqlalchemy import select
     from polyflip.db.execution_models import ExecutionAttempt
 
     manual_review_requests = [
         r for r in requests if r.state == "MANUAL_REVIEW_REQUIRED"
     ]
     reconcilable_requests = [
-        r for r in requests if r.state in RECONCILABLE_REQUEST_STATES or r.state == "MANUAL_REVIEW_REQUIRED"
+        r
+        for r in requests
+        if r.state in RECONCILABLE_REQUEST_STATES or r.state == "MANUAL_REVIEW_REQUIRED"
     ]
 
     eligibility = await evaluate_no_fill_eligibility_batch(db, manual_review_requests)
@@ -53,14 +64,15 @@ async def serialize_execution_requests(
     evidence_by_req = {}
     evidence_req_ids = [r.id for r in reconcilable_requests]
     if evidence_req_ids:
-        rows = (await db.execute(
-            select(
-                ExecutionAttempt.request_id,
-                ExecutionAttempt.provider_order_id,
-                ExecutionAttempt.transaction_hashes,
+        rows = (
+            await db.execute(
+                select(
+                    ExecutionAttempt.request_id,
+                    ExecutionAttempt.provider_order_id,
+                    ExecutionAttempt.transaction_hashes,
+                ).where(ExecutionAttempt.request_id.in_(evidence_req_ids))
             )
-            .where(ExecutionAttempt.request_id.in_(evidence_req_ids))
-        )).all()
+        ).all()
         for r_id, p_id, tx_hashes in rows:
             if r_id not in evidence_by_req:
                 evidence_by_req[r_id] = {"has_order_id": False, "has_tx_hash": False}
@@ -75,43 +87,46 @@ async def serialize_execution_requests(
         if req.id in eligibility and eligibility[req.id].allowed:
             actions.append("MARK_FAILED_NO_FILL")
 
-        if req.id in evidence_by_req and (evidence_by_req[req.id]["has_order_id"] or evidence_by_req[req.id]["has_tx_hash"]):
+        if req.id in evidence_by_req and (
+            evidence_by_req[req.id]["has_order_id"]
+            or evidence_by_req[req.id]["has_tx_hash"]
+        ):
             actions.append("RECONCILE_WITH_POLYMARKET")
 
-        results.append({
-            "id": str(req.id),
-            "trade_history_id": req.trade_history_id,
-            "intent": req.intent,
-            "trigger_reason": req.trigger_reason,
-            "market_id": req.market_id,
-            "asset": req.asset,
-            "outcome_to_buy": req.outcome_to_buy,
-            "state": req.state,
-            "requested_mode": req.requested_mode,
-            "requested_shares": (
-                float(req.requested_shares) if req.requested_shares else None
-            ),
-            "limit_price": float(req.limit_price) if req.limit_price else None,
-            "target_amount_usdc": (
-                float(req.target_amount_usdc) if req.target_amount_usdc else None
-            ),
-            "filled_shares": float(req.filled_shares) if req.filled_shares else 0,
-            "filled_cost_usdc": float(req.filled_cost_usdc) if req.filled_cost_usdc else 0,
-            "ttl_seconds": req.ttl_seconds,
-            "created_at": req.created_at.isoformat() if req.created_at else None,
-            "updated_at": req.updated_at.isoformat() if req.updated_at else None,
-
-            "error_reason": req.error_reason,
-            "error_details": _parse_error(req.error_reason),
-            "available_actions": actions,
-
-            "can_mark_no_fill": (
-                req.id in eligibility and eligibility[req.id].allowed
-            ),
-            "review_blockers": list(
-                eligibility[req.id].blockers
-                if req.id in eligibility
-                else ()
-            ),
-        })
+        results.append(
+            {
+                "id": str(req.id),
+                "trade_history_id": req.trade_history_id,
+                "intent": req.intent,
+                "trigger_reason": req.trigger_reason,
+                "market_id": req.market_id,
+                "asset": req.asset,
+                "outcome_to_buy": req.outcome_to_buy,
+                "state": req.state,
+                "requested_mode": req.requested_mode,
+                "requested_shares": (
+                    float(req.requested_shares) if req.requested_shares else None
+                ),
+                "limit_price": float(req.limit_price) if req.limit_price else None,
+                "target_amount_usdc": (
+                    float(req.target_amount_usdc) if req.target_amount_usdc else None
+                ),
+                "filled_shares": float(req.filled_shares) if req.filled_shares else 0,
+                "filled_cost_usdc": (
+                    float(req.filled_cost_usdc) if req.filled_cost_usdc else 0
+                ),
+                "ttl_seconds": req.ttl_seconds,
+                "created_at": req.created_at.isoformat() if req.created_at else None,
+                "updated_at": req.updated_at.isoformat() if req.updated_at else None,
+                "error_reason": req.error_reason,
+                "error_details": _parse_error(req.error_reason),
+                "available_actions": actions,
+                "can_mark_no_fill": (
+                    req.id in eligibility and eligibility[req.id].allowed
+                ),
+                "review_blockers": list(
+                    eligibility[req.id].blockers if req.id in eligibility else ()
+                ),
+            }
+        )
     return results

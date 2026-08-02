@@ -138,7 +138,7 @@ async def get_session_budget_snapshot(
         )
         .scalar_subquery()
     )
-    
+
     reserved_sq = (
         select(func.coalesce(func.sum(unfilled_expr), 0))
         .join(
@@ -186,8 +186,12 @@ async def get_latest_live_worker_status(
         .limit(1)
     )
 
+
 async def evaluate_live_readiness(
-    db: AsyncSession, session: LiveTradingSession, *, worker_status: ExecutionWorkerStatus | None = None
+    db: AsyncSession,
+    session: LiveTradingSession,
+    *,
+    worker_status: ExecutionWorkerStatus | None = None,
 ) -> LiveReadinessResult:
     """
     Единый реальный модуль проверки 100% готовности системы к LIVE-торговле.
@@ -369,10 +373,7 @@ async def evaluate_live_readiness(
     ]
     # transport_failure already forces checks["gateway"]=False inside the else-branch;
     # no need to repeat here. ready requires all critical checks to pass.
-    ready = (
-        not transport_failure
-        and all(checks[key] for key in critical_keys)
-    )
+    ready = not transport_failure and all(checks[key] for key in critical_keys)
 
     return LiveReadinessResult(
         ready=ready, checks=checks, errors=errors, warnings=warnings

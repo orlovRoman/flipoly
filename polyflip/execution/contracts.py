@@ -4,6 +4,27 @@ from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field
 
+from polyflip.execution.gateways.exceptions import (
+    GatewayError,
+    GatewayUnavailable,
+    GatewayOrderRejected,
+    GatewaySubmissionUnknown,
+)
+
+__all__ = [
+    "BalanceResult",
+    "GatewayReadiness",
+    "GatewayUnavailable",
+    "GatewayError",
+    "GatewayOrderRejected",
+    "GatewaySubmissionUnknown",
+    "GatewayOrder",
+    "ProviderFill",
+    "ProviderOrderState",
+    "TradeExecution",
+    "ExecutionGateway",
+]
+
 
 class BalanceResult(BaseModel):
     balance_usdc: Decimal
@@ -27,10 +48,6 @@ class GatewayReadiness(BaseModel):
     error_code: str | None = None
     error_message: str | None = None
     checked_at: datetime
-
-
-class GatewayUnavailable(Exception):
-    pass
 
 
 class GatewayOrder(BaseModel):
@@ -120,11 +137,3 @@ class ExecutionGateway(Protocol):
     ) -> GatewayReadiness:
         """Get the current readiness status of the gateway."""
         ...
-
-
-from polyflip.execution.gateways.exceptions import (
-    GatewayError,
-    GatewayUnavailable,
-    GatewayOrderRejected,
-    GatewaySubmissionUnknown,
-)

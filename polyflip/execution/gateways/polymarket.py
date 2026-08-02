@@ -224,13 +224,12 @@ class PolymarketExecutionGateway:
 
             if any(marker in err_lower for marker in fak_no_liquidity_markers):
                 raise GatewayOrderRejected(
-                    "NO_LIQUIDITY_FAK: FAK-заявка не нашла встречной ликвидности и не была исполнена"
+                    "NO_LIQUIDITY_FAK: FAK-заявка не нашла встречной ликвидности "
+                    "и не была исполнена"
                 ) from e
 
             if any(keyword in err_lower for keyword in rejection_keywords):
-                raise GatewayOrderRejected(
-                    f"Order rejected by Polymarket: {e}"
-                ) from e
+                raise GatewayOrderRejected(f"Order rejected by Polymarket: {e}") from e
 
             if any(keyword in err_lower for keyword in network_keywords):
                 raise GatewaySubmissionUnknown(

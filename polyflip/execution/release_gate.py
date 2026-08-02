@@ -37,6 +37,7 @@ import logging
 import os
 import signal
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
@@ -47,6 +48,7 @@ from polyflip.db.execution_models import (
     ExecutionRequest,
     LiveMirrorCandidate,
     ExecutionWorkerStatus,
+    LiveTradingSession,
 )
 from polyflip.db.models import RuntimeSettings, TradeHistory
 from polyflip.execution.live_mirror_worker import (
@@ -56,11 +58,9 @@ from polyflip.execution.live_mirror_worker import (
 )
 from polyflip.execution.risk_checks import check_risk_limits
 from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
-from polyflip.db.execution_models import LiveTradingSession
 
 logger = logging.getLogger("release_gate")
 
-from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class LiveReleasePlan:
@@ -68,12 +68,13 @@ class LiveReleasePlan:
     max_spend_usdc: Decimal
     session: LiveTradingSession | None
 
+
 def calculate_live_order_amount(
     paper_request: ExecutionRequest,
     session: LiveTradingSession,
 ) -> Decimal:
     from polyflip.execution.live_session_service import get_max_order_cost
-    
+
     if session.order_amount_usdc is not None:
         live_amount = Decimal(str(session.order_amount_usdc))
     else:
@@ -299,12 +300,21 @@ async def _release_one_locked(
         return False
 
     # 3. Достаем активную LIVE-сессию для связки (если target_mode == LIVE)
-    active_session = release_plan.session if isinstance(release_plan, LiveReleasePlan) else None
+    active_session = (
+        release_plan.session if isinstance(release_plan, LiveReleasePlan) else None
+    )
 
     # 4. Создаём LIVE-строки
     live_trade = _build_live_trade(
-        candidate, paper_trade, now, target_mode,
-        order_amount_usdc=release_plan.order_amount_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan
+        candidate,
+        paper_trade,
+        now,
+        target_mode,
+        order_amount_usdc=(
+            release_plan.order_amount_usdc
+            if isinstance(release_plan, LiveReleasePlan)
+            else release_plan
+        ),
     )
     if active_session:
         live_trade.live_session_id = active_session.id
@@ -312,9 +322,21 @@ async def _release_one_locked(
     await session.flush()
 
     live_request = _build_live_request(
-        candidate, paper_request, live_trade, now, target_mode,
-        order_amount_usdc=release_plan.order_amount_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan,
-        max_spend_usdc=release_plan.max_spend_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan
+        candidate,
+        paper_request,
+        live_trade,
+        now,
+        target_mode,
+        order_amount_usdc=(
+            release_plan.order_amount_usdc
+            if isinstance(release_plan, LiveReleasePlan)
+            else release_plan
+        ),
+        max_spend_usdc=(
+            release_plan.max_spend_usdc
+            if isinstance(release_plan, LiveReleasePlan)
+            else release_plan
+        ),
     )
     if active_session:
         live_request.live_session_id = active_session.id
@@ -322,7 +344,11 @@ async def _release_one_locked(
     await session.flush()
 
     # 5. Резервируем экспозицию (ExposureReservation) и бюджет сессии
-    exposure_amount = release_plan.max_spend_usdc if isinstance(release_plan, LiveReleasePlan) else release_plan
+    exposure_amount = (
+        release_plan.max_spend_usdc
+        if isinstance(release_plan, LiveReleasePlan)
+        else release_plan
+    )
     exposure_res = ExposureReservation(
         id=uuid.uuid4(),
         request_id=live_request.id,

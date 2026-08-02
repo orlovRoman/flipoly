@@ -763,9 +763,7 @@ async def reconcile_active_requests():
 
             try:
                 market = await session.scalar(
-                    select(LiveMarket).where(
-                        LiveMarket.market_id == req.market_id
-                    )
+                    select(LiveMarket).where(LiveMarket.market_id == req.market_id)
                 )
                 token_id = (
                     market.yes_token_id
@@ -796,13 +794,19 @@ async def reconcile_active_requests():
                         fill.provider_trade_id for fill in fills
                     ]
                     attempt.transaction_hashes = list(
-                        {fill.transaction_hash for fill in fills if fill.transaction_hash}
+                        {
+                            fill.transaction_hash
+                            for fill in fills
+                            if fill.transaction_hash
+                        }
                     )
                     attempt.settlement_state = "CONFIRMED"
                     attempt.finished_at = now
 
                     if filled_shares < (req.requested_shares or Decimal("0")):
-                        await finalize_request(session, req, state="PARTIALLY_FILLED_FINAL")
+                        await finalize_request(
+                            session, req, state="PARTIALLY_FILLED_FINAL"
+                        )
                     else:
                         await finalize_request(session, req, state="FILLED")
 
