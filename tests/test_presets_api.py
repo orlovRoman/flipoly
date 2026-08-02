@@ -1,31 +1,55 @@
 import json
-import asyncio
-from polyflip.db.connection import async_session
-from polyflip.services.preset_service import PresetService
-from polyflip.db.models import ConfigPreset
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from sqlalchemy.ext.asyncio import AsyncSession
 
-async def run_test():
-    async with async_session() as db:
-        # Создание пресета через PresetService (эквивалентно POST /api/presets/)
-        preset = await PresetService.save_preset(
-            db=db,
-            name="test_api_preset",
-            description="API test preset",
-            preset_type="manual",
-            created_by="test_api"
-        )
-        assert preset.id is not None
+from polyflip.api.presets import diff_preset
+from polyflip.db.models import ConfigPreset, RuntimeSettings
 
-        # Проверка diff
-        current_snap = await PresetService.capture_snapshot(db)
-        preset_snap = json.loads(preset.snapshot)
-        assert isinstance(preset_snap, dict)
-        assert len(preset_snap) > 0
 
-        # Очистка
-        preset.is_active = False
-        await db.commit()
-        print("OK: Presets API unit test PASSED!")
+@pytest.mark.asyncio
+async def test_api_diff_preset_sanitization():
+    mock_preset = ConfigPreset(
+        id=1,
+        name="test_preset",
+        snapshot=json.dumps(
+            {
+                "AUTO_DEAD_ZONE": "false",
+                "DEAD_ZONE_WIDTH": "0.01",
+                "FLIP_THRESHOLD": "0.48",
+                "TRADING_ENABLED": "true",
+                "EXECUTION_MODE": "PAPER",
+            }
+        ),
+        is_active=True,
+    )
 
-if __name__ == "__main__":
-    asyncio.run(run_test())
+    mock_db = AsyncMock(spec=AsyncSession)
+    mock_db.get.return_value = mock_preset
+
+    # Mock rows for capture_snapshot
+    row1 = RuntimeSettings(key="AUTO_DEAD_ZONE", value="true")
+    row2 = RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.05")
+    row3 = RuntimeSettings(key="FLIP_THRESHOLD", value="0.48")
+    row4 = RuntimeSettings(key="TRADING_ENABLED", value="false")
+
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [
+        row1,
+        row2,
+        row3,
+        row4,
+    ]
+    mock_db.execute.return_value = mock_result
+
+    res = await diff_preset(1, db=mock_db)
+
+    assert res["preset_id"] == 1
+    diff = res["diff"]
+    assert "AUTO_DEAD_ZONE" in diff
+    assert diff["AUTO_DEAD_ZONE"] == {"preset": "false", "current": "true"}
+    assert "DEAD_ZONE_WIDTH" in diff
+    assert diff["DEAD_ZONE_WIDTH"] == {"preset": "0.01", "current": "0.05"}
+    assert "FLIP_THRESHOLD" not in diff
+    assert "TRADING_ENABLED" not in diff
+    assert "EXECUTION_MODE" not in diff

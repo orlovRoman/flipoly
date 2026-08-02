@@ -1,34 +1,81 @@
 import json
 import structlog
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
 from polyflip.db.models import ConfigPreset, RuntimeSettings
-from polyflip.settings_registry import editable_keys
 
 TRADING_PRESET_KEYS = {
+    # Мёртвая зона
+    "AUTO_DEAD_ZONE",
+    "DEAD_ZONE_WIDTH",
+    # Режим и активы
     "TRADING_MODE",
     "TRADE_ASSETS",
+    "ENTRY_STRATEGY",
+    # Пороги стратегии и флип
+    "FLIP_THRESHOLD",
+    "TRADE_FLIP_THRESHOLD",
+    "TRADE_NO_FLIP_THRESHOLD",
+    "NO_FLIP_THRESHOLD",
+    "FAVORITE_THRESHOLD",
     "TRADE_ON_FAVORITE",
     "TRADE_ON_FLIP",
-    "TRADE_BET_SIZE_USDC",
-    "MAX_BET_SIZE_USDC",
-    "BET_SIZING_MODE",
+    # Edge и цены
     "MIN_EDGE",
     "FAVORITE_MIN_EDGE",
     "NO_MIN_EDGE",
     "FAVORITE_MIN_PRICE",
     "FAVORITE_MAX_PRICE",
     "OUTSIDER_MAX_PRICE",
-    "FLIP_THRESHOLD",
-    "TRADE_NO_FLIP_THRESHOLD",
+    "TRADE_MIN_PRICE",
+    "TRADE_MAX_PRICE",
+    "MAX_PRICE_DRIFT",
+    # Сайзинг и лимиты
+    "TRADE_BET_SIZE_USDC",
+    "MAX_BET_SIZE_USDC",
+    "BET_SIZING_MODE",
+    "LIQUIDITY_FRACTION",
+    "MAX_BET_EDGE",
+    "DAILY_LOSS_LIMIT_USDC",
+    "MAX_OPEN_POSITIONS",
+    "MAX_TOTAL_EXPOSURE_USDC",
+    "MAX_SINGLE_ORDER_USDC",
+    "CONFIRM_THRESHOLD_USDC",
+    "INITIAL_CAPITAL",
+    "COMBINED_NONE_BET_MULTIPLIER",
+    # Стоп-лосс и тейк-профит
     "STOP_LOSS_ENABLED",
     "STOP_LOSS_PCT_FAVORITE",
     "STOP_LOSS_PCT_OUTSIDER",
+    "STOP_LOSS_CHECK_SEC",
     "TAKE_PROFIT_ENABLED",
     "TAKE_PROFIT_MULTIPLIER",
+    "TAKE_PROFIT_CHECK_INTERVAL_SEC",
+    # Крипто
+    "CRYPTO_MIN_EDGE",
+    "USE_CRYPTO_CONFIRM",
+    "CRYPTO_STANDALONE",
+    # Таймеры / комиссии
+    "FAVORITE_MODE_ENTRY_SEC",
+    "LIVE_POLL_INTERVAL_SECONDS",
+    "TRADE_MIN_TIME_LEFT_SEC",
+    "TRADE_MAX_TIME_LEFT_SEC",
+    "TRADE_EXECUTION_TIME_SEC",
+    "EXECUTION_COOLDOWN_SEC",
+    "POLYMARKET_FEE_RATE",
+}
+
+OPERATIONAL_KEYS = {
+    "EXECUTION_MODE",
+    "TRADING_ENABLED",
+    "LIVE_TRADING_ENABLED",
+    "LIVE_MIRROR_ENABLED",
+    "LIVE_RELEASE_MODE",
+    "LIVE_MIRROR_STARTED_AT",
+    "BYPASS_BET_SIZE_CHECK",
 }
 
 logger = structlog.get_logger(__name__)
@@ -37,17 +84,32 @@ logger = structlog.get_logger(__name__)
 class PresetService:
 
     @staticmethod
-    def get_trading_preset_settings(settings: Dict[str, str]) -> Dict[str, str]:
-        """Оставляет только те настройки, которые входят в торговый пресет (белый список)."""
-        valid_keys = TRADING_PRESET_KEYS
-        return {key: value for key, value in settings.items() if key in valid_keys}
+    def sanitize_snapshot(settings: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Оставляет только те настройки, которые входят в торговый пресет,
+        исключает оперативные рубильники и преобразует значения в строки.
+        """
+        return {
+            key: str(value)
+            for key, value in settings.items()
+            if key in TRADING_PRESET_KEYS
+            and key not in OPERATIONAL_KEYS
+            and value is not None
+        }
+
+    @staticmethod
+    def get_trading_preset_settings(
+        settings: Dict[str, Any],
+    ) -> Dict[str, str]:
+        """Псевдоним sanitize_snapshot для обратной совместимости."""
+        return PresetService.sanitize_snapshot(settings)
 
     @staticmethod
     async def capture_snapshot(db: AsyncSession) -> Dict[str, str]:
         """Читает RuntimeSettings и возвращает только торговые параметры."""
         rows = (await db.execute(select(RuntimeSettings))).scalars().all()
         all_settings = {r.key: r.value for r in rows}
-        return PresetService.get_trading_preset_settings(all_settings)
+        return PresetService.sanitize_snapshot(all_settings)
 
     @staticmethod
     async def save_preset(
@@ -75,7 +137,9 @@ class PresetService:
         db.add(preset)
         await db.commit()
         await db.refresh(preset)
-        logger.info("preset_saved", id=preset.id, name=name, preset_type=preset_type)
+        logger.info(
+            "preset_saved", id=preset.id, name=name, preset_type=preset_type
+        )
         return preset
 
     @staticmethod
@@ -83,19 +147,18 @@ class PresetService:
         db: AsyncSession,
         preset_id: int,
         restored_by: str = "user",
-    ) -> tuple[int, Dict[str, str]]:
+    ) -> Tuple[int, Dict[str, str]]:
         """
         Применяет параметры из слепка.
-        БЕЗОПАСНОСТЬ: Применяются ТОЛЬКО редактируемые торговые ключи из editable_keys().
-        Игнорируются кнопка TRADING_ENABLED и автокалибровки порогов (AUTO_FLIP_THRESHOLD_*).
+        БЕЗОПАСНОСТЬ: Применяются ТОЛЬКО настройки из белого списка.
+        Оперативные переключатели (TRADING_ENABLED и др.) исключены.
         """
         preset = await db.get(ConfigPreset, preset_id)
         if not preset or not preset.is_active:
             raise ValueError(f"Пресет {preset_id} не найден или был удалён")
 
         params = json.loads(preset.snapshot)
-        # Фильтруем параметры через белый список, чтобы старые пресеты не перезаписали лишнее
-        safe_params = PresetService.get_trading_preset_settings(params)
+        safe_params = PresetService.sanitize_snapshot(params)
 
         now = datetime.now(timezone.utc)
         changed = 0
@@ -107,7 +170,9 @@ class PresetService:
                 if row.value != str(value):
                     row.value = str(value)
                     row.updated_at = now
-                    row.updated_by = f"preset_restore:{preset_id}:{restored_by}"
+                    row.updated_by = (
+                        f"preset_restore:{preset_id}:{restored_by}"
+                    )
                     changed += 1
                     updated_params[key] = str(value)
             else:
@@ -116,7 +181,9 @@ class PresetService:
                         key=key,
                         value=str(value),
                         updated_at=now,
-                        updated_by=f"preset_restore:{preset_id}:{restored_by}",
+                        updated_by=(
+                            f"preset_restore:{preset_id}:{restored_by}"
+                        ),
                     )
                 )
                 changed += 1
@@ -143,7 +210,7 @@ class PresetService:
         Сохраняет ATH-слепок при установке нового рекорда.
         Предохранители:
           - Рост рекорда минимум на min_pnl_diff (+1.0 USDC)
-          - Минимальный интервал между авто-слепками min_interval_hours (1 час)
+          - Минимальный интервал между авто-слепками (1 час)
         """
         now = datetime.now(timezone.utc)
 
@@ -160,7 +227,7 @@ class PresetService:
         )
         ath_presets = (await db.execute(q)).scalars().all()
 
-        # 2. Проверка 1-часового интервала от последнего ATH
+        # 2. Проверка интервала от последнего ATH
         if ath_presets:
             last_ath_time = ath_presets[0].created_at
             if now - last_ath_time < timedelta(hours=min_interval_hours):
@@ -170,7 +237,9 @@ class PresetService:
         prev_max_capital = max(
             (p.capital_at_save or 0.0 for p in ath_presets), default=0.0
         )
-        prev_max_pnl = max((p.pnl_at_save or 0.0 for p in ath_presets), default=0.0)
+        prev_max_pnl = max(
+            (p.pnl_at_save or 0.0 for p in ath_presets), default=0.0
+        )
 
         is_capital_ath = (current_capital - prev_max_capital) >= min_pnl_diff
         is_pnl_ath = (current_pnl - prev_max_pnl) >= min_pnl_diff
@@ -181,7 +250,10 @@ class PresetService:
         ptype = "ath_capital" if is_capital_ath else "ath_pnl"
         ts_str = now.strftime("%Y-%m-%d_%H-%M")
         name = f"🏆 ATH_{ptype.upper()}_{ts_str}"
-        description = f"Авто-слепок рекорда: Capital=${current_capital:.2f}, PnL=${current_pnl:.2f}"
+        description = (
+            f"Авто-слепок: Capital=${current_capital:.2f}, "
+            f"PnL=${current_pnl:.2f}"
+        )
 
         return await PresetService.save_preset(
             db=db,
