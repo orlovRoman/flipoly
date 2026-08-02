@@ -53,20 +53,21 @@ async def serialize_execution_requests(
     evidence_by_req = {}
     evidence_req_ids = [r.id for r in reconcilable_requests]
     if evidence_req_ids:
-        rows = await db.execute(
+        rows = (await db.execute(
             select(
                 ExecutionAttempt.request_id,
-                func.bool_or(ExecutionAttempt.provider_order_id.is_not(None)).label("has_order_id"),
-                func.bool_or(ExecutionAttempt.transaction_hash.is_not(None)).label("has_tx_hash"),
+                ExecutionAttempt.provider_order_id,
+                ExecutionAttempt.transaction_hashes,
             )
             .where(ExecutionAttempt.request_id.in_(evidence_req_ids))
-            .group_by(ExecutionAttempt.request_id)
-        )
-        for row in rows:
-            evidence_by_req[row.request_id] = {
-                "has_order_id": row.has_order_id,
-                "has_tx_hash": row.has_tx_hash,
-            }
+        )).all()
+        for r_id, p_id, tx_hashes in rows:
+            if r_id not in evidence_by_req:
+                evidence_by_req[r_id] = {"has_order_id": False, "has_tx_hash": False}
+            if p_id is not None:
+                evidence_by_req[r_id]["has_order_id"] = True
+            if tx_hashes and len(tx_hashes) > 0:
+                evidence_by_req[r_id]["has_tx_hash"] = True
 
     results = []
     for req in requests:

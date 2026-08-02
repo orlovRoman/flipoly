@@ -28,7 +28,7 @@ def test_target_not_using_future_close_directly():
     строится с использованием текущей свечи (leakage) или неправильно смещён.
     """
     df = make_trending_df()
-    _, auc, _, _, _, _ = _fit_lgbm_and_serialize(
+    _, auc, *_ = _fit_lgbm_and_serialize(
         df[CRYPTO_FEATURES], df["target"], n_splits=3
     )
     # На трендовом DF с нормальным target должны получить AUC > 0.52

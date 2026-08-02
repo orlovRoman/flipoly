@@ -167,6 +167,7 @@ async def decide_ml_mode(
     start_time: Optional[datetime] = None,
     time_left_sec: float = 600.0,
     existing_skipped: Optional[TradeHistory] = None,
+    execution_mode: str = "PAPER",
 ) -> DecisionResult:
     if raw_settings is None:
         raw_settings = {}
@@ -605,6 +606,7 @@ async def decide_combined_mode(
     start_time: datetime,
     time_left_sec: float,
     existing_skipped: Any = None,
+    execution_mode: str = "PAPER",
 ) -> DecisionResult:
     """
     COMBINED-режим: ML (LogReg) + LightGBM голосуют, решение по таблице.
@@ -630,6 +632,7 @@ async def decide_combined_mode(
             db_session, api_client, market, cfg,
             raw_settings, models_cache, None,
             start_time, time_left_sec, existing_skipped,
+            execution_mode=execution_mode,
         )
 
     t0 = time.monotonic()
@@ -645,6 +648,7 @@ async def decide_combined_mode(
         db_session, api_client, market, cfg,
         raw_settings, models_cache, None,
         start_time, time_left_sec, existing_skipped,
+        execution_mode=execution_mode,
     )
 
     # --- Шаг B: готовим LightGBM-ветку ---

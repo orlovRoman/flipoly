@@ -474,6 +474,7 @@ async def test_minimum_live_order_amount_validation():
 
     execute_result = MagicMock()
     execute_result.scalar_one_or_none.return_value = active_session_mock
+    execute_result.one.return_value = (Decimal("0"), Decimal("0"))
     db_session.execute.return_value = execute_result
 
     with patch(
