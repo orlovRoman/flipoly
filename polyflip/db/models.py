@@ -14,7 +14,7 @@ from sqlalchemy import (
     SmallInteger,
     ForeignKey,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -54,6 +54,23 @@ class ModelRegistry(Base):
     model_blob = Column(LargeBinary, nullable=False)
     accuracy = Column(Float, nullable=False)
     baseline = Column(Float, nullable=True)
+
+    decision_threshold = Column(Float, nullable=True)
+    training_params = Column(JSONB, nullable=True)
+    feature_importance = Column(JSONB, nullable=True)
+
+    train_samples = Column(Integer, nullable=True)
+    validation_samples = Column(Integer, nullable=True)
+    positive_rate = Column(Float, nullable=True)
+
+    precision_at_threshold = Column(Float, nullable=True)
+    recall_at_threshold = Column(Float, nullable=True)
+    f1_at_threshold = Column(Float, nullable=True)
+    brier_score = Column(Float, nullable=True)
+
+    training_window_start = Column(DateTime(timezone=True), nullable=True)
+    training_window_end = Column(DateTime(timezone=True), nullable=True)
+
     features = Column(String, nullable=True)
     ece = Column(Float, nullable=True)
     backtest_pnl = Column(Float, nullable=True)
@@ -212,7 +229,9 @@ class TradeHistory(Base):
 
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),
-        Index("idx_trade_history_model_version", "asset", "model_version", "status", "created_at"),
+                Index("idx_trade_history_model_version", "asset", "model_version", "status", "created_at"),
+        Index("idx_trade_model_analytics", "mode", "model_key", "model_version", "position_status", "closed_at"),
+        Index("idx_trade_confirm_model_analytics", "mode", "confirm_model_key", "confirm_model_version", "position_status", "closed_at"),
         Index("idx_trade_history_exact_model", "model_key", "model_version", "mode", "position_status", "closed_at"),
         CheckConstraint(
             "position_accounting_version = 0 OR (entry_filled_shares IS NOT NULL AND entry_cost_usdc IS NOT NULL AND remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
@@ -334,6 +353,7 @@ class DecisionFunnelLog(Base):
         Index("idx_funnel_asset_created", "asset", "created_at"),
         Index("idx_funnel_market_id",     "market_id"),
         Index("idx_funnel_trading_mode",  "trading_mode", "created_at"),
+        Index("idx_funnel_confirm_model_analytics", "confirm_model_key", "confirm_model_version", "created_at"),
     )
 
 
