@@ -135,6 +135,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   }
 
+  let activeModelsData = [];
+  let activeModelsSortField = "asset";
+  let activeModelsSortAsc = true;
+
   async function fetchActiveModelsSummary(tf) {
     const tbody = document.querySelector("#active-models-table tbody");
     if (!tbody) return;
@@ -152,38 +156,102 @@ document.addEventListener("DOMContentLoaded", () => {
         tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-muted); padding: 1rem;">Активные модели не найдены</td></tr>`;
         return;
       }
+      
+      activeModelsData = json.data;
+      renderActiveModelsTable();
+      setupActiveModelsTableSorting();
 
-      const rows = json.data.map(m => {
-        const accuracyText = m.accuracy != null ? (m.accuracy * 100).toFixed(1) + "%" : "—";
-        const eceText = m.ece != null ? ` (ECE: ${m.ece.toFixed(4)})` : "";
-        const qualHtml = `${accuracyText}<span style="color: var(--text-muted); font-size: 0.8rem;">${eceText}</span>`;
-
-        let pnlHtml = '<span style="color: var(--text-muted);">—</span>';
-        let wrText = '—';
-        if (m.total_trades > 0) {
-          const pnlColor = m.pnl > 0 ? "var(--poly-green, #4ade80)" : m.pnl < 0 ? "#ff3366" : "inherit";
-          const sign = m.pnl > 0 ? "+" : "";
-          pnlHtml = `<span style="color:${pnlColor}; font-weight:600;">${sign}${m.pnl.toFixed(2)} USDC</span>`;
-          wrText = m.win_rate != null ? `${m.win_rate}%` : '—';
-        }
-
-        return `
-          <tr>
-            <td><strong>${escapeHtml(m.base_symbol)}</strong></td>
-            <td>${m.subtype_label}</td>
-            <td>v${m.version}</td>
-            <td>${qualHtml}</td>
-            <td>${m.total_trades}</td>
-            <td>${wrText}</td>
-            <td>${pnlHtml}</td>
-          </tr>
-        `;
-      });
-
-      tbody.innerHTML = rows.join("");
     } catch (e) {
       console.error("Failed to fetch active models summary", e);
     }
+  }
+
+  function renderActiveModelsTable() {
+    const tbody = document.querySelector("#active-models-table tbody");
+    if (!tbody) return;
+
+    const sortedData = [...activeModelsData].sort((a, b) => {
+      let valA, valB;
+      switch (activeModelsSortField) {
+        case "asset": valA = a.base_symbol || ""; valB = b.base_symbol || ""; break;
+        case "subtype": valA = a.subtype_label || ""; valB = b.subtype_label || ""; break;
+        case "version": valA = a.version || 0; valB = b.version || 0; break;
+        case "accuracy": valA = a.accuracy || 0; valB = b.accuracy || 0; break;
+        case "trades": valA = a.total_trades || 0; valB = b.total_trades || 0; break;
+        case "win_rate": valA = a.win_rate || 0; valB = b.win_rate || 0; break;
+        case "pnl": valA = a.pnl || 0; valB = b.pnl || 0; break;
+        default: valA = a.base_symbol || ""; valB = b.base_symbol || "";
+      }
+
+      if (valA < valB) return activeModelsSortAsc ? -1 : 1;
+      if (valA > valB) return activeModelsSortAsc ? 1 : -1;
+      
+      // Tie breaker
+      if (a.base_symbol !== b.base_symbol) return (a.base_symbol < b.base_symbol) ? -1 : 1;
+      return (a.subtype_label || "") < (b.subtype_label || "") ? -1 : 1;
+    });
+
+    document.querySelectorAll("#active-models-table th[data-sort]").forEach((th) => {
+      const field = th.getAttribute("data-sort");
+      const icon = th.querySelector(".sort-icon");
+      if (icon) {
+        if (field === activeModelsSortField) {
+          icon.innerText = activeModelsSortAsc ? " ▲" : " ▼";
+          th.style.color = "var(--poly-blue, #60a5fa)";
+        } else {
+          icon.innerText = "";
+          th.style.color = "";
+        }
+      }
+    });
+
+    const rows = sortedData.map(m => {
+      const accuracyText = m.accuracy != null ? (m.accuracy * 100).toFixed(1) + "%" : "—";
+      const eceText = m.ece != null ? ` (ECE: ${m.ece.toFixed(4)})` : "";
+      const qualHtml = `${accuracyText}<span style="color: var(--text-muted); font-size: 0.8rem;">${eceText}</span>`;
+
+      let pnlHtml = '<span style="color: var(--text-muted);">—</span>';
+      let wrText = '—';
+      if (m.total_trades > 0) {
+        const pnlColor = m.pnl > 0 ? "var(--poly-green, #4ade80)" : m.pnl < 0 ? "#ff3366" : "inherit";
+        const sign = m.pnl > 0 ? "+" : "";
+        pnlHtml = `<span style="color:${pnlColor}; font-weight:600;">${sign}${m.pnl.toFixed(2)} USDC</span>`;
+        wrText = m.win_rate != null ? `${m.win_rate}%` : '—';
+      }
+
+      return `
+        <tr>
+          <td><strong>${escapeHtml(m.base_symbol)}</strong></td>
+          <td>${m.subtype_label}</td>
+          <td>v${m.version}</td>
+          <td>${qualHtml}</td>
+          <td>${m.total_trades}</td>
+          <td>${wrText}</td>
+          <td>${pnlHtml}</td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = rows.join("");
+  }
+
+  function setupActiveModelsTableSorting() {
+    const table = document.querySelector("#active-models-table");
+    if (!table || table.dataset.sortingSetup) return;
+    table.dataset.sortingSetup = "true";
+
+    table.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const field = th.getAttribute("data-sort");
+        if (activeModelsSortField === field) {
+          activeModelsSortAsc = !activeModelsSortAsc;
+        } else {
+          activeModelsSortField = field;
+          activeModelsSortAsc = (field === "asset" || field === "subtype");
+        }
+        renderActiveModelsTable();
+      });
+    });
   }
 
   const activeTfSelect = document.getElementById("active-models-tf-select");

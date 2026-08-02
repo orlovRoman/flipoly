@@ -103,7 +103,7 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
                         <h3 style="margin: 0; font-size: 1.15rem;">Активные ML-модели по активам (Base, Leaning, Decided, LightGBM)</h3>
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <label for="active-models-tf-select" style="font-size: 0.85rem; color: var(--text-muted);">Период PnL:</label>
+                            <label for="active-models-tf-select" style="font-size: 0.85rem; color: var(--text-muted);">Период:</label>
                             <select id="active-models-tf-select" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
                                 <option value="24h" selected>24 часа</option>
                                 <option value="7d">7 дней</option>
@@ -116,13 +116,13 @@
                         <table class="data-table" id="active-models-table">
                             <thead>
                                 <tr>
-                                    <th>Актив</th>
-                                    <th>Тип модели / Назначение</th>
-                                    <th>Версия</th>
-                                    <th>Качество (Accuracy / ECE)</th>
-                                    <th>Сделок</th>
-                                    <th>Win Rate</th>
-                                    <th>PnL (USDC)</th>
+                                    <th data-sort="asset" style="cursor: pointer; user-select: none;">Актив<span class="sort-icon"></span></th>
+                                    <th data-sort="subtype" style="cursor: pointer; user-select: none;">Тип модели / Назначение<span class="sort-icon"></span></th>
+                                    <th data-sort="version" style="cursor: pointer; user-select: none;">Версия<span class="sort-icon"></span></th>
+                                    <th data-sort="accuracy" style="cursor: pointer; user-select: none;">Качество (Accuracy / ECE)<span class="sort-icon"></span></th>
+                                    <th data-sort="trades" style="cursor: pointer; user-select: none;">Сделок<span class="sort-icon"></span></th>
+                                    <th data-sort="win_rate" style="cursor: pointer; user-select: none;">Win Rate<span class="sort-icon"></span></th>
+                                    <th data-sort="pnl" style="cursor: pointer; user-select: none;">PnL (USDC)<span class="sort-icon"></span></th>
                                 </tr>
                             </thead>
                             <tbody>
