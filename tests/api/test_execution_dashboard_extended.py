@@ -61,10 +61,20 @@ async def test_open_market_syncs_to_tradable(db_session, monkeypatch):
         assert res.status_code == 409
         
         from sqlalchemy import select
-        market_after = (await db_session.execute(select(LiveMarket).where(LiveMarket.market_id == "test-sync-market"))).scalar_one()
-        assert market_after.trading_status == "TRADABLE"
-        assert market_after.accepting_orders is True
         
+        await db_session.rollback()
+        await db_session.refresh(market)
+        
+        assert market.trading_status == "TRADABLE"
+        assert market.accepting_orders is True
+        
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            dash_res = await client.get("/api/execution/live/dashboard")
+        assert dash_res.status_code == 200
+        dash_data = dash_res.json()
+        pos = dash_data["positions"]["tradable"][0]
+        assert pos["available_actions"]["close"] is True
+
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             close_res = await client.post(f"/api/execution/positions/{trade.id}/close")
         assert close_res.status_code == 200

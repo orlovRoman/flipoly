@@ -1585,6 +1585,7 @@ async def reconcile_resolution_endpoint(
     except LivePositionNotFound:
         raise HTTPException(404, "LIVE-позиция не найдена")
     except MarketNotResolved:
+        await db.commit()
         raise HTTPException(409, "Рынок еще не завершен")
     except GammaApiError as e:
         raise HTTPException(503, f"Ошибка Gamma API: {str(e)}")
