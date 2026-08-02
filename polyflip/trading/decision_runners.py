@@ -763,6 +763,7 @@ async def decide_combined_mode(
         market_id=market.market_id,
         asset=market.asset,
         trading_mode="COMBINED",
+        execution_mode=cfg.trading_mode,
         used_model=ml_result.used_model_key if ml_result else None,
         p_flip=ml_result.p_flip if ml_result else 0.0,
         edge=final_decision.edge if final_decision and final_decision.edge is not None else (ml_result.edge if ml_result else None),

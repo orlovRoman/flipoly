@@ -147,8 +147,21 @@
                             PnL считается за весь период работы модели (с <code>trained_at</code>).
                         </p>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.6rem;">
-                        <label for="sort-field" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Сортировка:</label>
+                    <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Режим:</label>
+                        <select id="mode-select" onchange="onFilterChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.8rem; border-radius: 8px; font-size: 0.85rem; outline: none; cursor: pointer;">
+                            <option value="PAPER" selected>PAPER</option>
+                            <option value="LIVE">LIVE</option>
+                            <option value="SHADOW">SHADOW</option>
+                        </select>
+                        
+                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-left: 0.5rem;">От:</label>
+                        <input type="date" id="date-from" onchange="onFilterChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.85rem; outline: none;">
+                        
+                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-left: 0.5rem;">До:</label>
+                        <input type="date" id="date-to" onchange="onFilterChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.85rem; outline: none;">
+
+                        <label for="sort-field" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-left: 0.5rem;">Сорт.:</label>
                         <select id="sort-field" onchange="onSortChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.8rem; border-radius: 8px; font-size: 0.85rem; outline: none; cursor: pointer;">
                             <option value="pnl" selected>PnL (прибыль)</option>
                             <option value="trained_at">Дате обучения (новые сначала)</option>
@@ -329,6 +342,16 @@
 
         const H = { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' };
 
+        let currentMode = 'PAPER';
+        let filterFrom = '';
+        let filterTo = '';
+        
+        function onFilterChange() {
+            currentMode = document.getElementById('mode-select').value;
+            filterFrom = document.getElementById('date-from').value;
+            filterTo = document.getElementById('date-to').value;
+            loadStatus();
+        }
         let statusData = null;
         let currentPage = 1;
         let currentSortField = 'pnl';
@@ -393,7 +416,7 @@
                 // Параллельно загружаем статус и PnL
                 const [statusRes, pnlRes] = await Promise.all([
                     fetch('/crypto/api/status', { headers: H }),
-                    fetch(`/crypto/api/models/analytics?requested_mode=${currentMode}`, { headers: H }),
+                    fetch(`/crypto/api/models/analytics?requested_mode=${currentMode}&date_from=${filterFrom}&date_to=${filterTo}`, { headers: H }),
                 ]);
 
                 if (statusRes.status === 401) {
@@ -559,7 +582,7 @@
                     const sign = pnl.pnl > 0 ? '+' : '';
                     
                     const draw = pnl.max_drawdown ? pnl.max_drawdown.toFixed(2) : '0.00';
-                    const pf = pnl.profit_factor ? pnl.profit_factor.toFixed(2) : '—';
+                    const pf = pnl.profit_factor != null ? pnl.profit_factor.toFixed(2) : '—';
                     const c_pnl = pnl.confirmed_pnl ? pnl.confirmed_pnl.toFixed(2) : '0.00';
                     const c_color = pnl.confirmed_pnl > 0 ? 'var(--poly-green, #4ade80)' : pnl.confirmed_pnl < 0 ? '#ff3366' : 'var(--text-muted)';
 
@@ -585,11 +608,8 @@
                                 <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
                                     ${pnl.confirmed_win_rate != null ? pnl.confirmed_win_rate + '%' : '—'} WR · ${pnl.confirmed_trades} сд.
                                 </div>
-                                <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
-                                    ${pnl.confirmed_win_rate != null ? pnl.confirmed_win_rate + '%' : '—'} WR · ${pnl.confirmed_trades} сд.
-                                </div>
                                 <div style="color:var(--text-muted); font-size:0.75rem;">
-                                    PF: <span style="color:white;">${pnl.confirmed_profit_factor ? pnl.confirmed_profit_factor.toFixed(2) : '—'}</span>
+                                    PF: <span style="color:white;">${pnl.confirmed_profit_factor != null ? pnl.confirmed_profit_factor.toFixed(2) : '—'}</span>
                                 </div>
                                 <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
                                     <span style="color:var(--poly-green);">${pnl.confirm_passed_count || 0} pass</span> / <span style="color:#ff3366;">${pnl.veto_count || 0} veto</span>
@@ -608,7 +628,7 @@
                 }
                 
                 const liftBadge = pnl.auc_lift ? `<span style="color:${pnl.auc_lift > 0 ? 'var(--poly-green)' : '#ff3366'}; font-weight:600;">${pnl.auc_lift > 0 ? '+' : ''}${pnl.auc_lift.toFixed(4)}</span>` : '—';
-                const f1Badge = pnl.f1 ? `<span style="color:white; font-weight:600;">${pnl.f1.toFixed(4)}</span>` : '—';
+                const f1Badge = pnl.f1 != null ? `<span style="color:white; font-weight:600;">${pnl.f1.toFixed(4)}</span>` : '—';
 
                 const activeBadgeHtml = m.is_active 
                     ? `<span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">Активна</span>`
@@ -804,8 +824,21 @@
                             PnL считается за весь период работы модели (с <code>trained_at</code>).
                         </p>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.6rem;">
-                        <label for="sort-field" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Сортировка:</label>
+                    <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Режим:</label>
+                        <select id="mode-select" onchange="onFilterChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.8rem; border-radius: 8px; font-size: 0.85rem; outline: none; cursor: pointer;">
+                            <option value="PAPER" selected>PAPER</option>
+                            <option value="LIVE">LIVE</option>
+                            <option value="SHADOW">SHADOW</option>
+                        </select>
+                        
+                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-left: 0.5rem;">От:</label>
+                        <input type="date" id="date-from" onchange="onFilterChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.85rem; outline: none;">
+                        
+                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-left: 0.5rem;">До:</label>
+                        <input type="date" id="date-to" onchange="onFilterChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.85rem; outline: none;">
+
+                        <label for="sort-field" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-left: 0.5rem;">Сорт.:</label>
                         <select id="sort-field" onchange="onSortChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.8rem; border-radius: 8px; font-size: 0.85rem; outline: none; cursor: pointer;">
                             <option value="pnl" selected>PnL (прибыль)</option>
                             <option value="trained_at">Дате обучения (новые сначала)</option>
@@ -986,6 +1019,16 @@
 
         const H = { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' };
 
+        let currentMode = 'PAPER';
+        let filterFrom = '';
+        let filterTo = '';
+        
+        function onFilterChange() {
+            currentMode = document.getElementById('mode-select').value;
+            filterFrom = document.getElementById('date-from').value;
+            filterTo = document.getElementById('date-to').value;
+            loadStatus();
+        }
         let statusData = null;
         let currentPage = 1;
         let currentSortField = 'pnl';
@@ -1050,7 +1093,7 @@
                 // Параллельно загружаем статус и PnL
                 const [statusRes, pnlRes] = await Promise.all([
                     fetch('/crypto/api/status', { headers: H }),
-                    fetch(`/crypto/api/models/analytics?requested_mode=${currentMode}`, { headers: H }),
+                    fetch(`/crypto/api/models/analytics?requested_mode=${currentMode}&date_from=${filterFrom}&date_to=${filterTo}`, { headers: H }),
                 ]);
 
                 if (statusRes.status === 401) {

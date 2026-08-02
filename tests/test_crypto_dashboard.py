@@ -23,3 +23,9 @@ def test_router_paths_no_duplicate_prefix():
         assert not p.startswith("/api/crypto"), (
             f"Путь {p!r} дублирует prefix. Используй /api/status и т.д."
         )
+
+import pytest
+from httpx import AsyncClient
+
+
+

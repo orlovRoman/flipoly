@@ -20,7 +20,7 @@ import numpy as np
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Query, HTTPException
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, update, delete, func, cast, Numeric
+from sqlalchemy import select, update, delete, func, cast, Numeric, text
 from collections import defaultdict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -404,9 +404,12 @@ async def crypto_train(
 
 @router.get("/api/models/analytics", dependencies=[Depends(verify_api_key)])
 async def crypto_models_analytics(
-    requested_mode: str = "PAPER", db: AsyncSession = Depends(get_db_session)
+    requested_mode: str = "PAPER",
+    date_from: str = None,
+    date_to: str = None,
+    db: AsyncSession = Depends(get_db_session)
 ):
-    cache_key = f"crypto_model_analytics_{requested_mode}"
+    cache_key = f"crypto_model_analytics_{requested_mode}_{date_from}_{date_to}"
     now = time.time()
     if cache_key in _cache:
         c = _cache[cache_key]
@@ -427,13 +430,21 @@ async def crypto_models_analytics(
     )
     models = (await db.execute(stmt)).scalars().all()
 
+    # Фильтры дат
+    date_filter = ""
+    if date_from:
+        date_filter += f" AND closed_at >= :date_from"
+    if date_to:
+        date_filter += f" AND closed_at <= :date_to"
+
     # 2. PRIMARY CTE
-    primary_sql = text("""
+    primary_sql = text(f"""
         WITH trades AS (
             SELECT 
                 model_key,
                 model_version,
                 COALESCE(realized_pnl_usdc, pnl) as pnl,
+                closed_at,
                 id
             FROM trade_history
             WHERE mode = :mode
@@ -441,17 +452,26 @@ async def crypto_models_analytics(
               AND model_key IS NOT NULL
               AND model_attribution_source IN ('EXACT', 'RECONSTRUCTED')
               AND COALESCE(realized_pnl_usdc, pnl) IS NOT NULL
+              {date_filter}
+        ),
+        zero_trade AS (
+            SELECT DISTINCT model_key, model_version, 0 as pnl, '1970-01-01' as closed_at, 0 as id FROM trades
+        ),
+        all_trades AS (
+            SELECT model_key, model_version, pnl, closed_at, id FROM trades
+            UNION ALL
+            SELECT model_key, model_version, pnl, closed_at, id FROM zero_trade
         ),
         cumulatives AS (
             SELECT 
                 model_key, model_version, pnl,
-                SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY id ASC) as equity
-            FROM trades
+                SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY closed_at ASC, id ASC) as equity
+            FROM all_trades
         ),
         peaks AS (
             SELECT 
                 model_key, model_version, pnl, equity,
-                MAX(equity) OVER (PARTITION BY model_key, model_version ORDER BY id ASC) as running_peak
+                MAX(equity) OVER (PARTITION BY model_key, model_version ORDER BY closed_at ASC, id ASC) as running_peak
             FROM cumulatives
         ),
         drawdowns AS (
@@ -459,28 +479,48 @@ async def crypto_models_analytics(
                 model_key, model_version, pnl, equity, running_peak,
                 (equity - running_peak) as drawdown
             FROM peaks
+        ),
+        agg_trades AS (
+            SELECT 
+                model_key, model_version,
+                COUNT(*) as total_trades,
+                SUM(pnl) as total_pnl,
+                SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as win_count,
+                SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END) as gross_profit,
+                ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)) as gross_loss
+            FROM trades
+            GROUP BY model_key, model_version
+        ),
+        agg_drawdowns AS (
+            SELECT 
+                model_key, model_version,
+                MIN(drawdown) as max_drawdown
+            FROM drawdowns
+            GROUP BY model_key, model_version
         )
         SELECT 
-            model_key, model_version,
-            COUNT(*) as total_trades,
-            SUM(pnl) as total_pnl,
-            SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as win_count,
-            SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END) as gross_profit,
-            ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)) as gross_loss,
-            MIN(drawdown) as max_drawdown
-        FROM drawdowns
-        GROUP BY model_key, model_version
+            t.model_key, t.model_version,
+            t.total_trades, t.total_pnl, t.win_count, t.gross_profit, t.gross_loss,
+            d.max_drawdown
+        FROM agg_trades t
+        LEFT JOIN agg_drawdowns d ON t.model_key = d.model_key AND t.model_version = d.model_version
     """)
-    primary_rows = (await db.execute(primary_sql, {"mode": requested_mode})).fetchall()
+    
+    params = {"mode": requested_mode}
+    if date_from: params["date_from"] = date_from
+    if date_to: params["date_to"] = date_to
+    
+    primary_rows = (await db.execute(primary_sql, params)).fetchall()
     primary_stats = {(row.model_key, row.model_version): row for row in primary_rows}
 
     # 3. CONFIRM CTE
-    confirm_sql = text("""
+    confirm_sql = text(f"""
         WITH trades AS (
             SELECT 
                 confirm_model_key as model_key,
                 confirm_model_version as model_version,
                 COALESCE(realized_pnl_usdc, pnl) as pnl,
+                closed_at,
                 id
             FROM trade_history
             WHERE mode = :mode
@@ -488,17 +528,26 @@ async def crypto_models_analytics(
               AND confirm_model_key IS NOT NULL
               AND model_attribution_source IN ('EXACT', 'RECONSTRUCTED')
               AND COALESCE(realized_pnl_usdc, pnl) IS NOT NULL
+              {date_filter}
+        ),
+        zero_trade AS (
+            SELECT DISTINCT model_key, model_version, 0 as pnl, '1970-01-01' as closed_at, 0 as id FROM trades
+        ),
+        all_trades AS (
+            SELECT model_key, model_version, pnl, closed_at, id FROM trades
+            UNION ALL
+            SELECT model_key, model_version, pnl, closed_at, id FROM zero_trade
         ),
         cumulatives AS (
             SELECT 
                 model_key, model_version, pnl,
-                SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY id ASC) as equity
-            FROM trades
+                SUM(pnl) OVER (PARTITION BY model_key, model_version ORDER BY closed_at ASC, id ASC) as equity
+            FROM all_trades
         ),
         peaks AS (
             SELECT 
                 model_key, model_version, pnl, equity,
-                MAX(equity) OVER (PARTITION BY model_key, model_version ORDER BY id ASC) as running_peak
+                MAX(equity) OVER (PARTITION BY model_key, model_version ORDER BY closed_at ASC, id ASC) as running_peak
             FROM cumulatives
         ),
         drawdowns AS (
@@ -506,22 +555,36 @@ async def crypto_models_analytics(
                 model_key, model_version, pnl, equity, running_peak,
                 (equity - running_peak) as drawdown
             FROM peaks
+        ),
+        agg_trades AS (
+            SELECT 
+                model_key, model_version,
+                COUNT(*) as total_trades,
+                SUM(pnl) as total_pnl,
+                SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as win_count,
+                SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END) as gross_profit,
+                ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)) as gross_loss
+            FROM trades
+            GROUP BY model_key, model_version
+        ),
+        agg_drawdowns AS (
+            SELECT 
+                model_key, model_version,
+                MIN(drawdown) as max_drawdown
+            FROM drawdowns
+            GROUP BY model_key, model_version
         )
         SELECT 
-            model_key, model_version,
-            COUNT(*) as total_trades,
-            SUM(pnl) as total_pnl,
-            SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as win_count,
-            SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END) as gross_profit,
-            ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)) as gross_loss,
-            MIN(drawdown) as max_drawdown
-        FROM drawdowns
-        GROUP BY model_key, model_version
+            t.model_key, t.model_version,
+            t.total_trades, t.total_pnl, t.win_count, t.gross_profit, t.gross_loss,
+            d.max_drawdown
+        FROM agg_trades t
+        LEFT JOIN agg_drawdowns d ON t.model_key = d.model_key AND t.model_version = d.model_version
     """)
-    confirm_rows = (await db.execute(confirm_sql, {"mode": requested_mode})).fetchall()
+    confirm_rows = (await db.execute(confirm_sql, params)).fetchall()
     confirm_stats = {(row.model_key, row.model_version): row for row in confirm_rows}
 
-        # 3.5 VETO CTE
+    # 3.5 VETO CTE
     veto_sql = text("""
         SELECT 
             confirm_model_key as model_key,
@@ -530,7 +593,7 @@ async def crypto_models_analytics(
             SUM(CASE WHEN confirm_passed = false THEN 1 ELSE 0 END) as veto_count
         FROM decision_funnel_log
         WHERE confirm_model_key IS NOT NULL
-          AND trading_mode = :mode
+          AND execution_mode = :mode
         GROUP BY confirm_model_key, confirm_model_version
     """)
     veto_rows = (await db.execute(veto_sql, {"mode": requested_mode})).fetchall()
@@ -542,10 +605,11 @@ async def crypto_models_analytics(
         key = f"{m.asset}_v{m.version}"
         p = primary_stats.get((m.asset, m.version))
         c = confirm_stats.get((m.asset, m.version))
+        v = veto_stats.get((m.asset, m.version))
 
         def calc_pf(profit, loss):
             if not profit and not loss: return 0.0
-            if not loss: return round(float(profit), 2)
+            if not loss: return None # Infinity equivalent when there's profit but no losses
             return round(float(profit) / float(loss), 2)
 
         metrics = {
@@ -560,15 +624,17 @@ async def crypto_models_analytics(
             "confirmed_trades": int(c.total_trades) if c else 0,
             "confirmed_max_drawdown": round(float(c.max_drawdown), 4) if c and c.max_drawdown is not None else 0.0,
             "confirmed_profit_factor": calc_pf(c.gross_profit, c.gross_loss) if c else 0.0,
+            
+            "confirm_passed_count": int(v.confirm_passed_count) if v else 0,
+            "veto_count": int(v.veto_count) if v else 0,
         }
         
-        # Добавляем метрики модели
         metrics.update({
-            "auc_lift": round(m.accuracy - m.baseline, 4) if (m.accuracy and m.baseline) else None,
-            "precision": round(m.precision_at_threshold, 4) if m.precision_at_threshold else None,
-            "recall": round(m.recall_at_threshold, 4) if m.recall_at_threshold else None,
-            "f1": round(m.f1_at_threshold, 4) if m.f1_at_threshold else None,
-            "brier_score": round(m.brier_score, 4) if m.brier_score else None,
+            "auc_lift": round(m.accuracy - 0.5, 4) if m.accuracy else None,
+            "precision": round(m.precision_at_threshold, 4) if getattr(m, 'precision_at_threshold', None) is not None else None,
+            "recall": round(m.recall_at_threshold, 4) if getattr(m, 'recall_at_threshold', None) is not None else None,
+            "f1": round(m.f1_at_threshold, 4) if getattr(m, 'f1_at_threshold', None) is not None else None,
+            "brier_score": round(m.brier_score, 4) if getattr(m, 'brier_score', None) is not None else None,
         })
 
         result[key] = metrics
@@ -586,7 +652,7 @@ async def activate_crypto_model(
     """Активирует указанную версию крипто-модели, деактивируя остальные."""
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
-        allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
+        allowed_assets.extend([f"{s}_low_vol", f"{s}_mid_vol", f"{s}_high_vol", s])
 
     if asset not in allowed_assets:
         raise HTTPException(status_code=404, detail=f"Актив {asset} не найден")
@@ -618,7 +684,7 @@ async def delete_crypto_model(
     """Удаляет указанную версию крипто-модели из БД."""
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
-        allowed_assets.extend([f"{s}_low_vol", f"{s}_high_vol", s])
+        allowed_assets.extend([f"{s}_low_vol", f"{s}_mid_vol", f"{s}_high_vol", s])
 
     if asset not in allowed_assets:
         raise HTTPException(status_code=404, detail=f"Актив {asset} не найден")

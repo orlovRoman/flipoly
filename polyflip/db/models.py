@@ -9,6 +9,7 @@ from sqlalchemy import (
     Index,
     UniqueConstraint,
     Text,
+    JSON,
     CheckConstraint,
     Numeric,
     SmallInteger,
@@ -56,8 +57,8 @@ class ModelRegistry(Base):
     baseline = Column(Float, nullable=True)
 
     decision_threshold = Column(Float, nullable=True)
-    training_params = Column(JSONB, nullable=True)
-    feature_importance = Column(JSONB, nullable=True)
+    training_params = Column(JSON().with_variant(JSONB, 'postgresql'), nullable=True)
+    feature_importance = Column(JSON().with_variant(JSONB, 'postgresql'), nullable=True)
 
     train_samples = Column(Integer, nullable=True)
     validation_samples = Column(Integer, nullable=True)
@@ -322,7 +323,8 @@ class DecisionFunnelLog(Base):
     # Контекст рынка
     market_id    = Column(String(128), nullable=False)
     asset        = Column(String(32),  nullable=False)
-    trading_mode = Column(String(32),  nullable=False)  # ML, COMBINED, CRYPTO, FAVORITE
+    trading_mode = Column(String(16))  # ML / COMBINED / EXPERT
+    execution_mode = Column(String(16), nullable=True) # PAPER / LIVE / SHADOW
     used_model   = Column(String(64),  nullable=True)   # "BTC_contested", "ETH" и т.д.
 
     # ML-метрики

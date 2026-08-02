@@ -1407,6 +1407,7 @@ async function loadPresetsListUI() {
     const res = await fetch(`${window.API_BASE}/api/presets/`);
     if (!res.ok) return;
     const presets = await res.json();
+    const activePresetId = localStorage.getItem('active_preset_id');
 
     if (!presets || presets.length === 0) {
       container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; margin:0;">Нет сохраненных пресетов</p>';
@@ -1414,12 +1415,13 @@ async function loadPresetsListUI() {
     }
 
     container.innerHTML = presets.map(p => `
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 16px; background: ${activePresetId == p.id ? 'rgba(40,167,69,0.1)' : 'rgba(255,255,255,0.03)'}; border:1px solid ${activePresetId == p.id ? '#28a745' : 'rgba(255,255,255,0.08)'}; border-radius:8px;">
         <div style="display:flex; align-items:center; gap:16px;">
           <span style="font-size:1.2rem;">${p.preset_type === 'manual' ? '📌' : '🏆'}</span>
           <div>
             <div style="font-weight:600; font-size:0.95rem; color:#fff; display:flex; align-items:center; gap:8px;">
               <span>${p.name}</span>
+              ${activePresetId == p.id ? '<span style="font-size:0.75rem; background:#28a745; color:white; padding:2px 8px; border-radius:12px; font-weight:600;">Активен</span>' : ''}
               <span style="font-size:0.75rem; padding:2px 8px; border-radius:12px; background:rgba(255,255,255,0.1); color:#cbd5e1; font-weight:500;">${p.param_count} параметров</span>
             </div>
             <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
