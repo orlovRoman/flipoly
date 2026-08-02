@@ -105,6 +105,19 @@ class LiveMarket(Base):
     price_velocity = Column(Float, nullable=False, default=0.0)
     last_updated = Column(DateTime(timezone=True), nullable=False)
 
+    # --- Состояние торговли и результат ---
+    trading_status = Column(String(24), nullable=False, server_default="UNKNOWN")
+    accepting_orders = Column(Boolean, nullable=True)
+    resolution_status = Column(String(24), nullable=False, server_default="PENDING")
+    final_outcome = Column(String(16), nullable=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    resolution_checked_at = Column(DateTime(timezone=True), nullable=True)
+    resolution_source = Column(String(32), nullable=True)
+
+    @property
+    def resolved(self) -> bool:
+        return self.resolution_status in {"RESOLVED", "INVALID"}
+
     __table_args__ = (
         Index("idx_live_markets_asset", "asset"),
     )
@@ -180,6 +193,16 @@ class TradeHistory(Base):
     exit_attempts   = Column(Integer, nullable=False, default=0)
     closed_at       = Column(DateTime(timezone=True), nullable=True)
     close_price     = Column(Float, nullable=True)
+
+    # --- Settlement & Redemption ---
+    settlement_outcome = Column(String(16), nullable=True)
+    expected_payout_usdc = Column(Numeric(38, 18), nullable=True)
+    redeemable_shares = Column(Numeric(38, 18), nullable=True)
+    redemption_status = Column(String(32), nullable=False, server_default="NOT_REQUIRED")
+    redemption_tx_hash = Column(String(128), nullable=True)
+    redeemed_payout_usdc = Column(Numeric(38, 18), nullable=True)
+    redeemed_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), nullable=False)
     config_snapshot = Column(Text, nullable=True)   # JSON паспорт настроек на момент сделки
     model_key = Column(String(64), nullable=True)

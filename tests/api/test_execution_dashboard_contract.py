@@ -22,3 +22,47 @@ async def test_execution_status_disables_live_switch_in_paper(
 
     assert result["execution_mode"] == "PAPER"
     assert result["kill_switch_available"] is False
+
+from polyflip.db.models import TradeHistory, LiveMarket
+
+@pytest.mark.asyncio
+async def test_close_rejects_resolved_market(db_session):
+    market = LiveMarket(market_id="test-m", asset="ETH", question="Q", resolution_status="RESOLVED", trading_status="CLOSED", accepting_orders=False)
+    db_session.add(market)
+    trade = TradeHistory(mode="LIVE", asset="ETH", market_id="test-m", position_status="OPEN", remaining_shares=10)
+    db_session.add(trade)
+    await db_session.commit()
+
+    from httpx import AsyncClient
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        res = await client.post(f"/positions/{trade.id}/close")
+        
+    assert res.status_code == 409
+    
+    # check no execution request created
+    from polyflip.db.models import ExecutionRequest
+    from sqlalchemy import select
+    reqs = (await db_session.execute(select(ExecutionRequest).where(ExecutionRequest.trade_id == trade.id))).scalars().all()
+    assert len(reqs) == 0
+
+@pytest.mark.asyncio
+async def test_dashboard_contract(db_session):
+    market = LiveMarket(market_id="test-m2", asset="ETH", question="Q", resolution_status="PENDING", trading_status="TRADABLE", accepting_orders=True)
+    db_session.add(market)
+    trade = TradeHistory(mode="LIVE", asset="ETH", market_id="test-m2", position_status="OPEN", remaining_shares=10)
+    db_session.add(trade)
+    await db_session.commit()
+
+    from httpx import AsyncClient
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        res = await client.get(f"/positions?mode=LIVE")
+    
+    assert res.status_code == 200
+    data = res.json()
+    assert "positions" in data
+    assert "tradable" in data["positions"]
+    
+    pos = data["positions"]["tradable"][0]
+    assert "available_actions" in pos
+    assert "redemption_status" in pos
+

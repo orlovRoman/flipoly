@@ -398,11 +398,6 @@
                     };
                 }
 
-                // Render Failed Entries
-                if (typeof renderFailedEntries !== 'undefined') {
-                    renderFailedEntries(data.failed_entries || []);
-                }
-
 
                 // Worker
                 const ws = document.getElementById('worker-status');
@@ -498,14 +493,6 @@
                 console.error("Error loading live dashboard:", e);
             }
         }
-
-
-        function renderFailedEntries(entries) {
-            const tbody = document.querySelector('#failed-entries-table tbody');
-            if (!entries.length) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Нет ошибок входов</td></tr>';
-                return;
-            }
             tbody.innerHTML = entries.map(p => `
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
@@ -518,19 +505,9 @@
         }
 
         function renderPositions(positions) {
-            const tradable = [];
-            const resolved = [];
-            const archive = [];
-
-            for (const p of positions) {
-                if (p.position_status === 'OPEN' || p.position_status === 'PARTIALLY_CLOSED') {
-                    tradable.push(p);
-                } else if (p.position_status === 'RESOLVED_REDEEMABLE' || p.position_status === 'REDEEMING' || p.position_status === 'REDEMPTION_UNKNOWN') {
-                    resolved.push(p);
-                } else {
-                    archive.push(p);
-                }
-            }
+            const tradable = positions.tradable || [];
+            const resolved = positions.resolved || [];
+            const archive = positions.archive || [];
 
             const tbodyTradable = document.querySelector('#tradable-positions-table tbody');
             if (!tradable.length) {
@@ -603,7 +580,6 @@
                         <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
                         <td>${escapeHtml(p.outcome_bought)}</td>
                         <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
-                        <td>${(p.remaining_shares || 0).toFixed(2)}</td>
                         <td style="color: ${p.realized_pnl_usdc >= 0 ? '#48bb78' : '#e53e3e'};">${p.realized_pnl_usdc != null ? p.realized_pnl_usdc.toFixed(2) : '--'}</td>
                         <td><span class="status-badge status-shadow">${p.position_status}</span></td>
                     </tr>
@@ -683,7 +659,7 @@
                     alert("Ошибка: " + (err.detail || JSON.stringify(err)));
                 }
             } catch (e) {
-                alert("Network error");
+                alert("Сетевая ошибка: проверьте соединение");
             }
             if (btn) { btn.disabled = false; btn.textContent = 'Сверить результат'; }
         }
@@ -702,7 +678,7 @@
                     alert("Ошибка: " + (err.detail || JSON.stringify(err)));
                 }
             } catch (e) {
-                alert("Network error");
+                alert("Сетевая ошибка: проверьте соединение");
             }
             if (btn) { btn.disabled = false; btn.textContent = 'Погасить'; }
         }
@@ -720,7 +696,7 @@
                     alert("Ошибка: " + (err.detail || JSON.stringify(err)));
                 }
             } catch (e) {
-                alert("Network error");
+                alert("Сетевая ошибка: проверьте соединение");
             }
             if (btn) { btn.disabled = false; btn.textContent = 'Проверить погашение'; }
         }
@@ -798,11 +774,6 @@
                         if (err.includes("Cannot verify allowance")) return "Ошибка проверки allowance";
                         return escapeHtml(err);
                     };
-                }
-
-                // Render Failed Entries
-                if (typeof renderFailedEntries !== 'undefined') {
-                    renderFailedEntries(data.failed_entries || []);
                 }
 
                 let msg = `Успешно обработано: ${data.resolved.length}.\nПропущено: ${data.skipped.length}.`;
@@ -895,11 +866,6 @@
                         if (err.includes("Cannot verify allowance")) return "Ошибка проверки allowance";
                         return escapeHtml(err);
                     };
-                }
-
-                // Render Failed Entries
-                if (typeof renderFailedEntries !== 'undefined') {
-                    renderFailedEntries(data.failed_entries || []);
                 }
 
                 updateChecklistUI(data);
