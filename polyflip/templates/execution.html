@@ -374,18 +374,36 @@
             old_positions: "check-old-pos"
         };
 
-        async function loadLiveDashboard() {
-            try {
-                const res = await fetch(window.API_BASE + '/api/execution/live/dashboard', { headers: getAuthHeaders() });
-                if (!res.ok) {
-                    const errorText = await res.text();
-                    console.error(`LIVE dashboard HTTP ${res.status}: ${errorText}`);
-                    return;
+                let dashboardLoading = false;
+        let dashboardRefreshPending = false;
+        let dashboardTimer = null;
+
+        function showDashboardLoadError(message) {
+            const safeMessage = escapeHtml(message || "Не удалось загрузить данные");
+            [
+                "#tradable-positions-table tbody",
+                "#resolved-markets-table tbody",
+                "#archive-table tbody",
+                "#requests-table tbody",
+            ].forEach(selector => {
+                const tbody = document.querySelector(selector);
+                if (tbody) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="10" class="load-error">
+                                ${safeMessage}
+                                <button onclick="loadLiveDashboard({ force: true })">
+                                    Повторить
+                                </button>
+                            </td>
+                        </tr>
+                    `;
                 }
+            });
+        }
 
-                const data = await res.json();
-
-                if (typeof translateError === 'undefined') {
+        function renderLiveDashboard(data) {
+if (typeof translateError === 'undefined') {
                     window.translateError = (err) => {
                         if (!err) return '--';
                         err = String(err);
@@ -488,11 +506,63 @@
                 if (data.readiness) {
                     updateChecklistUI(data.readiness);
                 }
+        }
 
-            } catch (e) {
-                console.error("Error loading live dashboard:", e);
+        async function loadLiveDashboard({ force = false } = {}) {
+            if (document.hidden && !force) {
+                return;
+            }
+            if (dashboardLoading) {
+                dashboardRefreshPending = true;
+                return;
+            }
+            dashboardLoading = true;
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            
+            try {
+                const res = await fetch(
+                    window.API_BASE + '/api/execution/live/dashboard',
+                    {
+                        headers: getAuthHeaders(),
+                        signal: controller.signal,
+                    }
+                );
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(`HTTP ${res.status}: ${text.substring(0, 300)}`);
+                }
+                const data = await res.json();
+                renderLiveDashboard(data);
+            } catch (error) {
+                console.error("LIVE dashboard refresh failed", error);
+                showDashboardLoadError(
+                    error.name === "AbortError" ? "Превышено время ожидания" : error.message
+                );
+            } finally {
+                clearTimeout(timeoutId);
+                dashboardLoading = false;
+                if (dashboardRefreshPending) {
+                    dashboardRefreshPending = false;
+                    queueMicrotask(() => loadLiveDashboard({ force: true }));
+                }
             }
         }
+
+        async function dashboardRefreshLoop() {
+            await loadLiveDashboard({ force: true });
+            dashboardTimer = setTimeout(
+                dashboardRefreshLoop,
+                15000
+            );
+        }
+
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden) {
+                loadLiveDashboard({ force: true });
+            }
+        });
 
         function renderPositions(positions) {
             const tradable = positions.tradable || [];
@@ -629,7 +699,7 @@
             });
             if (res.ok) {
                 alert("Заявка переведена в RECONCILING");
-                loadLiveDashboard();
+                loadLiveDashboard({ force: true });
             } else {
                 const err = await res.json();
                 alert("Ошибка: " + (err.detail || JSON.stringify(err)));
@@ -643,7 +713,7 @@
                     method: 'POST', headers: getAuthHeaders()
                 });
                 if (res.ok) {
-                    loadLiveDashboard();
+                    loadLiveDashboard({ force: true });
                 } else {
                     const err = await res.json();
                     alert("Ошибка: " + (err.detail || JSON.stringify(err)));
@@ -662,7 +732,7 @@
                     method: 'POST', headers: getAuthHeaders()
                 });
                 if (res.ok) {
-                    loadLiveDashboard();
+                    loadLiveDashboard({ force: true });
                 } else {
                     const err = await res.json();
                     alert("Ошибка: " + (err.detail || JSON.stringify(err)));
@@ -680,7 +750,7 @@
                     method: 'POST', headers: getAuthHeaders()
                 });
                 if (res.ok) {
-                    loadLiveDashboard();
+                    loadLiveDashboard({ force: true });
                 } else {
                     const err = await res.json();
                     alert("Ошибка: " + (err.detail || JSON.stringify(err)));
@@ -699,7 +769,7 @@
             // Just refresh. Or let's see if we can trigger something.
             // For now, just refresh the dashboard.
             alert("Данные сверяются в фоновом режиме (worker).");
-            loadLiveDashboard();
+            loadLiveDashboard({ force: true });
             if (btn) { btn.disabled = false; btn.textContent = 'Сверить с Polymarket'; }
         }
 
@@ -718,7 +788,7 @@
                     note: "Manual confirmation"
                 })
             });
-            if (res.ok) { alert("Заявка отмечена как NO FILL."); loadLiveDashboard(); }
+            if (res.ok) { alert("Заявка отмечена как NO FILL."); loadLiveDashboard({ force: true }); }
             else {
                 const err = await res.json();
                 alert("Ошибка: " + JSON.stringify(err));
@@ -774,7 +844,7 @@
                     });
                 }
                 alert(msg);
-                loadLiveDashboard();
+                loadLiveDashboard({ force: true });
             }
             else {
                 const err = await res.json();
@@ -802,7 +872,7 @@
             const res = await fetch(window.API_BASE + '/api/execution/live/sessions', {
                 method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(body)
             });
-            if (res.ok) { alert("Сессия создана!"); loadLiveDashboard(); }
+            if (res.ok) { alert("Сессия создана!"); loadLiveDashboard({ force: true }); }
             else { const err = await res.json(); alert("Ошибка: " + (err.detail || JSON.stringify(err))); }
         };
 
@@ -829,7 +899,7 @@
             if (res.ok) {
                 alert("Лимиты успешно обновлены!");
                 toggleEditLimits(false);
-                loadLiveDashboard();
+                loadLiveDashboard({ force: true });
             } else {
                 const err = await res.json();
                 alert("Ошибка: " + (err.detail || JSON.stringify(err)));
@@ -859,7 +929,7 @@
                 }
 
                 updateChecklistUI(data);
-                loadLiveDashboard();
+                loadLiveDashboard({ force: true });
             } else { alert("Ошибка проверки readiness"); }
         };
 
@@ -889,7 +959,7 @@
             const res = await fetch(window.API_BASE + `/api/execution/live/sessions/${currentSessionId}/activate`, {
                 method: 'POST', headers: getAuthHeaders()
             });
-            if (res.ok) { alert("LIVE-Сессия успешно активирована!"); loadLiveDashboard(); }
+            if (res.ok) { alert("LIVE-Сессия успешно активирована!"); loadLiveDashboard({ force: true }); }
             else { const err = await res.json(); alert("Ошибка активации: " + JSON.stringify(err.detail)); }
         };
 
@@ -898,7 +968,7 @@
             const res = await fetch(window.API_BASE + `/api/execution/live/sessions/${currentSessionId}/stop`, {
                 method: 'POST', headers: getAuthHeaders()
             });
-            if (res.ok) { alert("Новые входы остановлены."); loadLiveDashboard(); }
+            if (res.ok) { alert("Новые входы остановлены."); loadLiveDashboard({ force: true }); }
         };
 
         document.getElementById('btn-close-all').onclick = async () => {
@@ -907,7 +977,7 @@
             const res = await fetch(window.API_BASE + `/api/execution/live/sessions/${currentSessionId}/close-all`, {
                 method: 'POST', headers: getAuthHeaders()
             });
-            if (res.ok) { alert("Заявки закрытия созданы."); loadLiveDashboard(); }
+            if (res.ok) { alert("Заявки закрытия созданы."); loadLiveDashboard({ force: true }); }
         };
 
         document.getElementById('btn-finish-session').onclick = async () => {
@@ -915,7 +985,7 @@
             const res = await fetch(window.API_BASE + `/api/execution/live/sessions/${currentSessionId}/finish`, {
                 method: 'POST', headers: getAuthHeaders()
             });
-            if (res.ok) { alert("Сессия завершена."); loadLiveDashboard(); }
+            if (res.ok) { alert("Сессия завершена."); loadLiveDashboard({ force: true }); }
             else { const err = await res.json(); alert("Ошибка: " + err.detail); }
         };
 
@@ -923,15 +993,11 @@
             const res = await fetch(window.API_BASE + `/api/execution/positions/${tradeId}/close`, {
                 method: 'POST', headers: getAuthHeaders()
             });
-            if (res.ok) { alert("Заявка на закрытие позиции создана."); loadLiveDashboard(); }
+            if (res.ok) { alert("Заявка на закрытие позиции создана."); loadLiveDashboard({ force: true }); }
             else { const err = await res.json(); alert("Ошибка: " + err.detail); }
         }
 
-        setInterval(loadLiveDashboard, 10000);
-
-
-
-        loadLiveDashboard();
+        dashboardRefreshLoop();
     </script>
 
 </body>
