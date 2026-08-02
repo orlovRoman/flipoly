@@ -349,6 +349,17 @@ class DecisionFunnelLog(Base):
     final_action = Column(String(16), nullable=False)   # BUY_YES, BUY_NO, SKIP
     skip_reason  = Column(String(256), nullable=True)   # краткая причина если SKIP
 
+    # Паспорт VETO / Подтверждения (P5)
+    primary_model_key = Column(String(64), nullable=True)
+    primary_model_version = Column(Integer, nullable=True)
+    confirm_model_key = Column(String(64), nullable=True)
+    confirm_model_version = Column(Integer, nullable=True)
+    proposed_action = Column(String(16), nullable=True)
+    proposed_price = Column(Float, nullable=True)
+    proposed_amount_usdc = Column(Float, nullable=True)
+    confirm_direction = Column(String(16), nullable=True)
+    confirm_passed = Column(Boolean, nullable=True)
+
     __table_args__ = (
         Index("idx_funnel_asset_created", "asset", "created_at"),
         Index("idx_funnel_market_id",     "market_id"),
