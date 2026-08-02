@@ -203,7 +203,7 @@ async def toggle_kill_switch(
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
-from polyflip.db.models import TradeHistory
+from polyflip.db.models import TradeHistory, LiveMarket
 from polyflip.execution.states import ACTIVE_POSITION_STATES
 
 # ---------------------------------------------------------------------------
