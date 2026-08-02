@@ -38,21 +38,35 @@ async def serialize_execution_requests(
     db: AsyncSession,
     requests: list[ExecutionRequest],
 ) -> list[dict]:
-    from sqlalchemy import select
+    from sqlalchemy import select, func
     from polyflip.db.execution_models import ExecutionAttempt
 
-    eligibility = await evaluate_no_fill_eligibility_batch(db, requests)
+    manual_review_requests = [
+        r for r in requests if r.state == "MANUAL_REVIEW_REQUIRED"
+    ]
+    reconcilable_requests = [
+        r for r in requests if r.state in RECONCILABLE_REQUEST_STATES or r.state == "MANUAL_REVIEW_REQUIRED"
+    ]
 
-    req_ids = [r.id for r in requests]
-    provider_evidence_request_ids = set()
-    if req_ids:
+    eligibility = await evaluate_no_fill_eligibility_batch(db, manual_review_requests)
+
+    evidence_by_req = {}
+    evidence_req_ids = [r.id for r in reconcilable_requests]
+    if evidence_req_ids:
         rows = await db.execute(
-            select(ExecutionAttempt.request_id)
-            .where(ExecutionAttempt.request_id.in_(req_ids))
-            .where(ExecutionAttempt.provider_order_id.is_not(None))
-            .distinct()
+            select(
+                ExecutionAttempt.request_id,
+                func.bool_or(ExecutionAttempt.provider_order_id.is_not(None)).label("has_order_id"),
+                func.bool_or(ExecutionAttempt.transaction_hash.is_not(None)).label("has_tx_hash"),
+            )
+            .where(ExecutionAttempt.request_id.in_(evidence_req_ids))
+            .group_by(ExecutionAttempt.request_id)
         )
-        provider_evidence_request_ids = set(rows.scalars().all())
+        for row in rows:
+            evidence_by_req[row.request_id] = {
+                "has_order_id": row.has_order_id,
+                "has_tx_hash": row.has_tx_hash,
+            }
 
     results = []
     for req in requests:
@@ -60,10 +74,7 @@ async def serialize_execution_requests(
         if req.id in eligibility and eligibility[req.id].allowed:
             actions.append("MARK_FAILED_NO_FILL")
 
-        if (
-            req.state in RECONCILABLE_REQUEST_STATES
-            or req.state == "MANUAL_REVIEW_REQUIRED"
-        ) and req.id in provider_evidence_request_ids:
+        if req.id in evidence_by_req and (evidence_by_req[req.id]["has_order_id"] or evidence_by_req[req.id]["has_tx_hash"]):
             actions.append("RECONCILE_WITH_POLYMARKET")
 
         results.append({
