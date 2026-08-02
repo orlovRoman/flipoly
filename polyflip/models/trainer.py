@@ -778,6 +778,11 @@ class ModelTrainer:
                 phase_results[phase_name] = f"skipped ({n_unique_markets} markets < {CV_N_SPLITS} folds)"
                 continue
 
+            phase_asset = f"{asset}_{phase_name}"
+            X_phase = df_phase[active_features]
+            y_phase = df_phase["target"]
+            grp_phase = df_phase["market_id"]
+
             phase_weights = (
                 _compute_sample_weights(
                     df_phase["time_left_min"].values,
@@ -854,5 +859,8 @@ class ModelTrainer:
 
         await self.db.commit()
         logger.info("price_phase_models_complete", asset=asset, results=phase_results)
+        if phase_results:
+            phase_summary = ", ".join(f"{k}: {v}" for k, v in phase_results.items())
+            self.status_messages[asset] = f"{self.status_messages.get(asset, '')} | Фазы: [{phase_summary}]"
 
         return True
