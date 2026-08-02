@@ -27,7 +27,8 @@ from polyflip.db.models import TradeHistory, LiveMarket
 
 @pytest.mark.asyncio
 async def test_close_rejects_resolved_market(db_session):
-    market = LiveMarket(market_id="test-m", asset="ETH", question="Q", resolution_status="RESOLVED", trading_status="CLOSED", accepting_orders=False)
+    import datetime
+    market = LiveMarket(market_id="test-m", asset="ETH", question="Q", yes_token_id="1", no_token_id="2", end_time_est=datetime.datetime.now(datetime.timezone.utc), current_yes_price=0.5, current_no_price=0.5, current_spread=0.01, resolution_status="RESOLVED", trading_status="CLOSED", accepting_orders=False)
     db_session.add(market)
     trade = TradeHistory(mode="LIVE", asset="ETH", market_id="test-m", position_status="OPEN", remaining_shares=10)
     db_session.add(trade)
@@ -47,7 +48,8 @@ async def test_close_rejects_resolved_market(db_session):
 
 @pytest.mark.asyncio
 async def test_dashboard_contract(db_session):
-    market = LiveMarket(market_id="test-m2", asset="ETH", question="Q", resolution_status="PENDING", trading_status="TRADABLE", accepting_orders=True)
+    import datetime
+    market = LiveMarket(market_id="test-m2", asset="ETH", question="Q", yes_token_id="3", no_token_id="4", end_time_est=datetime.datetime.now(datetime.timezone.utc), current_yes_price=0.5, current_no_price=0.5, current_spread=0.01, resolution_status="PENDING", trading_status="TRADABLE", accepting_orders=True)
     db_session.add(market)
     trade = TradeHistory(mode="LIVE", asset="ETH", market_id="test-m2", position_status="OPEN", remaining_shares=10)
     db_session.add(trade)
