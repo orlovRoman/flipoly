@@ -795,6 +795,22 @@ async def activate_crypto_model(
     if not model:
         raise HTTPException(status_code=404, detail=f"Версия {version} не найдена")
 
+    # 1.5 Smoke Test: Проверка совместимости формата признаков
+    if model.model_blob:
+        import pickle
+        import numpy as np
+        from polyflip.crypto.trainer import CRYPTO_FEATURES
+        try:
+            clf = pickle.loads(model.model_blob)
+            fv_array = np.zeros(len(CRYPTO_FEATURES), dtype=np.float64)
+            clf.predict_proba([fv_array])
+        except Exception as e:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Smoke Test Failed: Модель несовместима с текущим форматом признаков ({len(CRYPTO_FEATURES)}). "
+                       f"Ошибка инференса: {str(e)}. Необходимо переобучить модель.",
+            )
+
     # 2. Quality Gate check — только если поле явно False (None = legacy, не блокируем)
     if model.quality_gate_passed is False and not payload.force:
         reasons = model.quality_gate_reasons or {}

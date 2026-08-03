@@ -611,7 +611,45 @@ class CryptoModelTrainer:
 
         if trained_any:
             # Инвалидируем кэш у инстансов предсказателя после коммита в базу
+            from polyflip.crypto.predictor import CryptoPredictor
             CryptoPredictor.invalidate_all(symbol)
+            
+            # P0. Smoke Test: выполняем тестовый inference на свежих свечах
+            try:
+                from polyflip.crypto.candle_repository import get_recent_candles
+                candles = await get_recent_candles(self.db, symbol, interval="15m", limit=120)
+                if len(candles) >= 100:
+                    predictor = CryptoPredictor()
+                    await predictor.load(self.db, symbol)
+                    signal = predictor.predict(candles, symbol)
+                    
+                    if signal.status in {"INFERENCE_FAILED", "INVALID_FEATURES", "MODEL_NOT_LOADED"}:
+                        logger.error("smoke_test_failed", symbol=symbol, status=signal.status, reason=signal.risk_reason)
+                        # Откат: деактивируем все только что сохраненные модели этого символа
+                        await self.db.execute(
+                            update(ModelRegistry)
+                            .where(ModelRegistry.asset.like(f"{symbol}_%"))
+                            .where(ModelRegistry.is_active == True)
+                            .values(is_active=False)
+                        )
+                        await self.db.commit()
+                        CryptoPredictor.invalidate_all(symbol)
+                        return False
+                    else:
+                        logger.info("smoke_test_passed", symbol=symbol, status=signal.status, regime=signal.regime)
+            except Exception as e:
+                logger.exception("smoke_test_exception", symbol=symbol, error=str(e))
+                # Если тест упал с исключением (например, нет свечей или баг инференса), мы всё равно откатываем
+                await self.db.execute(
+                    update(ModelRegistry)
+                    .where(ModelRegistry.asset.like(f"{symbol}_%"))
+                    .where(ModelRegistry.is_active == True)
+                    .values(is_active=False)
+                )
+                await self.db.commit()
+                CryptoPredictor.invalidate_all(symbol)
+                return False
+
             return True
         return False
 
