@@ -268,29 +268,34 @@ class CryptoPredictor:
                     self._model_intervals[symbol][regime] = getattr(row, 'interval', '15m')
                     self._model_eces[symbol][regime] = row.ece or 0.0 # BUG-AO
 
-                    # Пороги: берем CRYPTO_THRESHOLD_BTCUSDT_low_vol или общие CRYPTO_THRESHOLD_UP_BTC / DOWN_BTC
-                    thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
-                    thr_row = (await db.execute(
-                        select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
-                    )).scalar_one_or_none()
+                    thr_up_key = f"CRYPTO_THRESHOLD_{regime_asset}"
+                    thr_down_key = f"CRYPTO_THRESHOLD_DOWN_{regime_asset}"
+                    thr_rows = (await db.execute(
+                        select(RuntimeSettings).where(RuntimeSettings.key.in_([thr_up_key, thr_down_key]))
+                    )).scalars().all()
+                    
+                    thr_dict = {r.key: float(r.value) for r in thr_rows}
 
                     from polyflip.services.settings_service import get_float
                     min_valid_thresh = await get_float(db, "LGBM_MIN_VALID_THRESHOLD")
                     max_valid_thresh = await get_float(db, "LGBM_MAX_VALID_THRESHOLD")
                     threshold_fallback = await get_float(db, "LGBM_THRESHOLD_FALLBACK")
 
-                    if thr_row:
-                        threshold = float(thr_row.value)
-                        if not (min_valid_thresh <= threshold <= max_valid_thresh):
-                            logger.error(
-                                "invalid_threshold_in_db_using_fallback",
-                                key=thr_key,
-                                invalid=round(threshold, 4),
-                                fallback=threshold_fallback,
-                            )
-                            threshold = threshold_fallback
-                        th_up = threshold
-                        th_down = 1.0 - threshold
+                    if thr_up_key in thr_dict and thr_down_key in thr_dict:
+                        th_up = thr_dict[thr_up_key]
+                        th_down = thr_dict[thr_down_key]
+                        for key, threshold in [(thr_up_key, th_up), (thr_down_key, th_down)]:
+                            if not (min_valid_thresh <= threshold <= max_valid_thresh):
+                                logger.error(
+                                    "invalid_threshold_in_db_using_fallback",
+                                    key=key,
+                                    invalid=round(threshold, 4),
+                                    fallback=threshold_fallback,
+                                )
+                                if key == thr_up_key:
+                                    th_up = threshold_fallback
+                                else:
+                                    th_down = threshold_fallback
                     else:
                         coin_prefix = symbol.replace("USDT", "")
                         up_key = f"CRYPTO_THRESHOLD_UP_{coin_prefix}"

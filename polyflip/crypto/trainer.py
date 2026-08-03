@@ -120,10 +120,10 @@ def _fit_lgbm_and_serialize(
     max_valid_thr: float = 0.75,
     thr_fallback: float = 0.55,
     **lgbm_params,
-) -> tuple[bytes, float, float, float, float, dict[str, int]]:
+) -> tuple[bytes, float, float, float, float, float, dict[str, int], float, float, float, float]:
     """
     CPU-bound. Обучает LightGBM с TimeSeriesSplit.
-    Возвращает: (model_bytes, val_auc, baseline_auc, optimal_threshold, ece, feature_importance)
+    Возвращает: (model_bytes, val_auc, baseline_auc, optimal_threshold, optimal_threshold_down, ece, feature_importance, ...)
     """
     tscv = TimeSeriesSplit(n_splits=n_splits)
 
@@ -187,17 +187,28 @@ def _fit_lgbm_and_serialize(
     )
     final_cal.fit(X_cal_final, y_cal_final)
 
-    # Оптимальный порог через OOF (без leakage)
-    prec_arr, rec_arr, thr_arr = precision_recall_curve(y[valid_mask], oof_scores[valid_mask])
-    if len(thr_arr) > 0:
-        valid = prec_arr[:-1] >= min_precision
-        f1 = 2 * prec_arr[:-1] * rec_arr[:-1] / (prec_arr[:-1] + rec_arr[:-1] + 1e-8)
-        if valid.any():
-            optimal_threshold = float(thr_arr[np.argmax(np.where(valid, f1, 0.0))])
+    def _find_threshold(y_true, y_prob):
+        prec_arr, rec_arr, thr_arr = precision_recall_curve(y_true, y_prob)
+        if len(thr_arr) > 0:
+            valid = prec_arr[:-1] >= min_precision
+            f1 = 2 * prec_arr[:-1] * rec_arr[:-1] / (prec_arr[:-1] + rec_arr[:-1] + 1e-8)
+            if valid.any():
+                th = float(thr_arr[np.argmax(np.where(valid, f1, 0.0))])
+            else:
+                th = float(thr_arr[np.argmax(f1)])
         else:
-            optimal_threshold = float(thr_arr[np.argmax(f1)])
-    else:
-        optimal_threshold = thr_fallback
+            th = thr_fallback
+        if th >= max_valid_thr:
+            th = max_valid_thr
+        if th < min_valid_thr or th > max_valid_thr:
+            th = thr_fallback
+        return th
+
+    optimal_threshold = _find_threshold(y[valid_mask], oof_scores[valid_mask])
+    
+    y_down = 1 - y[valid_mask]
+    oof_scores_down = 1.0 - oof_scores[valid_mask]
+    optimal_threshold_down = _find_threshold(y_down, oof_scores_down)
 
     # Считаем реальный precision при optimal_threshold на OOF
     valid_oof = oof_scores[valid_mask]
@@ -216,22 +227,7 @@ def _fit_lgbm_and_serialize(
                 real_precision=real_precision,
                 action="threshold_raised_or_model_rejected")
 
-    # Защита от leakage и неадекватных порогов
-    if optimal_threshold >= max_valid_thr:
-        logger.warning(
-            "threshold_clipped_leakage",
-            original=optimal_threshold,
-            clipped=max_valid_thr,
-        )
-        optimal_threshold = max_valid_thr
 
-    if optimal_threshold < min_valid_thr or optimal_threshold > max_valid_thr:
-        logger.warning(
-            "threshold_out_of_bounds",
-            threshold=optimal_threshold,
-            fallback=thr_fallback,
-        )
-        optimal_threshold = thr_fallback
 
     # Feature importance для логирования и дашборда
     fi = {
@@ -261,6 +257,7 @@ def _fit_lgbm_and_serialize(
         val_auc,
         baseline_auc,
         optimal_threshold,
+        optimal_threshold_down,
         ece,
         fi,
         precision,
@@ -443,7 +440,7 @@ class CryptoModelTrainer:
                     logger.info("regime_train_duration", symbol=symbol, regime=regime,
                                 elapsed_sec=round(time.monotonic() - t0, 1))
 
-                model_bytes, val_auc, baseline_auc, threshold, ece, fi, precision, recall, f1, brier = result
+                model_bytes, val_auc, baseline_auc, threshold, threshold_down, ece, fi, precision, recall, f1, brier = result
 
                 logger.info(
                     "crypto_regime_model_trained",
@@ -544,34 +541,35 @@ class CryptoModelTrainer:
                 next_version = (v_res.scalar_one_or_none() or 0) + 1
 
                 # Сохраняем порог в RuntimeSettings
-                thr_key = f"CRYPTO_THRESHOLD_{regime_asset}"
-                thr_row = (await self.db.execute(
-                    select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
-                )).scalar_one_or_none()
+                for thr_suffix, thr_val in [("", threshold), ("_DOWN", threshold_down)]:
+                    thr_key = f"CRYPTO_THRESHOLD{thr_suffix}_{regime_asset}"
+                    thr_row = (await self.db.execute(
+                        select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+                    )).scalar_one_or_none()
 
-                threshold_quality = "ok"
-                if threshold < 0.40 or threshold > 0.65:
-                    threshold_quality = "marginal"
+                    threshold_quality = "ok"
+                    if thr_val < 0.40 or thr_val > 0.65:
+                        threshold_quality = "marginal"
 
-                logger.info(
-                    "threshold_saved",
-                    key=thr_key,
-                    value=round(threshold, 4),
-                    quality=threshold_quality,
-                )
+                    logger.info(
+                        "threshold_saved",
+                        key=thr_key,
+                        value=round(thr_val, 4),
+                        quality=threshold_quality,
+                    )
 
-                if should_activate or not thr_row:
-                    if thr_row:
-                        thr_row.value = str(round(threshold, 4))
-                        thr_row.updated_at = now
-                        thr_row.updated_by = "crypto_train_job"
-                    else:
-                        self.db.add(RuntimeSettings(
-                            key=thr_key,
-                            value=str(round(threshold, 4)),
-                            updated_at=now,
-                            updated_by="crypto_train_job",
-                        ))
+                    if should_activate or not thr_row:
+                        if thr_row:
+                            thr_row.value = str(round(thr_val, 4))
+                            thr_row.updated_at = now
+                            thr_row.updated_by = "crypto_train_job"
+                        else:
+                            self.db.add(RuntimeSettings(
+                                key=thr_key,
+                                value=str(round(thr_val, 4)),
+                                updated_at=now,
+                                updated_by="crypto_train_job",
+                            ))
 
                 # Сохраняем feature importance в RuntimeSettings
                 fi_key = f"CRYPTO_FI_{regime_asset}"
@@ -602,6 +600,7 @@ class CryptoModelTrainer:
                     f1_at_threshold=f1,
                     brier_score=brier,
                     decision_threshold=threshold,
+                    decision_threshold_down=threshold_down,
                     training_params=lgbm_params,
                     features=",".join(available),
                     ece=ece,

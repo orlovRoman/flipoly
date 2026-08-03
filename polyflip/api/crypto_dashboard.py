@@ -911,6 +911,29 @@ async def activate_crypto_model(
             activation_reason=payload.reason,
         )
     )
+
+    # Атомарная синхронизация порогов
+    if model.decision_threshold is not None:
+        thr_up_key = f"CRYPTO_THRESHOLD_{asset}"
+        thr_down_key = f"CRYPTO_THRESHOLD_DOWN_{asset}"
+        
+        for key, val in [(thr_up_key, model.decision_threshold), (thr_down_key, model.decision_threshold_down)]:
+            if val is not None:
+                row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == key)
+                )).scalar_one_or_none()
+                if row:
+                    row.value = str(round(val, 4))
+                    row.updated_at = now
+                    row.updated_by = "dashboard"
+                else:
+                    db.add(RuntimeSettings(
+                        key=key,
+                        value=str(round(val, 4)),
+                        updated_at=now,
+                        updated_by="dashboard",
+                    ))
+
     await db.commit()
 
     # 5. Инвалидируем кэш предиктора (в рамках того же процесса API)

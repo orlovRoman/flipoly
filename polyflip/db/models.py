@@ -57,6 +57,7 @@ class ModelRegistry(Base):
     baseline = Column(Float, nullable=True)
 
     decision_threshold = Column(Float, nullable=True)
+    decision_threshold_down = Column(Float, nullable=True)
     training_params = Column(JSON().with_variant(JSONB, 'postgresql'), nullable=True)
     feature_importance = Column(JSON().with_variant(JSONB, 'postgresql'), nullable=True)
 
@@ -400,6 +401,8 @@ class DecisionFunnelLog(Base):
     direction_probability = Column(Float, nullable=True)
     direction_p_up = Column(Float, nullable=True)
     direction_p_down = Column(Float, nullable=True)
+    direction_threshold_up = Column(Float, nullable=True)
+    direction_threshold_down = Column(Float, nullable=True)
     direction_value = Column(String(16), nullable=True)
 
     entry_requested_key = Column(String(64), nullable=True)
