@@ -297,15 +297,21 @@ class CryptoPredictor:
                                 else:
                                     th_down = threshold_fallback
                     else:
-                        coin_prefix = symbol.replace("USDT", "")
-                        up_key = f"CRYPTO_THRESHOLD_UP_{coin_prefix}"
-                        down_key = f"CRYPTO_THRESHOLD_DOWN_{coin_prefix}"
-                        rows = (await db.execute(
-                            select(RuntimeSettings).where(RuntimeSettings.key.in_([up_key, down_key]))
-                        )).scalars().all()
-                        settings = {r.key: float(r.value) for r in rows}
-                        th_up = settings.get(up_key, 0.55)
-                        th_down = settings.get(down_key, 0.45)
+                        # Fallback 1: есть только старый UP-порог без DOWN (до первого переобучения)
+                        if thr_up_key in thr_dict:
+                            th_up = thr_dict[thr_up_key]
+                            th_down = round(1.0 - th_up, 4)
+                            logger.warning(
+                                "threshold_down_not_found_using_mirror",
+                                asset=regime_asset,
+                                th_up=th_up,
+                                th_down=th_down,
+                                hint="Retrain the model to get a proper DOWN threshold",
+                            )
+                        else:
+                            # Fallback 2: ничего нет — дефолты
+                            th_up = 0.55
+                            th_down = 0.45
 
                     self._thresholds[symbol][regime] = (th_up, th_down)
                     loaded_regimes += 1
