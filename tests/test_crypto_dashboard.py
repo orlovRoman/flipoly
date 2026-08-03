@@ -338,3 +338,36 @@ async def test_crypto_models_analytics_with_trades(db_session):
     assert isinstance(result, dict)
     assert "BTCUSDT_mid_vol_v1" in result
     assert result["BTCUSDT_mid_vol_v1"]["total_trades"] == 1
+
+
+@pytest.mark.asyncio
+async def test_crypto_train_already_running():
+    """Состояние training блокирует параллельный повторный запуск."""
+    from polyflip.api.crypto_dashboard import crypto_train, _active_trainings
+    
+    _active_trainings["TESTUSDT"] = {"status": "training"}
+    try:
+        from fastapi import BackgroundTasks
+        bt = BackgroundTasks()
+        res = await crypto_train(background_tasks=bt, symbol="TESTUSDT")
+        assert res["status"] == "already_running"
+    finally:
+        _active_trainings.pop("TESTUSDT", None)
+
+
+@pytest.mark.asyncio
+async def test_crypto_train_allows_retrain_on_success_or_fail():
+    """Завершённое состояние success или failed не блокирует повторное обучение."""
+    from polyflip.api.crypto_dashboard import crypto_train, _active_trainings
+    import unittest.mock
+    
+    with unittest.mock.patch("polyflip.api.crypto_dashboard.CryptoModelTrainer"):
+        _active_trainings["TESTUSDT2"] = {"status": "success"}
+        try:
+            from fastapi import BackgroundTasks
+            bt = BackgroundTasks()
+            res = await crypto_train(background_tasks=bt, symbol="TESTUSDT2")
+            assert res["status"] == "started"
+            assert _active_trainings["TESTUSDT2"]["status"] == "training"
+        finally:
+            _active_trainings.pop("TESTUSDT2", None)

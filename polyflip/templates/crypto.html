@@ -410,6 +410,7 @@
         
         function setAssetFilter(asset) {
             currentAssetFilter = asset;
+            currentPage = 1;
             document.querySelectorAll('.asset-filter-btn').forEach(btn => {
                 if (btn.dataset.asset === asset) {
                     btn.classList.add('active');

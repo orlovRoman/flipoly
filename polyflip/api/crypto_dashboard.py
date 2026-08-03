@@ -391,7 +391,8 @@ async def crypto_train(
     Запускает переобучение LightGBM-модели в фоне.
     Не блокирует HTTP-ответ — обучение идёт в background task.
     """
-    if symbol in _active_trainings:
+    existing_training = _active_trainings.get(symbol)
+    if existing_training and existing_training.get("status") == "training":
         return {
             "status": "already_running",
             "symbol": symbol,
@@ -426,6 +427,7 @@ async def crypto_train(
             }
         finally:
             _cache.pop("status", None)
+            _cache.pop("crypto_models_coverage", None)
             for k in list(_cache.keys()):
                 if k.startswith(f"backtest_{symbol}"):
                     _cache.pop(k, None)
