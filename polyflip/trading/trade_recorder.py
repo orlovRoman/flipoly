@@ -226,10 +226,8 @@ async def execute_and_record(
     c_buffer = details.get("cost_buffer")
     n_edge = details.get("net_edge") if details.get("net_edge") is not None else edge
     max_acc_price = details.get("max_acceptable_price")
-    strk_src = details.get("strike_source")
-    strk_prx = details.get("strike_proxy")
-    und_price = details.get("underlying_price")
-    dist_strk = details.get("distance_to_strike_pct")
+    p_cand_win = details.get("p_candidate_win") if details.get("p_candidate_win") is not None else decision_obj.p_win_effective
+    dec_run_id = details.get("decision_run_id")
     
     exec_settings = ExecutionSettings()
     history = TradeHistory(
@@ -263,6 +261,16 @@ async def execute_and_record(
         remaining_shares=0.0,
         realized_pnl_usdc=0.0,
         position_status="OPENING",
+        direction_model_key=dir_model_key,
+        direction_model_version=dir_model_ver,
+        entry_model_key=ent_model_key,
+        entry_model_version=ent_model_ver,
+        entry_model_source=ent_model_src,
+        p_candidate_win=p_cand_win,
+        gross_edge=gr_edge,
+        cost_buffer=c_buffer,
+        net_edge=n_edge,
+        decision_run_id=dec_run_id,
     )
     
     if cfg.stop_loss_enabled:
@@ -300,6 +308,7 @@ async def execute_and_record(
             target_amount_usdc=actual_bet_size,
             limit_price=buy_price,
             requested_mode=exec_settings.execution_mode,
+            max_acceptable_price=max_acc_price,
         )
         
         if result.disposition == EnqueueDisposition.BLOCKED:

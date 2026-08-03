@@ -313,6 +313,13 @@ async def get_mirror_candidates(
             "released_request_id": (
                 str(r.released_request_id) if r.released_request_id else None
             ),
+            "p_candidate_win": r.p_candidate_win,
+            "decision_ask": r.decision_ask,
+            "decision_net_edge": r.decision_net_edge,
+            "cost_buffer": r.cost_buffer,
+            "entry_model_source": r.entry_model_source,
+            "direction_model_key": r.direction_model_key,
+            "max_acceptable_price": r.max_acceptable_price,
             "rejection_reason": r.rejection_reason,
         }
         for r in rows

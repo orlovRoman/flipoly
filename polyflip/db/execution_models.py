@@ -370,6 +370,7 @@ class LiveMirrorCandidate(Base):
     cost_buffer = Column(Float, nullable=True)
     entry_model_source = Column(String(32), nullable=True)
     direction_model_key = Column(String(64), nullable=True)
+    max_acceptable_price = Column(Float, nullable=True)
 
     rejection_reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)

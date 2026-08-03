@@ -195,6 +195,27 @@ async def mirror_batch(session: AsyncSession) -> int:
                 state="NEW",
                 signal_snapshot=snapshot,
                 signal_hash=signal_hash,
+                p_candidate_win=paper_trade.p_win_effective,
+                decision_ask=(
+                    float(paper_request.limit_price)
+                    if paper_request.limit_price is not None
+                    else None
+                ),
+                decision_net_edge=(
+                    paper_trade.net_edge
+                    if paper_trade.net_edge is not None
+                    else paper_trade.edge
+                ),
+                cost_buffer=paper_trade.cost_buffer,
+                entry_model_source=paper_trade.entry_model_source,
+                direction_model_key=(
+                    paper_trade.direction_model_key or paper_trade.confirm_model_key
+                ),
+                max_acceptable_price=(
+                    float(paper_request.max_acceptable_price)
+                    if paper_request.max_acceptable_price is not None
+                    else None
+                ),
                 created_at=now,
             )
             .on_conflict_do_nothing(
@@ -247,6 +268,11 @@ def _build_signal_snapshot(
         "decision_limit_price": (
             str(paper_request.limit_price)
             if paper_request.limit_price is not None
+            else None
+        ),
+        "max_acceptable_price": (
+            str(paper_request.max_acceptable_price)
+            if paper_request.max_acceptable_price is not None
             else None
         ),
         "model_key": paper_trade.model_key,

@@ -402,6 +402,7 @@ class DecisionFunnelLog(Base):
     strike_proxy = Column(Float, nullable=True)
     underlying_price = Column(Float, nullable=True)
     distance_to_strike_pct = Column(Float, nullable=True)
+    max_acceptable_price = Column(Float, nullable=True)
 
     __table_args__ = (
         Index("idx_funnel_asset_created", "asset", "created_at"),

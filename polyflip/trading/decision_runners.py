@@ -615,6 +615,9 @@ async def decide_combined_mode(
     3. evaluate_combined_entry принимает финальное решение и рассчитывает bet_size.
     4. Записывается ровно ОДИН лог воронки в DecisionFunnelLog со всеми полями.
     """
+    import uuid
+    import json
+    import time
     from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS, COMBINED_BINANCE_SYMBOLS
     from polyflip.trading.combined_voting import evaluate_combined_entry
     from polyflip.crypto.predictor import CryptoSignal
@@ -637,6 +640,7 @@ async def decide_combined_mode(
         )
 
     t0 = time.monotonic()
+    decision_run_id = f"dec_{uuid.uuid4().hex[:12]}"
 
     # 1. Запрашиваем актуальные цены Polymarket (YES и NO)
     fresh_yes_prices = await api_client.get_market_prices(market.yes_token_id)
@@ -648,6 +652,7 @@ async def decide_combined_mode(
             asset=market.asset,
             trading_mode="COMBINED",
             execution_mode=execution_mode,
+            decision_run_id=decision_run_id,
             p_flip=None,
             edge=None,
             fresh_price=None,
@@ -811,6 +816,7 @@ async def decide_combined_mode(
 
     # 6. Формируем decision_details и TradeDecision
     decision_details = {
+        "decision_run_id": decision_run_id,
         "direction_status": comb_res.direction_status,
         "direction_model_key": comb_res.direction_model_key,
         "direction_model_version": comb_res.direction_model_version,
@@ -891,6 +897,7 @@ async def decide_combined_mode(
         asset=market.asset,
         trading_mode="COMBINED",
         execution_mode=execution_mode,
+        decision_run_id=decision_run_id,
         used_model=comb_res.entry_model_key,
         p_flip=comb_res.p_flip,
         edge=comb_res.net_edge,

@@ -108,6 +108,11 @@ async def serialize_execution_requests(
                     float(req.requested_shares) if req.requested_shares else None
                 ),
                 "limit_price": float(req.limit_price) if req.limit_price else None,
+                "max_acceptable_price": (
+                    float(req.max_acceptable_price)
+                    if req.max_acceptable_price is not None
+                    else None
+                ),
                 "target_amount_usdc": (
                     float(req.target_amount_usdc) if req.target_amount_usdc else None
                 ),

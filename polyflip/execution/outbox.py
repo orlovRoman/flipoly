@@ -60,6 +60,7 @@ async def enqueue_open_request(
     target_amount_usdc: float,
     limit_price: float,
     requested_mode: ExecutionMode,
+    max_acceptable_price: float | None = None,
 ) -> EnqueueResult:
 
     # Используем BLOCKING_REQUEST_STATES: MANUAL_REVIEW_REQUIRED не мешает
@@ -152,6 +153,11 @@ async def enqueue_open_request(
             max_slippage_pct=2.0,
             limit_price=Decimal(str(limit_price)),
             max_spend_usdc=Decimal(str(target_amount_usdc)),
+            max_acceptable_price=(
+                Decimal(str(max_acceptable_price))
+                if max_acceptable_price is not None
+                else None
+            ),
             ttl_seconds=ttl_seconds,
             expires_at=expires_at,
             state=initial_state,

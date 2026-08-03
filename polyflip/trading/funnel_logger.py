@@ -51,6 +51,7 @@ async def log_funnel(
     confirm_passed: Optional[bool] = None,
 
     # Новая телеметрия COMBINED
+    decision_run_id: Optional[str] = None,
     direction_status: Optional[str] = None,
     direction_model_key: Optional[str] = None,
     direction_model_version: Optional[int] = None,
@@ -112,6 +113,7 @@ async def log_funnel(
             confirm_direction=confirm_direction,
             confirm_passed=confirm_passed,
 
+            decision_run_id=decision_run_id,
             direction_status=direction_status,
             direction_model_key=direction_model_key,
             direction_model_version=direction_model_version,
