@@ -538,15 +538,36 @@
 
         function updateTrainButtonsAndBanner(activeTrainings) {
             const symbols = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"];
-            const activeList = Object.keys(activeTrainings || {});
+            activeTrainings = activeTrainings || {};
             
+            let activeCount = 0;
+            const activeList = [];
+
             symbols.forEach(sym => {
                 const btn = document.getElementById(`btn-train-${sym}`);
                 if (!btn) return;
-                if (activeList.includes(sym)) {
-                    btn.disabled = true;
-                    btn.className = "btn btn-training";
-                    btn.innerHTML = `<span class="spinner-icon"></span> ⏳ Обучение ${sym}...`;
+                
+                const info = activeTrainings[sym];
+                if (info) {
+                    if (info.status === 'failed') {
+                        btn.disabled = false;
+                        btn.className = "btn";
+                        btn.style.backgroundColor = "#dc3545";
+                        btn.style.whiteSpace = "normal";
+                        btn.style.lineHeight = "1.2";
+                        btn.innerHTML = `❌ Ошибка ${sym}<br><small style="font-size:0.75em; opacity:0.9;">${info.error || 'Неизвестная ошибка'}</small>`;
+                    } else if (info.status === 'success') {
+                        btn.disabled = false;
+                        btn.className = "btn";
+                        btn.style.backgroundColor = "#28a745";
+                        btn.innerHTML = `✅ Обучено ${sym} (Повторить)`;
+                    } else {
+                        activeCount++;
+                        activeList.push(sym);
+                        btn.disabled = true;
+                        btn.className = "btn btn-training";
+                        btn.innerHTML = `<span class="spinner-icon"></span> ⏳ Обучение ${sym}...`;
+                    }
                 } else {
                     btn.disabled = false;
                     btn.className = "btn primary-btn";
@@ -556,7 +577,7 @@
 
             const bannerEl = document.getElementById('active-training-banner');
             if (bannerEl) {
-                if (activeList.length > 0) {
+                if (activeCount > 0) {
                     bannerEl.style.display = 'flex';
                     bannerEl.className = 'training-banner';
                     bannerEl.innerHTML = `

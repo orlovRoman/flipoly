@@ -411,10 +411,20 @@ async def crypto_train(
                 trainer = CryptoModelTrainer(session)
                 ok = await trainer.train(symbol, interval)
                 logger.info("crypto_retrain_done", symbol=symbol, success=ok)
+                _active_trainings[symbol] = {
+                    "status": "success" if ok else "failed",
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "symbol": symbol,
+                }
         except Exception as exc:
             logger.exception("crypto_retrain_error", symbol=symbol, error=str(exc))
+            _active_trainings[symbol] = {
+                "status": "failed",
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "symbol": symbol,
+                "error": str(exc),
+            }
         finally:
-            _active_trainings.pop(symbol, None)
             _cache.pop("status", None)
             for k in list(_cache.keys()):
                 if k.startswith(f"backtest_{symbol}"):

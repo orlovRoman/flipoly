@@ -636,7 +636,7 @@ class CryptoModelTrainer:
             
             # P0. Smoke Test: выполняем тестовый inference на свежих свечах
             try:
-                from polyflip.crypto.candle_repository import get_recent_candles
+                
                 candles = await get_recent_candles(self.db, symbol, interval="15m", limit=120)
                 if len(candles) >= 100:
                     predictor = CryptoPredictor()
