@@ -89,8 +89,10 @@ class ModelRegistry(Base):
     quality_gate_reasons = Column(JSON, nullable=True)
 
     # --- Activation Audit ---
-    # AUTO = автоматически после Quality Gate; MANUAL = ручная активация через дашборд
+    # TRAINER = активирована автоматически после обучения; DASHBOARD = активирована вручную из дашборда
+    # quality_override = True означает, что Quality Gate был обойдён принудительно
     activation_source = Column(String(16), nullable=True)
+    quality_override = Column(Boolean, nullable=True, default=False)
     activated_at = Column(DateTime(timezone=True), nullable=True)
     activated_by = Column(String(128), nullable=True)
     activation_reason = Column(Text, nullable=True)

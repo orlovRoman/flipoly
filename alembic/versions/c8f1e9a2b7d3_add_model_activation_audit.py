@@ -38,29 +38,8 @@ def upgrade() -> None:
     op.add_column('model_registry',
         sa.Column('activation_reason', sa.Text(), nullable=True))
 
-    # Р§Р°СЃС‚РёС‡РЅС‹Р№ СѓРЅРёРєР°Р»СЊРЅС‹Р№ РёРЅРґРµРєСЃ: РѕРґРЅР° Р°РєС‚РёРІРЅР°СЏ РІРµСЂСЃРёСЏ РЅР° asset
-    # РСЃРїРѕР»СЊР·СѓРµРј raw SQL С‚.Рє. SQLAlchemy РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ partial index РІ op.create_index
-    op.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_model_registry_one_active_version
-        ON model_registry (asset)
-        WHERE is_active IS TRUE
-    """)
-
-    # Backfill: РІСЃРµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРµ Р°РєС‚РёРІРЅС‹Рµ РјРѕРґРµР»Рё РїРѕРјРµС‡Р°РµРј РєР°Рє AUTO
-    op.execute("""
-        UPDATE model_registry
-        SET activation_source = 'AUTO',
-            quality_gate_passed = TRUE
-        WHERE is_active = TRUE AND activation_source IS NULL
-    """)
-
-    # РќРµР°РєС‚РёРІРЅС‹Рµ вЂ” СЃС‚Р°РІРёРј quality_gate_passed = FALSE (РєРѕРЅСЃРµСЂРІР°С‚РёРІРЅРѕ, РјС‹ РЅРµ Р·РЅР°РµРј С‚РѕС‡РЅРѕ)
-    # РћСЃС‚Р°РІР»СЏРµРј NULL, С‚.Рє. СЂРµР°Р»СЊРЅРѕ РЅРµ Р·РЅР°РµРј РїСЂРёС‡РёРЅСѓ РґРµР°РєС‚РёРІР°С†РёРё
-    # NULL = "РґР°РЅРЅС‹Рµ РґРѕ РІРЅРµРґСЂРµРЅРёСЏ Р°СѓРґРёС‚Р°"
-
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS uq_model_registry_one_active_version")
     op.drop_column('model_registry', 'activation_reason')
     op.drop_column('model_registry', 'activated_by')
     op.drop_column('model_registry', 'activated_at')

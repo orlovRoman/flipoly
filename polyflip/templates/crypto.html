@@ -389,6 +389,40 @@
             }
             return '';
         }
+
+        function isValidRuDate(dateStr) {
+            if (!dateStr || dateStr.length !== 10) return false;
+            const parts = dateStr.split('.');
+            if (parts.length !== 3) return false;
+            const [d, mo, y] = parts.map(Number);
+            if (isNaN(d) || isNaN(mo) || isNaN(y)) return false;
+            if (mo < 1 || mo > 12) return false;
+            if (d < 1 || d > 31) return false;
+            if (y < 2000 || y > 2100) return false;
+            // Проверяем реальность даты через Date (31.99.2026 не пройдёт)
+            const dt = new Date(y, mo - 1, d);
+            return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d;
+        }
+
+        function showDateError(inputId, msg) {
+            const el = document.getElementById(inputId);
+            el.style.borderColor = '#ff3366';
+            let hint = el.parentNode.querySelector('.date-hint');
+            if (!hint) {
+                hint = document.createElement('span');
+                hint.className = 'date-hint';
+                hint.style.cssText = 'font-size:0.75rem; color:#ff3366; display:block; margin-top:2px;';
+                el.parentNode.appendChild(hint);
+            }
+            hint.textContent = msg;
+        }
+
+        function clearDateError(inputId) {
+            const el = document.getElementById(inputId);
+            el.style.borderColor = '';
+            const hint = el.parentNode.querySelector('.date-hint');
+            if (hint) hint.textContent = '';
+        }
         
         function formatRuDate(dateObj) {
             const d = String(dateObj.getDate()).padStart(2, '0');
@@ -412,15 +446,36 @@
 
         function onFilterChange() {
             const fromRaw = document.getElementById('date-from').value;
-            const toRaw = document.getElementById('date-to').value;
-            
+            const toRaw   = document.getElementById('date-to').value;
+
+            clearDateError('date-from');
+            clearDateError('date-to');
+
+            // Не отправляем запрос, пока пользователь ещё набирает дату
             if (fromRaw && fromRaw.length < 10) return;
-            if (toRaw && toRaw.length < 10) return;
-            
+            if (toRaw   && toRaw.length   < 10) return;
+
+            if (fromRaw && !isValidRuDate(fromRaw)) {
+                showDateError('date-from', 'Неверная дата');
+                return;
+            }
+            if (toRaw && !isValidRuDate(toRaw)) {
+                showDateError('date-to', 'Неверная дата');
+                return;
+            }
+
+            const isoFrom = parseRuDate(fromRaw);
+            const isoTo   = parseRuDate(toRaw);
+
+            if (isoFrom && isoTo && isoFrom > isoTo) {
+                showDateError('date-from', 'Дата «От» позже «До»');
+                return;
+            }
+
             currentMode = document.getElementById('mode-select').value;
-            filterFrom = parseRuDate(fromRaw);
-            filterTo = parseRuDate(toRaw);
-            
+            filterFrom = isoFrom;
+            filterTo   = isoTo;
+
             currentPage = 1;
             loadStatus();
         }
@@ -630,36 +685,78 @@
 
             // Интерактивная сортировка
             modelsArray.sort((a, b) => {
-                let valA = 0, valB = 0;
-                if (currentSortField === 'pnl') {
-                    valA = a.pnlInfo.direction_pnl || 0;
-                    valB = b.pnlInfo.direction_pnl || 0;
-                } else if (currentSortField === 'win_rate') {
-                    valA = a.pnlInfo.direction_win_rate || 0;
-                    valB = b.pnlInfo.direction_win_rate || 0;
-                } else if (currentSortField === 'trades') {
-                    valA = a.pnlInfo.direction_trades || 0;
-                    valB = b.pnlInfo.direction_trades || 0;
-                } else if (currentSortField === 'trained_at') {
-                    valA = a.trained_at ? new Date(a.trained_at).getTime() : 0;
-                    valB = b.trained_at ? new Date(b.trained_at).getTime() : 0;
-                } else if (currentSortField === 'auc') {
-                    valA = a.auc || 0;
-                    valB = b.auc || 0;
-                } else if (currentSortField === 'ece') {
-                    const nullA = a.ece === null || a.ece === undefined;
-                    const nullB = b.ece === null || b.ece === undefined;
-                    if (nullA && nullB) return 0;
-                    if (nullA) return 1;
-                    if (nullB) return -1;
-                    valA = a.ece;
-                    valB = b.ece;
-                } else if (currentSortField === 'version') {
-                    valA = a.version || 0;
-                    valB = b.version || 0;
-                } else if (currentSortField === 'asset') {
-                    valA = a.asset || '';
-                    valB = b.asset || '';
+                let valA, valB;
+
+                switch (currentSortField) {
+                    case 'pnl':
+                        valA = a.pnlInfo.direction_pnl ?? 0;
+                        valB = b.pnlInfo.direction_pnl ?? 0;
+                        break;
+                    case 'win_rate':
+                        valA = a.pnlInfo.direction_win_rate ?? -1;
+                        valB = b.pnlInfo.direction_win_rate ?? -1;
+                        break;
+                    case 'trades':
+                        valA = a.pnlInfo.direction_trades ?? 0;
+                        valB = b.pnlInfo.direction_trades ?? 0;
+                        break;
+                    case 'precision':
+                        valA = a.precision ?? -1;
+                        valB = b.precision ?? -1;
+                        break;
+                    case 'recall':
+                        valA = a.recall ?? -1;
+                        valB = b.recall ?? -1;
+                        break;
+                    case 'f1':
+                        valA = a.f1 ?? -1;
+                        valB = b.f1 ?? -1;
+                        break;
+                    case 'brier_score':
+                        // меньше = лучше, поэтому для null ставим БОЛЬШЕе значение
+                        valA = a.brier_score ?? 9999;
+                        valB = b.brier_score ?? 9999;
+                        break;
+                    case 'profit_factor':
+                        valA = a.pnlInfo.direction_profit_factor ?? 0;
+                        valB = b.pnlInfo.direction_profit_factor ?? 0;
+                        break;
+                    case 'max_drawdown':
+                        valA = a.pnlInfo.direction_max_drawdown ?? 0;
+                        valB = b.pnlInfo.direction_max_drawdown ?? 0;
+                        break;
+                    case 'trained_at':
+                        valA = a.trained_at ? new Date(a.trained_at).getTime() : 0;
+                        valB = b.trained_at ? new Date(b.trained_at).getTime() : 0;
+                        break;
+                    case 'auc':
+                        valA = a.auc ?? 0;
+                        valB = b.auc ?? 0;
+                        break;
+                    case 'ece':
+                        // меньше = лучше, null идёт в конец
+                        valA = a.ece ?? 9999;
+                        valB = b.ece ?? 9999;
+                        break;
+                    case 'version':
+                        valA = a.version ?? 0;
+                        valB = b.version ?? 0;
+                        break;
+                    case 'asset':
+                        valA = a.asset ?? '';
+                        valB = b.asset ?? '';
+                        break;
+                    case 'quality_gate':
+                        // true (1) > null (0) > false (-1)
+                        valA = a.quality_gate_passed === true ? 1 : a.quality_gate_passed === null ? 0 : -1;
+                        valB = b.quality_gate_passed === true ? 1 : b.quality_gate_passed === null ? 0 : -1;
+                        break;
+                    case 'activation_source':
+                        valA = a.activation_source ?? '';
+                        valB = b.activation_source ?? '';
+                        break;
+                    default:
+                        valA = 0; valB = 0;
                 }
 
                 let diff = 0;
@@ -668,13 +765,9 @@
                 } else {
                     diff = valA - valB;
                 }
-
-                if (currentSortOrder === 'desc') {
-                    diff = -diff;
-                }
-
+                if (currentSortOrder === 'desc') diff = -diff;
                 if (diff !== 0) return diff;
-                
+
                 if (b.is_active !== a.is_active) return b.is_active ? 1 : -1;
                 return a.asset.localeCompare(b.asset);
             });
@@ -732,9 +825,11 @@
                 const liftBadge = pnl.auc_lift ? `<span style="color:${pnl.auc_lift > 0 ? 'var(--poly-green)' : '#ff3366'}; font-weight:600;">${pnl.auc_lift > 0 ? '+' : ''}${pnl.auc_lift.toFixed(4)}</span>` : '—';
 
                 const activeBadgeHtml = m.is_active
-                    ? (m.activation_source === 'MANUAL'
-                        ? `<span style="font-size:0.75rem; background:rgba(255,152,0,0.15); color:#ff9f43; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">⚠ Активна вручную</span>`
-                        : `<span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">Активна · AUTO</span>`
+                    ? (m.quality_override
+                        ? `<span style="font-size:0.75rem; background:rgba(255,152,0,0.15); color:#ff9f43; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">⚠ DASHBOARD (override)</span>`
+                        : m.activation_source === 'DASHBOARD'
+                        ? `<span style="font-size:0.75rem; background:rgba(99,179,237,0.15); color:#63b3ed; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">DASHBOARD</span>`
+                        : `<span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">TRAINER</span>`
                       )
                     : (m.quality_gate_passed === false
                         ? `<span style="font-size:0.75rem; background:rgba(255,51,102,0.1); color:#ff3366; padding:0.15rem 0.5rem; border-radius:20px;">✗ QG провален</span>`
@@ -757,32 +852,36 @@
                     : `<button class="btn btn-delete-model" data-asset="${m.asset}" data-version="${m.version}" style="width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; background:rgba(220, 53, 69, 0.15); color:#ff6b6b; border:1px solid rgba(220,53,69,0.3); white-space:nowrap; display:inline-flex; align-items:center; justify-content:center; gap:0.3rem;"><span>🗑</span> Удалить</button>`;
 
                 return `
-                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); background: ${m.is_active ? (m.activation_source === 'MANUAL' ? 'rgba(255,152,0,0.05)' : 'rgba(255,255,255,0.02)') : 'transparent'};">
-                    <td style="padding: 1rem 0.5rem;">
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); background: ${m.is_active ? (m.quality_override ? 'rgba(255,152,0,0.05)' : 'rgba(255,255,255,0.02)') : 'transparent'};">
+                    <td style="padding: 0.7rem 0.5rem;">
                         <div style="font-weight:700; color:white; font-size:0.95rem;">${sym}</div>
                         ${activeBadgeHtml}
-                        ${m.is_active && m.activation_source === 'MANUAL' ? `<div style="font-size:0.7rem; color:#ff9f43; margin-top:0.2rem;">QG не пройден</div>` : ''}
+                        ${m.is_active && m.quality_override ? `<div style="font-size:0.7rem; color:#ff9f43; margin-top:0.2rem;">QG override</div>` : ''}
                     </td>
-                    <td style="padding: 1rem 0.5rem; font-size:0.85rem; color:white;">
-                        v${m.version}
-                    </td>
-                    <td style="padding: 1rem 0.5rem;">
+                    <td style="padding: 0.7rem 0.5rem; font-size:0.85rem; color:white;">v${m.version}</td>
+                    <td style="padding: 0.7rem 0.5rem;">
                         <div style="font-size:0.95rem; color:white;" title="Base AUC: ${m.baseline}">${m.auc}</div>
                         <div style="font-size:0.75rem; color:var(--text-muted);">Lift: ${liftBadge}</div>
                     </td>
-                    <td style="padding: 1rem 0.5rem; font-size:0.95rem;">
-                        ${eceBadge}
+                    <td style="padding: 0.7rem 0.5rem; font-size:0.95rem;">${eceBadge}</td>
+                    <td style="padding: 0.7rem 0.5rem; text-align:right; font-size:0.82rem;">
+                        ${m.precision != null ? m.precision.toFixed(3) : '—'}
                     </td>
-                    <td style="padding: 1rem 0.5rem; text-align:right;">
-                        ${dirPnlHtml}
+                    <td style="padding: 0.7rem 0.5rem; text-align:right; font-size:0.82rem;">
+                        ${m.recall != null ? m.recall.toFixed(3) : '—'}
                     </td>
-                    <td style="padding: 1rem 0.5rem; text-align:right;">
-                        ${dirStatsHtml}
+                    <td style="padding: 0.7rem 0.5rem; text-align:right; font-size:0.82rem;">
+                        ${m.f1 != null ? m.f1.toFixed(3) : '—'}
                     </td>
-                    <td style="padding: 1rem 0.5rem; font-size:0.8rem; color:var(--text-muted); text-align:right;">
+                    <td style="padding: 0.7rem 0.5rem; text-align:right; font-size:0.82rem;">
+                        ${m.brier_score != null ? m.brier_score.toFixed(4) : '—'}
+                    </td>
+                    <td style="padding: 0.7rem 0.5rem; text-align:right;">${dirPnlHtml}</td>
+                    <td style="padding: 0.7rem 0.5rem; text-align:right;">${dirStatsHtml}</td>
+                    <td style="padding: 0.7rem 0.5rem; font-size:0.8rem; color:var(--text-muted); text-align:right;">
                         ${m.trained_at ? m.trained_at.slice(0,16).replace('T',' ') : '—'}
                     </td>
-                    <td style="padding: 1rem 0.5rem; text-align:right;">
+                    <td style="padding: 0.7rem 0.5rem; text-align:right;">
                         <div style="display:flex; flex-direction:column; gap:0.4rem; align-items:flex-end;">
                             ${actionButtonHtml}
                             ${deleteButtonHtml}
@@ -794,16 +893,20 @@
 
             let html = `
             <div style="overflow-x:auto;">
-                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size:0.82rem;">
                     <thead>
-                        <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">
+                        <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
                             <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('asset')">Символ ${getSortIndicator('asset')}</button></th>
                             <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('version')">Версия ${getSortIndicator('version')}</button></th>
                             <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('auc')">AUC ${getSortIndicator('auc')}</button></th>
                             <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('ece')">ECE ${getSortIndicator('ece')}</button></th>
+                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('precision')">Prec ${getSortIndicator('precision')}</button></th>
+                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('recall')">Recall ${getSortIndicator('recall')}</button></th>
+                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('f1')">F1 ${getSortIndicator('f1')}</button></th>
+                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('brier_score')">Brier ${getSortIndicator('brier_score')}</button></th>
                             <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('pnl')">LightGBM PnL ${getSortIndicator('pnl')}</button></th>
-                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('win_rate')">Win Rate ${getSortIndicator('win_rate')}</button></th>
-                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('trained_at')">Дата обучения ${getSortIndicator('trained_at')}</button></th>
+                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('trades')">Сделок ${getSortIndicator('trades')}</button></th>
+                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('trained_at')">Обучена ${getSortIndicator('trained_at')}</button></th>
                             <th style="padding: 0.5rem;"></th>
                         </tr>
                     </thead>
@@ -893,10 +996,12 @@
                             : null;
 
                         if (activeModel && activeModel.version === parseInt(version)) {
+                            const src  = d.activation_source || 'DASHBOARD';
+                            const over = d.quality_override ? ' ⚠ (QG override)' : '';
                             showToast(
                                 `✓ Активирована ${d.asset} v${d.active_version}` +
                                 (d.previous_version ? ` (была v${d.previous_version})` : '') +
-                                (d.activation_source === 'MANUAL' ? ' — вручную' : '')
+                                ` — ${src}${over}`
                             );
                         } else {
                             showToast(`⚠ Сервер подтвердил активацию, но статус не обновился — обновите страницу`, 'warn');

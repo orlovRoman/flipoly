@@ -221,6 +221,20 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
                 m.trained_at.isoformat() if getattr(m, "trained_at", None) else None
             ),
             "feature_importance": feature_importances.get(m.asset, {}),
+            # Аудит Quality Gate и активации
+            "quality_gate_passed": m.quality_gate_passed,
+            "quality_gate_reasons": m.quality_gate_reasons,
+            "activation_source": m.activation_source,
+            "quality_override": getattr(m, "quality_override", None),
+            "activated_at": (
+                m.activated_at.isoformat() if getattr(m, "activated_at", None) else None
+            ),
+            "activation_reason": getattr(m, "activation_reason", None),
+            # Precision / Recall / F1 / Brier из реестра
+            "precision": round(m.precision_at_threshold, 4) if getattr(m, "precision_at_threshold", None) is not None else None,
+            "recall": round(m.recall_at_threshold, 4) if getattr(m, "recall_at_threshold", None) is not None else None,
+            "f1": round(m.f1_at_threshold, 4) if getattr(m, "f1_at_threshold", None) is not None else None,
+            "brier_score": round(m.brier_score, 4) if getattr(m, "brier_score", None) is not None else None,
         }
 
     result = {
@@ -416,6 +430,25 @@ async def crypto_models_analytics(
             status_code=422,
             detail="requested_mode должен быть PAPER, SHADOW или LIVE",
         )
+
+    # ── Валидация дат (баг #2) ──────────────────────────────────────────────
+    from datetime import timedelta
+    import re as _re
+
+    def _parse_date(s: str, field: str) -> datetime:
+        if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+            raise HTTPException(status_code=422, detail=f"{field}: ожидается формат YYYY-MM-DD")
+        try:
+            return datetime.strptime(s, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"{field}: несуществующая дата '{s}'")
+
+    dt_from = _parse_date(date_from, "date_from") if date_from else None
+    dt_to   = _parse_date(date_to,   "date_to")   if date_to   else None
+    if dt_from and dt_to and dt_from > dt_to:
+        raise HTTPException(status_code=422, detail="date_from не может быть позже date_to")
+    # ────────────────────────────────────────────────────────────────────────
+
     cache_key = f"crypto_model_analytics_{requested_mode}_{date_from}_{date_to}"
     now = time.time()
     if cache_key in _cache:
@@ -438,24 +471,19 @@ async def crypto_models_analytics(
     models = (await db.execute(stmt)).scalars().all()
 
     # Фильтры дат
-    from datetime import timedelta
-    
     params = {"mode": requested_mode}
     date_filter = ""
     veto_date_filter = ""
-    
-    if date_from:
-        date_from_value = datetime.strptime(date_from, "%Y-%m-%d")
-        params["date_from"] = date_from_value
-        date_filter += " AND created_at >= :date_from"
+
+    if dt_from:
+        params["date_from"] = dt_from
+        date_filter     += " AND created_at >= :date_from"
         veto_date_filter += " AND created_at >= :date_from"
-        
-    if date_to:
-        date_to_exclusive = (
-            datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)
-        )
-        params["date_to_exclusive"] = date_to_exclusive
-        date_filter += " AND created_at < :date_to_exclusive"
+
+    if dt_to:
+        dt_to_exclusive = dt_to + timedelta(days=1)
+        params["date_to_exclusive"] = dt_to_exclusive
+        date_filter     += " AND created_at < :date_to_exclusive"
         veto_date_filter += " AND created_at < :date_to_exclusive"
 
     # 2. PRIMARY CTE
@@ -604,20 +632,25 @@ async def crypto_models_analytics(
     direction_stats = {(row.model_key, row.model_version): row for row in direction_rows}
 
     # 3.5 VETO CTE
+    # Используем COUNT(DISTINCT decision_run_id) для дедупликации исторических записей:
+    # старые строки могли иметь дубли ML + COMBINED для одного цикла решения (баг #3)
     veto_params = dict(params)
-    veto_params["decision_mode"] = "PAPER"
+    veto_params["decision_mode"] = requested_mode
 
     veto_sql = text(f"""
-        SELECT 
+        SELECT
             COALESCE(direction_model_key, confirm_model_key) as model_key,
             COALESCE(direction_model_version, confirm_model_version) as model_version,
-            SUM(CASE WHEN confirm_passed = true THEN 1 ELSE 0 END) as confirm_passed_count,
-            SUM(CASE WHEN confirm_passed = false THEN 1 ELSE 0 END) as veto_count
+            COUNT(DISTINCT CASE WHEN confirm_passed = true  THEN decision_run_id END) as confirm_passed_count,
+            COUNT(DISTINCT CASE WHEN confirm_passed = false THEN decision_run_id END) as veto_count
         FROM decision_funnel_log
         WHERE COALESCE(direction_model_key, confirm_model_key) IS NOT NULL
           AND execution_mode = :decision_mode
+          AND decision_run_id IS NOT NULL
           {veto_date_filter}
-        GROUP BY COALESCE(direction_model_key, confirm_model_key), COALESCE(direction_model_version, confirm_model_version)
+        GROUP BY
+            COALESCE(direction_model_key, confirm_model_key),
+            COALESCE(direction_model_version, confirm_model_version)
     """)
     veto_rows = (await db.execute(veto_sql, veto_params)).fetchall()
     veto_stats = {(row.model_key, row.model_version): row for row in veto_rows}
@@ -632,7 +665,7 @@ async def crypto_models_analytics(
 
         def calc_pf(profit, loss):
             if not profit and not loss: return 0.0
-            if not loss: return None # Infinity equivalent when there's profit but no losses
+            if not loss: return None  # Infinity: прибыль есть, убытков нет
             return round(float(profit) / float(loss), 2)
 
         metrics = {
@@ -641,24 +674,28 @@ async def crypto_models_analytics(
             "total_trades": int(p.total_trades) if p else 0,
             "max_drawdown": round(float(p.max_drawdown), 4) if p and p.max_drawdown is not None else 0.0,
             "profit_factor": calc_pf(p.gross_profit, p.gross_loss) if p else 0.0,
-            
+
             "direction_pnl": round(float(c.total_pnl), 4) if c else 0.0,
             "direction_win_rate": round(float(c.win_count) / float(c.total_trades) * 100, 1) if c and c.total_trades > 0 else None,
             "direction_trades": int(c.total_trades) if c else 0,
             "direction_max_drawdown": round(float(c.max_drawdown), 4) if c and c.max_drawdown is not None else 0.0,
             "direction_profit_factor": calc_pf(c.gross_profit, c.gross_loss) if c else 0.0,
-            
+
             "confirm_passed_count": int(v.confirm_passed_count) if v else 0,
             "veto_count": int(v.veto_count) if v else 0,
-        }
-        
-        metrics.update({
+
+            # Метрики качества из ModelRegistry
             "auc_lift": round(m.accuracy - 0.5, 4) if m.accuracy else None,
-            "precision": round(m.precision_at_threshold, 4) if getattr(m, 'precision_at_threshold', None) is not None else None,
-            "recall": round(m.recall_at_threshold, 4) if getattr(m, 'recall_at_threshold', None) is not None else None,
-            "f1": round(m.f1_at_threshold, 4) if getattr(m, 'f1_at_threshold', None) is not None else None,
-            "brier_score": round(m.brier_score, 4) if getattr(m, 'brier_score', None) is not None else None,
-        })
+            "precision": round(m.precision_at_threshold, 4) if getattr(m, "precision_at_threshold", None) is not None else None,
+            "recall": round(m.recall_at_threshold, 4) if getattr(m, "recall_at_threshold", None) is not None else None,
+            "f1": round(m.f1_at_threshold, 4) if getattr(m, "f1_at_threshold", None) is not None else None,
+            "brier_score": round(m.brier_score, 4) if getattr(m, "brier_score", None) is not None else None,
+
+            # Аудит активации
+            "activation_source": m.activation_source,
+            "quality_gate_passed": m.quality_gate_passed,
+            "quality_override": getattr(m, "quality_override", None),
+        }
 
         result[key] = metrics
 
@@ -729,10 +766,10 @@ async def activate_crypto_model(
     previous_version = prev_model.version if prev_model else None
 
     # 4. Атомарная активация
+    # Семантика (баг #4): activation_source показывает КТО активировал,
+    # quality_override показывает, был ли обойдён Quality Gate
     now = datetime.now(timezone.utc)
-    activation_source = "MANUAL" if (model.quality_gate_passed is False or payload.force) else "AUTO"
-    if payload.force and not model.quality_gate_passed:
-        activation_source = "MANUAL"
+    is_quality_override = bool(payload.force or model.quality_gate_passed is False)
 
     await db.execute(
         update(ModelRegistry)
@@ -744,7 +781,8 @@ async def activate_crypto_model(
         .where(ModelRegistry.asset == asset, ModelRegistry.version == version)
         .values(
             is_active=True,
-            activation_source=activation_source,
+            activation_source="DASHBOARD",
+            quality_override=is_quality_override,
             activated_at=now,
             activated_by="dashboard",
             activation_reason=payload.reason,
@@ -768,13 +806,13 @@ async def activate_crypto_model(
         "asset": asset,
         "active_version": version,
         "previous_version": previous_version,
-        "activation_source": activation_source,
+        "activation_source": "DASHBOARD",
         "quality_gate_passed": model.quality_gate_passed,
+        "quality_override": is_quality_override,
     }
-    if activation_source == "MANUAL":
+    if is_quality_override:
         response["warning"] = (
-            f"Модель {asset} v{version} активирована вручную. "
-            "Quality Gate не пройден."
+            f"Модель {asset} v{version} активирована через DASHBOARD с обходом Quality Gate."
         )
     return response
 
