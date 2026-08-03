@@ -80,6 +80,8 @@ class CryptoSignal:
     funding_rate: float = 0.0     # Значение ставки финансирования, использованное для расчета
     ece: float = 0.0         # BUG-AO
     model_key: str = ""      # Точный ключ фактически загруженной модели (напр. BTCUSDT_low_vol)
+    regime: str = ""         # Режим волатильности (low_vol / mid_vol / high_vol)
+    status: str = "READY"    # READY / MODEL_NOT_LOADED / INVALID_FEATURES / REGIME_UNAVAILABLE / DEGENERATE_PREDICTION / INFERENCE_FAILED
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
@@ -325,14 +327,26 @@ class CryptoPredictor:
                        НЕ используется в построении признаков ML (см. feature_builder.py).
         """
         if symbol not in self._loaded_symbols:
-            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0)
+            return CryptoSignal(
+                symbol=symbol, p_up=0.5, p_down=0.5, direction="NONE",
+                signal_strength=0.0, strike=0.0, threshold_up=0.5, threshold_down=0.5,
+                model_version=-1, features_ok=False, risk_vetoed=False, risk_reason="",
+                stake_multiplier=1.0, funding_rate=0.0, ece=0.0, model_key="",
+                regime="", status="MODEL_NOT_LOADED",
+            )
 
         try:
             # 1. Сборка вектора признаков
             feature_vector = build_crypto_features(candles)
 
             if not feature_vector.valid:
-                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0)
+                return CryptoSignal(
+                    symbol=symbol, p_up=0.5, p_down=0.5, direction="NONE",
+                    signal_strength=0.0, strike=0.0, threshold_up=0.5, threshold_down=0.5,
+                    model_version=-1, features_ok=False, risk_vetoed=False, risk_reason="",
+                    stake_multiplier=1.0, funding_rate=0.0, ece=0.0, model_key="",
+                    regime="", status="INVALID_FEATURES",
+                )
 
             fv_dict = dict(zip(CRYPTO_FEATURE_COLUMNS, feature_vector.features[0]))
             
@@ -365,7 +379,13 @@ class CryptoPredictor:
 
             if selected_regime is None:
                 logger.warning("no_model_available_for_predict", symbol=symbol, regime=regime)
-                return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, "", 1.0, 0.0, 0.0, model_key="")
+                return CryptoSignal(
+                    symbol=symbol, p_up=0.5, p_down=0.5, direction="NONE",
+                    signal_strength=0.0, strike=0.0, threshold_up=0.5, threshold_down=0.5,
+                    model_version=-1, features_ok=False, risk_vetoed=False, risk_reason="",
+                    stake_multiplier=1.0, funding_rate=0.0, ece=0.0, model_key="",
+                    regime=regime, status="REGIME_UNAVAILABLE",
+                )
 
             model = symbol_models[selected_regime]
             version = self._model_versions.get(symbol, {}).get(selected_regime, -1)
@@ -376,8 +396,10 @@ class CryptoPredictor:
             p_up = float(model.predict_proba([fv_array])[0][1])
             p_down = 1.0 - p_up
 
+            signal_status = "READY"
             DEGENERATE_THRESHOLD = 0.05
             if p_up < DEGENERATE_THRESHOLD or p_up > (1.0 - DEGENERATE_THRESHOLD):
+                signal_status = "DEGENERATE_PREDICTION"
                 logger.warning(
                     "degenerate_prediction_detected",
                     symbol=symbol,
@@ -389,7 +411,7 @@ class CryptoPredictor:
             signal_strength, direction = compute_crypto_signal_strength(p_up, th_up, th_down)
             
             # Страйк (цена последней закрытой свечи)
-            strike = float(candles[-1].close)
+            strike = float(candles[-1].close) if candles else 0.0
 
             ece = (self._model_eces.get(symbol, {}).get(selected_regime)
                    or next(iter(self._model_eces.get(symbol, {}).values()), 0.0))
@@ -416,6 +438,8 @@ class CryptoPredictor:
                     features_ok=True,
                     ece=ece,
                     model_key=model_key,
+                    regime=selected_regime,
+                    status="FUNDING_VETOED",
                 )
 
             logger.debug(
@@ -443,8 +467,16 @@ class CryptoPredictor:
                 features_ok=True,
                 ece=ece,
                 model_key=model_key,
+                regime=selected_regime,
+                status=signal_status,
             )
         except Exception as e:
             logger.exception("crypto_inference_failed", symbol=symbol, error=str(e))
-            return CryptoSignal(symbol, 0.5, 0.5, "NONE", 0.0, 0.0, 0.5, 0.5, -1, False, False, str(e), 1.0, 0.0, 0.0, model_key="")
+            return CryptoSignal(
+                symbol=symbol, p_up=0.5, p_down=0.5, direction="NONE",
+                signal_strength=0.0, strike=0.0, threshold_up=0.5, threshold_down=0.5,
+                model_version=-1, features_ok=False, risk_vetoed=False, risk_reason=str(e),
+                stake_multiplier=1.0, funding_rate=0.0, ece=0.0, model_key="",
+                regime="", status="INFERENCE_FAILED",
+            )
 

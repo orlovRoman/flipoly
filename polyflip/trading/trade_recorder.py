@@ -61,8 +61,31 @@ async def save_or_update_skipped_trade(
     model_key: Optional[str] = None,
     confirm_model_key: Optional[str] = None,
     confirm_model_version: Optional[int] = None,
+    decision_details: Optional[dict] = None,
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
+    details = decision_details or {}
+    dir_status = details.get("direction_status")
+    dir_model_key = details.get("direction_model_key")
+    dir_model_ver = details.get("direction_model_version")
+    dir_regime = details.get("direction_regime")
+    dir_prob = details.get("direction_probability")
+    dir_val = details.get("direction_value")
+    ent_model_key = details.get("entry_model_key") or model_key
+    ent_model_ver = details.get("entry_model_version") or model_version
+    ent_model_phase = details.get("entry_model_phase")
+    ent_model_src = details.get("entry_model_source")
+    ent_status = details.get("entry_status")
+    fall_reason = details.get("fallback_reason")
+    gr_edge = details.get("gross_edge")
+    c_buffer = details.get("cost_buffer")
+    n_edge = details.get("net_edge") if details.get("net_edge") is not None else edge
+    max_acc_price = details.get("max_acceptable_price")
+    strk_src = details.get("strike_source")
+    strk_prx = details.get("strike_proxy")
+    und_price = details.get("underlying_price")
+    dist_strk = details.get("distance_to_strike_pct")
+
     if existing_skipped:
         decision_changed = (
             existing_skipped.error_msg != reason or 
@@ -91,6 +114,7 @@ async def save_or_update_skipped_trade(
             existing_skipped.confirm_model_key = confirm_model_key
             existing_skipped.confirm_model_version = confirm_model_version
             existing_skipped.model_attribution_source = "EXACT" if model_key else None
+            
             existing_skipped.updated_at = start_time
     else:
         history = TradeHistory(
@@ -184,6 +208,28 @@ async def execute_and_record(
     if market_role not in {"FAVORITE", "OUTSIDER"}:
         raise ValueError("Pre-trade market role is missing")
     p_flip_effective = decision_obj.decision_details.get("p_flip_effective") if decision_obj.decision_details else None
+
+    details = decision_obj.decision_details or {}
+    dir_status = details.get("direction_status")
+    dir_model_key = details.get("direction_model_key")
+    dir_model_ver = details.get("direction_model_version")
+    dir_regime = details.get("direction_regime")
+    dir_prob = details.get("direction_probability")
+    dir_val = details.get("direction_value")
+    ent_model_key = details.get("entry_model_key") or model_key
+    ent_model_ver = details.get("entry_model_version") or model_ver
+    ent_model_phase = details.get("entry_model_phase")
+    ent_model_src = details.get("entry_model_source")
+    ent_status = details.get("entry_status")
+    fall_reason = details.get("fallback_reason")
+    gr_edge = details.get("gross_edge")
+    c_buffer = details.get("cost_buffer")
+    n_edge = details.get("net_edge") if details.get("net_edge") is not None else edge
+    max_acc_price = details.get("max_acceptable_price")
+    strk_src = details.get("strike_source")
+    strk_prx = details.get("strike_proxy")
+    und_price = details.get("underlying_price")
+    dist_strk = details.get("distance_to_strike_pct")
     
     exec_settings = ExecutionSettings()
     history = TradeHistory(
@@ -216,7 +262,7 @@ async def execute_and_record(
         entry_cost_usdc=0.0,
         remaining_shares=0.0,
         realized_pnl_usdc=0.0,
-        position_status="OPENING"
+        position_status="OPENING",
     )
     
     if cfg.stop_loss_enabled:

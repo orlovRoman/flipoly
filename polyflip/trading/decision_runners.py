@@ -609,25 +609,26 @@ async def decide_combined_mode(
     execution_mode: str = "PAPER",
 ) -> DecisionResult:
     """
-    COMBINED-режим: ML (LogReg) + LightGBM голосуют, решение по таблице.
-    Поддерживается только для активов из COMBINED_MODE_SUPPORTED_ASSETS.
+    COMBINED-режим:
+    1. LightGBM определяет тренд (UP/DOWN) и валидируется через features_ok & risk_vetoed.
+    2. LogReg (с фазовым fallback) вычисляет p_flip и net edge для стороны кандидата.
+    3. evaluate_combined_entry принимает финальное решение и рассчитывает bet_size.
+    4. Записывается ровно ОДИН лог воронки в DecisionFunnelLog со всеми полями.
     """
     from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS, COMBINED_BINANCE_SYMBOLS
-    from polyflip.trading.combined_voting import combine_votes, CryptoSignalProxy
+    from polyflip.trading.combined_voting import evaluate_combined_entry
+    from polyflip.crypto.predictor import CryptoSignal
+    from polyflip.constants import get_price_phase
 
     asset_upper = market.asset.upper()
 
-    # Guard: если актив не поддерживает LightGBM — деградируем в ML-режим
+    # Guard: если актив не входит в список поддерживаемых COMBINED активов
     if asset_upper not in COMBINED_MODE_SUPPORTED_ASSETS:
         logger.warning(
             "combined_mode_unsupported_asset_fallback_to_ml",
             asset=asset_upper,
             supported=list(COMBINED_MODE_SUPPORTED_ASSETS),
         )
-        # NOTE: для неподдерживаемых активов (DOGE, XRP, SOL до обучения LGBM)
-        # деградируем в чистый ML без Confirm Gate — поведение идентично TRADING_MODE_ML.
-        # Когда актив войдет в COMBINED_MODE_SUPPORTED_ASSETS, он автоматически
-        # получит полный COMBINED-флоу без изменений здесь.
         return await decide_ml_mode(
             db_session, api_client, market, cfg,
             raw_settings, models_cache, None,
@@ -637,131 +638,252 @@ async def decide_combined_mode(
 
     t0 = time.monotonic()
 
-    # --- Шаг A: готовим ML-ветку ---
-    # NOTE: crypto_predictor=None намеренно.
-    # В COMBINED-режиме Confirm Gate (USE_CRYPTO_CONFIRM) заменяется механизмом
-    # голосования combine_votes на шаге C. Передача predictor сюда создала бы
-    # двойное вето: сначала Confirm Gate внутри decide_ml_mode, потом combine_votes.
-    # Если в будущем понадобится Confirm Gate в ML-ветке COMBINED — передавать predictor
-    # только при USE_CRYPTO_CONFIRM=True И явном флаге cfg.combined_confirm_gate=True.
-    ml_task = decide_ml_mode(
-        db_session, api_client, market, cfg,
-        raw_settings, models_cache, None,
-        start_time, time_left_sec, existing_skipped,
-        execution_mode=execution_mode,
-    )
+    # 1. Запрашиваем актуальные цены Polymarket (YES и NO)
+    fresh_yes_prices = await api_client.get_market_prices(market.yes_token_id)
+    if not fresh_yes_prices or fresh_yes_prices.get("current_yes_price") is None:
+        logger.warning("combined_fresh_prices_failed", asset=asset_upper, market_id=market.market_id)
+        await log_funnel(
+            db_session,
+            market_id=market.market_id,
+            asset=market.asset,
+            trading_mode="COMBINED",
+            execution_mode=execution_mode,
+            p_flip=None,
+            edge=None,
+            fresh_price=None,
+            threshold_lower=cfg.no_flip_threshold,
+            threshold_upper=cfg.flip_threshold,
+            min_edge_used=cfg.combined_min_net_edge,
+            g1_model_loaded=bool(models_cache and models_cache.models),
+            g2_price_fetched=False,
+            final_action="SKIP",
+            skip_reason="Failed to fetch fresh Polymarket YES price",
+        )
+        return DecisionResult(
+            decision_obj=TradeDecision(
+                action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
+                reason="Failed to fetch fresh Polymarket YES price",
+                strategy_type="COMBINED", p_flip=None, edge=0.0
+            ),
+            p_flip=0.0,
+            model_ver=None,
+            edge=None,
+            skip_reason="Failed to fetch fresh Polymarket YES price",
+        )
 
-    # --- Шаг B: готовим LightGBM-ветку ---
+    fresh_yes_price = float(fresh_yes_prices["current_yes_price"])
+    fresh_spread = float(fresh_yes_prices.get("current_spread", market.current_spread or 0.01))
+    yes_best_ask = float(fresh_yes_prices["best_ask"]) if fresh_yes_prices.get("best_ask") is not None else fresh_yes_price
+
+    # NO prices
+    fresh_no_price = 1.0 - fresh_yes_price
+    no_best_ask = 1.0 - fresh_yes_price
+    if market.no_token_id:
+        fresh_no_prices = await api_client.get_market_prices(market.no_token_id)
+        if fresh_no_prices and fresh_no_prices.get("best_ask") is not None:
+            no_best_ask = float(fresh_no_prices["best_ask"])
+            if fresh_no_prices.get("current_yes_price") is not None:
+                fresh_no_price = float(fresh_no_prices["current_yes_price"])
+
+    # 2. Получаем сигнал LightGBM (Direction Model)
     binance_symbol = COMBINED_BINANCE_SYMBOLS.get(asset_upper)
-
     if crypto_predictor is not None and binance_symbol is not None:
-        lgbm_task = _fetch_lgbm_signal(crypto_predictor, binance_symbol, asset_upper)
-        # Запускаем параллельно
-        ml_result, crypto_proxy = await asyncio.gather(ml_task, lgbm_task)
+        direction_signal = await _fetch_lgbm_signal(crypto_predictor, binance_symbol, asset_upper)
     else:
-        ml_result = await ml_task
-        from polyflip.crypto.predictor import CryptoSignal
-        crypto_proxy = CryptoSignal(
+        direction_signal = CryptoSignal(
             symbol=binance_symbol or "UNKNOWN", p_up=0.0, p_down=0.0,
             direction="NONE", signal_strength=0.0, strike=0.0,
             threshold_up=0.0, threshold_down=0.0, model_version=0,
-            features_ok=False, risk_vetoed=False
+            features_ok=False, risk_vetoed=False,
+            regime="UNKNOWN", status="PREDICTOR_NOT_AVAILABLE"
         )
         logger.warning("combined_no_crypto_predictor", asset=asset_upper)
+
+    # 3. Выбор LogReg модели (Entry Model) с фазовым fallback
+    phase = get_price_phase(fresh_yes_price)
+    phase_asset = f"{asset_upper}_{phase}"
+
+    entry_model = None
+    entry_model_key = None
+    entry_model_ver = None
+    entry_features = []
+    entry_source = "NONE"
+    fallback_reason = None
+
+    if models_cache and models_cache.models:
+        if phase_asset in models_cache.models:
+            entry_model = models_cache.models[phase_asset]
+            entry_model_key = phase_asset
+            entry_model_ver = models_cache.versions.get(phase_asset)
+            entry_features = models_cache.features.get(phase_asset, [])
+            entry_source = "PHASE"
+        elif asset_upper in models_cache.models:
+            entry_model = models_cache.models[asset_upper]
+            entry_model_key = asset_upper
+            entry_model_ver = models_cache.versions.get(asset_upper)
+            entry_features = models_cache.features.get(asset_upper, [])
+            entry_source = "BASE"
+            fallback_reason = f"Phase model {phase_asset} not found, fell back to base {asset_upper}"
+        elif "GLOBAL" in models_cache.models:
+            entry_model = models_cache.models["GLOBAL"]
+            entry_model_key = "GLOBAL"
+            entry_model_ver = models_cache.versions.get("GLOBAL")
+            entry_features = models_cache.features.get("GLOBAL", [])
+            entry_source = "GLOBAL"
+            fallback_reason = f"Base model {asset_upper} not found, fell back to GLOBAL"
+        else:
+            fallback_reason = "No active model matches phase, base asset, or GLOBAL"
+    else:
+        fallback_reason = "ModelsCache is empty"
+
+    # 4. Вычисляем p_flip через Entry Model (если доступна)
+    p_flip: Optional[float] = None
+    if entry_model is not None:
+        try:
+            p_flip = await infer_flip_for_market(
+                db_session=db_session,
+                market=market,
+                model=entry_model,
+                active_features=entry_features,
+                fresh_price=fresh_yes_price,
+                fresh_spread=fresh_spread,
+                start_time=start_time,
+                time_left_sec=time_left_sec,
+                max_time_left=cfg.max_time_left,
+            )
+        except Exception as e:
+            logger.error("combined_mode_infer_flip_error", asset=asset_upper, error=str(e))
+            p_flip = None
+            fallback_reason = f"Infer flip exception: {e}"
+
+    # 5. Оценка входа через evaluate_combined_entry
+    comb_cost_buffer = cfg.combined_cost_buffer
+    comb_min_net_edge = cfg.combined_min_net_edge
+    
+    if raw_settings.get("COMBINED_COST_BUFFER") is not None:
+        try:
+            comb_cost_buffer = float(raw_settings["COMBINED_COST_BUFFER"])
+        except (ValueError, TypeError):
+            pass
+    if raw_settings.get("COMBINED_MIN_NET_EDGE") is not None:
+        try:
+            comb_min_net_edge = float(raw_settings["COMBINED_MIN_NET_EDGE"])
+        except (ValueError, TypeError):
+            pass
+
+    vol_5m = 0.0
+    try:
+        if getattr(market, "volume_5min", None) is not None:
+            vol_5m = float(market.volume_5min)
+    except (TypeError, ValueError):
+        vol_5m = 0.0
+
+    und_price = None
+    try:
+        if getattr(market, "underlying_price", None) is not None:
+            und_price = float(market.underlying_price)
+    except (TypeError, ValueError):
+        und_price = None
+
+    comb_res = evaluate_combined_entry(
+        crypto_sig=direction_signal,
+        market_phase=phase,
+        entry_requested_key=phase_asset,
+        entry_model_key=entry_model_key,
+        entry_model_version=entry_model_ver,
+        entry_model_source=entry_source,
+        p_flip=p_flip,
+        fresh_yes_price=fresh_yes_price,
+        yes_ask=yes_best_ask,
+        no_ask=no_best_ask,
+        cost_buffer=comb_cost_buffer,
+        min_net_edge=comb_min_net_edge,
+        min_price=cfg.trade_min_price,
+        max_price=cfg.trade_max_price,
+        volume_5min=vol_5m,
+        config_dict=raw_settings,
+        underlying_price=und_price,
+        fallback_reason=fallback_reason,
+    )
 
     elapsed = time.monotonic() - t0
     logger.info("combined_mode_latency", asset=asset_upper, elapsed_ms=round(elapsed * 1000, 1))
 
-    # --- Шаг C: голосование ---
-    ml_action = ml_result.decision_obj.action if ml_result.decision_obj else "SKIP"
-    ml_edge   = ml_result.edge or 0.0
-
-    _raw_mult = raw_settings.get("COMBINED_NONE_BET_MULTIPLIER")
-    if _raw_mult is not None and str(_raw_mult).strip() != "":
-        try:
-            none_bet_multiplier = float(_raw_mult)
-            none_bet_multiplier = max(0.0, min(1.0, none_bet_multiplier))
-        except ValueError:
-            none_bet_multiplier = 0.5
-    else:
-        none_bet_multiplier = 0.5
-
-    ml_skip_reason = ml_result.skip_reason or (ml_result.decision_obj.reason if ml_result.decision_obj else "")
-    vote = combine_votes(ml_action, ml_edge, crypto_proxy, asset_upper, none_bet_multiplier=none_bet_multiplier, ml_skip_reason=ml_skip_reason)
-
-    logger.info(
-        "combined_vote_result",
-        asset=asset_upper,
-        ml_action=vote.ml_action,
-        lgbm_direction=vote.lgbm_direction,
-        lgbm_features_ok=vote.lgbm_features_ok,
-        final_action=vote.action,
-        reason=vote.reason,
-        confidence=round(vote.confidence, 4),
-        bet_size_multiplier=vote.bet_size_multiplier,
-    )
+    # 6. Формируем decision_details и TradeDecision
+    decision_details = {
+        "direction_status": comb_res.direction_status,
+        "direction_model_key": comb_res.direction_model_key,
+        "direction_model_version": comb_res.direction_model_version,
+        "direction_regime": comb_res.direction_regime,
+        "direction_probability": comb_res.direction_probability,
+        "direction_value": comb_res.direction_value,
+        "entry_requested_key": phase_asset,
+        "entry_model_key": comb_res.entry_model_key,
+        "entry_model_version": comb_res.entry_model_version,
+        "entry_model_phase": comb_res.entry_model_phase,
+        "entry_model_source": comb_res.entry_model_source,
+        "entry_status": comb_res.entry_status,
+        "fallback_reason": comb_res.fallback_reason,
+        "p_candidate_win": comb_res.p_candidate_win,
+        "candidate_side": comb_res.candidate_side,
+        "candidate_ask": comb_res.candidate_ask,
+        "gross_edge": comb_res.gross_edge,
+        "cost_buffer": comb_res.cost_buffer,
+        "net_edge": comb_res.net_edge,
+        "max_acceptable_price": comb_res.max_acceptable_price,
+        "strike_source": comb_res.strike_source,
+        "strike_proxy": comb_res.strike_proxy,
+        "underlying_price": comb_res.underlying_price,
+        "distance_to_strike_pct": comb_res.distance_to_strike_pct,
+        "market_role": "FAVORITE" if (comb_res.candidate_ask is not None and comb_res.candidate_ask >= 0.50) else "OUTSIDER",
+    }
 
     lgbm_meta_dict = {
-        "lgbm_version": crypto_proxy.model_version,
-        "lgbm_model_key": getattr(crypto_proxy, "model_key", None),
-        "lgbm_direction": crypto_proxy.direction,
-        "lgbm_features_ok": crypto_proxy.features_ok,
-        "is_fallback": not crypto_proxy.features_ok,
-        "vote_action": vote.action,
-        "bet_size_multiplier": vote.bet_size_multiplier,
+        "lgbm_version": comb_res.direction_model_version,
+        "lgbm_model_key": comb_res.direction_model_key,
+        "lgbm_direction": comb_res.direction_value,
+        "lgbm_features_ok": (comb_res.direction_status == "OK"),
+        "is_fallback": (comb_res.entry_model_source in ("BASE", "GLOBAL")),
+        "vote_action": comb_res.action,
+        "bet_size_multiplier": 1.0,
         "trading_mode": "COMBINED",
-        "ml_phase_model": ml_result.used_model_key if ml_result else None,
+        "ml_phase_model": comb_res.entry_model_key,
+        "original_strategy": "COMBINED",
     }
-    if ml_result.decision_obj:
-        lgbm_meta_dict["original_strategy"] = ml_result.decision_obj.strategy_type
-    else:
-        lgbm_meta_dict["original_strategy"] = "COMBINED"
-        
     lgbm_meta = json.dumps(lgbm_meta_dict)
 
-    # --- Шаг D: применяем результат голосования к decision_obj ---
-    import dataclasses
-    if ml_result.decision_obj is None:
-        return DecisionResult(
-            None,
-            ml_result.p_flip if ml_result else 0.0,
-            ml_result.model_ver if ml_result else None,
-            None,
-            vote.reason,
-            lgbm_metadata=lgbm_meta,
-            used_model_key=ml_result.used_model_key if ml_result else None,
-            confirm_model_key=getattr(crypto_proxy, "model_key", None),
-            confirm_model_version=getattr(crypto_proxy, "model_version", None),
+    if comb_res.action != "SKIP":
+        trade_decision = TradeDecision(
+            action=comb_res.action,
+            buy_price=comb_res.candidate_ask or 0.0,
+            bet_size_usdc=comb_res.bet_size_usdc,
+            reason=comb_res.reason,
+            strategy_type="COMBINED",
+            p_flip=comb_res.p_flip,
+            p_up=comb_res.direction_probability if comb_res.direction_value == "UP" else (1.0 - comb_res.direction_probability if comb_res.direction_probability is not None else None),
+            strike=comb_res.strike_proxy,
+            edge=comb_res.net_edge,
+            p_win_effective=comb_res.p_candidate_win,
+            p_win_raw=comb_res.p_candidate_win,
+            decision_details=decision_details,
+        )
+    else:
+        trade_decision = TradeDecision(
+            action="SKIP",
+            buy_price=comb_res.candidate_ask or 0.0,
+            bet_size_usdc=0.0,
+            reason=comb_res.reason,
+            strategy_type="COMBINED",
+            p_flip=comb_res.p_flip,
+            p_up=comb_res.direction_probability if comb_res.direction_value == "UP" else None,
+            strike=comb_res.strike_proxy,
+            edge=comb_res.net_edge or 0.0,
+            decision_details=decision_details,
         )
 
-    _strategy = ml_result.decision_obj.strategy_type
-    _reason = ml_result.decision_obj.reason if vote.action == "SKIP" and ml_action == "SKIP" else vote.reason
-    final_decision = dataclasses.replace(
-        ml_result.decision_obj,
-        action=vote.action,
-        reason=_reason,
-        strategy_type=_strategy,
-    )
-
-    if 0.0 < vote.bet_size_multiplier < 1.0:
-        original_bet = final_decision.bet_size_usdc
-        reduced_bet = round(original_bet * vote.bet_size_multiplier, 2)
-        effective_min = round(cfg.bet_size * vote.bet_size_multiplier, 2)
-        reduced_bet = max(reduced_bet, effective_min)
-        final_decision = dataclasses.replace(final_decision, bet_size_usdc=reduced_bet)
-        logger.info(
-            "combined_bet_reduced",
-            asset=asset_upper,
-            multiplier=vote.bet_size_multiplier,
-            original_bet=original_bet,
-            reduced_bet=reduced_bet,
-            effective_min=effective_min,
-        )
-
-    g8_combined_vote = (vote.action != "SKIP")
-    _combined_lower = ml_result.applied_lower if (ml_result and ml_result.applied_lower is not None) else float(raw_settings.get("NO_FLIP_THRESHOLD", 0.35))
-    _combined_upper = ml_result.applied_upper if (ml_result and ml_result.applied_upper is not None) else float(raw_settings.get("FLIP_THRESHOLD", 0.65))
-    _combined_min_edge = float(raw_settings.get("MIN_EDGE", 0.0))
+    # 7. Записываем воронку (DecisionFunnelLog) — ровно одна запись!
+    g1_loaded = (entry_model is not None and comb_res.direction_status != "MODEL_NOT_LOADED")
+    g8_vote = (comb_res.action != "SKIP")
 
     await log_funnel(
         db_session,
@@ -769,37 +891,64 @@ async def decide_combined_mode(
         asset=market.asset,
         trading_mode="COMBINED",
         execution_mode=execution_mode,
-        used_model=ml_result.used_model_key if ml_result else None,
-        p_flip=ml_result.p_flip if ml_result else 0.0,
-        edge=final_decision.edge if final_decision and final_decision.edge is not None else (ml_result.edge if ml_result else None),
-        fresh_price=ml_result.decision_obj.buy_price if ml_result and ml_result.decision_obj else None,
-        threshold_lower=_combined_lower,
-        threshold_upper=_combined_upper,
-        min_edge_used=_combined_min_edge,
-        g1_model_loaded=True,
+        used_model=comb_res.entry_model_key,
+        p_flip=comb_res.p_flip,
+        edge=comb_res.net_edge,
+        fresh_price=comb_res.candidate_ask or fresh_yes_price,
+        threshold_lower=cfg.no_flip_threshold,
+        threshold_upper=cfg.flip_threshold,
+        min_edge_used=comb_min_net_edge,
+        g1_model_loaded=g1_loaded,
         g2_price_fetched=True,
-        g8_combined_vote=g8_combined_vote,
-        primary_model_key=ml_result.used_model_key if ml_result else None,
-        primary_model_version=ml_result.model_ver if ml_result else None,
-        confirm_model_key=getattr(crypto_proxy, "model_key", None),
-        confirm_model_version=getattr(crypto_proxy, "model_version", None),
-        proposed_action=ml_action,
-        proposed_price=ml_result.decision_obj.buy_price if ml_result and ml_result.decision_obj else None,
-        proposed_amount_usdc=ml_result.decision_obj.bet_size_usdc if ml_result and ml_result.decision_obj else None,
-        confirm_direction=crypto_proxy.direction,
-        confirm_passed=vote.lgbm_features_ok and vote.action != "SKIP",
-        final_action=final_decision.action if final_decision else "SKIP",
-        skip_reason=_reason if vote.action == "SKIP" else None,
+        g8_combined_vote=g8_vote,
+        primary_model_key=comb_res.entry_model_key,
+        primary_model_version=comb_res.entry_model_version,
+        confirm_model_key=comb_res.direction_model_key,
+        confirm_model_version=comb_res.direction_model_version,
+        proposed_action=comb_res.action,
+        proposed_price=comb_res.candidate_ask,
+        proposed_amount_usdc=comb_res.bet_size_usdc if comb_res.action != "SKIP" else 0.0,
+        confirm_direction=comb_res.direction_value,
+        confirm_passed=(comb_res.direction_status == "OK"),
+        
+        # Новая телеметрия
+        direction_status=comb_res.direction_status,
+        direction_model_key=comb_res.direction_model_key,
+        direction_model_version=comb_res.direction_model_version,
+        direction_regime=comb_res.direction_regime,
+        direction_probability=comb_res.direction_probability,
+        direction_value=comb_res.direction_value,
+        entry_requested_key=phase_asset,
+        entry_model_key=comb_res.entry_model_key,
+        entry_model_version=comb_res.entry_model_version,
+        entry_model_phase=comb_res.entry_model_phase,
+        entry_model_source=comb_res.entry_model_source,
+        entry_status=comb_res.entry_status,
+        fallback_reason=comb_res.fallback_reason,
+        p_candidate_win=comb_res.p_candidate_win,
+        candidate_side=comb_res.candidate_side,
+        candidate_ask=comb_res.candidate_ask,
+        gross_edge=comb_res.gross_edge,
+        cost_buffer=comb_res.cost_buffer,
+        net_edge=comb_res.net_edge,
+        max_acceptable_price=comb_res.max_acceptable_price,
+        strike_source=comb_res.strike_source,
+        strike_proxy=comb_res.strike_proxy,
+        underlying_price=comb_res.underlying_price,
+        distance_to_strike_pct=comb_res.distance_to_strike_pct,
+
+        final_action=comb_res.action,
+        skip_reason=comb_res.reason if comb_res.action == "SKIP" else None,
     )
 
     return DecisionResult(
-        decision_obj=final_decision,
-        p_flip=ml_result.p_flip,
-        model_ver=ml_result.model_ver,
-        edge=final_decision.edge if final_decision.edge is not None else ml_result.edge,  # сохраняем edge всегда — важно для анализа вето
-        skip_reason=_reason if vote.action == "SKIP" else None,
+        decision_obj=trade_decision,
+        p_flip=comb_res.p_flip if comb_res.p_flip is not None else 0.0,
+        model_ver=comb_res.entry_model_version,
+        edge=comb_res.net_edge,
+        skip_reason=comb_res.reason if comb_res.action == "SKIP" else None,
         lgbm_metadata=lgbm_meta,
-        used_model_key=ml_result.used_model_key if ml_result else None,
-        confirm_model_key=getattr(crypto_proxy, "model_key", None),
-        confirm_model_version=getattr(crypto_proxy, "model_version", None),
+        used_model_key=comb_res.entry_model_key,
+        confirm_model_key=comb_res.direction_model_key,
+        confirm_model_version=comb_res.direction_model_version,
     )

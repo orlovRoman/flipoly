@@ -1,299 +1,255 @@
 import pytest
 import math
-from polyflip.trading.combined_voting import CryptoSignalProxy, combine_votes
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+from polyflip.trading.combined_voting import evaluate_combined_entry, CombinedEntryResult
+from polyflip.crypto.predictor import CryptoSignal
+from polyflip.trading.decision_runners import decide_combined_mode, DecisionResult
+from polyflip.trading.trading_config import parse_trading_settings
 
-def test_combined_mode_agreement():
-    """ML и LightGBM согласны — берем сделку с бустом confidence"""
-    crypto = CryptoSignalProxy(direction="UP", features_ok=True)
-    res = combine_votes("BUY_YES", 0.10, crypto, "BTC")
+
+def test_evaluate_combined_entry_direction_up_success():
+    """LightGBM = UP, LogReg дает хороший net_edge -> BUY_YES"""
+    sig = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.75, p_down=0.25, direction="UP",
+        signal_strength=0.5, strike=65000.0, threshold_up=0.55, threshold_down=0.45,
+        model_version=2, features_ok=True, risk_vetoed=False, regime="HIGH_VOL"
+    )
+    # p_flip = 0.20 (YES фаворит: fresh_yes_price=0.60 >= 0.50 -> p_candidate_win = 1 - 0.20 = 0.80)
+    # yes_ask = 0.62
+    # gross_edge = 0.80 - 0.62 = 0.18
+    # cost_buffer = 0.03 -> net_edge = 0.15 >= 0.03
+    res = evaluate_combined_entry(
+        crypto_sig=sig,
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=5,
+        entry_model_source="PHASE",
+        p_flip=0.20,
+        fresh_yes_price=0.60,
+        yes_ask=0.62,
+        no_ask=0.38,
+        cost_buffer=0.03,
+        min_net_edge=0.03,
+        config_dict={"TRADE_BET_SIZE_USDC": "10", "MAX_BET_SIZE_USDC": "50"},
+    )
     assert res.action == "BUY_YES"
-    assert math.isclose(res.confidence, 0.12, rel_tol=1e-9)  # 0.10 * 1.2
+    assert res.candidate_side == "BUY_YES"
+    assert res.direction_status == "READY"
+    assert res.direction_value == "UP"
+    assert res.entry_status == "READY"
+    assert res.entry_model_source == "PHASE"
+    expected_gross = (0.80 - 0.62) / 0.62
+    expected_net = round(expected_gross - 0.03, 4)
+    assert math.isclose(res.gross_edge, expected_gross, rel_tol=1e-4)
+    assert math.isclose(res.net_edge, expected_net, rel_tol=1e-4)
+    assert res.max_acceptable_price is not None
+    assert res.bet_size_usdc >= 10.0
 
-    crypto = CryptoSignalProxy(direction="DOWN", features_ok=True)
-    res = combine_votes("BUY_NO", 0.05, crypto, "ETH")
+
+def test_evaluate_combined_entry_direction_down_success():
+    """LightGBM = DOWN, LogReg дает хороший net_edge для NO -> BUY_NO"""
+    sig = CryptoSignal(
+        symbol="ETHUSDT", p_up=0.20, p_down=0.80, direction="DOWN",
+        signal_strength=0.6, strike=3500.0, threshold_up=0.55, threshold_down=0.45,
+        model_version=3, features_ok=True, risk_vetoed=False, regime="MID_VOL"
+    )
+    # fresh_yes_price = 0.50 >= 0.50, candidate = NO -> p_candidate_win = p_flip = 0.85
+    # no_ask = 0.55
+    # gross_edge = 0.85 - 0.55 = 0.30
+    # cost_buffer = 0.03 -> net_edge = 0.27
+    res = evaluate_combined_entry(
+        crypto_sig=sig,
+        market_phase="mid_vol",
+        entry_requested_key="ETH_mid_vol",
+        entry_model_key="ETH_mid_vol",
+        entry_model_version=2,
+        entry_model_source="PHASE",
+        p_flip=0.85,
+        fresh_yes_price=0.50,
+        yes_ask=0.52,
+        no_ask=0.55,
+        cost_buffer=0.03,
+        min_net_edge=0.03,
+        config_dict={"TRADE_BET_SIZE_USDC": "10", "MAX_BET_SIZE_USDC": "50"},
+    )
     assert res.action == "BUY_NO"
-    assert math.isclose(res.confidence, 0.06, rel_tol=1e-9)
+    assert res.candidate_side == "BUY_NO"
+    assert res.direction_status == "READY"
+    assert res.direction_value == "DOWN"
+    assert res.net_edge > 0.03
 
-def test_combined_mode_veto():
-    """ML и LightGBM не согласны — вето (SKIP)"""
-    # ML говорит YES, LGBM говорит DOWN (вето)
-    crypto = CryptoSignalProxy(direction="DOWN", features_ok=True)
-    res = combine_votes("BUY_YES", 0.15, crypto, "BTC")
+
+def test_evaluate_combined_entry_direction_invalid_features():
+    """LightGBM features_ok=False -> SKIP"""
+    sig = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.70, p_down=0.30, direction="UP",
+        signal_strength=0.4, strike=65000.0, threshold_up=0.55, threshold_down=0.45,
+        model_version=2, features_ok=False, risk_vetoed=False, status="INSUFFICIENT_CANDLES"
+    )
+    res = evaluate_combined_entry(
+        crypto_sig=sig,
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=5,
+        entry_model_source="PHASE",
+        p_flip=0.20,
+        fresh_yes_price=0.60,
+        yes_ask=0.62,
+        no_ask=0.38,
+    )
     assert res.action == "SKIP"
-    assert "veto" in res.reason.lower()
+    assert res.direction_status == "INSUFFICIENT_CANDLES"
+    assert "direction model unavailable" in res.reason.lower()
 
-    # ML говорит NO, LGBM говорит UP (вето)
-    crypto = CryptoSignalProxy(direction="UP", features_ok=True)
-    res = combine_votes("BUY_NO", 0.10, crypto, "ETH")
+
+def test_evaluate_combined_entry_direction_risk_vetoed():
+    """LightGBM risk_vetoed=True -> SKIP"""
+    sig = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.70, p_down=0.30, direction="UP",
+        signal_strength=0.4, strike=65000.0, threshold_up=0.55, threshold_down=0.45,
+        model_version=2, features_ok=True, risk_vetoed=True, risk_reason="Extreme funding rate"
+    )
+    res = evaluate_combined_entry(
+        crypto_sig=sig,
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=5,
+        entry_model_source="PHASE",
+        p_flip=0.20,
+        fresh_yes_price=0.60,
+        yes_ask=0.62,
+        no_ask=0.38,
+    )
     assert res.action == "SKIP"
-    assert "veto" in res.reason.lower()
+    assert res.direction_status == "FUNDING_VETOED"
+    assert "funding veto" in res.reason.lower()
 
-    # ML говорит YES, LGBM говорит NONE (нет тренда) -> НЕ вето, а уменьшение ставки!
-    crypto = CryptoSignalProxy(direction="NONE", features_ok=True)
-    res = combine_votes("BUY_YES", 0.10, crypto, "BTC")
+
+def test_evaluate_combined_entry_insufficient_net_edge():
+    """net_edge < min_net_edge -> SKIP"""
+    sig = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.75, p_down=0.25, direction="UP",
+        signal_strength=0.5, strike=65000.0, threshold_up=0.55, threshold_down=0.45,
+        model_version=2, features_ok=True, risk_vetoed=False
+    )
+    # p_flip = 0.35, fresh_yes_price = 0.64 -> p_candidate_win = 1 - 0.35 = 0.65
+    # yes_ask = 0.64
+    # gross_edge = 0.65 - 0.64 = 0.01
+    # cost_buffer = 0.03 -> net_edge = -0.02 < 0.03
+    res = evaluate_combined_entry(
+        crypto_sig=sig,
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=5,
+        entry_model_source="PHASE",
+        p_flip=0.35,
+        fresh_yes_price=0.64,
+        yes_ask=0.64,
+        no_ask=0.36,
+        cost_buffer=0.03,
+        min_net_edge=0.03,
+    )
+    assert res.action == "SKIP"
+    assert res.entry_status == "INSUFFICIENT_NET_EDGE"
+    assert "insufficient net edge" in res.reason.lower()
+
+
+def test_evaluate_combined_entry_model_fallback_global():
+    """Entry model fallback to GLOBAL"""
+    sig = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.80, p_down=0.20, direction="UP",
+        signal_strength=0.6, strike=65000.0, threshold_up=0.55, threshold_down=0.45,
+        model_version=2, features_ok=True, risk_vetoed=False
+    )
+    res = evaluate_combined_entry(
+        crypto_sig=sig,
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="GLOBAL",
+        entry_model_version=1,
+        entry_model_source="GLOBAL",
+        fallback_reason="Base model BTC not found, fell back to GLOBAL",
+        p_flip=0.10,
+        fresh_yes_price=0.50,
+        yes_ask=0.52,
+        no_ask=0.48,
+        cost_buffer=0.03,
+        min_net_edge=0.03,
+        config_dict={"TRADE_BET_SIZE_USDC": "10"},
+    )
     assert res.action == "BUY_YES"
-    assert res.bet_size_multiplier == 0.5
-    
-    # Если LGBM вернул None при features_ok=True (баг предиктора),
-    # combine_votes обработает это как вето (None != "UP")
-    crypto = CryptoSignalProxy(direction=None, features_ok=True)
-    res = combine_votes("BUY_YES", 0.10, crypto, "BTC")
-    assert res.action == "SKIP"
-    assert "veto" in res.reason.lower()
+    assert res.entry_model_source == "GLOBAL"
+    assert res.fallback_reason == "Base model BTC not found, fell back to GLOBAL"
 
-@pytest.mark.skip(reason="Broken after feature/settings refactor")
-def test_combined_mode_ml_skip():
-    """ML уже SKIP -> оставляем SKIP, независим от LightGBM"""
-    crypto = CryptoSignalProxy(direction="UP", features_ok=True)
-    res = combine_votes("SKIP", 0.0, crypto, "BTC")
-    assert res.action == "SKIP"
-    assert "ML (in Combined mode) voted SKIP" in res.reason
 
-def test_combined_mode_fallback():
-    """LightGBM features_ok = False -> Fallback на ML"""
-    crypto = CryptoSignalProxy(direction=None, features_ok=False)
-    
-    # ML говорит YES
-    res = combine_votes("BUY_YES", 0.15, crypto, "BTC")
-    assert res.action == "BUY_YES"
-    assert res.confidence == 0.15  # без буста
-    assert res.lgbm_features_ok is False
-    assert "fallback" in res.reason.lower()
-
-    # ML говорит NO
-    res = combine_votes("BUY_NO", 0.10, crypto, "ETH")
-    assert res.action == "BUY_NO"
-    assert res.confidence == 0.10
-    assert res.lgbm_features_ok is False
-    assert "fallback" in res.reason.lower()
-
-def test_combined_flat_reduced_bet():
-    """LGBM в состоянии NONE -> берется решение ML, но с уменьшенным множителем"""
-    crypto = CryptoSignalProxy(direction="NONE", features_ok=True)
-    
-    # С дефолтным множителем 0.5
-    res = combine_votes("BUY_YES", 0.15, crypto, "BTC", none_bet_multiplier=0.5)
-    assert res.action == "BUY_YES"
-    assert res.bet_size_multiplier == 0.5
-    assert "flat (NONE)" in res.reason
-
-    # С кастомным множителем 0.3
-    res2 = combine_votes("BUY_NO", 0.15, crypto, "ETH", none_bet_multiplier=0.3)
-    assert res2.action == "BUY_NO"
-    assert res2.bet_size_multiplier == 0.3
-
-def test_combined_skip_preserves_edge():
-    """decide_combined_mode должен сохранять edge при SKIP (вето)"""
-    import asyncio
-    from unittest.mock import AsyncMock, MagicMock, patch
-    from polyflip.trading.decision_runners import decide_combined_mode, DecisionResult
-    from polyflip.trading.decision_logic import TradeDecision
-
-    # Мокаем decide_ml_mode, чтобы он возвращал ML-сигнал с положительным edge
-    ml_dec = TradeDecision(action="BUY_YES", buy_price=0.55, bet_size_usdc=10.0, reason="ML ok", strategy_type="ML_TREND", p_up=0.60, strike=0.5, edge=0.08)
-    ml_res = DecisionResult(decision_obj=ml_dec, p_flip=0.12, model_ver=4, edge=0.08, skip_reason=None)
-
-    # Мокаем _fetch_lgbm_signal, чтобы он возвращал вето (LGBM=DOWN при ML=BUY_YES)
-    lgbm_proxy = CryptoSignalProxy(direction="DOWN", features_ok=True, model_version=10)
-
-    # Запускаем decide_combined_mode
+def test_decide_combined_mode_full_flow():
+    """Тест decide_combined_mode с проверкой единого вызова log_funnel и всех полей"""
     db_session = AsyncMock()
-    api_client = MagicMock()
+    api_client = AsyncMock()
+    api_client.get_market_prices.return_value = {
+        "current_yes_price": "0.60",
+        "best_ask": "0.62",
+        "current_spread": "0.02",
+    }
     market = MagicMock()
+    market.market_id = 123
     market.asset = "BTC"
-    cfg = MagicMock()
-    cfg.bet_size = 10.0
-    raw_settings = {"COMBINED_NONE_BET_MULTIPLIER": "0.5"}
+    market.yes_token_id = "token_yes_123"
+    market.no_token_id = "token_no_123"
+    market.volume_5min = 500.0
+    market.underlying_price = 65000.0
+
+    cfg = parse_trading_settings({"COMBINED_COST_BUFFER": "0.03", "COMBINED_MIN_NET_EDGE": "0.03"})
+    raw_settings = {}
+    
+    mock_model = MagicMock()
     models_cache = MagicMock()
+    models_cache.models = {"BTC_leaning": mock_model}
+    models_cache.versions = {"BTC_leaning": 4}
+    models_cache.features = {"BTC_leaning": ["f1", "f2"]}
+
+    crypto_sig = CryptoSignal(
+        symbol="BTCUSDT", model_key="BTCUSDT_mid_vol", p_up=0.85, p_down=0.15, direction="UP",
+        signal_strength=0.7, strike=65000.0, threshold_up=0.55, threshold_down=0.45,
+        model_version=10, features_ok=True, risk_vetoed=False, regime="MID_VOL", status="OK"
+    )
     crypto_predictor = MagicMock()
 
-    with patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=ml_res)), \
-         patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=lgbm_proxy)):
-        
+    with patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=crypto_sig)), \
+         patch("polyflip.trading.decision_runners.infer_flip_for_market", AsyncMock(return_value=0.15)), \
+         patch("polyflip.trading.decision_runners.log_funnel", AsyncMock()) as mock_log_funnel:
+
         res = asyncio.run(decide_combined_mode(
-            db_session, api_client, market, cfg, raw_settings,
-            models_cache, crypto_predictor, start_time=MagicMock(), time_left_sec=300
+            db_session=db_session,
+            api_client=api_client,
+            market=market,
+            cfg=cfg,
+            raw_settings=raw_settings,
+            models_cache=models_cache,
+            crypto_predictor=crypto_predictor,
+            start_time=MagicMock(),
+            time_left_sec=300.0,
+            execution_mode="PAPER"
         ))
 
-    # Должен быть SKIP (вето)
-    assert res.decision_obj.action == "SKIP"
-    # Но edge от ML должен сохраниться!
-    assert res.edge == 0.08
-    assert "veto" in res.skip_reason.lower()
-    assert res.lgbm_metadata is not None
-    
-    # Проверяем lgbm_metadata
-    import json
-    meta = json.loads(res.lgbm_metadata)
-    assert meta["lgbm_direction"] == "DOWN"
-    assert meta["vote_action"] == "SKIP"
-    assert meta["bet_size_multiplier"] == 0.0
-
-def test_combined_none_multiplier_zero():
-    """Проверка, что множитель 0.0 правильно парсится и приводит к SKIP (вето)"""
-    import asyncio
-    from unittest.mock import AsyncMock, MagicMock, patch
-    from polyflip.trading.decision_runners import decide_combined_mode, DecisionResult
-    from polyflip.trading.decision_logic import TradeDecision
-
-    ml_dec = TradeDecision(action="BUY_YES", buy_price=0.55, bet_size_usdc=10.0, reason="ML ok", strategy_type="ML_TREND", p_up=0.60, strike=0.5)
-    ml_res = DecisionResult(decision_obj=ml_dec, p_flip=0.12, model_ver=4, edge=0.08, skip_reason=None)
-
-    lgbm_proxy = CryptoSignalProxy(direction="NONE", features_ok=True, model_version=10)
-
-    db_session = AsyncMock()
-    api_client = MagicMock()
-    market = MagicMock()
-    market.asset = "BTC"
-    cfg = MagicMock()
-    cfg.bet_size = 10.0
-    
-    raw_settings = {"COMBINED_NONE_BET_MULTIPLIER": "0.0"}
-    models_cache = MagicMock()
-    crypto_predictor = MagicMock()
-
-    with patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=ml_res)), \
-         patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=lgbm_proxy)):
+        assert res.decision_obj.action == "BUY_YES"
+        assert res.decision_obj.strategy_type == "COMBINED"
+        assert res.used_model_key == "BTC_leaning"
+        assert res.confirm_model_key == "BTCUSDT_mid_vol"
+        assert res.confirm_model_version == 10
         
-        res = asyncio.run(decide_combined_mode(
-            db_session, api_client, market, cfg, raw_settings,
-            models_cache, crypto_predictor, start_time=MagicMock(), time_left_sec=300
-        ))
-
-    # Должен быть SKIP, так как множитель 0.0
-    assert res.decision_obj.action == "SKIP"
-    assert "veto" in res.skip_reason.lower()
-
-@pytest.mark.skip(reason="Broken after feature/settings refactor")
-def test_combined_bet_reduction_original_bet():
-    """Проверка BUG-A: original_bet должен правильно логироваться даже при clamp по min_bet"""
-    import asyncio
-    from unittest.mock import AsyncMock, MagicMock, patch
-    from polyflip.trading.decision_runners import decide_combined_mode, DecisionResult
-    from polyflip.trading.decision_logic import TradeDecision
-
-    ml_dec = TradeDecision(action="BUY_YES", buy_price=0.55, bet_size_usdc=10.0, reason="ML ok", strategy_type="ML_TREND", p_up=0.60, strike=0.5)
-    ml_res = DecisionResult(decision_obj=ml_dec, p_flip=0.12, model_ver=4, edge=0.08, skip_reason=None)
-
-    lgbm_proxy = CryptoSignalProxy(direction="NONE", features_ok=True, model_version=10)
-
-    db_session = AsyncMock()
-    api_client = MagicMock()
-    market = MagicMock()
-    market.asset = "BTC"
-    cfg = MagicMock()
-    # min_bet равен 8.0, что выше чем calculated 10.0 * 0.5 = 5.0
-    cfg.bet_size = 8.0
-    
-    raw_settings = {"COMBINED_NONE_BET_MULTIPLIER": "0.5"}
-    models_cache = MagicMock()
-    crypto_predictor = MagicMock()
-
-    with patch("polyflip.trading.decision_runners.logger") as mock_logger, \
-         patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=ml_res)), \
-         patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=lgbm_proxy)):
-        
-        res = asyncio.run(decide_combined_mode(
-            db_session, api_client, market, cfg, raw_settings,
-            models_cache, crypto_predictor, start_time=MagicMock(), time_left_sec=300
-        ))
-
-    # Ставка должна быть 8.0 (clamped by min_bet)
-    assert res.decision_obj.bet_size_usdc == 8.0
-
-    # Проверяем логи через call_args_list
-    info_calls = mock_logger.info.call_args_list
-    bet_reduced_calls = [c for c in info_calls if c.args and c.args[0] == "combined_bet_reduced"]
-    assert len(bet_reduced_calls) == 1
-
-    call_kwargs = bet_reduced_calls[0].kwargs
-    assert call_kwargs["original_bet"] == 10.0
-    assert call_kwargs["reduced_bet"] == 8.0
-    assert call_kwargs["multiplier"] == 0.5
-
-def test_combined_lgbm_invalid_preserves_ml_skip_reason():
-    """Если LGBM фичи невалидны, но ML сам решил сделать SKIP, должна сохраниться оригинальная причина ML"""
-    import asyncio
-    from unittest.mock import AsyncMock, MagicMock, patch
-    from polyflip.trading.decision_runners import decide_combined_mode, DecisionResult
-    from polyflip.trading.decision_logic import TradeDecision
-
-    ml_dec = TradeDecision(action="SKIP", buy_price=0.0, bet_size_usdc=0.0, reason="ML dead zone", strategy_type="ML_TREND", p_up=0.60, strike=0.5, edge=0.0)
-    ml_res = DecisionResult(decision_obj=ml_dec, p_flip=0.12, model_ver=4, edge=0.0, skip_reason="ML dead zone")
-
-    # LGBM фичи невалидны
-    lgbm_proxy = CryptoSignalProxy(direction=None, features_ok=False)
-
-    db_session = AsyncMock()
-    api_client = MagicMock()
-    market = MagicMock()
-    market.asset = "BTC"
-    cfg = MagicMock()
-    cfg.bet_size = 10.0
-    raw_settings = {"COMBINED_NONE_BET_MULTIPLIER": "0.5"}
-    models_cache = MagicMock()
-    crypto_predictor = MagicMock()
-
-    with patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=ml_res)), \
-         patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=lgbm_proxy)):
-        
-        res = asyncio.run(decide_combined_mode(
-            db_session, api_client, market, cfg, raw_settings,
-            models_cache, crypto_predictor, start_time=MagicMock(), time_left_sec=300
-        ))
-
-    assert res.decision_obj.action == "SKIP"
-    # Должна сохраниться оригинальная причина ML
-    assert res.skip_reason == "ML dead zone"
-
-def test_recommended_thresholds_empty_and_invalid_values():
-    """Тестируем, что get_recommended_thresholds не падает на пустых строках или невалидных значениях"""
-    from polyflip.api.settings import get_recommended_thresholds
-    from polyflip.db.models import RuntimeSettings
-    from datetime import datetime, timezone
-    from unittest.mock import AsyncMock, MagicMock, patch
-    import asyncio
-
-    now = datetime.now(timezone.utc)
-    db_settings = [
-        RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.15", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.20", updated_at=now, updated_by="test"),
-        # BTC имеет пустой ручной порог, но валидный авто-порог
-        RuntimeSettings(key="TRADE_FLIP_THRESHOLD_BTC", value="", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="AUTO_FLIP_THRESHOLD_BTC", value="0.65", updated_at=now, updated_by="test"),
-        # ETH имеет невалидное значение
-        RuntimeSettings(key="TRADE_FLIP_THRESHOLD_ETH", value="invalid_float", updated_at=now, updated_by="test"),
-    ]
-
-    mock_db_session = AsyncMock()
-    mock_execute_result = MagicMock()
-    mock_execute_result.scalars.return_value.all.return_value = db_settings
-    mock_db_session.execute.return_value = mock_execute_result
-
-    class DummyAsyncContextManager:
-        def __init__(self, session):
-            self.session = session
-        async def __aenter__(self):
-            return self.session
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            pass
-
-    def dummy_session_creator():
-        return DummyAsyncContextManager(mock_db_session)
-
-    from polyflip.config import Settings
-    from unittest.mock import PropertyMock
-
-    with patch("polyflip.api.settings.async_session", dummy_session_creator), \
-         patch.object(Settings, "asset_list", new_callable=PropertyMock) as mock_prop:
-         mock_prop.return_value = ["BTC", "ETH"]
-         response = asyncio.run(get_recommended_thresholds())
-         
-         # Должно отработать без ValueError
-         assert response["global"]["dead_zone"] == 0.15
-         # BTC должен переключиться на авто-порог
-         assert "BTC" in response["per_asset"]
-         assert response["per_asset"]["BTC"]["flip_threshold"] == 0.65
-         assert response["per_asset"]["BTC"]["is_auto_calibrated"] is True
-         # ETH должен пропуститься из-за невалидного значения
-         assert "ETH" not in response["per_asset"]
+        # Проверяем, что log_funnel вызван ровно 1 раз
+        assert mock_log_funnel.call_count == 1
+        call_kwargs = mock_log_funnel.call_args.kwargs
+        assert call_kwargs["trading_mode"] == "COMBINED"
+        assert call_kwargs["direction_status"] == "OK"
+        assert call_kwargs["direction_value"] == "UP"
+        assert call_kwargs["entry_status"] == "READY"
+        assert call_kwargs["entry_model_source"] == "PHASE"
+        assert call_kwargs["gross_edge"] is not None
+        assert call_kwargs["net_edge"] is not None

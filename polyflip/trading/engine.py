@@ -155,7 +155,8 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                     p_flip = decision_res.p_flip if decision_res else 0.0
                     edge = decision_res.edge if decision_res else None
                     model_ver = decision_res.model_ver if decision_res else None
-                    skip_role = decision_res.decision_obj.decision_details.get("market_role") if (decision_res and decision_res.decision_obj and decision_res.decision_obj.decision_details) else None
+                    dec_details = decision_res.decision_obj.decision_details if (decision_res and decision_res.decision_obj) else None
+                    skip_role = dec_details.get("market_role") if dec_details else None
                     from polyflip.trading.trade_recorder import _get_trade_active_features
                     await save_or_update_skipped_trade(
                         db_session, market, skip_reason or "SKIP", p_flip, model_ver, start_time, existing_skipped, edge,
@@ -165,6 +166,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         model_key=decision_res.used_model_key if decision_res else None,
                         confirm_model_key=decision_res.confirm_model_key if decision_res else None,
                         confirm_model_version=decision_res.confirm_model_version if decision_res else None,
+                        decision_details=dec_details,
                     )
                     continue
 
@@ -175,6 +177,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
 
                 if not validation.valid:
                     from polyflip.trading.trade_recorder import _get_trade_active_features
+                    dec_details = decision_res.decision_obj.decision_details if decision_res.decision_obj else None
                     await save_or_update_skipped_trade(
                         db_session, market, validation.skip_reason, decision_res.p_flip, decision_res.model_ver, start_time,
                         existing_skipped=existing_skipped,
@@ -184,6 +187,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         model_key=decision_res.used_model_key if decision_res else None,
                         confirm_model_key=decision_res.confirm_model_key if decision_res else None,
                         confirm_model_version=decision_res.confirm_model_version if decision_res else None,
+                        decision_details=dec_details,
                     )
                     continue
 
@@ -199,6 +203,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                     )
                 except EnqueueRejected as exc:
                     from polyflip.trading.trade_recorder import _get_trade_active_features
+                    dec_details = decision_res.decision_obj.decision_details if decision_res.decision_obj else None
                     await save_or_update_skipped_trade(
                         db_session, market, f"Execution not enqueued: {exc}", decision_res.p_flip, decision_res.model_ver, start_time,
                         existing_skipped=existing_skipped,
@@ -208,6 +213,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         model_key=decision_res.used_model_key if decision_res else None,
                         confirm_model_key=decision_res.confirm_model_key if decision_res else None,
                         confirm_model_version=decision_res.confirm_model_version if decision_res else None,
+                        decision_details=dec_details,
                     )
                     continue
             finally:

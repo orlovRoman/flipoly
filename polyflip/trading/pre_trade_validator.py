@@ -101,6 +101,14 @@ async def validate_pre_trade(
             skip_reason=f"Price drift too large: {price_drift:.3f}"
         )
 
+    # Проверка max_acceptable_price для COMBINED режима
+    max_acc_price = decision_obj.decision_details.get("max_acceptable_price") if decision_obj.decision_details else None
+    if max_acc_price is not None and fresh_ask > float(max_acc_price):
+        return PreTradeValidation(
+            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=decision_obj.edge or 0.0,
+            skip_reason=f"Fresh ask {fresh_ask:.3f} exceeded max_acceptable_price {float(max_acc_price):.3f}"
+        )
+
     buy_price = fresh_ask
     
     # Пересчет edge по реальной цене
@@ -111,7 +119,12 @@ async def validate_pre_trade(
         )
     p_win = decision_obj.p_win_effective
 
-    current_min_edge = cfg.favorite_min_edge if (asset_mode == TRADING_MODE_FAVORITE and cfg.favorite_min_edge is not None) else asset_min_edge
+    if asset_mode == TRADING_MODE_COMBINED:
+        current_min_edge = cfg.combined_min_net_edge if cfg.combined_min_net_edge is not None else asset_min_edge
+    elif asset_mode == TRADING_MODE_FAVORITE and cfg.favorite_min_edge is not None:
+        current_min_edge = cfg.favorite_min_edge
+    else:
+        current_min_edge = asset_min_edge
     
     # Считаем новый edge
     edge = compute_economic_edge(p_win, buy_price, cfg.fee_rate, cfg.slippage_rate)

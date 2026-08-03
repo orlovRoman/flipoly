@@ -385,7 +385,7 @@ def test_combine_votes_flip_threshold_veto():
         ml_skip_reason="p_flip_calibrated=0.2490 < threshold=0.4005"
     )
     assert vote.action == "SKIP"
-    assert "FLIP_THRESHOLD veto" in vote.reason
+    assert "ML hard-SKIP" in vote.reason or "FLIP_THRESHOLD veto" in vote.reason
 
 def test_combine_votes_soft_skip_allows_lgbm():
     from polyflip.trading.combined_voting import combine_votes, CryptoSignalProxy

@@ -228,6 +228,18 @@ class TradeHistory(Base):
     confirm_model_version = Column(Integer, nullable=True)
     model_attribution_source = Column(String(16), nullable=True)
 
+    # COMBINED Direction Architecture fields
+    direction_model_key = Column(String(64), nullable=True)
+    direction_model_version = Column(Integer, nullable=True)
+    entry_model_key = Column(String(64), nullable=True)
+    entry_model_version = Column(Integer, nullable=True)
+    entry_model_source = Column(String(32), nullable=True)
+    p_candidate_win = Column(Float, nullable=True)
+    gross_edge = Column(Float, nullable=True)
+    cost_buffer = Column(Float, nullable=True)
+    net_edge = Column(Float, nullable=True)
+    decision_run_id = Column(String(64), nullable=True)
+
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),
                 Index("idx_trade_history_model_version", "asset", "model_version", "status", "created_at"),
@@ -351,7 +363,7 @@ class DecisionFunnelLog(Base):
     final_action = Column(String(16), nullable=False)   # BUY_YES, BUY_NO, SKIP
     skip_reason  = Column(String(256), nullable=True)   # краткая причина если SKIP
 
-    # Паспорт VETO / Подтверждения (P5)
+    # Паспорт VETO / Подтверждения (Legacy P5)
     primary_model_key = Column(String(64), nullable=True)
     primary_model_version = Column(Integer, nullable=True)
     confirm_model_key = Column(String(64), nullable=True)
@@ -362,11 +374,43 @@ class DecisionFunnelLog(Base):
     confirm_direction = Column(String(16), nullable=True)
     confirm_passed = Column(Boolean, nullable=True)
 
+    # COMBINED Direction Architecture fields
+    decision_run_id = Column(String(64), nullable=True)
+    direction_model_key = Column(String(64), nullable=True)
+    direction_model_version = Column(Integer, nullable=True)
+    direction_regime = Column(String(32), nullable=True)
+    direction_status = Column(String(32), nullable=True)
+    direction_probability = Column(Float, nullable=True)
+    direction_value = Column(String(16), nullable=True)
+
+    entry_requested_key = Column(String(64), nullable=True)
+    entry_model_key = Column(String(64), nullable=True)
+    entry_model_version = Column(Integer, nullable=True)
+    entry_model_phase = Column(String(32), nullable=True)
+    entry_model_source = Column(String(32), nullable=True)
+    entry_status = Column(String(32), nullable=True)
+    fallback_reason = Column(String(128), nullable=True)
+
+    p_candidate_win = Column(Float, nullable=True)
+    candidate_side = Column(String(16), nullable=True)
+    candidate_ask = Column(Float, nullable=True)
+    gross_edge = Column(Float, nullable=True)
+    cost_buffer = Column(Float, nullable=True)
+    net_edge = Column(Float, nullable=True)
+
+    strike_source = Column(String(32), nullable=True)
+    strike_proxy = Column(Float, nullable=True)
+    underlying_price = Column(Float, nullable=True)
+    distance_to_strike_pct = Column(Float, nullable=True)
+
     __table_args__ = (
         Index("idx_funnel_asset_created", "asset", "created_at"),
         Index("idx_funnel_market_id",     "market_id"),
         Index("idx_funnel_trading_mode",  "trading_mode", "created_at"),
         Index("idx_funnel_confirm_model_analytics", "confirm_model_key", "confirm_model_version", "created_at"),
+        Index("idx_funnel_direction_model", "direction_model_key", "direction_model_version", "created_at"),
+        Index("idx_funnel_entry_model", "entry_model_key", "entry_model_version", "created_at"),
+        Index("idx_funnel_decision_run", "decision_run_id"),
     )
 
 

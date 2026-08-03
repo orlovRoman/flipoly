@@ -66,6 +66,9 @@ class TradingConfig:
     fee_rate: float
     slippage_rate: float
     max_exposure_pct: float
+    combined_cost_buffer: float = 0.02
+    combined_min_net_edge: float = 0.03
+    live_min_net_edge: float = 0.03
 
 def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
     trade_assets_str = raw.get("TRADE_ASSETS", getattr(settings, "TRADE_ASSETS", "BTC,ETH"))
@@ -113,4 +116,7 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         fee_rate=_parse_float(raw.get("FEE_RATE"), getattr(settings, "FEE_RATE", 0.0)),
         slippage_rate=_parse_float(raw.get("SLIPPAGE_RATE"), getattr(settings, "SLIPPAGE_RATE", 0.0)),
         max_exposure_pct=_parse_float(raw.get("MAX_EXPOSURE_PCT"), getattr(settings, "MAX_EXPOSURE_PCT", 15.0)),
+        combined_cost_buffer=_parse_float(raw.get("COMBINED_COST_BUFFER"), 0.02),
+        combined_min_net_edge=_parse_float(raw.get("COMBINED_MIN_NET_EDGE"), 0.03),
+        live_min_net_edge=_parse_float(raw.get("LIVE_MIN_NET_EDGE"), 0.03),
     )

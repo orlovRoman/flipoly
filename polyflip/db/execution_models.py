@@ -56,6 +56,7 @@ class ExecutionRequest(Base):
     ttl_seconds = Column(Integer, nullable=False, default=60)
     limit_price = Column(Numeric(38, 18), nullable=True)
     max_spend_usdc = Column(Numeric(38, 18), nullable=True)
+    max_acceptable_price = Column(Numeric(38, 18), nullable=True)
 
     # State tracking
     state = Column(String(32), nullable=False, default="READY")
@@ -361,6 +362,14 @@ class LiveMirrorCandidate(Base):
         ForeignKey("execution_requests.id", ondelete="RESTRICT"),
         nullable=True,
     )
+
+    # Поля оценки edge и моделей для Release Gate
+    p_candidate_win = Column(Float, nullable=True)
+    decision_ask = Column(Float, nullable=True)
+    decision_net_edge = Column(Float, nullable=True)
+    cost_buffer = Column(Float, nullable=True)
+    entry_model_source = Column(String(32), nullable=True)
+    direction_model_key = Column(String(64), nullable=True)
 
     rejection_reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
