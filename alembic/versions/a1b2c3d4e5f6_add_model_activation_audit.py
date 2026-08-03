@@ -1,15 +1,15 @@
-"""add_model_activation_audit
+﻿"""add_model_activation_audit
 
 Revision ID: a1b2c3d4e5f6
 Revises: 783e6d92bc81
 Create Date: 2026-08-03
 
-Добавляет в model_registry поля Quality Gate и Activation Audit:
+Р”РѕР±Р°РІР»СЏРµС‚ РІ model_registry РїРѕР»СЏ Quality Gate Рё Activation Audit:
     quality_gate_passed, quality_gate_reasons,
     activation_source, activated_at, activated_by, activation_reason
 
-А также частичный уникальный индекс, гарантирующий,
-что у каждого asset одновременно активна не более одной версии.
+Рђ С‚Р°РєР¶Рµ С‡Р°СЃС‚РёС‡РЅС‹Р№ СѓРЅРёРєР°Р»СЊРЅС‹Р№ РёРЅРґРµРєСЃ, РіР°СЂР°РЅС‚РёСЂСѓСЋС‰РёР№,
+С‡С‚Рѕ Сѓ РєР°Р¶РґРѕРіРѕ asset РѕРґРЅРѕРІСЂРµРјРµРЅРЅРѕ Р°РєС‚РёРІРЅР° РЅРµ Р±РѕР»РµРµ РѕРґРЅРѕР№ РІРµСЂСЃРёРё.
 """
 from alembic import op
 import sqlalchemy as sa
@@ -38,15 +38,15 @@ def upgrade() -> None:
     op.add_column('model_registry',
         sa.Column('activation_reason', sa.Text(), nullable=True))
 
-    # Частичный уникальный индекс: одна активная версия на asset
-    # Используем raw SQL т.к. SQLAlchemy не поддерживает partial index в op.create_index
+    # Р§Р°СЃС‚РёС‡РЅС‹Р№ СѓРЅРёРєР°Р»СЊРЅС‹Р№ РёРЅРґРµРєСЃ: РѕРґРЅР° Р°РєС‚РёРІРЅР°СЏ РІРµСЂСЃРёСЏ РЅР° asset
+    # РСЃРїРѕР»СЊР·СѓРµРј raw SQL С‚.Рє. SQLAlchemy РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ partial index РІ op.create_index
     op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_model_registry_one_active_version
         ON model_registry (asset)
         WHERE is_active IS TRUE
     """)
 
-    # Backfill: все существующие активные модели помечаем как AUTO
+    # Backfill: РІСЃРµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРµ Р°РєС‚РёРІРЅС‹Рµ РјРѕРґРµР»Рё РїРѕРјРµС‡Р°РµРј РєР°Рє AUTO
     op.execute("""
         UPDATE model_registry
         SET activation_source = 'AUTO',
@@ -54,9 +54,9 @@ def upgrade() -> None:
         WHERE is_active = TRUE AND activation_source IS NULL
     """)
 
-    # Неактивные — ставим quality_gate_passed = FALSE (консервативно, мы не знаем точно)
-    # Оставляем NULL, т.к. реально не знаем причину деактивации
-    # NULL = "данные до внедрения аудита"
+    # РќРµР°РєС‚РёРІРЅС‹Рµ вЂ” СЃС‚Р°РІРёРј quality_gate_passed = FALSE (РєРѕРЅСЃРµСЂРІР°С‚РёРІРЅРѕ, РјС‹ РЅРµ Р·РЅР°РµРј С‚РѕС‡РЅРѕ)
+    # РћСЃС‚Р°РІР»СЏРµРј NULL, С‚.Рє. СЂРµР°Р»СЊРЅРѕ РЅРµ Р·РЅР°РµРј РїСЂРёС‡РёРЅСѓ РґРµР°РєС‚РёРІР°С†РёРё
+    # NULL = "РґР°РЅРЅС‹Рµ РґРѕ РІРЅРµРґСЂРµРЅРёСЏ Р°СѓРґРёС‚Р°"
 
 
 def downgrade() -> None:
