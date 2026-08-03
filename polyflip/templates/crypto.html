@@ -156,6 +156,15 @@
                         </p>
                     </div>
                     <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                        <div class="asset-filters" style="display:flex; gap:0; margin-right: 1rem; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden;">
+                            <button type="button" class="asset-filter-btn active" data-asset="ALL" onclick="setAssetFilter('ALL')">Все</button>
+                            <button type="button" class="asset-filter-btn" data-asset="BTC" onclick="setAssetFilter('BTC')">BTC</button>
+                            <button type="button" class="asset-filter-btn" data-asset="ETH" onclick="setAssetFilter('ETH')">ETH</button>
+                            <button type="button" class="asset-filter-btn" data-asset="SOL" onclick="setAssetFilter('SOL')">SOL</button>
+                            <button type="button" class="asset-filter-btn" data-asset="XRP" onclick="setAssetFilter('XRP')">XRP</button>
+                            <button type="button" class="asset-filter-btn" data-asset="DOGE" onclick="setAssetFilter('DOGE')">DOGE</button>
+                        </div>
+                        
                         <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Режим:</label>
                         <select id="mode-select" onchange="onFilterChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.8rem; border-radius: 8px; font-size: 0.85rem; outline: none; cursor: pointer;">
                             <option value="PAPER" selected>PAPER</option>
@@ -183,6 +192,10 @@
                         .table-sort { background: transparent; border: none; color: inherit; font-size: inherit; font-weight: inherit; cursor: pointer; padding: 0; outline: none; display: flex; align-items: center; gap: 0.25rem; }
                         .table-sort:hover { color: white; }
                         .sort-indicator { font-size: 0.75em; opacity: 0.7; }
+                        .asset-filter-btn { background: var(--bg-card); border: none; border-right: 1px solid var(--border-color); color: var(--text-muted); padding: 0.4rem 0.8rem; font-size: 0.85rem; cursor: pointer; transition: 0.2s; font-weight: 600; }
+                        .asset-filter-btn:last-child { border-right: none; }
+                        .asset-filter-btn:hover { background: rgba(255,255,255,0.05); color: white; }
+                        .asset-filter-btn.active { background: var(--poly-green); color: #000; }
                         </style>
                     </div>
                 </div>
@@ -393,6 +406,19 @@
         let currentMode = 'PAPER';
         let filterFrom = '';
         let filterTo = '';
+        let currentAssetFilter = 'ALL';
+        
+        function setAssetFilter(asset) {
+            currentAssetFilter = asset;
+            document.querySelectorAll('.asset-filter-btn').forEach(btn => {
+                if (btn.dataset.asset === asset) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            renderModelTable(lastModelsData, lastPnlData);
+        }
         
         function parseRuDate(dateStr) {
             if (!dateStr || dateStr.length !== 10) return '';
@@ -784,7 +810,10 @@
                 return;
             }
 
-            let modelsArray = Object.values(models).map(m => {
+            let modelsArray = Object.values(models).filter(m => {
+                if (currentAssetFilter === 'ALL') return true;
+                return m.asset && m.asset.startsWith(currentAssetFilter);
+            }).map(m => {
                 const pnlKey = `${m.asset}_v${m.version}`;
                 const pnlInfo = (pnlData && typeof pnlData === 'object') ? (pnlData[pnlKey] || { 
                     pnl: 0, win_rate: null, total_trades: 0,
