@@ -438,7 +438,7 @@ async def crypto_models_coverage(db: AsyncSession = Depends(get_db_session)):
         sym_upper = sym.upper()
         result[sym_upper] = {}
         for regime in regimes:
-            asset_key = f"{sym_upper}USDT_{regime}"
+            asset_key = f"{sym_upper}_{regime}"
             stmt = (
                 select(
                     ModelRegistry.version,

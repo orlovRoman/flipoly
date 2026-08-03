@@ -494,6 +494,24 @@ class CryptoModelTrainer:
                     )
                     threshold = clipped
 
+                # --- Smoke Test: Compatibility Check ---
+                try:
+                    clf = pickle.loads(model_bytes)
+                    expected = len(CRYPTO_FEATURES)
+                    actual = getattr(clf, "n_features_in_", None)
+                    if actual != expected:
+                        passed_quality_gate = False
+                        gate_reasons.append(f"ModelCompatibilityError: expected={expected}, actual={actual}")
+                    else:
+                        test_vector = np.zeros((1, expected), dtype=np.float64)
+                        proba = clf.predict_proba(test_vector)
+                        if proba.shape != (1, 2) or not np.isfinite(proba).all():
+                            passed_quality_gate = False
+                            gate_reasons.append("ModelCompatibilityError: invalid predict_proba result")
+                except Exception as e:
+                    passed_quality_gate = False
+                    gate_reasons.append(f"ModelCompatibilityError: failed to load or test model - {e}")
+
                 should_activate = passed_quality_gate
                 if not passed_quality_gate:
                     logger.warning(
@@ -602,15 +620,17 @@ class CryptoModelTrainer:
                     activated_at=now if should_activate else None,
                     activated_by="trainer" if should_activate else None,
                 ))
-                await self.db.commit()
+                await self.db.flush()
                 trained_any = True
                 logger.info("crypto_model_saved", asset=regime_asset, version=next_version)
             except Exception as e:
                 await self.db.rollback()
                 logger.exception("regime_train_failed", symbol=symbol, regime=regime, error=str(e))
+                trained_any = False
+                break
 
         if trained_any:
-            # Инвалидируем кэш у инстансов предсказателя после коммита в базу
+            # Инвалидируем кэш у инстансов предсказателя (но транзакция еще не закоммичена)
             from polyflip.crypto.predictor import CryptoPredictor
             CryptoPredictor.invalidate_all(symbol)
             
@@ -623,33 +643,26 @@ class CryptoModelTrainer:
                     await predictor.load(self.db, symbol)
                     signal = predictor.predict(candles, symbol)
                     
-                    if signal.status in {"INFERENCE_FAILED", "INVALID_FEATURES", "MODEL_NOT_LOADED"}:
+                    if signal.status not in {"READY", "FUNDING_VETOED", "DEGENERATE_PREDICTION"}:
                         logger.error("smoke_test_failed", symbol=symbol, status=signal.status, reason=signal.risk_reason)
-                        # Откат: деактивируем все только что сохраненные модели этого символа
-                        await self.db.execute(
-                            update(ModelRegistry)
-                            .where(ModelRegistry.asset.like(f"{symbol}_%"))
-                            .where(ModelRegistry.is_active == True)
-                            .values(is_active=False)
-                        )
-                        await self.db.commit()
+                        # Откат всей транзакции: возвращаем старые активные модели!
+                        await self.db.rollback()
                         CryptoPredictor.invalidate_all(symbol)
                         return False
                     else:
                         logger.info("smoke_test_passed", symbol=symbol, status=signal.status, regime=signal.regime)
+                        await self.db.commit()
+                else:
+                    # Мало свечей для теста, но коммитим (E2E пропущен)
+                    await self.db.commit()
             except Exception as e:
                 logger.exception("smoke_test_exception", symbol=symbol, error=str(e))
-                # Если тест упал с исключением (например, нет свечей или баг инференса), мы всё равно откатываем
-                await self.db.execute(
-                    update(ModelRegistry)
-                    .where(ModelRegistry.asset.like(f"{symbol}_%"))
-                    .where(ModelRegistry.is_active == True)
-                    .values(is_active=False)
-                )
-                await self.db.commit()
+                # Откат всей транзакции
+                await self.db.rollback()
                 CryptoPredictor.invalidate_all(symbol)
                 return False
 
+            CryptoPredictor.invalidate_all(symbol)
             return True
         return False
 
