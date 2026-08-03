@@ -627,17 +627,36 @@ async def decide_combined_mode(
 
     # Guard: если актив не входит в список поддерживаемых COMBINED активов
     if asset_upper not in COMBINED_MODE_SUPPORTED_ASSETS:
-        logger.warning(
-            "combined_mode_unsupported_asset_fallback_to_ml",
-            asset=asset_upper,
-            supported=list(COMBINED_MODE_SUPPORTED_ASSETS),
-        )
-        return await decide_ml_mode(
-            db_session, api_client, market, cfg,
-            raw_settings, models_cache, None,
-            start_time, time_left_sec, existing_skipped,
-            execution_mode=execution_mode,
-        )
+        if execution_mode != "PAPER":
+            logger.warning(
+                "combined_mode_unsupported_asset_skip",
+                asset=asset_upper,
+                supported=list(COMBINED_MODE_SUPPORTED_ASSETS),
+                execution_mode=execution_mode,
+            )
+            return DecisionResult(
+                decision_obj=TradeDecision(
+                    action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
+                    reason=f"Asset {asset_upper} not supported in COMBINED mode",
+                    strategy_type="COMBINED", p_flip=None, edge=0.0
+                ),
+                p_flip=0.0,
+                model_ver=None,
+                edge=None,
+                skip_reason=f"Asset {asset_upper} not supported in COMBINED mode",
+            )
+        else:
+            logger.warning(
+                "combined_mode_unsupported_asset_fallback_to_ml",
+                asset=asset_upper,
+                supported=list(COMBINED_MODE_SUPPORTED_ASSETS),
+            )
+            return await decide_ml_mode(
+                db_session, api_client, market, cfg,
+                raw_settings, models_cache, None,
+                start_time, time_left_sec, existing_skipped,
+                execution_mode=execution_mode,
+            )
 
     t0 = time.monotonic()
     decision_run_id = f"dec_{uuid.uuid4().hex[:12]}"
@@ -722,22 +741,26 @@ async def decide_combined_mode(
             entry_model_ver = models_cache.versions.get(phase_asset)
             entry_features = models_cache.features.get(phase_asset, [])
             entry_source = "PHASE"
-        elif asset_upper in models_cache.models:
-            entry_model = models_cache.models[asset_upper]
-            entry_model_key = asset_upper
-            entry_model_ver = models_cache.versions.get(asset_upper)
-            entry_features = models_cache.features.get(asset_upper, [])
-            entry_source = "BASE"
-            fallback_reason = f"Phase model {phase_asset} not found, fell back to base {asset_upper}"
-        elif "GLOBAL" in models_cache.models:
-            entry_model = models_cache.models["GLOBAL"]
-            entry_model_key = "GLOBAL"
-            entry_model_ver = models_cache.versions.get("GLOBAL")
-            entry_features = models_cache.features.get("GLOBAL", [])
-            entry_source = "GLOBAL"
-            fallback_reason = f"Base model {asset_upper} not found, fell back to GLOBAL"
         else:
-            fallback_reason = "No active model matches phase, base asset, or GLOBAL"
+            if execution_mode == "PAPER":
+                if asset_upper in models_cache.models:
+                    entry_model = models_cache.models[asset_upper]
+                    entry_model_key = asset_upper
+                    entry_model_ver = models_cache.versions.get(asset_upper)
+                    entry_features = models_cache.features.get(asset_upper, [])
+                    entry_source = "BASE"
+                    fallback_reason = f"Phase model {phase_asset} not found, fell back to base {asset_upper}"
+                elif "GLOBAL" in models_cache.models:
+                    entry_model = models_cache.models["GLOBAL"]
+                    entry_model_key = "GLOBAL"
+                    entry_model_ver = models_cache.versions.get("GLOBAL")
+                    entry_features = models_cache.features.get("GLOBAL", [])
+                    entry_source = "GLOBAL"
+                    fallback_reason = f"Base model {asset_upper} not found, fell back to GLOBAL"
+                else:
+                    fallback_reason = "No active model matches phase, base asset, or GLOBAL"
+            else:
+                fallback_reason = f"Phase model {phase_asset} not found, and fallback is forbidden in {execution_mode}"
     else:
         fallback_reason = "ModelsCache is empty"
 
@@ -848,7 +871,7 @@ async def decide_combined_mode(
         "lgbm_version": comb_res.direction_model_version,
         "lgbm_model_key": comb_res.direction_model_key,
         "lgbm_direction": comb_res.direction_value,
-        "lgbm_features_ok": (comb_res.direction_status == "OK"),
+        "lgbm_features_ok": (comb_res.direction_status == "READY"),
         "is_fallback": (comb_res.entry_model_source in ("BASE", "GLOBAL")),
         "vote_action": comb_res.action,
         "bet_size_multiplier": 1.0,
@@ -916,7 +939,7 @@ async def decide_combined_mode(
         proposed_price=comb_res.candidate_ask,
         proposed_amount_usdc=comb_res.bet_size_usdc if comb_res.action != "SKIP" else 0.0,
         confirm_direction=comb_res.direction_value,
-        confirm_passed=(comb_res.direction_status == "OK"),
+        confirm_passed=(comb_res.direction_status == "READY"),
         
         # Новая телеметрия
         direction_status=comb_res.direction_status,

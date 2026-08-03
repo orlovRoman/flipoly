@@ -66,7 +66,9 @@ logger = logging.getLogger("release_gate")
 class LiveReleasePlan:
     order_amount_usdc: Decimal
     max_spend_usdc: Decimal
-    session: LiveTradingSession | None
+    session: LiveTradingSession
+    release_entry_price: Optional[float] = None
+    release_net_edge: Optional[float] = None
 
 
 def calculate_live_order_amount(
@@ -165,6 +167,7 @@ async def get_candidate_ids(
 async def release_batch(
     session: AsyncSession,
     target_mode: str,
+    api_client: Any = None,
 ) -> int:
     """
     Выпускает очередную порцию кандидатов.
@@ -182,7 +185,7 @@ async def release_batch(
 
     for candidate_id in candidate_ids:
         try:
-            success = await release_candidate_by_id(session, candidate_id, target_mode)
+            success = await release_candidate_by_id(session, candidate_id, target_mode, api_client)
             if success:
                 released += 1
             else:
@@ -210,6 +213,7 @@ async def release_candidate_by_id(
     session: AsyncSession,
     candidate_id: uuid.UUID,
     target_mode: str,
+    api_client: Any = None,
 ) -> bool:
     """
     Блокирует кандидата с помощью advisory_xact_lock и FOR UPDATE, проверяет состояние и выпускает.
@@ -233,7 +237,7 @@ async def release_candidate_by_id(
     if candidate is None or candidate.state not in ("NEW", "ELIGIBLE"):
         return False
 
-    return await _release_one_locked(session, candidate, target_mode)
+    return await _release_one_locked(session, candidate, target_mode, api_client)
 
 
 async def _release_one_locked(
@@ -287,7 +291,7 @@ async def _release_one_locked(
     # 2. Валидация выпуска
     try:
         release_plan = await validate_live_release(
-            session, candidate, paper_request, paper_trade, target_mode
+            session, candidate, paper_request, paper_trade, target_mode, api_client
         )
     except ReleaseDeferred as e:
         logger.info("Deferred release for candidate %s: %s", candidate.id, e)
@@ -315,6 +319,7 @@ async def _release_one_locked(
             if isinstance(release_plan, LiveReleasePlan)
             else release_plan
         ),
+        release_plan=release_plan,
     )
     if active_session:
         live_trade.live_session_id = active_session.id
@@ -387,6 +392,7 @@ async def validate_live_release(
     paper_request: ExecutionRequest,
     paper_trade: TradeHistory,
     target_mode: str,
+    api_client: Any = None,
 ) -> LiveReleasePlan | Decimal:
     """
     Проверяет, можно ли сейчас выпустить кандидата в LIVE-исполнение (или SHADOW).
@@ -445,6 +451,48 @@ async def validate_live_release(
         raise ReleaseRejected(
             f"Сумма ордера {order_amount} USDC ниже минимальной суммы Polymarket 1.00 USDC"
         )
+
+    # 4.2 Проверка источника модели (только PHASE)
+    if paper_trade.entry_model_source != "PHASE":
+        raise ReleaseRejected(
+            f"Invalid entry_model_source: {paper_trade.entry_model_source} != PHASE"
+        )
+
+    # 4.3 Проверка свежего стакана и edge (через Polymarket API)
+    if api_client is not None:
+        from polyflip.db.models import LiveMarket
+        market = await session.scalar(
+            select(LiveMarket).where(LiveMarket.market_id == paper_request.market_id)
+        )
+        if market:
+            token_id = market.yes_token_id if paper_request.outcome_to_buy == "YES" else market.no_token_id
+            fresh_prices = await api_client.get_market_prices(token_id)
+            if not fresh_prices or fresh_prices.get("best_ask") is None:
+                raise ReleaseRejected("RELEASE_QUOTE_UNAVAILABLE")
+
+            release_entry_price = float(fresh_prices["best_ask"])
+            
+            # Читаем combined_min_net_edge и combined_cost_buffer из RuntimeSettings
+            min_net_edge_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_MIN_NET_EDGE"))
+            cost_buffer_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_COST_BUFFER"))
+            
+            combined_min_net_edge = float(min_net_edge_val) if min_net_edge_val is not None else 0.03
+            cost_buffer = float(cost_buffer_val) if cost_buffer_val is not None else 0.02
+            
+            # paper_trade.p_win_effective используется для логики в PAPER-заявке. Но в combined_voting мы считали p_candidate_win.
+            # Если поле p_candidate_win есть - берем его, иначе fallback на p_win_effective
+            p_candidate_win = float(paper_trade.p_candidate_win) if paper_trade.p_candidate_win is not None else float(paper_trade.p_win_effective)
+            
+            release_gross_edge = p_candidate_win - release_entry_price
+            release_net_edge = release_gross_edge - cost_buffer
+            
+            if release_net_edge < combined_min_net_edge:
+                raise ReleaseRejected(
+                    f"EDGE_DECAYED_BEFORE_RELEASE: {release_net_edge:.4f} < {combined_min_net_edge:.4f}"
+                )
+    else:
+        release_entry_price = None
+        release_net_edge = None
 
     # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance, session)
     if target_mode == "LIVE":
@@ -562,6 +610,8 @@ async def validate_live_release(
             order_amount_usdc=order_amount,
             max_spend_usdc=order_amount,
             session=active_session,
+            release_entry_price=release_entry_price,
+            release_net_edge=release_net_edge,
         )
 
     return order_amount
@@ -573,6 +623,7 @@ def _build_live_trade(
     now: datetime,
     target_mode: str,
     order_amount_usdc: Decimal,
+    release_plan: LiveReleasePlan | Decimal | None = None,
 ) -> TradeHistory:
     """
     Создаёт новый TradeHistory(mode=target_mode) на основе PAPER-снимка.
@@ -589,6 +640,16 @@ def _build_live_trade(
         status="PENDING",
         mode=target_mode,
         edge=paper_trade.edge,
+        net_edge=(
+            release_plan.release_net_edge 
+            if isinstance(release_plan, LiveReleasePlan) and release_plan.release_net_edge is not None
+            else paper_trade.net_edge
+        ),
+        candidate_ask=(
+            release_plan.release_entry_price
+            if isinstance(release_plan, LiveReleasePlan) and release_plan.release_entry_price is not None
+            else paper_trade.candidate_ask
+        ),
         market_role=paper_trade.market_role,
         strategy_type=paper_trade.strategy_type,
         p_flip_effective=paper_trade.p_flip_effective,
@@ -615,7 +676,6 @@ def _build_live_trade(
         p_candidate_win=paper_trade.p_candidate_win,
         gross_edge=paper_trade.gross_edge,
         cost_buffer=paper_trade.cost_buffer,
-        net_edge=paper_trade.net_edge,
         decision_run_id=paper_trade.decision_run_id,
         config_snapshot=paper_trade.config_snapshot,
         market_end_time=paper_trade.market_end_time,
@@ -684,10 +744,13 @@ async def run_gate(target_mode: str) -> None:
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
     Session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
+    from polyflip.collector.client import PolymarketClient
+    api_client = PolymarketClient()
+
     while not _shutdown:
         try:
             async with Session() as session:
-                await release_batch(session, target_mode)
+                await release_batch(session, target_mode, api_client)
         except Exception:
             logger.exception(
                 "Ошибка в release_batch, продолжаем через %ss", POLL_INTERVAL

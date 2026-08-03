@@ -411,7 +411,7 @@ class CryptoPredictor:
             signal_strength, direction = compute_crypto_signal_strength(p_up, th_up, th_down)
             
             # Страйк (цена последней закрытой свечи)
-            strike = float(candles[-1].close) if candles else 0.0
+            strike = float(candles[-1].open) if candles else 0.0
 
             ece = (self._model_eces.get(symbol, {}).get(selected_regime)
                    or next(iter(self._model_eces.get(symbol, {}).values()), 0.0))

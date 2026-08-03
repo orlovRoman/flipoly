@@ -88,6 +88,8 @@ def evaluate_combined_entry(
     config_dict: Optional[dict] = None,
     underlying_price: Optional[float] = None,
     fallback_reason: Optional[str] = None,
+    min_direction_prob: float = 0.55,
+    min_win_prob: float = 0.55,
 ) -> CombinedEntryResult:
     """
     Чистая функция оценки входа в Combined-режиме.
@@ -180,6 +182,31 @@ def evaluate_combined_entry(
             p_flip=p_flip,
         )
 
+    if dir_prob < min_direction_prob:
+        return CombinedEntryResult(
+            action="SKIP",
+            reason=f"Direction prob {dir_prob:.4f} < min {min_direction_prob}",
+            direction_status="LOW_DIRECTION_PROB",
+            direction_model_key=crypto_sig.model_key or None,
+            direction_model_version=crypto_sig.model_version,
+            direction_regime=crypto_sig.regime or None,
+            direction_probability=dir_prob,
+            direction_value=dir_val,
+            entry_requested_key=entry_requested_key,
+            entry_model_key=entry_model_key,
+            entry_model_version=entry_model_version,
+            entry_model_phase=market_phase,
+            entry_model_source=entry_model_source,
+            entry_status="DIRECTION_UNAVAILABLE",
+            fallback_reason=fallback_reason,
+            cost_buffer=cost_buffer,
+            strike_source="BINANCE_LAST_CANDLE" if strike else None,
+            strike_proxy=strike,
+            underlying_price=und_price,
+            distance_to_strike_pct=dist_pct,
+            p_flip=p_flip,
+        )
+
     # 2. Определение стороны кандидата и цены предложения
     if crypto_sig.direction == "UP":
         candidate_side: ActionType = "BUY_YES"
@@ -228,6 +255,34 @@ def evaluate_combined_entry(
         p_candidate_win = p_flip if fresh_yes_price >= 0.50 else (1.0 - p_flip)
 
     p_candidate_win = round(max(0.0, min(1.0, p_candidate_win)), 4)
+
+    if p_candidate_win < min_win_prob:
+        return CombinedEntryResult(
+            action="SKIP",
+            reason=f"Candidate win prob {p_candidate_win:.4f} < min {min_win_prob}",
+            direction_status=dir_status,
+            direction_model_key=crypto_sig.model_key or None,
+            direction_model_version=crypto_sig.model_version,
+            direction_regime=crypto_sig.regime or None,
+            direction_probability=dir_prob,
+            direction_value=dir_val,
+            entry_requested_key=entry_requested_key,
+            entry_model_key=entry_model_key,
+            entry_model_version=entry_model_version,
+            entry_model_phase=market_phase,
+            entry_model_source=entry_model_source,
+            entry_status="LOW_WIN_PROB",
+            fallback_reason=fallback_reason,
+            p_candidate_win=p_candidate_win,
+            candidate_side=candidate_side,
+            candidate_ask=candidate_ask,
+            cost_buffer=cost_buffer,
+            strike_source="BINANCE_LAST_CANDLE" if strike else None,
+            strike_proxy=strike,
+            underlying_price=und_price,
+            distance_to_strike_pct=dist_pct,
+            p_flip=p_flip,
+        )
 
     # 5. Проверка диапазона цен покупки
     if not (min_price <= candidate_ask <= max_price):
@@ -295,8 +350,6 @@ def evaluate_combined_entry(
     # 7. Расчет размера ставки
     from polyflip.trading.decision_logic import _resolve_final_bet
     bet_size = _resolve_final_bet(net_edge, volume_5min, config_dict)
-    if crypto_sig.stake_multiplier and crypto_sig.stake_multiplier < 1.0:
-        bet_size = round(bet_size * crypto_sig.stake_multiplier, 2)
 
     bypass_bet = str(config_dict.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
     if bet_size <= 0 and not bypass_bet:
@@ -332,8 +385,8 @@ def evaluate_combined_entry(
 
     # 8. Расчет max_acceptable_price (защита от дрейфа и спреда)
     max_drift = float(config_dict.get("MAX_PRICE_DRIFT", 0.03))
-    # Максимально допустимая цена исполнения не должна снижать net_edge ниже 0
-    max_price_by_edge = round(p_candidate_win - cost_buffer, 3)
+    # Максимально допустимая цена исполнения не должна снижать net_edge ниже min_net_edge
+    max_price_by_edge = round(p_candidate_win - cost_buffer - min_net_edge, 3)
     max_price_by_drift = round(candidate_ask + max_drift, 3)
     max_acceptable_price = min(max_price_by_edge, max_price_by_drift, max_price)
 

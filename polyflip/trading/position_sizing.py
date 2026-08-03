@@ -68,12 +68,12 @@ def compute_bet_size_with_liquidity(
 
 def compute_edge(win_prob: float, buy_price: float) -> float:
     """
-    Математическое преимущество: EV/bet - 1.
+    Математическое преимущество: gross_edge = win_prob - buy_price.
     edge > 0 → положительное ожидание.
     """
     if buy_price <= 0:
         return INVALID_EDGE_SENTINEL
-    return round((win_prob / buy_price) - 1.0, 4)
+    return round(win_prob - buy_price, 4)
 
 
 def is_in_dead_zone(mid_price: float, dead_zone_width: float) -> bool:

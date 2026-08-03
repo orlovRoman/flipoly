@@ -195,11 +195,19 @@ async def mirror_batch(session: AsyncSession) -> int:
                 state="NEW",
                 signal_snapshot=snapshot,
                 signal_hash=signal_hash,
-                p_candidate_win=paper_trade.p_win_effective,
+                p_candidate_win=(
+                    paper_trade.p_candidate_win 
+                    if paper_trade.p_candidate_win is not None 
+                    else paper_trade.p_win_effective
+                ),
                 decision_ask=(
-                    float(paper_request.limit_price)
-                    if paper_request.limit_price is not None
-                    else None
+                    paper_trade.candidate_ask
+                    if paper_trade.candidate_ask is not None
+                    else (
+                        float(paper_request.limit_price)
+                        if paper_request.limit_price is not None
+                        else None
+                    )
                 ),
                 decision_net_edge=(
                     paper_trade.net_edge

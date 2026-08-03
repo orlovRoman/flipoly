@@ -345,6 +345,26 @@ async def process_ready_requests():
         requested_mode = req.requested_mode
 
         try:
+            executable_price = float(limit_price)
+            if (
+                req.max_acceptable_price is not None
+                and executable_price > float(req.max_acceptable_price)
+            ):
+                logger.warning(
+                    "max_acceptable_price_exceeded",
+                    request_id=str(req.id),
+                    limit_price=executable_price,
+                    max_price=float(req.max_acceptable_price),
+                )
+                await finalize_request(
+                    session,
+                    req,
+                    state="REJECTED",
+                    error="MAX_ACCEPTABLE_PRICE_EXCEEDED",
+                )
+                await session.commit()
+                return
+
             # Конструирование заказа тоже должно находиться внутри try.
             # Иначе Pydantic ValidationError оставляет заявку в SUBMITTING.
             order = GatewayOrder(
