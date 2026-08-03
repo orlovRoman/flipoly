@@ -528,28 +528,30 @@ async def crypto_models_analytics(
     primary_rows = (await db.execute(primary_sql, params)).fetchall()
     primary_stats = {(row.model_key, row.model_version): row for row in primary_rows}
 
-    # 3. CONFIRM CTE
-    confirm_sql = text(f"""
+    # 3. DIRECTION CTE
+    direction_sql = text(f"""
         WITH trades AS (
             SELECT 
-                confirm_model_key as model_key,
-                confirm_model_version as model_version,
+                COALESCE(direction_model_key, confirm_model_key) as model_key,
+                COALESCE(direction_model_version, confirm_model_version) as model_version,
                 COALESCE(realized_pnl_usdc, pnl) as pnl,
                 created_at,
                 id
             FROM trade_history
             WHERE mode = :mode
               AND position_status = 'CLOSED'
-              AND confirm_model_key IS NOT NULL
-              AND model_attribution_source IN ('EXACT', 'RECONSTRUCTED')
+              AND COALESCE(direction_model_key, confirm_model_key) IS NOT NULL
               AND COALESCE(realized_pnl_usdc, pnl) IS NOT NULL
               {date_filter}
+        ),
+        unique_trades AS (
+            SELECT DISTINCT id, model_key, model_version, pnl, created_at FROM trades
         ),
         zero_trade AS (
             SELECT DISTINCT model_key, model_version, 0 as pnl, '1970-01-01' as created_at, 0 as id FROM trades
         ),
         all_trades AS (
-            SELECT model_key, model_version, pnl, created_at, id FROM trades
+            SELECT model_key, model_version, pnl, created_at, id FROM unique_trades
             UNION ALL
             SELECT model_key, model_version, pnl, created_at, id FROM zero_trade
         ),
@@ -579,7 +581,7 @@ async def crypto_models_analytics(
                 SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as win_count,
                 SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END) as gross_profit,
                 ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)) as gross_loss
-            FROM trades
+            FROM unique_trades
             GROUP BY model_key, model_version
         ),
         agg_drawdowns AS (
@@ -596,8 +598,8 @@ async def crypto_models_analytics(
         FROM agg_trades t
         LEFT JOIN agg_drawdowns d ON t.model_key = d.model_key AND t.model_version = d.model_version
     """)
-    confirm_rows = (await db.execute(confirm_sql, params)).fetchall()
-    confirm_stats = {(row.model_key, row.model_version): row for row in confirm_rows}
+    direction_rows = (await db.execute(direction_sql, params)).fetchall()
+    direction_stats = {(row.model_key, row.model_version): row for row in direction_rows}
 
     # 3.5 VETO CTE
     veto_params = dict(params)
@@ -605,15 +607,15 @@ async def crypto_models_analytics(
 
     veto_sql = text(f"""
         SELECT 
-            confirm_model_key as model_key,
-            confirm_model_version as model_version,
+            COALESCE(direction_model_key, confirm_model_key) as model_key,
+            COALESCE(direction_model_version, confirm_model_version) as model_version,
             SUM(CASE WHEN confirm_passed = true THEN 1 ELSE 0 END) as confirm_passed_count,
             SUM(CASE WHEN confirm_passed = false THEN 1 ELSE 0 END) as veto_count
         FROM decision_funnel_log
-        WHERE confirm_model_key IS NOT NULL
+        WHERE COALESCE(direction_model_key, confirm_model_key) IS NOT NULL
           AND execution_mode = :decision_mode
           {veto_date_filter}
-        GROUP BY confirm_model_key, confirm_model_version
+        GROUP BY COALESCE(direction_model_key, confirm_model_key), COALESCE(direction_model_version, confirm_model_version)
     """)
     veto_rows = (await db.execute(veto_sql, veto_params)).fetchall()
     veto_stats = {(row.model_key, row.model_version): row for row in veto_rows}
@@ -623,7 +625,7 @@ async def crypto_models_analytics(
     for m in models:
         key = f"{m.asset}_v{m.version}"
         p = primary_stats.get((m.asset, m.version))
-        c = confirm_stats.get((m.asset, m.version))
+        c = direction_stats.get((m.asset, m.version))
         v = veto_stats.get((m.asset, m.version))
 
         def calc_pf(profit, loss):
@@ -638,11 +640,11 @@ async def crypto_models_analytics(
             "max_drawdown": round(float(p.max_drawdown), 4) if p and p.max_drawdown is not None else 0.0,
             "profit_factor": calc_pf(p.gross_profit, p.gross_loss) if p else 0.0,
             
-            "confirmed_pnl": round(float(c.total_pnl), 4) if c else 0.0,
-            "confirmed_win_rate": round(float(c.win_count) / float(c.total_trades) * 100, 1) if c and c.total_trades > 0 else None,
-            "confirmed_trades": int(c.total_trades) if c else 0,
-            "confirmed_max_drawdown": round(float(c.max_drawdown), 4) if c and c.max_drawdown is not None else 0.0,
-            "confirmed_profit_factor": calc_pf(c.gross_profit, c.gross_loss) if c else 0.0,
+            "direction_pnl": round(float(c.total_pnl), 4) if c else 0.0,
+            "direction_win_rate": round(float(c.win_count) / float(c.total_trades) * 100, 1) if c and c.total_trades > 0 else None,
+            "direction_trades": int(c.total_trades) if c else 0,
+            "direction_max_drawdown": round(float(c.max_drawdown), 4) if c and c.max_drawdown is not None else 0.0,
+            "direction_profit_factor": calc_pf(c.gross_profit, c.gross_loss) if c else 0.0,
             
             "confirm_passed_count": int(v.confirm_passed_count) if v else 0,
             "veto_count": int(v.veto_count) if v else 0,

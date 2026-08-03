@@ -155,25 +155,26 @@
                             <option value="SHADOW">SHADOW</option>
                         </select>
                         
-                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-left: 0.5rem;">От:</label>
-                        <input type="date" id="date-from" onchange="onFilterChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.85rem; outline: none;">
+                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-left: 0.5rem;">Период входа в сделку:</label>
+                        <input type="text" id="date-from" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.85rem; outline: none; width: 90px;">
+                        <span style="color: var(--text-muted);">—</span>
+                        <input type="text" id="date-to" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.85rem; outline: none; width: 90px;">
                         
-                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-left: 0.5rem;">До:</label>
-                        <input type="date" id="date-to" onchange="onFilterChange()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.85rem; outline: none;">
+                        <button type="button" id="apply-period" onclick="onFilterChange()" style="background: var(--bg-card); border: 1px solid var(--border-color); color: white; padding: 0.35rem 0.8rem; border-radius: 6px; font-size: 0.85rem; cursor: pointer; transition: 0.2s;">Применить</button>
 
-                        <div id="sort-headers" style="display:flex; gap:0.5rem; margin-left:1rem; align-items:center;">
-                            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Сорт.:</span>
-                            <button class="sort-btn active" data-sort="pnl" onclick="setSort('pnl')">PnL ↓</button>
-                            <button class="sort-btn" data-sort="trained_at" onclick="setSort('trained_at')">Дата</button>
-                            <button class="sort-btn" data-sort="win_rate" onclick="setSort('win_rate')">Win Rate</button>
-                            <button class="sort-btn" data-sort="auc" onclick="setSort('auc')">AUC</button>
-                            <button class="sort-btn" data-sort="ece" onclick="setSort('ece')">ECE</button>
-                            <button class="sort-btn" data-sort="version" onclick="setSort('version')">Версия</button>
+                        <div style="display:flex; gap:0.4rem; margin-left: 0.5rem;">
+                            <button type="button" class="quick-btn" onclick="setQuickPeriod(7)">7 дней</button>
+                            <button type="button" class="quick-btn" onclick="setQuickPeriod(30)">30 дней</button>
+                            <button type="button" class="quick-btn" onclick="setQuickPeriod(90)">90 дней</button>
+                            <button type="button" class="quick-btn" onclick="setQuickPeriod(0)">Весь период</button>
                         </div>
                         <style>
-                        .sort-btn { background: transparent; border: 1px solid var(--border-color); color: var(--text-muted); padding: 0.25rem 0.6rem; border-radius: 6px; font-size: 0.8rem; cursor: pointer; }
-                        .sort-btn.active { background: rgba(255,255,255,0.1); color: white; border-color: white; }
-                        .sort-btn:hover { background: rgba(255,255,255,0.05); }
+                        .quick-btn { background: transparent; border: 1px solid var(--border-color); color: var(--text-muted); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; transition: 0.2s; }
+                        .quick-btn:hover { background: rgba(255,255,255,0.05); color: white; border-color: rgba(255,255,255,0.3); }
+                        #apply-period:hover { background: rgba(255,255,255,0.1); }
+                        .table-sort { background: transparent; border: none; color: inherit; font-size: inherit; font-weight: inherit; cursor: pointer; padding: 0; outline: none; display: flex; align-items: center; gap: 0.25rem; }
+                        .table-sort:hover { color: white; }
+                        .sort-indicator { font-size: 0.75em; opacity: 0.7; }
                         </style>
                     </div>
                 </div>
@@ -347,13 +348,67 @@
         let filterFrom = '';
         let filterTo = '';
         
+        function parseRuDate(dateStr) {
+            if (!dateStr || dateStr.length !== 10) return '';
+            const parts = dateStr.split('.');
+            if (parts.length === 3) {
+                return `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+            return '';
+        }
+        
+        function formatRuDate(dateObj) {
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const y = dateObj.getFullYear();
+            return `${d}.${m}.${y}`;
+        }
+        
+        function setQuickPeriod(days) {
+            const today = new Date();
+            if (days === 0) {
+                document.getElementById('date-from').value = '';
+                document.getElementById('date-to').value = '';
+            } else {
+                const start = new Date(today.getTime() - days * 24 * 60 * 60 * 1000);
+                document.getElementById('date-to').value = formatRuDate(today);
+                document.getElementById('date-from').value = formatRuDate(start);
+            }
+            onFilterChange();
+        }
+
         function onFilterChange() {
+            const fromRaw = document.getElementById('date-from').value;
+            const toRaw = document.getElementById('date-to').value;
+            
+            if (fromRaw && fromRaw.length < 10) return;
+            if (toRaw && toRaw.length < 10) return;
+            
             currentMode = document.getElementById('mode-select').value;
-            filterFrom = document.getElementById('date-from').value;
-            filterTo = document.getElementById('date-to').value;
+            filterFrom = parseRuDate(fromRaw);
+            filterTo = parseRuDate(toRaw);
+            
             currentPage = 1;
             loadStatus();
         }
+
+        // Auto-format date inputs
+        document.querySelectorAll('#date-from, #date-to').forEach(input => {
+            input.addEventListener('input', (e) => {
+                let v = e.target.value.replace(/\D/g, '');
+                if (v.length > 8) v = v.slice(0, 8);
+                if (v.length > 4) {
+                    e.target.value = v.slice(0, 2) + '.' + v.slice(2, 4) + '.' + v.slice(4);
+                } else if (v.length > 2) {
+                    e.target.value = v.slice(0, 2) + '.' + v.slice(2);
+                } else {
+                    e.target.value = v;
+                }
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') onFilterChange();
+            });
+        });
 
         let statusData = null;
         let currentPage = 1;
@@ -374,25 +429,10 @@
                 currentSortOrder = 'desc';
             }
             currentPage = 1;
-            updateSortUI();
 
             if (lastModelsData) {
-                renderModelCards(lastModelsData, lastPnlData);
+                renderModelTable(lastModelsData, lastPnlData);
             }
-        }
-
-        function updateSortUI() {
-            document.querySelectorAll('.sort-btn').forEach(btn => {
-                btn.classList.remove('active');
-                btn.innerText = btn.innerText
-                    .replace(' ↓', '')
-                    .replace(' ↑', '');
-
-                if (btn.dataset.sort === currentSortField) {
-                    btn.classList.add('active');
-                    btn.innerText += currentSortOrder === 'asc' ? ' ↑' : ' ↓';
-                }
-            });
         }
 
         function updateTrainButtonsAndBanner(activeTrainings) {
@@ -512,11 +552,10 @@
                     }
                 }
 
-                // Рендер карточек моделей с PnL
-                updateSortUI();
+                // Рендер таблицы моделей
                 lastModelsData = d.models;
                 lastPnlData = pnlData;
-                renderModelCards(lastModelsData, lastPnlData);
+                renderModelTable(lastModelsData, lastPnlData);
                 updateFeatureImportanceChart();
 
             } catch (err) {
@@ -533,7 +572,14 @@
             }
         }
 
-        function renderModelCards(models, pnlData) {
+        function getSortIndicator(field) {
+            if (currentSortField === field) {
+                return `<span class="sort-indicator">${currentSortOrder === 'desc' ? '↓' : '↑'}</span>`;
+            }
+            return '';
+        }
+
+        function renderModelTable(models, pnlData) {
             const el = document.getElementById('models-status');
             if (!models || !Object.keys(models).length) {
                 el.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:2rem;">Моделей нет</div>';
@@ -542,7 +588,10 @@
 
             let modelsArray = Object.values(models).map(m => {
                 const pnlKey = `${m.asset}_v${m.version}`;
-                const pnlInfo = pnlData[pnlKey] || { pnl: 0, win_rate: null, total_trades: 0 };
+                const pnlInfo = pnlData[pnlKey] || { 
+                    pnl: 0, win_rate: null, total_trades: 0,
+                    direction_pnl: 0, direction_win_rate: null, direction_trades: 0 
+                };
                 return { ...m, pnlInfo };
             });
 
@@ -550,11 +599,14 @@
             modelsArray.sort((a, b) => {
                 let valA = 0, valB = 0;
                 if (currentSortField === 'pnl') {
-                    valA = a.pnlInfo.pnl || 0;
-                    valB = b.pnlInfo.pnl || 0;
+                    valA = a.pnlInfo.direction_pnl || 0;
+                    valB = b.pnlInfo.direction_pnl || 0;
                 } else if (currentSortField === 'win_rate') {
-                    valA = a.pnlInfo.win_rate || 0;
-                    valB = b.pnlInfo.win_rate || 0;
+                    valA = a.pnlInfo.direction_win_rate || 0;
+                    valB = b.pnlInfo.direction_win_rate || 0;
+                } else if (currentSortField === 'trades') {
+                    valA = a.pnlInfo.direction_trades || 0;
+                    valB = b.pnlInfo.direction_trades || 0;
                 } else if (currentSortField === 'trained_at') {
                     valA = a.trained_at ? new Date(a.trained_at).getTime() : 0;
                     valB = b.trained_at ? new Date(b.trained_at).getTime() : 0;
@@ -572,6 +624,9 @@
                 } else if (currentSortField === 'version') {
                     valA = a.version || 0;
                     valB = b.version || 0;
+                } else if (currentSortField === 'asset') {
+                    valA = a.asset || '';
+                    valB = b.asset || '';
                 }
 
                 let diff = 0;
@@ -598,67 +653,50 @@
             const startIdx = (currentPage - 1) * pageSize;
             const pageModels = modelsArray.slice(startIdx, startIdx + pageSize);
 
-            let html = pageModels.map(m => {
+            let tbody = pageModels.map(m => {
                 const sym = m.asset;
                 const pnl = m.pnlInfo;
                 
-                let pnlHtml;
-                if (!pnl || pnl.total_trades === 0) {
-                    pnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">Нет сделок</span>`;
+                // Direction PnL styling
+                const dirTrades = pnl.direction_trades || 0;
+                let dirPnlHtml = '';
+                if (dirTrades === 0) {
+                    dirPnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">Нет сделок</span>`;
                 } else {
-                    const color = pnl.pnl > 0 ? 'var(--poly-green, #4ade80)' 
-                                : pnl.pnl < 0 ? '#ff3366' 
+                    const color = pnl.direction_pnl > 0 ? 'var(--poly-green)' 
+                                : pnl.direction_pnl < 0 ? '#ff3366' 
                                 : 'var(--text-muted)';
-                    const sign = pnl.pnl > 0 ? '+' : '';
+                    const sign = pnl.direction_pnl > 0 ? '+' : '';
+                    const pf = pnl.direction_profit_factor != null ? pnl.direction_profit_factor.toFixed(2) : '—';
                     
-                    const draw = pnl.max_drawdown ? pnl.max_drawdown.toFixed(2) : '0.00';
-                    const pf = pnl.profit_factor != null ? pnl.profit_factor.toFixed(2) : '—';
-                    const c_pnl = pnl.confirmed_pnl ? pnl.confirmed_pnl.toFixed(2) : '0.00';
-                    const c_color = pnl.confirmed_pnl > 0 ? 'var(--poly-green, #4ade80)' : pnl.confirmed_pnl < 0 ? '#ff3366' : 'var(--text-muted)';
-
-                    pnlHtml = `
-                        <div style="display:flex; justify-content:flex-end; gap: 1rem; text-align:right;">
-                            <div>
-                                <div style="font-size:0.65rem; color:var(--text-muted); margin-bottom:0.1rem; text-transform:uppercase;">Primary PnL</div>
-                                <span style="color:${color}; font-weight:700; font-size:1.05rem;">
-                                    ${sign}${pnl.pnl.toFixed(2)}
-                                </span>
-                                <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
-                                    ${pnl.win_rate != null ? pnl.win_rate + '%' : '—'} WR · ${pnl.total_trades} сд.
-                                </div>
-                                <div style="color:var(--text-muted); font-size:0.75rem;">
-                                    PF: <span style="color:white;">${pf}</span> · DD: <span style="color:#ff3366;">${draw}</span>
-                                </div>
-                            </div>
-                            <div style="border-left:1px solid rgba(255,255,255,0.1); padding-left:1rem;">
-                                <div style="font-size:0.65rem; color:var(--text-muted); margin-bottom:0.1rem; text-transform:uppercase;">Confirm PnL</div>
-                                <span style="color:${c_color}; font-weight:700; font-size:1.05rem;">
-                                    ${pnl.confirmed_pnl > 0 ? '+' : ''}${c_pnl}
-                                </span>
-                                <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
-                                    ${pnl.confirmed_win_rate != null ? pnl.confirmed_win_rate + '%' : '—'} WR · ${pnl.confirmed_trades} сд.
-                                </div>
-                                <div style="color:var(--text-muted); font-size:0.75rem;">
-                                    PF: <span style="color:white;">${pnl.confirmed_profit_factor != null ? pnl.confirmed_profit_factor.toFixed(2) : '—'}</span>
-                                </div>
-                                <div style="color:var(--text-muted); font-size:0.75rem; margin-top:2px;">
-                                    <span style="color:var(--poly-green);">${pnl.confirm_passed_count || 0} pass</span> / <span style="color:#ff3366;">${pnl.veto_count || 0} veto</span>
-                                </div>
-                            </div>
+                    dirPnlHtml = `
+                        <div style="font-weight:700; color:${color}; font-size:1.05rem;">
+                            ${sign}${pnl.direction_pnl.toFixed(2)}
                         </div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">
+                            PF: <span style="color:white;">${pf}</span>
+                        </div>
+                    `;
+                }
+
+                // Stats styling
+                let dirStatsHtml = '';
+                if (dirTrades === 0) {
+                    dirStatsHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">—</span>`;
+                } else {
+                    dirStatsHtml = `
+                        <div style="color:white; font-size:0.95rem;">${pnl.direction_win_rate != null ? pnl.direction_win_rate + '%' : '—'}</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">${dirTrades} сделок</div>
                     `;
                 }
 
                 let eceBadge = '—';
                 if (m.ece != null) {
-                    const eceColor = m.ece < 0.03 ? 'var(--poly-green)' 
-                                   : m.ece < 0.07 ? '#ff9f43' 
-                                   : '#ff3366';
+                    const eceColor = m.ece < 0.03 ? 'var(--poly-green)' : m.ece < 0.07 ? '#ff9f43' : '#ff3366';
                     eceBadge = `<span style="color:${eceColor}; font-weight:600;">${m.ece.toFixed(4)}</span>`;
                 }
                 
                 const liftBadge = pnl.auc_lift ? `<span style="color:${pnl.auc_lift > 0 ? 'var(--poly-green)' : '#ff3366'}; font-weight:600;">${pnl.auc_lift > 0 ? '+' : ''}${pnl.auc_lift.toFixed(4)}</span>` : '—';
-                const f1Badge = pnl.f1 != null ? `<span style="color:white; font-weight:600;">${pnl.f1.toFixed(4)}</span>` : '—';
 
                 const activeBadgeHtml = m.is_active 
                     ? `<span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">Активна</span>`
@@ -673,42 +711,61 @@
                     : `<button class="btn btn-delete-model" data-asset="${m.asset}" data-version="${m.version}" style="width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; background:rgba(220, 53, 69, 0.15); color:#ff6b6b; border:1px solid rgba(220,53,69,0.3); white-space:nowrap; display:inline-flex; align-items:center; justify-content:center; gap:0.3rem;"><span>🗑</span> Удалить</button>`;
 
                 return `
-                <div style="
-                    display: grid;
-                    grid-template-columns: 1fr auto auto;
-                    align-items: center;
-                    gap: 1.2rem;
-                    padding: 0.9rem 1.2rem;
-                    margin-bottom: 0.6rem;
-                    background: rgba(255,255,255,0.02);
-                    border: 1px solid var(--border-color);
-                    border-radius: 10px;
-                ">
-                    <div>
-                        <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.35rem;">
-                            <span style="font-size:0.98rem; font-weight:700; color:white;">${sym}</span>
-                            <span style="font-size:0.75rem; color:var(--text-muted);">v${m.version}</span>
-                            ${activeBadgeHtml}
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); background: ${m.is_active ? 'rgba(255,255,255,0.02)' : 'transparent'};">
+                    <td style="padding: 1rem 0.5rem;">
+                        <div style="font-weight:700; color:white; font-size:0.95rem;">${sym}</div>
+                        ${activeBadgeHtml}
+                    </td>
+                    <td style="padding: 1rem 0.5rem; font-size:0.85rem; color:white;">
+                        v${m.version}
+                    </td>
+                    <td style="padding: 1rem 0.5rem;">
+                        <div style="font-size:0.95rem; color:white;" title="Base AUC: ${m.baseline}">${m.auc}</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">Lift: ${liftBadge}</div>
+                    </td>
+                    <td style="padding: 1rem 0.5rem; font-size:0.95rem;">
+                        ${eceBadge}
+                    </td>
+                    <td style="padding: 1rem 0.5rem; text-align:right;">
+                        ${dirPnlHtml}
+                    </td>
+                    <td style="padding: 1rem 0.5rem; text-align:right;">
+                        ${dirStatsHtml}
+                    </td>
+                    <td style="padding: 1rem 0.5rem; font-size:0.8rem; color:var(--text-muted); text-align:right;">
+                        ${m.trained_at ? m.trained_at.slice(0,16).replace('T',' ') : '—'}
+                    </td>
+                    <td style="padding: 1rem 0.5rem; text-align:right;">
+                        <div style="display:flex; flex-direction:column; gap:0.4rem; align-items:flex-end;">
+                            ${actionButtonHtml}
+                            ${deleteButtonHtml}
                         </div>
-                        <div style="display:flex; gap:1.2rem; font-size:0.82rem; flex-wrap:wrap; color: var(--text-muted); margin-bottom: 0.2rem;">
-                            <span title="Base AUC: ${m.baseline}">AUC: <b style="color:white;">${m.auc}</b> (Lift: ${liftBadge})</span>
-                            <span>F1: ${f1Badge}</span>
-                            <span>ECE: ${eceBadge}</span>
-                        </div>
-                        <div style="font-size:0.75rem; color:var(--text-muted);">
-                            Обучена: <span style="color:white;">${m.trained_at ? m.trained_at.slice(0,16).replace('T',' ') : '—'}</span>
-                        </div>
-                    </div>
-                    <div style="min-width:250px;">
-                        ${pnlHtml}
-                    </div>
-                    <div style="min-width: 130px; display: flex; flex-direction: column; gap: 0.4rem; justify-content: center; align-items: flex-end;">
-                        ${actionButtonHtml}
-                        ${deleteButtonHtml}
-                    </div>
-                </div>
+                    </td>
+                </tr>
                 `;
             }).join('');
+
+            let html = `
+            <div style="overflow-x:auto;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">
+                            <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('asset')">Символ ${getSortIndicator('asset')}</button></th>
+                            <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('version')">Версия ${getSortIndicator('version')}</button></th>
+                            <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('auc')">AUC ${getSortIndicator('auc')}</button></th>
+                            <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('ece')">ECE ${getSortIndicator('ece')}</button></th>
+                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('pnl')">LightGBM PnL ${getSortIndicator('pnl')}</button></th>
+                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('win_rate')">Win Rate ${getSortIndicator('win_rate')}</button></th>
+                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('trained_at')">Дата обучения ${getSortIndicator('trained_at')}</button></th>
+                            <th style="padding: 0.5rem;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tbody}
+                    </tbody>
+                </table>
+            </div>
+            `;
 
             // Пагинация
             if (totalPages > 1) {
@@ -726,7 +783,7 @@
             document.querySelectorAll(".btn-page").forEach(btn => {
                 btn.addEventListener("click", (e) => {
                     currentPage = parseInt(e.target.dataset.page);
-                    renderModelCards(lastModelsData, lastPnlData);
+                    renderModelTable(lastModelsData, lastPnlData);
                 });
             });
 

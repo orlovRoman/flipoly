@@ -92,3 +92,50 @@ async def test_crypto_models_analytics_veto_logic(db_session):
     # 3. Requesting LIVE should still read PAPER VETO
     data_live = await crypto_models_analytics(requested_mode="LIVE", date_from="2026-08-02", date_to="2026-08-02", db=db_session)
     assert data_live[model_key]["veto_count"] == 1, "LIVE режим должен читать VETO из PAPER"
+
+@pytest.mark.asyncio
+async def test_lightgbm_direction_pnl_only(db_session):
+    """LightGBM со сделками только в direction/confirm роли показывает PnL."""
+    from polyflip.api.crypto_dashboard import crypto_models_analytics
+    from polyflip.db.models import ModelRegistry, TradeHistory
+    
+    m = ModelRegistry(asset="LGBM_ONLY_VOL", version=1, model_blob=b"fake", is_active=True, accuracy=0.55, baseline=0.5)
+    db_session.add(m)
+    
+    t = TradeHistory(
+        mode="PAPER", position_status="CLOSED", pnl=10.0,
+        direction_model_key="LGBM_ONLY_VOL", direction_model_version=1,
+        confirm_model_key=None, confirm_model_version=None,
+        model_key=None, model_version=None
+    )
+    db_session.add(t)
+    await db_session.commit()
+    
+    data = await crypto_models_analytics(requested_mode="PAPER", db=db_session)
+    assert "LGBM_ONLY_VOL_v1" in data
+    assert data["LGBM_ONLY_VOL_v1"]["direction_pnl"] == 10.0
+    assert data["LGBM_ONLY_VOL_v1"]["direction_trades"] == 1
+
+@pytest.mark.asyncio
+async def test_lightgbm_no_duplicate_legacy_and_direction(db_session):
+    """Одна сделка не задваивается при legacy и direction атрибуции."""
+    from polyflip.api.crypto_dashboard import crypto_models_analytics
+    from polyflip.db.models import ModelRegistry, TradeHistory
+    
+    m = ModelRegistry(asset="LGBM_DEDUP_VOL", version=1, model_blob=b"fake", is_active=True, accuracy=0.55, baseline=0.5)
+    db_session.add(m)
+    
+    # Сделка имеет и direction_model_key и confirm_model_key (legacy fallback)
+    t = TradeHistory(
+        mode="PAPER", position_status="CLOSED", pnl=-5.0,
+        direction_model_key="LGBM_DEDUP_VOL", direction_model_version=1,
+        confirm_model_key="LGBM_DEDUP_VOL", confirm_model_version=1
+    )
+    db_session.add(t)
+    await db_session.commit()
+    
+    data = await crypto_models_analytics(requested_mode="PAPER", db=db_session)
+    assert "LGBM_DEDUP_VOL_v1" in data
+    # Сделка должна посчитаться один раз!
+    assert data["LGBM_DEDUP_VOL_v1"]["direction_trades"] == 1
+    assert data["LGBM_DEDUP_VOL_v1"]["direction_pnl"] == -5.0
