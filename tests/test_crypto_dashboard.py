@@ -293,3 +293,48 @@ async def test_predictor_invalidated_after_activation(db_session, monkeypatch):
     )
     assert "SOLUSDT" in invalidated
 
+
+@pytest.mark.asyncio
+async def test_crypto_status_with_none_settings(db_session):
+    """/crypto/api/status не падает (возвращает dict/200), если в настройках 'None'."""
+    from polyflip.api.crypto_dashboard import crypto_status
+    from polyflip.db.models import RuntimeSettings
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    db_session.add(RuntimeSettings(key="LGBM_EPSILON_QUANTILE", value="None", updated_at=now, updated_by="test"))
+    await db_session.commit()
+    
+    result = await crypto_status(db=db_session)
+    assert isinstance(result, dict)
+    assert "settings" in result
+    assert result["settings"]["epsilon_quantile"] == 0.6  # default fallback
+
+
+@pytest.mark.asyncio
+async def test_crypto_models_analytics_with_trades(db_session):
+    """/crypto/api/models/analytics не падает (возвращает 200/dict) при наличии сделок с TIMESTAMPTZ."""
+    from polyflip.api.crypto_dashboard import crypto_models_analytics
+    from polyflip.db.models import TradeHistory, ModelRegistry
+    from datetime import datetime, timezone
+    
+    now = datetime.now(timezone.utc)
+    # 1. Model
+    db_session.add(ModelRegistry(
+        asset="BTCUSDT_mid_vol", version=1, model_blob=b"fake",
+        is_active=True, accuracy=0.5, baseline=0.5, trained_at=now
+    ))
+    # 2. Trade
+    db_session.add(TradeHistory(
+        mode="PAPER", position_status="CLOSED",
+        model_key="BTCUSDT_mid_vol", model_version=1,
+        model_attribution_source="EXACT",
+        direction_model_key="BTCUSDT_mid_vol", direction_model_version=1,
+        pnl=10.5, realized_pnl_usdc=10.5,
+        created_at=now, updated_at=now
+    ))
+    await db_session.commit()
+    
+    result = await crypto_models_analytics(requested_mode="PAPER", db=db_session)
+    assert isinstance(result, dict)
+    assert "BTCUSDT_mid_vol_v1" in result
+    assert result["BTCUSDT_mid_vol_v1"]["total_trades"] == 1

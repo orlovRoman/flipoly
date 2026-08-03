@@ -587,7 +587,13 @@ async def crypto_models_analytics(
               {date_filter}
         ),
         zero_trade AS (
-            SELECT DISTINCT model_key, model_version, 0.0 as pnl, CAST('1970-01-01 00:00:00+00' AS timestamp with time zone) as created_at, 0 as id FROM trades
+            SELECT DISTINCT 
+                model_key, 
+                model_version, 
+                0::numeric as pnl, 
+                TIMESTAMPTZ '1970-01-01 00:00:00+00' as created_at, 
+                0::integer as id 
+            FROM trades
         ),
         all_trades AS (
             SELECT model_key, model_version, pnl, created_at, id FROM trades
@@ -661,7 +667,13 @@ async def crypto_models_analytics(
             SELECT DISTINCT id, model_key, model_version, pnl, created_at FROM trades
         ),
         zero_trade AS (
-            SELECT DISTINCT model_key, model_version, 0.0 as pnl, CAST('1970-01-01 00:00:00+00' AS timestamp with time zone) as created_at, 0 as id FROM trades
+            SELECT DISTINCT 
+                model_key, 
+                model_version, 
+                0::numeric as pnl, 
+                TIMESTAMPTZ '1970-01-01 00:00:00+00' as created_at, 
+                0::integer as id 
+            FROM trades
         ),
         all_trades AS (
             SELECT model_key, model_version, pnl, created_at, id FROM unique_trades
