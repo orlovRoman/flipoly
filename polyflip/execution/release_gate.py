@@ -241,33 +241,52 @@ async def release_candidate_by_id(
                 from polyflip.collector.client import PolymarketClient
                 api_client = PolymarketClient()
             except Exception as e:
-                logger.error(f"Failed to init PolymarketClient: {e}")
+                logger.error("release_gate_client_init_failed", error=str(e))
 
         if api_client:
             market = await session.scalar(
-            select(LiveMarket).where(LiveMarket.market_id == paper_req.market_id)
-        )
-        print(f"!!! MARKET IN DB: {market} FOR MARKET_ID: {paper_req.market_id}")
-        if market:
-            token_id = market.yes_token_id if paper_req.outcome_to_buy == "YES" else market.no_token_id
-            print(f"!!! TOKEN ID: {token_id}")
-            for attempt in range(2):
-                try:
-                    import asyncio
-                    prices = await asyncio.wait_for(api_client.get_market_prices(token_id), timeout=3.0)
-                    print(f"!!! GET_MARKET_PRICES RETURNED: {prices}")
-                    if prices and prices.get("best_ask") is not None:
-                        fresh_prices = prices
-                        break
-                except Exception as e:
-                    print(f"!!! EXCEPTION IN API_CLIENT: {repr(e)}")
-                    logger.warning(f"Error fetching quote outside lock for {token_id}: {e}")
-                if attempt == 0:
-                    import asyncio
-                    await asyncio.sleep(1.0)
-                    
-    # Закрываем транзакцию чтения, чтобы блокировки pg_advisory_xact_lock взялись в новой
-    await session.commit()
+                select(LiveMarket).where(LiveMarket.market_id == paper_req.market_id)
+            )
+            logger.debug(
+                "release_gate_market_lookup",
+                market_id=paper_req.market_id,
+                found=market is not None,
+            )
+            if market:
+                token_id = (
+                    market.yes_token_id
+                    if paper_req.outcome_to_buy == "YES"
+                    else market.no_token_id
+                )
+                for attempt in range(2):
+                    try:
+                        import asyncio
+                        prices = await asyncio.wait_for(
+                            api_client.get_market_prices(token_id), timeout=3.0
+                        )
+                        if prices and prices.get("best_ask") is not None:
+                            fresh_prices = prices
+                            logger.debug(
+                                "release_gate_quote_fetched",
+                                token_id=token_id,
+                                best_ask=prices.get("best_ask"),
+                            )
+                            break
+                    except Exception as e:
+                        logger.warning(
+                            "release_gate_quote_fetch_failed",
+                            token_id=token_id,
+                            attempt=attempt,
+                            error=str(e),
+                        )
+                    if attempt == 0:
+                        import asyncio
+                        await asyncio.sleep(1.0)
+
+    # Примечание: session.commit() здесь намеренно отсутствует.
+    # pg_advisory_xact_lock работает в рамках текущей транзакции.
+    # Промежуточный commit() создавал риск фиксации посторонних изменений общей сессии.
+
 
     # 3. Берем блокировки
     conn = await session.connection()
