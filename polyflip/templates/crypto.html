@@ -618,7 +618,9 @@
                 updateTrainButtonsAndBanner(localActiveTrainings);
 
                 // Отрисовываем модели сразу (без PnL, передаем null)
-                renderModelTable(d.models || {}, null);
+                lastModelsData = d.models || {};
+                lastPnlData = null;
+                renderModelTable(lastModelsData, lastPnlData);
 
                 // Асинхронно ждем PnL и обновляем таблицу
                 analyticsPromise
@@ -626,11 +628,12 @@
                         if (!pnlRes.ok) throw new Error("Analytics HTTP " + pnlRes.status);
                         const pnlData = await pnlRes.json();
                         lastPnlData = pnlData;
-                        renderModelTable(statusData.models || {}, pnlData);
+                        renderModelTable(lastModelsData, lastPnlData);
                     })
                     .catch(e => {
                         console.warn("[CryptoAnalytics]", e);
-                        renderModelTable(statusData.models || {}, "ERROR");
+                        lastPnlData = "ERROR";
+                        renderModelTable(lastModelsData, lastPnlData);
                     });
 
                 // Асинхронно ждем Coverage и рисуем
@@ -668,10 +671,7 @@
                     }
                 }
 
-                // Рендер таблицы моделей
-                lastModelsData = d.models;
-                lastPnlData = pnlData;
-                renderModelTable(lastModelsData, lastPnlData);
+                // Рендер графиков фич
                 updateFeatureImportanceChart();
 
             } catch (err) {
