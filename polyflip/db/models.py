@@ -82,9 +82,23 @@ class ModelRegistry(Base):
     dataset_fingerprint = Column(String(32), nullable=True)
     trained_at = Column(DateTime(timezone=True), nullable=False)
 
+    # --- Quality Gate ---
+    # Результат автоматической проверки качества при обучении
+    quality_gate_passed = Column(Boolean, nullable=True)
+    # Детали провала: {"auc": 0.49, "ece": 0.21, "reasons": [...]}
+    quality_gate_reasons = Column(JSON, nullable=True)
+
+    # --- Activation Audit ---
+    # AUTO = автоматически после Quality Gate; MANUAL = ручная активация через дашборд
+    activation_source = Column(String(16), nullable=True)
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    activated_by = Column(String(128), nullable=True)
+    activation_reason = Column(Text, nullable=True)
+
     __table_args__ = (
         Index("idx_model_registry_asset_active", "asset", "is_active"),
     )
+
 
 
 

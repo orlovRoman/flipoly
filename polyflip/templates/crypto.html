@@ -100,6 +100,14 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes toastOut {
+            from { opacity: 1; transform: translateY(0); }
+            to   { opacity: 0; transform: translateY(8px); }
+        }
     </style>
     <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ static_version }}"></script>
     <script>
@@ -318,6 +326,31 @@
     </div>
 
     <script>
+        // Toast notifications
+        function showToast(message, type = 'success') {
+            const colors = {
+                success: { bg: 'rgba(40,167,69,0.9)', border: '#28a745' },
+                warn:    { bg: 'rgba(255,152,0,0.9)',  border: '#ff9f43' },
+                error:   { bg: 'rgba(220,53,69,0.9)',  border: '#dc3545' },
+            };
+            const c = colors[type] || colors.success;
+            const el = document.createElement('div');
+            el.style.cssText = `
+                position:fixed; bottom:1.5rem; right:1.5rem; z-index:9999;
+                background:${c.bg}; border:1px solid ${c.border};
+                color:white; padding:0.75rem 1.2rem; border-radius:10px;
+                font-size:0.9rem; font-weight:500; max-width:360px;
+                box-shadow:0 4px 20px rgba(0,0,0,0.4);
+                animation: toastIn 0.25s ease;
+            `;
+            el.textContent = message;
+            document.body.appendChild(el);
+            setTimeout(() => {
+                el.style.animation = 'toastOut 0.3s ease forwards';
+                setTimeout(() => el.remove(), 320);
+            }, 4000);
+        }
+
         let API_KEY = "{{ api_key }}";
         if (!API_KEY) {
             try {
@@ -698,23 +731,37 @@
                 
                 const liftBadge = pnl.auc_lift ? `<span style="color:${pnl.auc_lift > 0 ? 'var(--poly-green)' : '#ff3366'}; font-weight:600;">${pnl.auc_lift > 0 ? '+' : ''}${pnl.auc_lift.toFixed(4)}</span>` : '—';
 
-                const activeBadgeHtml = m.is_active 
-                    ? `<span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">Активна</span>`
-                    : `<span style="font-size:0.75rem; background:rgba(255,255,255,0.05); color:var(--text-muted); padding:0.15rem 0.5rem; border-radius:20px;">Архив</span>`;
+                const activeBadgeHtml = m.is_active
+                    ? (m.activation_source === 'MANUAL'
+                        ? `<span style="font-size:0.75rem; background:rgba(255,152,0,0.15); color:#ff9f43; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">⚠ Активна вручную</span>`
+                        : `<span style="font-size:0.75rem; background:rgba(40,167,69,0.15); color:#28a745; padding:0.15rem 0.5rem; border-radius:20px; font-weight:600;">Активна · AUTO</span>`
+                      )
+                    : (m.quality_gate_passed === false
+                        ? `<span style="font-size:0.75rem; background:rgba(255,51,102,0.1); color:#ff3366; padding:0.15rem 0.5rem; border-radius:20px;">✗ QG провален</span>`
+                        : `<span style="font-size:0.75rem; background:rgba(255,255,255,0.05); color:var(--text-muted); padding:0.15rem 0.5rem; border-radius:20px;">Архив</span>`
+                      );
 
                 const actionButtonHtml = m.is_active
                     ? `<button class="btn" style="background:rgba(255,255,255,0.04); color:var(--text-muted); pointer-events:none; border:1px solid rgba(255,255,255,0.08); width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; white-space:nowrap;">Текущая</button>`
-                    : `<button class="btn primary-btn btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; white-space:nowrap; font-weight:600;">Активировать</button>`;
+                    : `<button class="btn primary-btn btn-activate-model"
+                          data-asset="${m.asset}"
+                          data-version="${m.version}"
+                          data-qg="${m.quality_gate_passed}"
+                          data-auc="${m.auc}"
+                          data-ece="${m.ece != null ? m.ece.toFixed(4) : 'н/д'}"
+                          style="width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; white-space:nowrap; font-weight:600;${m.quality_gate_passed === false ? ' background:rgba(255,152,0,0.15); border-color:rgba(255,152,0,0.4); color:#ff9f43;' : ''}">
+                          ${m.quality_gate_passed === false ? '⚠ Активировать' : 'Активировать'}</button>`;
 
                 const deleteButtonHtml = m.is_active 
                     ? `` 
                     : `<button class="btn btn-delete-model" data-asset="${m.asset}" data-version="${m.version}" style="width:130px; padding:0.35rem 0.6rem; font-size:0.8rem; background:rgba(220, 53, 69, 0.15); color:#ff6b6b; border:1px solid rgba(220,53,69,0.3); white-space:nowrap; display:inline-flex; align-items:center; justify-content:center; gap:0.3rem;"><span>🗑</span> Удалить</button>`;
 
                 return `
-                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); background: ${m.is_active ? 'rgba(255,255,255,0.02)' : 'transparent'};">
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); background: ${m.is_active ? (m.activation_source === 'MANUAL' ? 'rgba(255,152,0,0.05)' : 'rgba(255,255,255,0.02)') : 'transparent'};">
                     <td style="padding: 1rem 0.5rem;">
                         <div style="font-weight:700; color:white; font-size:0.95rem;">${sym}</div>
                         ${activeBadgeHtml}
+                        ${m.is_active && m.activation_source === 'MANUAL' ? `<div style="font-size:0.7rem; color:#ff9f43; margin-top:0.2rem;">QG не пройден</div>` : ''}
                     </td>
                     <td style="padding: 1rem 0.5rem; font-size:0.85rem; color:white;">
                         v${m.version}
@@ -789,22 +836,76 @@
 
             document.querySelectorAll(".btn-activate-model").forEach(btn => {
                 btn.addEventListener("click", async (e) => {
-                    const asset = e.target.dataset.asset;
-                    const version = e.target.dataset.version;
-                    if (!confirm(`Активировать модель ${asset} версии ${version}?`)) return;
-                    
+                    const btn = e.currentTarget;
+                    const asset = btn.dataset.asset;
+                    const version = btn.dataset.version;
+                    const qgPassed = btn.dataset.qg;
+                    const auc = btn.dataset.auc;
+                    const ece = btn.dataset.ece;
+
+                    // Spinner
+                    btn.disabled = true;
+                    btn.textContent = 'Активируем...';
+
+                    const doActivate = async (force, reason) => {
+                        const body = { force, reason: reason || null };
+                        const r = await fetch(
+                            (window.API_BASE || '') + `/crypto/api/models/${asset}/activate/${version}`,
+                            { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+                        );
+                        return { r, d: await r.json() };
+                    };
+
                     try {
-                        const r = await fetch(window.API_BASE + `/crypto/api/models/${asset}/activate/${version}`, {
-                            method: "POST", headers: H
-                        });
-                        const d = await r.json();
-                        if (r.ok) {
-                            loadStatus();
-                        } else {
-                            alert("Ошибка активации: " + (d.detail || JSON.stringify(d)));
+                        let { r, d } = await doActivate(false, null);
+
+                        // 409 = Quality Gate override required
+                        if (r.status === 409) {
+                            const detail = d.detail || {};
+                            const metrics = detail.metrics || {};
+                            const reasonsList = (metrics.reasons || []).join('\n• ');
+                            const confirmed = confirm(
+                                `⚠ Модель ${asset} v${version} не прошла Quality Gate.\n\n` +
+                                `AUC: ${metrics.auc != null ? (+metrics.auc).toFixed(4) : 'н/д'}\n` +
+                                `ECE: ${metrics.ece != null ? (+metrics.ece).toFixed(4) : 'н/д'}\n` +
+                                (reasonsList ? `\nПричины:\n• ${reasonsList}\n` : '') +
+                                `\nАктивировать вручную для PAPER-теста?`
+                            );
+                            if (!confirmed) {
+                                btn.disabled = false;
+                                btn.textContent = '⚠ Активировать';
+                                return;
+                            }
+                            ({ r, d } = await doActivate(true, 'Ручной PAPER-тест'));
                         }
+
+                        if (!r.ok) {
+                            throw new Error(
+                                typeof d.detail === 'string' ? d.detail
+                                : d.detail?.message || JSON.stringify(d.detail)
+                            );
+                        }
+
+                        await loadStatus();
+
+                        const activeModel = lastModelsData
+                            ? Object.values(lastModelsData).find(m => m.asset === asset && m.is_active)
+                            : null;
+
+                        if (activeModel && activeModel.version === parseInt(version)) {
+                            showToast(
+                                `✓ Активирована ${d.asset} v${d.active_version}` +
+                                (d.previous_version ? ` (была v${d.previous_version})` : '') +
+                                (d.activation_source === 'MANUAL' ? ' — вручную' : '')
+                            );
+                        } else {
+                            showToast(`⚠ Сервер подтвердил активацию, но статус не обновился — обновите страницу`, 'warn');
+                        }
+
                     } catch(err) {
-                        alert("Ошибка сети при активации");
+                        btn.disabled = false;
+                        btn.textContent = qgPassed === 'false' ? '⚠ Активировать' : 'Активировать';
+                        showToast('Ошибка активации: ' + err.message, 'error');
                     }
                 });
             });

@@ -590,6 +590,16 @@ class CryptoModelTrainer:
                     is_active=should_activate,
                     interval=interval,
                     trained_at=now,
+                    # Quality Gate audit
+                    quality_gate_passed=passed_quality_gate,
+                    quality_gate_reasons=(
+                        {"reasons": gate_reasons, "auc": val_auc, "ece": ece}
+                        if gate_reasons else None
+                    ),
+                    # Activation audit: AUTO если прошла QG и стала активной
+                    activation_source="AUTO" if should_activate else None,
+                    activated_at=now if should_activate else None,
+                    activated_by="trainer" if should_activate else None,
                 ))
                 await self.db.commit()
                 trained_any = True

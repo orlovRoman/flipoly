@@ -18,7 +18,8 @@ from datetime import datetime, timezone
 import numpy as np
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, Query, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request, Query, HTTPException
+from pydantic import BaseModel
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, update, delete, func, cast, Numeric, text
 from collections import defaultdict
@@ -32,6 +33,7 @@ from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.db.connection import async_session, get_db_session
 from polyflip.db.models import ModelRegistry, TradeHistory, RuntimeSettings
+from polyflip.crypto.predictor import CryptoPredictor
 from polyflip.settings_registry import registry_defaults
 
 logger = structlog.get_logger(__name__)
@@ -664,13 +666,26 @@ async def crypto_models_analytics(
     return result
 
 
+class ActivateModelRequest(BaseModel):
+    force: bool = False
+    reason: str | None = None
+
+
 @router.post(
     "/api/models/{asset}/activate/{version}", dependencies=[Depends(verify_api_key)]
 )
 async def activate_crypto_model(
-    asset: str, version: int, db: AsyncSession = Depends(get_db_session)
+    asset: str,
+    version: int,
+    payload: ActivateModelRequest = Body(default_factory=ActivateModelRequest),
+    db: AsyncSession = Depends(get_db_session),
 ):
-    """Активирует указанную версию крипто-модели, деактивируя остальные."""
+    """
+    Активирует указанную версию крипто-модели, деактивируя остальные.
+
+    Если модель не прошла Quality Gate и force=False → HTTP 409.
+    Если force=True → активация помечается как MANUAL.
+    """
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
         allowed_assets.extend([f"{s}_low_vol", f"{s}_mid_vol", f"{s}_high_vol", s])
@@ -678,24 +693,90 @@ async def activate_crypto_model(
     if asset not in allowed_assets:
         raise HTTPException(status_code=404, detail=f"Актив {asset} не найден")
 
-    # Деактивировать все версии этого актива
+    # 1. Загружаем целевую модель
+    target_stmt = select(ModelRegistry).where(
+        ModelRegistry.asset == asset,
+        ModelRegistry.version == version,
+    )
+    model = (await db.execute(target_stmt)).scalar_one_or_none()
+    if not model:
+        raise HTTPException(status_code=404, detail=f"Версия {version} не найдена")
+
+    # 2. Quality Gate check — только если поле явно False (None = legacy, не блокируем)
+    if model.quality_gate_passed is False and not payload.force:
+        reasons = model.quality_gate_reasons or {}
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "QUALITY_GATE_OVERRIDE_REQUIRED",
+                "message": f"Модель {asset} v{version} не прошла Quality Gate. Передайте force=true для ручной активации.",
+                "metrics": {
+                    "auc": model.accuracy,
+                    "ece": model.ece,
+                    "precision": model.precision_at_threshold,
+                    "recall": model.recall_at_threshold,
+                    "reasons": reasons.get("reasons", []),
+                },
+            },
+        )
+
+    # 3. Запоминаем предыдущую активную версию
+    prev_stmt = select(ModelRegistry).where(
+        ModelRegistry.asset == asset,
+        ModelRegistry.is_active == True,
+    )
+    prev_model = (await db.execute(prev_stmt)).scalar_one_or_none()
+    previous_version = prev_model.version if prev_model else None
+
+    # 4. Атомарная активация
+    now = datetime.now(timezone.utc)
+    activation_source = "MANUAL" if (model.quality_gate_passed is False or payload.force) else "AUTO"
+    if payload.force and not model.quality_gate_passed:
+        activation_source = "MANUAL"
+
     await db.execute(
         update(ModelRegistry)
         .where(ModelRegistry.asset == asset)
         .values(is_active=False)
     )
-    # Активировать нужную версию
-    result = await db.execute(
+    await db.execute(
         update(ModelRegistry)
         .where(ModelRegistry.asset == asset, ModelRegistry.version == version)
-        .values(is_active=True)
+        .values(
+            is_active=True,
+            activation_source=activation_source,
+            activated_at=now,
+            activated_by="dashboard",
+            activation_reason=payload.reason,
+        )
     )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail=f"Версия {version} не найдена")
-
     await db.commit()
-    _cache.clear()  # сбросить весь кэш
-    return {"status": "success", "asset": asset, "version": version}
+
+    # 5. Инвалидируем кэш предиктора (в рамках того же процесса API)
+    symbol = asset.split("_")[0]
+    try:
+        CryptoPredictor.invalidate_all(symbol)
+        logger.info("predictor_cache_invalidated_after_manual_activation", asset=asset, version=version)
+    except Exception as exc:
+        logger.warning("predictor_invalidate_failed", error=str(exc))
+
+    _cache.clear()
+
+    # 6. Формируем ответ
+    response: dict = {
+        "status": "success",
+        "asset": asset,
+        "active_version": version,
+        "previous_version": previous_version,
+        "activation_source": activation_source,
+        "quality_gate_passed": model.quality_gate_passed,
+    }
+    if activation_source == "MANUAL":
+        response["warning"] = (
+            f"Модель {asset} v{version} активирована вручную. "
+            "Quality Gate не пройден."
+        )
+    return response
 
 
 @router.delete("/api/models/{asset}/{version}", dependencies=[Depends(verify_api_key)])
