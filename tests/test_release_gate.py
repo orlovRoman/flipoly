@@ -627,3 +627,55 @@ async def test_one_dollar_paper_becomes_1_10_live(db_session):
     # PAPER не изменён
     await db_session.refresh(req)
     assert req.target_amount_usdc == Decimal("1.00")
+
+
+@pytest.mark.asyncio
+async def test_quote_unavailable_is_deferred(db_session):
+    from polyflip.execution.release_gate import release_candidate_by_id
+    from polyflip.db.models import RuntimeSettings, LiveMarket
+    from unittest.mock import AsyncMock
+
+    now = datetime.now(timezone.utc)
+    
+    # Создаём маркет, чтобы не упало на "Market MKT-TEST not found"
+    db_session.add(LiveMarket(
+        market_id="MKT-TEST", 
+        asset="BTC", 
+        yes_token_id="T1", 
+        no_token_id="T2", 
+        question="Q", 
+        end_time_est=now,
+        current_yes_price=0.5,
+        current_no_price=0.5,
+        current_spread=0.0,
+        volume_5min=0.0,
+        price_velocity=0.0,
+        accepting_orders=True,
+        trading_status="active",
+        resolution_status="unresolved",
+        last_updated=now,
+    ))
+    
+    trade = await _make_paper_trade(db_session)
+    req = await _make_paper_request(db_session, trade, amount_usdc=Decimal("1.00"))
+
+    trade.created_at = now
+    req.created_at = now
+    req.updated_at = now
+    await db_session.commit()
+
+    candidate = await _make_candidate(
+        db_session, req, trade, state="ELIGIBLE", target_mode="LIVE"
+    )
+
+    # Имитируем отсутствие котировки
+    mock_api_client = AsyncMock()
+    mock_api_client.get_market_prices.return_value = {}
+
+    success = await release_candidate_by_id(db_session, candidate.id, "LIVE", api_client=mock_api_client)
+    
+    assert success is False
+    
+    # Кандидат не должен быть отклонен (REJECTED), он остается NEW/ELIGIBLE
+    await db_session.refresh(candidate)
+    assert candidate.state != "REJECTED"

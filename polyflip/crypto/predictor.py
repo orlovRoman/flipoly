@@ -183,12 +183,13 @@ class CryptoPredictor:
             
             # Проверяем, совпадает ли то, что загружено в память, с актуальным в БД
             if symbol in self._loaded_symbols:
-                cache_ok = True
-                for asset, ver in db_ver_dict.items():
-                    regime = asset.replace(f"{symbol}_", "")
-                    if self._model_versions.get(symbol, {}).get(regime) != ver:
-                        cache_ok = False
-                        break
+                expected_versions = {
+                    asset.replace(f"{symbol}_", ""): ver 
+                    for asset, ver in db_ver_dict.items()
+                }
+                cached_versions = self._model_versions.get(symbol, {})
+                cache_ok = cached_versions == expected_versions
+                
                 if cache_ok:
                     return True
                 else:

@@ -244,6 +244,7 @@ async def _release_one_locked(
     session: AsyncSession,
     candidate: LiveMirrorCandidate,
     target_mode: str,
+    api_client: Any = None,
 ) -> bool:
     """
     Валидирует и атомарно выпускает заблокированного кандидата.
@@ -500,25 +501,27 @@ async def validate_live_release(
         raise ReleaseDeferred(f"RELEASE_QUOTE_UNAVAILABLE: {last_error}")
 
     release_entry_price = float(fresh_prices["best_ask"])
+    release_net_edge = None
     
-    # Читаем combined_min_net_edge и combined_cost_buffer из RuntimeSettings
-    min_net_edge_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_MIN_NET_EDGE"))
-    cost_buffer_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_COST_BUFFER"))
-    
-    combined_min_net_edge = float(min_net_edge_val) if min_net_edge_val is not None else 0.03
-    cost_buffer = float(cost_buffer_val) if cost_buffer_val is not None else 0.02
-    
-    # paper_trade.p_win_effective используется для логики в PAPER-заявке. Но в combined_voting мы считали p_candidate_win.
-    # Если поле p_candidate_win есть - берем его, иначе fallback на p_win_effective
-    p_candidate_win = float(paper_trade.p_candidate_win) if paper_trade.p_candidate_win is not None else float(paper_trade.p_win_effective)
-    
-    release_gross_edge = p_candidate_win - release_entry_price
-    release_net_edge = release_gross_edge - cost_buffer
-    
-    if release_net_edge < combined_min_net_edge:
-        raise ReleaseRejected(
-            f"EDGE_DECAYED_BEFORE_RELEASE: {release_net_edge:.4f} < {combined_min_net_edge:.4f}"
-        )
+    if "COMBINED" in active_features:
+        # Читаем combined_min_net_edge и combined_cost_buffer из RuntimeSettings
+        min_net_edge_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_MIN_NET_EDGE"))
+        cost_buffer_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_COST_BUFFER"))
+        
+        combined_min_net_edge = float(min_net_edge_val) if min_net_edge_val is not None else 0.03
+        cost_buffer = float(cost_buffer_val) if cost_buffer_val is not None else 0.02
+        
+        # paper_trade.p_win_effective используется для логики в PAPER-заявке. Но в combined_voting мы считали p_candidate_win.
+        # Если поле p_candidate_win есть - берем его, иначе fallback на p_win_effective
+        p_candidate_win = float(paper_trade.p_candidate_win) if paper_trade.p_candidate_win is not None else float(paper_trade.p_win_effective)
+        
+        release_gross_edge = p_candidate_win - release_entry_price
+        release_net_edge = release_gross_edge - cost_buffer
+        
+        if release_net_edge < combined_min_net_edge:
+            raise ReleaseRejected(
+                f"EDGE_DECAYED_BEFORE_RELEASE: {release_net_edge:.4f} < {combined_min_net_edge:.4f}"
+            )
 
     # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance, session)
     if target_mode == "LIVE":

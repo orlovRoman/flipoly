@@ -102,9 +102,12 @@ def test_predictor_predict_missing_regime():
         mock_candle.close = 50000.0
         result = predictor.predict([mock_candle], "BTCUSDT")
 
-    # Не должно быть NONE из-за KeyError
-    assert result.features_ok is True
-    assert result.p_up == 0.7
+    # Не должно быть автоматического fallback, если high_vol отсутствует.
+    # Должен возвращаться REGIME_UNAVAILABLE.
+    assert result.status == "REGIME_UNAVAILABLE"
+    assert result.features_ok is False
+    assert result.direction == "NONE"
+    assert result.regime == "high_vol"
 
 
 def test_small_fold_oof_scores_not_zero():
@@ -123,3 +126,82 @@ def test_calibration_ece_isotonic_better_than_uncalibrated():
         df[CRYPTO_FEATURES], df["target"], n_splits=3
     )
     assert ece < 0.50, f"ECE слишком высокий: {ece:.3f}"
+
+import pytest
+
+@pytest.mark.asyncio
+async def test_partial_regime_set_loads_available_model():
+    """Если загружены не все режимы, predictor не должен полностью инвалидировать актив (fallback-логика)."""
+    from polyflip.crypto.predictor import CryptoPredictor
+    
+    global db_call_counter
+    db_call_counter = 0
+    
+    predictor = CryptoPredictor()
+    predictor.invalidate("BTCUSDT")
+    
+    class MockSession:
+        async def execute(self, stmt):
+            class MockResult:
+                def __init__(self, stmt):
+                    self.stmt = str(stmt)
+                    
+                def all(self):
+                    class Row:
+                        def __init__(self, asset, version):
+                            self.asset = asset
+                            self.version = version
+                    if "ModelRegistry.asset IN" in self.stmt:
+                        return [Row("BTCUSDT_low_vol", 1), Row("BTCUSDT_high_vol", 2)]
+                    return []
+                    
+                def scalar(self):
+                    return None
+                    
+                def scalar_one_or_none(self):
+                    class MockSettingsRow:
+                        def __init__(self, value):
+                            self.value = value
+                    return MockSettingsRow(1.0)
+                    
+                def scalars(self):
+                    class MockScalars:
+                        def first(self):
+                            class MockModelRegistry:
+                                def __init__(self):
+                                    self.model_blob = b"mock"
+                                    self.version = 1
+                                    self.interval = "15m"
+                                    self.ece = 0.0
+                            # This mock will be called for low_vol, mid_vol, high_vol, and then fallback CRYPTO.
+                            # Just return MockModelRegistry unless the regime is mid_vol. But we don't know which one it is.
+                            # Better: use a global counter
+                            global db_call_counter
+                            db_call_counter += 1
+                            if db_call_counter == 1: return MockModelRegistry() # low_vol
+                            if db_call_counter == 2: return None                # mid_vol
+                            if db_call_counter == 3: return None                # fallback CRYPTO
+                            if db_call_counter == 4: return MockModelRegistry() # high_vol
+                            return None
+                        def all(self):
+                            return []
+                    return MockScalars()
+            return MockResult(stmt)
+            
+    class MockLock:
+        async def __aenter__(self): pass
+        async def __aexit__(self, exc_type, exc, tb): pass
+        
+    predictor._get_lock = lambda symbol: MockLock()
+    
+    from unittest.mock import patch, MagicMock
+    with patch("polyflip.crypto.predictor.pickle.loads") as mock_pickle:
+        # Mock whatever actually fetches the models if needed, but pickle is fine
+        mock_model = MagicMock()
+        mock_pickle.return_value = mock_model
+        
+        result = await predictor.load(MockSession(), "BTCUSDT")
+        assert result is True
+        assert "low_vol" in predictor._models.get("BTCUSDT", {})
+        assert "high_vol" in predictor._models.get("BTCUSDT", {})
+        assert "mid_vol" not in predictor._models.get("BTCUSDT", {})
