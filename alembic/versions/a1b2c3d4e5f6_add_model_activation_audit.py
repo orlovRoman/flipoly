@@ -1,4 +1,4 @@
-﻿"""add_model_activation_audit
+"""add_model_activation_audit
 
 Revision ID: a1b2c3d4e5f6
 Revises: 783e6d92bc81
