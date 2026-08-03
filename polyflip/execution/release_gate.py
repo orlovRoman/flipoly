@@ -452,47 +452,73 @@ async def validate_live_release(
             f"Сумма ордера {order_amount} USDC ниже минимальной суммы Polymarket 1.00 USDC"
         )
 
-    # 4.2 Проверка источника модели (только PHASE)
-    if paper_trade.entry_model_source != "PHASE":
-        raise ReleaseRejected(
-            f"Invalid entry_model_source: {paper_trade.entry_model_source} != PHASE"
-        )
+    # 4.2 Проверка источника модели (только PHASE для COMBINED)
+    active_features = str(paper_trade.active_features or "").upper()
+    if "COMBINED" in active_features:
+        if paper_trade.entry_model_source != "PHASE":
+            raise ReleaseRejected(
+                f"Invalid entry_model_source for COMBINED: {paper_trade.entry_model_source} != PHASE"
+            )
 
     # 4.3 Проверка свежего стакана и edge (через Polymarket API)
-    if api_client is not None:
-        from polyflip.db.models import LiveMarket
-        market = await session.scalar(
-            select(LiveMarket).where(LiveMarket.market_id == paper_request.market_id)
-        )
-        if market:
-            token_id = market.yes_token_id if paper_request.outcome_to_buy == "YES" else market.no_token_id
-            fresh_prices = await api_client.get_market_prices(token_id)
-            if not fresh_prices or fresh_prices.get("best_ask") is None:
-                raise ReleaseRejected("RELEASE_QUOTE_UNAVAILABLE")
+    if api_client is None:
+        raise ReleaseDeferred("API client is required for quote verification")
+        
+    from polyflip.db.models import LiveMarket
+    market = await session.scalar(
+        select(LiveMarket).where(LiveMarket.market_id == paper_request.market_id)
+    )
+    if not market:
+        raise ReleaseRejected(f"Market {paper_request.market_id} not found in DB")
+        
+    token_id = market.yes_token_id if paper_request.outcome_to_buy == "YES" else market.no_token_id
+    
+    fresh_prices = None
+    last_error = ""
+    # 2 retry attempts with timeouts
+    for attempt in range(2):
+        try:
+            # We assume api_client.get_market_prices is resilient, but we enforce our own timeout
+            prices = await asyncio.wait_for(api_client.get_market_prices(token_id), timeout=3.0)
+            if prices and prices.get("best_ask") is not None:
+                fresh_prices = prices
+                break
+            else:
+                last_error = "Missing best_ask in response"
+        except asyncio.TimeoutError:
+            last_error = "Timeout fetching prices"
+            logger.warning(f"Timeout fetching quote for {token_id} (attempt {attempt+1}/2)")
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"Error fetching quote for {token_id} (attempt {attempt+1}/2): {e}")
+            
+        if attempt < 1:
+            await asyncio.sleep(1.0)
+            
+    if not fresh_prices or fresh_prices.get("best_ask") is None:
+        logger.warning(f"POLYMARKET_QUOTE_UNAVAILABLE for {token_id}: {last_error}")
+        raise ReleaseDeferred(f"RELEASE_QUOTE_UNAVAILABLE: {last_error}")
 
-            release_entry_price = float(fresh_prices["best_ask"])
-            
-            # Читаем combined_min_net_edge и combined_cost_buffer из RuntimeSettings
-            min_net_edge_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_MIN_NET_EDGE"))
-            cost_buffer_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_COST_BUFFER"))
-            
-            combined_min_net_edge = float(min_net_edge_val) if min_net_edge_val is not None else 0.03
-            cost_buffer = float(cost_buffer_val) if cost_buffer_val is not None else 0.02
-            
-            # paper_trade.p_win_effective используется для логики в PAPER-заявке. Но в combined_voting мы считали p_candidate_win.
-            # Если поле p_candidate_win есть - берем его, иначе fallback на p_win_effective
-            p_candidate_win = float(paper_trade.p_candidate_win) if paper_trade.p_candidate_win is not None else float(paper_trade.p_win_effective)
-            
-            release_gross_edge = p_candidate_win - release_entry_price
-            release_net_edge = release_gross_edge - cost_buffer
-            
-            if release_net_edge < combined_min_net_edge:
-                raise ReleaseRejected(
-                    f"EDGE_DECAYED_BEFORE_RELEASE: {release_net_edge:.4f} < {combined_min_net_edge:.4f}"
-                )
-    else:
-        release_entry_price = None
-        release_net_edge = None
+    release_entry_price = float(fresh_prices["best_ask"])
+    
+    # Читаем combined_min_net_edge и combined_cost_buffer из RuntimeSettings
+    min_net_edge_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_MIN_NET_EDGE"))
+    cost_buffer_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_COST_BUFFER"))
+    
+    combined_min_net_edge = float(min_net_edge_val) if min_net_edge_val is not None else 0.03
+    cost_buffer = float(cost_buffer_val) if cost_buffer_val is not None else 0.02
+    
+    # paper_trade.p_win_effective используется для логики в PAPER-заявке. Но в combined_voting мы считали p_candidate_win.
+    # Если поле p_candidate_win есть - берем его, иначе fallback на p_win_effective
+    p_candidate_win = float(paper_trade.p_candidate_win) if paper_trade.p_candidate_win is not None else float(paper_trade.p_win_effective)
+    
+    release_gross_edge = p_candidate_win - release_entry_price
+    release_net_edge = release_gross_edge - cost_buffer
+    
+    if release_net_edge < combined_min_net_edge:
+        raise ReleaseRejected(
+            f"EDGE_DECAYED_BEFORE_RELEASE: {release_net_edge:.4f} < {combined_min_net_edge:.4f}"
+        )
 
     # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance, session)
     if target_mode == "LIVE":

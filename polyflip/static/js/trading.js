@@ -1035,20 +1035,29 @@ document.addEventListener("DOMContentLoaded", () => {
         const isCrypto = log.active_features && (log.active_features.includes("LIGHTGBM_TREND") || log.active_features.includes("CRYPTO_TREND"));
         const isCombined = log.active_features && log.active_features.includes("COMBINED_ML_LGBM");
         
+        let rawPhase = "";
         let phaseSuffix = "";
         // phaseSuffix вычисляется для ml и combined (оба используют phase-модели)
         if (!isPureFav && !isCrypto && log.executed_price > 0) {
             const dev = Math.abs(log.executed_price - 0.5);
-            if (dev < 0.10) phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(contested)</span>";
-            else if (dev < 0.25) phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(leaning)</span>";
-            else phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(decided)</span>";
+            if (dev < 0.10) { phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(contested)</span>"; rawPhase = "contested"; }
+            else if (dev < 0.25) { phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(leaning)</span>"; rawPhase = "leaning"; }
+            else { phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(decided)</span>"; rawPhase = "decided"; }
         }
         const modelStr = (() => {
           if (!log.model_version) {
             return isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-");
           }
           if (isCrypto) return `LightGBM v${log.model_version}`;
-          if (isCombined) return `v${log.model_version}${phaseSuffix} + LightGBM`;
+          if (isCombined) {
+             const errMsg = log.error_msg || "";
+             if (errMsg.includes("MODEL_NOT_LOADED")) {
+                 return `Entry: ${log.asset}${rawPhase ? '_' + rawPhase : ''} v${log.model_version}, Direction: MODEL_NOT_LOADED`;
+             } else if (errMsg.includes("REGIME_UNAVAILABLE")) {
+                 return `Entry: ${log.asset}${rawPhase ? '_' + rawPhase : ''} v${log.model_version}, Direction: REGIME_UNAVAILABLE`;
+             }
+             return `v${log.model_version}${phaseSuffix} + LightGBM`;
+          }
           return `v${log.model_version}${phaseSuffix}`;
         })();
 

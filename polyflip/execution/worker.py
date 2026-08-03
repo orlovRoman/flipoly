@@ -346,6 +346,16 @@ async def process_ready_requests():
 
         try:
             executable_price = float(limit_price)
+            if req.requested_mode == "LIVE":
+                try:
+                    from polyflip.collector.client import PolymarketClient
+                    api_client = PolymarketClient()
+                    prices = await asyncio.wait_for(api_client.get_market_prices(token_id), timeout=3.0)
+                    if prices and prices.get("best_ask") is not None:
+                        executable_price = float(prices["best_ask"])
+                except Exception as e:
+                    logger.warning("worker_fetch_price_failed", error=str(e), fallback="limit_price")
+
             if (
                 req.max_acceptable_price is not None
                 and executable_price > float(req.max_acceptable_price)
@@ -353,7 +363,8 @@ async def process_ready_requests():
                 logger.warning(
                     "max_acceptable_price_exceeded",
                     request_id=str(req.id),
-                    limit_price=executable_price,
+                    limit_price=float(limit_price),
+                    executable_price=executable_price,
                     max_price=float(req.max_acceptable_price),
                 )
                 await finalize_request(

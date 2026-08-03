@@ -236,6 +236,10 @@ class CryptoPredictor:
                 self._model_eces[symbol] = {}
                 self._thresholds[symbol] = {}
 
+                loaded_regimes = 0
+                missing_regimes = []
+                has_fallback = False
+
                 for regime in ["low_vol", "mid_vol", "high_vol"]:
                     regime_asset = f"{symbol}_{regime}"
                     stmt = select(ModelRegistry).where(
@@ -244,20 +248,19 @@ class CryptoPredictor:
                     )
                     row = (await db.execute(stmt)).scalars().first()
                     
-                    # Обратная совместимость: если нет двухрежимной модели, ищем старую общую по "CRYPTO"
                     if not row:
-                        logger.warning("no_active_regime_model_found", asset=regime_asset)
                         fallback_stmt = select(ModelRegistry).where(
                             ModelRegistry.asset == "CRYPTO",
                             ModelRegistry.is_active.is_(True)
                         )
                         row = (await db.execute(fallback_stmt)).scalars().first()
+                        if row:
+                            has_fallback = True
                         
                     if not row:
-                        logger.error("no_fallback_model_found", symbol=symbol)
-                        # ВАЖНО: при неудаче не добавляем в loaded_symbols и очищаем частично загруженное
-                        self.invalidate(symbol)
-                        return False
+                        logger.warning("crypto_regime_unavailable", symbol=symbol, regime=regime)
+                        missing_regimes.append(regime)
+                        continue
 
                     self._models[symbol][regime] = pickle.loads(row.model_blob)
                     self._model_versions[symbol][regime] = row.version
@@ -299,10 +302,29 @@ class CryptoPredictor:
                         th_down = settings.get(down_key, 0.45)
 
                     self._thresholds[symbol][regime] = (th_up, th_down)
+                    loaded_regimes += 1
                     logger.info(
                         "crypto_regime_model_loaded",
                         symbol=symbol, regime=regime, version=row.version,
                         th_up=th_up, th_down=th_down, vol_p33=self._vol_p33s[symbol], vol_p67=self._vol_p67s[symbol]
+                    )
+
+                if loaded_regimes == 0:
+                    logger.error(
+                        "no_crypto_models_loaded",
+                        symbol=symbol,
+                        missing_regimes=missing_regimes,
+                        has_fallback=has_fallback,
+                    )
+                    self.invalidate(symbol)
+                    return False
+                elif missing_regimes:
+                    logger.warning(
+                        "partial_crypto_models_loaded",
+                        symbol=symbol,
+                        loaded_count=loaded_regimes,
+                        missing_regimes=missing_regimes,
+                        has_fallback=has_fallback,
                     )
 
                 self._loaded_symbols.add(symbol)
@@ -368,17 +390,8 @@ class CryptoPredictor:
             # Порядок фичей для LightGBM
             fv_array = np.array([getattr(validated, f) for f in CRYPTO_FEATURES], dtype=np.float64)
 
-            # Выбор модели с защитой от отсутствия конкретного режима (fallback)
-            symbol_models = self._models.get(symbol, {})
-            if regime in symbol_models:
-                selected_regime = regime
-            elif symbol_models:
-                selected_regime = next(iter(symbol_models))
-            else:
-                selected_regime = None
-
-            if selected_regime is None:
-                logger.warning("no_model_available_for_predict", symbol=symbol, regime=regime)
+            if regime not in self._models.get(symbol, {}):
+                logger.warning("regime_unavailable_for_predict", symbol=symbol, regime=regime)
                 return CryptoSignal(
                     symbol=symbol, p_up=0.5, p_down=0.5, direction="NONE",
                     signal_strength=0.0, strike=0.0, threshold_up=0.5, threshold_down=0.5,
@@ -387,7 +400,8 @@ class CryptoPredictor:
                     regime=regime, status="REGIME_UNAVAILABLE",
                 )
 
-            model = symbol_models[selected_regime]
+            selected_regime = regime
+            model = self._models.get(symbol, {})[selected_regime]
             version = self._model_versions.get(symbol, {}).get(selected_regime, -1)
             th_up, th_down = self._thresholds.get(symbol, {}).get(selected_regime, (0.55, 0.45))
             model_key = f"{symbol}_{selected_regime}"
