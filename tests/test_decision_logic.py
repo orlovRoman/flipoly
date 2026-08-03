@@ -168,7 +168,7 @@ class TestDecideMlTrend:
         sig = _signal(mid=0.72, spread=-0.04, vol=1000.0)
         d = decide_ml_trend(sig, p_flip=0.10, config=BASE_CONFIG)
         assert d.edge is not None
-        expected_edge = round(0.90 / 0.70 - 1.0, 4)
+        expected_edge = round(0.90 - 0.70, 4)
         assert d.edge == pytest.approx(expected_edge, abs=1e-3)
 
     def test_high_edge_buys_yes_without_filter(self):

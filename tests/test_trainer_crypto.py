@@ -130,78 +130,56 @@ def test_calibration_ece_isotonic_better_than_uncalibrated():
 import pytest
 
 @pytest.mark.asyncio
-async def test_partial_regime_set_loads_available_model():
+@pytest.mark.asyncio
+async def test_partial_regime_set_loads_available_model(db_session):
     """Если загружены не все режимы, predictor не должен полностью инвалидировать актив (fallback-логика)."""
     from polyflip.crypto.predictor import CryptoPredictor
-    
-    global db_call_counter
-    db_call_counter = 0
+    from polyflip.db.models import ModelRegistry, RuntimeSettings
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    import pickle
     
     predictor = CryptoPredictor()
     predictor.invalidate("BTCUSDT")
     
-    class MockSession:
-        async def execute(self, stmt):
-            class MockResult:
-                def __init__(self, stmt):
-                    self.stmt = str(stmt)
-                    
-                def all(self):
-                    class Row:
-                        def __init__(self, asset, version):
-                            self.asset = asset
-                            self.version = version
-                    if "ModelRegistry.asset IN" in self.stmt:
-                        return [Row("BTCUSDT_low_vol", 1), Row("BTCUSDT_high_vol", 2)]
-                    return []
-                    
-                def scalar(self):
-                    return None
-                    
-                def scalar_one_or_none(self):
-                    class MockSettingsRow:
-                        def __init__(self, value):
-                            self.value = value
-                    return MockSettingsRow(1.0)
-                    
-                def scalars(self):
-                    class MockScalars:
-                        def first(self):
-                            class MockModelRegistry:
-                                def __init__(self):
-                                    self.model_blob = b"mock"
-                                    self.version = 1
-                                    self.interval = "15m"
-                                    self.ece = 0.0
-                            # This mock will be called for low_vol, mid_vol, high_vol, and then fallback CRYPTO.
-                            # Just return MockModelRegistry unless the regime is mid_vol. But we don't know which one it is.
-                            # Better: use a global counter
-                            global db_call_counter
-                            db_call_counter += 1
-                            if db_call_counter == 1: return MockModelRegistry() # low_vol
-                            if db_call_counter == 2: return None                # mid_vol
-                            if db_call_counter == 3: return None                # fallback CRYPTO
-                            if db_call_counter == 4: return MockModelRegistry() # high_vol
-                            return None
-                        def all(self):
-                            return []
-                    return MockScalars()
-            return MockResult(stmt)
-            
-    class MockLock:
-        async def __aenter__(self): pass
-        async def __aexit__(self, exc_type, exc, tb): pass
-        
-    predictor._get_lock = lambda symbol: MockLock()
+    # 1. Заполняем настройки, необходимые для load()
+    now = datetime.now(timezone.utc)
+    db_session.add_all([
+        RuntimeSettings(key="CRYPTO_VOL_P33_BTCUSDT", value="0.8", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="CRYPTO_VOL_P67_BTCUSDT", value="1.2", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="CRYPTO_THRESHOLD_UP_BTC", value="0.5", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="CRYPTO_THRESHOLD_DOWN_BTC", value="0.5", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="LGBM_MIN_VALID_THRESHOLD", value="0.1", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="LGBM_MAX_VALID_THRESHOLD", value="0.9", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="LGBM_THRESHOLD_FALLBACK", value="0.5", updated_at=now, updated_by="test"),
+    ])
     
+    # 2. Добавляем две реальные строки из трех (low_vol, high_vol)
+    dummy_model = b"dummy_model_data"
+    db_session.add_all([
+        ModelRegistry(asset="BTCUSDT_low_vol", is_active=True, version=1, model_blob=dummy_model, ece=0.1, trained_at=now, accuracy=0.8),
+        ModelRegistry(asset="BTCUSDT_high_vol", is_active=True, version=2, model_blob=dummy_model, ece=0.2, trained_at=now, accuracy=0.8),
+    ])
+    await db_session.commit()
+    
+    # Мокаем только pickle.loads, чтобы он не пытался распаковать dummy_model
     from unittest.mock import patch, MagicMock
     with patch("polyflip.crypto.predictor.pickle.loads") as mock_pickle:
-        # Mock whatever actually fetches the models if needed, but pickle is fine
         mock_model = MagicMock()
         mock_pickle.return_value = mock_model
         
-        result = await predictor.load(MockSession(), "BTCUSDT")
-        assert result is True
-        assert "low_vol" in predictor._models.get("BTCUSDT", {})
-        assert "high_vol" in predictor._models.get("BTCUSDT", {})
-        assert "mid_vol" not in predictor._models.get("BTCUSDT", {})
+        # Проверяем, что load() завершился успешно
+        assert await predictor.load(db_session, "BTCUSDT") is True
+        # Проверяем, что загрузились ровно 2 модели
+        assert set(predictor._models["BTCUSDT"]) == {"low_vol", "high_vol"}
+        
+        # Теперь деактивируем high_vol и проверяем, что модель исчезла из кэша
+        high_vol_model = await db_session.execute(
+            select(ModelRegistry).where(ModelRegistry.asset == "BTCUSDT_high_vol")
+        )
+        high_vol_model = high_vol_model.scalar_one()
+        high_vol_model.is_active = False
+        await db_session.commit()
+        
+        assert await predictor.load(db_session, "BTCUSDT") is True
+        assert set(predictor._models["BTCUSDT"]) == {"low_vol"}

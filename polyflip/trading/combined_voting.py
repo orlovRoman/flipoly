@@ -49,6 +49,8 @@ class CombinedEntryResult:
     direction_p_up: Optional[float] = None
     direction_p_down: Optional[float] = None
     direction_value: Optional[str] = None
+    # P0: детальная причина сбоя Direction Model (INFERENCE_FAILED, REGIME_UNAVAILABLE)
+    direction_error_detail: Optional[str] = None
     entry_requested_key: Optional[str] = None
     entry_model_key: Optional[str] = None
     entry_model_version: Optional[int] = None
@@ -110,10 +112,26 @@ def evaluate_combined_entry(
 
     # 1. Валидация LightGBM Direction
     if not crypto_sig.features_ok or crypto_sig.model_version is None or crypto_sig.model_version < 0:
+        # P0: формируем информативный reason
+        symbol = crypto_sig.symbol or ""
+        regime = crypto_sig.regime or ""
+        error_detail = getattr(crypto_sig, "risk_reason", "") or ""
+
+        if dir_status == "REGIME_UNAVAILABLE" and symbol and regime:
+            required_key = f"{symbol}_{regime}"
+            reason_str = f"Direction Model unavailable: required={required_key} status=REGIME_UNAVAILABLE"
+        elif dir_status == "MODEL_NOT_LOADED":
+            reason_str = f"Direction Model unavailable: no active models loaded for {symbol} status=MODEL_NOT_LOADED"
+        elif dir_status == "INFERENCE_FAILED" and error_detail:
+            reason_str = f"Direction Model error ({symbol}): {error_detail}"
+        else:
+            reason_str = f"Direction Model unavailable (status={dir_status})"
+
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"Direction Model unavailable (status={dir_status})",
+            reason=reason_str,
             direction_status=dir_status,
+            direction_error_detail=error_detail or None,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version if crypto_sig.model_version >= 0 else None,
             direction_regime=crypto_sig.regime or None,

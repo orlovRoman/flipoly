@@ -418,6 +418,62 @@ async def crypto_train(
     }
 
 
+
+@router.get("/api/models/coverage", dependencies=[Depends(verify_api_key)])
+async def crypto_models_coverage(db: AsyncSession = Depends(get_db_session)):
+    """
+    P1: Таблица покрытия LightGBM-моделей по режимам волатильности.
+    Показывает для каждого (актив × режим): активная версия или None.
+    Используется для диагностики REGIME_UNAVAILABLE / MODEL_NOT_LOADED.
+    """
+    cache_key = "crypto_models_coverage"
+    now = time.time()
+    if cache_key in _cache and now - _cache[cache_key]["ts"] < 60:
+        return _cache[cache_key]["data"]
+
+    regimes = ["low_vol", "mid_vol", "high_vol"]
+    result = {}
+
+    for sym in CRYPTO_SYMBOLS:
+        sym_upper = sym.upper()
+        result[sym_upper] = {}
+        for regime in regimes:
+            asset_key = f"{sym_upper}USDT_{regime}"
+            stmt = (
+                select(
+                    ModelRegistry.version,
+                    ModelRegistry.is_active,
+                    ModelRegistry.trained_at,
+                    ModelRegistry.quality_gate_passed,
+                    ModelRegistry.activation_source,
+                )
+                .where(ModelRegistry.asset == asset_key)
+                .order_by(ModelRegistry.version.desc())
+                .limit(3)
+            )
+            rows = (await db.execute(stmt)).fetchall()
+            active_row = next((r for r in rows if r.is_active), None)
+            all_versions = [r.version for r in rows]
+
+            result[sym_upper][regime] = {
+                "active_version": active_row.version if active_row else None,
+                "active_trained_at": (
+                    active_row.trained_at.isoformat() if active_row and active_row.trained_at else None
+                ),
+                "quality_gate_passed": active_row.quality_gate_passed if active_row else None,
+                "activation_source": active_row.activation_source if active_row else None,
+                "recent_versions": all_versions,
+                "status": (
+                    "ACTIVE" if active_row else
+                    ("HAS_INACTIVE" if all_versions else "MISSING")
+                ),
+            }
+
+    data = {"coverage": result, "regimes": regimes, "symbols": list(CRYPTO_SYMBOLS)}
+    _cache[cache_key] = {"data": data, "ts": now}
+    return data
+
+
 @router.get("/api/models/analytics", dependencies=[Depends(verify_api_key)])
 async def crypto_models_analytics(
     requested_mode: str = "PAPER",

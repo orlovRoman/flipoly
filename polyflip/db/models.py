@@ -423,6 +423,10 @@ class DecisionFunnelLog(Base):
     distance_to_strike_pct = Column(Float, nullable=True)
     max_acceptable_price = Column(Float, nullable=True)
 
+    # P0: детальная причина сбоя Direction Model (INFERENCE_FAILED / REGIME_UNAVAILABLE)
+    # Содержит: текст исключения, missing regime key, или текст risk_reason
+    direction_error_detail = Column(String(512), nullable=True)
+
     __table_args__ = (
         Index("idx_funnel_asset_created", "asset", "created_at"),
         Index("idx_funnel_market_id",     "market_id"),

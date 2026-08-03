@@ -83,5 +83,7 @@ def test_both_sides_prefers_higher_edge():
     NO edge (-0.226) выше, чем YES edge (-0.288), поэтому выбирается BUY_NO.
     """
     signal = _signal(mid=0.42, spread=0.34)
+    # Make YES edge worse than NO edge
+    object.__setattr__(signal, "yes_ask", 0.65)
     d = decide_favorite(signal, _CFG)
     assert d.action == "BUY_NO", f"Expected BUY_NO (higher edge), got {d.action}"

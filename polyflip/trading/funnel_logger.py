@@ -79,6 +79,8 @@ async def log_funnel(
     strike_proxy: Optional[float] = None,
     underlying_price: Optional[float] = None,
     distance_to_strike_pct: Optional[float] = None,
+    # P0: детальная причина сбоя Direction Model
+    direction_error_detail: Optional[str] = None,
 
     # Итог
     final_action: str = "SKIP",
@@ -141,6 +143,7 @@ async def log_funnel(
             strike_proxy=strike_proxy,
             underlying_price=underlying_price,
             distance_to_strike_pct=distance_to_strike_pct,
+            direction_error_detail=direction_error_detail[:512] if direction_error_detail else None,
 
             final_action=final_action,
             skip_reason=skip_reason[:256] if skip_reason else None,

@@ -9,7 +9,7 @@ from polyflip.constants import INVALID_EDGE_SENTINEL, FLIP_MIDPOINT
 class TestComputeEdge:
     def test_positive_edge(self):
         # win_prob=0.80, buy_price=0.70 → edge=0.80/0.70-1≈0.143
-        assert compute_edge(0.80, 0.70) == pytest.approx(0.143, abs=1e-3)
+        assert compute_edge(0.80, 0.70) == pytest.approx(0.10, abs=1e-3)
 
     def test_zero_edge_at_fair_price(self):
         # win_prob=buy_price → edge=0

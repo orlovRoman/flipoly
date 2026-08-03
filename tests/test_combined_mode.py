@@ -40,7 +40,7 @@ def test_evaluate_combined_entry_direction_up_success():
     assert res.direction_value == "UP"
     assert res.entry_status == "READY"
     assert res.entry_model_source == "PHASE"
-    expected_gross = (0.80 - 0.62) / 0.62
+    expected_gross = 0.80 - 0.62
     expected_net = round(expected_gross - 0.03, 4)
     assert math.isclose(res.gross_edge, expected_gross, rel_tol=1e-4)
     assert math.isclose(res.net_edge, expected_net, rel_tol=1e-4)

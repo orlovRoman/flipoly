@@ -325,51 +325,52 @@ async def process_ready_requests():
                 await session.commit()
                 return
 
-        # --- Проверка цены перед попыткой исполнения (LIVE) ---
+        # --- Проверка цены перед попыткой исполнения ---
         executable_price = float(limit_price)
-        if req.requested_mode == "LIVE":
-            fresh_quote_unavailable = False
-            try:
-                from polyflip.collector.client import PolymarketClient
-                api_client = PolymarketClient()
-                prices = await asyncio.wait_for(api_client.get_market_prices(token_id), timeout=3.0)
-                if prices and prices.get("best_ask") is not None:
-                    executable_price = float(prices["best_ask"])
-                else:
+        if req.intent == "OPEN":
+            if req.requested_mode == "LIVE":
+                fresh_quote_unavailable = False
+                try:
+                    from polyflip.collector.client import PolymarketClient
+                    api_client = PolymarketClient()
+                    prices = await asyncio.wait_for(api_client.get_market_prices(token_id), timeout=3.0)
+                    if prices and prices.get("best_ask") is not None:
+                        executable_price = float(prices["best_ask"])
+                    else:
+                        fresh_quote_unavailable = True
+                except Exception as e:
+                    logger.warning("worker_fetch_price_failed", error=str(e))
                     fresh_quote_unavailable = True
-            except Exception as e:
-                logger.warning("worker_fetch_price_failed", error=str(e))
-                fresh_quote_unavailable = True
-                
-            if fresh_quote_unavailable:
+                    
+                if fresh_quote_unavailable:
+                    await finalize_request(
+                        session,
+                        req,
+                        state="READY",
+                        error="EXECUTION_QUOTE_UNAVAILABLE",
+                    )
+                    await session.commit()
+                    return
+
+            if (
+                req.max_acceptable_price is not None
+                and executable_price > float(req.max_acceptable_price)
+            ):
+                logger.warning(
+                    "max_acceptable_price_exceeded",
+                    request_id=str(req.id),
+                    limit_price=float(limit_price),
+                    executable_price=executable_price,
+                    max_price=float(req.max_acceptable_price),
+                )
                 await finalize_request(
                     session,
                     req,
-                    state="READY",
-                    error="EXECUTION_QUOTE_UNAVAILABLE",
+                    state="REJECTED",
+                    error="MAX_ACCEPTABLE_PRICE_EXCEEDED",
                 )
                 await session.commit()
                 return
-
-        if (
-            req.max_acceptable_price is not None
-            and executable_price > float(req.max_acceptable_price)
-        ):
-            logger.warning(
-                "max_acceptable_price_exceeded",
-                request_id=str(req.id),
-                limit_price=float(limit_price),
-                executable_price=executable_price,
-                max_price=float(req.max_acceptable_price),
-            )
-            await finalize_request(
-                session,
-                req,
-                state="REJECTED",
-                error="MAX_ACCEPTABLE_PRICE_EXCEEDED",
-            )
-            await session.commit()
-            return
 
         submission_key = f"{req.idempotency_key}:{attempt_no}"
 

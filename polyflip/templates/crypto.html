@@ -189,6 +189,19 @@
                 <div id="models-status">Загрузка...</div>
             </div>
 
+            <!-- Раздел: Покрытие режимов (P1) -->
+            <div class="panel" style="margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem;">
+                    <div>
+                        <h2 style="margin:0;">Покрытие Режимов (Coverage)</h2>
+                        <p class="panel-desc" style="margin: 0.3rem 0 0 0;">
+                            Активные модели для разных фаз волатильности (low, mid, high).
+                        </p>
+                    </div>
+                </div>
+                <div id="coverage-status">Загрузка покрытия...</div>
+            </div>
+
             <!-- Раздел: Настройки и параметры обучения -->
             <div class="panel" style="margin-bottom: 2rem;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; gap:10px;">
@@ -573,10 +586,11 @@
 
         async function loadStatus() {
             try {
-                // Параллельно загружаем статус и PnL
-                const [statusRes, pnlRes] = await Promise.all([
+                // Параллельно загружаем статус, PnL и покрытие
+                const [statusRes, pnlRes, coverageRes] = await Promise.all([
                     fetch('/crypto/api/status', { headers: H }),
                     fetch(`/crypto/api/models/analytics?requested_mode=${currentMode}&date_from=${filterFrom}&date_to=${filterTo}`, { headers: H }),
+                    fetch('/crypto/api/models/coverage', { headers: H }),
                 ]);
 
                 if (statusRes.status === 401) {
@@ -614,6 +628,20 @@
                 } else {
                     const errorText = await pnlRes.text().catch(() => '');
                     console.error("[CryptoAnalytics]", pnlRes.status, errorText);
+                }
+
+                // Покрытие моделей (Coverage)
+                renderModelTable(d.models || {}, pnlData);
+                let coverageData = null;
+                if (coverageRes.ok) {
+                    try {
+                        coverageData = await coverageRes.json();
+                        renderCoverageTable(coverageData);
+                    } catch (e) {
+                        console.warn("[CryptoCoverage] Parse error", e);
+                    }
+                } else {
+                    console.error("[CryptoCoverage] fetch failed", coverageRes.status);
                 }
 
                 // Заполняем настройки гиперпараметров
@@ -665,6 +693,67 @@
                 return `<span class="sort-indicator">${currentSortOrder === 'desc' ? '↓' : '↑'}</span>`;
             }
             return '';
+        }
+
+        function renderCoverageTable(data) {
+            const el = document.getElementById('coverage-status');
+            if (!data || !data.coverage) {
+                el.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:2rem;">Нет данных покрытия</div>';
+                return;
+            }
+
+            const symbols = data.symbols || Object.keys(data.coverage);
+            const regimes = data.regimes || ['low_vol', 'mid_vol', 'high_vol'];
+
+            let html = `
+                <table class="styled-table" style="width:100%; border-collapse: collapse; margin-top:0;">
+                    <thead>
+                        <tr>
+                            <th style="width:100px;">Актив</th>
+                            ${regimes.map(r => `<th>${r.replace('_vol', '').toUpperCase()} VOL</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            for (const sym of symbols) {
+                const rowData = data.coverage[sym];
+                if (!rowData) continue;
+                
+                html += `<tr><td style="font-weight:700;">${sym}</td>`;
+                
+                for (const regime of regimes) {
+                    const rData = rowData[regime];
+                    if (!rData) {
+                        html += `<td>-</td>`;
+                        continue;
+                    }
+                    
+                    let bg = '';
+                    let text = '';
+                    let color = 'var(--text-color)';
+                    
+                    if (rData.status === 'ACTIVE') {
+                        bg = 'rgba(40,167,69,0.15)';
+                        color = 'var(--poly-green)';
+                        text = `v${rData.active_version}`;
+                    } else if (rData.status === 'HAS_INACTIVE') {
+                        bg = 'rgba(255,152,0,0.1)';
+                        color = '#ff9f43';
+                        text = `Inactive (v${rData.recent_versions[0]})`;
+                    } else {
+                        bg = 'rgba(220,53,69,0.1)';
+                        color = '#ff3366';
+                        text = `Missing`;
+                    }
+                    
+                    html += `<td style="background:${bg}; color:${color}; font-size:0.9rem; text-align:center;">${text}</td>`;
+                }
+                html += `</tr>`;
+            }
+
+            html += `</tbody></table>`;
+            el.innerHTML = html;
         }
 
         function renderModelTable(models, pnlData) {

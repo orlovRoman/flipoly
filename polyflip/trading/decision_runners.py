@@ -969,6 +969,7 @@ async def decide_combined_mode(
         strike_proxy=comb_res.strike_proxy,
         underlying_price=comb_res.underlying_price,
         distance_to_strike_pct=comb_res.distance_to_strike_pct,
+        direction_error_detail=comb_res.direction_error_detail,
 
         final_action=comb_res.action,
         skip_reason=comb_res.reason if comb_res.action == "SKIP" else None,
