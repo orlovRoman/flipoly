@@ -46,6 +46,8 @@ class CombinedEntryResult:
     direction_model_version: Optional[int] = None
     direction_regime: Optional[str] = None
     direction_probability: Optional[float] = None
+    direction_p_up: Optional[float] = None
+    direction_p_down: Optional[float] = None
     direction_value: Optional[str] = None
     entry_requested_key: Optional[str] = None
     entry_model_key: Optional[str] = None
@@ -116,6 +118,8 @@ def evaluate_combined_entry(
             direction_model_version=crypto_sig.model_version if crypto_sig.model_version >= 0 else None,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
             direction_value=dir_val,
             entry_requested_key=entry_requested_key,
             entry_model_key=entry_model_key,
@@ -141,6 +145,8 @@ def evaluate_combined_entry(
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
             direction_value=dir_val,
             entry_requested_key=entry_requested_key,
             entry_model_key=entry_model_key,
@@ -166,6 +172,8 @@ def evaluate_combined_entry(
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
             direction_value=dir_val,
             entry_requested_key=entry_requested_key,
             entry_model_key=entry_model_key,
@@ -191,6 +199,8 @@ def evaluate_combined_entry(
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
             direction_value=dir_val,
             entry_requested_key=entry_requested_key,
             entry_model_key=entry_model_key,
@@ -225,6 +235,8 @@ def evaluate_combined_entry(
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
             direction_value=dir_val,
             entry_requested_key=entry_requested_key,
             entry_model_key=entry_model_key,
@@ -265,6 +277,8 @@ def evaluate_combined_entry(
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
             direction_value=dir_val,
             entry_requested_key=entry_requested_key,
             entry_model_key=entry_model_key,
@@ -294,6 +308,8 @@ def evaluate_combined_entry(
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
             direction_value=dir_val,
             entry_requested_key=entry_requested_key,
             entry_model_key=entry_model_key,
@@ -326,6 +342,8 @@ def evaluate_combined_entry(
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
             direction_value=dir_val,
             entry_requested_key=entry_requested_key,
             entry_model_key=entry_model_key,
@@ -361,6 +379,8 @@ def evaluate_combined_entry(
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
             direction_value=dir_val,
             entry_requested_key=entry_requested_key,
             entry_model_key=entry_model_key,
@@ -398,6 +418,8 @@ def evaluate_combined_entry(
         direction_model_version=crypto_sig.model_version,
         direction_regime=crypto_sig.regime or None,
         direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
         direction_value=dir_val,
         entry_requested_key=entry_requested_key,
         entry_model_key=entry_model_key,

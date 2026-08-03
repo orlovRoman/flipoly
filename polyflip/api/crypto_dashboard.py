@@ -18,7 +18,8 @@ from datetime import datetime, timezone
 import numpy as np
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, Query, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request, Query, HTTPException
+from pydantic import BaseModel
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, update, delete, func, cast, Numeric, text
 from collections import defaultdict
@@ -32,6 +33,7 @@ from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.db.connection import async_session, get_db_session
 from polyflip.db.models import ModelRegistry, TradeHistory, RuntimeSettings
+from polyflip.crypto.predictor import CryptoPredictor
 from polyflip.settings_registry import registry_defaults
 
 logger = structlog.get_logger(__name__)
@@ -219,6 +221,20 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
                 m.trained_at.isoformat() if getattr(m, "trained_at", None) else None
             ),
             "feature_importance": feature_importances.get(m.asset, {}),
+            # Аудит Quality Gate и активации
+            "quality_gate_passed": m.quality_gate_passed,
+            "quality_gate_reasons": m.quality_gate_reasons,
+            "activation_source": m.activation_source,
+            "quality_override": getattr(m, "quality_override", None),
+            "activated_at": (
+                m.activated_at.isoformat() if getattr(m, "activated_at", None) else None
+            ),
+            "activation_reason": getattr(m, "activation_reason", None),
+            # Precision / Recall / F1 / Brier из реестра
+            "precision": round(m.precision_at_threshold, 4) if getattr(m, "precision_at_threshold", None) is not None else None,
+            "recall": round(m.recall_at_threshold, 4) if getattr(m, "recall_at_threshold", None) is not None else None,
+            "f1": round(m.f1_at_threshold, 4) if getattr(m, "f1_at_threshold", None) is not None else None,
+            "brier_score": round(m.brier_score, 4) if getattr(m, "brier_score", None) is not None else None,
         }
 
     result = {
@@ -414,6 +430,25 @@ async def crypto_models_analytics(
             status_code=422,
             detail="requested_mode должен быть PAPER, SHADOW или LIVE",
         )
+
+    # ── Валидация дат (баг #2) ──────────────────────────────────────────────
+    from datetime import timedelta
+    import re as _re
+
+    def _parse_date(s: str, field: str) -> datetime:
+        if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+            raise HTTPException(status_code=422, detail=f"{field}: ожидается формат YYYY-MM-DD")
+        try:
+            return datetime.strptime(s, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"{field}: несуществующая дата '{s}'")
+
+    dt_from = _parse_date(date_from, "date_from") if date_from else None
+    dt_to   = _parse_date(date_to,   "date_to")   if date_to   else None
+    if dt_from and dt_to and dt_from > dt_to:
+        raise HTTPException(status_code=422, detail="date_from не может быть позже date_to")
+    # ────────────────────────────────────────────────────────────────────────
+
     cache_key = f"crypto_model_analytics_{requested_mode}_{date_from}_{date_to}"
     now = time.time()
     if cache_key in _cache:
@@ -436,24 +471,19 @@ async def crypto_models_analytics(
     models = (await db.execute(stmt)).scalars().all()
 
     # Фильтры дат
-    from datetime import timedelta
-    
     params = {"mode": requested_mode}
     date_filter = ""
     veto_date_filter = ""
-    
-    if date_from:
-        date_from_value = datetime.strptime(date_from, "%Y-%m-%d")
-        params["date_from"] = date_from_value
-        date_filter += " AND created_at >= :date_from"
+
+    if dt_from:
+        params["date_from"] = dt_from
+        date_filter     += " AND created_at >= :date_from"
         veto_date_filter += " AND created_at >= :date_from"
-        
-    if date_to:
-        date_to_exclusive = (
-            datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)
-        )
-        params["date_to_exclusive"] = date_to_exclusive
-        date_filter += " AND created_at < :date_to_exclusive"
+
+    if dt_to:
+        dt_to_exclusive = dt_to + timedelta(days=1)
+        params["date_to_exclusive"] = dt_to_exclusive
+        date_filter     += " AND created_at < :date_to_exclusive"
         veto_date_filter += " AND created_at < :date_to_exclusive"
 
     # 2. PRIMARY CTE
@@ -528,28 +558,30 @@ async def crypto_models_analytics(
     primary_rows = (await db.execute(primary_sql, params)).fetchall()
     primary_stats = {(row.model_key, row.model_version): row for row in primary_rows}
 
-    # 3. CONFIRM CTE
-    confirm_sql = text(f"""
+    # 3. DIRECTION CTE
+    direction_sql = text(f"""
         WITH trades AS (
             SELECT 
-                confirm_model_key as model_key,
-                confirm_model_version as model_version,
+                COALESCE(direction_model_key, confirm_model_key) as model_key,
+                COALESCE(direction_model_version, confirm_model_version) as model_version,
                 COALESCE(realized_pnl_usdc, pnl) as pnl,
                 created_at,
                 id
             FROM trade_history
             WHERE mode = :mode
               AND position_status = 'CLOSED'
-              AND confirm_model_key IS NOT NULL
-              AND model_attribution_source IN ('EXACT', 'RECONSTRUCTED')
+              AND COALESCE(direction_model_key, confirm_model_key) IS NOT NULL
               AND COALESCE(realized_pnl_usdc, pnl) IS NOT NULL
               {date_filter}
+        ),
+        unique_trades AS (
+            SELECT DISTINCT id, model_key, model_version, pnl, created_at FROM trades
         ),
         zero_trade AS (
             SELECT DISTINCT model_key, model_version, 0 as pnl, '1970-01-01' as created_at, 0 as id FROM trades
         ),
         all_trades AS (
-            SELECT model_key, model_version, pnl, created_at, id FROM trades
+            SELECT model_key, model_version, pnl, created_at, id FROM unique_trades
             UNION ALL
             SELECT model_key, model_version, pnl, created_at, id FROM zero_trade
         ),
@@ -579,7 +611,7 @@ async def crypto_models_analytics(
                 SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as win_count,
                 SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END) as gross_profit,
                 ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)) as gross_loss
-            FROM trades
+            FROM unique_trades
             GROUP BY model_key, model_version
         ),
         agg_drawdowns AS (
@@ -596,24 +628,29 @@ async def crypto_models_analytics(
         FROM agg_trades t
         LEFT JOIN agg_drawdowns d ON t.model_key = d.model_key AND t.model_version = d.model_version
     """)
-    confirm_rows = (await db.execute(confirm_sql, params)).fetchall()
-    confirm_stats = {(row.model_key, row.model_version): row for row in confirm_rows}
+    direction_rows = (await db.execute(direction_sql, params)).fetchall()
+    direction_stats = {(row.model_key, row.model_version): row for row in direction_rows}
 
     # 3.5 VETO CTE
+    # Используем COUNT(DISTINCT decision_run_id) для дедупликации исторических записей:
+    # старые строки могли иметь дубли ML + COMBINED для одного цикла решения (баг #3)
     veto_params = dict(params)
-    veto_params["decision_mode"] = "PAPER"
+    veto_params["decision_mode"] = requested_mode
 
     veto_sql = text(f"""
-        SELECT 
-            confirm_model_key as model_key,
-            confirm_model_version as model_version,
-            SUM(CASE WHEN confirm_passed = true THEN 1 ELSE 0 END) as confirm_passed_count,
-            SUM(CASE WHEN confirm_passed = false THEN 1 ELSE 0 END) as veto_count
+        SELECT
+            COALESCE(direction_model_key, confirm_model_key) as model_key,
+            COALESCE(direction_model_version, confirm_model_version) as model_version,
+            COUNT(DISTINCT CASE WHEN confirm_passed = true  THEN decision_run_id END) as confirm_passed_count,
+            COUNT(DISTINCT CASE WHEN confirm_passed = false THEN decision_run_id END) as veto_count
         FROM decision_funnel_log
-        WHERE confirm_model_key IS NOT NULL
+        WHERE COALESCE(direction_model_key, confirm_model_key) IS NOT NULL
           AND execution_mode = :decision_mode
+          AND decision_run_id IS NOT NULL
           {veto_date_filter}
-        GROUP BY confirm_model_key, confirm_model_version
+        GROUP BY
+            COALESCE(direction_model_key, confirm_model_key),
+            COALESCE(direction_model_version, confirm_model_version)
     """)
     veto_rows = (await db.execute(veto_sql, veto_params)).fetchall()
     veto_stats = {(row.model_key, row.model_version): row for row in veto_rows}
@@ -623,12 +660,12 @@ async def crypto_models_analytics(
     for m in models:
         key = f"{m.asset}_v{m.version}"
         p = primary_stats.get((m.asset, m.version))
-        c = confirm_stats.get((m.asset, m.version))
+        c = direction_stats.get((m.asset, m.version))
         v = veto_stats.get((m.asset, m.version))
 
         def calc_pf(profit, loss):
             if not profit and not loss: return 0.0
-            if not loss: return None # Infinity equivalent when there's profit but no losses
+            if not loss: return None  # Infinity: прибыль есть, убытков нет
             return round(float(profit) / float(loss), 2)
 
         metrics = {
@@ -637,24 +674,28 @@ async def crypto_models_analytics(
             "total_trades": int(p.total_trades) if p else 0,
             "max_drawdown": round(float(p.max_drawdown), 4) if p and p.max_drawdown is not None else 0.0,
             "profit_factor": calc_pf(p.gross_profit, p.gross_loss) if p else 0.0,
-            
-            "confirmed_pnl": round(float(c.total_pnl), 4) if c else 0.0,
-            "confirmed_win_rate": round(float(c.win_count) / float(c.total_trades) * 100, 1) if c and c.total_trades > 0 else None,
-            "confirmed_trades": int(c.total_trades) if c else 0,
-            "confirmed_max_drawdown": round(float(c.max_drawdown), 4) if c and c.max_drawdown is not None else 0.0,
-            "confirmed_profit_factor": calc_pf(c.gross_profit, c.gross_loss) if c else 0.0,
-            
+
+            "direction_pnl": round(float(c.total_pnl), 4) if c else 0.0,
+            "direction_win_rate": round(float(c.win_count) / float(c.total_trades) * 100, 1) if c and c.total_trades > 0 else None,
+            "direction_trades": int(c.total_trades) if c else 0,
+            "direction_max_drawdown": round(float(c.max_drawdown), 4) if c and c.max_drawdown is not None else 0.0,
+            "direction_profit_factor": calc_pf(c.gross_profit, c.gross_loss) if c else 0.0,
+
             "confirm_passed_count": int(v.confirm_passed_count) if v else 0,
             "veto_count": int(v.veto_count) if v else 0,
-        }
-        
-        metrics.update({
+
+            # Метрики качества из ModelRegistry
             "auc_lift": round(m.accuracy - 0.5, 4) if m.accuracy else None,
-            "precision": round(m.precision_at_threshold, 4) if getattr(m, 'precision_at_threshold', None) is not None else None,
-            "recall": round(m.recall_at_threshold, 4) if getattr(m, 'recall_at_threshold', None) is not None else None,
-            "f1": round(m.f1_at_threshold, 4) if getattr(m, 'f1_at_threshold', None) is not None else None,
-            "brier_score": round(m.brier_score, 4) if getattr(m, 'brier_score', None) is not None else None,
-        })
+            "precision": round(m.precision_at_threshold, 4) if getattr(m, "precision_at_threshold", None) is not None else None,
+            "recall": round(m.recall_at_threshold, 4) if getattr(m, "recall_at_threshold", None) is not None else None,
+            "f1": round(m.f1_at_threshold, 4) if getattr(m, "f1_at_threshold", None) is not None else None,
+            "brier_score": round(m.brier_score, 4) if getattr(m, "brier_score", None) is not None else None,
+
+            # Аудит активации
+            "activation_source": m.activation_source,
+            "quality_gate_passed": m.quality_gate_passed,
+            "quality_override": getattr(m, "quality_override", None),
+        }
 
         result[key] = metrics
 
@@ -662,13 +703,26 @@ async def crypto_models_analytics(
     return result
 
 
+class ActivateModelRequest(BaseModel):
+    force: bool = False
+    reason: str | None = None
+
+
 @router.post(
     "/api/models/{asset}/activate/{version}", dependencies=[Depends(verify_api_key)]
 )
 async def activate_crypto_model(
-    asset: str, version: int, db: AsyncSession = Depends(get_db_session)
+    asset: str,
+    version: int,
+    payload: ActivateModelRequest = Body(default_factory=ActivateModelRequest),
+    db: AsyncSession = Depends(get_db_session),
 ):
-    """Активирует указанную версию крипто-модели, деактивируя остальные."""
+    """
+    Активирует указанную версию крипто-модели, деактивируя остальные.
+
+    Если модель не прошла Quality Gate и force=False → HTTP 409.
+    Если force=True → активация помечается как MANUAL.
+    """
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
         allowed_assets.extend([f"{s}_low_vol", f"{s}_mid_vol", f"{s}_high_vol", s])
@@ -676,24 +730,91 @@ async def activate_crypto_model(
     if asset not in allowed_assets:
         raise HTTPException(status_code=404, detail=f"Актив {asset} не найден")
 
-    # Деактивировать все версии этого актива
+    # 1. Загружаем целевую модель
+    target_stmt = select(ModelRegistry).where(
+        ModelRegistry.asset == asset,
+        ModelRegistry.version == version,
+    )
+    model = (await db.execute(target_stmt)).scalar_one_or_none()
+    if not model:
+        raise HTTPException(status_code=404, detail=f"Версия {version} не найдена")
+
+    # 2. Quality Gate check — только если поле явно False (None = legacy, не блокируем)
+    if model.quality_gate_passed is False and not payload.force:
+        reasons = model.quality_gate_reasons or {}
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "QUALITY_GATE_OVERRIDE_REQUIRED",
+                "message": f"Модель {asset} v{version} не прошла Quality Gate. Передайте force=true для ручной активации.",
+                "metrics": {
+                    "auc": model.accuracy,
+                    "ece": model.ece,
+                    "precision": model.precision_at_threshold,
+                    "recall": model.recall_at_threshold,
+                    "reasons": reasons.get("reasons", []),
+                },
+            },
+        )
+
+    # 3. Запоминаем предыдущую активную версию
+    prev_stmt = select(ModelRegistry).where(
+        ModelRegistry.asset == asset,
+        ModelRegistry.is_active == True,
+    )
+    prev_model = (await db.execute(prev_stmt)).scalar_one_or_none()
+    previous_version = prev_model.version if prev_model else None
+
+    # 4. Атомарная активация
+    # Семантика (баг #4): activation_source показывает КТО активировал,
+    # quality_override показывает, был ли обойдён Quality Gate
+    now = datetime.now(timezone.utc)
+    is_quality_override = bool(payload.force or model.quality_gate_passed is False)
+
     await db.execute(
         update(ModelRegistry)
         .where(ModelRegistry.asset == asset)
         .values(is_active=False)
     )
-    # Активировать нужную версию
-    result = await db.execute(
+    await db.execute(
         update(ModelRegistry)
         .where(ModelRegistry.asset == asset, ModelRegistry.version == version)
-        .values(is_active=True)
+        .values(
+            is_active=True,
+            activation_source="DASHBOARD",
+            quality_override=is_quality_override,
+            activated_at=now,
+            activated_by="dashboard",
+            activation_reason=payload.reason,
+        )
     )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail=f"Версия {version} не найдена")
-
     await db.commit()
-    _cache.clear()  # сбросить весь кэш
-    return {"status": "success", "asset": asset, "version": version}
+
+    # 5. Инвалидируем кэш предиктора (в рамках того же процесса API)
+    symbol = asset.split("_")[0]
+    try:
+        CryptoPredictor.invalidate_all(symbol)
+        logger.info("predictor_cache_invalidated_after_manual_activation", asset=asset, version=version)
+    except Exception as exc:
+        logger.warning("predictor_invalidate_failed", error=str(exc))
+
+    _cache.clear()
+
+    # 6. Формируем ответ
+    response: dict = {
+        "status": "success",
+        "asset": asset,
+        "active_version": version,
+        "previous_version": previous_version,
+        "activation_source": "DASHBOARD",
+        "quality_gate_passed": model.quality_gate_passed,
+        "quality_override": is_quality_override,
+    }
+    if is_quality_override:
+        response["warning"] = (
+            f"Модель {asset} v{version} активирована через DASHBOARD с обходом Quality Gate."
+        )
+    return response
 
 
 @router.delete("/api/models/{asset}/{version}", dependencies=[Depends(verify_api_key)])

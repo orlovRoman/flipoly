@@ -82,9 +82,25 @@ class ModelRegistry(Base):
     dataset_fingerprint = Column(String(32), nullable=True)
     trained_at = Column(DateTime(timezone=True), nullable=False)
 
+    # --- Quality Gate ---
+    # Результат автоматической проверки качества при обучении
+    quality_gate_passed = Column(Boolean, nullable=True)
+    # Детали провала: {"auc": 0.49, "ece": 0.21, "reasons": [...]}
+    quality_gate_reasons = Column(JSON, nullable=True)
+
+    # --- Activation Audit ---
+    # TRAINER = активирована автоматически после обучения; DASHBOARD = активирована вручную из дашборда
+    # quality_override = True означает, что Quality Gate был обойдён принудительно
+    activation_source = Column(String(16), nullable=True)
+    quality_override = Column(Boolean, nullable=True, default=False)
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    activated_by = Column(String(128), nullable=True)
+    activation_reason = Column(Text, nullable=True)
+
     __table_args__ = (
         Index("idx_model_registry_asset_active", "asset", "is_active"),
     )
+
 
 
 
@@ -378,9 +394,12 @@ class DecisionFunnelLog(Base):
     decision_run_id = Column(String(64), nullable=True)
     direction_model_key = Column(String(64), nullable=True)
     direction_model_version = Column(Integer, nullable=True)
+    required_direction_model_key = Column(String(64), nullable=True)
     direction_regime = Column(String(32), nullable=True)
     direction_status = Column(String(32), nullable=True)
     direction_probability = Column(Float, nullable=True)
+    direction_p_up = Column(Float, nullable=True)
+    direction_p_down = Column(Float, nullable=True)
     direction_value = Column(String(16), nullable=True)
 
     entry_requested_key = Column(String(64), nullable=True)
