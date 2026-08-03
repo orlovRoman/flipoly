@@ -162,63 +162,37 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     db_settings = {r.key: r.value for r in set_rows}
 
     defs = registry_defaults()
+
+    def _safe_int(key, default):
+        val = db_settings.get(key, defs.get(key, default))
+        if val == "None" or val is None:
+            return int(default)
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return int(default)
+
+    def _safe_float(key, default):
+        val = db_settings.get(key, defs.get(key, default))
+        if val == "None" or val is None:
+            return float(default)
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return float(default)
+
     active_settings = {
-        "n_estimators": int(
-            db_settings.get(
-                "CRYPTO_LGBM_N_ESTIMATORS", defs.get("CRYPTO_LGBM_N_ESTIMATORS", "300")
-            )
-        ),
-        "learning_rate": float(
-            db_settings.get(
-                "CRYPTO_LGBM_LEARNING_RATE",
-                defs.get("CRYPTO_LGBM_LEARNING_RATE", "0.05"),
-            )
-        ),
-        "num_leaves": int(
-            db_settings.get(
-                "CRYPTO_LGBM_NUM_LEAVES", defs.get("CRYPTO_LGBM_NUM_LEAVES", "31")
-            )
-        ),
-        "max_depth": int(
-            db_settings.get(
-                "CRYPTO_LGBM_MAX_DEPTH", defs.get("CRYPTO_LGBM_MAX_DEPTH", "5")
-            )
-        ),
-        "min_child_samples": int(
-            db_settings.get(
-                "CRYPTO_LGBM_MIN_CHILD_SAMPLES",
-                defs.get("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20"),
-            )
-        ),
-        "subsample": float(
-            db_settings.get(
-                "CRYPTO_LGBM_SUBSAMPLE", defs.get("CRYPTO_LGBM_SUBSAMPLE", "0.8")
-            )
-        ),
-        "colsample_bytree": float(
-            db_settings.get(
-                "CRYPTO_LGBM_COLSAMPLE_BYTREE",
-                defs.get("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8"),
-            )
-        ),
-        "reg_alpha": float(
-            db_settings.get(
-                "CRYPTO_LGBM_REG_ALPHA", defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1")
-            )
-        ),
-        "reg_lambda": float(
-            db_settings.get(
-                "CRYPTO_LGBM_REG_LAMBDA", defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0")
-            )
-        ),
-        "min_edge": float(
-            db_settings.get("BACKTEST_MIN_EDGE", defs.get("BACKTEST_MIN_EDGE", "0.04"))
-        ),
-        "epsilon_quantile": float(
-            db_settings.get(
-                "LGBM_EPSILON_QUANTILE", defs.get("LGBM_EPSILON_QUANTILE", "0.6")
-            )
-        ),
+        "n_estimators": _safe_int("CRYPTO_LGBM_N_ESTIMATORS", "300"),
+        "learning_rate": _safe_float("CRYPTO_LGBM_LEARNING_RATE", "0.05"),
+        "num_leaves": _safe_int("CRYPTO_LGBM_NUM_LEAVES", "31"),
+        "max_depth": _safe_int("CRYPTO_LGBM_MAX_DEPTH", "5"),
+        "min_child_samples": _safe_int("CRYPTO_LGBM_MIN_CHILD_SAMPLES", "20"),
+        "subsample": _safe_float("CRYPTO_LGBM_SUBSAMPLE", "0.8"),
+        "colsample_bytree": _safe_float("CRYPTO_LGBM_COLSAMPLE_BYTREE", "0.8"),
+        "reg_alpha": _safe_float("CRYPTO_LGBM_REG_ALPHA", "0.1"),
+        "reg_lambda": _safe_float("CRYPTO_LGBM_REG_LAMBDA", "1.0"),
+        "min_edge": _safe_float("BACKTEST_MIN_EDGE", "0.04"),
+        "epsilon_quantile": _safe_float("LGBM_EPSILON_QUANTILE", "0.6"),
     }
 
     models_info = {}
