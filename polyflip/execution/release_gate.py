@@ -216,10 +216,60 @@ async def release_candidate_by_id(
     api_client: Any = None,
 ) -> bool:
     """
-    Блокирует кандидата с помощью advisory_xact_lock и FOR UPDATE, проверяет состояние и выпускает.
+    Получает snapshot кандидата без блокировки, запрашивает котировки вне блокировки,
+    повторно берет FOR UPDATE, проверяет актуальность и выпускает.
     """
     from sqlalchemy import text
+    from polyflip.db.models import LiveMarket
 
+    # 1. Получаем snapshot кандидата
+    candidate_snap = await session.scalar(
+        select(LiveMirrorCandidate).where(LiveMirrorCandidate.id == candidate_id)
+    )
+    if candidate_snap is None or candidate_snap.state not in ("NEW", "ELIGIBLE"):
+        return False
+        
+    paper_req = await session.scalar(
+        select(ExecutionRequest).where(ExecutionRequest.id == candidate_snap.source_paper_request_id)
+    )
+    
+    # 2. Получаем котировку вне блокировки
+    fresh_prices = None
+    if target_mode == "LIVE" and paper_req:
+        if api_client is None:
+            try:
+                from polyflip.collector.client import PolymarketClient
+                api_client = PolymarketClient()
+            except Exception as e:
+                logger.error(f"Failed to init PolymarketClient: {e}")
+
+        if api_client:
+            market = await session.scalar(
+            select(LiveMarket).where(LiveMarket.market_id == paper_req.market_id)
+        )
+        print(f"!!! MARKET IN DB: {market} FOR MARKET_ID: {paper_req.market_id}")
+        if market:
+            token_id = market.yes_token_id if paper_req.outcome_to_buy == "YES" else market.no_token_id
+            print(f"!!! TOKEN ID: {token_id}")
+            for attempt in range(2):
+                try:
+                    import asyncio
+                    prices = await asyncio.wait_for(api_client.get_market_prices(token_id), timeout=3.0)
+                    print(f"!!! GET_MARKET_PRICES RETURNED: {prices}")
+                    if prices and prices.get("best_ask") is not None:
+                        fresh_prices = prices
+                        break
+                except Exception as e:
+                    print(f"!!! EXCEPTION IN API_CLIENT: {repr(e)}")
+                    logger.warning(f"Error fetching quote outside lock for {token_id}: {e}")
+                if attempt == 0:
+                    import asyncio
+                    await asyncio.sleep(1.0)
+                    
+    # Закрываем транзакцию чтения, чтобы блокировки pg_advisory_xact_lock взялись в новой
+    await session.commit()
+
+    # 3. Берем блокировки
     conn = await session.connection()
     if conn.dialect.name == "postgresql":
         await session.execute(
@@ -236,8 +286,12 @@ async def release_candidate_by_id(
 
     if candidate is None or candidate.state not in ("NEW", "ELIGIBLE"):
         return False
+        
+    if candidate.signal_hash != candidate_snap.signal_hash:
+        logger.info(f"Candidate {candidate_id} changed signal_hash during API call")
+        return False
 
-    return await _release_one_locked(session, candidate, target_mode, api_client)
+    return await _release_one_locked(session, candidate, target_mode, api_client, fresh_prices)
 
 
 async def _release_one_locked(
@@ -245,6 +299,7 @@ async def _release_one_locked(
     candidate: LiveMirrorCandidate,
     target_mode: str,
     api_client: Any = None,
+    fresh_prices: dict | None = None,
 ) -> bool:
     """
     Валидирует и атомарно выпускает заблокированного кандидата.
@@ -292,7 +347,7 @@ async def _release_one_locked(
     # 2. Валидация выпуска
     try:
         release_plan = await validate_live_release(
-            session, candidate, paper_request, paper_trade, target_mode, api_client
+            session, candidate, paper_request, paper_trade, target_mode, api_client, fresh_prices
         )
     except ReleaseDeferred as e:
         logger.info("Deferred release for candidate %s: %s", candidate.id, e)
@@ -394,6 +449,7 @@ async def validate_live_release(
     paper_trade: TradeHistory,
     target_mode: str,
     api_client: Any = None,
+    fresh_prices: dict | None = None,
 ) -> LiveReleasePlan | Decimal:
     """
     Проверяет, можно ли сейчас выпустить кандидата в LIVE-исполнение (или SHADOW).
@@ -462,45 +518,14 @@ async def validate_live_release(
             )
 
     # 4.3 Проверка свежего стакана и edge (через Polymarket API)
-    if api_client is None:
-        raise ReleaseDeferred("API client is required for quote verification")
-        
-    from polyflip.db.models import LiveMarket
-    market = await session.scalar(
-        select(LiveMarket).where(LiveMarket.market_id == paper_request.market_id)
-    )
-    if not market:
-        raise ReleaseRejected(f"Market {paper_request.market_id} not found in DB")
-        
-    token_id = market.yes_token_id if paper_request.outcome_to_buy == "YES" else market.no_token_id
-    
-    fresh_prices = None
-    last_error = ""
-    # 2 retry attempts with timeouts
-    for attempt in range(2):
-        try:
-            # We assume api_client.get_market_prices is resilient, but we enforce our own timeout
-            prices = await asyncio.wait_for(api_client.get_market_prices(token_id), timeout=3.0)
-            if prices and prices.get("best_ask") is not None:
-                fresh_prices = prices
-                break
-            else:
-                last_error = "Missing best_ask in response"
-        except asyncio.TimeoutError:
-            last_error = "Timeout fetching prices"
-            logger.warning(f"Timeout fetching quote for {token_id} (attempt {attempt+1}/2)")
-        except Exception as e:
-            last_error = str(e)
-            logger.warning(f"Error fetching quote for {token_id} (attempt {attempt+1}/2): {e}")
-            
-        if attempt < 1:
-            await asyncio.sleep(1.0)
-            
-    if not fresh_prices or fresh_prices.get("best_ask") is None:
-        logger.warning(f"POLYMARKET_QUOTE_UNAVAILABLE for {token_id}: {last_error}")
-        raise ReleaseDeferred(f"RELEASE_QUOTE_UNAVAILABLE: {last_error}")
+    # Если цены не были предзагружены вне блокировки (fresh_prices = None),
+    # откладываем заявку, чтобы не делать долгих блокирующих запросов.
+    if target_mode == "LIVE":
+        if not fresh_prices or fresh_prices.get("best_ask") is None:
+            logger.warning(f"POLYMARKET_QUOTE_UNAVAILABLE for {paper_request.market_id}: fetched outside lock failed")
+            raise ReleaseDeferred(f"RELEASE_QUOTE_UNAVAILABLE: no prices fetched")
 
-    release_entry_price = float(fresh_prices["best_ask"])
+        release_entry_price = float(fresh_prices["best_ask"])
     release_net_edge = None
     
     if "COMBINED" in active_features:
@@ -673,11 +698,6 @@ def _build_live_trade(
             release_plan.release_net_edge 
             if isinstance(release_plan, LiveReleasePlan) and release_plan.release_net_edge is not None
             else paper_trade.net_edge
-        ),
-        candidate_ask=(
-            release_plan.release_entry_price
-            if isinstance(release_plan, LiveReleasePlan) and release_plan.release_entry_price is not None
-            else paper_trade.candidate_ask
         ),
         market_role=paper_trade.market_role,
         strategy_type=paper_trade.strategy_type,

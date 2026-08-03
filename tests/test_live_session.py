@@ -676,8 +676,12 @@ async def test_readiness_persists_success_with_single_probe(db_session):
 
 
 @pytest.mark.asyncio
+@patch("polyflip.collector.client.PolymarketClient")
 @patch("polyflip.execution.worker.build_execution_gateway")
-async def test_fak_no_liquidity_releases_reservation(mock_build_gateway, db_session):
+async def test_fak_no_liquidity_releases_reservation(mock_build_gateway, mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    from unittest.mock import AsyncMock
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     from polyflip.execution.worker import process_ready_requests
     from polyflip.execution.contracts import GatewayOrderRejected
     from polyflip.db.execution_models import ExecutionRequest, ExposureReservation
@@ -775,8 +779,12 @@ async def test_fak_no_liquidity_releases_reservation(mock_build_gateway, db_sess
 
 
 @pytest.mark.asyncio
+@patch("polyflip.collector.client.PolymarketClient")
 @patch("polyflip.execution.worker.build_execution_gateway")
-async def test_reconcile_matched_order_fetches_fills_before_get_order(mock_build_gateway, db_session):
+async def test_reconcile_matched_order_fetches_fills_before_get_order(mock_build_gateway, mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    from unittest.mock import AsyncMock
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     from polyflip.execution.worker import reconcile_active_requests
     from polyflip.db.execution_models import ExecutionRequest, ExecutionAttempt
     from polyflip.db.models import LiveMarket
@@ -838,8 +846,12 @@ async def test_reconcile_matched_order_fetches_fills_before_get_order(mock_build
     assert req.filled_shares == Decimal("10")
     
 @pytest.mark.asyncio
+@patch("polyflip.collector.client.PolymarketClient")
 @patch("polyflip.execution.worker.build_execution_gateway")
-async def test_reconcile_recovers_when_get_order_schema_is_invalid(mock_build_gateway, db_session):
+async def test_reconcile_recovers_when_get_order_schema_is_invalid(mock_build_gateway, mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    from unittest.mock import AsyncMock
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     from polyflip.execution.worker import reconcile_active_requests
     from polyflip.db.execution_models import ExecutionRequest, ExecutionAttempt
     from polyflip.db.models import LiveMarket, TradeHistory
@@ -901,8 +913,12 @@ async def test_reconcile_recovers_when_get_order_schema_is_invalid(mock_build_ga
     assert req.filled_shares == Decimal("10")
     
 @pytest.mark.asyncio
+@patch("polyflip.collector.client.PolymarketClient")
 @patch("polyflip.execution.worker.build_execution_gateway")
-async def test_fak_no_liquidity_becomes_rejected_no_fill(mock_build_gateway, db_session):
+async def test_fak_no_liquidity_becomes_rejected_no_fill(mock_build_gateway, mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    from unittest.mock import AsyncMock
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     from polyflip.execution.worker import process_ready_requests
     from polyflip.execution.contracts import GatewayOrderRejected
     from polyflip.db.execution_models import ExecutionRequest, ExposureReservation

@@ -1,3 +1,4 @@
+from unittest.mock import patch, AsyncMock
 """
 tests/test_release_gate.py — Тесты Этапа 8: release_gate
 
@@ -52,6 +53,25 @@ async def _set_release_mode(session, mode: str) -> None:
 
 
 async def _make_paper_trade(session, market_id="MKT-TEST"):
+    from polyflip.db.models import LiveMarket
+    now = datetime.now(timezone.utc)
+    # Ensure LiveMarket exists for this market_id
+    existing_market = await session.scalar(select(LiveMarket).where(LiveMarket.market_id == market_id))
+    if not existing_market:
+        session.add(
+            LiveMarket(
+                market_id=market_id,
+                asset="BTC",
+                question="Test question",
+                yes_token_id=f"token-yes-{market_id}",
+                no_token_id=f"token-no-{market_id}",
+                end_time_est=now + timedelta(hours=24),
+                current_yes_price=0.5,
+                current_no_price=0.5,
+                current_spread=0.01,
+                last_updated=now,
+            )
+        )
     t = TradeHistory(
         market_id=market_id,
         asset="BTC",
@@ -133,7 +153,10 @@ async def _make_candidate(
 
 
 @pytest.mark.asyncio
-async def test_release_mode_disabled_releases_nothing(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_mode_disabled_releases_nothing(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """При LIVE_RELEASE_MODE=DISABLED ничего не выпускается."""
     await _set_release_mode(db_session, "DISABLED")
     trade = await _make_paper_trade(db_session)
@@ -145,7 +168,10 @@ async def test_release_mode_disabled_releases_nothing(db_session):
 
 
 @pytest.mark.asyncio
-async def test_release_batch_auto_releases_eligible(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_batch_auto_releases_eligible(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """При AUTO release_gate выпускает ELIGIBLE кандидата."""
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
@@ -163,7 +189,10 @@ async def test_release_batch_auto_releases_eligible(db_session):
 
 
 @pytest.mark.asyncio
-async def test_release_batch_auto_releases_new(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_batch_auto_releases_new(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """При AUTO release_gate выпускает и NEW-кандидатов."""
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
@@ -178,7 +207,10 @@ async def test_release_batch_auto_releases_new(db_session):
 
 
 @pytest.mark.asyncio
-async def test_release_batch_manual_skips_new(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_batch_manual_skips_new(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """При MANUAL release_gate НЕ выпускает NEW-кандидатов."""
     await _set_release_mode(db_session, "MANUAL")
     trade = await _make_paper_trade(db_session)
@@ -193,7 +225,10 @@ async def test_release_batch_manual_skips_new(db_session):
 
 
 @pytest.mark.asyncio
-async def test_release_creates_live_trade_and_request(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_creates_live_trade_and_request(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """release_gate создаёт TradeHistory(mode=SHADOW) и ExecutionRequest(mode=SHADOW, state=READY)."""
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
@@ -224,7 +259,10 @@ async def test_release_creates_live_trade_and_request(db_session):
 
 
 @pytest.mark.asyncio
-async def test_release_paper_rows_unchanged(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_paper_rows_unchanged(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """PAPER-строки после release_batch не изменяются."""
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
@@ -247,7 +285,10 @@ async def test_release_paper_rows_unchanged(db_session):
 
 
 @pytest.mark.asyncio
-async def test_release_batch_idempotent(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_batch_idempotent(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """Повторный release_batch не создаёт дублей (RELEASED не попадает в выборку)."""
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
@@ -269,7 +310,10 @@ async def test_release_batch_idempotent(db_session):
 
 
 @pytest.mark.asyncio
-async def test_release_no_new_paper_rows_created(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_no_new_paper_rows_created(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """release_batch не создаёт PAPER-строк."""
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
@@ -294,7 +338,10 @@ async def test_release_no_new_paper_rows_created(db_session):
 
 
 @pytest.mark.asyncio
-async def test_get_release_mode_default_disabled(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_get_release_mode_default_disabled(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """Без записи в RuntimeSettings release mode = DISABLED."""
     mode = await _get_release_mode(db_session)
     assert mode == "DISABLED"
@@ -320,7 +367,10 @@ async def test_release_deferred_keeps_candidate_eligible_when_kill_switch_off(
 
 
 @pytest.mark.asyncio
-async def test_release_rejected_when_signal_too_old(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_rejected_when_signal_too_old(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """Когда PAPER-сигнал старше 30 секунд, кандидат забраковывается (state=REJECTED)."""
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
@@ -344,7 +394,10 @@ async def test_release_rejected_when_signal_too_old(db_session):
 
 
 @pytest.mark.asyncio
-async def test_release_sets_expires_at_and_ttl(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_sets_expires_at_and_ttl(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """Создаваемая LIVE-заявка обязана иметь ttl_seconds <= 30 и заполненный expires_at."""
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
@@ -366,7 +419,10 @@ async def test_release_sets_expires_at_and_ttl(db_session):
 
 
 @pytest.mark.asyncio
-async def test_release_creates_exposure_reservation(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_release_creates_exposure_reservation(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """При выпуске кандидата атомарно создаётся ExposureReservation."""
     from polyflip.db.execution_models import ExposureReservation
 
@@ -395,7 +451,10 @@ async def test_release_creates_exposure_reservation(db_session):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_release_respects_total_exposure(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_concurrent_release_respects_total_exposure(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """
     Проверяет, что при установленном лимите MAX_TOTAL_EXPOSURE_USDC=1.0
     повторный выпуск кандидатов блокируется лимитом экспозиции.
@@ -449,7 +508,10 @@ async def test_concurrent_release_respects_total_exposure(db_session):
 
 @pytest.mark.postgres
 @pytest.mark.asyncio
-async def test_two_release_gates_cannot_exceed_total_exposure(pg_session_factory):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_two_release_gates_cannot_exceed_total_exposure(mock_client_class, pg_session_factory):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """
     PostgreSQL тест: гарантирует, что 2 конкурентных Release Gate не превысят лимит экспозиции.
     """
@@ -544,7 +606,10 @@ async def test_two_release_gates_cannot_exceed_total_exposure(pg_session_factory
     assert res_sum == Decimal("4.0")
 
 @pytest.mark.asyncio
-async def test_one_dollar_paper_becomes_1_10_live(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_one_dollar_paper_becomes_1_10_live(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     """PAPER заявка на 1.00 USDC превращается в LIVE на 1.10 USDC."""
     from polyflip.execution.release_gate import release_candidate_by_id
     from polyflip.db.execution_models import LiveTradingSession, ExposureReservation, ExecutionWorkerStatus
@@ -630,10 +695,12 @@ async def test_one_dollar_paper_becomes_1_10_live(db_session):
 
 
 @pytest.mark.asyncio
-async def test_quote_unavailable_is_deferred(db_session):
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_quote_unavailable_is_deferred(mock_client_class, db_session):
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
     from polyflip.execution.release_gate import release_candidate_by_id
     from polyflip.db.models import RuntimeSettings, LiveMarket
-    from unittest.mock import AsyncMock
 
     now = datetime.now(timezone.utc)
     

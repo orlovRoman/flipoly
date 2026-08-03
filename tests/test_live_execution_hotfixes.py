@@ -482,7 +482,7 @@ async def test_minimum_live_order_amount_validation():
     ) as mock_risk:
         mock_risk.return_value = None
         plan = await validate_live_release(
-            db_session, candidate, paper_req, paper_trade, "LIVE"
+            db_session, candidate, paper_req, paper_trade, "LIVE", fresh_prices={"best_ask": 0.5}
         )
         assert plan.order_amount_usdc == Decimal("1.10")
 

@@ -201,13 +201,9 @@ async def mirror_batch(session: AsyncSession) -> int:
                     else paper_trade.p_win_effective
                 ),
                 decision_ask=(
-                    paper_trade.candidate_ask
-                    if paper_trade.candidate_ask is not None
-                    else (
-                        float(paper_request.limit_price)
-                        if paper_request.limit_price is not None
-                        else None
-                    )
+                    float(paper_request.limit_price)
+                    if paper_request.limit_price is not None
+                    else None
                 ),
                 decision_net_edge=(
                     paper_trade.net_edge
