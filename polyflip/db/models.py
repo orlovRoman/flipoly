@@ -378,9 +378,12 @@ class DecisionFunnelLog(Base):
     decision_run_id = Column(String(64), nullable=True)
     direction_model_key = Column(String(64), nullable=True)
     direction_model_version = Column(Integer, nullable=True)
+    required_direction_model_key = Column(String(64), nullable=True)
     direction_regime = Column(String(32), nullable=True)
     direction_status = Column(String(32), nullable=True)
     direction_probability = Column(Float, nullable=True)
+    direction_p_up = Column(Float, nullable=True)
+    direction_p_down = Column(Float, nullable=True)
     direction_value = Column(String(16), nullable=True)
 
     entry_requested_key = Column(String(64), nullable=True)
