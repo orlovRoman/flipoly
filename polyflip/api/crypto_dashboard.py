@@ -80,7 +80,13 @@ async def crypto_page(request: Request):
             },
         },
     )
-
+def round_optional(value, digits=4):
+    if value is None:
+        return None
+    try:
+        return round(float(value), digits)
+    except (TypeError, ValueError):
+        return None
 
 @router.get("/api/status", dependencies=[Depends(verify_api_key)])
 async def crypto_status(db: AsyncSession = Depends(get_db_session)):
@@ -111,9 +117,19 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     thr_keys = [f"CRYPTO_THRESHOLD_{a}" for a in allowed_assets]
     thr_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(thr_keys))
     thr_rows = (await db.execute(thr_stmt)).scalars().all()
-    thresholds = {
-        r.key.replace("CRYPTO_THRESHOLD_", ""): float(r.value) for r in thr_rows
-    }
+    
+    thresholds = {}
+    for row in thr_rows:
+        asset = row.key.replace("CRYPTO_THRESHOLD_", "")
+        try:
+            thresholds[asset] = float(row.value)
+        except (TypeError, ValueError):
+            logger.warning(
+                "invalid_crypto_threshold",
+                key=row.key,
+                value=row.value,
+            )
+            thresholds[asset] = None
 
     # Важность признаков из RuntimeSettings
     fi_keys = [f"CRYPTO_FI_{a}" for a in allowed_assets]
@@ -208,34 +224,37 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     models_info = {}
     for m in rows:
         key = f"{m.asset}_v{m.version}"
-        models_info[key] = {
-            "asset": m.asset,
-            "version": m.version,
-            "is_active": m.is_active,
-            "auc": round(m.accuracy, 4),
-            "baseline": round(m.baseline, 4),
-            "ece": round(m.ece, 4) if getattr(m, "ece", None) else None,
-            "threshold": thresholds.get(m.asset),
-            "features": m.features.split(",") if getattr(m, "features", None) else [],
-            "trained_at": (
-                m.trained_at.isoformat() if getattr(m, "trained_at", None) else None
-            ),
-            "feature_importance": feature_importances.get(m.asset, {}),
-            # Аудит Quality Gate и активации
-            "quality_gate_passed": m.quality_gate_passed,
-            "quality_gate_reasons": m.quality_gate_reasons,
-            "activation_source": m.activation_source,
-            "quality_override": getattr(m, "quality_override", None),
-            "activated_at": (
-                m.activated_at.isoformat() if getattr(m, "activated_at", None) else None
-            ),
-            "activation_reason": getattr(m, "activation_reason", None),
-            # Precision / Recall / F1 / Brier из реестра
-            "precision": round(m.precision_at_threshold, 4) if getattr(m, "precision_at_threshold", None) is not None else None,
-            "recall": round(m.recall_at_threshold, 4) if getattr(m, "recall_at_threshold", None) is not None else None,
-            "f1": round(m.f1_at_threshold, 4) if getattr(m, "f1_at_threshold", None) is not None else None,
-            "brier_score": round(m.brier_score, 4) if getattr(m, "brier_score", None) is not None else None,
-        }
+        try:
+            models_info[key] = {
+                "asset": m.asset,
+                "version": m.version,
+                "is_active": m.is_active,
+                "auc": round_optional(m.accuracy),
+                "baseline": round_optional(m.baseline),
+                "ece": round_optional(m.ece) if getattr(m, "ece", None) else None,
+                "threshold": thresholds.get(m.asset),
+                "features": m.features.split(",") if getattr(m, "features", None) else [],
+                "trained_at": (
+                    m.trained_at.isoformat() if getattr(m, "trained_at", None) else None
+                ),
+                "feature_importance": feature_importances.get(m.asset, {}),
+                # Аудит Quality Gate и активации
+                "quality_gate_passed": m.quality_gate_passed,
+                "quality_gate_reasons": m.quality_gate_reasons,
+                "activation_source": m.activation_source,
+                "quality_override": getattr(m, "quality_override", None),
+                "activated_at": (
+                    m.activated_at.isoformat() if getattr(m, "activated_at", None) else None
+                ),
+                "activation_reason": getattr(m, "activation_reason", None),
+                # Precision / Recall / F1 / Brier из реестра
+                "precision": round_optional(m.precision_at_threshold) if getattr(m, "precision_at_threshold", None) is not None else None,
+                "recall": round_optional(m.recall_at_threshold) if getattr(m, "recall_at_threshold", None) is not None else None,
+                "f1": round_optional(m.f1_at_threshold) if getattr(m, "f1_at_threshold", None) is not None else None,
+                "brier_score": round_optional(m.brier_score) if getattr(m, "brier_score", None) is not None else None,
+            }
+        except Exception as e:
+            logger.error("crypto_status_model_parse_error", key=key, error=str(e))
 
     result = {
         "models": models_info,
