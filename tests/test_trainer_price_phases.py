@@ -178,6 +178,8 @@ async def test_phase_error_reflected_in_status_messages(db_session):
     [
         (True, "Успешно обучено (AUC: 0.65) | Фазы: [contested: ok, leaning: ok, decided: ok]", "success"),
         (True, "Успешно обучено (AUC: 0.65) | Фазы: [contested: ok, leaning: failed: error]", "partial"),
+        (True, "Фазы: [contested: skipped (20 samples)]", "partial"),
+        (True, "Фазы: [decided: auc_too_low (0.490)]", "partial"),
         (False, "Недостаточно данных", "error"),
     ],
 )

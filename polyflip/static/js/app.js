@@ -555,7 +555,14 @@ document.addEventListener("DOMContentLoaded", () => {
         btnEl.disabled = false;
         
         // Системное push-уведомление
-        const title = data.status === "success" ? `✅ Обучение ${asset} завершено` : `❌ Ошибка обучения ${asset}`;
+        let title;
+        if (data.status === "success") {
+          title = `✅ Обучение ${asset} завершено`;
+        } else if (data.status === "partial") {
+          title = `⚠️ ${asset}: обучены не все варианты`;
+        } else {
+          title = `❌ Ошибка обучения ${asset}`;
+        }
         showNotification(title, data.message);
         
         alert(data.message);

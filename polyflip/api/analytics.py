@@ -451,9 +451,15 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks, db: As
                 
                 logger.info("train_single_asset_completed", asset=asset, status=msg)
 
+                partial_markers = (
+                    "failed:",
+                    "skipped",
+                    "auc_too_low",
+                )
+
                 if not training_ok:
                     final_status = "error"
-                elif "failed:" in msg:
+                elif any(marker in msg for marker in partial_markers):
                     final_status = "partial"
                 else:
                     final_status = "success"
