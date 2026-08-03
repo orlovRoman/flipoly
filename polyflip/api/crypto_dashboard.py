@@ -105,13 +105,30 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         allowed_assets.extend([f"{s}_low_vol", f"{s}_mid_vol", f"{s}_high_vol", s])
 
     stmt = (
-        select(ModelRegistry)
-        .where(
-            ModelRegistry.asset.in_(allowed_assets),
+        select(
+            ModelRegistry.asset,
+            ModelRegistry.version,
+            ModelRegistry.is_active,
+            ModelRegistry.accuracy,
+            ModelRegistry.baseline,
+            ModelRegistry.ece,
+            ModelRegistry.features,
+            ModelRegistry.trained_at,
+            ModelRegistry.quality_gate_passed,
+            ModelRegistry.quality_gate_reasons,
+            ModelRegistry.activation_source,
+            ModelRegistry.quality_override,
+            ModelRegistry.activated_at,
+            ModelRegistry.activation_reason,
+            ModelRegistry.precision_at_threshold,
+            ModelRegistry.recall_at_threshold,
+            ModelRegistry.f1_at_threshold,
+            ModelRegistry.brier_score,
         )
+        .where(ModelRegistry.asset.in_(allowed_assets))
         .order_by(ModelRegistry.asset, ModelRegistry.version.desc())
     )
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(stmt)).all()
 
     # Пороги из RuntimeSettings
     thr_keys = [f"CRYPTO_THRESHOLD_{a}" for a in allowed_assets]
@@ -427,24 +444,32 @@ async def crypto_models_coverage(db: AsyncSession = Depends(get_db_session)):
     regimes = ["low_vol", "mid_vol", "high_vol"]
     result = {}
 
+    allowed_assets = [f"{sym.upper()}_{regime}" for sym in CRYPTO_SYMBOLS for regime in regimes]
+    stmt = (
+        select(
+            ModelRegistry.asset,
+            ModelRegistry.version,
+            ModelRegistry.is_active,
+            ModelRegistry.trained_at,
+            ModelRegistry.quality_gate_passed,
+            ModelRegistry.activation_source,
+        )
+        .where(ModelRegistry.asset.in_(allowed_assets))
+        .order_by(ModelRegistry.asset, ModelRegistry.version.desc())
+    )
+    all_rows = (await db.execute(stmt)).all()
+
+    asset_groups = {}
+    for r in all_rows:
+        asset_groups.setdefault(r.asset, []).append(r)
+
     for sym in CRYPTO_SYMBOLS:
         sym_upper = sym.upper()
         result[sym_upper] = {}
         for regime in regimes:
             asset_key = f"{sym_upper}_{regime}"
-            stmt = (
-                select(
-                    ModelRegistry.version,
-                    ModelRegistry.is_active,
-                    ModelRegistry.trained_at,
-                    ModelRegistry.quality_gate_passed,
-                    ModelRegistry.activation_source,
-                )
-                .where(ModelRegistry.asset == asset_key)
-                .order_by(ModelRegistry.version.desc())
-                .limit(3)
-            )
-            rows = (await db.execute(stmt)).fetchall()
+            rows = asset_groups.get(asset_key, [])[:3]
+            
             active_row = next((r for r in rows if r.is_active), None)
             all_versions = [r.version for r in rows]
 
@@ -511,13 +536,22 @@ async def crypto_models_analytics(
 
     # 1. Запрашиваем модели
     stmt = (
-        select(ModelRegistry)
-        .where(
-            ModelRegistry.asset.in_(allowed_assets),
+        select(
+            ModelRegistry.asset,
+            ModelRegistry.version,
+            ModelRegistry.accuracy,
+            ModelRegistry.precision_at_threshold,
+            ModelRegistry.recall_at_threshold,
+            ModelRegistry.f1_at_threshold,
+            ModelRegistry.brier_score,
+            ModelRegistry.activation_source,
+            ModelRegistry.quality_gate_passed,
+            ModelRegistry.quality_override,
         )
+        .where(ModelRegistry.asset.in_(allowed_assets))
         .order_by(ModelRegistry.asset, ModelRegistry.version.desc())
     )
-    models = (await db.execute(stmt)).scalars().all()
+    models = (await db.execute(stmt)).all()
 
     # Фильтры дат
     params = {"mode": requested_mode}

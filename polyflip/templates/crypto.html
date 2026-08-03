@@ -586,12 +586,12 @@
 
         async function loadStatus() {
             try {
-                // Параллельно загружаем статус, PnL и покрытие
-                const [statusRes, pnlRes, coverageRes] = await Promise.all([
-                    fetch('/crypto/api/status', { headers: H }),
-                    fetch(`/crypto/api/models/analytics?requested_mode=${currentMode}&date_from=${filterFrom}&date_to=${filterTo}`, { headers: H }),
-                    fetch('/crypto/api/models/coverage', { headers: H }),
-                ]);
+                // Параллельно запускаем запросы
+                const statusPromise = fetch('/crypto/api/status', { headers: H });
+                const analyticsPromise = fetch(`/crypto/api/models/analytics?requested_mode=${currentMode}&date_from=${filterFrom}&date_to=${filterTo}`, { headers: H });
+                const coveragePromise = fetch('/crypto/api/models/coverage', { headers: H });
+
+                const statusRes = await statusPromise;
 
                 if (statusRes.status === 401) {
                     document.getElementById('models-status').innerHTML = `
@@ -617,32 +617,32 @@
                 localActiveTrainings = d.active_trainings || {};
                 updateTrainButtonsAndBanner(localActiveTrainings);
 
-                // PnL — не критичен, грузим с fallback
-                let pnlData = {};
-                if (pnlRes.ok) {
-                    try {
-                        pnlData = await pnlRes.json();
-                    } catch (e) {
-                        console.warn("[CryptoPnL] Parse error", e);
-                    }
-                } else {
-                    const errorText = await pnlRes.text().catch(() => '');
-                    console.error("[CryptoAnalytics]", pnlRes.status, errorText);
-                }
+                // Отрисовываем модели сразу (без PnL, передаем null)
+                renderModelTable(d.models || {}, null);
 
-                // Покрытие моделей (Coverage)
-                renderModelTable(d.models || {}, pnlData);
-                let coverageData = null;
-                if (coverageRes.ok) {
-                    try {
-                        coverageData = await coverageRes.json();
+                // Асинхронно ждем PnL и обновляем таблицу
+                analyticsPromise
+                    .then(async pnlRes => {
+                        if (!pnlRes.ok) throw new Error("Analytics HTTP " + pnlRes.status);
+                        const pnlData = await pnlRes.json();
+                        lastPnlData = pnlData;
+                        renderModelTable(statusData.models || {}, pnlData);
+                    })
+                    .catch(e => {
+                        console.warn("[CryptoAnalytics]", e);
+                        renderModelTable(statusData.models || {}, "ERROR");
+                    });
+
+                // Асинхронно ждем Coverage и рисуем
+                coveragePromise
+                    .then(async covRes => {
+                        if (!covRes.ok) throw new Error("Coverage HTTP " + covRes.status);
+                        const coverageData = await covRes.json();
                         renderCoverageTable(coverageData);
-                    } catch (e) {
-                        console.warn("[CryptoCoverage] Parse error", e);
-                    }
-                } else {
-                    console.error("[CryptoCoverage] fetch failed", coverageRes.status);
-                }
+                    })
+                    .catch(e => {
+                        console.warn("[CryptoCoverage]", e);
+                    });
 
                 // Заполняем настройки гиперпараметров
                 if (d.settings) {
@@ -765,7 +765,10 @@
 
             let modelsArray = Object.values(models).map(m => {
                 const pnlKey = `${m.asset}_v${m.version}`;
-                const pnlInfo = pnlData[pnlKey] || { 
+                const pnlInfo = (pnlData && typeof pnlData === 'object') ? (pnlData[pnlKey] || { 
+                    pnl: 0, win_rate: null, total_trades: 0,
+                    direction_pnl: 0, direction_win_rate: null, direction_trades: 0 
+                }) : {
                     pnl: 0, win_rate: null, total_trades: 0,
                     direction_pnl: 0, direction_win_rate: null, direction_trades: 0 
                 };
@@ -873,36 +876,40 @@
                 const pnl = m.pnlInfo;
                 
                 // Direction PnL styling
-                const dirTrades = pnl.direction_trades || 0;
                 let dirPnlHtml = '';
-                if (dirTrades === 0) {
-                    dirPnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">Нет сделок</span>`;
-                } else {
-                    const color = pnl.direction_pnl > 0 ? 'var(--poly-green)' 
-                                : pnl.direction_pnl < 0 ? '#ff3366' 
-                                : 'var(--text-muted)';
-                    const sign = pnl.direction_pnl > 0 ? '+' : '';
-                    const pf = pnl.direction_profit_factor != null ? pnl.direction_profit_factor.toFixed(2) : '—';
-                    
-                    dirPnlHtml = `
-                        <div style="font-weight:700; color:${color}; font-size:1.05rem;">
-                            ${sign}${pnl.direction_pnl.toFixed(2)}
-                        </div>
-                        <div style="font-size:0.75rem; color:var(--text-muted);">
-                            PF: <span style="color:white;">${pf}</span>
-                        </div>
-                    `;
-                }
-
-                // Stats styling
                 let dirStatsHtml = '';
-                if (dirTrades === 0) {
+
+                if (pnlData === null) {
+                    dirPnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem; font-style:italic;">Расчёт...</span>`;
+                    dirStatsHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">—</span>`;
+                } else if (pnlData === "ERROR") {
+                    dirPnlHtml = `<span style="color:#ff3366; font-size:0.85rem;">Ошибка аналитики</span>`;
                     dirStatsHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">—</span>`;
                 } else {
-                    dirStatsHtml = `
-                        <div style="color:white; font-size:0.95rem;">${pnl.direction_win_rate != null ? pnl.direction_win_rate + '%' : '—'}</div>
-                        <div style="font-size:0.75rem; color:var(--text-muted);">${dirTrades} сделок</div>
-                    `;
+                    const dirTrades = pnl.direction_trades || 0;
+                    if (dirTrades === 0) {
+                        dirPnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">Нет сделок</span>`;
+                        dirStatsHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">—</span>`;
+                    } else {
+                        const color = pnl.direction_pnl > 0 ? 'var(--poly-green)' 
+                                    : pnl.direction_pnl < 0 ? '#ff3366' 
+                                    : 'var(--text-muted)';
+                        const sign = pnl.direction_pnl > 0 ? '+' : '';
+                        const pf = pnl.direction_profit_factor != null ? pnl.direction_profit_factor.toFixed(2) : '—';
+                        
+                        dirPnlHtml = `
+                            <div style="font-weight:700; color:${color}; font-size:1.05rem;">
+                                ${sign}${pnl.direction_pnl.toFixed(2)}
+                            </div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">
+                                PF: <span style="color:white;">${pf}</span>
+                            </div>
+                        `;
+                        dirStatsHtml = `
+                            <div style="color:white; font-size:0.95rem;">${pnl.direction_win_rate != null ? pnl.direction_win_rate + '%' : '—'}</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">${dirTrades} сделок</div>
+                        `;
+                    }
                 }
 
                 let eceBadge = '—';
