@@ -442,19 +442,42 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks, db: As
             async with async_session() as bg_session:
                 trainer = ModelTrainer(bg_session)
                 try:
-                    await trainer.train_model(asset)
+                    training_ok = await trainer.train_model(asset)
                     msg = trainer.status_messages.get(asset, "Статус неизвестен")
                 except Exception as e:
                     logger.exception("train_model_failed_for_asset", asset=asset, error=str(e))
                     msg = f"Ошибка: {str(e)}"
+                    training_ok = False
                 
                 logger.info("train_single_asset_completed", asset=asset, status=msg)
-                await set_training_status(bg_session, asset, "success", f"{asset}: {msg}", datetime.now(timezone.utc).isoformat())
+
+                if not training_ok:
+                    final_status = "error"
+                elif "failed:" in msg:
+                    final_status = "partial"
+                else:
+                    final_status = "success"
+
+                await set_training_status(
+                    bg_session,
+                    asset,
+                    final_status,
+                    f"{asset}: {msg}",
+                    datetime.now(timezone.utc).isoformat(),
+                )
+                invalidate_models_cache()
                 await invalidate_analytics_cache()
         except Exception as e:
             logger.exception("train_single_asset_failed", asset=asset, error=str(e))
             async with async_session() as bg_session:
-                await set_training_status(bg_session, asset, "error", f"Ошибка: {str(e)}", datetime.now(timezone.utc).isoformat())
+                await set_training_status(
+                    bg_session,
+                    asset,
+                    "error",
+                    f"Ошибка: {str(e)}",
+                    datetime.now(timezone.utc).isoformat(),
+                )
+                invalidate_models_cache()
                 await invalidate_analytics_cache()
             
     background_tasks.add_task(train_single_asset)

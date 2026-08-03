@@ -8,23 +8,31 @@ from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.models.trainer import ModelTrainer, _fit_and_serialize
 
 
+@pytest.mark.parametrize(
+    ("phase", "mid_price"),
+    [
+        ("contested", 0.50),
+        ("leaning", 0.65),
+        ("decided", 0.85),
+    ],
+)
 @pytest.mark.asyncio
-async def test_trainer_creates_phase_models_with_sufficient_data(db_session):
+async def test_trainer_creates_each_phase_model(db_session, phase, mid_price):
     """
-    Проверяем, что при наличии достаточного числа рынков и снимков в фазе (например, decided: mid_price >= 0.75 или <= 0.25)
-    создается запись в ModelRegistry с соответствующим суффиксом (например, BTC_decided).
+    Проверяем, что при наличии достаточного числа рынков и снимков для каждой фазы
+    (contested: ~0.50, leaning: ~0.65, decided: ~0.85)
+    создается активная запись в ModelRegistry с соответствующим именем (BTC_contested, BTC_leaning, BTC_decided).
     """
     snaps = []
     # Создаем 6 разных рынков (> CV_N_SPLITS=5), в каждом по 10 снимков
     for m_idx in range(6):
-        market_id = f"test_market_decided_{m_idx}"
+        market_id = f"test_market_{phase}_{m_idx}"
         for i in range(10):
-            # mid_price = 0.85 -> |0.85 - 0.5| = 0.35 -> phase 'decided'
             snaps.append(MarketSnapshot(
                 market_id=market_id,
                 asset="BTC",
                 time_left_min=float(i + 1),
-                mid_price=0.85,
+                mid_price=mid_price,
                 spread=0.01,
                 volume_5min=1000.0,
                 price_velocity=0.0,
@@ -47,18 +55,17 @@ async def test_trainer_creates_phase_models_with_sufficient_data(db_session):
 
     assert res is True
 
-    # Проверяем, что создалась запись BTC_decided
-    stmt = select(ModelRegistry).where(ModelRegistry.asset == "BTC_decided")
-    phase_models = (await db_session.execute(stmt)).scalars().all()
-    assert len(phase_models) >= 1
-    assert phase_models[0].asset == "BTC_decided"
-    assert phase_models[0].is_active is True
-    assert phase_models[0].model_blob is not None
+    # Проверяем, что создалась и активировалась запись BTC_{phase}
+    stmt = select(ModelRegistry).where(ModelRegistry.asset == f"BTC_{phase}")
+    phase_model = (await db_session.execute(stmt)).scalar_one()
+    assert phase_model.asset == f"BTC_{phase}"
+    assert phase_model.is_active is True
+    assert phase_model.model_blob is not None
 
     # Проверяем, что в status_messages отражены фазы
     assert "BTC" in trainer.status_messages
     assert "Фазы:" in trainer.status_messages["BTC"]
-    assert "decided: ok" in trainer.status_messages["BTC"]
+    assert f"{phase}: ok" in trainer.status_messages["BTC"]
 
 
 @pytest.mark.asyncio
@@ -164,3 +171,51 @@ async def test_phase_error_reflected_in_status_messages(db_session):
     assert res is True
     assert "BTC" in trainer.status_messages
     assert "failed: Simulated phase training crash" in trainer.status_messages["BTC"]
+
+
+@pytest.mark.parametrize(
+    ("train_ok", "status_msg", "expected_status"),
+    [
+        (True, "Успешно обучено (AUC: 0.65) | Фазы: [contested: ok, leaning: ok, decided: ok]", "success"),
+        (True, "Успешно обучено (AUC: 0.65) | Фазы: [contested: ok, leaning: failed: error]", "partial"),
+        (False, "Недостаточно данных", "error"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_trigger_training_status_and_cache_invalidation(
+    db_session, train_ok, status_msg, expected_status
+):
+    from fastapi import BackgroundTasks
+    from polyflip.api.analytics import trigger_training, get_training_status, _models_cache
+
+    # Заполняем кэш моделей фиктивными данными для проверки сброса
+    _models_cache["time"] = 999999.0
+    _models_cache["data"] = [{"asset": "BTC", "version": 1}]
+
+    from unittest.mock import AsyncMock
+    bg = BackgroundTasks()
+
+    with patch("polyflip.api.analytics.ModelTrainer") as mock_trainer_cls, \
+         patch("polyflip.api.analytics.async_session") as mock_session_ctx:
+        mock_trainer = mock_trainer_cls.return_value
+        mock_trainer.train_model = AsyncMock(return_value=train_ok)
+        mock_trainer.status_messages = {"BTC": status_msg}
+
+        # Mock async_session context manager
+        mock_session_ctx.return_value.__aenter__.return_value = db_session
+
+        resp = await trigger_training("BTC", bg, db_session)
+        assert resp["status"] == "running"
+
+        # Запускаем фоновую задачу
+        for task in bg.tasks:
+            await task.func(*task.args, **task.kwargs)
+
+    # Проверяем итоговый статус в БД
+    status_data = await get_training_status(db_session, "BTC")
+    assert status_data["status"] == expected_status
+    assert status_msg in status_data["message"]
+
+    # Проверяем, что кэш моделей был сброшен
+    assert len(_models_cache) == 0
+
