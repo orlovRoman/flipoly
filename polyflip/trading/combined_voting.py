@@ -64,6 +64,9 @@ class CombinedEntryResult:
     entry_status: str = "READY"
     fallback_reason: Optional[str] = None
     p_candidate_win: Optional[float] = None
+    p_logreg_win: Optional[float] = None
+    direction_discount_applied: float = 1.0
+    combined_dir_discount_weight: float = 0.0
     candidate_side: Optional[str] = None
     candidate_ask: Optional[float] = None
     gross_edge: Optional[float] = None
@@ -76,6 +79,42 @@ class CombinedEntryResult:
     underlying_price: Optional[float] = None
     distance_to_strike_pct: Optional[float] = None
     p_flip: Optional[float] = None
+
+
+def apply_direction_confidence_discount(
+    p_logreg_win: float,
+    dir_prob: float,
+    min_direction_prob: float,
+    strong_threshold: float,
+    discount_weight: float,
+) -> float:
+    """
+    Дисконтирует вероятность победы LogReg за неуверенность LightGBM.
+
+    Формула:
+      weakness = (strong_threshold - dir_prob) / (strong_threshold - min_direction_prob)
+      weakness = max(0.0, min(1.0, weakness))
+      multiplier = 1.0 - (discount_weight * weakness)
+      p_candidate_win = p_logreg_win * multiplier
+
+    Свойства:
+      - При dir_prob >= strong_threshold: weakness = 0.0 -> multiplier = 1.0 (дисконта нет)
+      - При dir_prob <= min_direction_prob: weakness = 1.0 -> multiplier = 1.0 - discount_weight (макс. дисконт)
+      - При discount_weight <= 0.0: multiplier = 1.0 (дисконт отключен)
+      - При strong_threshold <= min_direction_prob: fallback, дисконт не применяется
+    """
+    if discount_weight <= 0.0:
+        return round(max(0.0, min(1.0, p_logreg_win)), 4)
+
+    band = strong_threshold - min_direction_prob
+    if band <= 0:
+        return round(max(0.0, min(1.0, p_logreg_win)), 4)
+
+    weakness = (strong_threshold - dir_prob) / band
+    weakness = max(0.0, min(1.0, weakness))
+    multiplier = 1.0 - (discount_weight * weakness)
+    discounted = p_logreg_win * multiplier
+    return round(max(0.0, min(1.0, discounted)), 4)
 
 
 def evaluate_combined_entry(
@@ -295,13 +334,39 @@ def evaluate_combined_entry(
     if crypto_sig.direction == "UP":
         # Кандидат YES. Если YES - фаворит (price >= 0.50), win prob = 1 - p_flip.
         # Если YES - аутсайдер (price < 0.50), win prob = p_flip.
-        p_candidate_win = (1.0 - p_flip) if fresh_yes_price >= 0.50 else p_flip
+        p_logreg_win = (1.0 - p_flip) if fresh_yes_price >= 0.50 else p_flip
     else:
         # Кандидат NO. Если YES - фаворит (price >= 0.50), NO - аутсайдер, win prob = p_flip.
         # Если YES - аутсайдер (price < 0.50), NO - фаворит, win prob = 1 - p_flip.
-        p_candidate_win = p_flip if fresh_yes_price >= 0.50 else (1.0 - p_flip)
+        p_logreg_win = p_flip if fresh_yes_price >= 0.50 else (1.0 - p_flip)
 
-    p_candidate_win = round(max(0.0, min(1.0, p_candidate_win)), 4)
+    p_logreg_win = round(max(0.0, min(1.0, p_logreg_win)), 4)
+
+    # Применяем дисконт за неуверенность LightGBM
+    discount_weight = getattr(cfg, "combined_dir_discount_weight", 0.0)
+    strong_thresh = getattr(cfg, "combined_dir_strong_threshold", 0.65)
+    min_dir_prob_val = getattr(cfg, "min_direction_prob", 0.505)
+
+    p_candidate_win = apply_direction_confidence_discount(
+        p_logreg_win=p_logreg_win,
+        dir_prob=dir_prob,
+        min_direction_prob=min_dir_prob_val,
+        strong_threshold=strong_thresh,
+        discount_weight=discount_weight,
+    )
+    discount_mult = round(p_candidate_win / p_logreg_win, 4) if p_logreg_win > 0 else 1.0
+
+    if discount_weight > 0.0:
+        logger.debug(
+            "combined_direction_discount_applied",
+            p_logreg_win=p_logreg_win,
+            dir_prob=dir_prob,
+            min_direction_prob=min_dir_prob_val,
+            strong_threshold=strong_thresh,
+            discount_weight=discount_weight,
+            p_candidate_win=p_candidate_win,
+            multiplier=discount_mult,
+        )
 
     min_win_prob_cfg = getattr(cfg, "min_win_prob", 0.51)
     if p_candidate_win < min_win_prob_cfg:
@@ -326,6 +391,9 @@ def evaluate_combined_entry(
             entry_status="LOW_WIN_PROB",
             fallback_reason=fallback_reason,
             p_candidate_win=p_candidate_win,
+            p_logreg_win=p_logreg_win,
+            direction_discount_applied=discount_mult,
+            combined_dir_discount_weight=discount_weight,
             candidate_side=candidate_side,
             candidate_ask=candidate_ask,
             cost_buffer=cost_buffer,
@@ -360,6 +428,9 @@ def evaluate_combined_entry(
             entry_status="OUTSIDER_DISABLED",
             fallback_reason=fallback_reason,
             p_candidate_win=p_candidate_win,
+            p_logreg_win=p_logreg_win,
+            direction_discount_applied=discount_mult,
+            combined_dir_discount_weight=discount_weight,
             candidate_side=candidate_side,
             candidate_ask=candidate_ask,
             cost_buffer=cost_buffer,
@@ -394,6 +465,9 @@ def evaluate_combined_entry(
             entry_status="PRICE_OUT_OF_BOUNDS",
             fallback_reason=fallback_reason,
             p_candidate_win=p_candidate_win,
+            p_logreg_win=p_logreg_win,
+            direction_discount_applied=discount_mult,
+            combined_dir_discount_weight=discount_weight,
             candidate_side=candidate_side,
             candidate_ask=candidate_ask,
             cost_buffer=cost_buffer,
@@ -431,6 +505,9 @@ def evaluate_combined_entry(
             entry_status="INSUFFICIENT_NET_EDGE",
             fallback_reason=fallback_reason,
             p_candidate_win=p_candidate_win,
+            p_logreg_win=p_logreg_win,
+            direction_discount_applied=discount_mult,
+            combined_dir_discount_weight=discount_weight,
             candidate_side=candidate_side,
             candidate_ask=candidate_ask,
             gross_edge=gross_edge,
@@ -470,6 +547,9 @@ def evaluate_combined_entry(
             entry_status="ZERO_BET",
             fallback_reason=fallback_reason,
             p_candidate_win=p_candidate_win,
+            p_logreg_win=p_logreg_win,
+            direction_discount_applied=discount_mult,
+            combined_dir_discount_weight=discount_weight,
             candidate_side=candidate_side,
             candidate_ask=candidate_ask,
             gross_edge=gross_edge,
@@ -498,8 +578,8 @@ def evaluate_combined_entry(
         direction_model_version=crypto_sig.model_version,
         direction_regime=crypto_sig.regime or None,
         direction_probability=dir_prob,
-            direction_p_up=getattr(crypto_sig, 'p_up', None),
-            direction_p_down=getattr(crypto_sig, 'p_down', None),
+        direction_p_up=getattr(crypto_sig, 'p_up', None),
+        direction_p_down=getattr(crypto_sig, 'p_down', None),
         direction_value=dir_val,
         entry_requested_key=entry_requested_key,
         entry_model_key=entry_model_key,
@@ -509,6 +589,9 @@ def evaluate_combined_entry(
         entry_status="READY",
         fallback_reason=fallback_reason,
         p_candidate_win=p_candidate_win,
+        p_logreg_win=p_logreg_win,
+        direction_discount_applied=discount_mult,
+        combined_dir_discount_weight=discount_weight,
         candidate_side=candidate_side,
         candidate_ask=candidate_ask,
         gross_edge=gross_edge,

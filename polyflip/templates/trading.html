@@ -595,6 +595,20 @@
                                 </div>
 
                                 <div class="form-group">
+                                    <label for="COMBINED_DIR_DISCOUNT_WEIGHT" title="Вес дисконта P(Win) при неуверенности LightGBM (в %). 0% — дисконт отключен. 100% — полный линейный дисконт от порога уверенности до пола вероятности.">
+                                        Вес дисконта неуверенности LGBM (%)
+                                    </label>
+                                    <input type="number" step="1" max="100" min="0" id="COMBINED_DIR_DISCOUNT_WEIGHT" value="0">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="COMBINED_DIR_STRONG_THRESHOLD" title="Порог уверенности LightGBM для дисконта (в %). Если уверенность LGBM выше этого значения, дисконт равен 0.">
+                                        Порог уверенности LGBM для дисконта (%)
+                                    </label>
+                                    <input type="number" step="0.5" max="100" min="50" id="COMBINED_DIR_STRONG_THRESHOLD" value="65.0">
+                                </div>
+
+                                <div class="form-group">
                                     <label for="MIN_EDGE" title="[БАЗОВЫЙ ПАРАМЕТР] Единое минимальное математическое ожидание (Edge в %), при котором бот войдет в сделку в ЛЮБОМ торговом режиме (ML, LightGBM, Combined).">
                                         Единый Мин. Edge для всех режимов (%)
                                     </label>

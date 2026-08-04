@@ -321,6 +321,8 @@ document.addEventListener("DOMContentLoaded", () => {
     maxPrice: document.getElementById("TRADE_MAX_PRICE"),
     maxSpreadPct: document.getElementById("MAX_SPREAD_PCT"),
     outsiderPwinDiscount: document.getElementById("OUTSIDER_PWIN_DISCOUNT"),
+    combinedDirDiscountWeight: document.getElementById("COMBINED_DIR_DISCOUNT_WEIGHT"),
+    combinedDirStrongThreshold: document.getElementById("COMBINED_DIR_STRONG_THRESHOLD"),
     stopLossEnabled: document.getElementById("STOP_LOSS_ENABLED"),
     stopLossPctFavorite: document.getElementById("STOP_LOSS_PCT_FAVORITE"),
     stopLossPctOutsider: document.getElementById("STOP_LOSS_PCT_OUTSIDER"),
@@ -741,6 +743,16 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.OUTSIDER_PWIN_DISCOUNT);
         settingsElements.outsiderPwinDiscount.value = (val * 100).toFixed(1);
       }
+      if (settingsElements.combinedDirDiscountWeight && data.COMBINED_DIR_DISCOUNT_WEIGHT !== undefined) {
+        let val = parseFloat(data.COMBINED_DIR_DISCOUNT_WEIGHT);
+        if (val <= 1 && val > 0) val *= 100;
+        settingsElements.combinedDirDiscountWeight.value = Math.round(val);
+      }
+      if (settingsElements.combinedDirStrongThreshold && data.COMBINED_DIR_STRONG_THRESHOLD !== undefined) {
+        let val = parseFloat(data.COMBINED_DIR_STRONG_THRESHOLD);
+        if (val <= 1) val *= 100;
+        settingsElements.combinedDirStrongThreshold.value = val.toFixed(1);
+      }
 
       updateDeadZoneInfo();
       if (data.TRADING_MODE) {
@@ -842,6 +854,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.minDirectionProb) settingsToSave.MIN_DIRECTION_PROB = parseFloat(settingsElements.minDirectionProb.value) / 100;
       if (settingsElements.minWinProb) settingsToSave.MIN_WIN_PROB = parseFloat(settingsElements.minWinProb.value) / 100;
       if (settingsElements.outsiderPwinDiscount) settingsToSave.OUTSIDER_PWIN_DISCOUNT = parseFloat(settingsElements.outsiderPwinDiscount.value) / 100;
+      if (settingsElements.combinedDirDiscountWeight) settingsToSave.COMBINED_DIR_DISCOUNT_WEIGHT = parseFloat(settingsElements.combinedDirDiscountWeight.value) / 100;
+      if (settingsElements.combinedDirStrongThreshold) settingsToSave.COMBINED_DIR_STRONG_THRESHOLD = parseFloat(settingsElements.combinedDirStrongThreshold.value) / 100;
       if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
 

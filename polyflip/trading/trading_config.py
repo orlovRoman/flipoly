@@ -68,6 +68,8 @@ class TradingConfig:
     max_exposure_pct: float
     min_direction_prob: float
     min_win_prob: float
+    combined_dir_discount_weight: float = 0.0
+    combined_dir_strong_threshold: float = 0.65
     combined_fallback_to_ml_on_none: bool = True
     max_bet_edge: float = 0.40
     outsider_pwin_discount: float = 0.65
@@ -140,6 +142,8 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         max_exposure_pct=_parse_float(raw.get("MAX_EXPOSURE_PCT"), getattr(settings, "MAX_EXPOSURE_PCT", 15.0)),
         min_direction_prob=_parse_float(raw.get("MIN_DIRECTION_PROB"), getattr(settings, "MIN_DIRECTION_PROB", 0.505)),
         min_win_prob=_parse_float(raw.get("MIN_WIN_PROB"), getattr(settings, "MIN_WIN_PROB", 0.51)),
+        combined_dir_discount_weight=_parse_float(raw.get("COMBINED_DIR_DISCOUNT_WEIGHT"), 0.0),
+        combined_dir_strong_threshold=_parse_float(raw.get("COMBINED_DIR_STRONG_THRESHOLD"), 0.65),
         combined_fallback_to_ml_on_none=_parse_bool(raw.get("COMBINED_FALLBACK_TO_ML_ON_NONE"), getattr(settings, "COMBINED_FALLBACK_TO_ML_ON_NONE", True)),
         max_bet_edge=_parse_float(raw.get("MAX_BET_EDGE"), getattr(settings, "MAX_BET_EDGE", 0.40)),
         outsider_pwin_discount=_parse_float(raw.get("OUTSIDER_PWIN_DISCOUNT"), getattr(settings, "OUTSIDER_PWIN_DISCOUNT", 0.65)),
