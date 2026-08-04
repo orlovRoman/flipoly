@@ -685,6 +685,20 @@
         </main>
     </div>
 
+    <!-- Funnel Diagnostic Modal -->
+    <div id="funnel-diagnostic-modal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 600px; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.5rem;">
+                <h3 style="margin: 0; color: white;">🔍 Детали Инференса</h3>
+                <span class="close-btn" onclick="document.getElementById('funnel-diagnostic-modal').style.display='none'" style="cursor: pointer; font-size: 1.5rem; color: #8F9BB3;">&times;</span>
+            </div>
+            
+            <div id="funnel-diagnostic-content" style="font-size: 0.9rem; color: var(--text-muted);">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', path='/js/trading.js') }}?v={{ static_version }}" defer></script>
     <script>
     const GATE_LABELS = {

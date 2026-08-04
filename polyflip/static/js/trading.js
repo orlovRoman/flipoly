@@ -263,7 +263,6 @@ document.addEventListener("DOMContentLoaded", () => {
             scales: {
               x: {
                 stacked: false,
-                offset: true,
                 ticks: { color: "rgba(255, 255, 255, 0.7)" },
                 grid: { color: "rgba(255, 255, 255, 0.1)" },
               },
@@ -1027,10 +1026,19 @@ document.addEventListener("DOMContentLoaded", () => {
             statusColor = "#00ff88"; // Green for take-profit
         }
 
-        const reasonHtml =
+        window.funnelLogs = window.funnelLogs || {};
+        if (log.funnel_log) {
+            window.funnelLogs[log.id] = log.funnel_log;
+        }
+
+        let reasonHtml =
           log.status === "SKIPPED"
             ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>`
             : escapeHtml(log.error_msg || "-");
+            
+        if (log.funnel_log) {
+            reasonHtml += ` <span style="cursor: pointer; font-size: 1.1em;" title="Детали инференса" onclick="showFunnelDiagnostic(${log.id})">🔍</span>`;
+        }
         const isPureFav = log.active_features && log.active_features.includes("PURE_FAVORITE");
         const isCrypto = log.active_features && (log.active_features.includes("LIGHTGBM_TREND") || log.active_features.includes("CRYPTO_TREND"));
         const isCombined = log.active_features && log.active_features.includes("COMBINED_ML_LGBM");

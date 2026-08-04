@@ -11,7 +11,7 @@ import math
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case, or_, cast, Numeric
+from sqlalchemy import select, func, case, or_, and_, cast, Numeric
 from polyflip.db.connection import get_db_session, async_session
 from polyflip.db.models import (
     CollectorStatus,
@@ -20,6 +20,7 @@ from polyflip.db.models import (
     TradeHistory,
     ModelRegistry,
     RuntimeSettings,
+    DecisionFunnelLog,
 )
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
@@ -281,8 +282,9 @@ async def get_trade_logs(
         total = (await db.execute(count_stmt)).scalar_one()
 
     stmt = (
-        select(TradeHistory, LiveMarket.question)
+        select(TradeHistory, LiveMarket.question, DecisionFunnelLog)
         .outerjoin(LiveMarket, TradeHistory.market_id == LiveMarket.market_id)
+        .outerjoin(DecisionFunnelLog, and_(TradeHistory.decision_run_id.is_not(None), TradeHistory.decision_run_id == DecisionFunnelLog.decision_run_id))
         .order_by(TradeHistory.created_at.desc())
         .offset(offset)
         .limit(page_size)
@@ -295,7 +297,7 @@ async def get_trade_logs(
     settings_dict = await get_all_settings(db=db)
 
     items = []
-    for log, question in logs_with_questions:
+    for log, question, funnel in logs_with_questions:
         active_feat = getattr(log, "active_features", None)
         if not active_feat and log.status == "SKIPPED":
             base_asset = (
@@ -313,8 +315,7 @@ async def get_trade_logs(
             else:
                 active_feat = "ml_strategy"
 
-        items.append(
-            {
+        item = {
                 "id": log.id,
                 "market_id": log.market_id,
                 "question": question or log.market_id,
@@ -337,8 +338,9 @@ async def get_trade_logs(
                 "kelly_multiplier": getattr(log, "kelly_multiplier", None),
                 "edge": getattr(log, "edge", None),
                 "stop_loss_status": getattr(log, "stop_loss_status", None),
-                "take_profit_status": getattr(log, "take_profit_status", None),
+                "take_profit_hit_at": log.take_profit_hit_at.isoformat() if getattr(log, "take_profit_hit_at", None) else None,
                 "take_profit_sell_price": getattr(log, "take_profit_sell_price", None),
+                "take_profit_sell_size": getattr(log, "take_profit_sell_size", None),
                 "created_at": log.created_at.isoformat(),
                 "updated_at": (
                     log.updated_at.isoformat()
@@ -347,8 +349,38 @@ async def get_trade_logs(
                 ),
                 "direction_value": getattr(log, "direction_value", None),
             }
-        )
-
+        
+        if funnel:
+            item["funnel_log"] = {
+                "direction_model_key": funnel.direction_model_key,
+                "direction_status": funnel.direction_status,
+                "direction_p_up": funnel.direction_p_up,
+                "direction_p_down": funnel.direction_p_down,
+                "direction_probability": funnel.direction_probability,
+                "direction_threshold_up": funnel.direction_threshold_up,
+                "direction_threshold_down": funnel.direction_threshold_down,
+                "entry_model_key": funnel.entry_model_key,
+                "entry_status": funnel.entry_status,
+                "p_flip": funnel.p_flip,
+                "edge": funnel.edge,
+                "min_edge_used": funnel.min_edge_used,
+                "threshold_lower": funnel.threshold_lower,
+                "threshold_upper": funnel.threshold_upper,
+                "gates": {
+                    "g1_model_loaded": funnel.g1_model_loaded,
+                    "g2_price_fetched": funnel.g2_price_fetched,
+                    "g3_dead_zone": funnel.g3_dead_zone,
+                    "g4_no_flip": funnel.g4_no_flip,
+                    "g5_min_edge": funnel.g5_min_edge,
+                    "g6_price_range": funnel.g6_price_range,
+                    "g7_crypto_confirm": funnel.g7_crypto_confirm,
+                    "g8_combined_vote": funnel.g8_combined_vote,
+                },
+                "fallback_reason": funnel.fallback_reason,
+            }
+            
+        items.append(item)
+        
     out_data = {
         "total": total,
         "page": page,
