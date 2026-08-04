@@ -1568,3 +1568,61 @@ document.addEventListener("DOMContentLoaded", () => {
   loadPresetsListUI();
 });
 
+window.showFunnelDiagnostic = function(logId) {
+    const funnel = window.funnelLogs && window.funnelLogs[logId];
+    if (!funnel) return;
+
+    const gateLabels = {
+        g1_model_loaded:   "G1: Модель загружена",
+        g2_price_fetched:  "G2: API цена получена",
+        g3_dead_zone:      "G3: Вне dead zone (p_flip)",
+        g4_no_flip:        "G4: No-flip (p_flip не слишком высок)",
+        g5_min_edge:       "G5: Edge >= MIN",
+        g6_price_range:    "G6: Цена в [0.1, 0.9]",
+        g7_crypto_confirm: "G7: Подтверждение (LGBM)",
+        g8_combined_vote:  "G8: Итоговый голос",
+    };
+
+    const fmt = (v) => (v !== null && v !== undefined) ? Number(v).toFixed(4) : "—";
+
+    const gates = funnel.gates || {};
+    const gatesHtml = Object.entries(gateLabels).map(([key, label]) => {
+        const val = gates[key];
+        let color = "#8F9BB3"; let icon = "⚪";
+        if (val === true)  { color = "#00ff88"; icon = "✅"; }
+        if (val === false) { color = "#ff3366"; icon = "❌"; }
+        return `<li style="color:${color}; padding: 3px 0;">${icon} ${label}</li>`;
+    }).join("");
+
+    const html = `
+    <div style="display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:65vh;">
+        <div>
+            <div style="font-weight:600; color:#fff; margin-bottom:4px;">Direction Model</div>
+            <div>Key: <span style="color:#e2e8f0;">${funnel.direction_model_key || "—"}</span></div>
+            <div>Status: <span style="color:${funnel.direction_status === 'READY' ? '#00ff88' : '#ff3366'};">${funnel.direction_status || "—"}</span></div>
+            <div>p_up: <b>${fmt(funnel.direction_p_up)}</b> (порог ≥ ${funnel.direction_threshold_up ?? "—"})&nbsp;&nbsp;
+                 p_down: <b>${fmt(funnel.direction_p_down)}</b> (порог ≥ ${funnel.direction_threshold_down ?? "—"})</div>
+            <div>direction_probability: <b>${fmt(funnel.direction_probability)}</b></div>
+        </div>
+        <hr style="border-color:rgba(255,255,255,0.1); margin:0;">
+        <div>
+            <div style="font-weight:600; color:#fff; margin-bottom:4px;">Entry Model</div>
+            <div>Key: <span style="color:#e2e8f0;">${funnel.entry_model_key || "—"}</span></div>
+            <div>Status: <span style="color:${funnel.entry_status === 'READY' ? '#00ff88' : '#ff3366'};">${funnel.entry_status || "—"}</span></div>
+            <div>p_flip: <b>${fmt(funnel.p_flip)}</b>&nbsp;&nbsp;
+                 edge: <b>${fmt(funnel.edge)}</b>&nbsp;(min_edge=${funnel.min_edge_used ?? "—"})</div>
+            <div>threshold_lower: ${funnel.threshold_lower ?? "—"}&nbsp; threshold_upper: ${funnel.threshold_upper ?? "—"}</div>
+        </div>
+        <hr style="border-color:rgba(255,255,255,0.1); margin:0;">
+        <div>
+            <div style="font-weight:600; color:#fff; margin-bottom:6px;">Гейты решения</div>
+            <ul style="list-style:none; padding:0; margin:0; display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.85rem;">
+                ${gatesHtml}
+            </ul>
+        </div>
+        ${funnel.fallback_reason ? `<div style="padding:10px; background:rgba(255,51,102,0.12); color:#ff3366; border-radius:6px; font-size:0.85rem;"><b>Fallback reason:</b> ${funnel.fallback_reason}</div>` : ""}
+    </div>`;
+
+    document.getElementById("funnel-diagnostic-content").innerHTML = html;
+    document.getElementById("funnel-diagnostic-modal").style.display = "flex";
+};
