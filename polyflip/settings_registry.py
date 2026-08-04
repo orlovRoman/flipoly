@@ -125,14 +125,13 @@ REGISTRY: list[SettingDef] = [
                description="Торговать на флип (стратегия аутсайдера)"),
     SettingDef("FLIP_THRESHOLD", "0.60",
                description="Порог p_flip для входа в аутсайдера"),
+    SettingDef("OUTSIDER_PWIN_DISCOUNT", "0.65",
+               description="Дисконт вероятности выигрыша аутсайдера: p_win = p_flip * discount (0.0-1.0)"),
+    SettingDef("MAX_SPREAD_PCT", "0.08",
+               description="Макс. спред как доля от mid_price. Шире — сделка не создаётся (PURE_FAVORITE)"),
     SettingDef("TRADE_FLIP_THRESHOLD", "0.85",
                description="Глобальный порог ПРОТИВ ТОЛПЫ (если нет индивидуального)"),
 
-    # --- ML ---
-    SettingDef("TRADE_NO_FLIP_THRESHOLD", "0.35",
-               description="p_flip < этого → торгуем фаворита (ML режим)"),
-    SettingDef("COMBINED_NONE_BET_MULTIPLIER", "0.0",
-               description="Множитель размера ставки при неопределенности (LGBM=NONE) в Combined-режиме (0.0 - 1.0)"),
     SettingDef("COMBINED_COST_BUFFER", "0.02",
                description="Буфер транзакционных издержек и проскальзывания в Combined-режиме (0.02 = 2 цента)"),
 
@@ -216,8 +215,6 @@ REGISTRY: list[SettingDef] = [
     # --- Бэктест ---
     SettingDef("BACKTEST_MIN_EDGE", "0.04",
                description="Мин. edge для сигнала в бэктесте"),
-    SettingDef("BACKTEST_TRAIN_RATIO", "0.70",
-               description="Доля обучающей выборки при walk-forward бэктесте (0.70 = 70%)"),
     SettingDef("BACKTEST_FEE_PER_TRADE", "0.02",
                description="Комиссия за сделку в бэктесте (0.02 = 2%)"),
     SettingDef("BACKTEST_MIN_TRADES", "10",

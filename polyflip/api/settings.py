@@ -257,7 +257,7 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
 
-    if key in ["MIN_EDGE", "CRYPTO_MIN_EDGE", "NO_MIN_EDGE", "FAVORITE_MIN_EDGE"] or key.startswith("MIN_EDGE_"):
+    if key in ["MIN_EDGE", "NO_MIN_EDGE", "FAVORITE_MIN_EDGE"] or key.startswith("MIN_EDGE_"):
         if key.startswith("MIN_EDGE_") and payload.value == "":
             pass
         else:

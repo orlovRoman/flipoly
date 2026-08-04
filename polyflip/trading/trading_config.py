@@ -66,6 +66,9 @@ class TradingConfig:
     fee_rate: float
     slippage_rate: float
     max_exposure_pct: float
+    max_bet_edge: float = 0.40
+    outsider_pwin_discount: float = 0.65
+    max_spread_pct: float = 0.08
     combined_cost_buffer: float = 0.02
 
     def get_min_edge(self, is_outsider: bool) -> float:
@@ -96,7 +99,7 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         min_time_left=_parse_int(raw.get("TRADE_MIN_TIME_LEFT_SEC"), getattr(settings, "TRADE_MIN_TIME_LEFT_SEC", 300)),
         max_time_left=_parse_int(raw.get("TRADE_MAX_TIME_LEFT_SEC"), getattr(settings, "TRADE_MAX_TIME_LEFT_SEC", 900)),
         bet_size=_parse_float(raw.get("TRADE_BET_SIZE_USDC"), getattr(settings, "TRADE_BET_SIZE_USDC", 10.0)),
-        no_flip_threshold=_parse_float(raw.get("TRADE_NO_FLIP_THRESHOLD"), getattr(settings, "TRADE_NO_FLIP_THRESHOLD", 0.55)),
+        no_flip_threshold=_parse_float(raw.get("NO_FLIP_THRESHOLD"), getattr(settings, "NO_FLIP_THRESHOLD", 0.35)),
         dead_zone=_parse_float(raw.get("DEAD_ZONE_WIDTH"), getattr(settings, "DEAD_ZONE_WIDTH", 0.05)),
         daily_limit=_parse_float(raw.get("DAILY_LOSS_LIMIT_USDC"), getattr(settings, "DAILY_LOSS_LIMIT_USDC", -100.0)),
         trade_min_price=_parse_float(raw.get("TRADE_MIN_PRICE"), getattr(settings, "TRADE_MIN_PRICE", 0.05)),
@@ -132,5 +135,8 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         fee_rate=_parse_float(raw.get("FEE_RATE"), getattr(settings, "FEE_RATE", 0.0)),
         slippage_rate=_parse_float(raw.get("SLIPPAGE_RATE"), getattr(settings, "SLIPPAGE_RATE", 0.0)),
         max_exposure_pct=_parse_float(raw.get("MAX_EXPOSURE_PCT"), getattr(settings, "MAX_EXPOSURE_PCT", 15.0)),
+        max_bet_edge=_parse_float(raw.get("MAX_BET_EDGE"), getattr(settings, "MAX_BET_EDGE", 0.40)),
+        outsider_pwin_discount=_parse_float(raw.get("OUTSIDER_PWIN_DISCOUNT"), getattr(settings, "OUTSIDER_PWIN_DISCOUNT", 0.65)),
+        max_spread_pct=_parse_float(raw.get("MAX_SPREAD_PCT"), getattr(settings, "MAX_SPREAD_PCT", 0.08)),
         combined_cost_buffer=_parse_float(raw.get("COMBINED_COST_BUFFER"), 0.02),
     )

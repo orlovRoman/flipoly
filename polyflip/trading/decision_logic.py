@@ -17,27 +17,29 @@ from polyflip.trading.position_sizing import (
     apply_ece_correction
 )
 from polyflip.constants import FLIP_MIDPOINT, ECE_WARN_THRESHOLD
+from polyflip.trading.trading_config import parse_trading_settings
 import structlog
 
 
 logger = structlog.get_logger(__name__)
 
 def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
+    """Рассчитывает размер ставки. config — сырой dict (для обратной совместимости с бэктестом)."""
     from polyflip.trading.position_sizing import compute_bet_size_with_liquidity
-    min_bet = float(config.get("TRADE_BET_SIZE_USDC", 5.0))
-    if config.get("BET_SIZING_MODE") and str(config.get("BET_SIZING_MODE")).lower() == "fixed":
-        return min_bet
+    cfg = parse_trading_settings(config)
+    if cfg.bet_sizing_mode == "fixed":
+        return cfg.bet_size
     bet = compute_bet_size_with_liquidity(
         edge=edge,
         volume_5min=volume_5min,
-        min_bet_usdc=min_bet,
-        max_bet_usdc=float(config.get("MAX_BET_SIZE_USDC", 50.0)),
-        min_edge=float(config.get("MIN_EDGE", 0.05)),
-        max_edge=float(config.get("MAX_BET_EDGE", 0.40)),  # масштабирование ставки
-        liquidity_fraction=float(config.get("LIQUIDITY_FRACTION", 0.05)),
+        min_bet_usdc=cfg.bet_size,
+        max_bet_usdc=cfg.max_bet_size_usdc,
+        min_edge=cfg.min_edge,
+        max_edge=cfg.max_bet_edge,
+        liquidity_fraction=cfg.liquidity_fraction,
     )
-    if bet < min_bet:
-        bet = min_bet
+    if bet < cfg.bet_size:
+        bet = cfg.bet_size
     return bet
 
 StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "LIGHTGBM_TREND", "COMBINED", "SKIP"]
@@ -74,14 +76,11 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     """
     yes_bid = getattr(signal, "yes_bid", None)
     yes_ask = getattr(signal, "yes_ask", None)
+    cfg = parse_trading_settings(config)
     if yes_bid is not None and yes_bid > 0 and yes_ask is not None and signal.mid_price > 0:
         spread_pct = (yes_ask - yes_bid) / signal.mid_price
-        max_spread = float(config.get("MAX_SPREAD_PCT", 0.08))
-        if spread_pct > max_spread:
+        if spread_pct > cfg.max_spread_pct:
             return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
-
-    from polyflip.trading.trading_config import parse_trading_settings
-    cfg = parse_trading_settings(config)
     threshold = cfg.favorite_threshold
     # PURE_FAVORITE использует свой порог edge (может быть отрицательным)
     min_edge = cfg.favorite_min_edge
@@ -173,9 +172,7 @@ def decide_ml_trend(
       - FAVORITE_MIN_PRICE / FAVORITE_MAX_PRICE: float
       - MIN_EDGE / MAX_EDGE: float  ← ML-edge фильтр
     """
-    from polyflip.trading.trading_config import parse_trading_settings
     cfg = parse_trading_settings(config)
-    no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", 0.35))
 
     p_flip_calibrated = apply_ece_correction(p_flip, ece)
     p_flip_effective = max(p_flip, p_flip_calibrated)
@@ -215,8 +212,7 @@ def decide_ml_trend(
 
     # 5. Ставка на основе ML-edge
     bet = _resolve_final_bet(edge, signal.volume_5min, config)
-    bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
-    if bet <= 0 and not bypass:
+    if bet <= 0 and not cfg.bypass_bet_size_check:
         return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
     decision_details = {
@@ -247,7 +243,6 @@ def decide_outsider(
     Outsider стратегия (TRADE_ON_FLIP).
     Если P(flip) >= flip_threshold → рынок флипнет → покупаем аутсайдера.
     """
-    from polyflip.trading.trading_config import parse_trading_settings
     cfg = parse_trading_settings(config)
     flip_thresh = cfg.flip_threshold
     if flip_thresh > 1.0:
@@ -266,7 +261,7 @@ def decide_outsider(
     if outsider_ask <= 0:
         return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip, edge=0.0)
 
-    outsider_pwin_discount = float(config.get("OUTSIDER_PWIN_DISCOUNT", 0.65))
+    outsider_pwin_discount = cfg.outsider_pwin_discount
     p_win_outsider = p_flip_effective * outsider_pwin_discount
     outsider_edge = compute_edge(p_win_outsider, outsider_ask)
 
@@ -300,8 +295,7 @@ def decide_outsider(
             f"edge={edge:.3f} < min={min_edge:.3f}", "SKIP", p_flip=p_flip, edge=edge)
 
     bet = _resolve_final_bet(edge, signal.volume_5min, config)
-    bypass = str(config.get("BYPASS_BET_SIZE_CHECK", "false")).lower() == "true"
-    if bet <= 0 and not bypass:
+    if bet <= 0 and not cfg.bypass_bet_size_check:
         return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
     decision_details = {
@@ -363,7 +357,8 @@ def decide_crypto_trend(
             direction_value=crypto.direction
         )
 
-    flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
+    cfg_unified = parse_trading_settings(config)
+    flip_thresh = cfg_unified.flip_threshold
     if flip_thresh > 1.0:
         flip_thresh = flip_thresh / 100.0
 
@@ -379,7 +374,7 @@ def decide_crypto_trend(
             direction_value=crypto.direction
         )
         
-    no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", 0.35))
+    no_flip_thresh = cfg_unified.no_flip_threshold
     
     if buying_fav:
         # Buying favorite requires low flip probability (no reversal expected)
@@ -400,13 +395,11 @@ def decide_crypto_trend(
                 direction_value=crypto.direction
             )
 
-    from polyflip.trading.trading_config import parse_trading_settings
-    cfg_unified = parse_trading_settings(config)
     # Определяем сторону кандидата по направлению сигнала
     is_outsider_candidate = (crypto.direction == "UP" and entry_price < 0.5) or (crypto.direction == "DOWN" and entry_price >= 0.5)
     min_edge = cfg_unified.get_min_edge(is_outsider=is_outsider_candidate)
-    fee_rate = float(config.get("FEE_RATE", 0.0))
-    slippage_rate = float(config.get("SLIPPAGE_RATE", 0.0))
+    fee_rate = cfg_unified.fee_rate
+    slippage_rate = cfg_unified.slippage_rate
 
     if crypto.direction == "NONE" or crypto.signal_strength <= 0.0:
         return TradeDecision(

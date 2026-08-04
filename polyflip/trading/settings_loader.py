@@ -44,7 +44,6 @@ async def load_trading_settings(
         "BYPASS_BET_SIZE_CHECK",
         "USE_CRYPTO_CONFIRM",
         "CRYPTO_STANDALONE",
-        "CRYPTO_MIN_EDGE",
         "STOP_LOSS_ENABLED",
         "STOP_LOSS_PCT_FAVORITE",
         "STOP_LOSS_PCT_OUTSIDER",

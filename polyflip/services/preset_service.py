@@ -55,7 +55,6 @@ TRADING_PRESET_KEYS = {
     "TAKE_PROFIT_MULTIPLIER",
     "TAKE_PROFIT_CHECK_INTERVAL_SEC",
     # Крипто
-    "CRYPTO_MIN_EDGE",
     "USE_CRYPTO_CONFIRM",
     "CRYPTO_STANDALONE",
     # Таймеры / комиссии
