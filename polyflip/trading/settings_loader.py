@@ -49,6 +49,8 @@ async def load_trading_settings(
         "STOP_LOSS_PCT_OUTSIDER",
         "TAKE_PROFIT_ENABLED",
         "TAKE_PROFIT_MULTIPLIER",
+        "MIN_DIRECTION_PROB",
+        "MIN_WIN_PROB",
     ]
     
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
