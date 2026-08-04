@@ -189,7 +189,7 @@
                         .quick-btn { background: transparent; border: 1px solid var(--border-color); color: var(--text-muted); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; transition: 0.2s; }
                         .quick-btn:hover { background: rgba(255,255,255,0.05); color: white; border-color: rgba(255,255,255,0.3); }
                         #apply-period:hover { background: rgba(255,255,255,0.1); }
-                        .table-sort { background: transparent; border: none; color: inherit; font-size: inherit; font-weight: inherit; cursor: pointer; padding: 0; outline: none; display: inline-flex; align-items: center; gap: 0.25rem; }
+                        .table-sort { background: transparent; border: none; color: inherit; font-size: inherit; font-weight: inherit; cursor: pointer; padding: 0; outline: none; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
                         .table-sort:hover { color: white; }
                         .sort-indicator { font-size: 0.75em; opacity: 0.7; }
                         .asset-filter-btn { background: var(--bg-card); border: none; border-right: 1px solid var(--border-color); color: var(--text-muted); padding: 0.4rem 0.8rem; font-size: 0.85rem; cursor: pointer; transition: 0.2s; font-weight: 600; }
@@ -1000,35 +1000,35 @@
 
                 return `
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); background: ${m.is_active ? (m.quality_override ? 'rgba(255,152,0,0.05)' : 'rgba(255,255,255,0.02)') : 'transparent'};">
-                    <td style="padding: 0.7rem 0.5rem;">
+                    <td style="padding: 0.7rem 0.5rem; text-align: left;">
                         <div style="font-weight:700; color:white; font-size:0.95rem;">${sym}</div>
                         ${activeBadgeHtml}
                         ${m.is_active && m.quality_override ? `<div style="font-size:0.7rem; color:#ff9f43; margin-top:0.2rem;">QG override</div>` : ''}
                     </td>
-                    <td style="padding: 0.7rem 0.5rem; font-size:0.85rem; color:white;">v${m.version}</td>
-                    <td style="padding: 0.7rem 0.5rem;">
+                    <td style="padding: 0.7rem 0.5rem; text-align: center; font-size:0.85rem; color:white;">v${m.version}</td>
+                    <td style="padding: 0.7rem 0.5rem; text-align: center;">
                         <div style="font-size:0.95rem; color:white;" title="Base AUC: ${m.baseline}">${m.auc}</div>
                         <div style="font-size:0.75rem; color:var(--text-muted);">Lift: ${liftBadge}</div>
                     </td>
-                    <td style="padding: 0.7rem 0.5rem; font-size:0.95rem;">${eceBadge}</td>
-                    <td style="padding: 0.7rem 0.5rem; text-align:right; font-size:0.82rem;">
+                    <td style="padding: 0.7rem 0.5rem; text-align: center; font-size:0.95rem;">${eceBadge}</td>
+                    <td style="padding: 0.7rem 0.5rem; text-align: center; font-size:0.82rem;">
                         ${m.precision != null ? m.precision.toFixed(3) : '—'}
                     </td>
-                    <td style="padding: 0.7rem 0.5rem; text-align:right; font-size:0.82rem;">
+                    <td style="padding: 0.7rem 0.5rem; text-align: center; font-size:0.82rem;">
                         ${m.recall != null ? m.recall.toFixed(3) : '—'}
                     </td>
-                    <td style="padding: 0.7rem 0.5rem; text-align:right; font-size:0.82rem;">
+                    <td style="padding: 0.7rem 0.5rem; text-align: center; font-size:0.82rem;">
                         ${m.f1 != null ? m.f1.toFixed(3) : '—'}
                     </td>
-                    <td style="padding: 0.7rem 0.5rem; text-align:right; font-size:0.82rem;">
+                    <td style="padding: 0.7rem 0.5rem; text-align: center; font-size:0.82rem;">
                         ${m.brier_score != null ? m.brier_score.toFixed(4) : '—'}
                     </td>
-                    <td style="padding: 0.7rem 0.5rem; text-align:right;">${dirPnlHtml}</td>
-                    <td style="padding: 0.7rem 0.5rem; text-align:right;">${dirStatsHtml}</td>
-                    <td style="padding: 0.7rem 0.5rem; font-size:0.8rem; color:var(--text-muted); text-align:right;">
+                    <td style="padding: 0.7rem 0.5rem; text-align: right;">${dirPnlHtml}</td>
+                    <td style="padding: 0.7rem 0.5rem; text-align: right;">${dirStatsHtml}</td>
+                    <td style="padding: 0.7rem 0.5rem; font-size:0.8rem; color:var(--text-muted); text-align: right; white-space: nowrap;">
                         ${m.trained_at ? m.trained_at.slice(0,16).replace('T',' ') : '—'}
                     </td>
-                    <td style="padding: 0.7rem 0.5rem; text-align:right;">
+                    <td style="padding: 0.7rem 0.5rem; width: 140px; text-align: right;">
                         <div style="display:flex; flex-direction:column; gap:0.4rem; align-items:flex-end;">
                             ${actionButtonHtml}
                             ${deleteButtonHtml}
@@ -1040,21 +1040,21 @@
 
             let html = `
             <div style="overflow-x:auto;">
-                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size:0.82rem;">
+                <table style="width: 100%; border-collapse: collapse; font-size:0.82rem;">
                     <thead>
                         <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
-                            <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('asset')">Символ ${getSortIndicator('asset')}</button></th>
-                            <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('version')">Версия ${getSortIndicator('version')}</button></th>
-                            <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('auc')">AUC ${getSortIndicator('auc')}</button></th>
-                            <th style="padding: 0.5rem;"><button class="table-sort" onclick="setSort('ece')">ECE ${getSortIndicator('ece')}</button></th>
-                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('precision')">Prec ${getSortIndicator('precision')}</button></th>
-                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('recall')">Recall ${getSortIndicator('recall')}</button></th>
-                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('f1')">F1 ${getSortIndicator('f1')}</button></th>
-                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('brier_score')">Brier ${getSortIndicator('brier_score')}</button></th>
-                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('pnl')">LightGBM PnL ${getSortIndicator('pnl')}</button></th>
-                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('trades')">Сделок ${getSortIndicator('trades')}</button></th>
-                            <th style="padding: 0.5rem; text-align:right;"><button class="table-sort" style="justify-content:flex-end;" onclick="setSort('trained_at')">Обучена ${getSortIndicator('trained_at')}</button></th>
-                            <th style="padding: 0.5rem;"></th>
+                            <th style="padding: 0.5rem; text-align: left;"><button class="table-sort" onclick="setSort('asset')">Символ ${getSortIndicator('asset')}</button></th>
+                            <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('version')">Версия ${getSortIndicator('version')}</button></th>
+                            <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('auc')">AUC ${getSortIndicator('auc')}</button></th>
+                            <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('ece')">ECE ${getSortIndicator('ece')}</button></th>
+                            <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('precision')">Prec ${getSortIndicator('precision')}</button></th>
+                            <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('recall')">Recall ${getSortIndicator('recall')}</button></th>
+                            <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('f1')">F1 ${getSortIndicator('f1')}</button></th>
+                            <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('brier_score')">Brier ${getSortIndicator('brier_score')}</button></th>
+                            <th style="padding: 0.5rem; text-align: right;"><button class="table-sort" style="justify-content: flex-end; width: 100%;" onclick="setSort('pnl')">LightGBM PnL ${getSortIndicator('pnl')}</button></th>
+                            <th style="padding: 0.5rem; text-align: right;"><button class="table-sort" style="justify-content: flex-end; width: 100%;" onclick="setSort('trades')">Сделок ${getSortIndicator('trades')}</button></th>
+                            <th style="padding: 0.5rem; text-align: right; white-space: nowrap;"><button class="table-sort" style="justify-content: flex-end; width: 100%;" onclick="setSort('trained_at')">Обучена ${getSortIndicator('trained_at')}</button></th>
+                            <th style="padding: 0.5rem; width: 140px; text-align: right;"></th>
                         </tr>
                     </thead>
                     <tbody>
