@@ -357,7 +357,7 @@ def evaluate_combined_entry(
     discount_mult = round(p_candidate_win / p_logreg_win, 4) if p_logreg_win > 0 else 1.0
 
     if discount_weight > 0.0:
-        logger.debug(
+        logger.info(
             "combined_direction_discount_applied",
             p_logreg_win=p_logreg_win,
             dir_prob=dir_prob,

@@ -941,7 +941,7 @@ async def decide_combined_mode(
             strike=comb_res.strike_proxy,
             edge=comb_res.net_edge,
             p_win_effective=comb_res.p_candidate_win,
-            p_win_raw=comb_res.p_logreg_win or comb_res.p_candidate_win,
+            p_win_raw=comb_res.p_logreg_win if comb_res.p_logreg_win is not None else comb_res.p_candidate_win,
             decision_details=decision_details,
         )
     else:
@@ -956,7 +956,7 @@ async def decide_combined_mode(
             strike=comb_res.strike_proxy,
             edge=comb_res.net_edge or 0.0,
             p_win_effective=comb_res.p_candidate_win,
-            p_win_raw=comb_res.p_logreg_win or comb_res.p_candidate_win,
+            p_win_raw=comb_res.p_logreg_win if comb_res.p_logreg_win is not None else comb_res.p_candidate_win,
             decision_details=decision_details,
         )
 
@@ -1009,6 +1009,9 @@ async def decide_combined_mode(
         entry_status=comb_res.entry_status,
         fallback_reason=comb_res.fallback_reason,
         p_candidate_win=comb_res.p_candidate_win,
+        p_logreg_win=comb_res.p_logreg_win,
+        direction_discount_mult=comb_res.direction_discount_applied,
+        combined_dir_discount_weight=comb_res.combined_dir_discount_weight,
         candidate_side=comb_res.candidate_side,
         candidate_ask=comb_res.candidate_ask,
         gross_edge=comb_res.gross_edge,
