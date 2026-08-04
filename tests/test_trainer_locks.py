@@ -1,7 +1,7 @@
 import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from polyflip.models.trainer import _TRAINING_LOCKS, ModelTrainer
+from unittest.mock import MagicMock
+from polyflip.models.trainer import serialize_training, _TRAINING_LOCKS
 
 @pytest.fixture(autouse=True)
 def clear_locks():
@@ -13,25 +13,20 @@ def clear_locks():
 async def test_different_assets_run_concurrently():
     """BTC and ETH should not block each other."""
     order = []
-    
-    original_func = ModelTrainer.train_model.__wrapped__
-    
-    async def fake_train_inner(self, asset):
+
+    @serialize_training
+    async def fake_train(self, asset: str):
         order.append(f"start_{asset}")
         await asyncio.sleep(0.05)
         order.append(f"end_{asset}")
         return True
-        
-    ModelTrainer.train_model.__wrapped__ = fake_train_inner
-    try:
-        await asyncio.gather(
-            ModelTrainer(MagicMock()).train_model("BTC"),
-            ModelTrainer(MagicMock()).train_model("ETH"),
-        )
-    finally:
-        ModelTrainer.train_model.__wrapped__ = original_func
 
-    # Both should start before either ends
+    obj = object.__new__(object)  # минимальный self
+    await asyncio.gather(
+        fake_train(obj, asset="BTC"),
+        fake_train(obj, asset="ETH"),
+    )
+    
     assert order.index("start_ETH") < order.index("end_BTC")
     assert order.index("start_BTC") < order.index("end_ETH")
 
@@ -39,24 +34,18 @@ async def test_different_assets_run_concurrently():
 async def test_same_asset_serialized():
     """Two calls for BTC should run sequentially."""
     order = []
-    
-    original_func = ModelTrainer.train_model.__wrapped__
-    
-    async def fake_train_inner(self, asset):
+
+    @serialize_training
+    async def fake_train(self, asset: str):
         order.append(f"start_{asset}")
         await asyncio.sleep(0.05)
         order.append(f"end_{asset}")
         return True
-        
-    ModelTrainer.train_model.__wrapped__ = fake_train_inner
-    try:
-        await asyncio.gather(
-            ModelTrainer(MagicMock()).train_model("BTC"),
-            ModelTrainer(MagicMock()).train_model("BTC"),
-        )
-    finally:
-        ModelTrainer.train_model.__wrapped__ = original_func
 
-    # The second BTC should not start until the first one ends
-    # order should be: start_BTC, end_BTC, start_BTC, end_BTC
+    obj = object.__new__(object)  # минимальный self
+    await asyncio.gather(
+        fake_train(obj, asset="BTC"),
+        fake_train(obj, asset="BTC"),
+    )
+
     assert order == ["start_BTC", "end_BTC", "start_BTC", "end_BTC"]

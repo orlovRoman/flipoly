@@ -56,6 +56,9 @@ jobs:
       - name: Check single alembic head
         run: test "$(poetry run alembic heads | wc -l)" -eq 1
 
+      - name: Validate settings registry keys
+        run: poetry run python -c "from polyflip.settings_registry import validate_required_keys; validate_required_keys()"
+
       - name: Run tests
         run: poetry run pytest tests/ -m "not live" --strict-config --strict-markers -q
 

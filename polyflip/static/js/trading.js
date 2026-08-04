@@ -734,7 +734,8 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.combinedFallbackToMlOnNone.checked = data.COMBINED_FALLBACK_TO_ML_ON_NONE === "true";
       }
       if (settingsElements.maxSpreadPct && data.MAX_SPREAD_PCT !== undefined) {
-        settingsElements.maxSpreadPct.value = data.MAX_SPREAD_PCT;
+        let val = parseFloat(data.MAX_SPREAD_PCT);
+        settingsElements.maxSpreadPct.value = (val * 100).toFixed(1);
       }
       if (settingsElements.outsiderPwinDiscount && data.OUTSIDER_PWIN_DISCOUNT !== undefined) {
         let val = parseFloat(data.OUTSIDER_PWIN_DISCOUNT);
@@ -892,7 +893,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
-      if (settingsElements.maxSpreadPct) settingsToSave.MAX_SPREAD_PCT = settingsElements.maxSpreadPct.value;
+      if (settingsElements.maxSpreadPct) settingsToSave.MAX_SPREAD_PCT = (parseFloat(settingsElements.maxSpreadPct.value) / 100).toString();
       const activeMode = document.querySelector('input[name="trading_mode"]:checked')?.value || 'ml';
       settingsToSave.TRADING_MODE = activeMode;
 

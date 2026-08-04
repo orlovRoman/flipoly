@@ -126,7 +126,7 @@ REGISTRY: list[SettingDef] = [
     SettingDef("FLIP_THRESHOLD", "0.60",
                description="Порог p_flip для входа в аутсайдера"),
     SettingDef("OUTSIDER_PWIN_DISCOUNT", "0.65",
-               description="Дисконт вероятности выигрыша аутсайдера: p_win = p_flip * discount (0.0-1.0)"),
+               description="Хранится как коэффициент 0.0-1.0; в UI отображается как проценты (0-100). Дисконт вероятности выигрыша аутсайдера."),
     SettingDef("MAX_SPREAD_PCT", "0.08",
                description="Макс. спред как доля от mid_price. Шире — сделка не создаётся (PURE_FAVORITE)"),
     SettingDef("TRADE_FLIP_THRESHOLD", "0.85",
@@ -278,6 +278,11 @@ REQUIRED_SETTINGS_KEYS = frozenset([
     "FAVORITE_MIN_PRICE",
     "MIN_DIRECTION_PROB",
     "MIN_WIN_PROB",
+    "MAX_SPREAD_PCT",
+    "OUTSIDER_PWIN_DISCOUNT",
+    "MIN_EDGE",
+    "NO_MIN_EDGE",
+    "COMBINED_FALLBACK_TO_ML_ON_NONE",
 ])
 
 def validate_required_keys():
