@@ -588,6 +588,13 @@
                                 </div>
 
                                 <div class="form-group">
+                                    <label for="OUTSIDER_PWIN_DISCOUNT" title="Дополнительный дисконт к MIN_WIN_PROB для аутсайдеров (в процентах). Если MIN_WIN_PROB = 51%, а DISCOUNT = 2%, то аутсайдеру нужно 53% вероятности победы для входа.">
+                                        Дисконт аутсайдера к Мин. P(Win) (%)
+                                    </label>
+                                    <input type="number" step="0.1" max="100" min="0" id="OUTSIDER_PWIN_DISCOUNT" value="0.0">
+                                </div>
+
+                                <div class="form-group">
                                     <label for="MIN_EDGE" title="[БАЗОВЫЙ ПАРАМЕТР] Единое минимальное математическое ожидание (Edge в %), при котором бот войдет в сделку в ЛЮБОМ торговом режиме (ML, LightGBM, Combined).">
                                         Единый Мин. Edge для всех режимов (%)
                                     </label>
@@ -744,6 +751,11 @@
                                 <div class="form-group">
                                     <label for="TRADE_MAX_PRICE" title="Бот не будет покупать токены дороже этого значения.">Максимальная цена входа (USD)</label>
                                     <input type="number" step="0.01" min="0" max="1" id="TRADE_MAX_PRICE" value="0.95">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="MAX_SPREAD_PCT" title="Максимальный допустимый спред между ask и bid в процентах от mid price. Сделка отклоняется, если рынок неликвидный.">Максимальный спред (%)</label>
+                                    <input type="number" step="0.1" min="0" max="100" id="MAX_SPREAD_PCT" value="5.0">
                                 </div>
                             </div>
                         </div>

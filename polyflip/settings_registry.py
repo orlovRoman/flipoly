@@ -266,5 +266,23 @@ def registry_defaults() -> dict[str, str]:
 
 
 def editable_keys() -> set[str]:
-    """Ключи, разрешённые для изменения через API."""
+    """Только ключи, которые можно редактировать через API (без скрытых)."""
     return {s.key for s in REGISTRY if s.editable}
+
+REQUIRED_SETTINGS_KEYS = frozenset([
+    "NO_FLIP_THRESHOLD",
+    "FLIP_THRESHOLD",
+    "TRADE_MAX_PRICE",
+    "TRADE_MIN_PRICE",
+    "FAVORITE_MAX_PRICE",
+    "FAVORITE_MIN_PRICE",
+    "MIN_DIRECTION_PROB",
+    "MIN_WIN_PROB",
+])
+
+def validate_required_keys():
+    """Проверяет наличие обязательных ключей в реестре (для CI)."""
+    current_keys = {s.key for s in REGISTRY}
+    missing = REQUIRED_SETTINGS_KEYS - current_keys
+    if missing:
+        raise ValueError(f"Missing required settings in REGISTRY: {missing}")

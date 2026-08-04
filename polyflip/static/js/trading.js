@@ -319,6 +319,8 @@ document.addEventListener("DOMContentLoaded", () => {
     initialCapital: document.getElementById("INITIAL_CAPITAL"),
     minPrice: document.getElementById("TRADE_MIN_PRICE"),
     maxPrice: document.getElementById("TRADE_MAX_PRICE"),
+    maxSpreadPct: document.getElementById("MAX_SPREAD_PCT"),
+    outsiderPwinDiscount: document.getElementById("OUTSIDER_PWIN_DISCOUNT"),
     stopLossEnabled: document.getElementById("STOP_LOSS_ENABLED"),
     stopLossPctFavorite: document.getElementById("STOP_LOSS_PCT_FAVORITE"),
     stopLossPctOutsider: document.getElementById("STOP_LOSS_PCT_OUTSIDER"),
@@ -731,6 +733,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.combinedFallbackToMlOnNone && data.COMBINED_FALLBACK_TO_ML_ON_NONE !== undefined) {
         settingsElements.combinedFallbackToMlOnNone.checked = data.COMBINED_FALLBACK_TO_ML_ON_NONE === "true";
       }
+      if (settingsElements.maxSpreadPct && data.MAX_SPREAD_PCT !== undefined) {
+        settingsElements.maxSpreadPct.value = data.MAX_SPREAD_PCT;
+      }
+      if (settingsElements.outsiderPwinDiscount && data.OUTSIDER_PWIN_DISCOUNT !== undefined) {
+        let val = parseFloat(data.OUTSIDER_PWIN_DISCOUNT);
+        settingsElements.outsiderPwinDiscount.value = (val * 100).toFixed(1);
+      }
 
       updateDeadZoneInfo();
       if (data.TRADING_MODE) {
@@ -831,6 +840,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.noFlipThreshold) settingsToSave.NO_FLIP_THRESHOLD = parseFloat(settingsElements.noFlipThreshold.value) / 100;
       if (settingsElements.minDirectionProb) settingsToSave.MIN_DIRECTION_PROB = parseFloat(settingsElements.minDirectionProb.value) / 100;
       if (settingsElements.minWinProb) settingsToSave.MIN_WIN_PROB = parseFloat(settingsElements.minWinProb.value) / 100;
+      if (settingsElements.outsiderPwinDiscount) settingsToSave.OUTSIDER_PWIN_DISCOUNT = parseFloat(settingsElements.outsiderPwinDiscount.value) / 100;
       if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
 
@@ -882,6 +892,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.initialCapital) settingsToSave.INITIAL_CAPITAL = settingsElements.initialCapital.value;
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
+      if (settingsElements.maxSpreadPct) settingsToSave.MAX_SPREAD_PCT = settingsElements.maxSpreadPct.value;
       const activeMode = document.querySelector('input[name="trading_mode"]:checked')?.value || 'ml';
       settingsToSave.TRADING_MODE = activeMode;
 

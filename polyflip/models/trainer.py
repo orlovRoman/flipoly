@@ -2,6 +2,7 @@ import pickle
 import numpy as np
 import pandas as pd
 import asyncio
+import functools
 from datetime import datetime, timezone
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,8 @@ from polyflip.constants import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_TRAINING_LOCKS: dict[str, asyncio.Lock] = {}
 
 from polyflip.models.feature_lags import add_lag_features, LAG_FEATURE_NAMES
 
@@ -364,25 +367,21 @@ def _fit_and_serialize(
     )
 
     return model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest
-
-import functools
-
 def serialize_training(func):
-    _lock = None
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
-        nonlocal _lock
-        if _lock is None:
-            _lock = asyncio.Lock()
-        
         asset = kwargs.get("asset")
         if not asset and len(args) > 1:
             asset = args[1]
+        if not asset:
+            asset = "__global__"
             
-        if _lock.locked():
+        lock = _TRAINING_LOCKS.setdefault(asset, asyncio.Lock())
+            
+        if lock.locked():
             logger.warning("train_model_queued", asset=asset, note="Training is already running. Waiting in queue...")
             
-        async with _lock:
+        async with lock:
             return await func(*args, **kwargs)
     return wrapper
 

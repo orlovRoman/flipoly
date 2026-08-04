@@ -1,6 +1,7 @@
 import pytest
 import math
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from polyflip.trading.combined_voting import evaluate_combined_entry, CombinedEntryResult
 from polyflip.crypto.predictor import CryptoSignal
@@ -334,7 +335,6 @@ def test_decide_combined_mode_fallback_to_ml_on_none_enabled():
         assert res.confirm_model_key == "ETHUSDT_mid_vol"
         assert res.confirm_model_version == 10
         assert res.lgbm_metadata is not None
-        import json
         meta = json.loads(res.lgbm_metadata)
         assert meta["mode"] == "COMBINED_FALLBACK_ML"
         assert meta["lgbm_direction"] == "NONE"
