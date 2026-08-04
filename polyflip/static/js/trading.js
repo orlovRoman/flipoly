@@ -745,13 +745,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (settingsElements.combinedDirDiscountWeight && data.COMBINED_DIR_DISCOUNT_WEIGHT !== undefined) {
         let val = parseFloat(data.COMBINED_DIR_DISCOUNT_WEIGHT);
-        if (val <= 1 && val > 0) val *= 100;
-        settingsElements.combinedDirDiscountWeight.value = Math.round(val);
+        settingsElements.combinedDirDiscountWeight.value = isNaN(val) ? "0" : Math.round(val * 100);
       }
       if (settingsElements.combinedDirStrongThreshold && data.COMBINED_DIR_STRONG_THRESHOLD !== undefined) {
         let val = parseFloat(data.COMBINED_DIR_STRONG_THRESHOLD);
-        if (val <= 1) val *= 100;
-        settingsElements.combinedDirStrongThreshold.value = val.toFixed(1);
+        settingsElements.combinedDirStrongThreshold.value = isNaN(val) ? "65.0" : (val * 100).toFixed(1);
       }
 
       updateDeadZoneInfo();
@@ -854,8 +852,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.minDirectionProb) settingsToSave.MIN_DIRECTION_PROB = parseFloat(settingsElements.minDirectionProb.value) / 100;
       if (settingsElements.minWinProb) settingsToSave.MIN_WIN_PROB = parseFloat(settingsElements.minWinProb.value) / 100;
       if (settingsElements.outsiderPwinDiscount) settingsToSave.OUTSIDER_PWIN_DISCOUNT = parseFloat(settingsElements.outsiderPwinDiscount.value) / 100;
-      if (settingsElements.combinedDirDiscountWeight) settingsToSave.COMBINED_DIR_DISCOUNT_WEIGHT = parseFloat(settingsElements.combinedDirDiscountWeight.value) / 100;
-      if (settingsElements.combinedDirStrongThreshold) settingsToSave.COMBINED_DIR_STRONG_THRESHOLD = parseFloat(settingsElements.combinedDirStrongThreshold.value) / 100;
+      if (settingsElements.combinedDirDiscountWeight) settingsToSave.COMBINED_DIR_DISCOUNT_WEIGHT = parseFormattedFloat(settingsElements.combinedDirDiscountWeight.value) / 100;
+      if (settingsElements.combinedDirStrongThreshold) settingsToSave.COMBINED_DIR_STRONG_THRESHOLD = parseFormattedFloat(settingsElements.combinedDirStrongThreshold.value) / 100;
       if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
 

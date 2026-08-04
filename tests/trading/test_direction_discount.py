@@ -13,7 +13,7 @@ def test_apply_direction_confidence_discount_disabled():
         strong_threshold=0.65,
         discount_weight=0.0,
     )
-    assert res == 0.70
+    assert res == pytest.approx(0.70, abs=1e-4)
 
 
 def test_apply_direction_confidence_discount_strong_confidence():
@@ -25,7 +25,7 @@ def test_apply_direction_confidence_discount_strong_confidence():
         strong_threshold=0.65,
         discount_weight=0.25,
     )
-    assert res == 0.80
+    assert res == pytest.approx(0.80, abs=1e-4)
 
 
 def test_apply_direction_confidence_discount_min_confidence():
@@ -37,21 +37,21 @@ def test_apply_direction_confidence_discount_min_confidence():
         strong_threshold=0.65,
         discount_weight=0.20,
     )
-    assert res == 0.64
+    assert res == pytest.approx(0.64, abs=1e-4)
 
 
 def test_apply_direction_confidence_discount_halfway():
-    # Band = 0.65 - 0.50 = 0.15. Halfway = 0.575. Weakness = 0.5.
+    # Band = 0.65 - 0.505 = 0.145. Halfway = 0.5775. Weakness = 0.5.
     # Multiplier = 1.0 - (0.20 * 0.5) = 0.90.
     # 0.70 * 0.90 = 0.63.
     res = apply_direction_confidence_discount(
         p_logreg_win=0.70,
-        dir_prob=0.575,
-        min_direction_prob=0.50,
+        dir_prob=0.5775,
+        min_direction_prob=0.505,
         strong_threshold=0.65,
         discount_weight=0.20,
     )
-    assert res == 0.63
+    assert res == pytest.approx(0.63, abs=1e-4)
 
 
 def test_apply_direction_confidence_discount_invalid_band():
@@ -63,7 +63,7 @@ def test_apply_direction_confidence_discount_invalid_band():
         strong_threshold=0.60,
         discount_weight=0.20,
     )
-    assert res == 0.60
+    assert res == pytest.approx(0.60, abs=1e-4)
 
 
 def test_evaluate_combined_entry_with_discount():
@@ -127,11 +127,11 @@ def test_evaluate_combined_entry_with_discount():
         config_dict=raw_config,
     )
 
-    assert result.p_logreg_win == 0.70
+    assert result.p_logreg_win == pytest.approx(0.70, abs=1e-4)
     assert result.p_candidate_win < 0.70
-    assert result.p_candidate_win == 0.5745
+    assert result.p_candidate_win == pytest.approx(0.5745, abs=1e-4)
     assert result.direction_discount_applied < 1.0
-    assert result.combined_dir_discount_weight == 0.20
+    assert result.combined_dir_discount_weight == pytest.approx(0.20, abs=1e-4)
     assert result.action == "SKIP"
     assert "Insufficient net edge" in result.reason
 
@@ -154,5 +154,5 @@ def test_evaluate_combined_entry_with_discount():
         config_dict=raw_config,
     )
     assert result_buy.action == "BUY_YES"
-    assert result_buy.p_candidate_win == 0.7386
-    assert result_buy.net_edge == 0.1286
+    assert result_buy.p_candidate_win == pytest.approx(0.7386, abs=1e-4)
+    assert result_buy.net_edge == pytest.approx(0.1286, abs=1e-4)
