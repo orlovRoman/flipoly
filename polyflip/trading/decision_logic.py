@@ -173,6 +173,7 @@ def decide_ml_trend(
       - MIN_EDGE / MAX_EDGE: float  ← ML-edge фильтр
     """
     cfg = parse_trading_settings(config)
+    no_flip_thresh = cfg.no_flip_threshold
 
     p_flip_calibrated = apply_ece_correction(p_flip, ece)
     p_flip_effective = max(p_flip, p_flip_calibrated)
