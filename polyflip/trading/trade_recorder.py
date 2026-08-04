@@ -62,6 +62,7 @@ async def save_or_update_skipped_trade(
     confirm_model_key: Optional[str] = None,
     confirm_model_version: Optional[int] = None,
     decision_details: Optional[dict] = None,
+    direction_value: Optional[str] = None,
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
     details = decision_details or {}
@@ -70,7 +71,8 @@ async def save_or_update_skipped_trade(
     dir_model_ver = details.get("direction_model_version")
     dir_regime = details.get("direction_regime")
     dir_prob = details.get("direction_probability")
-    dir_val = details.get("direction_value")
+    # direction_value: prefer explicit arg; fallback to decision_details for backward compat
+    dir_val = direction_value or details.get("direction_value")
     ent_model_key = details.get("entry_model_key") or model_key
     ent_model_ver = details.get("entry_model_version") or model_version
     ent_model_phase = details.get("entry_model_phase")

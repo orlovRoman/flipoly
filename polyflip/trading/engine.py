@@ -159,6 +159,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         confirm_model_key=decision_res.confirm_model_key if decision_res else None,
                         confirm_model_version=decision_res.confirm_model_version if decision_res else None,
                         decision_details=dec_details,
+                        direction_value=decision_res.decision_obj.direction_value if (decision_res and decision_res.decision_obj) else None,
                     )
                     continue
 
@@ -180,6 +181,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         confirm_model_key=decision_res.confirm_model_key if decision_res else None,
                         confirm_model_version=decision_res.confirm_model_version if decision_res else None,
                         decision_details=dec_details,
+                        direction_value=decision_res.decision_obj.direction_value if decision_res.decision_obj else None,
                     )
                     continue
 
@@ -206,6 +208,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         confirm_model_key=decision_res.confirm_model_key if decision_res else None,
                         confirm_model_version=decision_res.confirm_model_version if decision_res else None,
                         decision_details=dec_details,
+                        direction_value=decision_res.decision_obj.direction_value if decision_res.decision_obj else None,
                     )
                     continue
             finally:
