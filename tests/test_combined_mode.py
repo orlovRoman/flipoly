@@ -271,3 +271,121 @@ def test_decide_combined_mode_full_flow():
         assert call_kwargs["entry_model_source"] == "PHASE"
         assert call_kwargs["gross_edge"] is not None
         assert call_kwargs["net_edge"] is not None
+
+
+def test_decide_combined_mode_fallback_to_ml_on_none_enabled():
+    """Когда LightGBM выдает NONE, а fallback включен -> переход в decide_ml_mode"""
+    db_session = AsyncMock()
+    api_client = AsyncMock()
+    api_client.get_market_prices.return_value = {
+        "current_yes_price": "0.60",
+        "best_ask": "0.62",
+        "current_spread": "0.02",
+    }
+    market = MagicMock()
+    market.market_id = 456
+    market.asset = "ETH"
+    market.volume_5min = 500.0
+    market.underlying_price = 3000.0
+    market.current_spread = 0.01
+
+    cfg = parse_trading_settings({
+        "COMBINED_FALLBACK_TO_ML_ON_NONE": "true",
+        "MIN_EDGE": "0.03"
+    })
+    raw_settings = {"COMBINED_FALLBACK_TO_ML_ON_NONE": "true"}
+    models_cache = MagicMock()
+    crypto_predictor = MagicMock()
+
+    crypto_sig = CryptoSignal(
+        symbol="ETHUSDT", model_key="ETHUSDT_mid_vol", p_up=0.50, p_down=0.50, direction="NONE",
+        signal_strength=0.0, strike=3000.0, threshold_up=0.55, threshold_down=0.45,
+        model_version=10, features_ok=True, risk_vetoed=False, regime="MID_VOL", status="OK"
+    )
+
+    mock_ml_decision = DecisionResult(
+        decision_obj=MagicMock(action="BUY_YES", strategy_type="ML_FLIP", reason=None),
+        p_flip=0.20,
+        model_ver=3,
+        edge=0.15,
+        skip_reason=None,
+        used_model_key="ETH_leaning"
+    )
+
+    with patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=crypto_sig)), \
+         patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=mock_ml_decision)) as mock_ml_mode:
+
+        res = asyncio.run(decide_combined_mode(
+            db_session=db_session,
+            api_client=api_client,
+            market=market,
+            cfg=cfg,
+            raw_settings=raw_settings,
+            models_cache=models_cache,
+            crypto_predictor=crypto_predictor,
+            start_time=MagicMock(),
+            time_left_sec=200.0,
+            execution_mode="PAPER"
+        ))
+
+        assert mock_ml_mode.call_count == 1
+        assert res.decision_obj.action == "BUY_YES"
+        assert res.decision_obj.strategy_type == "COMBINED (Fallback ML)"
+        assert res.confirm_model_key == "ETHUSDT_mid_vol"
+        assert res.confirm_model_version == 10
+
+
+def test_decide_combined_mode_fallback_disabled_skips_on_none():
+    """Когда LightGBM выдает NONE, а fallback выключен -> SKIP без вызова decide_ml_mode"""
+    db_session = AsyncMock()
+    api_client = AsyncMock()
+    api_client.get_market_prices.return_value = {
+        "current_yes_price": "0.60",
+        "best_ask": "0.62",
+        "current_spread": "0.02",
+    }
+    market = MagicMock()
+    market.market_id = 789
+    market.asset = "SOL"
+    market.volume_5min = 500.0
+    market.underlying_price = 150.0
+    market.current_spread = 0.01
+
+    cfg = parse_trading_settings({
+        "COMBINED_FALLBACK_TO_ML_ON_NONE": "false",
+        "MIN_EDGE": "0.03"
+    })
+    raw_settings = {"COMBINED_FALLBACK_TO_ML_ON_NONE": "false"}
+    models_cache = MagicMock()
+    crypto_predictor = MagicMock()
+
+    crypto_sig = CryptoSignal(
+        symbol="SOLUSDT", model_key="SOLUSDT_mid_vol", p_up=0.50, p_down=0.50, direction="NONE",
+        signal_strength=0.0, strike=150.0, threshold_up=0.55, threshold_down=0.45,
+        model_version=8, features_ok=True, risk_vetoed=False, regime="MID_VOL", status="OK"
+    )
+
+    with patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=crypto_sig)), \
+         patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock()) as mock_ml_mode, \
+         patch("polyflip.trading.decision_runners.log_funnel", AsyncMock()) as mock_log_funnel:
+
+        res = asyncio.run(decide_combined_mode(
+            db_session=db_session,
+            api_client=api_client,
+            market=market,
+            cfg=cfg,
+            raw_settings=raw_settings,
+            models_cache=models_cache,
+            crypto_predictor=crypto_predictor,
+            start_time=MagicMock(),
+            time_left_sec=200.0,
+            execution_mode="PAPER"
+        ))
+
+        assert mock_ml_mode.call_count == 0
+        assert res.decision_obj.action == "SKIP"
+        assert "NONE: p_up=" in res.decision_obj.reason
+        assert mock_log_funnel.call_count == 1
+
+
+

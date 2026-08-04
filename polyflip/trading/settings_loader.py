@@ -51,6 +51,7 @@ async def load_trading_settings(
         "TAKE_PROFIT_MULTIPLIER",
         "MIN_DIRECTION_PROB",
         "MIN_WIN_PROB",
+        "COMBINED_FALLBACK_TO_ML_ON_NONE",
     ]
     
     stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))

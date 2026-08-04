@@ -58,8 +58,6 @@ class TradingConfig:
     liquidity_fraction: float
     bypass_bet_size_check: bool
     stop_loss_enabled: bool
-    min_direction_prob: float
-    min_win_prob: float
     take_profit_enabled: bool
     take_profit_multiplier: float
     max_price_drift: float
@@ -68,6 +66,9 @@ class TradingConfig:
     fee_rate: float
     slippage_rate: float
     max_exposure_pct: float
+    min_direction_prob: float
+    min_win_prob: float
+    combined_fallback_to_ml_on_none: bool = True
     max_bet_edge: float = 0.40
     outsider_pwin_discount: float = 0.65
     max_spread_pct: float = 0.08
@@ -137,10 +138,11 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         fee_rate=_parse_float(raw.get("FEE_RATE"), getattr(settings, "FEE_RATE", 0.0)),
         slippage_rate=_parse_float(raw.get("SLIPPAGE_RATE"), getattr(settings, "SLIPPAGE_RATE", 0.0)),
         max_exposure_pct=_parse_float(raw.get("MAX_EXPOSURE_PCT"), getattr(settings, "MAX_EXPOSURE_PCT", 15.0)),
+        min_direction_prob=_parse_float(raw.get("MIN_DIRECTION_PROB"), getattr(settings, "MIN_DIRECTION_PROB", 0.505)),
+        min_win_prob=_parse_float(raw.get("MIN_WIN_PROB"), getattr(settings, "MIN_WIN_PROB", 0.51)),
+        combined_fallback_to_ml_on_none=_parse_bool(raw.get("COMBINED_FALLBACK_TO_ML_ON_NONE"), getattr(settings, "COMBINED_FALLBACK_TO_ML_ON_NONE", True)),
         max_bet_edge=_parse_float(raw.get("MAX_BET_EDGE"), getattr(settings, "MAX_BET_EDGE", 0.40)),
         outsider_pwin_discount=_parse_float(raw.get("OUTSIDER_PWIN_DISCOUNT"), getattr(settings, "OUTSIDER_PWIN_DISCOUNT", 0.65)),
         max_spread_pct=_parse_float(raw.get("MAX_SPREAD_PCT"), getattr(settings, "MAX_SPREAD_PCT", 0.08)),
-        min_direction_prob=_parse_float(raw.get("MIN_DIRECTION_PROB"), getattr(settings, "MIN_DIRECTION_PROB", 0.505)),
-        min_win_prob=_parse_float(raw.get("MIN_WIN_PROB"), getattr(settings, "MIN_WIN_PROB", 0.51)),
         combined_cost_buffer=_parse_float(raw.get("COMBINED_COST_BUFFER"), 0.02),
     )

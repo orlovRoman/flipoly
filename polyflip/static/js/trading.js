@@ -348,7 +348,7 @@ document.addEventListener("DOMContentLoaded", () => {
     liquidityFraction: document.getElementById("LIQUIDITY_FRACTION"),
     maxPriceDrift: document.getElementById("MAX_PRICE_DRIFT"),
     combinedModeSettings: document.getElementById('combined-mode-settings'),
-    // removed combinedNoneBetMultiplier
+    combinedFallbackToMlOnNone: document.getElementById("COMBINED_FALLBACK_TO_ML_ON_NONE"),
   };
 
   function updateDeadZoneInfo() {
@@ -728,6 +728,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxPriceDrift && data.MAX_PRICE_DRIFT !== undefined) {
         settingsElements.maxPriceDrift.value = data.MAX_PRICE_DRIFT;
       }
+      if (settingsElements.combinedFallbackToMlOnNone && data.COMBINED_FALLBACK_TO_ML_ON_NONE !== undefined) {
+        settingsElements.combinedFallbackToMlOnNone.checked = data.COMBINED_FALLBACK_TO_ML_ON_NONE === "true";
+      }
 
       updateDeadZoneInfo();
       if (data.TRADING_MODE) {
@@ -905,6 +908,9 @@ document.addEventListener("DOMContentLoaded", () => {
       
       if (settingsElements.liquidityFraction) settingsToSave.LIQUIDITY_FRACTION = parseFormattedFloat(settingsElements.liquidityFraction.value);
       if (settingsElements.maxPriceDrift) settingsToSave.MAX_PRICE_DRIFT = parseFormattedFloat(settingsElements.maxPriceDrift.value);
+      if (settingsElements.combinedFallbackToMlOnNone) {
+        settingsToSave.COMBINED_FALLBACK_TO_ML_ON_NONE = settingsElements.combinedFallbackToMlOnNone.checked ? "true" : "false";
+      }
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
       // Считываем индивидуальные настройки по активам

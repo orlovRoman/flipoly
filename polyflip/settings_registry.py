@@ -142,6 +142,8 @@ REGISTRY: list[SettingDef] = [
                description="Мин. уверенность LGBM в направлении (UP/DOWN) для входа в Combined (пол как fallback)"),
     SettingDef("MIN_WIN_PROB", "0.51",
                description="Мин. вероятность победы кандидата (LGBM + LogReg) для входа"),
+    SettingDef("COMBINED_FALLBACK_TO_ML_ON_NONE", "true",
+               description="Если LGBM выдает NONE (нет четкого тренда), переключаться на оценку через модель LogReg (Entry Model)"),
 
     # --- Обучение LogReg / Phase models ---
     SettingDef("MIN_SAMPLES_FOR_PHASE_MODEL", "150",

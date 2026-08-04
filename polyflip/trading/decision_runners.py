@@ -723,6 +723,64 @@ async def decide_combined_mode(
         )
         logger.warning("combined_no_crypto_predictor", asset=asset_upper)
 
+    # 2.1 Fallback на ML (LogReg) режим, если LightGBM выдал NONE и включена настройка COMBINED_FALLBACK_TO_ML_ON_NONE
+    fallback_on_none = getattr(cfg, "combined_fallback_to_ml_on_none", True)
+    if raw_settings.get("COMBINED_FALLBACK_TO_ML_ON_NONE") is not None:
+        fallback_on_none = str(raw_settings["COMBINED_FALLBACK_TO_ML_ON_NONE"]).lower() in ("true", "1", "yes")
+
+    if direction_signal.direction == "NONE" and not direction_signal.risk_vetoed and fallback_on_none:
+        logger.info(
+            "combined_mode_lgbm_none_fallback_to_ml",
+            asset=asset_upper,
+            market_id=market.market_id,
+            p_up=getattr(direction_signal, "p_up", None),
+            p_down=getattr(direction_signal, "p_down", None),
+            regime=getattr(direction_signal, "regime", None),
+        )
+        ml_res = await decide_ml_mode(
+            db_session=db_session,
+            api_client=api_client,
+            market=market,
+            cfg=cfg,
+            raw_settings=raw_settings,
+            models_cache=models_cache,
+            crypto_predictor=None,
+            start_time=start_time,
+            time_left_sec=time_left_sec,
+            existing_skipped=existing_skipped,
+            execution_mode=execution_mode,
+        )
+        if ml_res.decision_obj:
+            if dataclasses.is_dataclass(ml_res.decision_obj) and not isinstance(ml_res.decision_obj, type):
+                ml_res.decision_obj = dataclasses.replace(
+                    ml_res.decision_obj,
+                    strategy_type="COMBINED (Fallback ML)",
+                )
+            else:
+                ml_res.decision_obj.strategy_type = "COMBINED (Fallback ML)"
+        lgbm_meta = json.dumps({
+            "mode": "COMBINED_FALLBACK_ML",
+            "lgbm_direction": "NONE",
+            "lgbm_p_up": getattr(direction_signal, "p_up", None),
+            "lgbm_p_down": getattr(direction_signal, "p_down", None),
+            "lgbm_regime": getattr(direction_signal, "regime", None),
+            "lgbm_model": getattr(direction_signal, "model_key", None),
+            "lgbm_version": getattr(direction_signal, "model_version", None),
+        })
+        return DecisionResult(
+            decision_obj=ml_res.decision_obj,
+            p_flip=ml_res.p_flip,
+            model_ver=ml_res.model_ver,
+            edge=ml_res.edge,
+            skip_reason=ml_res.skip_reason,
+            lgbm_metadata=lgbm_meta,
+            used_model_key=ml_res.used_model_key,
+            confirm_model_key=getattr(direction_signal, "model_key", None),
+            confirm_model_version=getattr(direction_signal, "model_version", None),
+            applied_lower=ml_res.applied_lower,
+            applied_upper=ml_res.applied_upper,
+        )
+
     # 3. Выбор LogReg модели (Entry Model) с фазовым fallback
     phase = get_price_phase(fresh_yes_price)
     phase_asset = f"{asset_upper}_{phase}"
