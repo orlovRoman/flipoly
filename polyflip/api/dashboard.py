@@ -345,6 +345,7 @@ async def get_trade_logs(
                     if getattr(log, "updated_at", None)
                     else None
                 ),
+                "direction_value": getattr(log, "direction_value", None),
             }
         )
 

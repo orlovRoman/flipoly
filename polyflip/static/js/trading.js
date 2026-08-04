@@ -1111,6 +1111,26 @@ document.addEventListener("DOMContentLoaded", () => {
           outcomeBadge = `<span style="color: #ff3366; font-size: 0.8em; margin-right: 6px; padding: 2px 4px; background: rgba(255,51,102,0.1); border-radius: 4px;">DOWN</span>`;
         }
 
+        let directionBadge = "-";
+        let dirVal = log.direction_value;
+        if (!dirVal) {
+          if (log.error_msg && log.error_msg.startsWith("NONE:")) {
+            dirVal = "NONE";
+          } else if (log.outcome_bought === "YES") {
+            dirVal = "UP";
+          } else if (log.outcome_bought === "NO") {
+            dirVal = "DOWN";
+          }
+        }
+        
+        if (dirVal === "UP") {
+          directionBadge = `<span style="color: #00ff88; font-size: 0.8em; padding: 2px 6px; background: rgba(0,255,136,0.1); border-radius: 4px; font-weight: bold;">UP</span>`;
+        } else if (dirVal === "DOWN") {
+          directionBadge = `<span style="color: #ff3366; font-size: 0.8em; padding: 2px 6px; background: rgba(255,51,102,0.1); border-radius: 4px; font-weight: bold;">DOWN</span>`;
+        } else if (dirVal === "NONE") {
+          directionBadge = `<span style="color: #999; font-size: 0.8em; padding: 2px 6px; background: rgba(153,153,153,0.1); border-radius: 4px; font-weight: bold;">NONE</span>`;
+        }
+
         const betText = log.amount_usdc > 0 ? `${outcomeBadge}$${parseFloat(log.amount_usdc).toFixed(2)}` : "-";
 
         const logDate = new Date(displayTime);
@@ -1122,7 +1142,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px; color: var(--text-muted);">${intervalOffsetStr}</td>
                         <td style="padding: 8px; color: var(--text-muted);">${timeStr}</td>
                         <td style="padding: 8px;"><a href="#" class="market-link" data-market-id="${log.market_id}" data-asset="${escapeHtml(log.asset)}" style="color: var(--text-main); text-decoration: underline; cursor: pointer;">${escapeHtml(log.question)}</a></td>
-                        <td style="padding: 8px; font-weight: bold;">${escapeHtml(log.asset)}</td>
+                        <td style="padding: 8px;">${directionBadge}</td>
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
                         <td style="padding: 8px; color: ${statusColor};">${displayStatus}</td>
                         <td style="padding: 8px;">${betTypeHtml}</td>

@@ -256,6 +256,7 @@ class TradeHistory(Base):
     cost_buffer = Column(Float, nullable=True)
     net_edge = Column(Float, nullable=True)
     decision_run_id = Column(String(64), nullable=True)
+    direction_value = Column(String(16), nullable=True)
 
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),

@@ -114,6 +114,7 @@ async def save_or_update_skipped_trade(
             existing_skipped.confirm_model_key = confirm_model_key
             existing_skipped.confirm_model_version = confirm_model_version
             existing_skipped.model_attribution_source = "EXACT" if model_key else None
+            existing_skipped.direction_value = dir_val
             
             existing_skipped.updated_at = start_time
     else:
@@ -136,6 +137,7 @@ async def save_or_update_skipped_trade(
             confirm_model_key=confirm_model_key,
             confirm_model_version=confirm_model_version,
             model_attribution_source="EXACT" if model_key else None,
+            direction_value=dir_val,
             created_at=start_time
         )
         db_session.add(history)
@@ -245,6 +247,7 @@ async def execute_and_record(
         confirm_model_key=confirm_model_key,
         confirm_model_version=confirm_model_version,
         model_attribution_source="EXACT" if model_key else None,
+        direction_value=decision_obj.direction_value,
         status="PENDING",
         error_msg=None,
         mode=exec_settings.execution_mode.value,

@@ -59,6 +59,7 @@ class TradeDecision:
     p_win_raw: Optional[float] = None
     probability_adjustment: Optional[str] = None
     decision_details: Optional[dict] = None
+    direction_value: Optional[str] = None
 
 
 
@@ -386,21 +387,24 @@ def decide_crypto_trend(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason=f"entry_price={entry_price} invalid",
             strategy_type="LIGHTGBM_TREND",
-            p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+            p_up=crypto.p_up, strike=crypto.strike, edge=0.0,
+            direction_value=crypto.direction
         )
 
     if not crypto.features_ok:
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
             reason="Invalid crypto features", strategy_type="LIGHTGBM_TREND", 
-            p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+            p_up=crypto.p_up, strike=crypto.strike, edge=0.0,
+            direction_value=crypto.direction
         )
 
     if crypto.risk_vetoed:
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0, 
             reason=f"Risk Veto: {crypto.risk_reason} (funding={crypto.funding_rate:.5f})", strategy_type="LIGHTGBM_TREND", 
-            p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+            p_up=crypto.p_up, strike=crypto.strike, edge=0.0,
+            direction_value=crypto.direction
         )
 
     flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
@@ -415,7 +419,8 @@ def decide_crypto_trend(
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason="Trade blocked: p_flip_ml not provided",
-            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0,
+            direction_value=crypto.direction
         )
         
     no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", 0.35))
@@ -426,7 +431,8 @@ def decide_crypto_trend(
             return TradeDecision(
                 action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
                 reason=f"Fav trade blocked: p_flip={p_flip_ml:.3f} >= NO_FLIP_THRESHOLD ({no_flip_thresh:.2f})",
-                strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+                strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0,
+                direction_value=crypto.direction
             )
     else:
         # Buying outsider requires high flip probability (reversal expected)
@@ -434,7 +440,8 @@ def decide_crypto_trend(
             return TradeDecision(
                 action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
                 reason=f"Outsider trade blocked: p_flip={p_flip_ml:.3f} < FLIP_THRESHOLD ({flip_thresh:.2f})",
-                strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+                strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0,
+                direction_value=crypto.direction
             )
 
     min_edge = float(config.get("CRYPTO_MIN_EDGE", config.get("MIN_EDGE", 0.05)))
@@ -445,7 +452,8 @@ def decide_crypto_trend(
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason=f"crypto signal_strength={crypto.signal_strength:.4f} <= 0",
-            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0,
+            direction_value=crypto.direction
         )
 
     if crypto.direction == "UP":
@@ -457,13 +465,14 @@ def decide_crypto_trend(
         p_win = crypto.p_down
         action = "BUY_NO"
     else:
-        return TradeDecision("SKIP", 0.0, 0.0, "Invalid direction", "SKIP", edge=0.0)
+        return TradeDecision("SKIP", 0.0, 0.0, "Invalid direction", "SKIP", edge=0.0, direction_value=crypto.direction)
 
     if actual_buy_price is None or actual_buy_price <= 0.0:
         return TradeDecision(
             action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
             reason="actual_buy_price is not available",
-            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0
+            strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=0.0,
+            direction_value=crypto.direction
         )
 
     from polyflip.crypto.edge import compute_economic_edge
@@ -474,7 +483,8 @@ def decide_crypto_trend(
             action="SKIP", buy_price=actual_buy_price, bet_size_usdc=0.0,
             reason=f"economic edge={economic_edge:.4f} < min_edge={min_edge:.4f}",
             strategy_type="LIGHTGBM_TREND", p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge,
-            p_win_effective=p_win, p_win_raw=p_win
+            p_win_effective=p_win, p_win_raw=p_win,
+            direction_value=crypto.direction
         )
 
     bet = _resolve_final_bet(economic_edge, volume_5min, config)
@@ -487,7 +497,8 @@ def decide_crypto_trend(
             action="SKIP", buy_price=actual_buy_price, bet_size_usdc=0.0, 
             reason="Bet size 0 (or stake multiplier 0)", strategy_type="LIGHTGBM_TREND", 
             p_up=crypto.p_up, strike=crypto.strike, edge=economic_edge,
-            p_win_effective=p_win, p_win_raw=p_win
+            p_win_effective=p_win, p_win_raw=p_win,
+            direction_value=crypto.direction
         )
 
     market_role = (
@@ -523,6 +534,7 @@ def decide_crypto_trend(
             "signal_type": signal_type,
             "p_flip_effective": p_flip_ml,
         },
+        direction_value=crypto.direction,
     )
 
 
