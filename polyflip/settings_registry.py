@@ -135,10 +135,7 @@ REGISTRY: list[SettingDef] = [
                description="Множитель размера ставки при неопределенности (LGBM=NONE) в Combined-режиме (0.0 - 1.0)"),
     SettingDef("COMBINED_COST_BUFFER", "0.02",
                description="Буфер транзакционных издержек и проскальзывания в Combined-режиме (0.02 = 2 цента)"),
-    SettingDef("COMBINED_MIN_NET_EDGE", "0.03",
-               description="Минимальный чистый edge для входа в Combined-режиме"),
-    SettingDef("LIVE_MIN_NET_EDGE", "0.03",
-               description="Минимальный чистый edge для выпуска заявки в Live Mirror Release Gate"),
+
     SettingDef("MAX_PRICE_DRIFT", "0.10",
                description="Макс. дрейф цены от момента сигнала до исполнения"),
 
@@ -179,8 +176,7 @@ REGISTRY: list[SettingDef] = [
                description="Список признаков для ML-модели"),
 
     # --- Крипто ---
-    SettingDef("CRYPTO_MIN_EDGE", "0.05",
-               description="Мин. edge для стратегии Crypto Trend"),
+
     SettingDef("USE_CRYPTO_CONFIRM", "false",
                description="Требовать подтверждение сигнала для крипто"),
     SettingDef("CRYPTO_STANDALONE", "false",

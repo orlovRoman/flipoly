@@ -793,11 +793,7 @@ async def decide_combined_mode(
             comb_cost_buffer = float(raw_settings["COMBINED_COST_BUFFER"])
         except (ValueError, TypeError):
             pass
-    if raw_settings.get("COMBINED_MIN_NET_EDGE") is not None:
-        try:
-            comb_min_net_edge = float(raw_settings["COMBINED_MIN_NET_EDGE"])
-        except (ValueError, TypeError):
-            pass
+
 
     vol_5m = 0.0
     try:
@@ -825,9 +821,7 @@ async def decide_combined_mode(
         yes_ask=yes_best_ask,
         no_ask=no_best_ask,
         cost_buffer=comb_cost_buffer,
-        min_net_edge=comb_min_net_edge,
-        min_price=cfg.trade_min_price,
-        max_price=cfg.trade_max_price,
+        cfg=cfg,
         volume_5min=vol_5m,
         config_dict=raw_settings,
         underlying_price=und_price,

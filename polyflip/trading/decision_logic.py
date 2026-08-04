@@ -80,44 +80,13 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
         if spread_pct > max_spread:
             return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
 
-    raw_fav = str(config.get("FAVORITE_THRESHOLD", "")).strip()
-    if not raw_fav:
-        threshold = 0.55
-        logger.warning(
-            "favorite_threshold_default_used",
-            threshold=threshold,
-            note="Default changed from 0.65 to 0.55 in v1.x — set FAVORITE_THRESHOLD explicitly"
-        )
-    else:
-        try:
-            threshold = float(raw_fav)
-        except ValueError:
-            threshold = 0.55
-            logger.warning("favorite_threshold_invalid", raw=raw_fav, fallback=threshold)
-
-    dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
-
-    if is_in_dead_zone(signal.mid_price, dead_zone):
+    from polyflip.trading.trading_config import parse_trading_settings
+    cfg = parse_trading_settings(config)
+    threshold = cfg.favorite_threshold
+    min_edge = cfg.get_min_edge(is_outsider=False)
+    
+    if is_in_dead_zone(signal.mid_price, cfg.dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", edge=0.0)
-
-    fav_min  = float(config.get("FAVORITE_MIN_PRICE", 0.55))
-    fav_max  = float(config.get("FAVORITE_MAX_PRICE", 0.95))
-    global_min = float(config.get("MIN_EDGE", 0.05))
-    fav_raw = config.get("FAVORITE_MIN_EDGE")
-    if fav_raw is not None and str(fav_raw).strip() != "":
-        fav_override = float(fav_raw)
-        if 0.0 <= fav_override < global_min:
-            logger.warning(
-                "favorite_min_edge_below_global_floor",
-                favorite_min_edge=fav_override,
-                global_min=global_min,
-                note="FAVORITE_MIN_EDGE < global MIN_EDGE — using global floor"
-            )
-            min_edge = max(global_min, fav_override)
-        else:
-            min_edge = fav_override
-    else:
-        min_edge = global_min
 
 
     candidates: list[TradeDecision] = []
@@ -125,7 +94,8 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     # --- YES side ---
     if signal.mid_price >= threshold:
         eff_yes_ask = signal.get_yes_ask()
-        if fav_min <= eff_yes_ask <= fav_max:
+        is_valid_price, price_reason = cfg.is_price_valid(eff_yes_ask, is_outsider=False)
+        if is_valid_price:
             if signal.yes_bid is not None and float(signal.yes_bid) > 0:
                 p_win_yes = float(signal.yes_bid)
             else:
@@ -143,7 +113,8 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     # --- NO side --- проверяется НЕЗАВИСИМО от YES-side
     if signal.mid_price <= (1.0 - threshold):
         eff_no_ask = signal.get_no_ask()
-        if fav_min <= eff_no_ask <= fav_max:
+        is_valid_price, price_reason = cfg.is_price_valid(eff_no_ask, is_outsider=False)
+        if is_valid_price:
             if signal.no_bid is not None and float(signal.no_bid) > 0:
                 no_prob = float(signal.no_bid)
             else:
@@ -163,15 +134,17 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
         eff_no = signal.get_no_ask()
         skipped_edge = 0.0
         if signal.mid_price >= threshold:
-            if not (fav_min <= eff_yes <= fav_max):
-                reason = f"YES price {eff_yes:.3f} out of bounds [{fav_min},{fav_max}]"
+            is_valid_price, price_reason = cfg.is_price_valid(eff_yes, is_outsider=False)
+            if not is_valid_price:
+                reason = price_reason
             else:
                 p_win_yes = float(signal.yes_bid) if signal.yes_bid is not None and float(signal.yes_bid) > 0 else signal.mid_price
                 skipped_edge = compute_edge(p_win_yes, eff_yes)
                 reason = f"favorite YES edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
         elif signal.mid_price <= (1.0 - threshold):
-            if not (fav_min <= eff_no <= fav_max):
-                reason = f"NO price {eff_no:.3f} out of bounds [{fav_min},{fav_max}]"
+            is_valid_price, price_reason = cfg.is_price_valid(eff_no, is_outsider=False)
+            if not is_valid_price:
+                reason = price_reason
             else:
                 no_prob = float(signal.no_bid) if signal.no_bid is not None and float(signal.no_bid) > 0 else (1.0 - signal.mid_price)
                 skipped_edge = compute_edge(no_prob, eff_no)
@@ -199,6 +172,8 @@ def decide_ml_trend(
       - FAVORITE_MIN_PRICE / FAVORITE_MAX_PRICE: float
       - MIN_EDGE / MAX_EDGE: float  ← ML-edge фильтр
     """
+    from polyflip.trading.trading_config import parse_trading_settings
+    cfg = parse_trading_settings(config)
     no_flip_thresh = float(config.get("NO_FLIP_THRESHOLD", 0.35))
 
     p_flip_calibrated = apply_ece_correction(p_flip, ece)
@@ -206,8 +181,7 @@ def decide_ml_trend(
     p_win = 1.0 - p_flip_effective
 
     # 1. Проверяем dead zone
-    dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
-    if is_in_dead_zone(signal.mid_price, dead_zone):
+    if is_in_dead_zone(signal.mid_price, cfg.dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip, edge=0.0)
 
     # 2. Порог P(flip) < no_flip_threshold
@@ -216,29 +190,24 @@ def decide_ml_trend(
             f"p_flip_effective={p_flip_effective:.3f} >= threshold={no_flip_thresh:.3f}", "SKIP",
             p_flip=p_flip, edge=0.0)
 
-    fav_min = float(config.get("FAVORITE_MIN_PRICE", 0.55))
-    fav_max = float(config.get("FAVORITE_MAX_PRICE", 0.95))
-
     # 3. Определяем сторону и цену входа по фавориту
     if signal.mid_price >= FLIP_MIDPOINT:
         action: ActionType = "BUY_YES"
         buy_price = signal.get_yes_ask()
-        if not (fav_min <= buy_price <= fav_max):
-            return TradeDecision("SKIP", 0, 0,
-                f"YES price {buy_price:.3f} out of [{fav_min},{fav_max}]", "SKIP", p_flip=p_flip, edge=0.0)
     else:
-        action: ActionType = "BUY_NO"
+        action = "BUY_NO"
         buy_price = signal.get_no_ask()
-        if not (fav_min <= buy_price <= fav_max):
-            return TradeDecision("SKIP", 0, 0,
-                f"NO price {buy_price:.3f} out of [{fav_min},{fav_max}]", "SKIP", p_flip=p_flip, edge=0.0)
+
+    is_valid_price, price_reason = cfg.is_price_valid(buy_price, is_outsider=False)
+    if not is_valid_price:
+        return TradeDecision("SKIP", 0, 0, price_reason, "SKIP", p_flip=p_flip, edge=0.0)
 
     if ece and ece > ECE_WARN_THRESHOLD:
         logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
 
     # 4. Единый ML-edge
     edge = compute_edge(p_win, buy_price)
-    min_edge = float(config.get("MIN_EDGE", 0.05))
+    min_edge = cfg.get_min_edge(is_outsider=False)
     if edge < min_edge:
         return TradeDecision("SKIP", 0, 0,
             f"Edge={edge:.4f} < min={min_edge:.4f}", "SKIP", p_flip=p_flip, edge=edge)
@@ -277,15 +246,16 @@ def decide_outsider(
     Outsider стратегия (TRADE_ON_FLIP).
     Если P(flip) >= flip_threshold → рынок флипнет → покупаем аутсайдера.
     """
-    flip_thresh = float(config.get("FLIP_THRESHOLD", 0.60))
+    from polyflip.trading.trading_config import parse_trading_settings
+    cfg = parse_trading_settings(config)
+    flip_thresh = cfg.flip_threshold
     if flip_thresh > 1.0:
         flip_thresh = flip_thresh / 100.0
-    dead_zone = float(config.get("DEAD_ZONE_WIDTH", 0.10))
     p_flip_calibrated = apply_ece_correction(p_flip, ece)
     p_flip_effective = min(p_flip, p_flip_calibrated)
 
     # 1. Сначала проверяем dead zone
-    if is_in_dead_zone(signal.mid_price, dead_zone):
+    if is_in_dead_zone(signal.mid_price, cfg.dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip, edge=0.0)
 
     is_yes_fav = signal.mid_price >= FLIP_MIDPOINT
@@ -314,27 +284,12 @@ def decide_outsider(
             f"p_flip_effective={p_flip_effective:.3f} < threshold={flip_thresh:.3f}", "SKIP",
             p_flip=p_flip, edge=outsider_edge)
 
-    max_outsider_price = float(config.get("OUTSIDER_MAX_PRICE", 0.45))
-    global_min = float(config.get("MIN_EDGE", 0.05))
-    no_min_raw = config.get("NO_MIN_EDGE")
-    no_min = float(no_min_raw) if no_min_raw is not None and str(no_min_raw).strip() != "" else 0.0
-    min_edge = max(global_min, no_min)
-
-    if no_min_raw is not None and str(no_min_raw).strip() != "" and float(no_min_raw) < global_min:
-        logger.warning(
-            "no_min_edge_overridden_by_global_min",
-            no_min_edge=no_min,
-            global_min_edge=global_min,
-            effective_min_edge=min_edge,
-            note="NO_MIN_EDGE in DB is below global MIN_EDGE floor — using global MIN_EDGE"
-        )
-
     edge = outsider_edge
+    min_edge = cfg.get_min_edge(is_outsider=True)
 
-    if outsider_ask > max_outsider_price:
-        return TradeDecision("SKIP", 0, 0,
-            f"{outsider_action} ask {outsider_ask:.3f} > max_outsider {max_outsider_price}", "SKIP",
-            p_flip=p_flip, edge=edge)
+    is_valid_price, price_reason = cfg.is_price_valid(outsider_ask, is_outsider=True)
+    if not is_valid_price:
+        return TradeDecision("SKIP", 0, 0, price_reason, "SKIP", p_flip=p_flip, edge=edge)
 
     if ece and ece > ECE_WARN_THRESHOLD:
         logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")

@@ -67,8 +67,24 @@ class TradingConfig:
     slippage_rate: float
     max_exposure_pct: float
     combined_cost_buffer: float = 0.02
-    combined_min_net_edge: float = 0.03
-    live_min_net_edge: float = 0.03
+
+    def get_min_edge(self, is_outsider: bool) -> float:
+        """Единый источник правды для минимального Edge."""
+        return self.no_min_edge if is_outsider else self.min_edge
+
+    def is_price_valid(self, price: float, is_outsider: bool) -> tuple[bool, str]:
+        """Единый источник правды для фильтрации по цене."""
+        if not (self.trade_min_price <= price <= self.trade_max_price):
+            return False, f"Price {price:.3f} out of global bounds [{self.trade_min_price}, {self.trade_max_price}]"
+        
+        if is_outsider:
+            if price > self.outsider_max_price:
+                return False, f"Outsider price {price:.3f} > outsider max {self.outsider_max_price}"
+        else:
+            if not (self.favorite_min_price <= price <= self.favorite_max_price):
+                return False, f"Favorite price {price:.3f} out of bounds [{self.favorite_min_price}, {self.favorite_max_price}]"
+        
+        return True, "OK"
 
 def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
     trade_assets_str = raw.get("TRADE_ASSETS", getattr(settings, "TRADE_ASSETS", "BTC,ETH"))
@@ -117,6 +133,4 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         slippage_rate=_parse_float(raw.get("SLIPPAGE_RATE"), getattr(settings, "SLIPPAGE_RATE", 0.0)),
         max_exposure_pct=_parse_float(raw.get("MAX_EXPOSURE_PCT"), getattr(settings, "MAX_EXPOSURE_PCT", 15.0)),
         combined_cost_buffer=_parse_float(raw.get("COMBINED_COST_BUFFER"), 0.02),
-        combined_min_net_edge=_parse_float(raw.get("COMBINED_MIN_NET_EDGE"), 0.03),
-        live_min_net_edge=_parse_float(raw.get("LIVE_MIN_NET_EDGE"), 0.03),
     )

@@ -18,8 +18,11 @@ COMBINED-режим принятия решений:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional, Any
+from typing import Literal, Optional, Any, TYPE_CHECKING
 import structlog
+
+if TYPE_CHECKING:
+    from polyflip.trading.trading_config import TradingConfig
 
 from polyflip.crypto.predictor import CryptoSignal
 from polyflip.trading.position_sizing import compute_edge, is_in_dead_zone
@@ -86,10 +89,8 @@ def evaluate_combined_entry(
     fresh_yes_price: float,
     yes_ask: Optional[float],
     no_ask: Optional[float],
+    cfg: "TradingConfig",  # <-- Added TradingConfig
     cost_buffer: float = 0.02,
-    min_net_edge: float = 0.03,
-    min_price: float = 0.05,
-    max_price: float = 0.95,
     volume_5min: float = 0.0,
     config_dict: Optional[dict] = None,
     underlying_price: Optional[float] = None,
@@ -335,11 +336,46 @@ def evaluate_combined_entry(
             p_flip=p_flip,
         )
 
-    # 5. Проверка диапазона цен покупки
-    if not (min_price <= candidate_ask <= max_price):
+    is_outsider = (candidate_side == "BUY_YES" and fresh_yes_price < 0.50) or (candidate_side == "BUY_NO" and fresh_yes_price >= 0.50)
+    
+    if is_outsider and not cfg.trade_on_flip:
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"Candidate ask {candidate_ask:.3f} out of allowed bounds [{min_price}, {max_price}]",
+            reason=f"TRADE_ON_FLIP is disabled, skipping outsider candidate {candidate_side}",
+            direction_status=dir_status,
+            direction_model_key=crypto_sig.model_key or None,
+            direction_model_version=crypto_sig.model_version,
+            direction_regime=crypto_sig.regime or None,
+            direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
+            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
+            direction_value=dir_val,
+            entry_requested_key=entry_requested_key,
+            entry_model_key=entry_model_key,
+            entry_model_version=entry_model_version,
+            entry_model_phase=market_phase,
+            entry_model_source=entry_model_source,
+            entry_status="OUTSIDER_DISABLED",
+            fallback_reason=fallback_reason,
+            p_candidate_win=p_candidate_win,
+            candidate_side=candidate_side,
+            candidate_ask=candidate_ask,
+            cost_buffer=cost_buffer,
+            strike_source="BINANCE_LAST_CANDLE" if strike else None,
+            strike_proxy=strike,
+            underlying_price=und_price,
+            distance_to_strike_pct=dist_pct,
+            p_flip=p_flip,
+        )
+
+    # 5. Проверка диапазона цен покупки
+    is_valid_price, price_reason = cfg.is_price_valid(candidate_ask, is_outsider)
+    if not is_valid_price:
+        return CombinedEntryResult(
+            action="SKIP",
+            reason=price_reason,
             direction_status=dir_status,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
@@ -371,6 +407,7 @@ def evaluate_combined_entry(
     # 6. Расчет Gross Edge и Net Edge
     gross_edge = compute_edge(p_candidate_win, candidate_ask)
     net_edge = round(gross_edge - cost_buffer, 4)
+    min_net_edge = cfg.get_min_edge(is_outsider)
 
     if net_edge < min_net_edge:
         return CombinedEntryResult(
@@ -451,7 +488,7 @@ def evaluate_combined_entry(
     # Максимально допустимая цена исполнения не должна снижать net_edge ниже min_net_edge
     max_price_by_edge = round(p_candidate_win - cost_buffer - min_net_edge, 3)
     max_price_by_drift = round(candidate_ask + max_drift, 3)
-    max_acceptable_price = min(max_price_by_edge, max_price_by_drift, max_price)
+    max_acceptable_price = min(max_price_by_edge, max_price_by_drift, cfg.trade_max_price)
 
     return CombinedEntryResult(
         action=candidate_side,
