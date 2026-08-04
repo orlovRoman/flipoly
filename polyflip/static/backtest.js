@@ -577,7 +577,7 @@ async function applyLiveSettings() {
         return f;
       };
 
-      const noFlip = parseThresh(s.TRADE_NO_FLIP_THRESHOLD) ?? 0.35;
+      const noFlip = parseThresh(s.NO_FLIP_THRESHOLD) ?? 0.35;
       const flip = parseThresh(s.FLIP_THRESHOLD) ?? 0.60;
       const deadZone = parseThresh(s.DEAD_ZONE_WIDTH) ?? 0.10;
 

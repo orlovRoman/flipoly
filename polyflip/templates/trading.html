@@ -411,23 +411,7 @@
                                 </div>
                             </div>
                             
-                            <!-- Настройки Combined режима (размер ставки при флэте) -->
-                            <div id="combined-mode-settings" style="display: none; margin-top: 12px;">
-                                <div class="form-group" style="margin: 0;">
-                                    <label for="COMBINED_NONE_BET_MULTIPLIER" title="Множитель размера ставки в Combined-режиме, если LightGBM находится во флэте (NONE). 0.5 означает снижение размера ставки наполовину." class="settings-label">
-                                        Множитель ставки при неопределенности LGBM (NONE)
-                                        <span style="color: var(--text-muted); font-size: 0.8rem; font-weight: normal; display: block; margin-top: 2px;">Допустимо от 0.0 до 1.0 (дефолт 0.5 = 50% от базового размера).</span>
-                                    </label>
-                                    <input 
-                                        type="number" 
-                                        id="COMBINED_NONE_BET_MULTIPLIER" 
-                                        min="0.0" max="1.0" step="0.1" 
-                                        value="0.5"
-                                        style="width: 100%; max-width: 200px;"
-                                    >
-                                </div>
-                            </div>
-                            
+                            <!-- Настройки Combined режима (размер ставки при флэте) удалены: COMBINED_NONE_BET_MULTIPLIER -->
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1.5rem; margin-bottom: 0;">
                                 <input type="checkbox" id="TRADE_ON_FAVORITE" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;" checked>
                                 <label for="TRADE_ON_FAVORITE" title="Если включено, бот будет делать ставки по тренду (за фаворита) во всех режимах (ML, Combined, Pure Favorite)." style="margin: 0; cursor: pointer;">Включить ставки по тренду (TRADE_ON_FAVORITE)</label>
@@ -532,21 +516,13 @@
                             </div>
                             
                             <div class="form-group">
-                                <label for="TRADE_NO_FLIP_THRESHOLD" title="Нижняя граница мёртвой зоны (в %, вычисляется как FLIP_THRESHOLD - DEAD_ZONE_WIDTH). При вероятности флипа ниже этого значения бот ставит на фаворита по тренду." style="display:flex; justify-content:space-between; align-items:center;">
-                                    <span>Порог ПО ТРЕНДУ — lower bound (ниже — ставим на фаворита)</span>
-                                    <button type="button" id="btn-apply-recommended-no-flip"
-                                            style="font-size:0.75rem; padding:2px 10px; border-radius:12px;
-                                                   background:rgba(0,255,136,0.1); border:1px solid #00ff88;
-                                                   color:#00ff88; cursor:pointer; white-space:nowrap;">
-                                        ← Применить рекомендованное
-                                    </button>
+                                <label for="NO_FLIP_THRESHOLD" title="Верхняя граница уверенности для фаворита (в %). При вероятности флипа ниже этого значения бот ставит на фаворита по тренду.">
+                                    <span>Порог ПО ТРЕНДУ (для фаворита)</span>
                                 </label>
-                                <input type="number" step="1" max="100" min="0" id="TRADE_NO_FLIP_THRESHOLD" value="70">
-                                <small id="no-flip-hint" style="display:block; margin-top:0.4rem; color:#a0aec0;">
-                                    <!-- Заполняется JS -->
+                                <input type="number" step="1" max="100" min="0" id="NO_FLIP_THRESHOLD" value="35">
+                                <small style="display:block; margin-top:0.4rem; color:#a0aec0;">
+                                    Если P(флипа) < порога — входим в фаворита. Рекомендуется: 30-40%.
                                 </small>
-                                <!-- Per-asset пороги (автокалиброванные) -->
-                                <div id="per-asset-thresholds" style="margin-top:0.5rem; font-size:0.82rem; color:var(--text-muted);"></div>
                             </div>
 
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem;">
