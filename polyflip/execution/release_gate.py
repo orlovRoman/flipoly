@@ -548,12 +548,18 @@ async def validate_live_release(
     release_net_edge = None
     
     if "COMBINED" in active_features:
-        # Читаем combined_min_net_edge и combined_cost_buffer из RuntimeSettings
-        min_net_edge_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_MIN_NET_EDGE"))
+        # Читаем единые пороги Edge из RuntimeSettings (те же, что отображаются на дашборде)
+        min_edge_fav_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "MIN_EDGE"))
+        min_edge_out_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "NO_MIN_EDGE"))
         cost_buffer_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_COST_BUFFER"))
         
-        combined_min_net_edge = float(min_net_edge_val) if min_net_edge_val is not None else 0.03
         cost_buffer = float(cost_buffer_val) if cost_buffer_val is not None else 0.02
+        min_edge_favorite = float(min_edge_fav_val) if min_edge_fav_val is not None else 0.05
+        min_edge_outsider = float(min_edge_out_val) if min_edge_out_val is not None else 0.03
+        
+        # Определяем сторону кандидата (аутсайдер = цена < 0.5)
+        is_outsider = release_entry_price < 0.5
+        combined_min_net_edge = min_edge_outsider if is_outsider else min_edge_favorite
         
         # paper_trade.p_win_effective используется для логики в PAPER-заявке. Но в combined_voting мы считали p_candidate_win.
         # Если поле p_candidate_win есть - берем его, иначе fallback на p_win_effective

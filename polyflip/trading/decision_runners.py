@@ -677,7 +677,8 @@ async def decide_combined_mode(
             fresh_price=None,
             threshold_lower=cfg.no_flip_threshold,
             threshold_upper=cfg.flip_threshold,
-            min_edge_used=cfg.combined_min_net_edge,
+            min_edge_favorite=cfg.min_edge,
+            min_edge_outsider=cfg.no_min_edge,
             g1_model_loaded=bool(models_cache and models_cache.models),
             g2_price_fetched=False,
             final_action="SKIP",
@@ -786,7 +787,6 @@ async def decide_combined_mode(
 
     # 5. Оценка входа через evaluate_combined_entry
     comb_cost_buffer = cfg.combined_cost_buffer
-    comb_min_net_edge = cfg.combined_min_net_edge
     
     if raw_settings.get("COMBINED_COST_BUFFER") is not None:
         try:
@@ -921,7 +921,8 @@ async def decide_combined_mode(
         fresh_price=comb_res.candidate_ask or fresh_yes_price,
         threshold_lower=cfg.no_flip_threshold,
         threshold_upper=cfg.flip_threshold,
-        min_edge_used=comb_min_net_edge,
+        min_edge_favorite=cfg.min_edge,
+        min_edge_outsider=cfg.no_min_edge,
         g1_model_loaded=g1_loaded,
         g2_price_fetched=True,
         g8_combined_vote=g8_vote,

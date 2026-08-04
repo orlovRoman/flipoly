@@ -113,18 +113,20 @@ def test_predictor_predict_missing_regime():
 def test_small_fold_oof_scores_not_zero():
     """  oof_scores      ."""
     df = make_fake_df(n=200)  #  
-    _, auc, baseline_auc, optimal_threshold, ece, fi, _, _, _, _ = _fit_lgbm_and_serialize(
+    res = _fit_lgbm_and_serialize(
         df[CRYPTO_FEATURES], df["target"], n_splits=2
     )
+    auc = res[1]
     #    .
     assert auc > 0
 
 def test_calibration_ece_isotonic_better_than_uncalibrated():
     """Isotonic calibration должно отрабатывать без падения."""
     df = make_fake_df(n=1000)
-    _, auc, baseline_auc, optimal_threshold, ece, fi, _, _, _, _ = _fit_lgbm_and_serialize(
+    res = _fit_lgbm_and_serialize(
         df[CRYPTO_FEATURES], df["target"], n_splits=3
     )
+    ece = res[5]
     assert ece < 0.50, f"ECE слишком высокий: {ece:.3f}"
 
 import pytest

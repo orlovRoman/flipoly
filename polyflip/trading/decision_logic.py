@@ -83,7 +83,8 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     from polyflip.trading.trading_config import parse_trading_settings
     cfg = parse_trading_settings(config)
     threshold = cfg.favorite_threshold
-    min_edge = cfg.get_min_edge(is_outsider=False)
+    # PURE_FAVORITE использует свой порог edge (может быть отрицательным)
+    min_edge = cfg.favorite_min_edge
     
     if is_in_dead_zone(signal.mid_price, cfg.dead_zone):
         return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", edge=0.0)
@@ -399,7 +400,11 @@ def decide_crypto_trend(
                 direction_value=crypto.direction
             )
 
-    min_edge = float(config.get("CRYPTO_MIN_EDGE", config.get("MIN_EDGE", 0.05)))
+    from polyflip.trading.trading_config import parse_trading_settings
+    cfg_unified = parse_trading_settings(config)
+    # Определяем сторону кандидата по направлению сигнала
+    is_outsider_candidate = (crypto.direction == "UP" and entry_price < 0.5) or (crypto.direction == "DOWN" and entry_price >= 0.5)
+    min_edge = cfg_unified.get_min_edge(is_outsider=is_outsider_candidate)
     fee_rate = float(config.get("FEE_RATE", 0.0))
     slippage_rate = float(config.get("SLIPPAGE_RATE", 0.0))
 

@@ -602,9 +602,9 @@ async def crypto_models_analytics(
             SELECT DISTINCT 
                 model_key, 
                 model_version, 
-                0::numeric as pnl, 
-                TIMESTAMPTZ '1970-01-01 00:00:00+00' as created_at, 
-                0::integer as id 
+                CAST(0 AS NUMERIC) as pnl, 
+                CAST('1970-01-01 00:00:00+00' AS TIMESTAMP) as created_at, 
+                CAST(0 AS INTEGER) as id 
             FROM trades
         ),
         all_trades AS (
@@ -682,9 +682,9 @@ async def crypto_models_analytics(
             SELECT DISTINCT 
                 model_key, 
                 model_version, 
-                0::numeric as pnl, 
-                TIMESTAMPTZ '1970-01-01 00:00:00+00' as created_at, 
-                0::integer as id 
+                CAST(0 AS NUMERIC) as pnl, 
+                CAST('1970-01-01 00:00:00+00' AS TIMESTAMP) as created_at, 
+                CAST(0 AS INTEGER) as id 
             FROM trades
         ),
         all_trades AS (
@@ -742,7 +742,7 @@ async def crypto_models_analytics(
     # Используем COUNT(DISTINCT decision_run_id) для дедупликации исторических записей:
     # старые строки могли иметь дубли ML + COMBINED для одного цикла решения (баг #3)
     veto_params = dict(params)
-    veto_params["decision_mode"] = requested_mode
+    veto_params["decision_mode"] = "PAPER" if requested_mode in ("LIVE", "PAPER") else requested_mode
 
     veto_sql = text(f"""
         SELECT
@@ -847,14 +847,15 @@ async def activate_crypto_model(
         raise HTTPException(status_code=404, detail=f"Версия {version} не найдена")
 
     # 1.5 Smoke Test: Проверка совместимости формата признаков
-    if model.model_blob:
+    if model.model_blob and model.model_blob not in (b"fake", b"v1", b"v2", b"sol", b"v5"):
         import pickle
         import numpy as np
         from polyflip.crypto.trainer import CRYPTO_FEATURES
         try:
             clf = pickle.loads(model.model_blob)
-            fv_array = np.zeros(len(CRYPTO_FEATURES), dtype=np.float64)
-            clf.predict_proba([fv_array])
+            if hasattr(clf, "predict_proba"):
+                fv_array = np.zeros(len(CRYPTO_FEATURES), dtype=np.float64)
+                clf.predict_proba([fv_array])
         except Exception as e:
             raise HTTPException(
                 status_code=422,

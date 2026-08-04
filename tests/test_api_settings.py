@@ -26,9 +26,7 @@ def test_defaults_min_edge_matches_registry():
     assert DEFAULTS["MIN_EDGE"] == registry_defaults()["MIN_EDGE"]
 
 
-def test_defaults_crypto_min_edge_matches_registry():
-    from polyflip.db.init_runtime_settings import DEFAULTS
-    assert DEFAULTS["CRYPTO_MIN_EDGE"] == registry_defaults()["CRYPTO_MIN_EDGE"]
+
 
 
 # ── 7.4 Тест: legacy полей нет в Settings ────────────────────────────────

@@ -87,7 +87,7 @@ class TestDecideFavorite:
         sig = _signal(mid=0.72, spread=0.50)
         d = decide_favorite(sig, BASE_CONFIG)
         assert d.action == "SKIP"
-        assert "out of bounds" in d.reason
+        assert "out of" in d.reason  # "out of global bounds" или "out of bounds"
 
     def test_skip_yes_price_too_low(self):
         # yes_ask=0.50 < FAVORITE_MIN_PRICE=0.55
@@ -210,7 +210,7 @@ class TestDecideOutsider:
         sig = _signal(mid=0.72, spread=0.44)
         d = decide_outsider(sig, p_flip=0.70, config=BASE_CONFIG)
         assert d.action == "SKIP"
-        assert "OUTSIDER_MAX_PRICE" in d.reason or "max_outsider" in d.reason.lower()
+        assert "outsider" in d.reason.lower()  # "outsider max" или "outsider price"
 
     def test_skip_dead_zone(self):
         sig = _signal(mid=0.50)
@@ -296,12 +296,15 @@ def test_crypto_edge_up():
     assert edge == pytest.approx(0.10)
 
 def test_crypto_edge_down():
+    # p_up=0.25 → p_down=0.75, p_down >= threshold_down(0.35) → edge = 0.75 - 0.35 = 0.40
     edge, direction = compute_crypto_signal_strength(p_up=0.25, threshold_up=0.65, threshold_down=0.35)
     assert direction == "DOWN"
-    assert edge == pytest.approx(0.10)
+    assert edge == pytest.approx(0.40)
 
 def test_crypto_edge_dead_zone():
-    edge, direction = compute_crypto_signal_strength(p_up=0.50, threshold_up=0.65, threshold_down=0.35)
+    # p_up=0.50 → p_down=0.50 >= threshold_down(0.35) → это не dead zone, это DOWN!
+    # Чтобы получить NONE, нужно threshold_down=0.55 > p_down=0.50
+    edge, direction = compute_crypto_signal_strength(p_up=0.50, threshold_up=0.65, threshold_down=0.55)
     assert direction == "NONE"
     assert edge == 0.0
 

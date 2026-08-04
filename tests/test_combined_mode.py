@@ -8,6 +8,22 @@ from polyflip.trading.decision_runners import decide_combined_mode, DecisionResu
 from polyflip.trading.trading_config import parse_trading_settings
 
 
+# Вспомогательный cfg с "открытыми" ценовыми фильтрами для тестов
+def _make_cfg(**overrides):
+    base = {
+        "MIN_EDGE": "0.03",
+        "NO_MIN_EDGE": "0.03",
+        "TRADE_MIN_PRICE": "0.05",
+        "TRADE_MAX_PRICE": "0.95",
+        "FAVORITE_MIN_PRICE": "0.05",
+        "FAVORITE_MAX_PRICE": "0.95",
+        "OUTSIDER_MAX_PRICE": "0.49",
+        "TRADE_ON_FLIP": "true",
+        "FAVORITE_THRESHOLD": "0.50",
+    }
+    base.update(overrides)
+    return parse_trading_settings(base)
+
 def test_evaluate_combined_entry_direction_up_success():
     """LightGBM = UP, LogReg дает хороший net_edge -> BUY_YES"""
     sig = CryptoSignal(
@@ -31,7 +47,7 @@ def test_evaluate_combined_entry_direction_up_success():
         yes_ask=0.62,
         no_ask=0.38,
         cost_buffer=0.03,
-        min_net_edge=0.03,
+        cfg=_make_cfg(),
         config_dict={"TRADE_BET_SIZE_USDC": "10", "MAX_BET_SIZE_USDC": "50"},
     )
     assert res.action == "BUY_YES"
@@ -71,7 +87,7 @@ def test_evaluate_combined_entry_direction_down_success():
         yes_ask=0.52,
         no_ask=0.55,
         cost_buffer=0.03,
-        min_net_edge=0.03,
+        cfg=_make_cfg(OUTSIDER_MAX_PRICE="0.60"),
         config_dict={"TRADE_BET_SIZE_USDC": "10", "MAX_BET_SIZE_USDC": "50"},
     )
     assert res.action == "BUY_NO"
@@ -99,6 +115,7 @@ def test_evaluate_combined_entry_direction_invalid_features():
         fresh_yes_price=0.60,
         yes_ask=0.62,
         no_ask=0.38,
+        cfg=_make_cfg(),
     )
     assert res.action == "SKIP"
     assert res.direction_status == "INSUFFICIENT_CANDLES"
@@ -123,6 +140,7 @@ def test_evaluate_combined_entry_direction_risk_vetoed():
         fresh_yes_price=0.60,
         yes_ask=0.62,
         no_ask=0.38,
+        cfg=_make_cfg(),
     )
     assert res.action == "SKIP"
     assert res.direction_status == "FUNDING_VETOED"
@@ -152,7 +170,7 @@ def test_evaluate_combined_entry_insufficient_net_edge():
         yes_ask=0.64,
         no_ask=0.36,
         cost_buffer=0.03,
-        min_net_edge=0.03,
+        cfg=_make_cfg(MIN_EDGE="0.03"),
     )
     assert res.action == "SKIP"
     assert res.entry_status == "INSUFFICIENT_NET_EDGE"
@@ -179,7 +197,7 @@ def test_evaluate_combined_entry_model_fallback_global():
         yes_ask=0.52,
         no_ask=0.48,
         cost_buffer=0.03,
-        min_net_edge=0.03,
+        cfg=_make_cfg(),
         config_dict={"TRADE_BET_SIZE_USDC": "10"},
     )
     assert res.action == "BUY_YES"
@@ -204,7 +222,7 @@ def test_decide_combined_mode_full_flow():
     market.volume_5min = 500.0
     market.underlying_price = 65000.0
 
-    cfg = parse_trading_settings({"COMBINED_COST_BUFFER": "0.03", "COMBINED_MIN_NET_EDGE": "0.03"})
+    cfg = parse_trading_settings({"COMBINED_COST_BUFFER": "0.03"})
     raw_settings = {}
     
     mock_model = MagicMock()

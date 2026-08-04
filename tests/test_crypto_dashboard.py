@@ -30,6 +30,12 @@ from httpx import AsyncClient
 
 
 
+@pytest.fixture(autouse=True)
+def _clear_dashboard_cache():
+    from polyflip.api.crypto_dashboard import _cache
+    _cache.clear()
+
+
 @pytest.mark.asyncio
 async def test_crypto_models_analytics_veto_logic(db_session):
     from polyflip.api.crypto_dashboard import crypto_models_analytics
@@ -58,6 +64,7 @@ async def test_crypto_models_analytics_veto_logic(db_session):
     # Populate VETO logs (3 logs: before, inside, after)
     # Inside (matches date range 2026-08-02)
     l_inside = DecisionFunnelLog(
+        decision_run_id="run1",
         market_id="m1", asset="BTCUSDT_low_vol",
         execution_mode="PAPER", confirm_passed=False,
         confirm_model_key="BTCUSDT_low_vol", confirm_model_version=1,
@@ -66,6 +73,7 @@ async def test_crypto_models_analytics_veto_logic(db_session):
     )
     # Before range (2026-08-01)
     l_before = DecisionFunnelLog(
+        decision_run_id="run2",
         market_id="m2", asset="BTCUSDT_low_vol",
         execution_mode="PAPER", confirm_passed=False,
         confirm_model_key="BTCUSDT_low_vol", confirm_model_version=1,
@@ -74,6 +82,7 @@ async def test_crypto_models_analytics_veto_logic(db_session):
     )
     # After range (2026-08-03)
     l_after = DecisionFunnelLog(
+        decision_run_id="run3",
         market_id="m3", asset="BTCUSDT_low_vol",
         execution_mode="PAPER", confirm_passed=False,
         confirm_model_key="BTCUSDT_low_vol", confirm_model_version=1,
@@ -93,52 +102,78 @@ async def test_crypto_models_analytics_veto_logic(db_session):
     data_live = await crypto_models_analytics(requested_mode="LIVE", date_from="2026-08-02", date_to="2026-08-02", db=db_session)
     assert data_live[model_key]["veto_count"] == 1, "LIVE режим должен читать VETO из PAPER"
 
+def _make_trade_history(**kwargs):
+    from datetime import datetime, timezone
+    from polyflip.db.models import TradeHistory
+    defaults = {
+        "market_id": "1",
+        "asset": "BTC",
+        "outcome_bought": "YES",
+        "amount_usdc": 10.0,
+        "executed_price": 0.5,
+        "predicted_flip_prob": 0.5,
+        "active_features": "f1,f2",
+        "status": "EXECUTED",
+        "mode": "PAPER",
+        "position_status": "CLOSED",
+        "created_at": datetime.now(timezone.utc),
+        "model_key": None,
+        "model_version": None,
+        "model_attribution_source": "EXACT",
+    }
+    defaults.update(kwargs)
+    return TradeHistory(**defaults)
+
+
 @pytest.mark.asyncio
 async def test_lightgbm_direction_pnl_only(db_session):
-    """LightGBM со сделками только в direction/confirm роли показывает PnL."""
+    """Сделки с direction_model_key учитываются в direction_pnl/trades."""
     from polyflip.api.crypto_dashboard import crypto_models_analytics
-    from polyflip.db.models import ModelRegistry, TradeHistory
+    from polyflip.db.models import ModelRegistry
+    from datetime import datetime, timezone
     
-    m = ModelRegistry(asset="LGBM_ONLY_VOL", version=1, model_blob=b"fake", is_active=True, accuracy=0.55, baseline=0.5)
+    m = ModelRegistry(asset="BTCUSDT_low_vol", version=1, model_blob=b"fake", is_active=True, accuracy=0.55, baseline=0.5, trained_at=datetime.now(timezone.utc))
     db_session.add(m)
     
-    t = TradeHistory(
-        mode="PAPER", position_status="CLOSED", pnl=10.0,
-        direction_model_key="LGBM_ONLY_VOL", direction_model_version=1,
+    t = _make_trade_history(
+        pnl=10.0,
+        direction_model_key="BTCUSDT_low_vol", direction_model_version=1,
         confirm_model_key=None, confirm_model_version=None,
-        model_key=None, model_version=None
+        model_key="BTCUSDT_low_vol", model_version=1
     )
     db_session.add(t)
     await db_session.commit()
     
     data = await crypto_models_analytics(requested_mode="PAPER", db=db_session)
-    assert "LGBM_ONLY_VOL_v1" in data
-    assert data["LGBM_ONLY_VOL_v1"]["direction_pnl"] == 10.0
-    assert data["LGBM_ONLY_VOL_v1"]["direction_trades"] == 1
+    assert "BTCUSDT_low_vol_v1" in data
+    assert data["BTCUSDT_low_vol_v1"]["direction_pnl"] == 10.0
+    assert data["BTCUSDT_low_vol_v1"]["direction_trades"] == 1
 
 @pytest.mark.asyncio
 async def test_lightgbm_no_duplicate_legacy_and_direction(db_session):
     """Одна сделка не задваивается при legacy и direction атрибуции."""
     from polyflip.api.crypto_dashboard import crypto_models_analytics
-    from polyflip.db.models import ModelRegistry, TradeHistory
+    from polyflip.db.models import ModelRegistry
+    from datetime import datetime, timezone
     
-    m = ModelRegistry(asset="LGBM_DEDUP_VOL", version=1, model_blob=b"fake", is_active=True, accuracy=0.55, baseline=0.5)
+    m = ModelRegistry(asset="BTCUSDT_high_vol", version=1, model_blob=b"fake", is_active=True, accuracy=0.55, baseline=0.5, trained_at=datetime.now(timezone.utc))
     db_session.add(m)
     
     # Сделка имеет и direction_model_key и confirm_model_key (legacy fallback)
-    t = TradeHistory(
-        mode="PAPER", position_status="CLOSED", pnl=-5.0,
-        direction_model_key="LGBM_DEDUP_VOL", direction_model_version=1,
-        confirm_model_key="LGBM_DEDUP_VOL", confirm_model_version=1
+    t = _make_trade_history(
+        pnl=-5.0,
+        model_key="BTCUSDT_high_vol", model_version=1,
+        direction_model_key="BTCUSDT_high_vol", direction_model_version=1,
+        confirm_model_key="BTCUSDT_high_vol", confirm_model_version=1
     )
     db_session.add(t)
     await db_session.commit()
     
     data = await crypto_models_analytics(requested_mode="PAPER", db=db_session)
-    assert "LGBM_DEDUP_VOL_v1" in data
+    assert "BTCUSDT_high_vol_v1" in data
     # Сделка должна посчитаться один раз!
-    assert data["LGBM_DEDUP_VOL_v1"]["direction_trades"] == 1
-    assert data["LGBM_DEDUP_VOL_v1"]["direction_pnl"] == -5.0
+    assert data["BTCUSDT_high_vol_v1"]["direction_trades"] == 1
+    assert data["BTCUSDT_high_vol_v1"]["direction_pnl"] == -5.0
 
 
 # ────────────────────────────────────────────────────────────
@@ -150,6 +185,7 @@ def _bad_model_factory():
     """Фабрика — создаёт ModelRegistry с quality_gate_passed=False."""
     from datetime import datetime, timezone
     from polyflip.db.models import ModelRegistry
+
     def _make(asset="BTCUSDT_high_vol", version=1):
         return ModelRegistry(
             asset=asset,
@@ -208,7 +244,7 @@ async def test_bad_model_with_force_becomes_active(db_session, _bad_model_factor
     )
 
     assert result["status"] == "success"
-    assert result["activation_source"] == "MANUAL"
+    assert result["activation_source"] == "DASHBOARD"
     assert result["quality_gate_passed"] is False
     assert "warning" in result
 
@@ -219,7 +255,7 @@ async def test_bad_model_with_force_becomes_active(db_session, _bad_model_factor
         )
     )).scalar_one()
     assert row.is_active is True
-    assert row.activation_source == "MANUAL"
+    assert row.activation_source == "DASHBOARD"
     assert row.activated_by == "dashboard"
     assert row.activation_reason == "PAPER тест"
 
@@ -324,8 +360,7 @@ async def test_crypto_models_analytics_with_trades(db_session):
         is_active=True, accuracy=0.5, baseline=0.5, trained_at=now
     ))
     # 2. Trade
-    db_session.add(TradeHistory(
-        mode="PAPER", position_status="CLOSED",
+    db_session.add(_make_trade_history(
         model_key="BTCUSDT_mid_vol", model_version=1,
         model_attribution_source="EXACT",
         direction_model_key="BTCUSDT_mid_vol", direction_model_version=1,

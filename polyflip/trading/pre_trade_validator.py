@@ -119,10 +119,10 @@ async def validate_pre_trade(
         )
     p_win = decision_obj.p_win_effective
 
-    if asset_mode == TRADING_MODE_COMBINED:
-        current_min_edge = cfg.combined_min_net_edge if cfg.combined_min_net_edge is not None else asset_min_edge
-    elif asset_mode == TRADING_MODE_FAVORITE and cfg.favorite_min_edge is not None:
-        current_min_edge = cfg.favorite_min_edge
+    if asset_mode == TRADING_MODE_COMBINED or asset_mode == TRADING_MODE_FAVORITE:
+        # Определяем: аутсайдер (price < 0.5) или фаворит
+        is_outsider = buy_price < 0.5
+        current_min_edge = cfg.get_min_edge(is_outsider=is_outsider)
     else:
         current_min_edge = asset_min_edge
     
