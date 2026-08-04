@@ -330,9 +330,14 @@ def test_decide_combined_mode_fallback_to_ml_on_none_enabled():
 
         assert mock_ml_mode.call_count == 1
         assert res.decision_obj.action == "BUY_YES"
-        assert res.decision_obj.strategy_type == "COMBINED (Fallback ML)"
+        # strategy_type не мутируется: контекст fallback фиксируется в lgbm_metadata (mode=COMBINED_FALLBACK_ML)
         assert res.confirm_model_key == "ETHUSDT_mid_vol"
         assert res.confirm_model_version == 10
+        assert res.lgbm_metadata is not None
+        import json
+        meta = json.loads(res.lgbm_metadata)
+        assert meta["mode"] == "COMBINED_FALLBACK_ML"
+        assert meta["lgbm_direction"] == "NONE"
 
 
 def test_decide_combined_mode_fallback_disabled_skips_on_none():

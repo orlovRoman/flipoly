@@ -724,9 +724,8 @@ async def decide_combined_mode(
         logger.warning("combined_no_crypto_predictor", asset=asset_upper)
 
     # 2.1 Fallback на ML (LogReg) режим, если LightGBM выдал NONE и включена настройка COMBINED_FALLBACK_TO_ML_ON_NONE
-    fallback_on_none = getattr(cfg, "combined_fallback_to_ml_on_none", True)
-    if raw_settings.get("COMBINED_FALLBACK_TO_ML_ON_NONE") is not None:
-        fallback_on_none = str(raw_settings["COMBINED_FALLBACK_TO_ML_ON_NONE"]).lower() in ("true", "1", "yes")
+    # cfg уже содержит актуальное значение из raw_settings (через parse_trading_settings) — источник один.
+    fallback_on_none = cfg.combined_fallback_to_ml_on_none
 
     if direction_signal.direction == "NONE" and not direction_signal.risk_vetoed and fallback_on_none:
         logger.info(
@@ -750,14 +749,9 @@ async def decide_combined_mode(
             existing_skipped=existing_skipped,
             execution_mode=execution_mode,
         )
-        if ml_res.decision_obj:
-            if dataclasses.is_dataclass(ml_res.decision_obj) and not isinstance(ml_res.decision_obj, type):
-                ml_res.decision_obj = dataclasses.replace(
-                    ml_res.decision_obj,
-                    strategy_type="COMBINED (Fallback ML)",
-                )
-            else:
-                ml_res.decision_obj.strategy_type = "COMBINED (Fallback ML)"
+        # Контекст «fallback из COMBINED» фиксируется в lgbm_metadata (mode=COMBINED_FALLBACK_ML).
+        # strategy_type намеренно не меняется: «COMBINED (Fallback ML)» отсутствует в StrategyType Literal,
+        # а «COMBINED» корректно отражает режим для pre_trade_validator и БД.
         lgbm_meta = json.dumps({
             "mode": "COMBINED_FALLBACK_ML",
             "lgbm_direction": "NONE",
