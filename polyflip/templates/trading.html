@@ -525,6 +525,20 @@
                                 </small>
                             </div>
 
+                            <div class="form-group">
+                                <label for="MIN_DIRECTION_PROB" title="Минимальная уверенность LGBM в направлении (UP/DOWN) для входа в Combined. Это абсолютный пол, двойная фильтрация отключена.">
+                                    <span>Пол вероятности направления LGBM (%)</span>
+                                </label>
+                                <input type="number" step="0.1" max="100" min="0" id="MIN_DIRECTION_PROB" value="50.5">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="MIN_WIN_PROB" title="Минимальная вероятность победы кандидата (LGBM + LogReg) для входа.">
+                                    <span>Мин. вероятность победы кандидата (%)</span>
+                                </label>
+                                <input type="number" step="0.1" max="100" min="0" id="MIN_WIN_PROB" value="51.0">
+                            </div>
+
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem;">
                                 <input type="checkbox" id="AUTO_DEAD_ZONE" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
                                 <label for="AUTO_DEAD_ZONE" title="Автоматически вычислять 'мертвую зону' на основе автокалибровки ML модели." style="margin: 0; cursor: pointer;">Автоматическая мёртвая зона (AUTO_DEAD_ZONE)</label>

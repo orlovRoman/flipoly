@@ -138,6 +138,11 @@ REGISTRY: list[SettingDef] = [
     SettingDef("MAX_PRICE_DRIFT", "0.10",
                description="Макс. дрейф цены от момента сигнала до исполнения"),
 
+    SettingDef("MIN_DIRECTION_PROB", "0.505",
+               description="Мин. уверенность LGBM в направлении (UP/DOWN) для входа в Combined (пол как fallback)"),
+    SettingDef("MIN_WIN_PROB", "0.51",
+               description="Мин. вероятность победы кандидата (LGBM + LogReg) для входа"),
+
     # --- Обучение LogReg / Phase models ---
     SettingDef("MIN_SAMPLES_FOR_PHASE_MODEL", "150",
                description="Мин. количество сэмплов для обучения фазовой модели (contested/leaning/decided)"),

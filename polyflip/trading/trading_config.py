@@ -58,6 +58,8 @@ class TradingConfig:
     liquidity_fraction: float
     bypass_bet_size_check: bool
     stop_loss_enabled: bool
+    min_direction_prob: float
+    min_win_prob: float
     take_profit_enabled: bool
     take_profit_multiplier: float
     max_price_drift: float
@@ -138,5 +140,7 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         max_bet_edge=_parse_float(raw.get("MAX_BET_EDGE"), getattr(settings, "MAX_BET_EDGE", 0.40)),
         outsider_pwin_discount=_parse_float(raw.get("OUTSIDER_PWIN_DISCOUNT"), getattr(settings, "OUTSIDER_PWIN_DISCOUNT", 0.65)),
         max_spread_pct=_parse_float(raw.get("MAX_SPREAD_PCT"), getattr(settings, "MAX_SPREAD_PCT", 0.08)),
+        min_direction_prob=_parse_float(raw.get("MIN_DIRECTION_PROB"), getattr(settings, "MIN_DIRECTION_PROB", 0.505)),
+        min_win_prob=_parse_float(raw.get("MIN_WIN_PROB"), getattr(settings, "MIN_WIN_PROB", 0.51)),
         combined_cost_buffer=_parse_float(raw.get("COMBINED_COST_BUFFER"), 0.02),
     )

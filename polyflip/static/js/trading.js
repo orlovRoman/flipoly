@@ -310,6 +310,8 @@ document.addEventListener("DOMContentLoaded", () => {
     maxBetSize: document.getElementById("MAX_BET_SIZE_USDC"),
     betSize: document.getElementById("TRADE_BET_SIZE_USDC"),
     noFlipThreshold: document.getElementById("NO_FLIP_THRESHOLD"),
+    minDirectionProb: document.getElementById("MIN_DIRECTION_PROB"),
+    minWinProb: document.getElementById("MIN_WIN_PROB"),
     tradeFlipThreshold: document.getElementById("TRADE_FLIP_THRESHOLD"),
     deadZoneWidth: document.getElementById("DEAD_ZONE_WIDTH"),
     dailyLossLimit: document.getElementById("DAILY_LOSS_LIMIT_USDC"),
@@ -585,6 +587,16 @@ document.addEventListener("DOMContentLoaded", () => {
         if (val > 1) val /= 100;
         settingsElements.noFlipThreshold.value = Math.round(val * 100);
       }
+      if (settingsElements.minDirectionProb && data.MIN_DIRECTION_PROB !== undefined) {
+        let val = parseFloat(data.MIN_DIRECTION_PROB);
+        if (val <= 1) val *= 100;
+        settingsElements.minDirectionProb.value = val.toFixed(1);
+      }
+      if (settingsElements.minWinProb && data.MIN_WIN_PROB !== undefined) {
+        let val = parseFloat(data.MIN_WIN_PROB);
+        if (val <= 1) val *= 100;
+        settingsElements.minWinProb.value = val.toFixed(1);
+      }
       if (settingsElements.tradeFlipThreshold && data.TRADE_FLIP_THRESHOLD !== undefined) {
         let val = parseFloat(data.TRADE_FLIP_THRESHOLD);
         if (val > 1) val /= 100;
@@ -814,6 +826,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxBetSize) settingsToSave.MAX_BET_SIZE_USDC = settingsElements.maxBetSize.value;
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
       if (settingsElements.noFlipThreshold) settingsToSave.NO_FLIP_THRESHOLD = parseFloat(settingsElements.noFlipThreshold.value) / 100;
+      if (settingsElements.minDirectionProb) settingsToSave.MIN_DIRECTION_PROB = parseFloat(settingsElements.minDirectionProb.value) / 100;
+      if (settingsElements.minWinProb) settingsToSave.MIN_WIN_PROB = parseFloat(settingsElements.minWinProb.value) / 100;
       if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
 

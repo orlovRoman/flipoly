@@ -95,8 +95,6 @@ def evaluate_combined_entry(
     config_dict: Optional[dict] = None,
     underlying_price: Optional[float] = None,
     fallback_reason: Optional[str] = None,
-    min_direction_prob: float = 0.55,
-    min_win_prob: float = 0.55,
 ) -> CombinedEntryResult:
     """
     Чистая функция оценки входа в Combined-режиме.
@@ -222,10 +220,11 @@ def evaluate_combined_entry(
             p_flip=p_flip,
         )
 
-    if dir_prob < min_direction_prob:
+    min_direction_prob_cfg = getattr(cfg, "min_direction_prob", 0.505)
+    if dir_prob < min_direction_prob_cfg:
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"Direction prob {dir_prob:.4f} < min {min_direction_prob}",
+            reason=f"Direction prob {dir_prob:.4f} < min {min_direction_prob_cfg:.4f} (floor)",
             direction_status="LOW_DIRECTION_PROB",
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
@@ -304,10 +303,11 @@ def evaluate_combined_entry(
 
     p_candidate_win = round(max(0.0, min(1.0, p_candidate_win)), 4)
 
-    if p_candidate_win < min_win_prob:
+    min_win_prob_cfg = getattr(cfg, "min_win_prob", 0.51)
+    if p_candidate_win < min_win_prob_cfg:
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"Candidate win prob {p_candidate_win:.4f} < min {min_win_prob}",
+            reason=f"Candidate win prob {p_candidate_win:.4f} < min {min_win_prob_cfg:.4f}",
             direction_status=dir_status,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
