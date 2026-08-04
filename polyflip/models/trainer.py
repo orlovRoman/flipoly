@@ -365,11 +365,33 @@ def _fit_and_serialize(
 
     return model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest
 
+import functools
+
+def serialize_training(func):
+    _lock = None
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        nonlocal _lock
+        if _lock is None:
+            _lock = asyncio.Lock()
+        
+        asset = kwargs.get("asset")
+        if not asset and len(args) > 1:
+            asset = args[1]
+            
+        if _lock.locked():
+            logger.warning("train_model_queued", asset=asset, note="Training is already running. Waiting in queue...")
+            
+        async with _lock:
+            return await func(*args, **kwargs)
+    return wrapper
+
 class ModelTrainer:
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
         self.status_messages = {}
 
+    @serialize_training
     async def train_model(self, asset: str) -> bool:
         """
         Обучает модель LogisticRegression для заданного актива на основе 
