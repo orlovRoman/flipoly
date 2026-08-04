@@ -1035,10 +1035,6 @@ document.addEventListener("DOMContentLoaded", () => {
           log.status === "SKIPPED"
             ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>`
             : escapeHtml(log.error_msg || "-");
-            
-        if (log.funnel_log) {
-            reasonHtml += ` <span style="cursor: pointer; font-size: 1.1em;" title="Детали инференса" onclick="showFunnelDiagnostic(${log.id})">🔍</span>`;
-        }
         const isPureFav = log.active_features && log.active_features.includes("PURE_FAVORITE");
         const isCrypto = log.active_features && (log.active_features.includes("LIGHTGBM_TREND") || log.active_features.includes("CRYPTO_TREND"));
         const isCombined = log.active_features && log.active_features.includes("COMBINED_ML_LGBM");
@@ -1170,6 +1166,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             : "-"
                         }</td>
                         <td style="padding: 8px;">${reasonHtml}</td>
+                        <td style="padding: 8px; text-align: center;">${log.funnel_log ? `<span style="cursor: pointer; font-size: 1.2em;" title="Детали инференса" onclick="showFunnelDiagnostic(${log.id})">🔍</span>` : ""}</td>
                     </tr>
                 `);
       });
