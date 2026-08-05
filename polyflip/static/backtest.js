@@ -68,6 +68,7 @@ function readConfig() {
     trade_bet_size_usdc:  parseFloat(document.getElementById('cfg-min-bet').value),
     max_bet_size_usdc:    parseFloat(document.getElementById('cfg-max-bet').value),
     outs_min_edge: parseFloat(document.getElementById('cfg-outs-min-edge').value),
+    favorite_min_edge: parseFloat(document.getElementById('cfg-fav-min-edge').value),
     max_bet_edge:         parseFloat(document.getElementById('cfg-max-edge').value),
     max_edge_filter:      parseFloat(document.getElementById('cfg-max-edge-filter').value),
     slippage_pct:         parseFloat(document.getElementById('cfg-slippage').value) / 100,
@@ -442,7 +443,8 @@ async function loadHistoricRun(runId) {
         document.getElementById('cfg-bet-sizing-mode').value = cfg.bet_sizing_mode || 'scaled';
         document.getElementById('cfg-min-bet').value    = cfg.trade_bet_size_usdc != null ? cfg.trade_bet_size_usdc : 5;
         document.getElementById('cfg-max-bet').value    = cfg.max_bet_size_usdc != null ? cfg.max_bet_size_usdc : 50;
-        document.getElementById('cfg-min-edge').value   = cfg.min_edge != null ? cfg.min_edge : -0.05;
+        document.getElementById('cfg-outs-min-edge').value = cfg.outs_min_edge != null ? cfg.outs_min_edge : 0.04;
+        document.getElementById('cfg-fav-min-edge').value = cfg.favorite_min_edge != null ? cfg.favorite_min_edge : 0.05;
         document.getElementById('cfg-max-edge').value   = cfg.max_bet_edge != null ? cfg.max_bet_edge : 0.50;
         document.getElementById('cfg-max-edge-filter').value = cfg.max_edge_filter != null ? cfg.max_edge_filter : 0.20;
         document.getElementById('cfg-slippage').value   = (cfg.slippage_pct || 0.005) * 100;
@@ -552,9 +554,10 @@ function resetConfig() {
 
   document.getElementById('cfg-capital').value    = '1000';
   document.getElementById('cfg-bet-sizing-mode').value = 'scaled';
-  document.getElementById('cfg-min-bet').value    = '5';
+  document.getElementById('cfg-min-bet').value    = '10';
   document.getElementById('cfg-max-bet').value    = '50';
   document.getElementById('cfg-outs-min-edge').value = '0.04';
+  document.getElementById('cfg-fav-min-edge').value = '0.05';
   document.getElementById('cfg-max-edge').value   = '0.50';
   document.getElementById('cfg-max-edge-filter').value = '0.20';
   document.getElementById('cfg-slippage').value   = '0.5';
@@ -610,7 +613,8 @@ async function applyLiveSettings() {
             ? (parseFloat(s.TRADE_BET_SIZE_USDC) * 5).toFixed(0)
             : '50');
       
-    document.getElementById('cfg-min-edge').value   = s.MIN_EDGE !== undefined ? parseFloat(s.MIN_EDGE).toFixed(3) : '-0.05';
+    document.getElementById('cfg-outs-min-edge').value = s.OUTS_MIN_EDGE !== undefined ? parseFloat(s.OUTS_MIN_EDGE).toFixed(3) : '0.04';
+    document.getElementById('cfg-fav-min-edge').value = s.FAVORITE_MIN_EDGE !== undefined ? parseFloat(s.FAVORITE_MIN_EDGE).toFixed(3) : '0.05';
     document.getElementById('cfg-max-edge').value   = s.MAX_BET_EDGE !== undefined ? parseFloat(s.MAX_BET_EDGE).toFixed(3) : '0.50';
     document.getElementById('cfg-max-edge-filter').value = s.MAX_EDGE_FILTER !== undefined ? parseFloat(s.MAX_EDGE_FILTER).toFixed(3) : '0.20';
     document.getElementById('cfg-trade-on-flip').checked = s.TRADE_ON_FLIP === 'true';

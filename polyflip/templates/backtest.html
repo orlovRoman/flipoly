@@ -620,18 +620,24 @@
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Аутсайдер Мин. Edge <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальное математическое ожидание сделки для входа.">❓</span></label>
+                <label>Аутсайдер Мин. Edge <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальное математическое ожидание сделки для входа (аутсайдер).">❓</span></label>
                 <input id="cfg-outs-min-edge" type="number" value="0.04" step="0.01">
               </div>
               <div class="config-group">
-                <label>Макс. Edge <span class="tooltip-icon tooltip-icon--right" data-tooltip="Уровень Edge, при котором достигается MAX_BET.">❓</span></label>
-                <input id="cfg-max-edge" type="number" value="0.50" step="0.01">
+                <label>Фаворит Мин. Edge <span class="tooltip-icon tooltip-icon--right" data-tooltip="Минимальное математическое ожидание сделки для входа (фаворит).">❓</span></label>
+                <input id="cfg-fav-min-edge" type="number" value="0.05" step="0.01">
               </div>
             </div>
 
-            <div class="config-group">
-              <label>Фильтр Edge (MAX_EDGE_FILTER) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Предохранитель. Все сделки с Edge выше этого отбрасываются (защита от сломанных стаканов). В бэктесте помогает отсечь ложные граали.">❓</span></label>
-              <input id="cfg-max-edge-filter" type="number" value="0.20" step="0.01">
+            <div class="config-grid">
+              <div class="config-group">
+                <label>Макс. Edge <span class="tooltip-icon tooltip-icon--left" data-tooltip="Уровень Edge, при котором достигается MAX_BET.">❓</span></label>
+                <input id="cfg-max-edge" type="number" value="0.50" step="0.01">
+              </div>
+              <div class="config-group">
+                <label>Фильтр Edge (MAX_EDGE_FILTER) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Предохранитель. Сделки с Edge выше этого отбрасываются.">❓</span></label>
+                <input id="cfg-max-edge-filter" type="number" value="0.20" step="0.01">
+              </div>
             </div>
 
             <div class="config-grid">

@@ -52,6 +52,8 @@ REGISTRY: list[SettingDef] = [
                description="Порог ручного подтверждения крупной ставки"),
     SettingDef("EXECUTION_COOLDOWN_SEC", "10",
                description="Задержка перед новой попыткой при ошибке (сек)"),
+    SettingDef("TRADE_EXECUTION_TIME_SEC", "30",
+               description="Максимальное время на исполнение сделки"),
     SettingDef("INITIAL_CAPITAL", "1000.0",
                description="Начальный капитал для расчёта финрезультата"),
 
@@ -290,6 +292,7 @@ REQUIRED_SETTINGS_KEYS = frozenset([
     "MAX_SPREAD_PCT",
     "OUTSIDER_PWIN_DISCOUNT",
     "OUTS_MIN_EDGE",
+    "FAVORITE_MIN_EDGE",
     "COMBINED_FALLBACK_TO_ML_ON_NONE",
 ])
 

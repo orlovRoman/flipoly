@@ -684,8 +684,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxPrice && data.TRADE_MAX_PRICE)
         settingsElements.maxPrice.value = data.TRADE_MAX_PRICE;
 
-
-
       if (settingsElements.favoriteThreshold && data.FAVORITE_THRESHOLD !== undefined) {
         let val = parseFloat(data.FAVORITE_THRESHOLD);
         settingsElements.favoriteThreshold.value = val;
