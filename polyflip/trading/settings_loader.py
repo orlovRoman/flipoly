@@ -39,6 +39,7 @@ async def load_trading_settings(
         "FAVORITE_MIN_PRICE",
         "FAVORITE_MAX_PRICE",
         "FAVORITE_MIN_EDGE",
+        "OUTS_MIN_EDGE",
         "OUTSIDER_MAX_PRICE",
         "LIQUIDITY_FRACTION",
         "BYPASS_BET_SIZE_CHECK",
@@ -68,6 +69,7 @@ async def load_trading_settings(
         threshold_keys.append(f"FLIP_THRESHOLD_{asset_upper}")
         threshold_keys.append(f"TRADING_MODE_{asset_upper}")
         threshold_keys.append(f"MIN_EDGE_{asset_upper}")
+        threshold_keys.append(f"OUTS_MIN_EDGE_{asset_upper}")
         threshold_keys.append(f"TRADE_MAX_PRICE_{asset_upper}")
         threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}")
         threshold_keys.append(f"AUTO_FLIP_THRESHOLD_{asset_upper}_contested")

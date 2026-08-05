@@ -40,6 +40,50 @@ class CryptoSignalProxy:
     risk_vetoed: bool = False
 
 
+
+@dataclass(frozen=True)
+class DirectionConsensus:
+    final_side: ActionType
+    consensus_type: str
+    reason: str
+
+def logreg_direction_vote(p_flip: Optional[float], fresh_yes_price: float) -> Literal["BUY_YES", "BUY_NO", "ABSTAIN"]:
+    if p_flip is None:
+        return "ABSTAIN"
+    is_yes_fav = fresh_yes_price >= 0.50
+    if p_flip > 0.5:
+        return "BUY_NO" if is_yes_fav else "BUY_YES"
+    else:
+        return "BUY_YES" if is_yes_fav else "BUY_NO"
+
+def resolve_direction_consensus(
+    lgbm_vote: str,
+    lr_vote: str,
+    require_consensus: bool,
+    fallback_to_logreg_on_none: bool,
+) -> DirectionConsensus:
+    lgbm_side = "BUY_YES" if lgbm_vote == "UP" else ("BUY_NO" if lgbm_vote == "DOWN" else "ABSTAIN")
+    
+    if lgbm_side == "ABSTAIN" and lr_vote == "ABSTAIN":
+        return DirectionConsensus("SKIP", "BOTH_ABSTAIN", "No directional signal from any model")
+        
+    if lgbm_side == "ABSTAIN":
+        if fallback_to_logreg_on_none:
+            return DirectionConsensus(lr_vote, "PARTIAL_LR", "LightGBM is NONE, fallback to LogReg")
+        else:
+            return DirectionConsensus("SKIP", "PARTIAL_LR", "LightGBM is NONE, fallback disabled")
+            
+    if lr_vote == "ABSTAIN":
+        return DirectionConsensus(lgbm_side, "PARTIAL_LGBM", "LogReg is missing, using LightGBM")
+        
+    if lgbm_side == lr_vote:
+        return DirectionConsensus(lgbm_side, "AGREE", f"Both models agree on {lgbm_side}")
+        
+    if require_consensus:
+        return DirectionConsensus("SKIP", "CONFLICT", f"Conflict: LGBM={lgbm_side}, LR={lr_vote}")
+    else:
+        return DirectionConsensus(lgbm_side, "CONFLICT", f"Conflict resolved to LightGBM: {lgbm_side}")
+
 @dataclass(frozen=True)
 class CombinedEntryResult:
     action: ActionType
@@ -79,6 +123,9 @@ class CombinedEntryResult:
     underlying_price: Optional[float] = None
     distance_to_strike_pct: Optional[float] = None
     p_flip: Optional[float] = None
+    lr_direction_vote: Optional[str] = None
+    lgbm_direction_vote: Optional[str] = None
+    consensus_type: Optional[str] = None
 
 
 def apply_direction_confidence_discount(
@@ -290,14 +337,6 @@ def evaluate_combined_entry(
             p_flip=p_flip,
         )
 
-    # 2. Определение стороны кандидата и цены предложения
-    if crypto_sig.direction == "UP":
-        candidate_side: ActionType = "BUY_YES"
-        candidate_ask = yes_ask if (yes_ask is not None and yes_ask > 0) else fresh_yes_price
-    else:
-        candidate_side = "BUY_NO"
-        candidate_ask = no_ask if (no_ask is not None and no_ask > 0) else round(1.0 - fresh_yes_price, 4)
-
     # 3. Валидация LogReg Entry Model
     if p_flip is None or entry_model_key is None:
         return CombinedEntryResult(
@@ -320,8 +359,8 @@ def evaluate_combined_entry(
             entry_model_source=entry_model_source,
             entry_status="MODEL_NOT_FOUND",
             fallback_reason=fallback_reason,
-            candidate_side=candidate_side,
-            candidate_ask=candidate_ask,
+            candidate_side=None,
+            candidate_ask=None,
             cost_buffer=cost_buffer,
             strike_source="BINANCE_LAST_CANDLE" if strike else None,
             strike_proxy=strike,
@@ -329,6 +368,57 @@ def evaluate_combined_entry(
             distance_to_strike_pct=dist_pct,
             p_flip=p_flip,
         )
+
+    # 3.5 Consensus
+    lr_vote = logreg_direction_vote(p_flip, fresh_yes_price)
+    lgbm_vote = crypto_sig.direction or "NONE"
+    
+    consensus = resolve_direction_consensus(
+        lgbm_vote=lgbm_vote,
+        lr_vote=lr_vote,
+        require_consensus=getattr(cfg, "combined_require_consensus", True),
+        fallback_to_logreg_on_none=getattr(cfg, "combined_fallback_to_logreg_on_none", True),
+    )
+    
+    if consensus.final_side == "SKIP":
+        return CombinedEntryResult(
+            action="SKIP",
+            reason=f"Consensus failed: {consensus.consensus_type} ({consensus.reason})",
+            direction_status=dir_status,
+            direction_model_key=crypto_sig.model_key or None,
+            direction_model_version=crypto_sig.model_version,
+            direction_regime=crypto_sig.regime or None,
+            direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
+            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
+            direction_value=dir_val,
+            entry_requested_key=entry_requested_key,
+            entry_model_key=entry_model_key,
+            entry_model_version=entry_model_version,
+            entry_model_phase=market_phase,
+            entry_model_source=entry_model_source,
+            entry_status="CONSENSUS_FAILED",
+            fallback_reason=fallback_reason,
+            candidate_side=None,
+            candidate_ask=None,
+            cost_buffer=cost_buffer,
+            strike_source="BINANCE_LAST_CANDLE" if strike else None,
+            strike_proxy=strike,
+            underlying_price=und_price,
+            distance_to_strike_pct=dist_pct,
+            p_flip=p_flip,
+            lr_direction_vote=lr_vote,
+            lgbm_direction_vote=lgbm_vote,
+            consensus_type=consensus.consensus_type,
+        )
+
+    candidate_side: ActionType = consensus.final_side # type: ignore
+    if candidate_side == "BUY_YES":
+        candidate_ask = yes_ask if (yes_ask is not None and yes_ask > 0) else fresh_yes_price
+    else:
+        candidate_ask = no_ask if (no_ask is not None and no_ask > 0) else round(1.0 - fresh_yes_price, 4)
 
     # 4. Расчет вероятности победы кандидата (p_candidate_win)
     # p_flip = вероятность смены лидера (флипа от фаворита к аутсайдеру)
@@ -399,6 +489,9 @@ def evaluate_combined_entry(
             p_logreg_win=p_logreg_win,
             direction_discount_applied=discount_mult,
             combined_dir_discount_weight=discount_weight,
+            lr_direction_vote=lr_vote,
+            lgbm_direction_vote=lgbm_vote,
+            consensus_type=consensus.consensus_type,
             candidate_side=candidate_side,
             candidate_ask=candidate_ask,
             cost_buffer=cost_buffer,
@@ -466,6 +559,9 @@ def evaluate_combined_entry(
             p_logreg_win=p_logreg_win,
             direction_discount_applied=discount_mult,
             combined_dir_discount_weight=discount_weight,
+            lr_direction_vote=lr_vote,
+            lgbm_direction_vote=lgbm_vote,
+            consensus_type=consensus.consensus_type,
             candidate_side=candidate_side,
             candidate_ask=candidate_ask,
             cost_buffer=cost_buffer,
@@ -503,6 +599,9 @@ def evaluate_combined_entry(
             p_logreg_win=p_logreg_win,
             direction_discount_applied=discount_mult,
             combined_dir_discount_weight=discount_weight,
+            lr_direction_vote=lr_vote,
+            lgbm_direction_vote=lgbm_vote,
+            consensus_type=consensus.consensus_type,
             candidate_side=candidate_side,
             candidate_ask=candidate_ask,
             cost_buffer=cost_buffer,
@@ -543,6 +642,9 @@ def evaluate_combined_entry(
             p_logreg_win=p_logreg_win,
             direction_discount_applied=discount_mult,
             combined_dir_discount_weight=discount_weight,
+            lr_direction_vote=lr_vote,
+            lgbm_direction_vote=lgbm_vote,
+            consensus_type=consensus.consensus_type,
             candidate_side=candidate_side,
             candidate_ask=candidate_ask,
             gross_edge=gross_edge,
@@ -585,6 +687,9 @@ def evaluate_combined_entry(
             p_logreg_win=p_logreg_win,
             direction_discount_applied=discount_mult,
             combined_dir_discount_weight=discount_weight,
+            lr_direction_vote=lr_vote,
+            lgbm_direction_vote=lgbm_vote,
+            consensus_type=consensus.consensus_type,
             candidate_side=candidate_side,
             candidate_ask=candidate_ask,
             gross_edge=gross_edge,
@@ -627,7 +732,10 @@ def evaluate_combined_entry(
         p_logreg_win=p_logreg_win,
         direction_discount_applied=discount_mult,
         combined_dir_discount_weight=discount_weight,
-        candidate_side=candidate_side,
+        lr_direction_vote=lr_vote,
+            lgbm_direction_vote=lgbm_vote,
+            consensus_type=consensus.consensus_type,
+            candidate_side=candidate_side,
         candidate_ask=candidate_ask,
         gross_edge=gross_edge,
         cost_buffer=cost_buffer,

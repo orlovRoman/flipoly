@@ -182,7 +182,7 @@ class TestStep2TradingConfig:
         """Значения из raw-dict перекрывают defaults."""
         from polyflip.trading.trading_config import parse_trading_settings
         cfg = parse_trading_settings({"OUTS_MIN_EDGE": "0.15", "TRADING_ENABLED": "false"})
-        assert cfg.min_edge == pytest.approx(0.15)
+        assert cfg.outs_min_edge == pytest.approx(0.15)
         assert cfg.trading_enabled is False
 
     def test_step2_config_is_frozen(self):
@@ -320,6 +320,8 @@ class TestStep3LoadEligibleMarkets:
         cfg = parse_trading_settings(_make_raw_settings({
             "TRADE_MIN_TIME_LEFT_SEC": "300",
             "TRADE_MAX_TIME_LEFT_SEC": "900",
+            "OUTS_MIN_TIME_LEFT_SEC": "300",
+            "OUTS_MAX_TIME_LEFT_SEC": "900",
         }))
         result = await load_eligible_markets(db_session, cfg, now)
         if result:

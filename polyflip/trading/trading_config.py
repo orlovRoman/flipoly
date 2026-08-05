@@ -69,9 +69,12 @@ class TradingConfig:
     max_exposure_pct: float
     min_direction_prob: float
     min_win_prob: float
+    min_edge: float
     combined_dir_discount_weight: float = 0.0
     combined_dir_strong_threshold: float = 0.65
     combined_fallback_to_ml_on_none: bool = True
+    combined_require_consensus: bool = True
+    combined_fallback_to_logreg_on_none: bool = True
     max_bet_edge: float = 0.40
     outsider_pwin_discount: float = 0.65
     max_spread_pct: float = 0.08
@@ -82,6 +85,8 @@ class TradingConfig:
         return self.outs_min_edge if is_outsider else self.favorite_min_edge
 
     def is_time_valid(self, time_left_sec: float, is_outsider: bool) -> tuple[bool, str]:
+        if time_left_sec <= 0:
+            return True, "OK"
         lo = self.outs_min_time_left if is_outsider else self.favor_min_time_left
         hi = self.outs_max_time_left if is_outsider else self.favor_max_time_left
         if not (lo <= time_left_sec <= hi):
@@ -110,8 +115,8 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
     return TradingConfig(
         trading_enabled=_parse_bool(raw.get("TRADING_ENABLED"), getattr(settings, "TRADING_ENABLED", True)),
         trading_mode=raw.get("TRADING_MODE", getattr(settings, "TRADING_MODE", "ml")),
-        favor_min_time_left=_parse_int(raw.get("FAVOR_MIN_TIME_LEFT_SEC"), getattr(settings, "FAVOR_MIN_TIME_LEFT_SEC", 60)),
-        favor_max_time_left=_parse_int(raw.get("FAVOR_MAX_TIME_LEFT_SEC"), getattr(settings, "FAVOR_MAX_TIME_LEFT_SEC", 600)),
+        favor_min_time_left=_parse_int(raw.get("TRADE_MIN_TIME_LEFT_SEC"), getattr(settings, "TRADE_MIN_TIME_LEFT_SEC", 60)),
+        favor_max_time_left=_parse_int(raw.get("TRADE_MAX_TIME_LEFT_SEC"), getattr(settings, "TRADE_MAX_TIME_LEFT_SEC", 600)),
         outs_min_time_left=_parse_int(raw.get("OUTS_MIN_TIME_LEFT_SEC"), getattr(settings, "OUTS_MIN_TIME_LEFT_SEC", 30)),
         outs_max_time_left=_parse_int(raw.get("OUTS_MAX_TIME_LEFT_SEC"), getattr(settings, "OUTS_MAX_TIME_LEFT_SEC", 300)),
         bet_size=_parse_float(raw.get("TRADE_BET_SIZE_USDC"), getattr(settings, "TRADE_BET_SIZE_USDC", 10.0)),
@@ -152,9 +157,12 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         max_exposure_pct=_parse_float(raw.get("MAX_EXPOSURE_PCT"), getattr(settings, "MAX_EXPOSURE_PCT", 15.0)),
         min_direction_prob=_parse_float(raw.get("MIN_DIRECTION_PROB"), getattr(settings, "MIN_DIRECTION_PROB", 0.505)),
         min_win_prob=_parse_float(raw.get("MIN_WIN_PROB"), getattr(settings, "MIN_WIN_PROB", 0.51)),
+        min_edge=_parse_float(raw.get("MIN_EDGE"), getattr(settings, "MIN_EDGE", 0.05)),
         combined_dir_discount_weight=_parse_float(raw.get("COMBINED_DIR_DISCOUNT_WEIGHT"), 0.0),
         combined_dir_strong_threshold=_parse_float(raw.get("COMBINED_DIR_STRONG_THRESHOLD"), 0.65),
         combined_fallback_to_ml_on_none=_parse_bool(raw.get("COMBINED_FALLBACK_TO_ML_ON_NONE"), getattr(settings, "COMBINED_FALLBACK_TO_ML_ON_NONE", True)),
+        combined_require_consensus=_parse_bool(raw.get("COMBINED_REQUIRE_CONSENSUS"), True),
+        combined_fallback_to_logreg_on_none=_parse_bool(raw.get("COMBINED_FALLBACK_TO_LOGREG_ON_NONE"), True),
         max_bet_edge=_parse_float(raw.get("MAX_BET_EDGE"), getattr(settings, "MAX_BET_EDGE", 0.40)),
         outsider_pwin_discount=_parse_float(raw.get("OUTSIDER_PWIN_DISCOUNT"), getattr(settings, "OUTSIDER_PWIN_DISCOUNT", 0.65)),
         max_spread_pct=_parse_float(raw.get("MAX_SPREAD_PCT"), getattr(settings, "MAX_SPREAD_PCT", 0.08)),

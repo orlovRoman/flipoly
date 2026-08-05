@@ -148,6 +148,10 @@ REGISTRY: list[SettingDef] = [
                description="Порог dir_prob, выше которого сигнал LightGBM считается сильным и дисконт равен 0 (0.50-1.0)"),
     SettingDef("COMBINED_FALLBACK_TO_ML_ON_NONE", "true",
                description="Если LGBM выдает NONE (нет четкого тренда), переключаться на оценку через модель LogReg (Entry Model)"),
+    SettingDef("COMBINED_REQUIRE_CONSENSUS", "true",
+               description="Обе модели (LightGBM и LogReg) должны проголосовать за одно направление. Иначе - SKIP."),
+    SettingDef("COMBINED_FALLBACK_TO_LOGREG_ON_NONE", "true",
+               description="Если LightGBM выдает NONE, то используется голос LogReg. Если false, то NONE ведет к SKIP."),
 
     # --- Обучение LogReg / Phase models ---
     SettingDef("MIN_SAMPLES_FOR_PHASE_MODEL", "150",
@@ -294,6 +298,8 @@ REQUIRED_SETTINGS_KEYS = frozenset([
     "OUTS_MIN_EDGE",
     "FAVORITE_MIN_EDGE",
     "COMBINED_FALLBACK_TO_ML_ON_NONE",
+    "COMBINED_REQUIRE_CONSENSUS",
+    "COMBINED_FALLBACK_TO_LOGREG_ON_NONE",
 ])
 
 def validate_required_keys():

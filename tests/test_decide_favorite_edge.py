@@ -32,8 +32,8 @@ def test_favorite_yes_edge_positive_with_small_spread():
 
 
 def test_favorite_yes_skips_when_edge_below_min():
-    """SKIP если edge < OUTS_MIN_EDGE"""
-    config = {**BASE_CONFIG, "OUTS_MIN_EDGE": "0.10"}  # требуем 10% ROI, FAVORITE_MIN_EDGE не задан
+    """SKIP если edge < FAVORITE_MIN_EDGE"""
+    config = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "0.10"}  # требуем 10% ROI
     decision = decide_favorite(make_signal(mid=0.75), config)
     assert decision.action == "SKIP"
     assert "edge" in decision.reason.lower()

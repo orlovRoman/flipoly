@@ -572,6 +572,22 @@
                                 </div>
                             </div>
 
+                            <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 1.25rem; background: rgba(168, 85, 247, 0.08); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.2);">
+                                <input type="checkbox" id="COMBINED_REQUIRE_CONSENSUS" style="width: 1.2rem; height: 1.2rem; accent-color: #a855f7; cursor: pointer; margin-top: 2px;">
+                                <div>
+                                    <label for="COMBINED_REQUIRE_CONSENSUS" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important;">Требовать консенсус (COMBINED_REQUIRE_CONSENSUS)</label>
+                                    <small style="color: var(--text-muted); display: block; margin-top: 2px;">Обе модели (LightGBM и LogReg) должны проголосовать за одно направление. Иначе — SKIP.</small>
+                                </div>
+                            </div>
+
+                            <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 1.25rem; background: rgba(168, 85, 247, 0.08); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.2);">
+                                <input type="checkbox" id="COMBINED_FALLBACK_TO_LOGREG_ON_NONE" style="width: 1.2rem; height: 1.2rem; accent-color: #a855f7; cursor: pointer; margin-top: 2px;">
+                                <div>
+                                    <label for="COMBINED_FALLBACK_TO_LOGREG_ON_NONE" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important;">Fallback на LogReg (Новый консенсус) (COMBINED_FALLBACK_TO_LOGREG_ON_NONE)</label>
+                                    <small style="color: var(--text-muted); display: block; margin-top: 2px;">Если LightGBM выдает NONE, используется голос LogReg. При выключенном чекбоксе NONE сразу ведет к SKIP.</small>
+                                </div>
+                            </div>
+
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
                                 <div class="form-group">
                                     <label for="MIN_DIRECTION_PROB" title="Минимальная уверенность LGBM в направлении (UP/DOWN) для входа в Combined. Это абсолютный пол, двойная фильтрация отключена.">
