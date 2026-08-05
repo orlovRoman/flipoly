@@ -1222,6 +1222,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const noFlipInput = document.getElementById("NO_FLIP_THRESHOLD");
   if (noFlipInput) {
     noFlipInput.addEventListener("input", () => {
       const flipVal = flipInput ? parseFloat(flipInput.value) / 100 : 0.85;
