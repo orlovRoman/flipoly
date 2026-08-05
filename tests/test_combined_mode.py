@@ -16,7 +16,7 @@ def _make_cfg(**overrides):
 def test_evaluate_combined_entry_direction_up_success():
     """LightGBM = UP, LogReg дает хороший net_edge -> BUY_YES"""
     sig = CryptoSignal(symbol='BTCUSDT', p_up=0.75, p_down=0.25, direction='UP', signal_strength=0.5, strike=65000.0, threshold_up=0.55, threshold_down=0.45, model_version=2, features_ok=True, risk_vetoed=False, regime='HIGH_VOL')
-    res = evaluate_combined_entry(crypto_sig=sig, market_phase='mid_vol', entry_requested_key='BTC_mid_vol', entry_model_key='BTC_mid_vol', entry_model_version=5, entry_model_source='PHASE', p_flip=0.2, fresh_yes_price=0.6, yes_ask=0.62, no_ask=0.38, cost_buffer=0.03, time_left_sec=300.0, cfg=_make_cfg(), config_dict={'TRADE_BET_SIZE_USDC': '10', 'MAX_BET_SIZE_USDC': '50'})
+    res = evaluate_combined_entry(crypto_sig=sig, market_phase='mid_vol', entry_requested_key='BTC_mid_vol', entry_model_key='BTC_mid_vol', entry_model_version=5, entry_model_source='PHASE', p_flip=0.2, fresh_yes_price=0.6, yes_ask=0.62, no_ask=0.38, cost_buffer=0.03, time_left_sec=300.0, cfg=_make_cfg())
     assert res.action == 'BUY_YES'
     assert res.candidate_side == 'BUY_YES'
     assert res.direction_status == 'READY'
@@ -33,7 +33,7 @@ def test_evaluate_combined_entry_direction_up_success():
 def test_evaluate_combined_entry_direction_down_success():
     """LightGBM = DOWN, LogReg дает хороший net_edge для NO -> BUY_NO"""
     sig = CryptoSignal(symbol='ETHUSDT', p_up=0.2, p_down=0.8, direction='DOWN', signal_strength=0.6, strike=3500.0, threshold_up=0.55, threshold_down=0.45, model_version=3, features_ok=True, risk_vetoed=False, regime='MID_VOL')
-    res = evaluate_combined_entry(crypto_sig=sig, market_phase='mid_vol', entry_requested_key='ETH_mid_vol', entry_model_key='ETH_mid_vol', entry_model_version=2, entry_model_source='PHASE', p_flip=0.85, fresh_yes_price=0.5, yes_ask=0.52, no_ask=0.55, cost_buffer=0.03, time_left_sec=300.0, cfg=_make_cfg(OUTSIDER_MAX_PRICE='0.60'), config_dict={'TRADE_BET_SIZE_USDC': '10', 'MAX_BET_SIZE_USDC': '50'})
+    res = evaluate_combined_entry(crypto_sig=sig, market_phase='mid_vol', entry_requested_key='ETH_mid_vol', entry_model_key='ETH_mid_vol', entry_model_version=2, entry_model_source='PHASE', p_flip=0.85, fresh_yes_price=0.5, yes_ask=0.52, no_ask=0.55, cost_buffer=0.03, time_left_sec=300.0, cfg=_make_cfg(OUTSIDER_MAX_PRICE='0.60'))
     assert res.action == 'BUY_NO'
     assert res.candidate_side == 'BUY_NO'
     assert res.direction_status == 'READY'
@@ -67,7 +67,7 @@ def test_evaluate_combined_entry_insufficient_net_edge():
 def test_evaluate_combined_entry_model_fallback_global():
     """Entry model fallback to GLOBAL"""
     sig = CryptoSignal(symbol='BTCUSDT', p_up=0.8, p_down=0.2, direction='UP', signal_strength=0.6, strike=65000.0, threshold_up=0.55, threshold_down=0.45, model_version=2, features_ok=True, risk_vetoed=False)
-    res = evaluate_combined_entry(crypto_sig=sig, market_phase='mid_vol', entry_requested_key='BTC_mid_vol', entry_model_key='GLOBAL', entry_model_version=1, entry_model_source='GLOBAL', fallback_reason='Base model BTC not found, fell back to GLOBAL', p_flip=0.1, fresh_yes_price=0.5, yes_ask=0.52, no_ask=0.48, cost_buffer=0.03, time_left_sec=300.0, cfg=_make_cfg(), config_dict={'TRADE_BET_SIZE_USDC': '10'})
+    res = evaluate_combined_entry(crypto_sig=sig, market_phase='mid_vol', entry_requested_key='BTC_mid_vol', entry_model_key='GLOBAL', entry_model_version=1, entry_model_source='GLOBAL', fallback_reason='Base model BTC not found, fell back to GLOBAL', p_flip=0.1, fresh_yes_price=0.5, yes_ask=0.52, no_ask=0.48, cost_buffer=0.03, time_left_sec=300.0, cfg=_make_cfg())
     assert res.action == 'BUY_YES'
     assert res.entry_model_source == 'GLOBAL'
     assert res.fallback_reason == 'Base model BTC not found, fell back to GLOBAL'

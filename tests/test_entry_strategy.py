@@ -1,3 +1,4 @@
+from polyflip.trading.trading_config import parse_trading_settings
 import pytest
 from datetime import datetime, timedelta
 from polyflip.backtesting.runner import BacktestRunner
@@ -194,7 +195,7 @@ def test_bet_sizing_consistency_between_resolve_and_liquidity():
     }
 
     # Путь через decision_logic
-    bet_via_logic = _resolve_final_bet(edge, volume, config)
+    bet_via_logic = _resolve_final_bet(edge, volume, parse_trading_settings(config))
 
     # Путь через position_sizing
     bet_via_sizing = compute_bet_size_with_liquidity(

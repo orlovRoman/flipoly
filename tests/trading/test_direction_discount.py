@@ -124,7 +124,7 @@ def test_evaluate_combined_entry_with_discount():
         cost_buffer=0.01,
         cfg=cfg,
         volume_5min=1000.0,
-        config_dict=raw_config, time_left_sec=300,
+        time_left_sec=300,
     )
 
     assert result.p_logreg_win == pytest.approx(0.70, abs=1e-4)
@@ -151,7 +151,7 @@ def test_evaluate_combined_entry_with_discount():
         cost_buffer=0.01,
         cfg=cfg,
         volume_5min=1000.0,
-        config_dict=raw_config, time_left_sec=300,
+        time_left_sec=300,
     )
     assert result_buy.action == "BUY_YES"
     assert result_buy.p_candidate_win == pytest.approx(0.7386, abs=1e-4)

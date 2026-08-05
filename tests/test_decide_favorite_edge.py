@@ -1,3 +1,4 @@
+from polyflip.trading.trading_config import parse_trading_settings
 import pytest
 from polyflip.trading.decision_logic import decide_favorite
 from polyflip.trading.feature_builder import MarketSignal
@@ -26,7 +27,7 @@ BASE_CONFIG = {
 def test_favorite_yes_edge_positive_with_small_spread():
     """При малом спреде edge может быть положительным или слабо отрицательным."""
     config = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "-0.02"}
-    decision = decide_favorite(make_signal(mid=0.80, spread=0.001), config)
+    decision = decide_favorite(make_signal(mid=0.80, spread=0.001), parse_trading_settings(config), time_left_sec=300)
     assert decision.action == "BUY_YES"
     assert decision.edge is not None and decision.edge > -0.02
 
@@ -34,7 +35,7 @@ def test_favorite_yes_edge_positive_with_small_spread():
 def test_favorite_yes_skips_when_edge_below_min():
     """SKIP если edge < FAVORITE_MIN_EDGE"""
     config = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "0.10"}  # требуем 10% ROI
-    decision = decide_favorite(make_signal(mid=0.75), config)
+    decision = decide_favorite(make_signal(mid=0.75), parse_trading_settings(config), time_left_sec=300)
     assert decision.action == "SKIP"
     assert "edge" in decision.reason.lower()
 
@@ -42,7 +43,7 @@ def test_favorite_yes_skips_when_edge_below_min():
 def test_favorite_no_has_real_edge():
     """NO-решение тоже должно иметь рассчитанный edge"""
     config = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "-0.05"}
-    decision = decide_favorite(make_signal(mid=0.25, spread=0.001), config)
+    decision = decide_favorite(make_signal(mid=0.25, spread=0.001), parse_trading_settings(config), time_left_sec=300)
     assert decision.action == "BUY_NO"
     assert decision.edge is not None and decision.edge != 0.0
 
@@ -52,7 +53,7 @@ def test_favorite_edge_wires_to_bet_sizing():
     config_low_edge = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "-0.05", "TRADE_BET_SIZE_USDC": "5", "MAX_BET_SIZE_USDC": "50"}
     config_high_min_edge = {**BASE_CONFIG, "FAVORITE_MIN_EDGE": "-0.05", "MAX_BET_EDGE": "0.01",
                             "TRADE_BET_SIZE_USDC": "5", "MAX_BET_SIZE_USDC": "50"}
-    d1 = decide_favorite(make_signal(mid=0.75, spread=0.001), config_low_edge)
-    d2 = decide_favorite(make_signal(mid=0.75, spread=0.001), config_high_min_edge)
+    d1 = decide_favorite(make_signal(mid=0.75, spread=0.001), parse_trading_settings(config_low_edge), time_left_sec=300)
+    d2 = decide_favorite(make_signal(mid=0.75, spread=0.001), parse_trading_settings(config_high_min_edge), time_left_sec=300)
     if d1.action != "SKIP":
         assert d1.bet_size_usdc > 0

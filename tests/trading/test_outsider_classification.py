@@ -1,3 +1,4 @@
+from polyflip.trading.trading_config import parse_trading_settings
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from polyflip.trading.decision_logic import decide_outsider, TradeDecision
@@ -26,7 +27,7 @@ def test_outsider_decision_has_correct_strategy_type():
     decision = decide_outsider(
         signal=signal_mock,
         p_flip=0.55,
-        config=config,
+        cfg=parse_trading_settings(config), time_left_sec=300,
         ece=0.01,
     )
     
@@ -67,7 +68,7 @@ async def test_pre_trade_validator_blocks_outsider_on_favorite_token():
         db_mock, api_mock, market, decision, cfg, asset_mode="combined", asset_min_edge=0.05, asset_max_price=0.99, p_flip=0.2, model_ver=1
     )
     assert result.valid is False
-    assert result.skip_reason == "OUTSIDER strategy selected a favorite token"
+    assert result.skip_reason == "validation: OUTSIDER strategy selected a favorite token"
 
 @pytest.mark.asyncio
 async def test_pre_trade_validator_blocks_favorite_on_outsider_token():

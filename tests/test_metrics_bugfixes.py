@@ -120,7 +120,7 @@ def test_sharpe_ratio_none_on_single_trade(monkeypatch):
 def test_runner_bet_sizing_mode_scaled():
     """Runner должен применять scaled bet sizing при BET_SIZING_MODE=scaled."""
     from polyflip.backtesting.runner import BacktestRunner
-    config = {'BET_SIZING_MODE': 'scaled', 'TRADE_BET_SIZE_USDC': '5.0', 'MAX_BET_SIZE_USDC': '50.0', 'OUTS_MIN_EDGE': '0.05', 'MAX_BET_EDGE': '0.50', 'SLIPPAGE_PCT': '0.005', 'STRATEGY_MODE': 'ML', 'TRADE_ON_FLIP': False}
+    config = {'BET_SIZING_MODE': 'scaled', 'TRADE_BET_SIZE_USDC': '5.0', 'MAX_BET_SIZE_USDC': '50.0', 'OUTS_MIN_EDGE': '0.05', 'MAX_BET_EDGE': '0.50', 'SLIPPAGE_PCT': '0.005', 'STRATEGY_MODE': 'PURE_FAVORITE', 'TRADE_ON_FLIP': False}
     import pickle
     runner = BacktestRunner(config, pickle.dumps(DummyModelScaled()), 'feature1')
     assert runner.bet_sizing_mode == 'scaled', f"bet_sizing_mode должен быть 'scaled', получено '{runner.bet_sizing_mode}'"

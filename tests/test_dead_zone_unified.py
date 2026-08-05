@@ -1,3 +1,4 @@
+from polyflip.trading.trading_config import parse_trading_settings
 """
 tests/test_dead_zone_unified.py
 Шаг 1: Тесты объединения DEAD_ZONE_WIDTH / AUTO_DEAD_ZONE_WIDTH.
@@ -137,6 +138,6 @@ def test_decide_favorite_reads_dead_zone_width():
         hour_of_day=12,
         time_left_min=2.0,
     )
-    result = decide_favorite(signal, {"DEAD_ZONE_WIDTH": "0.20", "FAVORITE_THRESHOLD": "0.55"})
+    result = decide_favorite(signal, parse_trading_settings({"DEAD_ZONE_WIDTH": "0.20", "FAVORITE_THRESHOLD": "0.55"}), time_left_sec=300)
     assert result.action == "SKIP"
-    assert result.reason == "dead zone"
+    assert result.reason == "strategy: dead zone"
