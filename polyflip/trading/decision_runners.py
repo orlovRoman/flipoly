@@ -481,8 +481,20 @@ async def decide_combined_mode(
         )
 
     # 7. Записываем воронку (DecisionFunnelLog) — ровно одна запись!
-    g1_loaded = (entry_model is not None and comb_res.direction_status != "MODEL_NOT_LOADED")
-    g8_vote = (comb_res.action != "SKIP")
+    is_outsider = (
+        (comb_res.candidate_side == "BUY_NO" and fresh_yes_price >= 0.50)
+        or (comb_res.candidate_side == "BUY_YES" and fresh_yes_price < 0.50)
+    ) if comb_res.candidate_side else False
+    min_edge_val = cfg.get_min_edge(is_outsider=is_outsider)
+
+    g1_loaded = bool(entry_model is not None and comb_res.direction_status not in ("MODEL_NOT_LOADED", "PREDICTOR_NOT_AVAILABLE", "REGIME_UNAVAILABLE"))
+    g2_fetched = True
+    g3_dir = bool(comb_res.direction_status in ("READY", "DIRECTION_NONE_FALLBACK_LR") and comb_res.entry_status not in ("DIRECTION_UNAVAILABLE", "DIRECTION_VETOED", "LOW_DIRECTION_PROB"))
+    g4_consensus = bool(comb_res.candidate_side in ("BUY_YES", "BUY_NO") and comb_res.entry_status != "CONSENSUS_FAILED")
+    g5_win_prob = bool(comb_res.p_candidate_win is not None and comb_res.p_candidate_win >= getattr(cfg, "min_win_prob", 0.51) and comb_res.entry_status != "LOW_WIN_PROB")
+    g6_price_time = bool(comb_res.entry_status not in ("INVALID_TIME", "OUTSIDER_DISABLED", "PRICE_OUT_OF_BOUNDS"))
+    g7_net_edge = bool(comb_res.net_edge is not None and comb_res.entry_status != "INSUFFICIENT_NET_EDGE" and comb_res.net_edge >= min_edge_val)
+    g8_vote = bool(comb_res.action in ("BUY_YES", "BUY_NO") and comb_res.bet_size_usdc > 0)
 
     await log_funnel(
         db_session,
@@ -497,9 +509,14 @@ async def decide_combined_mode(
         fresh_price=comb_res.candidate_ask or fresh_yes_price,
         threshold_lower=1.0 - cfg.flip_threshold,
         threshold_upper=cfg.flip_threshold,
-        min_edge_used=cfg.get_min_edge(is_outsider=(comb_res.candidate_side == "NO") if comb_res else False),
+        min_edge_used=min_edge_val,
         g1_model_loaded=g1_loaded,
-        g2_price_fetched=True,
+        g2_price_fetched=g2_fetched,
+        g3_dead_zone=g3_dir,
+        g4_no_flip=g4_consensus,
+        g5_min_edge=g5_win_prob,
+        g6_price_range=g6_price_time,
+        g7_crypto_confirm=g7_net_edge,
         g8_combined_vote=g8_vote,
         primary_model_key=comb_res.entry_model_key,
         primary_model_version=comb_res.entry_model_version,

@@ -1549,14 +1549,14 @@ window.showFunnelDiagnostic = function(logId) {
     if (!funnel) return;
 
     const gateLabels = {
-        g1_model_loaded:   "G1: Модель загружена",
-        g2_price_fetched:  "G2: API цена получена",
-        g3_dead_zone:      "G3: Вне dead zone (p_flip)",
-        g4_no_flip:        "G4: No-flip (p_flip не слишком высок)",
-        g5_min_edge:       "G5: Edge >= MIN",
-        g6_price_range:    "G6: Цена в [0.1, 0.9]",
-        g7_crypto_confirm: "G7: Подтверждение (LGBM)",
-        g8_combined_vote:  "G8: Итоговый голос",
+        g1_model_loaded:   "G1: Модели загружены (LGBM + LogReg)",
+        g2_price_fetched:  "G2: API котировки получены",
+        g3_dead_zone:      "G3: Сигнал направления (LGBM Ready)",
+        g4_no_flip:        "G4: Консенсус моделей (LGBM + LogReg)",
+        g5_min_edge:       "G5: Вероятность победы (P_win ≥ MIN)",
+        g6_price_range:    "G6: Цена и время в диапазоне",
+        g7_crypto_confirm: "G7: Net Edge ≥ MIN (с буфером)",
+        g8_combined_vote:  "G8: Итоговый ордер (Action & Sizing)",
     };
 
     const fmt = (v) => (v !== null && v !== undefined) ? Number(v).toFixed(4) : "—";
