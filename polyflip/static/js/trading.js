@@ -440,12 +440,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const deadZoneVal = deadZoneInput ? parseFloat(deadZoneInput.value) / 100 : g.dead_zone;
       const deadZonePct = Math.round(deadZoneVal * 100);
 
-      // Текущее значение no_flip берем из инпута, если он загружен, иначе из API
-      const currentNoFlipVal = noFlipInput ? parseFloat(noFlipInput.value) / 100 : g.current_no_flip;
+      // Текущее значение no_flip берем из API
+      const currentNoFlipVal = g.current_no_flip || 0.45;
       const currentNoFlipPct = Math.round(currentNoFlipVal * 100);
       
       const firstAsset = Object.keys(data.per_asset)[0];
-      const recPct = firstAsset ? Math.round(data.per_asset[firstAsset].recommended_no_flip * 100) : Math.round(g.current_no_flip * 100);
+      const recPct = firstAsset ? Math.round(data.per_asset[firstAsset].recommended_no_flip * 100) : Math.round(currentNoFlipVal * 100);
 
       // Подсказка под полем no_flip
       const hint = document.getElementById("no-flip-hint");
@@ -461,16 +461,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const btn = document.getElementById("btn-apply-recommended-no-flip");
       if (btn) {
         if (firstAsset) {
-          btn.style.display = "inline-block";
-          btn.onclick = () => {
-            if (noFlipInput) {
-              noFlipInput.value = recPct;
-              loadRecommendedThresholds();
-              if (hint) {
-                hint.innerHTML += ' &nbsp;<span style="color:#00ff88">↑ применено</span>';
-              }
-            }
-          };
+          btn.style.display = "none";
         } else {
           btn.style.display = "none";
         }
@@ -524,9 +515,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function getPerAssetFields() { return []; });
-    return assets;
-  }
+  function getPerAssetFields() { return []; }
 
   async function checkCalibrationWarnings() {
     try {
@@ -583,9 +572,6 @@ document.addEventListener("DOMContentLoaded", () => {
       
       if (settingsElements.betSizingMode) {
         settingsElements.betSizingMode.dispatchEvent(new Event("change"));
-      }
-        if (val > 1) val /= 100;
-        settingsElements.noFlipThreshold.value = Math.round(val * 100);
       }
       if (settingsElements.minDirectionProb && data.MIN_DIRECTION_PROB !== undefined) {
         let val = parseFloat(data.MIN_DIRECTION_PROB);
@@ -762,30 +748,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // Заполняем индивидуальные настройки по активам
       const perAssetNames = getPerAssetFields();
       perAssetNames.forEach((asset) => {
-        
-        }
-        if (minEdgeInput) {
-          if (val !== undefined && val !== "") {
-            minEdgeInput.value = (parseFloat(val) * 100).toFixed(1);
-          } else {
-            minEdgeInput.value = "";
-          }
-        }
-        if (maxPriceInput) {
-          if (val !== undefined && val !== null && val !== "") {
-            maxPriceInput.value = val;
-          } else {
-            maxPriceInput.value = "";
-          }
-        }
-        
-        if (flipThresholdInput) {
-          if (val !== undefined && val !== null && val !== "") {
-            flipThresholdInput.value = (parseFloat(val) * 100).toString();
-          } else {
-            flipThresholdInput.value = "";
-          }
-        }
+        // Individual asset settings removed.
       });
 
       await loadRecommendedThresholds();

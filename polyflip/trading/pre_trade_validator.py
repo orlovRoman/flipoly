@@ -8,7 +8,7 @@ from polyflip.trading.trading_config import TradingConfig
 from polyflip.trading.decision_logic import TradeDecision
 from polyflip.trading.position_sizing import compute_bet_size_edge_scaled
 from polyflip.crypto.edge import compute_economic_edge
-from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
+from polyflip.constants import TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from polyflip.db.models import TradeHistory

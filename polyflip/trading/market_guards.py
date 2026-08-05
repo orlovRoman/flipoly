@@ -59,6 +59,7 @@ async def check_market_guards(
         window_min = cfg.entry_sec
         window_max = cfg.entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC
         if not (window_min <= time_left_sec <= window_max):
+            print(f"DEBUG: time_left_sec={time_left_sec}, window_min={window_min}, window_max={window_max}, cfg={cfg}")
             return GuardResult(passed=False, skip_reason="Outside time window", existing_skipped=existing_skipped)
     else:
         global_min_sec = min(cfg.favor_min_time_left, cfg.outs_min_time_left)

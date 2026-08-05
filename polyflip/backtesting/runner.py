@@ -8,7 +8,7 @@ from typing import Any
 
 from polyflip.backtesting.market_replay import MarketReplay
 from polyflip.backtesting.simulated_trader import SimulatedTrader
-from polyflip.trading.decision_logic import decide_favorite, decide_ml_trend, decide_outsider, TradeDecision
+from polyflip.trading.decision_logic import decide_favorite, decide_outsider, TradeDecision
 from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUMNS
 
 
@@ -92,7 +92,7 @@ class BacktestRunner:
                 p_flip = self.p_flips[key]
             else:
                 p_flip = self._predict_flip(signal)
-            decision = decide_ml_trend(signal, p_flip, self.config, time_left_sec=tick.time_left_min * 60.0)
+            decision = TradeDecision(action="SKIP", strategy_type="ML_REMOVED", p_up=0.0, edge=0.0, reason="ML", buy_price=0.0, bet_size_usdc=0.0, strike=0.0)
             if decision.action == "SKIP" and self.trade_on_flip:
                 decision = decide_outsider(signal, p_flip, self.config, time_left_sec=tick.time_left_min * 60.0)
         

@@ -15,7 +15,7 @@ from polyflip.api.dashboard import invalidate_dashboard_cache
 from polyflip.execution.outbox import enqueue_open_request, EnqueueDisposition
 from polyflip.execution.config import ExecutionSettings
 import os
-from polyflip.constants import TRADING_MODE_LIGHTGBM, TRADING_MODE_ML, TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
+from polyflip.constants import TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
 
 logger = structlog.get_logger(__name__)
 
@@ -23,8 +23,6 @@ class EnqueueRejected(Exception):
     pass
 
 def _get_trade_active_features(asset_mode: str, active_features_str: str, decision_obj: Any, asset_name: str = "") -> str:
-    if asset_mode == TRADING_MODE_LIGHTGBM:
-        return "LIGHTGBM_TREND"
     if asset_mode == TRADING_MODE_COMBINED:
         from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS
         if not asset_name or asset_name.upper() in COMBINED_MODE_SUPPORTED_ASSETS:

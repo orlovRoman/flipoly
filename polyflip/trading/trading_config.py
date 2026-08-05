@@ -8,11 +8,6 @@ def _parse_bool(val, default: bool) -> bool:
         return default
     return str(val).lower() == "true"
 
-    try:
-        return float(val)
-    except ValueError:
-        return default
-
 def _parse_int(val, default: int) -> int:
     if val is None or str(val).strip() == "":
         return default

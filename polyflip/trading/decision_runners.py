@@ -19,19 +19,6 @@ from polyflip.trading.funnel_logger import log_funnel
 
 logger = structlog.get_logger(__name__)
 
-def _get_float_setting(raw_settings: dict, key: str) -> Optional[float]:
-    """
-    Читает float из raw_settings.
-    Возвращает None, если значение отсутствует или пустое.
-    """
-    val = raw_settings.get(key)
-    if val is None or str(val).strip() == "":
-        return None
-    try:
-        return float(val)
-    except ValueError:
-        return None
-
 @dataclass
 class DecisionResult:
     decision_obj: Optional[TradeDecision]
@@ -156,6 +143,34 @@ async def _get_funding_rate(db_session: AsyncSession, binance_symbol: str) -> fl
     except Exception:
         return None
 
+async def _fetch_lgbm_signal(
+    crypto_predictor: Any,
+    binance_symbol: str,
+    asset_upper: str,
+) -> Any:
+    """Изолированная LGBM-ветка для asyncio.gather."""
+    from polyflip.trading.combined_voting import CryptoSignalProxy
+    from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
+    from polyflip.crypto.candle_repository import get_recent_candles
+    from polyflip.db.connection import async_session
+    
+    try:
+        async with async_session() as db_session:
+            await crypto_predictor.load(db_session, binance_symbol)
+            interval = crypto_predictor.get_interval(binance_symbol)
+            candles = await get_recent_candles(db_session, binance_symbol, interval=interval, limit=MIN_CANDLES_REQUIRED)
+            fr = await _get_funding_rate(db_session, binance_symbol)
+            return crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
+    except Exception as exc:
+        logger.error("combined_lgbm_error_fallback", asset=asset_upper, error=str(exc))
+        from polyflip.crypto.predictor import CryptoSignal
+        return CryptoSignal(
+            symbol=binance_symbol, p_up=0.0, p_down=0.0,
+            direction="NONE", signal_strength=0.0, strike=0.0,
+            threshold_up=0.0, threshold_down=0.0, model_version=0,
+            features_ok=False, risk_vetoed=False, regime="UNKNOWN"
+        )
+
 async def decide_combined_mode(
     db_session: AsyncSession,
     api_client: Any,
@@ -236,9 +251,9 @@ async def decide_combined_mode(
             p_flip=None,
             edge=None,
             fresh_price=None,
-            threshold_lower=cfg.no_flip_threshold,
+            threshold_lower=cfg.no_max_price,
             threshold_upper=cfg.flip_threshold,
-            min_edge_used=cfg.min_edge,
+            min_edge_used=cfg.favorite_min_edge,
             g1_model_loaded=bool(models_cache and models_cache.models),
             g2_price_fetched=False,
             final_action="SKIP",
@@ -489,7 +504,7 @@ async def decide_combined_mode(
         p_flip=comb_res.p_flip,
         edge=comb_res.net_edge,
         fresh_price=comb_res.candidate_ask or fresh_yes_price,
-        threshold_lower=cfg.no_flip_threshold,
+        threshold_lower=1.0 - cfg.flip_threshold,
         threshold_upper=cfg.flip_threshold,
         min_edge_used=cfg.get_min_edge(is_outsider=(comb_res.candidate_side == "NO") if comb_res else False),
         g1_model_loaded=g1_loaded,

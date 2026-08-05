@@ -147,7 +147,7 @@ REGISTRY: list[SettingDef] = [
     SettingDef("COMBINED_DIR_DISCOUNT_WEIGHT", "0.0",
                description="Вес дисконта к p_candidate_win за неуверенность LightGBM (0.0 = выкл, 0.3 = до -30% при dir_prob=min_dir_prob)"),
     SettingDef("COMBINED_DIR_STRONG_THRESHOLD", "0.65",
-               description="Порог dir_prob, выше которого сигнал LightGBM считается сильным и дисконт равен 0 (0.50-1.0)"), переключаться на оценку через модель LogReg (Entry Model)"),
+               description="Порог dir_prob, выше которого сигнал LightGBM считается сильным и дисконт равен 0 (0.50-1.0)"),
     SettingDef("COMBINED_REQUIRE_CONSENSUS", "true",
                description="Обе модели (LightGBM и LogReg) должны проголосовать за одно направление. Иначе - SKIP."),
     SettingDef("COMBINED_FALLBACK_TO_LOGREG_ON_NONE", "true",
