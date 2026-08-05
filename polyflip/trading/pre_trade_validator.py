@@ -86,9 +86,8 @@ async def validate_pre_trade(
                 valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
                 skip_reason=f"validation: {decision_obj.strategy_type} selected an outsider token"
             )
-
-
-
+    # Note: p_flip threshold check removed (was legacy ML trend-specific).
+    # Combined mode enforces p_flip validation inside evaluate_combined_entry (step 4+).
     price_drift = abs(fresh_ask - buy_price)
     
     if price_drift > cfg.max_price_drift:

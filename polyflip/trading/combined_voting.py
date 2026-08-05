@@ -7,8 +7,10 @@ COMBINED-режим принятия решений:
    Без валидного направления (UP/DOWN) сделка в COMBINED не создаётся (SKIP).
 
 2. Candidate Side:
-   UP   -> BUY_YES
-   DOWN -> BUY_NO
+   LGBM=UP    -> BUY_YES
+   LGBM=DOWN  -> BUY_NO
+   LGBM=NONE  -> fallback to LogReg (если combined_fallback_to_logreg_on_none=True)
+   При разногласии моделей: SKIP (если combined_require_consensus=True)
 
 3. Entry Model (LogReg):
    Фазовая модель (contested / leaning / decided) оценивает p_flip.
@@ -49,6 +51,10 @@ class DirectionConsensus:
 
 def logreg_direction_vote(p_flip: Optional[float], fresh_yes_price: float) -> Literal["BUY_YES", "BUY_NO", "ABSTAIN"]:
     if p_flip is None:
+        return "ABSTAIN"
+    # p_flip близкий к 0.5 — нет уверенного сигнала, воздерживаемся
+    LOGREG_ABSTAIN_BAND = 0.05  # |p_flip - 0.5| < 0.05 → ABSTAIN
+    if abs(p_flip - 0.5) < LOGREG_ABSTAIN_BAND:
         return "ABSTAIN"
     is_yes_fav = fresh_yes_price >= 0.50
     if p_flip > 0.5:
@@ -187,9 +193,9 @@ def evaluate_combined_entry(
     """
 
     if crypto_sig.direction == "UP":
-        dir_prob = crypto_sig.p_up
+        dir_prob = crypto_sig.p_up or 0.0
     elif crypto_sig.direction == "DOWN":
-        dir_prob = crypto_sig.p_down
+        dir_prob = crypto_sig.p_down or 0.0
     else:
         # NONE: берём max(p_up, p_down) — диагностически корректно
         dir_prob = max(crypto_sig.p_up or 0.0, crypto_sig.p_down or 0.0)
@@ -760,13 +766,17 @@ def combine_votes(
     none_bet_multiplier: float = 0.5,
     ml_skip_reason: str = "",
 ) -> VotingResult:
+    """Legacy helper maintained for backward compatibility with older tests.
+    
+    .. deprecated::
+        Use evaluate_combined_entry instead.
+    """
     import warnings
     warnings.warn(
         "combine_votes is deprecated. Use evaluate_combined_entry instead.",
         DeprecationWarning,
         stacklevel=2,
     )
-    """Legacy helper maintained for backward compatibility with older tests."""
     if not getattr(crypto_sig, "features_ok", False):
         return VotingResult(
             action=ml_action,  # type: ignore

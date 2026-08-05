@@ -14,7 +14,7 @@ def mock_cfg():
         bet_size=5.0, dead_zone=0.0, daily_limit=50.0,
         trade_min_price=0.1, trade_max_price=0.9, capital=100.0,
         active_features_str="", trade_on_favorite=True, trade_on_flip=False,
-        flip_threshold=0.55, no_max_price=0.9, outs_min_edge=0.05,
+        flip_threshold=0.55, outs_min_edge=0.05,
         entry_sec=5, favorite_threshold=0.55, trade_assets=["ETH"],
         bet_sizing_mode="scaled", max_bet_size_usdc=50.0,
         favorite_min_price=0.1, favorite_max_price=0.9, favorite_min_edge=0.01,

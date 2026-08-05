@@ -121,14 +121,20 @@ def test_decide_combined_mode_fallback_disabled_skips_on_none():
     market.volume_5min = 500.0
     market.underlying_price = 150.0
     market.current_spread = 0.01
-    cfg = parse_trading_settings({'COMBINED_FALLBACK_TO_ML_ON_NONE': 'false', 'OUTS_MIN_EDGE': '0.03'})
-    raw_settings = {'COMBINED_FALLBACK_TO_ML_ON_NONE': 'false'}
+    cfg = parse_trading_settings({'COMBINED_FALLBACK_TO_LOGREG_ON_NONE': 'false', 'OUTS_MIN_EDGE': '0.03'})
+    raw_settings = {'COMBINED_FALLBACK_TO_LOGREG_ON_NONE': 'false'}
     models_cache = MagicMock()
     crypto_predictor = MagicMock()
     crypto_sig = CryptoSignal(symbol='SOLUSDT', model_key='SOLUSDT_mid_vol', p_up=0.5, p_down=0.5, direction='NONE', signal_strength=0.0, strike=150.0, threshold_up=0.55, threshold_down=0.45, model_version=8, features_ok=True, risk_vetoed=False, regime='MID_VOL', status='OK')
-    with patch('polyflip.trading.decision_runners._fetch_lgbm_signal', AsyncMock(return_value=crypto_sig)), patch('polyflip.trading.decision_runners.decide_combined_mode', AsyncMock()) as mock_ml_mode, patch('polyflip.trading.decision_runners.log_funnel', AsyncMock()) as mock_log_funnel:
+    with patch('polyflip.trading.decision_runners._fetch_lgbm_signal', AsyncMock(return_value=crypto_sig)), \
+         patch('polyflip.trading.decision_runners.infer_flip_for_market', AsyncMock(return_value=0.8)), \
+         patch('polyflip.trading.decision_runners.log_funnel', AsyncMock()) as mock_log_funnel:
+        mock_model = MagicMock()
+        mock_model.model_key = 'SOL_leaning'
+        models_cache.models = {'SOL_leaning': mock_model}
+        models_cache.versions = {'SOL_leaning': 1}
+        models_cache.features = {'SOL_leaning': ['f1']}
         res = asyncio.run(decide_combined_mode(db_session=db_session, api_client=api_client, market=market, cfg=cfg, raw_settings=raw_settings, models_cache=models_cache, crypto_predictor=crypto_predictor, start_time=MagicMock(), time_left_sec=200.0, execution_mode='PAPER'))
-        assert mock_ml_mode.call_count == 0
         assert res.decision_obj.action == 'SKIP'
-        assert 'NONE: p_up=' in res.decision_obj.reason
+        assert 'LightGBM is NONE, fallback disabled' in res.decision_obj.reason
         assert mock_log_funnel.call_count == 1
