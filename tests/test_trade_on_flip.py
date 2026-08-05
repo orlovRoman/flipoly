@@ -40,8 +40,7 @@ async def test_no_trade_when_flip_threshold_met(db_session):
     market = LiveMarket(
         market_id="m1", asset="BTC", question="Test?",
         current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)
@@ -100,8 +99,7 @@ async def test_no_trade_skipped_when_price_exceeds_max(db_session):
     market = LiveMarket(
         market_id="m1", asset="BTC", question="Test?",
         current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)
@@ -160,8 +158,7 @@ async def test_no_trade_skipped_when_flip_prob_too_small(db_session):
     market = LiveMarket(
         market_id="m1", asset="BTC", question="Test?",
         current_yes_price=0.70, current_no_price=0.30, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)

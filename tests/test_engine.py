@@ -46,8 +46,7 @@ async def test_engine_enters_on_confident_favorite(db_session):
     market = LiveMarket(
         market_id="m1", asset="BTC", question="Test?",
         current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)
@@ -95,8 +94,7 @@ async def test_engine_skips_in_dead_zone(db_session):
     market = LiveMarket(
         market_id="m2", asset="BTC", question="Test?",
         current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)
@@ -139,8 +137,7 @@ async def test_engine_skips_on_high_flip_risk(db_session):
     market = LiveMarket(
         market_id="m3", asset="BTC", question="Test?",
         current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)
@@ -220,8 +217,7 @@ async def test_engine_skips_when_no_fresh_prices(db_session):
     market = LiveMarket(
         market_id="m_no_price", asset="BTC", question="Test?",
         current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)
@@ -267,8 +263,7 @@ async def test_engine_skips_when_clob_error(db_session):
     market = LiveMarket(
         market_id="m_clob_err", asset="BTC", question="Test?",
         current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)
@@ -312,8 +307,7 @@ async def test_engine_skips_when_edge_too_small(db_session):
     market = LiveMarket(
         market_id="m_edge", asset="BTC", question="Test?",
         current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)
@@ -364,8 +358,7 @@ async def test_engine_skips_no_deal_when_edge_too_small(db_session):
     market = LiveMarket(
         market_id="m_edge_no", asset="BTC", question="Test?",
         current_yes_price=0.3, current_no_price=0.7, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)
@@ -421,8 +414,7 @@ async def test_outsider_respects_edge_limits(db_session):
     market = LiveMarket(
         market_id="m_outsider_edge", asset="BTC", question="Test?",
         current_yes_price=0.6, current_no_price=0.4, current_spread=0.01,
-        volume_5min=100.0, price_velocity=0.0,
-        end_time_est=now + timedelta(seconds=30),
+        volume_5min=100.0, price_velocity=0.0, end_time_est=now + timedelta(seconds=300),
         yes_token_id="t_yes", no_token_id="t_no", last_updated=now
     )
     db_session.add(market)

@@ -71,11 +71,11 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                 else:
                     asset_mode = cfg.trading_mode.lower() if cfg.trading_mode else ""
                     
-                val_min_edge = raw_settings.get(f"MIN_EDGE_{market.asset.upper()}")
+                val_min_edge = raw_settings.get(f"OUTS_MIN_EDGE_{market.asset.upper()}")
                 if val_min_edge is not None and val_min_edge.strip() != "":
                     asset_min_edge = float(val_min_edge)
                 else:
-                    asset_min_edge = cfg.min_edge
+                    asset_min_edge = cfg.outs_min_edge
                     
                 val_max_price = raw_settings.get(f"TRADE_MAX_PRICE_{market.asset.upper()}")
                 if val_max_price is not None and val_max_price.strip() != "":

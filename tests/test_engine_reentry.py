@@ -26,8 +26,8 @@ async def test_skipped_then_signal_appears(db_session):
     # 1. Настройки
     db_settings = [
         RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_TIME_LEFT_SEC", value="360", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="FAVOR_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="FAVOR_MAX_TIME_LEFT_SEC", value="360", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_FLIP_THRESHOLD", value="0.85", updated_at=now, updated_by="test"),
@@ -106,8 +106,8 @@ async def test_no_double_entry(db_session):
     # 1. Настройки
     db_settings = [
         RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_TIME_LEFT_SEC", value="360", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="FAVOR_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="FAVOR_MAX_TIME_LEFT_SEC", value="360", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_BET_SIZE_USDC", value="10.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_NO_FLIP_THRESHOLD", value="0.15", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_FLIP_THRESHOLD", value="0.85", updated_at=now, updated_by="test"),

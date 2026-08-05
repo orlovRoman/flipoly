@@ -86,10 +86,14 @@ REGISTRY: list[SettingDef] = [
     # --- Таймеры / опрос ---
     SettingDef("FAVORITE_MODE_ENTRY_SEC", str(FAVORITE_MODE_ENTRY_SEC)),
     SettingDef("LIVE_POLL_INTERVAL_SECONDS", str(LIVE_POLL_INTERVAL_SECONDS)),
-    SettingDef("FAVOR_MIN_TIME_LEFT_SEC", "60"),
-    SettingDef("FAVOR_MAX_TIME_LEFT_SEC", "600"),
-    SettingDef("OUTS_MIN_TIME_LEFT_SEC", "30"),
-    SettingDef("OUTS_MAX_TIME_LEFT_SEC", "300"),
+    SettingDef("FAVOR_MIN_TIME_LEFT_SEC", "60",
+               description="Мин. время до конца для фаворита (сек)"),
+    SettingDef("FAVOR_MAX_TIME_LEFT_SEC", "600",
+               description="Макс. время до конца для фаворита (сек)"),
+    SettingDef("OUTS_MIN_TIME_LEFT_SEC", "30",
+               description="Мин. время до конца для аутсайдера (сек)"),
+    SettingDef("OUTS_MAX_TIME_LEFT_SEC", "300",
+               description="Макс. время до конца для аутсайдера (сек)"),
     SettingDef("TRADE_BET_SIZE_USDC", "10.0"),
 
     # --- Сайзинг ---

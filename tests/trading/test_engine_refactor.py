@@ -50,8 +50,8 @@ def _make_raw_settings(*args, **kwargs) -> dict:
     base = {
         "TRADING_ENABLED": "true",
         "TRADING_MODE": "ml",
-        "TRADE_MIN_TIME_LEFT_SEC": "300",
-        "TRADE_MAX_TIME_LEFT_SEC": "900",
+        "FAVOR_MIN_TIME_LEFT_SEC": "300",
+        "FAVOR_MAX_TIME_LEFT_SEC": "900",
         "TRADE_BET_SIZE_USDC": "10.0",
         "TRADE_NO_FLIP_THRESHOLD": "0.55",
         "DEAD_ZONE_WIDTH": "0.05",
@@ -175,7 +175,7 @@ class TestStep2TradingConfig:
         from polyflip.trading.trading_config import parse_trading_settings
         cfg = parse_trading_settings({})
         assert isinstance(cfg.trading_enabled, bool)
-        assert isinstance(cfg.min_edge, float)
+        assert isinstance(cfg.outs_min_edge, float)
         assert isinstance(cfg.trade_assets, list)
 
     def test_step2_parse_overrides_defaults(self):
@@ -190,7 +190,7 @@ class TestStep2TradingConfig:
         from polyflip.trading.trading_config import parse_trading_settings
         cfg = parse_trading_settings(_make_raw_settings())
         with pytest.raises(Exception):  # FrozenInstanceError или AttributeError
-            cfg.min_edge = 999.0  # type: ignore
+            cfg.outs_min_edge = 999.0  # type: ignore
 
     def test_step2_trade_assets_is_list(self):
         """trade_assets всегда list[str], не строка."""
@@ -222,7 +222,7 @@ class TestStep2TradingConfig:
         from polyflip.trading.trading_config import TradingConfig
         required_fields = [
             "trading_enabled", "trading_mode", "min_time_left", "max_time_left",
-            "bet_size", "dead_zone", "daily_limit", "min_edge", "max_bet_edge",
+            "bet_size", "dead_zone", "daily_limit", "outs_min_edge", "max_bet_edge",
             "max_edge_filter", "trade_min_price", "trade_max_price", "trade_assets",
             "trade_on_favorite", "trade_on_flip", "entry_sec",
             "use_crypto_confirm", "crypto_standalone",
@@ -291,8 +291,8 @@ class TestStep3LoadEligibleMarkets:
         await db_session.commit()
 
         cfg = parse_trading_settings(_make_raw_settings({
-            "TRADE_MIN_TIME_LEFT_SEC": "300",
-            "TRADE_MAX_TIME_LEFT_SEC": "900",
+            "FAVOR_MIN_TIME_LEFT_SEC": "300",
+            "FAVOR_MAX_TIME_LEFT_SEC": "900",
         }))
         result = await load_eligible_markets(db_session, cfg, now)
         assert result is not None
@@ -318,8 +318,8 @@ class TestStep3LoadEligibleMarkets:
         await db_session.commit()
 
         cfg = parse_trading_settings(_make_raw_settings({
-            "TRADE_MIN_TIME_LEFT_SEC": "300",
-            "TRADE_MAX_TIME_LEFT_SEC": "900",
+            "FAVOR_MIN_TIME_LEFT_SEC": "300",
+            "FAVOR_MAX_TIME_LEFT_SEC": "900",
             "OUTS_MIN_TIME_LEFT_SEC": "300",
             "OUTS_MAX_TIME_LEFT_SEC": "900",
         }))

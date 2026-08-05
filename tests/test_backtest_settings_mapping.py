@@ -32,13 +32,13 @@ def live_settings_to_backtest_config(live: dict) -> dict:
         "flip_threshold":       pct_to_frac("FLIP_THRESHOLD", 0.60),
         "auto_dead_zone_width": pct_to_frac("DEAD_ZONE_WIDTH", 0.10),
         "favorite_threshold":   float(live.get("FAVORITE_THRESHOLD", 0.65)),
-        "favor_min_time_left_min": float(live.get("TRADE_MIN_TIME_LEFT_SEC", 60)) / 60,
-        "favor_max_time_left_min": float(live.get("TRADE_MAX_TIME_LEFT_SEC", 3600)) / 60,
-        "outs_min_time_left_min":  float(live.get("TRADE_MIN_TIME_LEFT_SEC", 60)) / 60,
-        "outs_max_time_left_min":  float(live.get("TRADE_MAX_TIME_LEFT_SEC", 3600)) / 60,
+        "favor_min_time_left_min": float(live.get("FAVOR_MIN_TIME_LEFT_SEC", 60)) / 60,
+        "favor_max_time_left_min": float(live.get("FAVOR_MAX_TIME_LEFT_SEC", 3600)) / 60,
+        "outs_min_time_left_min":  float(live.get("FAVOR_MIN_TIME_LEFT_SEC", 60)) / 60,
+        "outs_max_time_left_min":  float(live.get("FAVOR_MAX_TIME_LEFT_SEC", 3600)) / 60,
         "trade_bet_size_usdc":  float(live.get("TRADE_BET_SIZE_USDC", 5)),
         "max_bet_size_usdc":    float(live.get("MAX_BET_SIZE_USDC", 50)),
-        "min_edge":             float(live.get("OUTS_MIN_EDGE", -0.05)),
+        "outs_min_edge":             float(live.get("OUTS_MIN_EDGE", -0.05)),
         "max_bet_edge":         float(live.get("MAX_BET_EDGE", 0.50)),  # ← правильное поле
         "slippage_pct":         float(live.get("SLIPPAGE_PCT", 0.005)),
         "trade_on_flip":        live.get("TRADE_ON_FLIP") == "true",
@@ -56,8 +56,8 @@ def typical_live_settings():
         "FLIP_THRESHOLD": "65",            # → 0.65
         "DEAD_ZONE_WIDTH": "12",           # → 0.12
         "FAVORITE_THRESHOLD": "0.68",
-        "TRADE_MIN_TIME_LEFT_SEC": "60",   # → 1.0 мин
-        "TRADE_MAX_TIME_LEFT_SEC": "3600", # → 60.0 мин
+        "FAVOR_MIN_TIME_LEFT_SEC": "60",   # → 1.0 мин
+        "FAVOR_MAX_TIME_LEFT_SEC": "3600", # → 60.0 мин
         "TRADE_BET_SIZE_USDC": "10",
         "MAX_BET_SIZE_USDC": "50",
         "OUTS_MIN_EDGE": "-0.03",

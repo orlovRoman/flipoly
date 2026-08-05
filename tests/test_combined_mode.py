@@ -48,6 +48,7 @@ def test_evaluate_combined_entry_direction_up_success():
         yes_ask=0.62,
         no_ask=0.38,
         cost_buffer=0.03,
+        time_left_sec=300.0,
         cfg=_make_cfg(),
         config_dict={"TRADE_BET_SIZE_USDC": "10", "MAX_BET_SIZE_USDC": "50"},
     )
@@ -88,6 +89,7 @@ def test_evaluate_combined_entry_direction_down_success():
         yes_ask=0.52,
         no_ask=0.55,
         cost_buffer=0.03,
+        time_left_sec=300.0,
         cfg=_make_cfg(OUTSIDER_MAX_PRICE="0.60"),
         config_dict={"TRADE_BET_SIZE_USDC": "10", "MAX_BET_SIZE_USDC": "50"},
     )
@@ -116,6 +118,7 @@ def test_evaluate_combined_entry_direction_invalid_features():
         fresh_yes_price=0.60,
         yes_ask=0.62,
         no_ask=0.38,
+        time_left_sec=300.0,
         cfg=_make_cfg(),
     )
     assert res.action == "SKIP"
@@ -141,6 +144,7 @@ def test_evaluate_combined_entry_direction_risk_vetoed():
         fresh_yes_price=0.60,
         yes_ask=0.62,
         no_ask=0.38,
+        time_left_sec=300.0,
         cfg=_make_cfg(),
     )
     assert res.action == "SKIP"
@@ -171,6 +175,7 @@ def test_evaluate_combined_entry_insufficient_net_edge():
         yes_ask=0.64,
         no_ask=0.36,
         cost_buffer=0.03,
+        time_left_sec=300.0,
         cfg=_make_cfg(OUTS_MIN_EDGE="0.03"),
     )
     assert res.action == "SKIP"
@@ -198,6 +203,7 @@ def test_evaluate_combined_entry_model_fallback_global():
         yes_ask=0.52,
         no_ask=0.48,
         cost_buffer=0.03,
+        time_left_sec=300.0,
         cfg=_make_cfg(),
         config_dict={"TRADE_BET_SIZE_USDC": "10"},
     )

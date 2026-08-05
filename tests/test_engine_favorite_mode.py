@@ -33,8 +33,8 @@ def make_settings_db(
     """Хелпер — возвращает список RuntimeSettings моков."""
     pairs = {
         "TRADING_ENABLED": "true",
-        "TRADE_MIN_TIME_LEFT_SEC": "10",
-        "TRADE_MAX_TIME_LEFT_SEC": "360",
+        "FAVOR_MIN_TIME_LEFT_SEC": "10",
+        "FAVOR_MAX_TIME_LEFT_SEC": "360",
         "TRADE_BET_SIZE_USDC": str(bet_size),
         "TRADE_NO_FLIP_THRESHOLD": "0.70",
         "DEAD_ZONE_WIDTH": "0.15",

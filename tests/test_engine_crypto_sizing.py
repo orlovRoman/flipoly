@@ -81,8 +81,8 @@ async def test_engine_crypto_standalone_bet_size(db_session):
     now = datetime.now(timezone.utc)
     settings = [
         RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="TRADE_MAX_TIME_LEFT_SEC", value="1000", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="FAVOR_MIN_TIME_LEFT_SEC", value="10", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="FAVOR_MAX_TIME_LEFT_SEC", value="1000", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADING_MODE_BTC", value="lightgbm", updated_at=now, updated_by="test"),
         RuntimeSettings(key="CRYPTO_OUTS_MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="CRYPTO_THRESHOLD_UP_BTC", value="0.60", updated_at=now, updated_by="test"),

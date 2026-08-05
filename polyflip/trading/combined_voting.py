@@ -18,7 +18,7 @@ COMBINED-режим принятия решений:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional, Any, TYPE_CHECKING
+from typing import Literal, Optional, Any, TYPE_CHECKING, cast
 import structlog
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ class CryptoSignalProxy:
 
 @dataclass(frozen=True)
 class DirectionConsensus:
-    final_side: ActionType
+    final_side: Literal["BUY_YES", "BUY_NO", "SKIP"]
     consensus_type: str
     reason: str
 
@@ -69,20 +69,20 @@ def resolve_direction_consensus(
         
     if lgbm_side == "ABSTAIN":
         if fallback_to_logreg_on_none:
-            return DirectionConsensus(lr_vote, "PARTIAL_LR", "LightGBM is NONE, fallback to LogReg")
+            return DirectionConsensus(cast(Literal["BUY_YES", "BUY_NO", "SKIP"], lr_vote), "PARTIAL_LR", "LightGBM is NONE, fallback to LogReg")
         else:
             return DirectionConsensus("SKIP", "PARTIAL_LR", "LightGBM is NONE, fallback disabled")
             
     if lr_vote == "ABSTAIN":
-        return DirectionConsensus(lgbm_side, "PARTIAL_LGBM", "LogReg is missing, using LightGBM")
+        return DirectionConsensus(cast(Literal["BUY_YES", "BUY_NO", "SKIP"], lgbm_side), "PARTIAL_LGBM", "LogReg is missing, using LightGBM")
         
     if lgbm_side == lr_vote:
-        return DirectionConsensus(lgbm_side, "AGREE", f"Both models agree on {lgbm_side}")
+        return DirectionConsensus(cast(Literal["BUY_YES", "BUY_NO", "SKIP"], lgbm_side), "AGREE", f"Both models agree on {lgbm_side}")
         
     if require_consensus:
         return DirectionConsensus("SKIP", "CONFLICT", f"Conflict: LGBM={lgbm_side}, LR={lr_vote}")
     else:
-        return DirectionConsensus(lgbm_side, "CONFLICT", f"Conflict resolved to LightGBM: {lgbm_side}")
+        return DirectionConsensus(cast(Literal["BUY_YES", "BUY_NO", "SKIP"], lgbm_side), "CONFLICT", f"Conflict resolved to LightGBM: {lgbm_side}")
 
 @dataclass(frozen=True)
 class CombinedEntryResult:
@@ -178,7 +178,7 @@ def evaluate_combined_entry(
     cfg: "TradingConfig",  # <-- Added TradingConfig
     cost_buffer: float = 0.02,
     volume_5min: float = 0.0,
-    config_dict: Optional[dict] = None,
+    config_dict: Optional[dict[str, Any]] = None,
     underlying_price: Optional[float] = None,
     fallback_reason: Optional[str] = None,
     time_left_sec: float = 0.0,
@@ -414,7 +414,7 @@ def evaluate_combined_entry(
             consensus_type=consensus.consensus_type,
         )
 
-    candidate_side: ActionType = consensus.final_side # type: ignore
+    candidate_side: Literal["BUY_YES", "BUY_NO", "SKIP"] = consensus.final_side
     if candidate_side == "BUY_YES":
         candidate_ask = yes_ask if (yes_ask is not None and yes_ask > 0) else fresh_yes_price
     else:
@@ -733,9 +733,9 @@ def evaluate_combined_entry(
         direction_discount_applied=discount_mult,
         combined_dir_discount_weight=discount_weight,
         lr_direction_vote=lr_vote,
-            lgbm_direction_vote=lgbm_vote,
-            consensus_type=consensus.consensus_type,
-            candidate_side=candidate_side,
+        lgbm_direction_vote=lgbm_vote,
+        consensus_type=consensus.consensus_type,
+        candidate_side=candidate_side,
         candidate_ask=candidate_ask,
         gross_edge=gross_edge,
         cost_buffer=cost_buffer,

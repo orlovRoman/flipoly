@@ -28,7 +28,7 @@ async def test_ml_mode_respects_min_edge():
     cfg = MagicMock(spec=TradingConfig)
     cfg.trading_enabled = True
     cfg.trading_mode = "ml"
-    cfg.min_edge = 0.05
+    cfg.outs_min_edge = 0.05
     cfg.trade_max_price = 0.95
     cfg.favorite_threshold = 0.55
     cfg.favorite_min_price = 0.55
@@ -101,7 +101,7 @@ async def test_ml_mode_enters_when_edge_is_sufficient():
     cfg = MagicMock(spec=TradingConfig)
     cfg.trading_enabled = True
     cfg.trading_mode = "ml"
-    cfg.min_edge = 0.05
+    cfg.outs_min_edge = 0.05
     cfg.trade_max_price = 0.95
     cfg.favorite_threshold = 0.55
     cfg.favorite_min_price = 0.55
