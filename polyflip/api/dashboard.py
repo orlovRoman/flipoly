@@ -282,7 +282,7 @@ async def get_trade_logs(
         total = (await db.execute(count_stmt)).scalar_one()
 
     stmt = (
-        select(TradeHistory, LiveMarket.question, DecisionFunnelLog)
+        select(TradeHistory, LiveMarket.question, LiveMarket.end_time_est, DecisionFunnelLog)
         .outerjoin(LiveMarket, TradeHistory.market_id == LiveMarket.market_id)
         .outerjoin(DecisionFunnelLog, and_(TradeHistory.decision_run_id.is_not(None), TradeHistory.decision_run_id == DecisionFunnelLog.decision_run_id))
         .order_by(TradeHistory.created_at.desc())
@@ -297,7 +297,7 @@ async def get_trade_logs(
     settings_dict = await get_all_settings(db=db)
 
     items = []
-    for log, question, funnel in logs_with_questions:
+    for log, question, end_time_est, funnel in logs_with_questions:
         active_feat = getattr(log, "active_features", None)
         if not active_feat and log.status == "SKIPPED":
             base_asset = (
@@ -319,6 +319,7 @@ async def get_trade_logs(
                 "id": log.id,
                 "market_id": log.market_id,
                 "question": question or log.market_id,
+                "end_time_est": end_time_est.isoformat() if end_time_est else None,
                 "asset": log.asset,
                 "status": log.status,
                 "outcome_bought": log.outcome_bought,

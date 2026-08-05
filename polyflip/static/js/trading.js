@@ -1039,13 +1039,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const betText = log.amount_usdc > 0 ? `${outcomeBadge}$${parseFloat(log.amount_usdc).toFixed(2)}` : "-";
 
-        const logDate = new Date(displayTime);
-        const minutes = (logDate.getUTCMinutes() % 15) + 1;
-        const intervalOffsetStr = `${String(minutes).padStart(2, '0')}:00`;
+        const logDateObj = new Date(displayTime);
+        let timeLeftStr = "-";
+        if (log.end_time_est) {
+            const endDateObj = new Date(log.end_time_est);
+            let diffSec = Math.floor((endDateObj - logDateObj) / 1000);
+            if (diffSec < 0) diffSec = 0;
+            const m = Math.floor(diffSec / 60);
+            const s = diffSec % 60;
+            timeLeftStr = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        } else {
+            // Фолбэк, если данных об end_time_est нет
+            const minutes = (logDateObj.getUTCMinutes() % 15) + 1;
+            timeLeftStr = `${String(minutes).padStart(2, '0')}:00 (offset)`;
+        }
 
         rows.push(`
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                        <td style="padding: 8px; color: var(--text-muted);">${intervalOffsetStr}</td>
+                        <td style="padding: 8px; color: var(--text-muted); font-family: monospace;">${timeLeftStr}</td>
                         <td style="padding: 8px; color: var(--text-muted);">${timeStr}</td>
                         <td style="padding: 8px;"><a href="#" class="market-link" data-market-id="${log.market_id}" data-asset="${escapeHtml(log.asset)}" style="color: var(--text-main); text-decoration: underline; cursor: pointer;">${escapeHtml(log.question)}</a></td>
                         <td style="padding: 8px;">${directionBadge}</td>
