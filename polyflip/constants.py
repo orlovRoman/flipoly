@@ -9,12 +9,9 @@ polyflip/constants.py
 """
 
 # --- Режимы торговли (строковые идентификаторы) ---
-TRADING_MODE_ML       = "ml"
 TRADING_MODE_FAVORITE = "favorite"
-TRADING_MODE_LIGHTGBM = "lightgbm"
-TRADING_MODE_CRYPTO   = TRADING_MODE_LIGHTGBM
 TRADING_MODE_COMBINED = "combined"
-DEFAULT_TRADING_MODE  = TRADING_MODE_ML
+DEFAULT_TRADING_MODE  = TRADING_MODE_COMBINED
 
 # --- Маппинги активов и поддерживаемые рынки ---
 ASSET_TO_BINANCE_SYMBOL = {

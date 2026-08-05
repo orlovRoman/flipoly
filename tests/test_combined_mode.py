@@ -281,7 +281,7 @@ def test_decide_combined_mode_full_flow():
 
 
 def test_decide_combined_mode_fallback_to_ml_on_none_enabled():
-    """Когда LightGBM выдает NONE, а fallback включен -> переход в decide_ml_mode"""
+    """Когда LightGBM выдает NONE, а fallback включен -> переход в decide_combined_mode"""
     db_session = AsyncMock()
     api_client = AsyncMock()
     api_client.get_market_prices.return_value = {
@@ -320,7 +320,7 @@ def test_decide_combined_mode_fallback_to_ml_on_none_enabled():
     )
 
     with patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=crypto_sig)), \
-         patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock(return_value=mock_ml_decision)) as mock_ml_mode:
+         patch("polyflip.trading.decision_runners.decide_combined_mode", AsyncMock(return_value=mock_ml_decision)) as mock_ml_mode:
 
         res = asyncio.run(decide_combined_mode(
             db_session=db_session,
@@ -347,7 +347,7 @@ def test_decide_combined_mode_fallback_to_ml_on_none_enabled():
 
 
 def test_decide_combined_mode_fallback_disabled_skips_on_none():
-    """Когда LightGBM выдает NONE, а fallback выключен -> SKIP без вызова decide_ml_mode"""
+    """Когда LightGBM выдает NONE, а fallback выключен -> SKIP без вызова decide_combined_mode"""
     db_session = AsyncMock()
     api_client = AsyncMock()
     api_client.get_market_prices.return_value = {
@@ -377,7 +377,7 @@ def test_decide_combined_mode_fallback_disabled_skips_on_none():
     )
 
     with patch("polyflip.trading.decision_runners._fetch_lgbm_signal", AsyncMock(return_value=crypto_sig)), \
-         patch("polyflip.trading.decision_runners.decide_ml_mode", AsyncMock()) as mock_ml_mode, \
+         patch("polyflip.trading.decision_runners.decide_combined_mode", AsyncMock()) as mock_ml_mode, \
          patch("polyflip.trading.decision_runners.log_funnel", AsyncMock()) as mock_log_funnel:
 
         res = asyncio.run(decide_combined_mode(

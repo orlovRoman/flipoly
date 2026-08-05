@@ -19,7 +19,7 @@ def live_settings_to_backtest_config(live: dict) -> dict:
     Симулирует логику applyLiveSettings() + readConfig() из backtest.js.
     Live-настройки (проценты 0-100) → BacktestConfig (дроби 0-1).
     """
-    mode_map = {"ml": "ML", "favorite": "PURE_FAVORITE", "CRYPTO": "ML"}
+    mode_map = {"combined": "ML", "favorite": "PURE_FAVORITE", "CRYPTO": "ML"}
 
     def pct_to_frac(value, default):
         """Конвертирует % значение из Live в дробь для Pydantic."""
@@ -27,7 +27,7 @@ def live_settings_to_backtest_config(live: dict) -> dict:
         return float(v) / 100 if v is not None else default
 
     return {
-        "strategy_mode": mode_map.get(live.get("TRADING_MODE", "ml"), "ML"),
+        "strategy_mode": mode_map.get(live.get("TRADING_MODE", "combined"), "ML"),
         "no_flip_threshold":    pct_to_frac("TRADE_NO_FLIP_THRESHOLD", 0.35),
         "flip_threshold":       pct_to_frac("FLIP_THRESHOLD", 0.60),
         "auto_dead_zone_width": pct_to_frac("DEAD_ZONE_WIDTH", 0.10),
@@ -51,7 +51,7 @@ def live_settings_to_backtest_config(live: dict) -> dict:
 def typical_live_settings():
     """Типичные Live-настройки торгового бота (проценты 0-100)."""
     return {
-        "TRADING_MODE": "ml",
+        "TRADING_MODE": "combined",
         "TRADE_NO_FLIP_THRESHOLD": "45",   # → 0.45
         "FLIP_THRESHOLD": "65",            # → 0.65
         "DEAD_ZONE_WIDTH": "12",           # → 0.12
@@ -116,7 +116,7 @@ class TestPydanticValidationPassesAfterConversion:
 class TestTradingModeMapping:
 
     @pytest.mark.parametrize("live_mode,expected_bt_mode", [
-        ("ml",       "ML"),
+        ("combined",       "ML"),
         ("favorite", "PURE_FAVORITE"),
         ("CRYPTO",   "ML"),          # CRYPTO маппится в ML как наиболее близкий
         ("unknown",  "ML"),          # неизвестный режим → ML (дефолт)

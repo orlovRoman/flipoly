@@ -461,18 +461,12 @@
                             <div class="settings-group" id="trading-mode-group" style="margin-top: 0; margin-bottom: 1.25rem;">
                                 <label class="settings-label" style="font-weight: 600; color: #fff; font-size: 0.95rem;">Режим торговли (Trading Mode)</label>
                                 <div class="radio-group" style="flex-wrap: wrap;">
-                                    <label class="radio-option">
-                                        <input type="radio" name="trading_mode" value="ml" id="mode-ml" checked>
-                                        <span>🤖 ML (Logistic Regression)</span>
-                                    </label>
+                                    
                                     <label class="radio-option">
                                         <input type="radio" name="trading_mode" value="favorite" id="mode-favorite">
                                         <span>⚡ Pure Favorite (без ML)</span>
                                     </label>
-                                    <label class="radio-option">
-                                        <input type="radio" name="trading_mode" value="lightgbm" id="mode-lightgbm">
-                                        <span>🪙 ML (LightGBM)</span>
-                                    </label>
+                                    
                                     <label class="radio-option">
                                         <input type="radio" name="trading_mode" value="combined" id="mode-combined">
                                         <span>⚖️ ML + LightGBM (Combined)</span>
@@ -509,67 +503,13 @@
                                 <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">Бот будет анализировать рынки только для выбранных активов.</small>
                             </div>
 
-                            <!-- Настройки по активам (Per-Asset Settings) -->
-                            <div class="settings-group" style="margin: 0;">
-                                <label class="settings-label" style="font-weight: 600; color: #fff; font-size: 0.95rem;">Индивидуальные параметры по активам (Per-Asset Settings)</label>
-                                <span style="color: var(--text-muted); font-size: 0.8rem; font-weight: normal; display: block; margin-bottom: 12px;">Если параметр пустой — используется глобальная настройка.</span>
-                                
-                                <div style="overflow-x: auto;">
-                                    <table class="data-table" style="width: 100%; text-align: left; font-size: 0.85rem; border-collapse: collapse;">
-                                        <thead>
-                                            <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
-                                                <th style="padding: 8px;">Актив</th>
-                                                <th style="padding: 8px;">Режим торговли</th>
-                                                <th style="padding: 8px;">Мин. Edge (%)</th>
-                                                <th style="padding: 8px;">Макс. цена входа (USD)</th>
-                                                <th style="padding: 8px;">Порог ПРОТИВ ТОЛПЫ (%)</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {% for asset in assets %}
-                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                <td style="padding: 8px; vertical-align: middle;">
-                                                    <strong id="asset-label-{{ asset }}">{{ asset }}</strong>
-                                                    <span id="calibration-warning-{{ asset }}" style="color: #ff3366; font-size: 0.75rem; font-weight: bold; margin-left: 6px; display: none;"></span>
-                                                </td>
-                                                <td style="padding: 8px; vertical-align: middle;">
-                                                    <select id="TRADING_MODE_{{ asset }}" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem; width: 100%; max-width: 150px; cursor: pointer;">
-                                                        <option value="">Глобальный</option>
-                                                        <option value="ml">🤖 ML (LogReg)</option>
-                                                        <option value="favorite">⚡ Pure Favorite</option>
-                                                        <option value="lightgbm">🪙 ML (LightGBM)</option>
-                                                        <option value="combined">⚖️ Combined</option>
-                                                    </select>
-                                                </td>
-                                                <td style="padding: 8px; vertical-align: middle;">
-                                                    <input type="number" step="0.1" min="0.5" max="50" id="OUTS_MIN_EDGE_{{ asset }}" placeholder="Глобальный" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem; width: 100px;">
-                                                </td>
-                                                <td style="padding: 8px; vertical-align: middle;">
-                                                    <input type="number" step="0.01" min="0.01" max="0.99" id="TRADE_MAX_PRICE_{{ asset }}" placeholder="Глобальный" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem; width: 100px;">
-                                                </td>
-                                                <td style="padding: 8px; vertical-align: middle;">
-                                                    <input type="number" step="0.1" min="1" max="100" id="TRADE_FLIP_THRESHOLD_{{ asset }}" placeholder="Глоб/Авто" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem; width: 100px;" title="Если пусто - используется Авто (от ML), если Авто нет - Глобальный">
-                                                </td>
-                                            </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 2. ML-модели и Combined-режим -->
+                            <!-- 2. ML-модели и Combined-режим -->
                         <div class="settings-section-card group-models">
                             <div class="settings-section-header">
                                 <h4 class="settings-section-title">🧠 ML-модели, пороги и Combined-режим</h4>
                             </div>
 
-                            <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 1.25rem; background: rgba(168, 85, 247, 0.08); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.2);">
-                                <input type="checkbox" id="COMBINED_FALLBACK_TO_ML_ON_NONE" style="width: 1.2rem; height: 1.2rem; accent-color: #a855f7; cursor: pointer; margin-top: 2px;">
-                                <div>
-                                    <label for="COMBINED_FALLBACK_TO_ML_ON_NONE" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important;">Fallback на LogReg при NONE (COMBINED_FALLBACK_TO_ML_ON_NONE)</label>
-                                    <small style="color: var(--text-muted); display: block; margin-top: 2px;">Если LightGBM выдает NONE (нет явного тренда), бот не делает SKIP сразу, а оценивает вероятность через Logistic Regression (Entry Model).</small>
-                                </div>
+                            
                             </div>
 
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 1.25rem; background: rgba(168, 85, 247, 0.08); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.2);">
@@ -631,21 +571,10 @@
                                     <input type="number" step="0.1" max="100" min="0" id="FLIP_THRESHOLD" value="80">
                                 </div>
 
-                                <div class="form-group" style="grid-column: span 2;">
-                                    <label for="NO_FLIP_THRESHOLD" title="Верхняя граница уверенности для фаворита (в %). При вероятности флипа ниже этого значения бот ставит на фаворита по тренду.">
-                                        Порог ПО ТРЕНДУ (для фаворита, %)
-                                    </label>
-                                    <input type="number" step="1" max="100" min="0" id="NO_FLIP_THRESHOLD" value="35">
-                                    <small style="display:block; margin-top:0.4rem; color:#a0aec0;">
-                                        Если P(флипа) < порога — входим в фаворита. Рекомендуется: 30-40%.
-                                    </small>
-                                </div>
+                                
                             </div>
 
-                            <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1rem; margin-bottom: 0.5rem;">
-                                <input type="checkbox" id="AUTO_DEAD_ZONE" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                <label for="AUTO_DEAD_ZONE" title="Автоматически вычислять 'мертвую зону' на основе автокалибровки ML модели." style="margin: 0; cursor: pointer;">Автоматическая мёртвая зона (AUTO_DEAD_ZONE)</label>
-                            </div>
+                            
 
                             <div class="form-group" id="dead-zone-width-group">
                                 <label for="DEAD_ZONE_WIDTH" title="Ширина 'мёртвой зоны' (в %, напр. 10%). Коридор между lower (по тренду) и upper (против толпы). При вероятности внутри этой зоны сделки пропускаются.">Ширина мёртвой зоны (%)</label>

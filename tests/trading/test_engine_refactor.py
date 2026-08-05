@@ -49,7 +49,7 @@ def _make_raw_settings(*args, **kwargs) -> dict:
     """Минимальный набор settings_db для TradingConfig."""
     base = {
         "TRADING_ENABLED": "true",
-        "TRADING_MODE": "ml",
+        "TRADING_MODE": "combined",
         "FAVOR_MIN_TIME_LEFT_SEC": "300",
         "FAVOR_MAX_TIME_LEFT_SEC": "900",
         "TRADE_BET_SIZE_USDC": "10.0",
@@ -342,12 +342,12 @@ class TestStep4MarketGuards:
         """Рынок без token_id: GuardResult.passed=False, skip_reason содержит 'Token'."""
         from polyflip.trading.market_guards import check_market_guards
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         market = _make_market(yes_token_id=None, no_token_id="tn")
         cfg = parse_trading_settings(_make_raw_settings())
         result = await check_market_guards(
-            db_session, market, cfg, TRADING_MODE_ML, 600.0,
+            db_session, market, cfg, TRADING_MODE_COMBINED, 600.0,
             datetime.now(timezone.utc)
         )
         assert not result.passed
@@ -359,12 +359,12 @@ class TestStep4MarketGuards:
         """Рынок с token_id='N/A' отклоняется так же как None."""
         from polyflip.trading.market_guards import check_market_guards
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         market = _make_market(yes_token_id="N/A", no_token_id="N/A")
         cfg = parse_trading_settings(_make_raw_settings())
         result = await check_market_guards(
-            db_session, market, cfg, TRADING_MODE_ML, 600.0,
+            db_session, market, cfg, TRADING_MODE_COMBINED, 600.0,
             datetime.now(timezone.utc)
         )
         assert not result.passed
@@ -375,7 +375,7 @@ class TestStep4MarketGuards:
         from polyflip.db.models import TradeHistory
         from polyflip.trading.market_guards import check_market_guards
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         now = datetime.now(timezone.utc)
         db_session.add(TradeHistory(
@@ -390,7 +390,7 @@ class TestStep4MarketGuards:
         market = _make_market(market_id="dup_market")
         cfg = parse_trading_settings(_make_raw_settings())
         result = await check_market_guards(
-            db_session, market, cfg, TRADING_MODE_ML, 600.0, now
+            db_session, market, cfg, TRADING_MODE_COMBINED, 600.0, now
         )
         assert not result.passed
 
@@ -399,12 +399,12 @@ class TestStep4MarketGuards:
         """Актив не в TRADE_ASSETS → passed=False."""
         from polyflip.trading.market_guards import check_market_guards
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         market = _make_market(asset="SOL")  # SOL не в BTC,ETH
         cfg = parse_trading_settings(_make_raw_settings({"TRADE_ASSETS": "BTC,ETH"}))
         result = await check_market_guards(
-            db_session, market, cfg, TRADING_MODE_ML, 600.0,
+            db_session, market, cfg, TRADING_MODE_COMBINED, 600.0,
             datetime.now(timezone.utc)
         )
         assert not result.passed
@@ -414,12 +414,12 @@ class TestStep4MarketGuards:
         """Новый рынок с валидными токенами и активом в TRADE_ASSETS проходит все guards."""
         from polyflip.trading.market_guards import check_market_guards
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         market = _make_market(asset="BTC")
         cfg = parse_trading_settings(_make_raw_settings({"TRADE_ASSETS": "BTC,ETH"}))
         result = await check_market_guards(
-            db_session, market, cfg, TRADING_MODE_ML, 600.0,
+            db_session, market, cfg, TRADING_MODE_COMBINED, 600.0,
             datetime.now(timezone.utc)
         )
         assert result.passed, f"Чистый рынок должен пройти guards, skip_reason={result.skip_reason!r}"
@@ -430,7 +430,7 @@ class TestStep4MarketGuards:
         from polyflip.db.models import TradeHistory
         from polyflip.trading.market_guards import check_market_guards
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         now = datetime.now(timezone.utc)
         db_session.add(TradeHistory(
@@ -445,7 +445,7 @@ class TestStep4MarketGuards:
         market = _make_market(market_id="skip_market", asset="BTC")
         cfg = parse_trading_settings(_make_raw_settings({"TRADE_ASSETS": "BTC,ETH"}))
         result = await check_market_guards(
-            db_session, market, cfg, TRADING_MODE_ML, 600.0, now
+            db_session, market, cfg, TRADING_MODE_COMBINED, 600.0, now
         )
         assert result.passed  # SKIPPED не блокирует
         assert result.existing_skipped is not None
@@ -624,7 +624,7 @@ class TestStep5bDecisionRunners:
     @pytest.mark.asyncio
     async def test_step5b_decide_ml_no_model_skips(self, db_session):
         """Если нет активной модели для актива → skip_reason содержит 'model'."""
-        from polyflip.trading.decision_runners import decide_ml_mode
+        from polyflip.trading.decision_runners import decide_combined_mode
         from polyflip.trading.trading_config import parse_trading_settings
         from polyflip.trading.ml_inference import ModelsCache
 
@@ -637,7 +637,7 @@ class TestStep5bDecisionRunners:
         empty_cache = ModelsCache(models={}, versions={}, features={})
         predictor_mock = MagicMock()
 
-        result = await decide_ml_mode(
+        result = await decide_combined_mode(
             db_session=db_session, api_client=api_mock,
             market=market, cfg=cfg,
             models_cache=empty_cache, crypto_predictor=predictor_mock,
@@ -669,7 +669,7 @@ class TestStep6PreTradeValidator:
         """price drift > MAX_PRICE_DRIFT → valid=False, skip_reason содержит 'drift'."""
         from polyflip.trading.pre_trade_validator import validate_pre_trade
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         api_mock = AsyncMock()
         api_mock.get_market_prices = AsyncMock(return_value={"best_ask": 0.70})  # drift=0.10 > 0.03
@@ -679,7 +679,7 @@ class TestStep6PreTradeValidator:
 
         result = await validate_pre_trade(
             db_session=db_session, api_client=api_mock, market=market, decision_obj=decision,
-            cfg=cfg, asset_mode=TRADING_MODE_ML,
+            cfg=cfg, asset_mode=TRADING_MODE_COMBINED,
             asset_min_edge=0.05, asset_max_price=0.95, p_flip=0.7, model_ver=1,
         )
         assert not result.valid
@@ -691,7 +691,7 @@ class TestStep6PreTradeValidator:
         """actual_bet_size <= 0 → valid=False."""
         from polyflip.trading.pre_trade_validator import validate_pre_trade
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         api_mock = AsyncMock()
         api_mock.get_market_prices = AsyncMock(return_value={"best_ask": 0.62})
@@ -703,7 +703,7 @@ class TestStep6PreTradeValidator:
 
         result = await validate_pre_trade(
             db_session=db_session, api_client=api_mock, market=market, decision_obj=decision,
-            cfg=cfg, asset_mode=TRADING_MODE_ML,
+            cfg=cfg, asset_mode=TRADING_MODE_COMBINED,
             asset_min_edge=0.05, asset_max_price=0.95, p_flip=0.7, model_ver=1,
         )
         assert not result.valid
@@ -713,7 +713,7 @@ class TestStep6PreTradeValidator:
         """Валидный trade: valid=True, buy_price обновлён до свежего best_ask."""
         from polyflip.trading.pre_trade_validator import validate_pre_trade
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         fresh_ask = 0.61
         api_mock = AsyncMock()
@@ -724,7 +724,7 @@ class TestStep6PreTradeValidator:
 
         result = await validate_pre_trade(
             db_session=db_session, api_client=api_mock, market=market, decision_obj=decision,
-            cfg=cfg, asset_mode=TRADING_MODE_ML,
+            cfg=cfg, asset_mode=TRADING_MODE_COMBINED,
             asset_min_edge=0.05, asset_max_price=0.95, p_flip=0.2, model_ver=1,
         )
         assert result.valid, f"Должен быть valid=True, skip_reason={result.skip_reason!r}"
@@ -798,7 +798,7 @@ def _make_mock_exec(price):
         from polyflip.db.models import TradeHistory
         from polyflip.trading.trade_recorder import execute_and_record
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         trader_mock = AsyncMock()
         trader_mock.execute_trade = AsyncMock(return_value=_make_mock_exec(0.61))
@@ -809,7 +809,7 @@ def _make_mock_exec(price):
             db_session=db_session, trader=trader_mock, market=market,
             decision_obj=self._make_decision_obj(),
             validation=self._make_validation(),
-            asset_mode=TRADING_MODE_ML, active_features="mid_price",
+            asset_mode=TRADING_MODE_COMBINED, active_features="mid_price",
             p_flip=0.7, model_ver=5, cfg=cfg,
             existing_skipped=None, start_time=datetime.now(timezone.utc),
         )
@@ -829,7 +829,7 @@ def _make_mock_exec(price):
         from polyflip.db.models import SlippageLog
         from polyflip.trading.trade_recorder import execute_and_record
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         exec_price, buy_price = 0.63, 0.60
         trader_mock = AsyncMock()
@@ -841,7 +841,7 @@ def _make_mock_exec(price):
             db_session=db_session, trader=trader_mock, market=market,
             decision_obj=self._make_decision_obj(buy_price=buy_price),
             validation=self._make_validation(buy_price=buy_price),
-            asset_mode=TRADING_MODE_ML, active_features="mid_price",
+            asset_mode=TRADING_MODE_COMBINED, active_features="mid_price",
             p_flip=0.7, model_ver=5, cfg=cfg,
             existing_skipped=None, start_time=datetime.now(timezone.utc),
         )
@@ -861,7 +861,7 @@ def _make_mock_exec(price):
         from polyflip.db.models import TradeHistory
         from polyflip.trading.trade_recorder import execute_and_record
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         trader_mock = AsyncMock()
         trader_mock.execute_trade = AsyncMock(return_value=_make_mock_exec(0.60))
@@ -874,7 +874,7 @@ def _make_mock_exec(price):
             db_session=db_session, trader=trader_mock, market=market,
             decision_obj=self._make_decision_obj(),
             validation=self._make_validation(),
-            asset_mode=TRADING_MODE_ML, active_features="mid_price",
+            asset_mode=TRADING_MODE_COMBINED, active_features="mid_price",
             p_flip=0.7, model_ver=5, cfg=cfg,
             existing_skipped=None, start_time=datetime.now(timezone.utc),
         )
@@ -895,7 +895,7 @@ def _make_mock_exec(price):
         from polyflip.db.models import TradeHistory
         from polyflip.trading.trade_recorder import execute_and_record
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         trader_mock = AsyncMock()
         trader_mock.execute_trade = AsyncMock(return_value=_make_mock_exec(0.50))
@@ -908,7 +908,7 @@ def _make_mock_exec(price):
             db_session=db_session, trader=trader_mock, market=market,
             decision_obj=self._make_decision_obj(),
             validation=self._make_validation(buy_price=0.50),
-            asset_mode=TRADING_MODE_ML, active_features="mid_price",
+            asset_mode=TRADING_MODE_COMBINED, active_features="mid_price",
             p_flip=0.7, model_ver=5, cfg=cfg,
             existing_skipped=None, start_time=datetime.now(timezone.utc),
         )
@@ -929,7 +929,7 @@ def _make_mock_exec(price):
         from polyflip.db.models import TradeHistory
         from polyflip.trading.trade_recorder import execute_and_record
         from polyflip.trading.trading_config import parse_trading_settings
-        from polyflip.constants import TRADING_MODE_ML
+        from polyflip.constants import TRADING_MODE_COMBINED
 
         now = datetime.now(timezone.utc)
         existing = TradeHistory(
@@ -952,7 +952,7 @@ def _make_mock_exec(price):
             db_session=db_session, trader=trader_mock, market=market,
             decision_obj=self._make_decision_obj(),
             validation=self._make_validation(),
-            asset_mode=TRADING_MODE_ML, active_features="mid_price",
+            asset_mode=TRADING_MODE_COMBINED, active_features="mid_price",
             p_flip=0.7, model_ver=5, cfg=cfg,
             existing_skipped=existing, start_time=now,
         )

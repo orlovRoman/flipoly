@@ -36,8 +36,6 @@ REGISTRY: list[SettingDef] = [
     # --- Мёртвая зона ---
     SettingDef("DEAD_ZONE_WIDTH", "0.10",
                description="Ширина мёртвой зоны вокруг flip-порога (единый параметр)"),
-    SettingDef("AUTO_DEAD_ZONE", "true",
-               description="Авто-расчёт границ зоны по калибровке модели"),
 
     # --- Финансы / потери ---
     SettingDef("DAILY_LOSS_LIMIT_USDC", "-100.0",
@@ -149,9 +147,7 @@ REGISTRY: list[SettingDef] = [
     SettingDef("COMBINED_DIR_DISCOUNT_WEIGHT", "0.0",
                description="Вес дисконта к p_candidate_win за неуверенность LightGBM (0.0 = выкл, 0.3 = до -30% при dir_prob=min_dir_prob)"),
     SettingDef("COMBINED_DIR_STRONG_THRESHOLD", "0.65",
-               description="Порог dir_prob, выше которого сигнал LightGBM считается сильным и дисконт равен 0 (0.50-1.0)"),
-    SettingDef("COMBINED_FALLBACK_TO_ML_ON_NONE", "true",
-               description="Если LGBM выдает NONE (нет четкого тренда), переключаться на оценку через модель LogReg (Entry Model)"),
+               description="Порог dir_prob, выше которого сигнал LightGBM считается сильным и дисконт равен 0 (0.50-1.0)"), переключаться на оценку через модель LogReg (Entry Model)"),
     SettingDef("COMBINED_REQUIRE_CONSENSUS", "true",
                description="Обе модели (LightGBM и LogReg) должны проголосовать за одно направление. Иначе - SKIP."),
     SettingDef("COMBINED_FALLBACK_TO_LOGREG_ON_NONE", "true",
@@ -195,11 +191,6 @@ REGISTRY: list[SettingDef] = [
 
     # --- Крипто ---
 
-    SettingDef("USE_CRYPTO_CONFIRM", "false",
-               description="Требовать подтверждение сигнала для крипто"),
-    SettingDef("CRYPTO_STANDALONE", "false",
-               description="Крипто-режим без привязки к Polymarket-рынку"),
-
     # --- Прочее ---
     SettingDef("BYPASS_BET_SIZE_CHECK", "false", editable=False,
                description="Debug-only. Не открывать через API."),
@@ -224,8 +215,6 @@ REGISTRY: list[SettingDef] = [
                description="Порог подозрения на data leakage при обучении (обычно 0.95)"),
 
     # --- ML пороги ---
-    SettingDef("NO_FLIP_THRESHOLD", "0.35",
-               description="p_flip < этого → ML_TREND покупает фаворита (не аутсайдера)"),
 
     # --- Комиссии ---
     SettingDef("POLYMARKET_FEE_RATE", "0.002",
@@ -282,7 +271,6 @@ def editable_keys() -> set[str]:
     return {s.key for s in REGISTRY if s.editable}
 
 REQUIRED_SETTINGS_KEYS = frozenset([
-    "NO_FLIP_THRESHOLD",
     "FAVOR_MIN_TIME_LEFT_SEC",
     "FAVOR_MAX_TIME_LEFT_SEC",
     "OUTS_MIN_TIME_LEFT_SEC",
@@ -301,7 +289,6 @@ REQUIRED_SETTINGS_KEYS = frozenset([
     "OUTSIDER_PWIN_DISCOUNT",
     "OUTS_MIN_EDGE",
     "FAVORITE_MIN_EDGE",
-    "COMBINED_FALLBACK_TO_ML_ON_NONE",
     "COMBINED_REQUIRE_CONSENSUS",
     "COMBINED_FALLBACK_TO_LOGREG_ON_NONE",
 ])

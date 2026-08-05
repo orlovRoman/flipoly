@@ -322,8 +322,8 @@ async def test_ml_mode_unchanged_when_trading_mode_is_ml():
     db_session.execute = AsyncMock()
     
     settings_scalars = MagicMock()
-    # Устанавливаем режим 'ml'
-    settings_scalars.scalars.return_value.all.return_value = make_settings_db(trading_mode="ml")
+    # Устанавливаем режим 'combined'
+    settings_scalars.scalars.return_value.all.return_value = make_settings_db(trading_mode="combined")
     
     empty_scalars = MagicMock()
     empty_scalars.scalars.return_value.all.return_value = []
@@ -352,7 +352,7 @@ async def test_ml_mode_unchanged_when_trading_mode_is_ml():
         daily_pnl_scalar,      # 4. daily PnL
         trade_check_scalars,   # 5. trade history check (guards)
         skipped_check_scalars, # 6. skipped check (guards)
-        active_models_scalars, # 7. active models (decide_ml_mode)
+        active_models_scalars, # 7. active models (decide_combined_mode)
     ]
     db_session.scalar = AsyncMock(return_value=0.0)
 

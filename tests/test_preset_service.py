@@ -14,7 +14,7 @@ def test_preset_contains_dead_zone_but_not_operational_switches():
             "DEAD_ZONE_WIDTH": "0.05",
             "TRADE_FLIP_THRESHOLD": "0.85",
             "FLIP_THRESHOLD": "0.48",
-            "TRADING_MODE": "ml",
+            "TRADING_MODE": "combined",
             "TRADING_ENABLED": "true",
             "EXECUTION_MODE": "PAPER",
             "LIVE_TRADING_ENABLED": "false",
@@ -27,7 +27,7 @@ def test_preset_contains_dead_zone_but_not_operational_switches():
     assert filtered["DEAD_ZONE_WIDTH"] == "0.05"
     assert filtered["TRADE_FLIP_THRESHOLD"] == "0.85"
     assert filtered["FLIP_THRESHOLD"] == "0.48"
-    assert filtered["TRADING_MODE"] == "ml"
+    assert filtered["TRADING_MODE"] == "combined"
     assert "TRADING_ENABLED" not in filtered
     assert "EXECUTION_MODE" not in filtered
     assert "LIVE_TRADING_ENABLED" not in filtered

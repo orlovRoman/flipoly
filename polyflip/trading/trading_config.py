@@ -1,15 +1,13 @@
 import dataclasses
 from dataclasses import dataclass
 from polyflip.config import settings
+from polyflip.utils import parse_float_setting
 
 def _parse_bool(val, default: bool) -> bool:
     if val is None or str(val).strip() == "":
         return default
     return str(val).lower() == "true"
 
-def _parse_float(val, default: float) -> float:
-    if val is None or str(val).strip() == "":
-        return default
     try:
         return float(val)
     except ValueError:
@@ -32,7 +30,6 @@ class TradingConfig:
     outs_min_time_left: int
     outs_max_time_left: int
     bet_size: float
-    no_flip_threshold: float
     dead_zone: float
     daily_limit: float
     trade_min_price: float
@@ -42,14 +39,11 @@ class TradingConfig:
     trade_on_favorite: bool
     trade_on_flip: bool
     flip_threshold: float
-    auto_dead_zone: bool
     no_max_price: float
     outs_min_edge: float
     entry_sec: int
     favorite_threshold: float
     trade_assets: list[str]
-    use_crypto_confirm: bool
-    crypto_standalone: bool
     bet_sizing_mode: str
     max_bet_size_usdc: float
     favorite_min_price: float
@@ -71,7 +65,6 @@ class TradingConfig:
     min_win_prob: float
     combined_dir_discount_weight: float = 0.0
     combined_dir_strong_threshold: float = 0.65
-    combined_fallback_to_ml_on_none: bool = True
     combined_require_consensus: bool = True
     combined_fallback_to_logreg_on_none: bool = True
     max_bet_edge: float = 0.40
@@ -118,51 +111,46 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         favor_max_time_left=_parse_int(raw.get("FAVOR_MAX_TIME_LEFT_SEC"), getattr(settings, "FAVOR_MAX_TIME_LEFT_SEC", 600)),
         outs_min_time_left=_parse_int(raw.get("OUTS_MIN_TIME_LEFT_SEC"), getattr(settings, "OUTS_MIN_TIME_LEFT_SEC", 30)),
         outs_max_time_left=_parse_int(raw.get("OUTS_MAX_TIME_LEFT_SEC"), getattr(settings, "OUTS_MAX_TIME_LEFT_SEC", 300)),
-        bet_size=_parse_float(raw.get("TRADE_BET_SIZE_USDC"), getattr(settings, "TRADE_BET_SIZE_USDC", 10.0)),
-        no_flip_threshold=_parse_float(raw.get("NO_FLIP_THRESHOLD"), getattr(settings, "NO_FLIP_THRESHOLD", 0.35)),
-        dead_zone=_parse_float(raw.get("DEAD_ZONE_WIDTH"), getattr(settings, "DEAD_ZONE_WIDTH", 0.05)),
-        daily_limit=_parse_float(raw.get("DAILY_LOSS_LIMIT_USDC"), getattr(settings, "DAILY_LOSS_LIMIT_USDC", -100.0)),
-        trade_min_price=_parse_float(raw.get("TRADE_MIN_PRICE"), getattr(settings, "TRADE_MIN_PRICE", 0.05)),
-        trade_max_price=_parse_float(raw.get("TRADE_MAX_PRICE"), getattr(settings, "TRADE_MAX_PRICE", 0.95)),
-        capital=_parse_float(raw.get("INITIAL_CAPITAL"), getattr(settings, "INITIAL_CAPITAL", 100.0)),
+        bet_size=parse_float_setting(raw, "TRADE_BET_SIZE_USDC", getattr(settings, "TRADE_BET_SIZE_USDC", 10.0)),
+        dead_zone=parse_float_setting(raw, "DEAD_ZONE_WIDTH", getattr(settings, "DEAD_ZONE_WIDTH", 0.05)),
+        daily_limit=parse_float_setting(raw, "DAILY_LOSS_LIMIT_USDC", getattr(settings, "DAILY_LOSS_LIMIT_USDC", -100.0)),
+        trade_min_price=parse_float_setting(raw, "TRADE_MIN_PRICE", getattr(settings, "TRADE_MIN_PRICE", 0.05)),
+        trade_max_price=parse_float_setting(raw, "TRADE_MAX_PRICE", getattr(settings, "TRADE_MAX_PRICE", 0.95)),
+        capital=parse_float_setting(raw, "INITIAL_CAPITAL", getattr(settings, "INITIAL_CAPITAL", 100.0)),
         active_features_str=raw.get("ACTIVE_FEATURES", getattr(settings, "ACTIVE_FEATURES", "")),
         trade_on_favorite=_parse_bool(raw.get("TRADE_ON_FAVORITE"), getattr(settings, "TRADE_ON_FAVORITE", True)),
         trade_on_flip=_parse_bool(raw.get("TRADE_ON_FLIP"), getattr(settings, "TRADE_ON_FLIP", False)),
-        flip_threshold=_parse_float(raw.get("FLIP_THRESHOLD"), getattr(settings, "FLIP_THRESHOLD", 0.60)),
-        auto_dead_zone=_parse_bool(raw.get("AUTO_DEAD_ZONE"), getattr(settings, "AUTO_DEAD_ZONE", False)),
-        no_max_price=_parse_float(raw.get("OUTSIDER_MAX_PRICE"), getattr(settings, "OUTSIDER_MAX_PRICE", 0.40)),
-        outs_min_edge=_parse_float(raw.get("OUTS_MIN_EDGE"), getattr(settings, "OUTS_MIN_EDGE", 0.04)),
+        flip_threshold=parse_float_setting(raw, "FLIP_THRESHOLD", getattr(settings, "FLIP_THRESHOLD", 0.60)),
+        no_max_price=parse_float_setting(raw, "OUTSIDER_MAX_PRICE", getattr(settings, "OUTSIDER_MAX_PRICE", 0.40)),
+        outs_min_edge=parse_float_setting(raw, "OUTS_MIN_EDGE", getattr(settings, "OUTS_MIN_EDGE", 0.04)),
         entry_sec=_parse_int(raw.get("FAVORITE_MODE_ENTRY_SEC"), getattr(settings, "FAVORITE_MODE_ENTRY_SEC", 120)),
-        favorite_threshold=_parse_float(raw.get("FAVORITE_THRESHOLD"), getattr(settings, "FAVORITE_THRESHOLD", 0.70)),
+        favorite_threshold=parse_float_setting(raw, "FAVORITE_THRESHOLD", getattr(settings, "FAVORITE_THRESHOLD", 0.70)),
         trade_assets=trade_assets,
-        use_crypto_confirm=_parse_bool(raw.get("USE_CRYPTO_CONFIRM"), getattr(settings, "USE_CRYPTO_CONFIRM", False)),
-        crypto_standalone=_parse_bool(raw.get("CRYPTO_STANDALONE"), getattr(settings, "CRYPTO_STANDALONE", False)),
         bet_sizing_mode=raw.get("BET_SIZING_MODE", getattr(settings, "BET_SIZING_MODE", "fixed")),
-        max_bet_size_usdc=_parse_float(raw.get("MAX_BET_SIZE_USDC"), getattr(settings, "MAX_BET_SIZE_USDC", 50.0)),
-        favorite_min_price=_parse_float(raw.get("FAVORITE_MIN_PRICE"), getattr(settings, "FAVORITE_MIN_PRICE", 0.55)),
-        favorite_max_price=_parse_float(raw.get("FAVORITE_MAX_PRICE"), getattr(settings, "FAVORITE_MAX_PRICE", 0.95)),
-        favorite_min_edge=_parse_float(raw.get("FAVORITE_MIN_EDGE"), getattr(settings, "FAVORITE_MIN_EDGE", 0.05)),
-        outsider_max_price=_parse_float(raw.get("OUTSIDER_MAX_PRICE"), getattr(settings, "OUTSIDER_MAX_PRICE", 0.40)),
-        liquidity_fraction=_parse_float(raw.get("LIQUIDITY_FRACTION"), getattr(settings, "LIQUIDITY_FRACTION", 0.1)),
+        max_bet_size_usdc=parse_float_setting(raw, "MAX_BET_SIZE_USDC", getattr(settings, "MAX_BET_SIZE_USDC", 50.0)),
+        favorite_min_price=parse_float_setting(raw, "FAVORITE_MIN_PRICE", getattr(settings, "FAVORITE_MIN_PRICE", 0.55)),
+        favorite_max_price=parse_float_setting(raw, "FAVORITE_MAX_PRICE", getattr(settings, "FAVORITE_MAX_PRICE", 0.95)),
+        favorite_min_edge=parse_float_setting(raw, "FAVORITE_MIN_EDGE", getattr(settings, "FAVORITE_MIN_EDGE", 0.05)),
+        outsider_max_price=parse_float_setting(raw, "OUTSIDER_MAX_PRICE", getattr(settings, "OUTSIDER_MAX_PRICE", 0.40)),
+        liquidity_fraction=parse_float_setting(raw, "LIQUIDITY_FRACTION", getattr(settings, "LIQUIDITY_FRACTION", 0.1)),
         bypass_bet_size_check=_parse_bool(raw.get("BYPASS_BET_SIZE_CHECK"), getattr(settings, "BYPASS_BET_SIZE_CHECK", False)),
         stop_loss_enabled=_parse_bool(raw.get("STOP_LOSS_ENABLED"), getattr(settings, "STOP_LOSS_ENABLED", False)),
         take_profit_enabled=_parse_bool(raw.get("TAKE_PROFIT_ENABLED"), getattr(settings, "TAKE_PROFIT_ENABLED", False)),
-        take_profit_multiplier=_parse_float(raw.get("TAKE_PROFIT_MULTIPLIER"), getattr(settings, "TAKE_PROFIT_MULTIPLIER", 2.0)),
-        max_price_drift=_parse_float(raw.get("MAX_PRICE_DRIFT"), getattr(settings, "MAX_PRICE_DRIFT", 0.03)),
-        stop_loss_pct_favorite=_parse_float(raw.get("STOP_LOSS_PCT_FAVORITE"), getattr(settings, "STOP_LOSS_PCT_FAVORITE", 40.0)),
-        stop_loss_pct_outsider=_parse_float(raw.get("STOP_LOSS_PCT_OUTSIDER"), getattr(settings, "STOP_LOSS_PCT_OUTSIDER", 60.0)),
-        fee_rate=_parse_float(raw.get("FEE_RATE"), getattr(settings, "FEE_RATE", 0.0)),
-        slippage_rate=_parse_float(raw.get("SLIPPAGE_RATE"), getattr(settings, "SLIPPAGE_RATE", 0.0)),
-        max_exposure_pct=_parse_float(raw.get("MAX_EXPOSURE_PCT"), getattr(settings, "MAX_EXPOSURE_PCT", 15.0)),
-        min_direction_prob=_parse_float(raw.get("MIN_DIRECTION_PROB"), getattr(settings, "MIN_DIRECTION_PROB", 0.505)),
-        min_win_prob=_parse_float(raw.get("MIN_WIN_PROB"), getattr(settings, "MIN_WIN_PROB", 0.51)),
-        combined_dir_discount_weight=_parse_float(raw.get("COMBINED_DIR_DISCOUNT_WEIGHT"), 0.0),
-        combined_dir_strong_threshold=_parse_float(raw.get("COMBINED_DIR_STRONG_THRESHOLD"), 0.65),
-        combined_fallback_to_ml_on_none=_parse_bool(raw.get("COMBINED_FALLBACK_TO_ML_ON_NONE"), getattr(settings, "COMBINED_FALLBACK_TO_ML_ON_NONE", True)),
+        take_profit_multiplier=parse_float_setting(raw, "TAKE_PROFIT_MULTIPLIER", getattr(settings, "TAKE_PROFIT_MULTIPLIER", 2.0)),
+        max_price_drift=parse_float_setting(raw, "MAX_PRICE_DRIFT", getattr(settings, "MAX_PRICE_DRIFT", 0.03)),
+        stop_loss_pct_favorite=parse_float_setting(raw, "STOP_LOSS_PCT_FAVORITE", getattr(settings, "STOP_LOSS_PCT_FAVORITE", 40.0)),
+        stop_loss_pct_outsider=parse_float_setting(raw, "STOP_LOSS_PCT_OUTSIDER", getattr(settings, "STOP_LOSS_PCT_OUTSIDER", 60.0)),
+        fee_rate=parse_float_setting(raw, "FEE_RATE", getattr(settings, "FEE_RATE", 0.0)),
+        slippage_rate=parse_float_setting(raw, "SLIPPAGE_RATE", getattr(settings, "SLIPPAGE_RATE", 0.0)),
+        max_exposure_pct=parse_float_setting(raw, "MAX_EXPOSURE_PCT", getattr(settings, "MAX_EXPOSURE_PCT", 15.0)),
+        min_direction_prob=parse_float_setting(raw, "MIN_DIRECTION_PROB", getattr(settings, "MIN_DIRECTION_PROB", 0.505)),
+        min_win_prob=parse_float_setting(raw, "MIN_WIN_PROB", getattr(settings, "MIN_WIN_PROB", 0.51)),
+        combined_dir_discount_weight=parse_float_setting(raw, "COMBINED_DIR_DISCOUNT_WEIGHT", 0.0),
+        combined_dir_strong_threshold=parse_float_setting(raw, "COMBINED_DIR_STRONG_THRESHOLD", 0.65),
         combined_require_consensus=_parse_bool(raw.get("COMBINED_REQUIRE_CONSENSUS"), True),
         combined_fallback_to_logreg_on_none=_parse_bool(raw.get("COMBINED_FALLBACK_TO_LOGREG_ON_NONE"), True),
-        max_bet_edge=_parse_float(raw.get("MAX_BET_EDGE"), getattr(settings, "MAX_BET_EDGE", 0.40)),
-        outsider_pwin_discount=_parse_float(raw.get("OUTSIDER_PWIN_DISCOUNT"), getattr(settings, "OUTSIDER_PWIN_DISCOUNT", 0.65)),
-        max_spread_pct=_parse_float(raw.get("MAX_SPREAD_PCT"), getattr(settings, "MAX_SPREAD_PCT", 0.08)),
-        combined_cost_buffer=_parse_float(raw.get("COMBINED_COST_BUFFER"), 0.02),
+        max_bet_edge=parse_float_setting(raw, "MAX_BET_EDGE", getattr(settings, "MAX_BET_EDGE", 0.40)),
+        outsider_pwin_discount=parse_float_setting(raw, "OUTSIDER_PWIN_DISCOUNT", getattr(settings, "OUTSIDER_PWIN_DISCOUNT", 0.65)),
+        max_spread_pct=parse_float_setting(raw, "MAX_SPREAD_PCT", getattr(settings, "MAX_SPREAD_PCT", 0.08)),
+        combined_cost_buffer=parse_float_setting(raw, "COMBINED_COST_BUFFER", 0.02),
     )

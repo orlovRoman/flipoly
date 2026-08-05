@@ -311,7 +311,7 @@ document.addEventListener("DOMContentLoaded", () => {
     maxBetSizeGroup: document.getElementById("max-bet-size-group"),
     maxBetSize: document.getElementById("MAX_BET_SIZE_USDC"),
     betSize: document.getElementById("TRADE_BET_SIZE_USDC"),
-    noFlipThreshold: document.getElementById("NO_FLIP_THRESHOLD"),
+
     minDirectionProb: document.getElementById("MIN_DIRECTION_PROB"),
     minWinProb: document.getElementById("MIN_WIN_PROB"),
     tradeFlipThreshold: document.getElementById("TRADE_FLIP_THRESHOLD"),
@@ -344,7 +344,6 @@ document.addEventListener("DOMContentLoaded", () => {
     flipThreshold: document.getElementById("FLIP_THRESHOLD"),
     outsMinEdge: document.getElementById("OUTS_MIN_EDGE"),
 
-    autoDeadZone: document.getElementById("AUTO_DEAD_ZONE"),
     favoriteMinEdge: document.getElementById("FAVORITE_MIN_EDGE"),
     favoriteMinPrice: document.getElementById("FAVORITE_MIN_PRICE"),
     favoriteMaxPrice: document.getElementById("FAVORITE_MAX_PRICE"),
@@ -353,7 +352,7 @@ document.addEventListener("DOMContentLoaded", () => {
     liquidityFraction: document.getElementById("LIQUIDITY_FRACTION"),
     maxPriceDrift: document.getElementById("MAX_PRICE_DRIFT"),
     combinedModeSettings: document.getElementById('combined-mode-settings'),
-    combinedFallbackToMlOnNone: document.getElementById("COMBINED_FALLBACK_TO_ML_ON_NONE"),
+
   };
 
   function updateDeadZoneInfo() {
@@ -442,7 +441,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const deadZonePct = Math.round(deadZoneVal * 100);
 
       // Текущее значение no_flip берем из инпута, если он загружен, иначе из API
-      const noFlipInput = document.getElementById("NO_FLIP_THRESHOLD");
       const currentNoFlipVal = noFlipInput ? parseFloat(noFlipInput.value) / 100 : g.current_no_flip;
       const currentNoFlipPct = Math.round(currentNoFlipVal * 100);
       
@@ -526,12 +524,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function getPerAssetFields() {
-    const assets = [];
-    document.querySelectorAll("[id^='TRADING_MODE_']").forEach((selectEl) => {
-      const asset = selectEl.id.replace("TRADING_MODE_", "");
-      assets.push(asset);
-    });
+  function getPerAssetFields() { return []; });
     return assets;
   }
 
@@ -591,8 +584,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.betSizingMode) {
         settingsElements.betSizingMode.dispatchEvent(new Event("change"));
       }
-      if (settingsElements.noFlipThreshold && data.NO_FLIP_THRESHOLD !== undefined) {
-        let val = parseFloat(data.NO_FLIP_THRESHOLD);
         if (val > 1) val /= 100;
         settingsElements.noFlipThreshold.value = Math.round(val * 100);
       }
@@ -708,8 +699,6 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.outsMinEdge.value = (val * 100).toFixed(1);
       }
 
-      if (settingsElements.autoDeadZone && data.AUTO_DEAD_ZONE) {
-        settingsElements.autoDeadZone.checked = data.AUTO_DEAD_ZONE === "true";
       }
 
       if (settingsElements.favoriteMinEdge && data.FAVORITE_MIN_EDGE !== undefined) {
@@ -731,8 +720,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxPriceDrift && data.MAX_PRICE_DRIFT !== undefined) {
         settingsElements.maxPriceDrift.value = data.MAX_PRICE_DRIFT;
       }
-      if (settingsElements.combinedFallbackToMlOnNone && data.COMBINED_FALLBACK_TO_ML_ON_NONE !== undefined) {
-        settingsElements.combinedFallbackToMlOnNone.checked = data.COMBINED_FALLBACK_TO_ML_ON_NONE === "true";
       }
       if (settingsElements.maxSpreadPct && data.MAX_SPREAD_PCT !== undefined) {
         let val = parseFloat(data.MAX_SPREAD_PCT);
@@ -775,16 +762,9 @@ document.addEventListener("DOMContentLoaded", () => {
       // Заполняем индивидуальные настройки по активам
       const perAssetNames = getPerAssetFields();
       perAssetNames.forEach((asset) => {
-        const modeSelect = document.getElementById(`TRADING_MODE_${asset}`);
-        const minEdgeInput = document.getElementById(`OUTS_MIN_EDGE_${asset}`);
-        const maxPriceInput = document.getElementById(`TRADE_MAX_PRICE_${asset}`);
-        const flipThresholdInput = document.getElementById(`FLIP_THRESHOLD_${asset}`) || document.getElementById(`TRADE_FLIP_THRESHOLD_${asset}`);
         
-        if (modeSelect && data[`TRADING_MODE_${asset}`] !== undefined) {
-          modeSelect.value = data[`TRADING_MODE_${asset}`];
         }
         if (minEdgeInput) {
-          const val = data[`OUTS_MIN_EDGE_${asset}`];
           if (val !== undefined && val !== "") {
             minEdgeInput.value = (parseFloat(val) * 100).toFixed(1);
           } else {
@@ -792,7 +772,6 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
         if (maxPriceInput) {
-          const val = data[`TRADE_MAX_PRICE_${asset}`];
           if (val !== undefined && val !== null && val !== "") {
             maxPriceInput.value = val;
           } else {
@@ -801,7 +780,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         
         if (flipThresholdInput) {
-          const val = data[`FLIP_THRESHOLD_${asset}`] ?? data[`TRADE_FLIP_THRESHOLD_${asset}`];
           if (val !== undefined && val !== null && val !== "") {
             flipThresholdInput.value = (parseFloat(val) * 100).toString();
           } else {
@@ -849,7 +827,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.betSizingMode) settingsToSave.BET_SIZING_MODE = settingsElements.betSizingMode.value;
       if (settingsElements.maxBetSize) settingsToSave.MAX_BET_SIZE_USDC = settingsElements.maxBetSize.value;
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
-      if (settingsElements.noFlipThreshold) settingsToSave.NO_FLIP_THRESHOLD = parseFloat(settingsElements.noFlipThreshold.value) / 100;
       if (settingsElements.minDirectionProb) settingsToSave.MIN_DIRECTION_PROB = parseFloat(settingsElements.minDirectionProb.value) / 100;
       if (settingsElements.minWinProb) settingsToSave.MIN_WIN_PROB = parseFloat(settingsElements.minWinProb.value) / 100;
       if (settingsElements.outsiderPwinDiscount) settingsToSave.OUTSIDER_PWIN_DISCOUNT = parseFloat(settingsElements.outsiderPwinDiscount.value) / 100;
@@ -921,7 +898,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFormattedFloat(settingsElements.flipThreshold.value) / 100;
       if (settingsElements.outsMinEdge) settingsToSave.OUTS_MIN_EDGE = parseFormattedFloat(settingsElements.outsMinEdge.value) / 100;
 
-      if (settingsElements.autoDeadZone) settingsToSave.AUTO_DEAD_ZONE = settingsElements.autoDeadZone.checked ? "true" : "false";
 
       if (settingsElements.favoriteMinEdge) settingsToSave.FAVORITE_MIN_EDGE = parseFormattedFloat(settingsElements.favoriteMinEdge.value) / 100;
       if (settingsElements.favoriteMinPrice) settingsToSave.FAVORITE_MIN_PRICE = parseFormattedFloat(settingsElements.favoriteMinPrice.value);
@@ -933,32 +909,23 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.liquidityFraction) settingsToSave.LIQUIDITY_FRACTION = parseFormattedFloat(settingsElements.liquidityFraction.value);
       if (settingsElements.maxPriceDrift) settingsToSave.MAX_PRICE_DRIFT = parseFormattedFloat(settingsElements.maxPriceDrift.value);
       if (settingsElements.combinedFallbackToMlOnNone) {
-        settingsToSave.COMBINED_FALLBACK_TO_ML_ON_NONE = settingsElements.combinedFallbackToMlOnNone.checked ? "true" : "false";
       }
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
       // Считываем индивидуальные настройки по активам
       const perAssetNames = getPerAssetFields();
       perAssetNames.forEach((asset) => {
-        const modeSelect = document.getElementById(`TRADING_MODE_${asset}`);
-        const minEdgeInput = document.getElementById(`OUTS_MIN_EDGE_${asset}`);
-        const maxPriceInput = document.getElementById(`TRADE_MAX_PRICE_${asset}`);
-        const flipThresholdInput = document.getElementById(`FLIP_THRESHOLD_${asset}`) || document.getElementById(`TRADE_FLIP_THRESHOLD_${asset}`);
         
         if (modeSelect) {
-          settingsToSave[`TRADING_MODE_${asset}`] = modeSelect.value;
         }
         if (minEdgeInput) {
           const val = minEdgeInput.value.trim();
-          settingsToSave[`OUTS_MIN_EDGE_${asset}`] = val !== "" ? parseFormattedFloat(val) / 100 : "";
         }
         if (maxPriceInput) {
           const val = maxPriceInput.value.trim();
-          settingsToSave[`TRADE_MAX_PRICE_${asset}`] = val !== "" ? parseFormattedFloat(val) : "";
         }
         if (flipThresholdInput) {
           const val = flipThresholdInput.value.trim();
-          settingsToSave[`FLIP_THRESHOLD_${asset}`] = val !== "" ? parseFormattedFloat(val) / 100 : "";
         }
       });
 
@@ -1294,7 +1261,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  const noFlipInput = document.getElementById("NO_FLIP_THRESHOLD");
   if (noFlipInput) {
     noFlipInput.addEventListener("input", () => {
       const flipVal = flipInput ? parseFloat(flipInput.value) / 100 : 0.85;

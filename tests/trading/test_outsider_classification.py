@@ -64,7 +64,7 @@ async def test_pre_trade_validator_blocks_outsider_on_favorite_token():
     db_mock.execute.return_value = exposure_res_mock
     
     result = await validate_pre_trade(
-        db_mock, api_mock, market, decision, cfg, asset_mode="ml", asset_min_edge=0.05, asset_max_price=0.99, p_flip=0.2, model_ver=1
+        db_mock, api_mock, market, decision, cfg, asset_mode="combined", asset_min_edge=0.05, asset_max_price=0.99, p_flip=0.2, model_ver=1
     )
     assert result.valid is False
     assert result.skip_reason == "OUTSIDER strategy selected a favorite token"
