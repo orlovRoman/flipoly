@@ -325,6 +325,8 @@ document.addEventListener("DOMContentLoaded", () => {
     outsiderPwinDiscount: document.getElementById("OUTSIDER_PWIN_DISCOUNT"),
     combinedDirDiscountWeight: document.getElementById("COMBINED_DIR_DISCOUNT_WEIGHT"),
     combinedDirStrongThreshold: document.getElementById("COMBINED_DIR_STRONG_THRESHOLD"),
+    combinedRequireConsensus: document.getElementById("COMBINED_REQUIRE_CONSENSUS"),
+    combinedFallbackToLogregOnNone: document.getElementById("COMBINED_FALLBACK_TO_LOGREG_ON_NONE"),
     stopLossEnabled: document.getElementById("STOP_LOSS_ENABLED"),
     stopLossPctFavorite: document.getElementById("STOP_LOSS_PCT_FAVORITE"),
     stopLossPctOutsider: document.getElementById("STOP_LOSS_PCT_OUTSIDER"),
@@ -721,6 +723,12 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.COMBINED_DIR_STRONG_THRESHOLD);
         settingsElements.combinedDirStrongThreshold.value = isNaN(val) ? "65.0" : (val * 100).toFixed(1);
       }
+      if (settingsElements.combinedRequireConsensus && data.COMBINED_REQUIRE_CONSENSUS !== undefined) {
+        settingsElements.combinedRequireConsensus.checked = data.COMBINED_REQUIRE_CONSENSUS === "true";
+      }
+      if (settingsElements.combinedFallbackToLogregOnNone && data.COMBINED_FALLBACK_TO_LOGREG_ON_NONE !== undefined) {
+        settingsElements.combinedFallbackToLogregOnNone.checked = data.COMBINED_FALLBACK_TO_LOGREG_ON_NONE === "true";
+      }
 
       updateDeadZoneInfo();
       if (data.TRADING_MODE) {
@@ -793,6 +801,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.outsiderPwinDiscount) settingsToSave.OUTSIDER_PWIN_DISCOUNT = parseFloat(settingsElements.outsiderPwinDiscount.value) / 100;
       if (settingsElements.combinedDirDiscountWeight) settingsToSave.COMBINED_DIR_DISCOUNT_WEIGHT = parseFormattedFloat(settingsElements.combinedDirDiscountWeight.value) / 100;
       if (settingsElements.combinedDirStrongThreshold) settingsToSave.COMBINED_DIR_STRONG_THRESHOLD = parseFormattedFloat(settingsElements.combinedDirStrongThreshold.value) / 100;
+      if (settingsElements.combinedRequireConsensus) settingsToSave.COMBINED_REQUIRE_CONSENSUS = settingsElements.combinedRequireConsensus.checked ? "true" : "false";
+      if (settingsElements.combinedFallbackToLogregOnNone) settingsToSave.COMBINED_FALLBACK_TO_LOGREG_ON_NONE = settingsElements.combinedFallbackToLogregOnNone.checked ? "true" : "false";
       if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
 
@@ -988,10 +998,18 @@ document.addEventListener("DOMContentLoaded", () => {
             window.funnelLogs[log.id] = log.funnel_log;
         }
 
-        let reasonHtml =
-          log.status === "SKIPPED"
-            ? `<span style="color: #ffb020">${escapeHtml(log.error_msg)}</span>`
-            : escapeHtml(log.error_msg || "-");
+        let layerHtml = "-";
+        let reasonHtml = escapeHtml(log.error_msg || "-");
+        if (log.status === "SKIPPED") {
+            const reasonStr = log.error_msg || "";
+            const parts = reasonStr.split(": ");
+            if (parts.length > 1 && ["guard", "validation", "strategy", "engine"].includes(parts[0])) {
+                layerHtml = `<span style="color: #4facfe; font-size: 0.8em; font-weight: bold; background: rgba(79, 172, 254, 0.1); padding: 2px 4px; border-radius: 4px; text-transform: uppercase;">${escapeHtml(parts[0])}</span>`;
+                reasonHtml = `<span style="color: #ffb020">${escapeHtml(parts.slice(1).join(": "))}</span>`;
+            } else {
+                reasonHtml = `<span style="color: #ffb020">${escapeHtml(reasonStr)}</span>`;
+            }
+        }
         const isPureFav = log.active_features && log.active_features.includes("PURE_FAVORITE");
         const isCrypto = log.active_features && (log.active_features.includes("LIGHTGBM_TREND") || log.active_features.includes("CRYPTO_TREND"));
         const isCombined = log.active_features && log.active_features.includes("COMBINED_ML_LGBM");
@@ -1106,6 +1124,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px;">${directionBadge}</td>
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
                         <td style="padding: 8px; color: ${statusColor};">${displayStatus}</td>
+                        <td style="padding: 8px;">${layerHtml}</td>
                         <td style="padding: 8px;">${betTypeHtml}</td>
                         <td style="padding: 8px; font-weight: bold; color: var(--text-main);">${betText}</td>
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? "$" + parseFloat(log.executed_price).toFixed(3) : "-"}</td>
