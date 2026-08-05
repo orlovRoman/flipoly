@@ -344,6 +344,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tradeOnFlip: document.getElementById("TRADE_ON_FLIP"),
     flipThreshold: document.getElementById("FLIP_THRESHOLD"),
     outsMinEdge: document.getElementById("OUTS_MIN_EDGE"),
+    favoriteMinEdge: document.getElementById("FAVORITE_MIN_EDGE"),
 
     favoriteMinPrice: document.getElementById("FAVORITE_MIN_PRICE"),
     favoriteMaxPrice: document.getElementById("FAVORITE_MAX_PRICE"),
@@ -626,6 +627,10 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.OUTS_MIN_EDGE);
         settingsElements.outsMinEdge.value = (val * 100).toFixed(1);
       }
+      if (settingsElements.favoriteMinEdge && data.FAVORITE_MIN_EDGE !== undefined) {
+        let val = parseFloat(data.FAVORITE_MIN_EDGE);
+        settingsElements.favoriteMinEdge.value = (val * 100).toFixed(1);
+      }
 
 
       if (settingsElements.favoriteMinPrice && data.FAVORITE_MIN_PRICE !== undefined) {
@@ -805,6 +810,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.tradeOnFlip) settingsToSave.TRADE_ON_FLIP = settingsElements.tradeOnFlip.checked ? "true" : "false";
       if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFormattedFloat(settingsElements.flipThreshold.value) / 100;
       if (settingsElements.outsMinEdge) settingsToSave.OUTS_MIN_EDGE = parseFormattedFloat(settingsElements.outsMinEdge.value) / 100;
+      if (settingsElements.favoriteMinEdge) settingsToSave.FAVORITE_MIN_EDGE = parseFormattedFloat(settingsElements.favoriteMinEdge.value) / 100;
 
       if (settingsElements.favoriteMinPrice) settingsToSave.FAVORITE_MIN_PRICE = parseFormattedFloat(settingsElements.favoriteMinPrice.value);
       if (settingsElements.favoriteMaxPrice) settingsToSave.FAVORITE_MAX_PRICE = parseFormattedFloat(settingsElements.favoriteMaxPrice.value);
