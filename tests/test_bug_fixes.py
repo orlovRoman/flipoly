@@ -19,7 +19,7 @@ def test_decide_crypto_trend_buy_no_price():
     )
     # entry_price - это цена YES
     entry_price = 0.80
-    config = {"CRYPTO_MIN_EDGE": 0.05, "MAX_BET_EDGE": 0.5, "BET_SIZE_FIXED_USDC": 10.0}
+    config = {"CRYPTO_OUTS_MIN_EDGE": 0.05, "MAX_BET_EDGE": 0.5, "BET_SIZE_FIXED_USDC": 10.0}
     
     decision = decide_crypto_trend(crypto, entry_price, 1000.0, config)
     

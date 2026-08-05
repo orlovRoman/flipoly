@@ -28,8 +28,10 @@ async def load_eligible_markets(
     Если достигнут дневной лимит, возвращает None (сигнал остановки).
     Иначе возвращает список рынков (может быть пустым).
     """
-    union_min_sec = min(cfg.min_time_left, cfg.entry_sec)
-    union_max_sec = max(cfg.max_time_left, cfg.entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC)
+    global_min_sec = min(cfg.favor_min_time_left, cfg.outs_min_time_left)
+    global_max_sec = max(cfg.favor_max_time_left, cfg.outs_max_time_left)
+    union_min_sec = min(global_min_sec, cfg.entry_sec)
+    union_max_sec = max(global_max_sec, cfg.entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC)
     
     min_td = timedelta(seconds=union_min_sec)
     max_td = timedelta(seconds=union_max_sec)

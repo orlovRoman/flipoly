@@ -12,25 +12,25 @@ from polyflip.api.backtest_schemas import BacktestConfig
 class TestTimeWindow:
     def test_min_time_zero_allowed(self):
         """ge=0.0 — теперь 0 допустим по схеме."""
-        cfg = BacktestConfig(min_time_left_min=0.0, max_time_left_min=10.0)
-        assert cfg.min_time_left_min == 0.0
+        cfg = BacktestConfig(outs_min_time_left_min=0.0, outs_max_time_left_min=10.0)
+        assert cfg.outs_min_time_left_min == 0.0
 
     def test_min_time_negative_rejected(self):
         with pytest.raises(ValidationError, match="greater than or equal to 0"):
-            BacktestConfig(min_time_left_min=-1.0)
+            BacktestConfig(outs_min_time_left_min=-1.0)
 
     def test_min_must_be_less_than_max(self):
         """min >= max → невалидный диапазон."""
-        with pytest.raises(ValidationError, match="must be < max_time_left_min"):
-            BacktestConfig(min_time_left_min=60.0, max_time_left_min=60.0)
+        with pytest.raises(ValidationError, match="must be < outs_max_time_left_min"):
+            BacktestConfig(outs_min_time_left_min=60.0, outs_max_time_left_min=60.0)
 
     def test_min_equal_to_max_rejected(self):
         with pytest.raises(ValidationError):
-            BacktestConfig(min_time_left_min=30.0, max_time_left_min=30.0)
+            BacktestConfig(outs_min_time_left_min=30.0, outs_max_time_left_min=30.0)
 
     def test_valid_time_window(self):
-        cfg = BacktestConfig(min_time_left_min=5.0, max_time_left_min=60.0)
-        assert cfg.min_time_left_min < cfg.max_time_left_min
+        cfg = BacktestConfig(outs_min_time_left_min=5.0, outs_max_time_left_min=60.0)
+        assert cfg.outs_min_time_left_min < cfg.outs_max_time_left_min
 
 
 # ─── favorite_threshold ──────────────────────────────────────────────────────
@@ -108,9 +108,9 @@ class TestRunnerConfigConversion:
         assert rc["FAVORITE_THRESHOLD"] == pytest.approx(0.70)
 
     def test_min_time_zero_in_runner_config(self):
-        cfg = BacktestConfig(min_time_left_min=0.0, max_time_left_min=10.0)
+        cfg = BacktestConfig(outs_min_time_left_min=0.0, outs_max_time_left_min=10.0)
         rc = cfg.to_runner_config()
-        assert rc["MIN_TIME_LEFT_MIN"] == pytest.approx(0.0)
+        assert rc["OUTS_MIN_TIME_LEFT_MIN"] == pytest.approx(0.0)
 
     def test_trade_on_flip_is_bool(self):
         """Проверяем что TRADE_ON_FLIP не стал строкой после рефакторинга."""

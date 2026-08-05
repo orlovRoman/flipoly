@@ -27,8 +27,10 @@ def _parse_int(val, default: int) -> int:
 class TradingConfig:
     trading_enabled: bool
     trading_mode: str
-    min_time_left: int
-    max_time_left: int
+    favor_min_time_left: int
+    favor_max_time_left: int
+    outs_min_time_left: int
+    outs_max_time_left: int
     bet_size: float
     no_flip_threshold: float
     dead_zone: float
@@ -42,9 +44,8 @@ class TradingConfig:
     flip_threshold: float
     auto_dead_zone: bool
     no_max_price: float
-    no_min_edge: float
+    outs_min_edge: float
     entry_sec: int
-    min_edge: float
     favorite_threshold: float
     trade_assets: list[str]
     use_crypto_confirm: bool
@@ -78,7 +79,15 @@ class TradingConfig:
 
     def get_min_edge(self, is_outsider: bool) -> float:
         """Единый источник правды для минимального Edge."""
-        return self.no_min_edge if is_outsider else self.min_edge
+        return self.outs_min_edge if is_outsider else self.favorite_min_edge
+
+    def is_time_valid(self, time_left_sec: float, is_outsider: bool) -> tuple[bool, str]:
+        lo = self.outs_min_time_left if is_outsider else self.favor_min_time_left
+        hi = self.outs_max_time_left if is_outsider else self.favor_max_time_left
+        if not (lo <= time_left_sec <= hi):
+            role = "outsider" if is_outsider else "favorite"
+            return False, f"{role}: time_left={time_left_sec:.0f}s out of [{lo}, {hi}]"
+        return True, "OK"
 
     def is_price_valid(self, price: float, is_outsider: bool) -> tuple[bool, str]:
         """Единый источник правды для фильтрации по цене."""
@@ -101,8 +110,10 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
     return TradingConfig(
         trading_enabled=_parse_bool(raw.get("TRADING_ENABLED"), getattr(settings, "TRADING_ENABLED", True)),
         trading_mode=raw.get("TRADING_MODE", getattr(settings, "TRADING_MODE", "ml")),
-        min_time_left=_parse_int(raw.get("TRADE_MIN_TIME_LEFT_SEC"), getattr(settings, "TRADE_MIN_TIME_LEFT_SEC", 300)),
-        max_time_left=_parse_int(raw.get("TRADE_MAX_TIME_LEFT_SEC"), getattr(settings, "TRADE_MAX_TIME_LEFT_SEC", 900)),
+        favor_min_time_left=_parse_int(raw.get("FAVOR_MIN_TIME_LEFT_SEC"), getattr(settings, "FAVOR_MIN_TIME_LEFT_SEC", 60)),
+        favor_max_time_left=_parse_int(raw.get("FAVOR_MAX_TIME_LEFT_SEC"), getattr(settings, "FAVOR_MAX_TIME_LEFT_SEC", 600)),
+        outs_min_time_left=_parse_int(raw.get("OUTS_MIN_TIME_LEFT_SEC"), getattr(settings, "OUTS_MIN_TIME_LEFT_SEC", 30)),
+        outs_max_time_left=_parse_int(raw.get("OUTS_MAX_TIME_LEFT_SEC"), getattr(settings, "OUTS_MAX_TIME_LEFT_SEC", 300)),
         bet_size=_parse_float(raw.get("TRADE_BET_SIZE_USDC"), getattr(settings, "TRADE_BET_SIZE_USDC", 10.0)),
         no_flip_threshold=_parse_float(raw.get("NO_FLIP_THRESHOLD"), getattr(settings, "NO_FLIP_THRESHOLD", 0.35)),
         dead_zone=_parse_float(raw.get("DEAD_ZONE_WIDTH"), getattr(settings, "DEAD_ZONE_WIDTH", 0.05)),
@@ -116,9 +127,8 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         flip_threshold=_parse_float(raw.get("FLIP_THRESHOLD"), getattr(settings, "FLIP_THRESHOLD", 0.60)),
         auto_dead_zone=_parse_bool(raw.get("AUTO_DEAD_ZONE"), getattr(settings, "AUTO_DEAD_ZONE", False)),
         no_max_price=_parse_float(raw.get("OUTSIDER_MAX_PRICE"), getattr(settings, "OUTSIDER_MAX_PRICE", 0.40)),
-        no_min_edge=_parse_float(raw.get("NO_MIN_EDGE"), _parse_float(raw.get("MIN_EDGE"), getattr(settings, "NO_MIN_EDGE", 0.03))),
+        outs_min_edge=_parse_float(raw.get("OUTS_MIN_EDGE"), getattr(settings, "OUTS_MIN_EDGE", 0.04)),
         entry_sec=_parse_int(raw.get("FAVORITE_MODE_ENTRY_SEC"), getattr(settings, "FAVORITE_MODE_ENTRY_SEC", 120)),
-        min_edge=_parse_float(raw.get("MIN_EDGE"), getattr(settings, "MIN_EDGE", 0.05)),
         favorite_threshold=_parse_float(raw.get("FAVORITE_THRESHOLD"), getattr(settings, "FAVORITE_THRESHOLD", 0.70)),
         trade_assets=trade_assets,
         use_crypto_confirm=_parse_bool(raw.get("USE_CRYPTO_CONFIRM"), getattr(settings, "USE_CRYPTO_CONFIRM", False)),
@@ -127,7 +137,7 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         max_bet_size_usdc=_parse_float(raw.get("MAX_BET_SIZE_USDC"), getattr(settings, "MAX_BET_SIZE_USDC", 50.0)),
         favorite_min_price=_parse_float(raw.get("FAVORITE_MIN_PRICE"), getattr(settings, "FAVORITE_MIN_PRICE", 0.55)),
         favorite_max_price=_parse_float(raw.get("FAVORITE_MAX_PRICE"), getattr(settings, "FAVORITE_MAX_PRICE", 0.95)),
-        favorite_min_edge=_parse_float(raw.get("FAVORITE_MIN_EDGE"), _parse_float(raw.get("MIN_EDGE"), getattr(settings, "FAVORITE_MIN_EDGE", 0.02))),
+        favorite_min_edge=_parse_float(raw.get("FAVORITE_MIN_EDGE"), getattr(settings, "FAVORITE_MIN_EDGE", 0.05)),
         outsider_max_price=_parse_float(raw.get("OUTSIDER_MAX_PRICE"), getattr(settings, "OUTSIDER_MAX_PRICE", 0.40)),
         liquidity_fraction=_parse_float(raw.get("LIQUIDITY_FRACTION"), getattr(settings, "LIQUIDITY_FRACTION", 0.1)),
         bypass_bet_size_check=_parse_bool(raw.get("BYPASS_BET_SIZE_CHECK"), getattr(settings, "BYPASS_BET_SIZE_CHECK", False)),

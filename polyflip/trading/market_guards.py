@@ -61,7 +61,9 @@ async def check_market_guards(
         if not (window_min <= time_left_sec <= window_max):
             return GuardResult(passed=False, skip_reason="Outside time window", existing_skipped=existing_skipped)
     else:
-        if not (cfg.min_time_left <= time_left_sec <= cfg.max_time_left):
+        global_min_sec = min(cfg.favor_min_time_left, cfg.outs_min_time_left)
+        global_max_sec = max(cfg.favor_max_time_left, cfg.outs_max_time_left)
+        if not (global_min_sec <= time_left_sec <= global_max_sec):
             return GuardResult(passed=False, skip_reason="Outside time window", existing_skipped=existing_skipped)
             
     # 2. Проверяем дубликаты сделок — existing_skipped уже доступен

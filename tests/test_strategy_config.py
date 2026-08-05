@@ -27,14 +27,14 @@ async def test_config_history_recorded(db_session):
     
     try:
         # First set (None -> 0.03)
-        await update_setting("MIN_EDGE", SettingValue(value="0.03"))
+        await update_setting("OUTS_MIN_EDGE", SettingValue(value="0.03"))
         
         # Second set (0.03 -> 0.05)
-        await update_setting("MIN_EDGE", SettingValue(value="0.05"))
+        await update_setting("OUTS_MIN_EDGE", SettingValue(value="0.05"))
         
         # Check StrategyConfig rows
         result = await db_session.execute(
-            select(StrategyConfig).where(StrategyConfig.key == "MIN_EDGE")
+            select(StrategyConfig).where(StrategyConfig.key == "OUTS_MIN_EDGE")
             .order_by(StrategyConfig.changed_at.asc())
         )
         rows = result.scalars().all()
@@ -65,7 +65,7 @@ async def test_config_history_with_ip(db_session):
     try:
         mock_request = MagicMock()
         mock_request.client.host = "192.168.1.1"
-        await update_setting("MIN_EDGE", SettingValue(value="0.03"), request=mock_request)
+        await update_setting("OUTS_MIN_EDGE", SettingValue(value="0.03"), request=mock_request)
         
         result = await db_session.execute(select(StrategyConfig))
         row = result.scalar_one()

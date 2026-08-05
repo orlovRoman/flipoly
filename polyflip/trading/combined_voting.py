@@ -134,6 +134,7 @@ def evaluate_combined_entry(
     config_dict: Optional[dict] = None,
     underlying_price: Optional[float] = None,
     fallback_reason: Optional[str] = None,
+    time_left_sec: float = 0.0,
 ) -> CombinedEntryResult:
     """
     Чистая функция оценки входа в Combined-режиме.
@@ -354,7 +355,11 @@ def evaluate_combined_entry(
         strong_threshold=strong_thresh,
         discount_weight=discount_weight,
     )
-    discount_mult = round(p_candidate_win / p_logreg_win, 4) if p_logreg_win > 0 else 1.0
+    if p_logreg_win > 0:
+        discount_mult = round(p_candidate_win / p_logreg_win, 4)
+    else:
+        discount_mult = 0.0
+        logger.warning("combined_discount_mult_zero_logreg", asset=crypto_sig.symbol, p_flip=p_flip)
 
     if discount_weight > 0.0:
         logger.info(
@@ -405,6 +410,36 @@ def evaluate_combined_entry(
         )
 
     is_outsider = (candidate_side == "BUY_YES" and fresh_yes_price < 0.50) or (candidate_side == "BUY_NO" and fresh_yes_price >= 0.50)
+    
+    is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider)
+    if not is_valid_time:
+        return CombinedEntryResult(
+            action="SKIP",
+            reason=time_reason,
+            direction_status=dir_status,
+            direction_model_key=crypto_sig.model_key or None,
+            direction_model_version=crypto_sig.model_version,
+            direction_regime=crypto_sig.regime or None,
+            direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
+            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
+            direction_value=dir_val,
+            entry_requested_key=entry_requested_key,
+            entry_model_key=entry_model_key,
+            entry_model_version=entry_model_version,
+            entry_model_phase=market_phase,
+            entry_model_source=entry_model_source,
+            entry_status="INVALID_TIME",
+            fallback_reason=fallback_reason,
+            p_candidate_win=p_candidate_win,
+            p_flip=p_flip,
+            strike_source="BINANCE_LAST_CANDLE" if strike else None,
+            strike_proxy=strike,
+            underlying_price=und_price,
+            distance_to_strike_pct=dist_pct,
+        )
     
     if is_outsider and not cfg.trade_on_flip:
         return CombinedEntryResult(

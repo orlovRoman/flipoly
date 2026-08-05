@@ -62,23 +62,23 @@ async def test_update_per_asset_min_edge(db_session):
     
     try:
         # Valid values
-        await update_setting("MIN_EDGE_BTC", SettingValue(value="0.05"), db=db_session)
-        stmt = select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE_BTC")
+        await update_setting("OUTS_MIN_EDGE_BTC", SettingValue(value="0.05"), db=db_session)
+        stmt = select(RuntimeSettings).where(RuntimeSettings.key == "OUTS_MIN_EDGE_BTC")
         row = (await db_session.execute(stmt)).scalar_one()
         assert float(row.value) == 0.05
         
-        await update_setting("MIN_EDGE_BTC", SettingValue(value=""), db=db_session)
-        stmt = select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE_BTC")
+        await update_setting("OUTS_MIN_EDGE_BTC", SettingValue(value=""), db=db_session)
+        stmt = select(RuntimeSettings).where(RuntimeSettings.key == "OUTS_MIN_EDGE_BTC")
         row = (await db_session.execute(stmt)).scalar_one()
         assert row.value == ""
 
         # Invalid value
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("MIN_EDGE_BTC", SettingValue(value="105"), db=db_session)
+            await update_setting("OUTS_MIN_EDGE_BTC", SettingValue(value="105"), db=db_session)
         assert exc_info.value.status_code == 400
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("MIN_EDGE_BTC", SettingValue(value="-1"), db=db_session)
+            await update_setting("OUTS_MIN_EDGE_BTC", SettingValue(value="-1"), db=db_session)
         assert exc_info.value.status_code == 400
     finally:
         settings_module.async_session = original_session

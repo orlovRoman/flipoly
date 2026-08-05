@@ -89,7 +89,7 @@ def test_evaluate_combined_entry_with_discount():
         "TRADE_ASSETS": "BTC",
         "MIN_DIRECTION_PROB": "0.505",
         "MIN_WIN_PROB": "0.51",
-        "MIN_EDGE": "0.02",
+        "OUTS_MIN_EDGE": "0.02",
         "COMBINED_COST_BUFFER": "0.01",
         "COMBINED_DIR_DISCOUNT_WEIGHT": "0.20",
         "COMBINED_DIR_STRONG_THRESHOLD": "0.65",

@@ -20,8 +20,10 @@ class BacktestConfig(BaseModel):
     max_markets: int = Field(default=500, ge=10, le=2000, description="Максимум рынков в одном прогоне")
 
     # Торговое окно
-    min_time_left_min: float = Field(default=1.0, ge=0.0, le=1440.0)
-    max_time_left_min: float = Field(default=60.0, ge=1.0, le=1440.0)
+    favor_min_time_left_min: float = Field(default=1.0, ge=0.0, le=1440.0)
+    favor_max_time_left_min: float = Field(default=60.0, ge=1.0, le=1440.0)
+    outs_min_time_left_min: float = Field(default=1.0, ge=0.0, le=1440.0)
+    outs_max_time_left_min: float = Field(default=60.0, ge=1.0, le=1440.0)
 
     # Стратегия
     strategy_mode: Literal["ML", "PURE_FAVORITE"] = Field(default="ML")
@@ -57,7 +59,7 @@ class BacktestConfig(BaseModel):
     bet_sizing_mode: Literal["fixed", "scaled"] = Field(default="scaled")
     trade_bet_size_usdc: float = Field(default=5.0, ge=1.0)
     max_bet_size_usdc: float = Field(default=50.0, ge=1.0)
-    min_edge: float = Field(default=-0.05, ge=-1.0, le=1.0)
+    outs_min_edge: float = Field(default=0.04, ge=-1.0, le=1.0)
     max_bet_edge: float = Field(default=0.50, ge=-1.0, le=1.0)
 
     # Исполнение
@@ -68,11 +70,10 @@ class BacktestConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_time_window(self) -> "BacktestConfig":
-        if self.min_time_left_min >= self.max_time_left_min:
-            raise ValueError(
-                f"min_time_left_min ({self.min_time_left_min}) "
-                f"must be < max_time_left_min ({self.max_time_left_min})"
-            )
+        if self.favor_min_time_left_min >= self.favor_max_time_left_min:
+            raise ValueError("favor_min_time_left_min must be < favor_max_time_left_min")
+        if self.outs_min_time_left_min >= self.outs_max_time_left_min:
+            raise ValueError("outs_min_time_left_min must be < outs_max_time_left_min")
         return self
 
     @model_validator(mode="after")
@@ -91,8 +92,10 @@ class BacktestConfig(BaseModel):
     def to_runner_config(self) -> dict:
         """Конвертирует в dict для BacktestRunner (ключи = SCREAMING_SNAKE)."""
         return {
-            "MIN_TIME_LEFT_MIN": self.min_time_left_min,
-            "MAX_TIME_LEFT_MIN": self.max_time_left_min,
+            "FAVOR_MIN_TIME_LEFT_MIN": self.favor_min_time_left_min,
+            "FAVOR_MAX_TIME_LEFT_MIN": self.favor_max_time_left_min,
+            "OUTS_MIN_TIME_LEFT_MIN": self.outs_min_time_left_min,
+            "OUTS_MAX_TIME_LEFT_MIN": self.outs_max_time_left_min,
             "STRATEGY_MODE": self.strategy_mode,
             "ENTRY_STRATEGY": self.entry_strategy,
             "TRADE_ON_FLIP": self.trade_on_flip,
@@ -107,7 +110,7 @@ class BacktestConfig(BaseModel):
             "BET_SIZING_MODE": self.bet_sizing_mode,
             "TRADE_BET_SIZE_USDC": self.trade_bet_size_usdc,
             "MAX_BET_SIZE_USDC": self.max_bet_size_usdc,
-            "MIN_EDGE": self.min_edge,
+            "OUTS_MIN_EDGE": self.outs_min_edge,
             "MAX_BET_EDGE": self.max_bet_edge,
             "SLIPPAGE_PCT": self.slippage_pct,
         }

@@ -3,8 +3,8 @@ from polyflip.settings_registry import registry_defaults
 
 def test_defaults_include_edge_bounds():
     from polyflip.db.init_runtime_settings import DEFAULTS
-    assert "MIN_EDGE" in DEFAULTS, "MIN_EDGE должен быть в дефолтах"
-    assert float(DEFAULTS["MIN_EDGE"]) > 0
+    assert "OUTS_MIN_EDGE" in DEFAULTS, "OUTS_MIN_EDGE должен быть в дефолтах"
+    assert float(DEFAULTS["OUTS_MIN_EDGE"]) > 0
 
 def test_edge_formula_is_roi_based():
     from polyflip.trading.position_sizing import compute_edge
@@ -14,4 +14,4 @@ def test_edge_formula_is_roi_based():
 
 def test_defaults_min_edge_matches_registry():
     from polyflip.db.init_runtime_settings import DEFAULTS
-    assert float(DEFAULTS["MIN_EDGE"]) == float(registry_defaults()["MIN_EDGE"])
+    assert float(DEFAULTS["OUTS_MIN_EDGE"]) == float(registry_defaults()["OUTS_MIN_EDGE"])

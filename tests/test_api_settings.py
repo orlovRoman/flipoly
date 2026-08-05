@@ -11,9 +11,6 @@ ROOT = pathlib.Path(__file__).parent.parent
 
 # ── 7.3 Тест: DEFAULTS из сидера совпадают с реестром ─────────────────
 
-def test_defaults_no_min_edge_matches_registry():
-    from polyflip.db.init_runtime_settings import DEFAULTS
-    assert DEFAULTS["NO_MIN_EDGE"] == registry_defaults()["NO_MIN_EDGE"]
 
 
 def test_defaults_favorite_min_edge_matches_registry():
@@ -23,7 +20,7 @@ def test_defaults_favorite_min_edge_matches_registry():
 
 def test_defaults_min_edge_matches_registry():
     from polyflip.db.init_runtime_settings import DEFAULTS
-    assert DEFAULTS["MIN_EDGE"] == registry_defaults()["MIN_EDGE"]
+    assert DEFAULTS["OUTS_MIN_EDGE"] == registry_defaults()["OUTS_MIN_EDGE"]
 
 
 

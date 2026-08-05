@@ -303,8 +303,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const settingsElements = {
     apiKeyInput: document.getElementById("API_KEY"),
-    minTimeLeft: document.getElementById("TRADE_MIN_TIME_LEFT_SEC"),
-    maxTimeLeft: document.getElementById("TRADE_MAX_TIME_LEFT_SEC"),
+    favorMinTimeLeft: document.getElementById("FAVOR_MIN_TIME_LEFT_SEC"),
+    favorMaxTimeLeft: document.getElementById("FAVOR_MAX_TIME_LEFT_SEC"),
+    outsMinTimeLeft: document.getElementById("OUTS_MIN_TIME_LEFT_SEC"),
+    outsMaxTimeLeft: document.getElementById("OUTS_MAX_TIME_LEFT_SEC"),
     betSizingMode: document.getElementById("BET_SIZING_MODE"),
     maxBetSizeGroup: document.getElementById("max-bet-size-group"),
     maxBetSize: document.getElementById("MAX_BET_SIZE_USDC"),
@@ -335,13 +337,12 @@ document.addEventListener("DOMContentLoaded", () => {
     favoriteEntrySecInput: document.getElementById('FAVORITE_MODE_ENTRY_SEC'),
     tradingModeBadge: document.getElementById('trading-mode-badge'),
     pollIntervalInput: document.getElementById("LIVE_POLL_INTERVAL_SECONDS"),
-    minEdge: document.getElementById("MIN_EDGE"),
 
     favoriteThreshold: document.getElementById("FAVORITE_THRESHOLD"),
     tradeOnFavorite: document.getElementById("TRADE_ON_FAVORITE"),
     tradeOnFlip: document.getElementById("TRADE_ON_FLIP"),
     flipThreshold: document.getElementById("FLIP_THRESHOLD"),
-    noMinEdge: document.getElementById("NO_MIN_EDGE"),
+    outsMinEdge: document.getElementById("OUTS_MIN_EDGE"),
 
     autoDeadZone: document.getElementById("AUTO_DEAD_ZONE"),
     favoriteMinEdge: document.getElementById("FAVORITE_MIN_EDGE"),
@@ -572,10 +573,14 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const data = await res.json();
 
-      if (settingsElements.minTimeLeft && data.TRADE_MIN_TIME_LEFT_SEC)
-        settingsElements.minTimeLeft.value = data.TRADE_MIN_TIME_LEFT_SEC;
-      if (settingsElements.maxTimeLeft && data.TRADE_MAX_TIME_LEFT_SEC)
-        settingsElements.maxTimeLeft.value = data.TRADE_MAX_TIME_LEFT_SEC;
+      if (settingsElements.favorMinTimeLeft && data.FAVOR_MIN_TIME_LEFT_SEC)
+        settingsElements.favorMinTimeLeft.value = data.FAVOR_MIN_TIME_LEFT_SEC;
+      if (settingsElements.favorMaxTimeLeft && data.FAVOR_MAX_TIME_LEFT_SEC)
+        settingsElements.favorMaxTimeLeft.value = data.FAVOR_MAX_TIME_LEFT_SEC;
+      if (settingsElements.outsMinTimeLeft && data.OUTS_MIN_TIME_LEFT_SEC)
+        settingsElements.outsMinTimeLeft.value = data.OUTS_MIN_TIME_LEFT_SEC;
+      if (settingsElements.outsMaxTimeLeft && data.OUTS_MAX_TIME_LEFT_SEC)
+        settingsElements.outsMaxTimeLeft.value = data.OUTS_MAX_TIME_LEFT_SEC;
       if (settingsElements.betSizingMode && data.BET_SIZING_MODE)
         settingsElements.betSizingMode.value = data.BET_SIZING_MODE;
       if (settingsElements.maxBetSize && data.MAX_BET_SIZE_USDC)
@@ -679,11 +684,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxPrice && data.TRADE_MAX_PRICE)
         settingsElements.maxPrice.value = data.TRADE_MAX_PRICE;
 
-      if (settingsElements.minEdge && data.MIN_EDGE !== undefined) {
-        let val = parseFloat(data.MIN_EDGE);
-        currentMinEdge = val;
-        settingsElements.minEdge.value = (val * 100).toFixed(1);
-      }
+
 
       if (settingsElements.favoriteThreshold && data.FAVORITE_THRESHOLD !== undefined) {
         let val = parseFloat(data.FAVORITE_THRESHOLD);
@@ -704,9 +705,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.favoriteMaxPrice && data.FAVORITE_MAX_PRICE !== undefined) {
         settingsElements.favoriteMaxPrice.value = data.FAVORITE_MAX_PRICE;
       }
-      if (settingsElements.noMinEdge && data.NO_MIN_EDGE !== undefined) {
-        let val = parseFloat(data.NO_MIN_EDGE);
-        settingsElements.noMinEdge.value = (val * 100).toFixed(1);
+      if (settingsElements.outsMinEdge && data.OUTS_MIN_EDGE !== undefined) {
+        let val = parseFloat(data.OUTS_MIN_EDGE);
+        settingsElements.outsMinEdge.value = (val * 100).toFixed(1);
       }
 
       if (settingsElements.autoDeadZone && data.AUTO_DEAD_ZONE) {
@@ -843,8 +844,10 @@ document.addEventListener("DOMContentLoaded", () => {
       // OUTSIDER_MAX_PRICE   → as-is  (хранится как float)
       // Если меняешь формат хранения — обнови loadSettings() симметрично.
       const settingsToSave = {};
-      if (settingsElements.minTimeLeft) settingsToSave.TRADE_MIN_TIME_LEFT_SEC = settingsElements.minTimeLeft.value;
-      if (settingsElements.maxTimeLeft) settingsToSave.TRADE_MAX_TIME_LEFT_SEC = settingsElements.maxTimeLeft.value;
+      if (settingsElements.favorMinTimeLeft) settingsToSave.FAVOR_MIN_TIME_LEFT_SEC = settingsElements.favorMinTimeLeft.value;
+      if (settingsElements.favorMaxTimeLeft) settingsToSave.FAVOR_MAX_TIME_LEFT_SEC = settingsElements.favorMaxTimeLeft.value;
+      if (settingsElements.outsMinTimeLeft) settingsToSave.OUTS_MIN_TIME_LEFT_SEC = settingsElements.outsMinTimeLeft.value;
+      if (settingsElements.outsMaxTimeLeft) settingsToSave.OUTS_MAX_TIME_LEFT_SEC = settingsElements.outsMaxTimeLeft.value;
       if (settingsElements.betSizingMode) settingsToSave.BET_SIZING_MODE = settingsElements.betSizingMode.value;
       if (settingsElements.maxBetSize) settingsToSave.MAX_BET_SIZE_USDC = settingsElements.maxBetSize.value;
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
@@ -913,13 +916,12 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsToSave.FAVORITE_MODE_ENTRY_SEC = settingsElements.favoriteEntrySecInput.value;
       }
       if (settingsElements.pollIntervalInput) settingsToSave.LIVE_POLL_INTERVAL_SECONDS = settingsElements.pollIntervalInput.value;
-      if (settingsElements.minEdge) settingsToSave.MIN_EDGE = parseFormattedFloat(settingsElements.minEdge.value) / 100;
 
       if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFormattedFloat(settingsElements.favoriteThreshold.value);
       if (settingsElements.tradeOnFavorite) settingsToSave.TRADE_ON_FAVORITE = settingsElements.tradeOnFavorite.checked ? "true" : "false";
       if (settingsElements.tradeOnFlip) settingsToSave.TRADE_ON_FLIP = settingsElements.tradeOnFlip.checked ? "true" : "false";
       if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFormattedFloat(settingsElements.flipThreshold.value) / 100;
-      if (settingsElements.noMinEdge) settingsToSave.NO_MIN_EDGE = parseFormattedFloat(settingsElements.noMinEdge.value) / 100;
+      if (settingsElements.outsMinEdge) settingsToSave.OUTS_MIN_EDGE = parseFormattedFloat(settingsElements.outsMinEdge.value) / 100;
 
       if (settingsElements.autoDeadZone) settingsToSave.AUTO_DEAD_ZONE = settingsElements.autoDeadZone.checked ? "true" : "false";
 

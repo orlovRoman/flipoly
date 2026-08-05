@@ -39,7 +39,8 @@ async def get_all_settings(db: Optional[AsyncSession] = None):
     for asset in settings.asset_list:
         asset_upper = asset.upper()
         settings_dict[f"TRADING_MODE_{asset_upper}"] = db_settings.get(f"TRADING_MODE_{asset_upper}", "")
-        settings_dict[f"MIN_EDGE_{asset_upper}"] = db_settings.get(f"MIN_EDGE_{asset_upper}", "")
+        settings_dict[f"OUTS_MIN_EDGE_{asset_upper}"] = db_settings.get(f"OUTS_MIN_EDGE_{asset_upper}", "")
+        settings_dict[f"FAVORITE_MIN_EDGE_{asset_upper}"] = db_settings.get(f"FAVORITE_MIN_EDGE_{asset_upper}", "")
         settings_dict[f"TRADE_MAX_PRICE_{asset_upper}"] = db_settings.get(f"TRADE_MAX_PRICE_{asset_upper}", "")
         settings_dict[f"TRADE_FLIP_THRESHOLD_{asset_upper}"] = db_settings.get(f"TRADE_FLIP_THRESHOLD_{asset_upper}", "")
 
@@ -223,7 +224,8 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
         asset_upper = asset.upper()
         if key in [
             f"TRADING_MODE_{asset_upper}", 
-            f"MIN_EDGE_{asset_upper}", 
+            f"OUTS_MIN_EDGE_{asset_upper}",
+            f"FAVORITE_MIN_EDGE_{asset_upper}",
             f"TRADE_MAX_PRICE_{asset_upper}",
             f"FLIP_THRESHOLD_{asset_upper}",
             f"TRADE_FLIP_THRESHOLD_{asset_upper}"
@@ -257,8 +259,8 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
 
-    if key in ["MIN_EDGE", "NO_MIN_EDGE", "FAVORITE_MIN_EDGE"] or key.startswith("MIN_EDGE_"):
-        if key.startswith("MIN_EDGE_") and payload.value == "":
+    if key in ["OUTS_MIN_EDGE", "FAVORITE_MIN_EDGE"] or key.startswith("OUTS_MIN_EDGE_") or key.startswith("FAVORITE_MIN_EDGE_"):
+        if (key.startswith("OUTS_MIN_EDGE_") or key.startswith("FAVORITE_MIN_EDGE_")) and payload.value == "":
             pass
         else:
             try:
@@ -371,16 +373,7 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
         except ValueError:
             raise HTTPException(status_code=400, detail="MAX_BET_SIZE_USDC must be a number")
 
-    if key == "NO_MIN_EDGE":
-        try:
-            val = float(payload.value)
-            if val > 1.0:
-                payload.value = str(val / 100.0)
-            else:
-                payload.value = str(val)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="NO_MIN_EDGE must be a number")
-
+    # Removed NO_MIN_EDGE block since it was replaced by OUTS_MIN_EDGE
     if key in ["TRADE_ON_FAVORITE", "TRADE_ON_FLIP"]:
         if payload.value.lower() not in ("true", "false"):
             raise HTTPException(status_code=400, detail=f"{key} must be 'true' or 'false'")

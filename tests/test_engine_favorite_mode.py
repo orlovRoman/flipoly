@@ -48,7 +48,7 @@ def make_settings_db(
         "FAVORITE_MODE_ENTRY_SEC": str(entry_sec),
         "FAVORITE_THRESHOLD": "0.70",
         "FAVORITE_MIN_EDGE": "-0.05",
-        "MIN_EDGE": "-0.05",
+        "OUTS_MIN_EDGE": "-0.05",
     }
     result = []
     for k, v in pairs.items():

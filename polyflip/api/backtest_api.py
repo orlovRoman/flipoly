@@ -195,8 +195,8 @@ async def _execute_backtest_logic(
     base_filters = [
         MarketSnapshot.asset.in_(config.assets),
         MarketSnapshot.final_outcome.in_(["YES", "NO"]),
-        MarketSnapshot.time_left_min >= config.min_time_left_min,
-        MarketSnapshot.time_left_min <= config.max_time_left_min,
+        MarketSnapshot.time_left_min >= min(config.outs_min_time_left_min, config.favor_min_time_left_min),
+        MarketSnapshot.time_left_min <= max(config.outs_max_time_left_min, config.favor_max_time_left_min),
     ]
     if config.date_from:
         base_filters.append(MarketSnapshot.recorded_at >= config.date_from)

@@ -83,7 +83,7 @@ class BacktestRunner:
     def _evaluate_tick(self, tick):
         signal = tick.to_signal()
         if self.strategy_mode == "PURE_FAVORITE":
-            decision = decide_favorite(signal, self.config)
+            decision = decide_favorite(signal, self.config, time_left_sec=tick.time_left_min * 60.0)
             p_flip = 0.0
         else:
             # Сначала проверяем предсказанное значение из кэша батч-предикшна
@@ -92,9 +92,9 @@ class BacktestRunner:
                 p_flip = self.p_flips[key]
             else:
                 p_flip = self._predict_flip(signal)
-            decision = decide_ml_trend(signal, p_flip, self.config)
+            decision = decide_ml_trend(signal, p_flip, self.config, time_left_sec=tick.time_left_min * 60.0)
             if decision.action == "SKIP" and self.trade_on_flip:
-                decision = decide_outsider(signal, p_flip, self.config)
+                decision = decide_outsider(signal, p_flip, self.config, time_left_sec=tick.time_left_min * 60.0)
         
         return decision, p_flip, signal
 
@@ -102,8 +102,8 @@ class BacktestRunner:
         if not replay.is_tradeable:
             return
 
-        min_time = float(self.config.get("MIN_TIME_LEFT_MIN", 1.0))
-        max_time = float(self.config.get("MAX_TIME_LEFT_MIN", 60.0))
+        min_time = min(float(self.config.get("FAVOR_MIN_TIME_LEFT_MIN", 1.0)), float(self.config.get("OUTS_MIN_TIME_LEFT_MIN", 1.0)))
+        max_time = max(float(self.config.get("FAVOR_MAX_TIME_LEFT_MIN", 60.0)), float(self.config.get("OUTS_MAX_TIME_LEFT_MIN", 60.0)))
         
         ticks = replay.get_ticks_in_window(min_time, max_time)
         if not ticks:
@@ -195,8 +195,8 @@ class BacktestRunner:
                 df = add_derived_features(df)
                 df = add_lag_features(df)
                 
-                min_time = float(self.config.get("MIN_TIME_LEFT_MIN", 1.0))
-                max_time = float(self.config.get("MAX_TIME_LEFT_MIN", 60.0))
+                min_time = min(float(self.config.get("FAVOR_MIN_TIME_LEFT_MIN", 1.0)), float(self.config.get("OUTS_MIN_TIME_LEFT_MIN", 1.0)))
+                max_time = max(float(self.config.get("FAVOR_MAX_TIME_LEFT_MIN", 60.0)), float(self.config.get("OUTS_MAX_TIME_LEFT_MIN", 60.0)))
                 mask = (df["time_left_min"] >= min_time) & (df["time_left_min"] <= max_time)
                 df_window = df[mask].copy()
                 

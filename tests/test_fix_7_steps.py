@@ -15,7 +15,7 @@ def test_step2_ml_trend_edge_uses_ml_probability():
         hour_of_day=12, time_left_min=10.0
     )
     config = {
-        "NO_FLIP_THRESHOLD": 0.35, "MIN_EDGE": 0.05,
+        "NO_FLIP_THRESHOLD": 0.35, "OUTS_MIN_EDGE": 0.05,
         "FAVORITE_MIN_PRICE": 0.50, "FAVORITE_MAX_PRICE": 0.95,
         "DEAD_ZONE_WIDTH": 0.05
     }
@@ -34,7 +34,7 @@ def test_step3_outsider_threshold_uses_calibrated_p_flip():
         hour_of_day=12, time_left_min=10.0
     )
     config = {
-        "FLIP_THRESHOLD": 0.60, "NO_MIN_EDGE": 0.04, "MIN_EDGE": 0.04,
+        "FLIP_THRESHOLD": 0.60, "NO_OUTS_MIN_EDGE": 0.04, "OUTS_MIN_EDGE": 0.04,
         "OUTSIDER_MAX_PRICE": 0.45, "DEAD_ZONE_WIDTH": 0.05
     }
     # p_flip=0.61 (raw), ECE=0.10 -> calibrated = 0.5 + (0.61 - 0.5) * (1 - 0.10) = 0.599 < 0.60 -> SKIP
@@ -51,7 +51,7 @@ def test_step4_outsider_direction():
         hour_of_day=12, time_left_min=10.0
     )
     config = {
-        "FLIP_THRESHOLD": 0.60, "NO_MIN_EDGE": 0.01, "MIN_EDGE": 0.01,
+        "FLIP_THRESHOLD": 0.60, "NO_OUTS_MIN_EDGE": 0.01, "OUTS_MIN_EDGE": 0.01,
         "OUTSIDER_MAX_PRICE": 0.45, "DEAD_ZONE_WIDTH": 0.05
     }
     decision = decide_outsider(signal_yes_fav, p_flip=0.70, config=config, ece=0.0)

@@ -51,8 +51,10 @@ function readConfig() {
     min_snapshots_per_market: parseInt(document.getElementById('cfg-min-snaps').value) || 3,
     model_id: parseInt(document.getElementById('cfg-model-id').value) || null,
     strategy_mode:        document.getElementById('cfg-strategy-mode').value,
-    min_time_left_min:    parseFloat(document.getElementById('cfg-min-time').value),
-    max_time_left_min:    parseFloat(document.getElementById('cfg-max-time').value),
+    favor_min_time_left_min: parseFloat(document.getElementById('cfg-favor-min-time').value),
+    favor_max_time_left_min: parseFloat(document.getElementById('cfg-favor-max-time').value),
+    outs_min_time_left_min: parseFloat(document.getElementById('cfg-outs-min-time').value),
+    outs_max_time_left_min: parseFloat(document.getElementById('cfg-outs-max-time').value),
     no_flip_threshold:    parseFloat(document.getElementById('cfg-no-flip').value) / 100,
     flip_threshold:       parseFloat(document.getElementById('cfg-flip').value) / 100,
     trade_on_flip:        document.getElementById('cfg-trade-on-flip').checked,
@@ -65,7 +67,7 @@ function readConfig() {
     bet_sizing_mode:      document.getElementById('cfg-bet-sizing-mode').value,
     trade_bet_size_usdc:  parseFloat(document.getElementById('cfg-min-bet').value),
     max_bet_size_usdc:    parseFloat(document.getElementById('cfg-max-bet').value),
-    min_edge:             parseFloat(document.getElementById('cfg-min-edge').value),
+    outs_min_edge: parseFloat(document.getElementById('cfg-outs-min-edge').value),
     max_bet_edge:         parseFloat(document.getElementById('cfg-max-edge').value),
     max_edge_filter:      parseFloat(document.getElementById('cfg-max-edge-filter').value),
     slippage_pct:         parseFloat(document.getElementById('cfg-slippage').value) / 100,
@@ -425,8 +427,10 @@ async function loadHistoricRun(runId) {
           document.getElementById('cfg-model-id').value   = "";
         }
         document.getElementById('cfg-strategy-mode').value = cfg.strategy_mode || 'ML';
-        document.getElementById('cfg-min-time').value   = cfg.min_time_left_min || 1;
-        document.getElementById('cfg-max-time').value   = cfg.max_time_left_min || 60;
+        document.getElementById('cfg-favor-min-time').value = cfg.favor_min_time_left_min || 1;
+        document.getElementById('cfg-favor-max-time').value = cfg.favor_max_time_left_min || 60;
+        document.getElementById('cfg-outs-min-time').value = cfg.outs_min_time_left_min || 1;
+        document.getElementById('cfg-outs-max-time').value = cfg.outs_max_time_left_min || 60;
         document.getElementById('cfg-no-flip').value    = cfg.no_flip_threshold != null ? (cfg.no_flip_threshold * 100).toFixed(0) : '35';
         document.getElementById('cfg-flip').value       = cfg.flip_threshold != null ? (cfg.flip_threshold * 100).toFixed(0) : '60';
         document.getElementById('cfg-fav-thresh').value = cfg.favorite_threshold != null ? cfg.favorite_threshold : 0.65;
@@ -534,8 +538,10 @@ function onStrategyChange() {
 
 function resetConfig() {
   document.getElementById('cfg-assets').value     = 'BTC,ETH';
-  document.getElementById('cfg-min-time').value   = '1';
-  document.getElementById('cfg-max-time').value   = '60';
+  document.getElementById('cfg-favor-min-time').value = '1';
+  document.getElementById('cfg-favor-max-time').value = '60';
+  document.getElementById('cfg-outs-min-time').value = '1';
+  document.getElementById('cfg-outs-max-time').value = '60';
   document.getElementById('cfg-strategy-mode').value = 'ML';
   document.getElementById('cfg-no-flip').value    = '35';
   document.getElementById('cfg-flip').value       = '60';
@@ -548,7 +554,7 @@ function resetConfig() {
   document.getElementById('cfg-bet-sizing-mode').value = 'scaled';
   document.getElementById('cfg-min-bet').value    = '5';
   document.getElementById('cfg-max-bet').value    = '50';
-  document.getElementById('cfg-min-edge').value   = '-0.05';
+  document.getElementById('cfg-outs-min-edge').value = '0.04';
   document.getElementById('cfg-max-edge').value   = '0.50';
   document.getElementById('cfg-max-edge-filter').value = '0.20';
   document.getElementById('cfg-slippage').value   = '0.5';
@@ -560,8 +566,10 @@ async function applyLiveSettings() {
   try {
     const s = await API.getLiveSettings();
     document.getElementById('cfg-assets').value     = s.TRADE_ASSETS || 'BTC,ETH';
-    document.getElementById('cfg-min-time').value   = s.TRADE_MIN_TIME_LEFT_SEC != null ? (parseInt(s.TRADE_MIN_TIME_LEFT_SEC) / 60).toFixed(1) : '1';
-    document.getElementById('cfg-max-time').value   = s.TRADE_MAX_TIME_LEFT_SEC != null ? (parseInt(s.TRADE_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
+    document.getElementById('cfg-favor-min-time').value = s.FAVOR_MIN_TIME_LEFT_SEC != null ? (parseInt(s.FAVOR_MIN_TIME_LEFT_SEC) / 60).toFixed(1) : '1';
+    document.getElementById('cfg-favor-max-time').value = s.FAVOR_MAX_TIME_LEFT_SEC != null ? (parseInt(s.FAVOR_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
+    document.getElementById('cfg-outs-min-time').value = s.OUTS_MIN_TIME_LEFT_SEC != null ? (parseInt(s.OUTS_MIN_TIME_LEFT_SEC) / 60).toFixed(1) : '1';
+    document.getElementById('cfg-outs-max-time').value = s.OUTS_MAX_TIME_LEFT_SEC != null ? (parseInt(s.OUTS_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
     const modeMap = {
       ml: 'ML',
       favorite: 'PURE_FAVORITE',

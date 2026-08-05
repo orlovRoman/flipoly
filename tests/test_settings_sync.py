@@ -20,7 +20,7 @@ def test_settings_sync():
                         key = node.args[0].value
                         # Игнорируем динамические ключи, такие как f"TRADING_MODE_{asset}"
                         if not key.startswith("TRADING_MODE_") and \
-                           not key.startswith("MIN_EDGE_") and \
+                           not key.startswith("OUTS_MIN_EDGE_") and \
                            not key.startswith("TRADE_MAX_PRICE_"):
                             engine_keys.add(key)
                             

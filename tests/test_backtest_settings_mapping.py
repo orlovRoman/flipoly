@@ -32,11 +32,13 @@ def live_settings_to_backtest_config(live: dict) -> dict:
         "flip_threshold":       pct_to_frac("FLIP_THRESHOLD", 0.60),
         "auto_dead_zone_width": pct_to_frac("DEAD_ZONE_WIDTH", 0.10),
         "favorite_threshold":   float(live.get("FAVORITE_THRESHOLD", 0.65)),
-        "min_time_left_min":    float(live.get("TRADE_MIN_TIME_LEFT_SEC", 60)) / 60,
-        "max_time_left_min":    float(live.get("TRADE_MAX_TIME_LEFT_SEC", 3600)) / 60,
+        "favor_min_time_left_min": float(live.get("TRADE_MIN_TIME_LEFT_SEC", 60)) / 60,
+        "favor_max_time_left_min": float(live.get("TRADE_MAX_TIME_LEFT_SEC", 3600)) / 60,
+        "outs_min_time_left_min":  float(live.get("TRADE_MIN_TIME_LEFT_SEC", 60)) / 60,
+        "outs_max_time_left_min":  float(live.get("TRADE_MAX_TIME_LEFT_SEC", 3600)) / 60,
         "trade_bet_size_usdc":  float(live.get("TRADE_BET_SIZE_USDC", 5)),
         "max_bet_size_usdc":    float(live.get("MAX_BET_SIZE_USDC", 50)),
-        "min_edge":             float(live.get("MIN_EDGE", -0.05)),
+        "min_edge":             float(live.get("OUTS_MIN_EDGE", -0.05)),
         "max_bet_edge":         float(live.get("MAX_BET_EDGE", 0.50)),  # ← правильное поле
         "slippage_pct":         float(live.get("SLIPPAGE_PCT", 0.005)),
         "trade_on_flip":        live.get("TRADE_ON_FLIP") == "true",
@@ -58,7 +60,7 @@ def typical_live_settings():
         "TRADE_MAX_TIME_LEFT_SEC": "3600", # → 60.0 мин
         "TRADE_BET_SIZE_USDC": "10",
         "MAX_BET_SIZE_USDC": "50",
-        "MIN_EDGE": "-0.03",
+        "OUTS_MIN_EDGE": "-0.03",
         "MAX_BET_EDGE": "0.40",
         "SLIPPAGE_PCT": "0.005",
         "TRADE_ON_FLIP": "false",
@@ -83,8 +85,8 @@ class TestPercentToFractionConversion:
 
     def test_time_sec_to_min_conversion(self, typical_live_settings):
         cfg_dict = live_settings_to_backtest_config(typical_live_settings)
-        assert cfg_dict["min_time_left_min"] == pytest.approx(1.0)
-        assert cfg_dict["max_time_left_min"] == pytest.approx(60.0)
+        assert cfg_dict["outs_min_time_left_min"] == pytest.approx(1.0)
+        assert cfg_dict["outs_max_time_left_min"] == pytest.approx(60.0)
 
 
 # ── Тест 2: Pydantic ValidationError НЕ возникает при правильной конвертации
@@ -183,10 +185,10 @@ class TestBoundaryValues:
     def test_time_window_conflict_raises(self):
         """min_time >= max_time должно бросать ValidationError."""
         with pytest.raises(ValidationError, match="must be <"):
-            BacktestConfig(min_time_left_min=60.0, max_time_left_min=60.0)
+            BacktestConfig(outs_min_time_left_min=60.0, outs_max_time_left_min=60.0)
             
         with pytest.raises(ValidationError, match="must be <"):
-            BacktestConfig(min_time_left_min=65.0, max_time_left_min=60.0)
+            BacktestConfig(outs_min_time_left_min=65.0, outs_max_time_left_min=60.0)
 
     def test_none_values_use_defaults(self):
         """None в Live → используются дефолтные значения."""
@@ -200,12 +202,13 @@ class TestBoundaryValues:
 class TestRunnerConfigCompleteness:
 
     REQUIRED_RUNNER_KEYS = {
-        "MIN_TIME_LEFT_MIN", "MAX_TIME_LEFT_MIN", "STRATEGY_MODE",
+        "FAVOR_MIN_TIME_LEFT_MIN", "FAVOR_MAX_TIME_LEFT_MIN",
+        "OUTS_MIN_TIME_LEFT_MIN", "OUTS_MAX_TIME_LEFT_MIN", "STRATEGY_MODE",
         "ENTRY_STRATEGY", "TRADE_ON_FLIP", "NO_FLIP_THRESHOLD",
         "FLIP_THRESHOLD", "FAVORITE_THRESHOLD", "FAVORITE_MIN_PRICE",
         "FAVORITE_MAX_PRICE", "OUTSIDER_MAX_PRICE", "AUTO_DEAD_ZONE_WIDTH",
         "INITIAL_CAPITAL", "BET_SIZING_MODE", "TRADE_BET_SIZE_USDC",
-        "MAX_BET_SIZE_USDC", "MIN_EDGE", "MAX_BET_EDGE", "SLIPPAGE_PCT",
+        "MAX_BET_SIZE_USDC", "OUTS_MIN_EDGE", "MAX_BET_EDGE", "SLIPPAGE_PCT",
     }
 
     def test_runner_config_has_all_required_keys(self, typical_live_settings):

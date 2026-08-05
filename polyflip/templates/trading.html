@@ -609,13 +609,6 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="MIN_EDGE" title="[БАЗОВЫЙ ПАРАМЕТР] Единое минимальное математическое ожидание (Edge в %), при котором бот войдет в сделку в ЛЮБОМ торговом режиме (ML, LightGBM, Combined).">
-                                        Единый Мин. Edge для всех режимов (%)
-                                    </label>
-                                    <input type="number" step="0.1" min="0.5" max="50" id="MIN_EDGE" value="5">
-                                </div>
-
-                                <div class="form-group">
                                     <label for="FLIP_THRESHOLD" title="[ОСНОВНОЙ ПОРОГ] Порог вероятности флипа (в %, напр. 80%). Из него и ширины мёртвой зоны вычисляется коридор (lower, upper). При p_flip < lower — вход на фаворита, при p_flip >= upper — на аутсайдера.">
                                         Порог ФЛИПА / Против толпы (%)
                                     </label>
@@ -747,14 +740,35 @@
                             </div>
 
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
+                                <!-- Фаворит -->
                                 <div class="form-group">
-                                    <label for="TRADE_MIN_TIME_LEFT_SEC" title="Минимально допустимое время до закрытия рынка (секунды).">Мин. время до конца (в сек.)</label>
-                                    <input type="number" id="TRADE_MIN_TIME_LEFT_SEC" value="10">
+                                    <label for="FAVOR_MIN_TIME_LEFT_SEC"
+                                           title="Мин. секунд до конца рынка для входа на ФАВОРИТА.">
+                                        ⭐ Фаворит: Мин. время до конца (сек)
+                                    </label>
+                                    <input type="number" id="FAVOR_MIN_TIME_LEFT_SEC" min="0" max="3600" value="60">
                                 </div>
-                                
                                 <div class="form-group">
-                                    <label for="TRADE_MAX_TIME_LEFT_SEC" title="Максимальное время до закрытия рынка (секунды).">Макс. время до конца (в сек.)</label>
-                                    <input type="number" id="TRADE_MAX_TIME_LEFT_SEC" value="360">
+                                    <label for="FAVOR_MAX_TIME_LEFT_SEC"
+                                           title="Макс. секунд до конца рынка для входа на ФАВОРИТА.">
+                                        ⭐ Фаворит: Макс. время до конца (сек)
+                                    </label>
+                                    <input type="number" id="FAVOR_MAX_TIME_LEFT_SEC" min="0" max="7200" value="600">
+                                </div>
+                                <!-- Аутсайдер -->
+                                <div class="form-group">
+                                    <label for="OUTS_MIN_TIME_LEFT_SEC"
+                                           title="Мин. секунд до конца рынка для входа на АУТСАЙДЕРА.">
+                                        🎯 Аутсайдер: Мин. время до конца (сек)
+                                    </label>
+                                    <input type="number" id="OUTS_MIN_TIME_LEFT_SEC" min="0" max="3600" value="30">
+                                </div>
+                                <div class="form-group">
+                                    <label for="OUTS_MAX_TIME_LEFT_SEC"
+                                           title="Макс. секунд до конца рынка для входа на АУТСАЙДЕРА.">
+                                        🎯 Аутсайдер: Макс. время до конца (сек)
+                                    </label>
+                                    <input type="number" id="OUTS_MAX_TIME_LEFT_SEC" min="0" max="7200" value="300">
                                 </div>
 
                                 <div class="form-group">
@@ -817,8 +831,10 @@
                                 </div>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                     <div class="form-group">
-                                        <label for="NO_MIN_EDGE" title="Минимальное матожидание (Edge в %) для ставок на аутсайдера.">Мин. edge для аутсайдера — NO (%)</label>
-                                        <input type="number" step="0.1" id="NO_MIN_EDGE" value="4">
+                                        <label for="OUTS_MIN_EDGE" title="Мин. Edge (%) для входа на аутсайдера.">
+                                            Мин. Edge для аутсайдера (%)
+                                        </label>
+                                        <input type="number" step="0.1" id="OUTS_MIN_EDGE" value="4">
                                     </div>
                                     <div class="form-group">
                                         <label for="OUTSIDER_MAX_PRICE" title="Максимальная цена покупки токена аутсайдера.">Макс. цена аутсайдера (NO и YES)</label>

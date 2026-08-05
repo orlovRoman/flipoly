@@ -139,13 +139,13 @@ async def test_update_setting_valid_min_edge(db_session):
     
     try:
         # Проверяем сохранение процентов (8% -> 0.08)
-        await update_setting("MIN_EDGE", SettingValue(value="8"), db=db_session)
-        stmt = select(RuntimeSettings).where(RuntimeSettings.key == "MIN_EDGE")
+        await update_setting("OUTS_MIN_EDGE", SettingValue(value="8"), db=db_session)
+        stmt = select(RuntimeSettings).where(RuntimeSettings.key == "OUTS_MIN_EDGE")
         row = (await db_session.execute(stmt)).scalar_one()
         assert float(row.value) == 0.08
         
         # Проверяем сохранение доли (0.04 -> 0.04)
-        await update_setting("MIN_EDGE", SettingValue(value="0.04"), db=db_session)
+        await update_setting("OUTS_MIN_EDGE", SettingValue(value="0.04"), db=db_session)
         row = (await db_session.execute(stmt)).scalar_one()
         assert float(row.value) == 0.04
     finally:
@@ -160,12 +160,12 @@ async def test_update_setting_invalid_min_edge(db_session):
     try:
         # Слишком много (больше 100)
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("MIN_EDGE", SettingValue(value="105"), db=db_session)
+            await update_setting("OUTS_MIN_EDGE", SettingValue(value="105"), db=db_session)
         assert exc_info.value.status_code == 400
         
         # Слишком мало (меньше 0)
         with pytest.raises(HTTPException) as exc_info:
-            await update_setting("MIN_EDGE", SettingValue(value="-1"), db=db_session)
+            await update_setting("OUTS_MIN_EDGE", SettingValue(value="-1"), db=db_session)
         assert exc_info.value.status_code == 400
     finally:
         settings_module.async_session = original_session

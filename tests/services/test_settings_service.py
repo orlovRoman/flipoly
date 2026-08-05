@@ -23,8 +23,8 @@ async def test_get_setting_fallback_to_defaults():
         return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
     )
 
-    val = await get_float(mock_db, "MIN_EDGE")
-    assert val == 0.05
+    val = await get_float(mock_db, "OUTS_MIN_EDGE")
+    assert val == 0.04
 
 
 @pytest.mark.asyncio
@@ -38,7 +38,7 @@ async def test_get_setting_db_overrides_defaults():
         return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_row))
     )
 
-    val = await get_float(mock_db, "MIN_EDGE")
+    val = await get_float(mock_db, "OUTS_MIN_EDGE")
     assert val == 0.12
 
 

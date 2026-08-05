@@ -20,7 +20,7 @@ def test_outsider_decision_has_correct_strategy_type():
         "BET_SIZING_MODE": "fixed",
         "TRADE_BET_SIZE_USDC": 10.0,
         "OUTSIDER_MAX_PRICE": 0.45,
-        "MIN_EDGE": 0.05
+        "OUTS_MIN_EDGE": 0.05
     }
     
     decision = decide_outsider(

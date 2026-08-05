@@ -222,7 +222,7 @@ async def decide_ml_mode(
             fresh_spread=fresh_spread,
             start_time=start_time,
             time_left_sec=time_left_sec,
-            max_time_left=cfg.max_time_left,
+            max_time_left=max(cfg.favor_max_time_left, cfg.outs_max_time_left),
         )
     except Exception as e:
         logger.error("ml_mode_infer_flip_error", asset=market.asset, error=str(e))
@@ -537,7 +537,7 @@ async def decide_crypto_mode(
                     fresh_spread=market.current_spread or 0.01,
                     start_time=start_time,
                     time_left_sec=time_left_sec,
-                    max_time_left=cfg.max_time_left,
+                    max_time_left=max(cfg.favor_max_time_left, cfg.outs_max_time_left),
                 )
         except Exception as e:
             logger.error("crypto_mode_ml_pflip_error", asset=market.asset, error=str(e))
@@ -552,7 +552,7 @@ async def decide_crypto_mode(
         if no_ask is None:
             return DecisionResult(None, 0.0, crypto_sig.model_version, None, "No NO ask price available", used_model_key=crypto_sig.model_key)
 
-    decision_obj = decide_crypto_trend(crypto_sig, yes_ask or fresh_yes_price, market.volume_5min or 0.0, raw_settings, no_ask=no_ask, p_flip_ml=p_flip_ml)
+    decision_obj = decide_crypto_trend(crypto_sig, yes_ask or fresh_yes_price, market.volume_5min or 0.0, raw_settings, no_ask=no_ask, p_flip_ml=p_flip_ml, time_left_sec=time_left_sec)
     if decision_obj.action == "SKIP" and not decision_obj.decision_details:
         decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "OUTSIDER" if (yes_ask or fresh_yes_price) < 0.50 else "FAVORITE"})
     if not cfg.trade_on_favorite:
@@ -829,7 +829,7 @@ async def decide_combined_mode(
                 fresh_spread=fresh_spread,
                 start_time=start_time,
                 time_left_sec=time_left_sec,
-                max_time_left=cfg.max_time_left,
+                max_time_left=max(cfg.favor_max_time_left, cfg.outs_max_time_left),
             )
         except Exception as e:
             logger.error("combined_mode_infer_flip_error", asset=asset_upper, error=str(e))
@@ -876,6 +876,7 @@ async def decide_combined_mode(
         volume_5min=vol_5m,
         config_dict=raw_settings,
         underlying_price=und_price,
+        time_left_sec=time_left_sec,
         fallback_reason=fallback_reason,
     )
 

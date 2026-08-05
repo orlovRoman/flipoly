@@ -11,7 +11,7 @@ def test_decide_crypto_trend_respects_max_bet_edge():
         strike=60000.0, threshold_up=0.55, threshold_down=0.45,
         model_version=1, features_ok=True,
     )
-    config = {"CRYPTO_MIN_EDGE": 0.01, "MAX_BET_EDGE": "0.30"}  # строковое значение из RuntimeSettings
+    config = {"CRYPTO_OUTS_MIN_EDGE": 0.01, "MAX_BET_EDGE": "0.30"}  # строковое значение из RuntimeSettings
     decision = decide_crypto_trend(sig, entry_price=0.65, volume_5min=1000.0, config=config)
     assert decision.action == "SKIP", f"Должен быть SKIP, но action={decision.action}"
     assert "suspicious" in decision.reason

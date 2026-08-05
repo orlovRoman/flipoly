@@ -10,7 +10,7 @@ async def test_symmetric_flip_rules():
     config = {
         "NO_FLIP_THRESHOLD": "0.35",
         "FLIP_THRESHOLD": "0.60",
-        "MIN_EDGE": "0.05",
+        "OUTS_MIN_EDGE": "0.05",
     }
     
     def make_signal(direction):

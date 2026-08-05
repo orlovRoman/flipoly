@@ -23,7 +23,7 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
+def _resolve_final_bet(edge: float, volume_5min: float, config: dict, is_outsider: bool = False) -> float:
     """Рассчитывает размер ставки. config — сырой dict (для обратной совместимости с бэктестом)."""
     from polyflip.trading.position_sizing import compute_bet_size_with_liquidity
     cfg = parse_trading_settings(config)
@@ -34,7 +34,7 @@ def _resolve_final_bet(edge: float, volume_5min: float, config: dict) -> float:
         volume_5min=volume_5min,
         min_bet_usdc=cfg.bet_size,
         max_bet_usdc=cfg.max_bet_size_usdc,
-        min_edge=cfg.min_edge,
+        min_edge=cfg.get_min_edge(is_outsider),
         max_edge=cfg.max_bet_edge,
         liquidity_fraction=cfg.liquidity_fraction,
     )
@@ -65,7 +65,7 @@ class TradeDecision:
 
 
 
-def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
+def decide_favorite(signal: MarketSignal, config: dict, time_left_sec: float = 0.0) -> TradeDecision:
     """
     PURE_FAVORITE стратегия.
     Покупает фаворита (YES если mid_price > threshold, NO если < 1-threshold).
@@ -77,6 +77,11 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
     yes_bid = getattr(signal, "yes_bid", None)
     yes_ask = getattr(signal, "yes_ask", None)
     cfg = parse_trading_settings(config)
+    
+    is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider=False)
+    if not is_valid_time and time_left_sec > 0:
+        return TradeDecision("SKIP", 0, 0, time_reason, "PURE_FAVORITE")
+        
     if yes_bid is not None and yes_bid > 0 and yes_ask is not None and signal.mid_price > 0:
         spread_pct = (yes_ask - yes_bid) / signal.mid_price
         if spread_pct > cfg.max_spread_pct:
@@ -102,7 +107,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
                 p_win_yes = signal.mid_price
             edge = compute_edge(p_win_yes, eff_yes_ask)
             if edge >= min_edge:
-                bet = _resolve_final_bet(edge, signal.volume_5min, config)
+                bet = _resolve_final_bet(edge, signal.volume_5min, config, is_outsider=False)
                 candidates.append(TradeDecision(
                     "BUY_YES", eff_yes_ask, bet,
                     f"favorite YES edge={edge:.4f}", "PURE_FAVORITE",
@@ -121,7 +126,7 @@ def decide_favorite(signal: MarketSignal, config: dict) -> TradeDecision:
                 no_prob = 1.0 - signal.mid_price
             edge = compute_edge(no_prob, eff_no_ask)
             if edge >= min_edge:
-                bet = _resolve_final_bet(edge, signal.volume_5min, config)
+                bet = _resolve_final_bet(edge, signal.volume_5min, config, is_outsider=False)
                 candidates.append(TradeDecision(
                     "BUY_NO", eff_no_ask, bet,
                     f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
@@ -163,6 +168,7 @@ def decide_ml_trend(
     p_flip: float,
     config: dict,
     ece: float = 0.0,
+    time_left_sec: float = 0.0,
 ) -> TradeDecision:
     """
     ML Trend стратегия.
@@ -173,6 +179,11 @@ def decide_ml_trend(
       - MIN_EDGE / MAX_EDGE: float  ← ML-edge фильтр
     """
     cfg = parse_trading_settings(config)
+    
+    is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider=False)
+    if not is_valid_time and time_left_sec > 0:
+        return TradeDecision("SKIP", 0, 0, time_reason, "LIGHTGBM_TREND", p_flip=p_flip)
+        
     no_flip_thresh = cfg.no_flip_threshold
 
     p_flip_calibrated = apply_ece_correction(p_flip, ece)
@@ -212,7 +223,7 @@ def decide_ml_trend(
             f"Edge={edge:.4f} < min={min_edge:.4f}", "SKIP", p_flip=p_flip, edge=edge)
 
     # 5. Ставка на основе ML-edge
-    bet = _resolve_final_bet(edge, signal.volume_5min, config)
+    bet = _resolve_final_bet(edge, signal.volume_5min, config, is_outsider=False)
     if bet <= 0 and not cfg.bypass_bet_size_check:
         return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
@@ -239,12 +250,18 @@ def decide_outsider(
     p_flip: float,
     config: dict,
     ece: float = 0.0,
+    time_left_sec: float = 0.0,
 ) -> TradeDecision:
     """
     Outsider стратегия (TRADE_ON_FLIP).
     Если P(flip) >= flip_threshold → рынок флипнет → покупаем аутсайдера.
     """
     cfg = parse_trading_settings(config)
+    
+    is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider=True)
+    if not is_valid_time and time_left_sec > 0:
+        return TradeDecision("SKIP", 0, 0, time_reason, "OUTSIDER", p_flip=p_flip)
+        
     flip_thresh = cfg.flip_threshold
     if flip_thresh > 1.0:
         flip_thresh = flip_thresh / 100.0
@@ -295,7 +312,7 @@ def decide_outsider(
         return TradeDecision("SKIP", 0, 0,
             f"edge={edge:.3f} < min={min_edge:.3f}", "SKIP", p_flip=p_flip, edge=edge)
 
-    bet = _resolve_final_bet(edge, signal.volume_5min, config)
+    bet = _resolve_final_bet(edge, signal.volume_5min, config, is_outsider=True)
     if bet <= 0 and not cfg.bypass_bet_size_check:
         return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
@@ -327,6 +344,7 @@ def decide_crypto_trend(
     config: dict,
     no_ask: Optional[float] = None,
     p_flip_ml: Optional[float] = None,
+    time_left_sec: float = 0.0,
 ) -> TradeDecision:
     """
     Торговая логика для LIGHTGBM_TREND.
@@ -359,6 +377,11 @@ def decide_crypto_trend(
         )
 
     cfg_unified = parse_trading_settings(config)
+    
+    is_valid_time, time_reason = cfg_unified.is_time_valid(time_left_sec, is_outsider=False)
+    if not is_valid_time and time_left_sec > 0:
+        return TradeDecision("SKIP", 0, 0, time_reason, "LIGHTGBM_TREND", p_flip=p_flip_ml)
+        
     flip_thresh = cfg_unified.flip_threshold
     if flip_thresh > 1.0:
         flip_thresh = flip_thresh / 100.0
@@ -441,7 +464,7 @@ def decide_crypto_trend(
             direction_value=crypto.direction
         )
 
-    bet = _resolve_final_bet(economic_edge, volume_5min, config)
+    bet = _resolve_final_bet(economic_edge, volume_5min, config, is_outsider=is_outsider_candidate)
     if hasattr(crypto, "stake_multiplier"):
         bet *= crypto.stake_multiplier
 

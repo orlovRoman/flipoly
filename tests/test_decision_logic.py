@@ -12,7 +12,7 @@ NO_FLIP_THRESHOLD = 0.35
 FAVORITE_MIN_PRICE = 0.55
 FAVORITE_MAX_PRICE = 0.95
 FAVORITE_MIN_EDGE = -0.01
-MIN_EDGE = 0.05
+OUTS_MIN_EDGE = 0.05
 MAX_EDGE_FILTER = 0.20
 OUTSIDER_MAX_PRICE = 0.45
 DEAD_ZONE_WIDTH = 0.10
@@ -43,7 +43,7 @@ BASE_CONFIG = {
     "FAVORITE_MIN_PRICE": FAVORITE_MIN_PRICE,
     "FAVORITE_MAX_PRICE": FAVORITE_MAX_PRICE,
     "FAVORITE_MIN_EDGE": FAVORITE_MIN_EDGE,
-    "MIN_EDGE": MIN_EDGE,
+    "OUTS_MIN_EDGE": OUTS_MIN_EDGE,
     "MAX_EDGE": MAX_EDGE_FILTER,
     "MAX_BET_EDGE": MAX_EDGE_FILTER,
     "FLIP_THRESHOLD": FLIP_THRESHOLD,
@@ -309,7 +309,7 @@ def test_crypto_edge_dead_zone():
     assert edge == 0.0
 
 def test_decide_crypto_trend_buy_yes():
-    # p_up = 0.75 -> UP, edge = 0.15 > CRYPTO_MIN_EDGE (0.05)
+    # p_up = 0.75 -> UP, edge = 0.15 > CRYPTO_OUTS_MIN_EDGE (0.05)
     crypto = CryptoSignal(
         symbol="BTCUSDT", p_up=0.75, p_down=0.25, direction="UP", signal_strength=0.15,
         strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
@@ -322,7 +322,7 @@ def test_decide_crypto_trend_buy_yes():
     assert d.edge == pytest.approx(0.1538, abs=1e-3)
 
 def test_decide_crypto_trend_buy_no():
-    # p_up = 0.25 -> DOWN, edge = 0.15 > CRYPTO_MIN_EDGE (0.05)
+    # p_up = 0.25 -> DOWN, edge = 0.15 > CRYPTO_OUTS_MIN_EDGE (0.05)
     crypto = CryptoSignal(
         symbol="BTCUSDT", p_up=0.25, p_down=0.75, direction="DOWN", signal_strength=0.15,
         strike=60000.0, threshold_up=0.60, threshold_down=0.40, model_version=1, features_ok=True
@@ -333,7 +333,7 @@ def test_decide_crypto_trend_buy_no():
     assert d.p_up == 0.25
 
 def test_outsider_flip_threshold_40_as_percent():
-    config = {"FLIP_THRESHOLD": "40", "MIN_EDGE": 0.05, "DEAD_ZONE_WIDTH": 0.10}
+    config = {"FLIP_THRESHOLD": "40", "OUTS_MIN_EDGE": 0.05, "DEAD_ZONE_WIDTH": 0.10}
     signal = _signal(mid=0.30)
     # p_flip=0.261 < 0.40 -> SKIP
     result = decide_outsider(signal, p_flip=0.261, config=config)

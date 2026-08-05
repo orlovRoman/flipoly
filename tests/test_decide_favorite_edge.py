@@ -13,7 +13,7 @@ def make_signal(mid: float, spread: float = 0.02) -> MarketSignal:
 
 BASE_CONFIG = {
     "FAVORITE_THRESHOLD": "0.60",
-    "MIN_EDGE": "0.02",
+    "OUTS_MIN_EDGE": "0.02",
     "MAX_BET_EDGE": "0.25",
     "TRADE_BET_SIZE_USDC": "5",
     "MAX_BET_SIZE_USDC": "50",
@@ -32,8 +32,8 @@ def test_favorite_yes_edge_positive_with_small_spread():
 
 
 def test_favorite_yes_skips_when_edge_below_min():
-    """SKIP если edge < MIN_EDGE"""
-    config = {**BASE_CONFIG, "MIN_EDGE": "0.10"}  # требуем 10% ROI, FAVORITE_MIN_EDGE не задан
+    """SKIP если edge < OUTS_MIN_EDGE"""
+    config = {**BASE_CONFIG, "OUTS_MIN_EDGE": "0.10"}  # требуем 10% ROI, FAVORITE_MIN_EDGE не задан
     decision = decide_favorite(make_signal(mid=0.75), config)
     assert decision.action == "SKIP"
     assert "edge" in decision.reason.lower()

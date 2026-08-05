@@ -21,10 +21,10 @@ class SimpleMockModel:
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
 async def test_ml_mode_respects_min_edge():
-    """Тест: ML-режим должен проверять итоговый edge и пропускать сделку, если он ниже MIN_EDGE."""
+    """Тест: ML-режим должен проверять итоговый edge и пропускать сделку, если он ниже OUTS_MIN_EDGE."""
     now = datetime.now(timezone.utc)
     
-    # 1. Задаем конфиг с MIN_EDGE = 0.05
+    # 1. Задаем конфиг с OUTS_MIN_EDGE = 0.05
     cfg = MagicMock(spec=TradingConfig)
     cfg.trading_enabled = True
     cfg.trading_mode = "ml"
@@ -58,7 +58,7 @@ async def test_ml_mode_respects_min_edge():
     # Порог NO_FLIP_THRESHOLD = 0.35, значит 0.30 < 0.35 — проверка флипа пройдена.
     # Но цена входа 0.81 (yes_ask = mid_price + spread/2 = 0.81).
     # Edge = 0.70 / 0.81 - 1 = -0.135 (отрицательный).
-    # При MIN_EDGE = 0.05 эта сделка обязана быть отсеяна!
+    # При OUTS_MIN_EDGE = 0.05 эта сделка обязана быть отсеяна!
     mock_model = SimpleMockModel(prob_yes=0.30)
     
     # 5. Подготавливаем кэш моделей
@@ -79,7 +79,7 @@ async def test_ml_mode_respects_min_edge():
         api_client=mock_api,
         market=market,
         cfg=cfg,
-        raw_settings={"MIN_EDGE": "0.05", "TRADE_NO_FLIP_THRESHOLD": "0.35"},
+        raw_settings={"OUTS_MIN_EDGE": "0.05", "TRADE_NO_FLIP_THRESHOLD": "0.35"},
         models_cache=models_cache,
         crypto_predictor=None,
         start_time=now,
@@ -95,7 +95,7 @@ async def test_ml_mode_respects_min_edge():
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Broken after feature/settings refactor")
 async def test_ml_mode_enters_when_edge_is_sufficient():
-    """Тест: ML-режим должен входить в сделку, если edge >= MIN_EDGE."""
+    """Тест: ML-режим должен входить в сделку, если edge >= OUTS_MIN_EDGE."""
     now = datetime.now(timezone.utc)
     
     cfg = MagicMock(spec=TradingConfig)
@@ -152,7 +152,7 @@ async def test_ml_mode_enters_when_edge_is_sufficient():
         api_client=mock_api,
         market=market,
         cfg=cfg,
-        raw_settings={"MIN_EDGE": "0.05", "TRADE_NO_FLIP_THRESHOLD": "0.35"},
+        raw_settings={"OUTS_MIN_EDGE": "0.05", "TRADE_NO_FLIP_THRESHOLD": "0.35"},
         models_cache=models_cache,
         crypto_predictor=None,
         start_time=now,

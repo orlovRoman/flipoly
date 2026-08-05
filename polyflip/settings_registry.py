@@ -84,13 +84,13 @@ REGISTRY: list[SettingDef] = [
     # --- Таймеры / опрос ---
     SettingDef("FAVORITE_MODE_ENTRY_SEC", str(FAVORITE_MODE_ENTRY_SEC)),
     SettingDef("LIVE_POLL_INTERVAL_SECONDS", str(LIVE_POLL_INTERVAL_SECONDS)),
-    SettingDef("TRADE_MIN_TIME_LEFT_SEC", "10"),
-    SettingDef("TRADE_MAX_TIME_LEFT_SEC", "360"),
-    SettingDef("TRADE_EXECUTION_TIME_SEC", "30"),
+    SettingDef("FAVOR_MIN_TIME_LEFT_SEC", "60"),
+    SettingDef("FAVOR_MAX_TIME_LEFT_SEC", "600"),
+    SettingDef("OUTS_MIN_TIME_LEFT_SEC", "30"),
+    SettingDef("OUTS_MAX_TIME_LEFT_SEC", "300"),
+    SettingDef("TRADE_BET_SIZE_USDC", "10.0"),
 
     # --- Сайзинг ---
-    SettingDef("TRADE_BET_SIZE_USDC", "5.0",
-               description="Минимальная ставка (USDC)"),
     SettingDef("MAX_BET_SIZE_USDC", "50.0",
                description="Максимальная ставка (USDC)"),
     SettingDef("BET_SIZING_MODE", "scaled",
@@ -99,8 +99,8 @@ REGISTRY: list[SettingDef] = [
                description="Макс. доля от volume_5min на одну ставку"),
 
     # --- Edge ---
-    SettingDef("MIN_EDGE", "0.05",
-               description="Мин. edge для входа в сделку"),
+    SettingDef("OUTS_MIN_EDGE", "0.04",
+               description="Мин. edge для ставок против толпы (в долях)"),
     SettingDef("MAX_BET_EDGE", "0.40",
                description="Edge при котором достигается макс. размер ставки при scaled-режиме"),
 
@@ -115,8 +115,6 @@ REGISTRY: list[SettingDef] = [
                description="Макс. цена для входа в фаворита"),
 
     # --- Аутсайдер / NO ---
-    SettingDef("NO_MIN_EDGE", "0.04",
-               description="Мин. edge для ставки на аутсайдера (NO)"),
     SettingDef("OUTSIDER_MAX_PRICE", "0.45",
                description="Макс. цена покупки аутсайдера"),
     SettingDef("TRADE_ON_FAVORITE", "true",
@@ -275,6 +273,11 @@ def editable_keys() -> set[str]:
 
 REQUIRED_SETTINGS_KEYS = frozenset([
     "NO_FLIP_THRESHOLD",
+    "FAVOR_MIN_TIME_LEFT_SEC",
+    "FAVOR_MAX_TIME_LEFT_SEC",
+    "OUTS_MIN_TIME_LEFT_SEC",
+    "OUTS_MAX_TIME_LEFT_SEC",
+    "TRADE_BET_SIZE_USDC",
     "FLIP_THRESHOLD",
     "TRADE_MAX_PRICE",
     "TRADE_MIN_PRICE",
@@ -286,8 +289,7 @@ REQUIRED_SETTINGS_KEYS = frozenset([
     "COMBINED_DIR_STRONG_THRESHOLD",
     "MAX_SPREAD_PCT",
     "OUTSIDER_PWIN_DISCOUNT",
-    "MIN_EDGE",
-    "NO_MIN_EDGE",
+    "OUTS_MIN_EDGE",
     "COMBINED_FALLBACK_TO_ML_ON_NONE",
 ])
 

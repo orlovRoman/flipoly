@@ -535,14 +535,26 @@
               </select>
             </div>
 
+            <div class="config-section-title">⏳ Временные рамки входа</div>
             <div class="config-grid">
               <div class="config-group">
-                <label>Мин. время (мин) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальное оставшееся время рынка для входа в сделку.">❓</span></label>
-                <input id="cfg-min-time" type="number" value="1" step="0.5" min="0.1">
+                <label>Фаворит (мин. мин) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Мин время для фаворитов.">❓</span></label>
+                <input id="cfg-favor-min-time" type="number" value="1" step="0.5" min="0">
               </div>
               <div class="config-group">
-                <label>Макс. время (мин) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Максимальное оставшееся время рынка для входа в сделку.">❓</span></label>
-                <input id="cfg-max-time" type="number" value="60" step="1" min="1">
+                <label>Фаворит (макс. мин) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Макс время для фаворитов.">❓</span></label>
+                <input id="cfg-favor-max-time" type="number" value="60" step="1" min="1">
+              </div>
+            </div>
+            
+            <div class="config-grid" style="margin-top: 10px;">
+              <div class="config-group">
+                <label>Аутсайдер (мин. мин) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Мин время для аутсайдеров.">❓</span></label>
+                <input id="cfg-outs-min-time" type="number" value="1" step="0.5" min="0">
+              </div>
+              <div class="config-group">
+                <label>Аутсайдер (макс. мин) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Макс время для аутсайдеров.">❓</span></label>
+                <input id="cfg-outs-max-time" type="number" value="60" step="1" min="1">
               </div>
             </div>
 
@@ -608,8 +620,8 @@
 
             <div class="config-grid">
               <div class="config-group">
-                <label>Мин. Edge <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальное математическое ожидание сделки для входа.">❓</span></label>
-                <input id="cfg-min-edge" type="number" value="-0.05" step="0.01">
+                <label>Аутсайдер Мин. Edge <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальное математическое ожидание сделки для входа.">❓</span></label>
+                <input id="cfg-outs-min-edge" type="number" value="0.04" step="0.01">
               </div>
               <div class="config-group">
                 <label>Макс. Edge <span class="tooltip-icon tooltip-icon--right" data-tooltip="Уровень Edge, при котором достигается MAX_BET.">❓</span></label>

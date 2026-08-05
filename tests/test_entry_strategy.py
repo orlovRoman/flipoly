@@ -188,7 +188,7 @@ def test_bet_sizing_consistency_between_resolve_and_liquidity():
     config = {
         "TRADE_BET_SIZE_USDC": str(min_bet),
         "MAX_BET_SIZE_USDC": str(max_bet),
-        "MIN_EDGE": str(min_edge),
+        "OUTS_MIN_EDGE": str(min_edge),
         "MAX_BET_EDGE": str(max_edge),
         "LIQUIDITY_FRACTION": str(fraction),
     }

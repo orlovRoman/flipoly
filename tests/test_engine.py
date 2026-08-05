@@ -36,7 +36,7 @@ async def test_engine_enters_on_confident_favorite(db_session):
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_BET_EDGE", value="0.50", updated_at=now, updated_by="test"),
         RuntimeSettings(key="FAVORITE_MAX_EDGE", value="0.50", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MIN_EDGE", value="-0.10", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="OUTS_MIN_EDGE", value="-0.10", updated_at=now, updated_by="test"),
         RuntimeSettings(key="FAVORITE_MIN_EDGE", value="-0.10", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_EDGE_FILTER", value="1.0", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
@@ -260,7 +260,7 @@ async def test_engine_skips_when_clob_error(db_session):
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
         RuntimeSettings(key="DEAD_ZONE_WIDTH", value="0.02", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="OUTS_MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
 
@@ -305,7 +305,7 @@ async def test_engine_skips_when_edge_too_small(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="OUTS_MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
     
@@ -355,7 +355,7 @@ async def test_engine_skips_no_deal_when_edge_too_small(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="OUTS_MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_BET_EDGE", value="0.40", updated_at=now, updated_by="test"),
         RuntimeSettings(key="AUTO_DEAD_ZONE", value="false", updated_at=now, updated_by="test"),
     ]
@@ -412,7 +412,7 @@ async def test_outsider_respects_edge_limits(db_session):
         RuntimeSettings(key="ACTIVE_FEATURES", value="mid_price", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MIN_PRICE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADE_MAX_PRICE", value="0.95", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="OUTS_MIN_EDGE", value="0.05", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_BET_EDGE", value="0.10", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)
@@ -461,7 +461,7 @@ async def test_skipped_crypto_trade_has_active_features_set(db_session):
     settings = [
         RuntimeSettings(key="TRADING_MODE", value="lightgbm", updated_at=now, updated_by="test"),
         RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
-        RuntimeSettings(key="CRYPTO_MIN_EDGE", value="0.10", updated_at=now, updated_by="test"),
+        RuntimeSettings(key="CRYPTO_OUTS_MIN_EDGE", value="0.10", updated_at=now, updated_by="test"),
         RuntimeSettings(key="MAX_EDGE_FILTER", value="1.0", updated_at=now, updated_by="test"),
     ]
     db_session.add_all(settings)

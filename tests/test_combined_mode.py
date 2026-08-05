@@ -12,8 +12,8 @@ from polyflip.trading.trading_config import parse_trading_settings
 # Вспомогательный cfg с "открытыми" ценовыми фильтрами для тестов
 def _make_cfg(**overrides):
     base = {
-        "MIN_EDGE": "0.03",
-        "NO_MIN_EDGE": "0.03",
+        "OUTS_MIN_EDGE": "0.03",
+        "NO_OUTS_MIN_EDGE": "0.03",
         "TRADE_MIN_PRICE": "0.05",
         "TRADE_MAX_PRICE": "0.95",
         "FAVORITE_MIN_PRICE": "0.05",
@@ -171,7 +171,7 @@ def test_evaluate_combined_entry_insufficient_net_edge():
         yes_ask=0.64,
         no_ask=0.36,
         cost_buffer=0.03,
-        cfg=_make_cfg(MIN_EDGE="0.03"),
+        cfg=_make_cfg(OUTS_MIN_EDGE="0.03"),
     )
     assert res.action == "SKIP"
     assert res.entry_status == "INSUFFICIENT_NET_EDGE"
@@ -292,7 +292,7 @@ def test_decide_combined_mode_fallback_to_ml_on_none_enabled():
 
     cfg = parse_trading_settings({
         "COMBINED_FALLBACK_TO_ML_ON_NONE": "true",
-        "MIN_EDGE": "0.03"
+        "OUTS_MIN_EDGE": "0.03"
     })
     raw_settings = {"COMBINED_FALLBACK_TO_ML_ON_NONE": "true"}
     models_cache = MagicMock()
@@ -358,7 +358,7 @@ def test_decide_combined_mode_fallback_disabled_skips_on_none():
 
     cfg = parse_trading_settings({
         "COMBINED_FALLBACK_TO_ML_ON_NONE": "false",
-        "MIN_EDGE": "0.03"
+        "OUTS_MIN_EDGE": "0.03"
     })
     raw_settings = {"COMBINED_FALLBACK_TO_ML_ON_NONE": "false"}
     models_cache = MagicMock()

@@ -60,20 +60,20 @@ def _make_raw_settings(*args, **kwargs) -> dict:
         "TRADE_MAX_PRICE": "0.95",
         "TRADE_ASSETS": "BTC,ETH",
         "ACTIVE_FEATURES": "mid_price,spread",
-        "MIN_EDGE": "0.05",
+        "OUTS_MIN_EDGE": "0.05",
         "MAX_BET_EDGE": "0.30",
         "MAX_EDGE_FILTER": "0.99",
         "FAVORITE_THRESHOLD": "0.70",
         "TRADE_ON_FAVORITE": "true",
         "TRADE_ON_FLIP": "false",
         "FLIP_THRESHOLD": "0.60",
-        "NO_MIN_EDGE": "0.03",
+        "NO_OUTS_MIN_EDGE": "0.03",
         "OUTSIDER_MAX_PRICE": "0.40",
         "AUTO_DEAD_ZONE": "false",
         "FAVORITE_MODE_ENTRY_SEC": "120",
         "USE_CRYPTO_CONFIRM": "false",
         "CRYPTO_STANDALONE": "false",
-        "CRYPTO_MIN_EDGE": "0.05",
+        "CRYPTO_OUTS_MIN_EDGE": "0.05",
         "BET_SIZING_MODE": "fixed",
         "MAX_BET_SIZE_USDC": "50.0",
         "MAX_PRICE_DRIFT": "0.03",
@@ -131,20 +131,20 @@ class TestStep1LoadTradingSettings:
 
     @pytest.mark.asyncio
     async def test_step1_per_asset_keys_loaded(self, db_session):
-        """Per-asset ключи MIN_EDGE_BTC и TRADING_MODE_BTC добавляются в результат."""
+        """Per-asset ключи OUTS_MIN_EDGE_BTC и TRADING_MODE_BTC добавляются в результат."""
         from polyflip.db.models import RuntimeSettings
         from polyflip.trading.settings_loader import load_trading_settings
 
         now = datetime.now(timezone.utc)
-        db_session.add(RuntimeSettings(key="MIN_EDGE_BTC", value="0.10",
+        db_session.add(RuntimeSettings(key="OUTS_MIN_EDGE_BTC", value="0.10",
                                        updated_at=now, updated_by="test"))
         db_session.add(RuntimeSettings(key="TRADING_MODE_BTC", value="crypto",
                                        updated_at=now, updated_by="test"))
         await db_session.commit()
 
         result = await load_trading_settings(db_session, trade_assets=["BTC"])
-        assert "MIN_EDGE_BTC" in result, "Per-asset ключ MIN_EDGE_BTC должен быть в результате"
-        assert result["MIN_EDGE_BTC"] == "0.10"
+        assert "OUTS_MIN_EDGE_BTC" in result, "Per-asset ключ OUTS_MIN_EDGE_BTC должен быть в результате"
+        assert result["OUTS_MIN_EDGE_BTC"] == "0.10"
 
     def test_step1_function_signature(self):
         """Функция принимает (db_session, trade_assets=None) — оба аргумента корректны."""
@@ -181,7 +181,7 @@ class TestStep2TradingConfig:
     def test_step2_parse_overrides_defaults(self):
         """Значения из raw-dict перекрывают defaults."""
         from polyflip.trading.trading_config import parse_trading_settings
-        cfg = parse_trading_settings({"MIN_EDGE": "0.15", "TRADING_ENABLED": "false"})
+        cfg = parse_trading_settings({"OUTS_MIN_EDGE": "0.15", "TRADING_ENABLED": "false"})
         assert cfg.min_edge == pytest.approx(0.15)
         assert cfg.trading_enabled is False
 
@@ -204,7 +204,7 @@ class TestStep2TradingConfig:
         """Пустые строки в dict не вызывают ValueError/TypeError."""
         from polyflip.trading.trading_config import parse_trading_settings
         try:
-            parse_trading_settings({"MIN_EDGE": "", "DEAD_ZONE_WIDTH": ""})
+            parse_trading_settings({"OUTS_MIN_EDGE": "", "DEAD_ZONE_WIDTH": ""})
         except (ValueError, TypeError) as e:
             pytest.fail(f"parse_trading_settings упал на пустой строке: {e}")
 

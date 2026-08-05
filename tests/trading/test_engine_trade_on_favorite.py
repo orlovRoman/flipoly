@@ -38,7 +38,7 @@ def test_trade_on_favorite_true_ml_calls_decide_ml_trend():
     )
     config = {
         "NO_FLIP_THRESHOLD": 0.45, "FLIP_THRESHOLD": 0.65,
-        "MIN_EDGE": -100.0, "MAX_BET_EDGE": 100.0,
+        "OUTS_MIN_EDGE": -100.0, "MAX_BET_EDGE": 100.0,
         "BYPASS_BET_SIZE_CHECK": "true",
         "TRADE_BET_SIZE_USDC": "10.0",
         "FAVORITE_THRESHOLD": "0.6",
