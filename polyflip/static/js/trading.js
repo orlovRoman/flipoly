@@ -978,7 +978,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (!data.items || data.items.length === 0) {
         tbody.innerHTML =
-          '<tr><td colspan="13" style="text-align:center; padding: 1rem;">Нет событий</td></tr>';
+          '<tr><td colspan="14" style="text-align:center; padding: 1rem;">Нет событий</td></tr>';
         renderPagination(currentPage, totalPages, data.total || 0);
         return;
       }
@@ -1010,17 +1010,9 @@ document.addEventListener("DOMContentLoaded", () => {
             window.funnelLogs[log.id] = log.funnel_log;
         }
 
-        let layerHtml = "-";
         let reasonHtml = escapeHtml(log.error_msg || "-");
         if (log.status === "SKIPPED") {
-            const reasonStr = log.error_msg || "";
-            const parts = reasonStr.split(": ");
-            if (parts.length > 1 && ["guard", "validation", "strategy", "engine"].includes(parts[0])) {
-                layerHtml = `<span style="color: #4facfe; font-size: 0.8em; font-weight: bold; background: rgba(79, 172, 254, 0.1); padding: 2px 4px; border-radius: 4px; text-transform: uppercase;">${escapeHtml(parts[0])}</span>`;
-                reasonHtml = `<span style="color: #ffb020">${escapeHtml(parts.slice(1).join(": "))}</span>`;
-            } else {
-                reasonHtml = `<span style="color: #ffb020">${escapeHtml(reasonStr)}</span>`;
-            }
+            reasonHtml = `<span style="color: #ffb020">${escapeHtml(log.error_msg || "-")}</span>`;
         }
         const isPureFav = log.active_features && log.active_features.includes("PURE_FAVORITE");
         const isCrypto = log.active_features && (log.active_features.includes("LIGHTGBM_TREND") || log.active_features.includes("CRYPTO_TREND"));
@@ -1136,7 +1128,6 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px;">${directionBadge}</td>
                         <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
                         <td style="padding: 8px; color: ${statusColor};">${displayStatus}</td>
-                        <td style="padding: 8px;">${layerHtml}</td>
                         <td style="padding: 8px;">${betTypeHtml}</td>
                         <td style="padding: 8px; font-weight: bold; color: var(--text-main);">${betText}</td>
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? "$" + parseFloat(log.executed_price).toFixed(3) : "-"}</td>
