@@ -776,7 +776,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const perAssetNames = getPerAssetFields();
       perAssetNames.forEach((asset) => {
         const modeSelect = document.getElementById(`TRADING_MODE_${asset}`);
-        const minEdgeInput = document.getElementById(`MIN_EDGE_${asset}`);
+        const minEdgeInput = document.getElementById(`OUTS_MIN_EDGE_${asset}`);
         const maxPriceInput = document.getElementById(`TRADE_MAX_PRICE_${asset}`);
         const flipThresholdInput = document.getElementById(`FLIP_THRESHOLD_${asset}`) || document.getElementById(`TRADE_FLIP_THRESHOLD_${asset}`);
         
@@ -784,7 +784,7 @@ document.addEventListener("DOMContentLoaded", () => {
           modeSelect.value = data[`TRADING_MODE_${asset}`];
         }
         if (minEdgeInput) {
-          const val = data[`MIN_EDGE_${asset}`];
+          const val = data[`OUTS_MIN_EDGE_${asset}`];
           if (val !== undefined && val !== "") {
             minEdgeInput.value = (parseFloat(val) * 100).toFixed(1);
           } else {
@@ -941,7 +941,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const perAssetNames = getPerAssetFields();
       perAssetNames.forEach((asset) => {
         const modeSelect = document.getElementById(`TRADING_MODE_${asset}`);
-        const minEdgeInput = document.getElementById(`MIN_EDGE_${asset}`);
+        const minEdgeInput = document.getElementById(`OUTS_MIN_EDGE_${asset}`);
         const maxPriceInput = document.getElementById(`TRADE_MAX_PRICE_${asset}`);
         const flipThresholdInput = document.getElementById(`FLIP_THRESHOLD_${asset}`) || document.getElementById(`TRADE_FLIP_THRESHOLD_${asset}`);
         
@@ -950,7 +950,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if (minEdgeInput) {
           const val = minEdgeInput.value.trim();
-          settingsToSave[`MIN_EDGE_${asset}`] = val !== "" ? parseFormattedFloat(val) / 100 : "";
+          settingsToSave[`OUTS_MIN_EDGE_${asset}`] = val !== "" ? parseFormattedFloat(val) / 100 : "";
         }
         if (maxPriceInput) {
           const val = maxPriceInput.value.trim();
