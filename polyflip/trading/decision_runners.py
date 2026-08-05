@@ -65,7 +65,7 @@ async def decide_favorite_mode(
         trade_max_price=asset_max_price,
     )
     
-    decision_obj = decide_favorite(signal, fav_cfg)
+    decision_obj = decide_favorite(signal, fav_cfg, time_left_sec=time_left_sec)
     if not decision_obj.decision_details:
         decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "FAVORITE"})
     if not cfg.trade_on_favorite:

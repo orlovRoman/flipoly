@@ -87,11 +87,7 @@ async def validate_pre_trade(
                 skip_reason=f"validation: {decision_obj.strategy_type} selected an outsider token"
             )
 
-    if decision_obj.strategy_type == "LIGHTGBM_TREND" and actual_role == "OUTSIDER" and p_flip < cfg.flip_threshold:
-        return PreTradeValidation(
-            valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
-            skip_reason=f"validation: LightGBM outsider blocked: p_flip={p_flip:.3f} < {cfg.flip_threshold:.3f}"
-        )
+
 
     price_drift = abs(fresh_ask - buy_price)
     

@@ -13,6 +13,8 @@ from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUM
 from polyflip.trading.trading_config import parse_trading_settings
 
 
+SUPPORTED_BACKTEST_MODES = {"PURE_FAVORITE", "OUTSIDER"}
+
 class BacktestRunner:
     def __init__(self, config: dict, model_blob: bytes, features: str):
         self.config = config
@@ -24,7 +26,12 @@ class BacktestRunner:
         _tof = config.get("TRADE_ON_FLIP", False)
         self.trade_on_flip = _tof if isinstance(_tof, bool) else str(_tof).lower() == "true"
         
-        self.strategy_mode = config.get("STRATEGY_MODE", "ML")  # ML or PURE_FAVORITE
+        self.strategy_mode = config.get("STRATEGY_MODE", "PURE_FAVORITE").upper()
+        if self.strategy_mode not in SUPPORTED_BACKTEST_MODES:
+            raise ValueError(
+                f"Backtest strategy_mode='{self.strategy_mode}' is not supported. "
+                f"Supported modes: {sorted(SUPPORTED_BACKTEST_MODES)}"
+            )
         
         self.bet_sizing_mode = config.get("BET_SIZING_MODE", "scaled")
         self.base_bet = float(config.get("TRADE_BET_SIZE_USDC", 5.0))
@@ -87,13 +94,12 @@ class BacktestRunner:
         if self.strategy_mode == "PURE_FAVORITE":
             decision = decide_favorite(signal, self.cfg, time_left_sec=tick.time_left_min * 60.0)
             p_flip = 0.0
+        elif self.strategy_mode == "OUTSIDER":
+            p_flip = getattr(self, 'p_flips', {}).get((tick.market_id, tick.time_left_min), 0.0)
+            decision = decide_outsider(signal, p_flip, self.cfg, ece=0.0,
+                                       time_left_sec=tick.time_left_min * 60.0)
         else:
-            # ML/LGBM режим удалён — используем decide_outsider как фолбэк
-            raise NotImplementedError(
-                "ML/LGBM trading mode has been removed. "
-                "Use STRATEGY_MODE='PURE_FAVORITE' or switch to the COMBINED mode "
-                "in production via TRADING_MODE setting."
-            )
+            raise RuntimeError(f"Unsupported strategy_mode in _evaluate_tick: {self.strategy_mode}")
         
         return decision, p_flip, signal
 
