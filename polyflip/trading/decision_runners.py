@@ -59,21 +59,13 @@ async def decide_favorite_mode(
         no_ask=getattr(market, "current_no_ask", None),
     )
     
-    local_fav_config = {
-        "FAVORITE_THRESHOLD": str(cfg.favorite_threshold),
-        "FAVORITE_MIN_EDGE": str(cfg.favorite_min_edge),
-        "DEAD_ZONE_WIDTH": str(cfg.dead_zone),
-        "FAVORITE_MIN_PRICE": str(cfg.favorite_min_price),
-        "FAVORITE_MAX_PRICE": str(cfg.favorite_max_price),
-        "TRADE_BET_SIZE_USDC": str(cfg.bet_size),
-        "MAX_BET_SIZE_USDC": str(cfg.max_bet_size_usdc),
-        "MIN_EDGE": str(asset_min_edge),
-        "TRADE_MAX_PRICE": str(asset_max_price),
-        "LIQUIDITY_FRACTION": str(cfg.liquidity_fraction),
-        "BET_SIZING_MODE": str(cfg.bet_sizing_mode),
-    }
+    fav_cfg = dataclasses.replace(
+        cfg,
+        favorite_min_edge=asset_min_edge,
+        trade_max_price=asset_max_price,
+    )
     
-    decision_obj = decide_favorite(signal, local_fav_config)
+    decision_obj = decide_favorite(signal, fav_cfg)
     if not decision_obj.decision_details:
         decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "FAVORITE"})
     if not cfg.trade_on_favorite:
@@ -402,7 +394,6 @@ async def decide_combined_mode(
         cost_buffer=comb_cost_buffer,
         cfg=cfg,
         volume_5min=vol_5m,
-        config_dict=raw_settings,
         underlying_price=und_price,
         time_left_sec=time_left_sec,
         fallback_reason=fallback_reason,

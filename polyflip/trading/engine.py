@@ -98,7 +98,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                 guard_res = await check_market_guards(db_session, market, cfg, asset_mode, time_left_sec, start_time)
                 
                 if not guard_res.passed:
-                    if guard_res.skip_reason and guard_res.skip_reason not in ("Time left <= 0", "Trade already exists"):
+                    if guard_res.skip_reason and guard_res.skip_reason not in ("guard: Time left <= 0", "guard: Trade already exists"):
                         await save_or_update_skipped_trade(
                             db_session, market, guard_res.skip_reason, p_flip_val=0.0,
                             model_version=None, start_time=start_time,
@@ -125,7 +125,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                 except Exception as e:
                     logger.exception("decision_logic_error", market=market.market_id, error=str(e))
                     await save_or_update_skipped_trade(
-                        db_session, market, f"Error calculating prediction: {e}", 0.0, None, start_time, existing_skipped
+                        db_session, market, f"engine: Error calculating prediction: {e}", 0.0, None, start_time, existing_skipped
                     )
                     continue
                     
@@ -154,7 +154,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         confirm_model_version=decision_res.confirm_model_version if decision_res else None,
                     )
                 except EnqueueRejected as exc:
-                    await _record_skip(db_session, market, f"Execution not enqueued: {exc}", decision_res, start_time, existing_skipped, asset_mode, cfg)
+                    await _record_skip(db_session, market, f"engine: Execution not enqueued: {exc}", decision_res, start_time, existing_skipped, asset_mode, cfg)
                     continue
             finally:
                 _ACTIVE_MARKETS.discard(market.market_id)

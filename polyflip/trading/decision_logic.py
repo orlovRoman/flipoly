@@ -17,16 +17,15 @@ from polyflip.trading.position_sizing import (
     apply_ece_correction
 )
 from polyflip.constants import FLIP_MIDPOINT, ECE_WARN_THRESHOLD
-from polyflip.trading.trading_config import parse_trading_settings
+from polyflip.trading.trading_config import TradingConfig
 import structlog
 
 
 logger = structlog.get_logger(__name__)
 
-def _resolve_final_bet(edge: float, volume_5min: float, config: dict, is_outsider: bool = False) -> float:
-    """Рассчитывает размер ставки. config — сырой dict (для обратной совместимости с бэктестом)."""
+def _resolve_final_bet(edge: float, volume_5min: float, cfg: TradingConfig, is_outsider: bool = False) -> float:
+    """Рассчитывает размер ставки. Исходные настройки передаются через TradingConfig."""
     from polyflip.trading.position_sizing import compute_bet_size_with_liquidity
-    cfg = parse_trading_settings(config)
     if cfg.bet_sizing_mode == "fixed":
         return cfg.bet_size
     bet = compute_bet_size_with_liquidity(
@@ -65,7 +64,7 @@ class TradeDecision:
 
 
 
-def decide_favorite(signal: MarketSignal, config: dict, time_left_sec: float = 0.0) -> TradeDecision:
+def decide_favorite(signal: MarketSignal, cfg: TradingConfig, time_left_sec: float = 0.0) -> TradeDecision:
     """
     PURE_FAVORITE стратегия.
     Покупает фаворита (YES если mid_price > threshold, NO если < 1-threshold).
@@ -76,22 +75,20 @@ def decide_favorite(signal: MarketSignal, config: dict, time_left_sec: float = 0
     """
     yes_bid = getattr(signal, "yes_bid", None)
     yes_ask = getattr(signal, "yes_ask", None)
-    cfg = parse_trading_settings(config)
-    
     is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider=False)
     if not is_valid_time and time_left_sec > 0:
-        return TradeDecision("SKIP", 0, 0, time_reason, "PURE_FAVORITE")
+        return TradeDecision("SKIP", 0, 0, f"strategy: {time_reason}", "PURE_FAVORITE")
         
     if yes_bid is not None and yes_bid > 0 and yes_ask is not None and signal.mid_price > 0:
         spread_pct = (yes_ask - yes_bid) / signal.mid_price
         if spread_pct > cfg.max_spread_pct:
-            return TradeDecision("SKIP", 0.0, 0.0, f"spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
+            return TradeDecision("SKIP", 0.0, 0.0, f"strategy: spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
     threshold = cfg.favorite_threshold
     # PURE_FAVORITE использует свой порог edge (может быть отрицательным)
     min_edge = cfg.favorite_min_edge
     
     if is_in_dead_zone(signal.mid_price, cfg.dead_zone):
-        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", edge=0.0)
+        return TradeDecision("SKIP", 0, 0, "strategy: dead zone", "SKIP", edge=0.0)
 
 
     candidates: list[TradeDecision] = []
@@ -107,7 +104,7 @@ def decide_favorite(signal: MarketSignal, config: dict, time_left_sec: float = 0
                 p_win_yes = signal.mid_price
             edge = compute_edge(p_win_yes, eff_yes_ask)
             if edge >= min_edge:
-                bet = _resolve_final_bet(edge, signal.volume_5min, config, is_outsider=False)
+                bet = _resolve_final_bet(edge, signal.volume_5min, cfg, is_outsider=False)
                 candidates.append(TradeDecision(
                     "BUY_YES", eff_yes_ask, bet,
                     f"favorite YES edge={edge:.4f}", "PURE_FAVORITE",
@@ -126,7 +123,7 @@ def decide_favorite(signal: MarketSignal, config: dict, time_left_sec: float = 0
                 no_prob = 1.0 - signal.mid_price
             edge = compute_edge(no_prob, eff_no_ask)
             if edge >= min_edge:
-                bet = _resolve_final_bet(edge, signal.volume_5min, config, is_outsider=False)
+                bet = _resolve_final_bet(edge, signal.volume_5min, cfg, is_outsider=False)
                 candidates.append(TradeDecision(
                     "BUY_NO", eff_no_ask, bet,
                     f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
@@ -141,21 +138,21 @@ def decide_favorite(signal: MarketSignal, config: dict, time_left_sec: float = 0
         if signal.mid_price >= threshold:
             is_valid_price, price_reason = cfg.is_price_valid(eff_yes, is_outsider=False)
             if not is_valid_price:
-                reason = price_reason
+                reason = f"strategy: {price_reason}"
             else:
                 p_win_yes = float(signal.yes_bid) if signal.yes_bid is not None and float(signal.yes_bid) > 0 else signal.mid_price
                 skipped_edge = compute_edge(p_win_yes, eff_yes)
-                reason = f"favorite YES edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
+                reason = f"strategy: favorite YES edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
         elif signal.mid_price <= (1.0 - threshold):
             is_valid_price, price_reason = cfg.is_price_valid(eff_no, is_outsider=False)
             if not is_valid_price:
-                reason = price_reason
+                reason = f"strategy: {price_reason}"
             else:
                 no_prob = float(signal.no_bid) if signal.no_bid is not None and float(signal.no_bid) > 0 else (1.0 - signal.mid_price)
                 skipped_edge = compute_edge(no_prob, eff_no)
-                reason = f"favorite NO edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
+                reason = f"strategy: favorite NO edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
         else:
-            reason = "no clear favorite"
+            reason = "strategy: no clear favorite"
         return TradeDecision("SKIP", 0.0, 0.0, reason, "SKIP", edge=skipped_edge)
 
     # Выбираем кандидата с наибольшим edge
@@ -166,7 +163,7 @@ def decide_favorite(signal: MarketSignal, config: dict, time_left_sec: float = 0
 def decide_outsider(
     signal: MarketSignal,
     p_flip: float,
-    config: dict,
+    cfg: TradingConfig,
     ece: float = 0.0,
     time_left_sec: float = 0.0,
 ) -> TradeDecision:
@@ -174,11 +171,9 @@ def decide_outsider(
     Outsider стратегия (TRADE_ON_FLIP).
     Если P(flip) >= flip_threshold → рынок флипнет → покупаем аутсайдера.
     """
-    cfg = parse_trading_settings(config)
-    
     is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider=True)
     if not is_valid_time and time_left_sec > 0:
-        return TradeDecision("SKIP", 0, 0, time_reason, "OUTSIDER", p_flip=p_flip)
+        return TradeDecision("SKIP", 0, 0, f"strategy: {time_reason}", "OUTSIDER", p_flip=p_flip)
         
     flip_thresh = cfg.flip_threshold
     if flip_thresh > 1.0:
@@ -188,14 +183,14 @@ def decide_outsider(
 
     # 1. Сначала проверяем dead zone
     if is_in_dead_zone(signal.mid_price, cfg.dead_zone):
-        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip, edge=0.0)
+        return TradeDecision("SKIP", 0, 0, "strategy: dead zone", "SKIP", p_flip=p_flip, edge=0.0)
 
     is_yes_fav = signal.mid_price >= FLIP_MIDPOINT
     outsider_ask = signal.get_no_ask() if is_yes_fav else signal.get_yes_ask()
     outsider_action: ActionType = "BUY_NO" if is_yes_fav else "BUY_YES"
 
     if outsider_ask <= 0:
-        return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip, edge=0.0)
+        return TradeDecision("SKIP", 0, 0, "strategy: outsider_ask=0", "SKIP", p_flip=p_flip, edge=0.0)
 
     outsider_pwin_discount = cfg.outsider_pwin_discount
     p_win_outsider = p_flip_effective * outsider_pwin_discount
@@ -213,7 +208,7 @@ def decide_outsider(
     # 2. Потом проверяем порог p_flip
     if p_flip_effective < flip_thresh:
         return TradeDecision("SKIP", 0, 0,
-            f"p_flip_effective={p_flip_effective:.3f} < threshold={flip_thresh:.3f}", "SKIP",
+            f"strategy: p_flip_effective={p_flip_effective:.3f} < threshold={flip_thresh:.3f}", "SKIP",
             p_flip=p_flip, edge=outsider_edge)
 
     edge = outsider_edge
@@ -221,18 +216,18 @@ def decide_outsider(
 
     is_valid_price, price_reason = cfg.is_price_valid(outsider_ask, is_outsider=True)
     if not is_valid_price:
-        return TradeDecision("SKIP", 0, 0, price_reason, "SKIP", p_flip=p_flip, edge=edge)
+        return TradeDecision("SKIP", 0, 0, f"strategy: {price_reason}", "SKIP", p_flip=p_flip, edge=edge)
 
     if ece and ece > ECE_WARN_THRESHOLD:
         logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
 
     if edge < min_edge:
         return TradeDecision("SKIP", 0, 0,
-            f"edge={edge:.3f} < min={min_edge:.3f}", "SKIP", p_flip=p_flip, edge=edge)
+            f"strategy: edge={edge:.3f} < min={min_edge:.3f}", "SKIP", p_flip=p_flip, edge=edge)
 
-    bet = _resolve_final_bet(edge, signal.volume_5min, config, is_outsider=True)
+    bet = _resolve_final_bet(edge, signal.volume_5min, cfg, is_outsider=True)
     if bet <= 0 and not cfg.bypass_bet_size_check:
-        return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
+        return TradeDecision("SKIP", 0, 0, "strategy: Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
     decision_details = {
         "market_role": "OUTSIDER",

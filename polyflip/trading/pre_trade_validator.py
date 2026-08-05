@@ -43,7 +43,7 @@ async def validate_pre_trade(
     запрос актуальной цены, проверка drift, edge, лимитов цен и размера ставки.
     """
     if decision_obj is None:
-        return PreTradeValidation(valid=False, buy_price=0.0, actual_bet_size=0.0, edge=0.0, skip_reason="Decision is None")
+        return PreTradeValidation(valid=False, buy_price=0.0, actual_bet_size=0.0, edge=0.0, skip_reason="validation: Decision is None")
     if decision_obj.action == "SKIP":
         return PreTradeValidation(valid=False, buy_price=0.0, actual_bet_size=0.0, edge=0.0, skip_reason=decision_obj.reason)
 
@@ -60,7 +60,7 @@ async def validate_pre_trade(
     if not fresh_prices or fresh_prices.get("best_ask") is None:
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=decision_obj.edge or 0.0,
-            skip_reason=f"No fresh prices from API for {asset_mode} ({decision})"
+            skip_reason=f"validation: No fresh prices from API for {asset_mode} ({decision})"
         )
 
     fresh_ask = float(fresh_prices["best_ask"])
@@ -77,20 +77,20 @@ async def validate_pre_trade(
     if decision_obj.strategy_type == "OUTSIDER" and actual_role != "OUTSIDER":
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
-            skip_reason="OUTSIDER strategy selected a favorite token"
+            skip_reason="validation: OUTSIDER strategy selected a favorite token"
         )
 
     if decision_obj.strategy_type in {"ML_TREND", "PURE_FAVORITE"}:
         if actual_role != "FAVORITE":
             return PreTradeValidation(
                 valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
-                skip_reason=f"{decision_obj.strategy_type} selected an outsider token"
+                skip_reason=f"validation: {decision_obj.strategy_type} selected an outsider token"
             )
 
     if decision_obj.strategy_type == "LIGHTGBM_TREND" and actual_role == "OUTSIDER" and p_flip < cfg.flip_threshold:
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
-            skip_reason=f"LightGBM outsider blocked: p_flip={p_flip:.3f} < {cfg.flip_threshold:.3f}"
+            skip_reason=f"validation: LightGBM outsider blocked: p_flip={p_flip:.3f} < {cfg.flip_threshold:.3f}"
         )
 
     price_drift = abs(fresh_ask - buy_price)
@@ -98,7 +98,7 @@ async def validate_pre_trade(
     if price_drift > cfg.max_price_drift:
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=decision_obj.edge or 0.0,
-            skip_reason=f"Price drift too large: {price_drift:.3f}"
+            skip_reason=f"validation: Price drift too large: {price_drift:.3f}"
         )
 
     # Проверка max_acceptable_price для COMBINED режима
@@ -106,7 +106,7 @@ async def validate_pre_trade(
     if max_acc_price is not None and fresh_ask > float(max_acc_price):
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=decision_obj.edge or 0.0,
-            skip_reason=f"Fresh ask {fresh_ask:.3f} exceeded max_acceptable_price {float(max_acc_price):.3f}"
+            skip_reason=f"validation: Fresh ask {fresh_ask:.3f} exceeded max_acceptable_price {float(max_acc_price):.3f}"
         )
 
     buy_price = fresh_ask
@@ -115,7 +115,7 @@ async def validate_pre_trade(
     if decision_obj.p_win_effective is None:
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=decision_obj.edge or 0.0,
-            skip_reason="Missing p_win_effective in TradeDecision"
+            skip_reason="validation: Missing p_win_effective in TradeDecision"
         )
     p_win = decision_obj.p_win_effective
 
@@ -132,7 +132,7 @@ async def validate_pre_trade(
     if edge < current_min_edge:
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
-            skip_reason=f"Edge below minimum (edge={edge:.4f} < min={current_min_edge:.4f})"
+            skip_reason=f"validation: Edge below minimum (edge={edge:.4f} < min={current_min_edge:.4f})"
         )
 
     ANOMALY_EDGE_WARN = 0.60
@@ -150,7 +150,7 @@ async def validate_pre_trade(
     if not (cfg.trade_min_price <= buy_price <= asset_max_price):
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
-            skip_reason=f"Price out of bounds: {buy_price:.3f} [{cfg.trade_min_price}, {asset_max_price}]"
+            skip_reason=f"validation: Price out of bounds: {buy_price:.3f} [{cfg.trade_min_price}, {asset_max_price}]"
         )
         
     # Рассчитываем новую ставку (если не фикс)
@@ -172,7 +172,7 @@ async def validate_pre_trade(
     if actual_bet_size <= 0:
         return PreTradeValidation(
             valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=edge,
-            skip_reason="Bet size <= 0"
+            skip_reason="validation: Bet size <= 0"
         )
         
 

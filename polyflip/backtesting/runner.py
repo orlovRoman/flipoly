@@ -10,11 +10,13 @@ from polyflip.backtesting.market_replay import MarketReplay
 from polyflip.backtesting.simulated_trader import SimulatedTrader
 from polyflip.trading.decision_logic import decide_favorite, decide_outsider, TradeDecision
 from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUMNS
+from polyflip.trading.trading_config import parse_trading_settings
 
 
 class BacktestRunner:
     def __init__(self, config: dict, model_blob: bytes, features: str):
         self.config = config
+        self.cfg = parse_trading_settings(config)
         self.model = pickle.loads(model_blob) if model_blob and len(model_blob) > 0 else None
         self.features = [f.strip() for f in features.split(',')] if features else []
         self.trader = SimulatedTrader(slippage_pct=float(config.get("SLIPPAGE_PCT", 0.005)))
@@ -83,7 +85,7 @@ class BacktestRunner:
     def _evaluate_tick(self, tick):
         signal = tick.to_signal()
         if self.strategy_mode == "PURE_FAVORITE":
-            decision = decide_favorite(signal, self.config, time_left_sec=tick.time_left_min * 60.0)
+            decision = decide_favorite(signal, self.cfg, time_left_sec=tick.time_left_min * 60.0)
             p_flip = 0.0
         else:
             # ML/LGBM режим удалён — используем decide_outsider как фолбэк
@@ -163,57 +165,11 @@ class BacktestRunner:
 
     def run_all(self, replays: dict[str, MarketReplay]) -> list:
         self.p_flips = {}  # Сбрасываем кэш предсказаний перед новым запуском
-        # Батч-предикшн вероятностей флипа для всех тиков, чтобы избежать оверхеда на единичные вызовы scikit-learn
-        if self.strategy_mode == "ML" and self.model and self.features:
-            from polyflip.models.trainer import add_derived_features
-            from polyflip.models.feature_lags import add_lag_features
-            import numpy as np
-            
-            rows = []
-            for replay in replays.values():
-                if not replay.is_tradeable:
-                    continue
-                for tick in replay.ticks:
-                    rows.append({
-                        "market_id": tick.market_id,
-                        "recorded_at": tick.recorded_at,
-                        "time_left_min": tick.time_left_min,
-                        "mid_price": tick.mid_price,
-                        "spread": tick.spread,
-                        "volume_5min": tick.volume_5min,
-                        "price_velocity": tick.price_velocity,
-                        "hour_of_day": tick.hour_of_day,
-                        "day_of_week": tick.recorded_at.weekday(),
-                        "tick_obj": tick
-                    })
-            
-            if rows:
-                df = pd.DataFrame(rows)
-                df = add_derived_features(df)
-                df = add_lag_features(df)
-                
-                min_time = min(float(self.config.get("FAVOR_MIN_TIME_LEFT_MIN", 1.0)), float(self.config.get("OUTS_MIN_TIME_LEFT_MIN", 1.0)))
-                max_time = max(float(self.config.get("FAVOR_MAX_TIME_LEFT_MIN", 60.0)), float(self.config.get("OUTS_MAX_TIME_LEFT_MIN", 60.0)))
-                mask = (df["time_left_min"] >= min_time) & (df["time_left_min"] <= max_time)
-                df_window = df[mask].copy()
-                
-                missing = [f for f in self.features if f not in df_window.columns]
-                if missing:
-                    import structlog
-                    structlog.get_logger(__name__).error("backtest_inference_missing_features", missing=missing)
-                    self.p_flips = {}
-                else:
-                    X = df_window[self.features]
-                    try:
-                        probas = self.model.predict_proba(X)
-                        p_flip_values = probas[:, 1] if probas.shape[1] > 1 else np.zeros(len(df_window))
-                        for idx, p_val in zip(df_window.index, p_flip_values):
-                            tick = df_window.at[idx, "tick_obj"]
-                            self.p_flips[(tick.market_id, tick.time_left_min)] = float(p_val)
-                    except Exception as e:
-                        import structlog
-                        structlog.get_logger(__name__).error("backtest_inference_error", error=str(e))
-                        self.p_flips = {}
+        if self.strategy_mode == "ML":
+            raise ValueError(
+                "ML/LGBM backtesting has been removed. "
+                "Use strategy_mode='PURE_FAVORITE' or 'COMBINED'."
+            )
 
         for market_id, replay in replays.items():
             self.run_market(replay)

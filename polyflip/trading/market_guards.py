@@ -53,7 +53,7 @@ async def check_market_guards(
     existing_skipped = skipped_res.scalar_one_or_none()
 
     if time_left_sec <= 0:
-        return GuardResult(passed=False, skip_reason="Time left <= 0", existing_skipped=existing_skipped)
+        return GuardResult(passed=False, skip_reason="guard: Time left <= 0", existing_skipped=existing_skipped)
         
     if asset_mode == TRADING_MODE_FAVORITE:
         window_min = cfg.entry_sec
@@ -65,12 +65,12 @@ async def check_market_guards(
                 window_min=window_min,
                 window_max=window_max,
             )
-            return GuardResult(passed=False, skip_reason="Outside time window", existing_skipped=existing_skipped)
+            return GuardResult(passed=False, skip_reason="guard: Outside time window", existing_skipped=existing_skipped)
     else:
         global_min_sec = min(cfg.favor_min_time_left, cfg.outs_min_time_left)
         global_max_sec = max(cfg.favor_max_time_left, cfg.outs_max_time_left)
         if not (global_min_sec <= time_left_sec <= global_max_sec):
-            return GuardResult(passed=False, skip_reason="Outside time window", existing_skipped=existing_skipped)
+            return GuardResult(passed=False, skip_reason="guard: Outside time window", existing_skipped=existing_skipped)
             
     # 2. Проверяем дубликаты сделок — existing_skipped уже доступен
     trade_check = select(TradeHistory).where(
@@ -80,15 +80,15 @@ async def check_market_guards(
     result = await db_session.execute(trade_check)
     already_traded = result.scalars().first() is not None
     if already_traded:
-        return GuardResult(passed=False, skip_reason="Trade already exists", existing_skipped=existing_skipped)
+        return GuardResult(passed=False, skip_reason="guard: Trade already exists", existing_skipped=existing_skipped)
 
     if market.asset not in cfg.trade_assets:
-        return GuardResult(passed=False, skip_reason="Asset not in TRADE_ASSETS", existing_skipped=existing_skipped)
+        return GuardResult(passed=False, skip_reason="guard: Asset not in TRADE_ASSETS", existing_skipped=existing_skipped)
         
     yes_token_id = market.yes_token_id
     no_token_id = market.no_token_id
     if not yes_token_id or not no_token_id or yes_token_id == 'N/A' or no_token_id == 'N/A':
         logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
-        return GuardResult(passed=False, skip_reason="Token IDs missing in DB", existing_skipped=existing_skipped)
+        return GuardResult(passed=False, skip_reason="guard: Token IDs missing in DB", existing_skipped=existing_skipped)
 
     return GuardResult(passed=True, skip_reason=None, existing_skipped=existing_skipped)

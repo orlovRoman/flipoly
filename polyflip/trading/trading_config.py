@@ -99,9 +99,21 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
     trade_assets_str = raw.get("TRADE_ASSETS", getattr(settings, "TRADE_ASSETS", "BTC,ETH"))
     trade_assets = [a.strip() for a in trade_assets_str.split(",") if a.strip()]
 
+    mode_raw = raw.get("TRADING_MODE", getattr(settings, "TRADING_MODE", "combined")).lower()
+    if mode_raw in ("ml", "lightgbm"):
+        import structlog
+        structlog.get_logger(__name__).warning("legacy_trading_mode", mode=mode_raw, new_mode="combined")
+        mode = "combined"
+    elif mode_raw in ("favorite", "combined", "pure_favorite", "outsider"):
+        mode = mode_raw
+    else:
+        import structlog
+        structlog.get_logger(__name__).warning("unknown_trading_mode", mode=mode_raw, new_mode="combined")
+        mode = "combined"
+
     return TradingConfig(
         trading_enabled=_parse_bool(raw.get("TRADING_ENABLED"), getattr(settings, "TRADING_ENABLED", True)),
-        trading_mode=raw.get("TRADING_MODE", getattr(settings, "TRADING_MODE", "ml")),
+        trading_mode=mode,
         favor_min_time_left=_parse_int(raw.get("FAVOR_MIN_TIME_LEFT_SEC"), getattr(settings, "FAVOR_MIN_TIME_LEFT_SEC", 60)),
         favor_max_time_left=_parse_int(raw.get("FAVOR_MAX_TIME_LEFT_SEC"), getattr(settings, "FAVOR_MAX_TIME_LEFT_SEC", 600)),
         outs_min_time_left=_parse_int(raw.get("OUTS_MIN_TIME_LEFT_SEC"), getattr(settings, "OUTS_MIN_TIME_LEFT_SEC", 30)),
