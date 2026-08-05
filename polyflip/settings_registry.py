@@ -134,8 +134,8 @@ REGISTRY: list[SettingDef] = [
     SettingDef("TRADE_FLIP_THRESHOLD", "0.85",
                description="Глобальный порог ПРОТИВ ТОЛПЫ (если нет индивидуального)"),
 
-    SettingDef("COMBINED_COST_BUFFER", "0.02",
-               description="Буфер транзакционных издержек и проскальзывания в Combined-режиме (0.02 = 2 цента)"),
+    SettingDef("COMBINED_COST_BUFFER", "0.020",
+               description="Буфер транзакционных издержек в Combined-режиме (в USD). Вычитается из gross_edge при расчёте net_edge."),
 
     SettingDef("MAX_PRICE_DRIFT", "0.10",
                description="Макс. дрейф цены от момента сигнала до исполнения"),
@@ -254,6 +254,9 @@ REGISTRY: list[SettingDef] = [
     SettingDef("LGBM_EPSILON_QUANTILE", "0.70",
                description="Квантиль epsilon-фильтра таргета. 0.70 = учимся на топ-30% движений"),
 ]
+
+
+ALL_SETTINGS = REGISTRY
 
 
 # ── Удобные геттеры ───────────────────────────────────────────────────────────

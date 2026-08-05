@@ -732,9 +732,8 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.combinedFallbackToLogregOnNone.checked = data.COMBINED_FALLBACK_TO_LOGREG_ON_NONE === "true";
       }
       if (settingsElements.combinedLogregAbstainBand && data.COMBINED_LOGREG_ABSTAIN_BAND !== undefined) {
-        let val = parseFloat(data.COMBINED_LOGREG_ABSTAIN_BAND);
-        if (val <= 1) val *= 100;
-        settingsElements.combinedLogregAbstainBand.value = isNaN(val) ? "5.0" : val.toFixed(1);
+        const raw = parseFloat(data.COMBINED_LOGREG_ABSTAIN_BAND);
+        settingsElements.combinedLogregAbstainBand.value = isNaN(raw) ? "5.0" : (raw * 100).toFixed(1);
       }
       if (settingsElements.combinedCostBuffer && data.COMBINED_COST_BUFFER !== undefined) {
         let val = parseFloat(data.COMBINED_COST_BUFFER);

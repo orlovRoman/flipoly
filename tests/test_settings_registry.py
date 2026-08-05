@@ -192,4 +192,24 @@ def test_no_settingdef_uses_settingmeta():
     import polyflip.settings_registry as sr
     assert not hasattr(sr, "SettingMeta"), "SettingMeta не существует, используй SettingDef"
 
+def test_required_and_editable_keys_consistency():
+    """Все обязательные и редактируемые ключи должны быть зарегистрированы в REGISTRY."""
+    from polyflip.settings_registry import (
+        REGISTRY,
+        ALL_SETTINGS,
+        editable_keys,
+        validate_required_keys,
+        REQUIRED_SETTINGS_KEYS,
+    )
+    validate_required_keys()
+    registered = {s.key for s in REGISTRY}
+    assert registered == {s.key for s in ALL_SETTINGS}
+    for key in REQUIRED_SETTINGS_KEYS:
+        assert key in registered, f"Required key '{key}' not in REGISTRY"
+        assert key in editable_keys(), f"Required key '{key}' not in editable_keys()"
+    for key in editable_keys():
+        assert key in registered, f"Editable key '{key}' not in REGISTRY"
+    assert "COMBINED_COST_BUFFER" in registered
+    assert "COMBINED_LOGREG_ABSTAIN_BAND" in registered
+
 
