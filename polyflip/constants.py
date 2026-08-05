@@ -9,7 +9,6 @@ polyflip/constants.py
 """
 
 # --- Режимы торговли (строковые идентификаторы) ---
-TRADING_MODE_FAVORITE = "favorite"
 TRADING_MODE_COMBINED = "combined"
 DEFAULT_TRADING_MODE  = TRADING_MODE_COMBINED
 
@@ -57,9 +56,6 @@ MODEL_THRESHOLD_MAX: float = 0.65
 CV_N_SPLITS     = 5            # кол-во фолдов кросс-валидации
 CV_RANDOM_STATE = 42           # seed для воспроизводимости
 
-# --- Таймеры / интервалы входа ---
-FAVORITE_MODE_ENTRY_SEC        = 180   # дефолт: 3 минуты до закрытия
-FAVORITE_MODE_ENTRY_WINDOW_SEC = 60    # окно входа ±60 сек от точки входа
 
 # --- API / сеть / инфраструктура ---
 HTTP_TIMEOUT_SEC           = 10.0      # таймаут CLOB/Gamma API

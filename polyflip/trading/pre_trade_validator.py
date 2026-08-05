@@ -8,7 +8,7 @@ from polyflip.trading.trading_config import TradingConfig
 from polyflip.trading.decision_logic import TradeDecision
 from polyflip.trading.position_sizing import compute_bet_size_edge_scaled
 from polyflip.crypto.edge import compute_economic_edge
-from polyflip.constants import TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
+from polyflip.constants import TRADING_MODE_COMBINED
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from polyflip.db.models import TradeHistory
@@ -80,7 +80,7 @@ async def validate_pre_trade(
             skip_reason="validation: OUTSIDER strategy selected a favorite token"
         )
 
-    if decision_obj.strategy_type in {"ML_TREND", "PURE_FAVORITE"}:
+    if decision_obj.strategy_type == "ML_TREND":
         if actual_role != "FAVORITE":
             return PreTradeValidation(
                 valid=False, buy_price=buy_price, actual_bet_size=actual_bet_size, edge=0.0,
@@ -114,7 +114,7 @@ async def validate_pre_trade(
         )
     p_win = decision_obj.p_win_effective
 
-    if asset_mode == TRADING_MODE_COMBINED or asset_mode == TRADING_MODE_FAVORITE:
+    if asset_mode == TRADING_MODE_COMBINED:
         # Определяем: аутсайдер (price < 0.5) или фаворит
         is_outsider = buy_price < 0.5
         current_min_edge = cfg.get_min_edge(is_outsider=is_outsider)
@@ -161,8 +161,6 @@ async def validate_pre_trade(
             max_edge=cfg.max_bet_edge
         )
         actual_bet_size = newly_calculated_bet_size
-        if asset_mode == TRADING_MODE_FAVORITE and actual_bet_size < cfg.bet_size:
-            actual_bet_size = cfg.bet_size
 
     if actual_bet_size <= 0:
         return PreTradeValidation(

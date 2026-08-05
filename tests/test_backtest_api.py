@@ -67,7 +67,7 @@ async def test_run_backtest_no_data_returns_422():
         headers = {"X-API-Key": "test-key"}
         payload = {
             "assets": ["NONEXISTENT_ASSET_XYZ"],
-            "strategy_mode": "PURE_FAVORITE"
+            "strategy_mode": "OUTSIDER"
         }
         # Мокируем async_session чтобы вернуть пустой список
         with patch("polyflip.api.backtest_api.async_session") as mock_session_maker:

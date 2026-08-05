@@ -53,11 +53,11 @@ def test_full_backtest_integration():
     # 3. Configure runner
     config = BacktestConfig(
         assets=["BTC", "ETH"],
-        strategy_mode="PURE_FAVORITE",
+        strategy_mode="OUTSIDER",
+        trade_on_flip=True,
         favorite_threshold=0.65,
         favorite_min_price=0.5,
         favorite_max_price=0.9,
-        kelly_enabled=False,
         trade_bet_size_usdc=10.0,
         slippage_pct=0.01
     )

@@ -73,10 +73,10 @@ async def test_pre_trade_validator_blocks_outsider_on_favorite_token():
 @pytest.mark.asyncio
 async def test_pre_trade_validator_blocks_favorite_on_outsider_token():
     market = LiveMarket(market_id="test", yes_token_id="y", no_token_id="n", current_yes_price=0.20, current_no_price=0.80)
-    decision = TradeDecision(action="BUY_YES", buy_price=0.20, bet_size_usdc=10.0, reason="test", strategy_type="PURE_FAVORITE", edge=0.1, p_win_effective=0.30)
+    decision = TradeDecision(action="BUY_YES", buy_price=0.20, bet_size_usdc=10.0, reason="test", strategy_type="ML_TREND", edge=0.1, p_win_effective=0.30)
     
     cfg = MagicMock()
-    cfg.favorite_min_edge = 0.05
+    cfg.get_min_edge.return_value = 0.05
     cfg.max_price_drift = 0.1
     cfg.fee_rate = 0.0
     cfg.slippage_rate = 0.0
@@ -97,7 +97,7 @@ async def test_pre_trade_validator_blocks_favorite_on_outsider_token():
     db_mock.execute.return_value = exposure_res_mock
     
     result = await validate_pre_trade(
-        db_mock, api_mock, market, decision, cfg, asset_mode="favorite", asset_min_edge=0.05, asset_max_price=0.99, p_flip=0.1, model_ver=1
+        db_mock, api_mock, market, decision, cfg, asset_mode="combined", asset_min_edge=0.05, asset_max_price=0.99, p_flip=0.1, model_ver=1
     )
     assert result.valid is False
     assert "selected an outsider token" in result.skip_reason

@@ -309,13 +309,13 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
     if key == "TRADING_MODE" or key.startswith("TRADING_MODE_"):
         if payload.value == "CRYPTO":
             payload.value = "lightgbm"
-        allowed_per_asset = ("ml", "favorite", "lightgbm", "combined", "")
-        allowed_global   = ("ml", "favorite", "lightgbm", "combined")
+        allowed_per_asset = ("ml", "lightgbm", "combined", "")
+        allowed_global   = ("ml", "lightgbm", "combined")
         allowed = allowed_per_asset if key.startswith("TRADING_MODE_") else allowed_global
         if payload.value not in allowed:
             raise HTTPException(
                 status_code=400,
-                detail=f"{key} must be 'ml', 'favorite', 'lightgbm' or 'combined'"
+                detail=f"{key} must be 'ml', 'lightgbm' or 'combined'"
             )
 
     if key == "TRADE_MAX_PRICE" or key.startswith("TRADE_MAX_PRICE_"):
@@ -329,15 +329,6 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
                 payload.value = str(val)
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"{key} must be a number")
-
-    if key == "FAVORITE_MODE_ENTRY_SEC":
-        try:
-            val = int(payload.value)
-            if not (30 <= val <= 600):
-                raise HTTPException(status_code=400, detail="FAVORITE_MODE_ENTRY_SEC must be between 30 and 600 seconds")
-            payload.value = str(val)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="FAVORITE_MODE_ENTRY_SEC must be an integer")
 
 
 

@@ -8,12 +8,12 @@ from typing import Any
 
 from polyflip.backtesting.market_replay import MarketReplay
 from polyflip.backtesting.simulated_trader import SimulatedTrader
-from polyflip.trading.decision_logic import decide_favorite, decide_outsider, TradeDecision
+from polyflip.trading.decision_logic import decide_outsider, TradeDecision
 from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUMNS
 from polyflip.trading.trading_config import parse_trading_settings
 
 
-SUPPORTED_BACKTEST_MODES = {"PURE_FAVORITE", "OUTSIDER"}
+SUPPORTED_BACKTEST_MODES = {"OUTSIDER"}
 
 class BacktestRunner:
     def __init__(self, config: dict, model_blob: bytes, features: str):
@@ -26,7 +26,9 @@ class BacktestRunner:
         _tof = config.get("TRADE_ON_FLIP", False)
         self.trade_on_flip = _tof if isinstance(_tof, bool) else str(_tof).lower() == "true"
         
-        self.strategy_mode = config.get("STRATEGY_MODE", "PURE_FAVORITE").upper()
+        self.strategy_mode = config.get("STRATEGY_MODE", "OUTSIDER").upper()
+        if self.strategy_mode in ("PURE_FAVORITE", "FAVORITE"):
+            raise ValueError("Pure Favorite mode has been removed. Use 'combined' or 'outsider'.")
         if self.strategy_mode not in SUPPORTED_BACKTEST_MODES:
             raise ValueError(
                 f"Backtest strategy_mode='{self.strategy_mode}' is not supported. "
@@ -91,10 +93,7 @@ class BacktestRunner:
 
     def _evaluate_tick(self, tick):
         signal = tick.to_signal()
-        if self.strategy_mode == "PURE_FAVORITE":
-            decision = decide_favorite(signal, self.cfg, time_left_sec=tick.time_left_min * 60.0)
-            p_flip = 0.0
-        elif self.strategy_mode == "OUTSIDER":
+        if self.strategy_mode == "OUTSIDER":
             p_flip = getattr(self, 'p_flips', {}).get((tick.market_id, tick.time_left_min), 0.0)
             decision = decide_outsider(signal, p_flip, self.cfg, ece=0.0,
                                        time_left_sec=tick.time_left_min * 60.0)

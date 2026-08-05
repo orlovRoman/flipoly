@@ -310,8 +310,8 @@ async def get_trade_logs(
             ).lower()
             if mode == "lightgbm":
                 active_feat = "LIGHTGBM_TREND"
-            elif mode == "favorite":
-                active_feat = "PURE_FAVORITE"
+            elif mode == "combined":
+                active_feat = "COMBINED"
             else:
                 active_feat = "ml_strategy"
 

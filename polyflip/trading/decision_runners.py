@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 from polyflip.db.models import LiveMarket, TradeHistory, MarketSnapshot
 from polyflip.trading.trading_config import TradingConfig
-from polyflip.trading.decision_logic import TradeDecision, MarketSignal, decide_favorite, decide_outsider
+from polyflip.trading.decision_logic import TradeDecision, MarketSignal, decide_outsider
 from polyflip.trading.ml_inference import build_inference_dataframe, run_model_inference
 from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
 from polyflip.crypto.candle_repository import get_recent_candles
@@ -32,52 +32,6 @@ class DecisionResult:
     confirm_model_version: Optional[int] = None
     applied_lower: Optional[float] = None
     applied_upper: Optional[float] = None
-
-async def decide_favorite_mode(
-    market: LiveMarket,
-    cfg: TradingConfig,
-    asset_min_edge: float,
-    asset_max_price: float,
-    start_time: datetime,
-    time_left_sec: float,
-) -> DecisionResult:
-    if market.current_yes_price == 0.5:
-        logger.info("favorite_mode_skip_no_favorite", market_id=market.market_id)
-        return DecisionResult(None, 0.0, None, None, "Pure Favorite: no clear favorite (price == 0.5)")
-
-    signal = MarketSignal(
-        asset=market.asset,
-        mid_price=market.current_yes_price,
-        spread=market.current_spread or 0.01,
-        volume_5min=market.volume_5min or 0.0,
-        price_velocity=market.price_velocity or 0.0,
-        hour_of_day=start_time.hour,
-        time_left_min=time_left_sec / 60.0,
-        yes_bid=getattr(market, "current_yes_bid", None),
-        yes_ask=getattr(market, "current_yes_ask", None),
-        no_bid=getattr(market, "current_no_bid", None),
-        no_ask=getattr(market, "current_no_ask", None),
-    )
-    
-    fav_cfg = dataclasses.replace(
-        cfg,
-        favorite_min_edge=asset_min_edge,
-        trade_max_price=asset_max_price,
-    )
-    
-    decision_obj = decide_favorite(signal, fav_cfg, time_left_sec=time_left_sec)
-    if not decision_obj.decision_details:
-        decision_obj = dataclasses.replace(decision_obj, decision_details={"market_role": "FAVORITE"})
-    if not cfg.trade_on_favorite:
-        decision_obj = dataclasses.replace(decision_obj, action="SKIP", reason="Favorite trades disabled (TRADE_ON_FAVORITE=False)")
-    
-    return DecisionResult(
-        decision_obj=decision_obj,
-        p_flip=0.0,
-        model_ver=None,
-        edge=decision_obj.edge,
-        skip_reason=decision_obj.reason if decision_obj.action == "SKIP" else None
-    )
 
 async def infer_flip_for_market(
     db_session: AsyncSession,

@@ -15,7 +15,7 @@ from polyflip.api.dashboard import invalidate_dashboard_cache
 from polyflip.execution.outbox import enqueue_open_request, EnqueueDisposition
 from polyflip.execution.config import ExecutionSettings
 import os
-from polyflip.constants import TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
+from polyflip.constants import TRADING_MODE_COMBINED
 
 logger = structlog.get_logger(__name__)
 
@@ -33,9 +33,6 @@ def _get_trade_active_features(asset_mode: str, active_features_str: str, decisi
         # Если актив не поддерживается, значит был fallback на ML.
         # Fall through к ML-ветке ниже.
         pass
-    
-    if asset_mode == TRADING_MODE_FAVORITE:
-        return "PURE_FAVORITE"
     
     base = active_features_str.strip().rstrip(',') if active_features_str else ""
     if decision_obj and hasattr(decision_obj, "strategy_type") and decision_obj.strategy_type:

@@ -5,16 +5,6 @@ import structlog
 from polyflip.db.models import LiveMarket, TradeHistory
 from polyflip.trading.trading_config import TradingConfig
 
-# Attempt to import FAVORITE_MODE_ENTRY_WINDOW_SEC, fallback to default 60
-try:
-    from polyflip.constants import FAVORITE_MODE_ENTRY_WINDOW_SEC
-except ImportError:
-    try:
-        from polyflip.config import settings
-        FAVORITE_MODE_ENTRY_WINDOW_SEC = getattr(settings, 'FAVORITE_MODE_ENTRY_WINDOW_SEC', 60)
-    except ImportError:
-        FAVORITE_MODE_ENTRY_WINDOW_SEC = 60
-
 logger = structlog.get_logger(__name__)
 
 
@@ -28,13 +18,11 @@ async def load_eligible_markets(
     Если достигнут дневной лимит, возвращает None (сигнал остановки).
     Иначе возвращает список рынков (может быть пустым).
     """
-    global_min_sec = min(cfg.favor_min_time_left, cfg.outs_min_time_left)
-    global_max_sec = max(cfg.favor_max_time_left, cfg.outs_max_time_left)
-    union_min_sec = min(global_min_sec, cfg.entry_sec)
-    union_max_sec = max(global_max_sec, cfg.entry_sec + FAVORITE_MODE_ENTRY_WINDOW_SEC)
+    min_sec = min(cfg.favor_min_time_left, cfg.outs_min_time_left)
+    max_sec = max(cfg.favor_max_time_left, cfg.outs_max_time_left)
     
-    min_td = timedelta(seconds=union_min_sec)
-    max_td = timedelta(seconds=union_max_sec)
+    min_td = timedelta(seconds=min_sec)
+    max_td = timedelta(seconds=max_sec)
     
     live_markets_stmt = select(LiveMarket).where(
         and_(

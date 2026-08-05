@@ -26,7 +26,7 @@ class BacktestConfig(BaseModel):
     outs_max_time_left_min: float = Field(default=60.0, ge=1.0, le=1440.0)
 
     # Стратегия
-    strategy_mode: Literal["ML", "PURE_FAVORITE"] = Field(default="ML")
+    strategy_mode: Literal["OUTSIDER", "COMBINED"] = Field(default="OUTSIDER")
     entry_strategy: Literal["first", "best_edge", "confirmed"] = Field(
         default="first",
         description="Стратегия выбора точки входа: first=первый сигнал, best_edge=лучший edge, confirmed=2 подтверждения"

@@ -5,12 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from polyflip.collector.client import PolymarketClient
-from polyflip.constants import TRADING_MODE_FAVORITE, TRADING_MODE_COMBINED
+from polyflip.constants import TRADING_MODE_COMBINED
 from polyflip.trading.settings_loader import load_trading_settings
 from polyflip.trading.trading_config import parse_trading_settings
 from polyflip.trading.market_loader import load_eligible_markets
 from polyflip.trading.market_guards import check_market_guards
-from polyflip.trading.decision_runners import decide_favorite_mode, decide_combined_mode
+from polyflip.trading.decision_runners import decide_combined_mode
 from polyflip.trading.pre_trade_validator import validate_pre_trade
 from polyflip.trading.trade_recorder import execute_and_record, save_or_update_skipped_trade, EnqueueRejected
 from polyflip.crypto.candle_repository import get_recent_candles
@@ -110,18 +110,13 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                 decision_res = None
                 
                 try:
-                    if asset_mode == TRADING_MODE_FAVORITE:
-                        decision_res = await decide_favorite_mode(
-                            market, cfg, asset_min_edge, asset_max_price, start_time, time_left_sec
-                        )
-                    else:
-                        from polyflip.trading.ml_inference import get_models_cache
-                        models_cache = get_models_cache()
-                        decision_res = await decide_combined_mode(
-                            db_session, api_client, market, cfg,
-                            raw_settings, models_cache, _get_crypto_predictor(),
-                            start_time, time_left_sec, existing_skipped, execution_mode=execution_mode
-                        )
+                    from polyflip.trading.ml_inference import get_models_cache
+                    models_cache = get_models_cache()
+                    decision_res = await decide_combined_mode(
+                        db_session, api_client, market, cfg,
+                        raw_settings, models_cache, _get_crypto_predictor(),
+                        start_time, time_left_sec, existing_skipped, execution_mode=execution_mode
+                    )
                 except Exception as e:
                     logger.exception("decision_logic_error", market=market.market_id, error=str(e))
                     await save_or_update_skipped_trade(

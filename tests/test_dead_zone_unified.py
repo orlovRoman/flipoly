@@ -119,25 +119,3 @@ def test_auto_dead_zone_width_removed_from_constants():
         assert c.AUTO_DEAD_ZONE_WIDTH == c.DEAD_ZONE_WIDTH, (
             "Если AUTO_DEAD_ZONE_WIDTH сохранён как alias — он должен равняться DEAD_ZONE_WIDTH"
         )
-
-
-# ── Тест decision_logic читает DEAD_ZONE_WIDTH ────────────────────────────────
-
-def test_decide_favorite_reads_dead_zone_width():
-    """decide_favorite должен использовать DEAD_ZONE_WIDTH, а не AUTO_DEAD_ZONE_WIDTH."""
-    from polyflip.trading.decision_logic import decide_favorite
-    from polyflip.trading.feature_builder import MarketSignal
-
-    # mid_price=0.50 — нейтральная зона; при dead_zone=0.20 → SKIP
-    signal = MarketSignal(
-        asset="BTC",
-        mid_price=0.50,
-        spread=0.01,
-        volume_5min=1000.0,
-        price_velocity=0.0,
-        hour_of_day=12,
-        time_left_min=2.0,
-    )
-    result = decide_favorite(signal, parse_trading_settings({"DEAD_ZONE_WIDTH": "0.20", "FAVORITE_THRESHOLD": "0.55"}), time_left_sec=300)
-    assert result.action == "SKIP"
-    assert result.reason == "strategy: dead zone"

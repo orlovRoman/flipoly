@@ -528,10 +528,10 @@
             <div class="config-section-title">🎯 Логика торговли</div>
             
             <div class="config-group">
-              <label>Режим стратегии <span class="tooltip-icon tooltip-icon--left" data-tooltip="ML — торговля по сигналам модели. Pure Favorite — покупка только фаворита." data-pos="down">❓</span></label>
+              <label>Режим стратегии <span class="tooltip-icon tooltip-icon--left" data-tooltip="COMBINED — торговля на основе ансамбля моделей. OUTSIDER — только поиск аномалий и флипов." data-pos="down">❓</span></label>
               <select id="cfg-strategy-mode" onchange="onStrategyChange()">
-                <option value="ML">ML (Trend + Outsider)</option>
-                <option value="PURE_FAVORITE">Pure Favorite (Только фавориты)</option>
+                <option value="COMBINED">Combined (Фаворит + Аутсайдер)</option>
+                <option value="OUTSIDER">Outsider (Только аутсайдеры)</option>
               </select>
             </div>
 
@@ -771,8 +771,8 @@
                 </select>
                 <select id="trades-filter-strategy" onchange="renderTradesTable()" style="font-size:0.8rem; padding:0.35rem 0.6rem; background:rgba(10,14,23,0.8); border:1px solid var(--border-color); border-radius:6px; color:var(--text-main);">
                   <option value="ALL">Все стратегии</option>
+                  <option value="COMBINED">COMBINED</option>
                   <option value="ML_TREND">ML_TREND</option>
-                  <option value="PURE_FAVORITE">PURE_FAVORITE</option>
                   <option value="OUTSIDER">OUTSIDER</option>
                 </select>
                 <select id="trades-sort" onchange="renderTradesTable()" style="font-size:0.8rem; padding:0.35rem 0.6rem; background:rgba(10,14,23,0.8); border:1px solid var(--border-color); border-radius:6px; color:var(--text-main);">

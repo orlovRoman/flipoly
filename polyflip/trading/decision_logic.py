@@ -41,7 +41,7 @@ def _resolve_final_bet(edge: float, volume_5min: float, cfg: TradingConfig, is_o
         bet = cfg.bet_size
     return bet
 
-StrategyType = Literal["PURE_FAVORITE", "ML_TREND", "OUTSIDER", "LIGHTGBM_TREND", "COMBINED", "SKIP"]
+StrategyType = Literal["OUTSIDER", "COMBINED", "SKIP"]
 ActionType = Literal["BUY_YES", "BUY_NO", "SKIP"]
 
 
@@ -62,102 +62,6 @@ class TradeDecision:
     decision_details: Optional[dict] = None
     direction_value: Optional[str] = None
 
-
-
-def decide_favorite(signal: MarketSignal, cfg: TradingConfig, time_left_sec: float = 0.0) -> TradeDecision:
-    """
-    PURE_FAVORITE стратегия.
-    Покупает фаворита (YES если mid_price > threshold, NO если < 1-threshold).
-    
-    Важно: обе стороны проверяются независимо.
-    YES-side out-of-bounds НЕ блокирует проверку NO-side.
-    Если обе стороны подходят — выбирается с бо́льшим edge.
-    """
-    yes_bid = getattr(signal, "yes_bid", None)
-    yes_ask = getattr(signal, "yes_ask", None)
-    is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider=False)
-    if not is_valid_time and time_left_sec > 0:
-        return TradeDecision("SKIP", 0, 0, f"strategy: {time_reason}", "PURE_FAVORITE")
-        
-    if yes_bid is not None and yes_bid > 0 and yes_ask is not None and signal.mid_price > 0:
-        spread_pct = (yes_ask - yes_bid) / signal.mid_price
-        if spread_pct > cfg.max_spread_pct:
-            return TradeDecision("SKIP", 0.0, 0.0, f"strategy: spread too wide: {spread_pct:.2%}", "SKIP", edge=0.0)
-    threshold = cfg.favorite_threshold
-    # PURE_FAVORITE использует свой порог edge (может быть отрицательным)
-    min_edge = cfg.favorite_min_edge
-    
-    if is_in_dead_zone(signal.mid_price, cfg.dead_zone):
-        return TradeDecision("SKIP", 0, 0, "strategy: dead zone", "SKIP", edge=0.0)
-
-
-    candidates: list[TradeDecision] = []
-
-    # --- YES side ---
-    if signal.mid_price >= threshold:
-        eff_yes_ask = signal.get_yes_ask()
-        is_valid_price, price_reason = cfg.is_price_valid(eff_yes_ask, is_outsider=False)
-        if is_valid_price:
-            if signal.yes_bid is not None and float(signal.yes_bid) > 0:
-                p_win_yes = float(signal.yes_bid)
-            else:
-                p_win_yes = signal.mid_price
-            edge = compute_edge(p_win_yes, eff_yes_ask)
-            if edge >= min_edge:
-                bet = _resolve_final_bet(edge, signal.volume_5min, cfg, is_outsider=False)
-                candidates.append(TradeDecision(
-                    "BUY_YES", eff_yes_ask, bet,
-                    f"favorite YES edge={edge:.4f}", "PURE_FAVORITE",
-                    edge=edge, p_up=p_win_yes,
-                    p_win_effective=p_win_yes, p_win_raw=p_win_yes
-                ))
-
-    # --- NO side --- проверяется НЕЗАВИСИМО от YES-side
-    if signal.mid_price <= (1.0 - threshold):
-        eff_no_ask = signal.get_no_ask()
-        is_valid_price, price_reason = cfg.is_price_valid(eff_no_ask, is_outsider=False)
-        if is_valid_price:
-            if signal.no_bid is not None and float(signal.no_bid) > 0:
-                no_prob = float(signal.no_bid)
-            else:
-                no_prob = 1.0 - signal.mid_price
-            edge = compute_edge(no_prob, eff_no_ask)
-            if edge >= min_edge:
-                bet = _resolve_final_bet(edge, signal.volume_5min, cfg, is_outsider=False)
-                candidates.append(TradeDecision(
-                    "BUY_NO", eff_no_ask, bet,
-                    f"favorite NO edge={edge:.4f}", "PURE_FAVORITE",
-                    edge=edge, p_up=1.0 - no_prob,
-                    p_win_effective=no_prob, p_win_raw=no_prob
-                ))
-
-    if not candidates:
-        eff_yes = signal.get_yes_ask()
-        eff_no = signal.get_no_ask()
-        skipped_edge = 0.0
-        if signal.mid_price >= threshold:
-            is_valid_price, price_reason = cfg.is_price_valid(eff_yes, is_outsider=False)
-            if not is_valid_price:
-                reason = f"strategy: {price_reason}"
-            else:
-                p_win_yes = float(signal.yes_bid) if signal.yes_bid is not None and float(signal.yes_bid) > 0 else signal.mid_price
-                skipped_edge = compute_edge(p_win_yes, eff_yes)
-                reason = f"strategy: favorite YES edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
-        elif signal.mid_price <= (1.0 - threshold):
-            is_valid_price, price_reason = cfg.is_price_valid(eff_no, is_outsider=False)
-            if not is_valid_price:
-                reason = f"strategy: {price_reason}"
-            else:
-                no_prob = float(signal.no_bid) if signal.no_bid is not None and float(signal.no_bid) > 0 else (1.0 - signal.mid_price)
-                skipped_edge = compute_edge(no_prob, eff_no)
-                reason = f"strategy: favorite NO edge={skipped_edge:.4f} < min_edge={min_edge:.4f}"
-        else:
-            reason = "strategy: no clear favorite"
-        return TradeDecision("SKIP", 0.0, 0.0, reason, "SKIP", edge=skipped_edge)
-
-    # Выбираем кандидата с наибольшим edge
-    best_candidate = max(candidates, key=lambda c: c.edge if c.edge is not None else -999.0)
-    return best_candidate
 
 
 def decide_outsider(

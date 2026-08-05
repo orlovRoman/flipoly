@@ -29,7 +29,7 @@ def test_drawdown_empty():
 def test_worst_trades_sorted_asc():
     """worst_trades[0] должен быть наихудшей сделкой."""
     # Создаем mock данные
-    config = BacktestConfig(assets=["BTC"], strategy_mode="PURE_FAVORITE")
+    config = BacktestConfig(assets=["BTC"], strategy_mode="COMBINED")
     from polyflip.backtesting.simulated_trader import SimulatedTrade
     from polyflip.trading.decision_logic import TradeDecision
     

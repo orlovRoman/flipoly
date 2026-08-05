@@ -36,7 +36,7 @@ def _make_market(**kwargs):
 
 def _make_raw_settings(*args, **kwargs) -> dict:
     """Минимальный набор settings_db для TradingConfig."""
-    base = {'TRADING_ENABLED': 'true', 'TRADING_MODE': 'combined', 'FAVOR_MIN_TIME_LEFT_SEC': '300', 'FAVOR_MAX_TIME_LEFT_SEC': '900', 'TRADE_BET_SIZE_USDC': '10.0', 'TRADE_NO_FLIP_THRESHOLD': '0.55', 'DEAD_ZONE_WIDTH': '0.05', 'DAILY_LOSS_LIMIT_USDC': '-100.0', 'TRADE_MIN_PRICE': '0.05', 'TRADE_MAX_PRICE': '0.95', 'TRADE_ASSETS': 'BTC,ETH', 'ACTIVE_FEATURES': 'mid_price,spread', 'OUTS_MIN_EDGE': '0.05', 'MAX_BET_EDGE': '0.30', 'MAX_EDGE_FILTER': '0.99', 'FAVORITE_THRESHOLD': '0.70', 'TRADE_ON_FAVORITE': 'true', 'TRADE_ON_FLIP': 'false', 'FLIP_THRESHOLD': '0.60', 'NO_OUTS_MIN_EDGE': '0.03', 'OUTSIDER_MAX_PRICE': '0.40', 'AUTO_DEAD_ZONE': 'false', 'FAVORITE_MODE_ENTRY_SEC': '120', 'USE_CRYPTO_CONFIRM': 'false', 'CRYPTO_STANDALONE': 'false', 'CRYPTO_OUTS_MIN_EDGE': '0.05', 'BET_SIZING_MODE': 'fixed', 'MAX_BET_SIZE_USDC': '50.0', 'MAX_PRICE_DRIFT': '0.03', 'STOP_LOSS_ENABLED': 'false', 'TAKE_PROFIT_ENABLED': 'false', 'TAKE_PROFIT_MULTIPLIER': '2.0', 'FAVORITE_MIN_PRICE': '0.55', 'FAVORITE_MAX_PRICE': '0.95', 'FAVORITE_MIN_EDGE': '0.02', 'LIQUIDITY_FRACTION': '0.1', 'BYPASS_BET_SIZE_CHECK': 'false'}
+    base = {'TRADING_ENABLED': 'true', 'TRADING_MODE': 'combined', 'FAVOR_MIN_TIME_LEFT_SEC': '300', 'FAVOR_MAX_TIME_LEFT_SEC': '900', 'TRADE_BET_SIZE_USDC': '10.0', 'TRADE_NO_FLIP_THRESHOLD': '0.55', 'DEAD_ZONE_WIDTH': '0.05', 'DAILY_LOSS_LIMIT_USDC': '-100.0', 'TRADE_MIN_PRICE': '0.05', 'TRADE_MAX_PRICE': '0.95', 'TRADE_ASSETS': 'BTC,ETH', 'ACTIVE_FEATURES': 'mid_price,spread', 'OUTS_MIN_EDGE': '0.05', 'MAX_BET_EDGE': '0.30', 'MAX_EDGE_FILTER': '0.99', 'FAVORITE_THRESHOLD': '0.70', 'TRADE_ON_FAVORITE': 'true', 'TRADE_ON_FLIP': 'false', 'FLIP_THRESHOLD': '0.60', 'NO_OUTS_MIN_EDGE': '0.03', 'OUTSIDER_MAX_PRICE': '0.40', 'AUTO_DEAD_ZONE': 'false', 'USE_CRYPTO_CONFIRM': 'false', 'CRYPTO_STANDALONE': 'false', 'CRYPTO_OUTS_MIN_EDGE': '0.05', 'BET_SIZING_MODE': 'fixed', 'MAX_BET_SIZE_USDC': '50.0', 'MAX_PRICE_DRIFT': '0.03', 'STOP_LOSS_ENABLED': 'false', 'TAKE_PROFIT_ENABLED': 'false', 'TAKE_PROFIT_MULTIPLIER': '2.0', 'FAVORITE_MIN_PRICE': '0.55', 'FAVORITE_MAX_PRICE': '0.95', 'FAVORITE_MIN_EDGE': '0.02', 'LIQUIDITY_FRACTION': '0.1', 'BYPASS_BET_SIZE_CHECK': 'false'}
     if args and isinstance(args[0], dict):
         base.update(args[0])
     base.update(kwargs)
@@ -360,16 +360,6 @@ class TestStep5bDecisionRunners:
         r = DecisionResult(decision_obj=None, p_flip=0.0, model_ver=None, edge=None, skip_reason='No signal')
         assert r.skip_reason is not None
         assert r.decision_obj is None
-
-    @pytest.mark.asyncio
-    async def test_step5b_decide_favorite_half_price_skips(self, db_session):
-        """При current_yes_price=0.5 (нет фаворита) → skip_reason != None."""
-        from polyflip.trading.decision_runners import decide_favorite_mode
-        from polyflip.trading.trading_config import parse_trading_settings
-        market = _make_market(current_yes_price=0.5)
-        cfg = parse_trading_settings(_make_raw_settings())
-        result = await decide_favorite_mode(market=market, cfg=cfg, asset_min_edge=0.05, asset_max_price=0.95, start_time=datetime.now(timezone.utc), time_left_sec=600.0)
-        assert result.skip_reason is not None, 'Цена 0.5 = нет фаворита → должен SKIP'
 
 class TestStep6PreTradeValidator:
     """Контракт для validate_pre_trade(...) → PreTradeValidation."""

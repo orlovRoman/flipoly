@@ -5,11 +5,10 @@ from polyflip.backtesting.runner import BacktestRunner
 from polyflip.backtesting.market_replay import MarketReplay, MarketTick
 
 
-def make_tick(mid: float, ask: float, time_left: float, dt: datetime) -> MarketTick:
-    # spread / 2 = ask - mid => spread = (ask - mid) * 2
-    spread = (ask - mid) * 2
+def make_tick(mid: float, ask: float, time_left: float, dt: datetime, market_id: str = "m1") -> MarketTick:
+    spread = abs(ask - mid) * 2
     return MarketTick(
-        market_id="m1", asset="BTC", time_left_min=time_left,
+        market_id=market_id, asset="BTC", time_left_min=time_left,
         mid_price=mid, spread=spread, volume_5min=1000.0,
         price_velocity=0.0, hour_of_day=12, final_outcome="YES",
         recorded_at=dt
@@ -20,11 +19,10 @@ def test_entry_strategy_first():
     """first должен брать самый первый подходящий сигнал (самый ранний)."""
     now = datetime.now()
     ticks = [
-        make_tick(0.60, 0.61, 30.0, now - timedelta(minutes=30)),  # edge = 0.60/0.61 - 1 = -0.016
-        make_tick(0.80, 0.70, 20.0, now - timedelta(minutes=20)),  # edge = 0.80/0.70 - 1 = 0.14
-        make_tick(0.90, 0.80, 10.0, now - timedelta(minutes=10)),  # edge = 0.90/0.80 - 1 = 0.125
+        make_tick(0.70, 0.71, 30.0, now - timedelta(minutes=30)),
+        make_tick(0.70, 0.71, 20.0, now - timedelta(minutes=20)),
+        make_tick(0.70, 0.71, 10.0, now - timedelta(minutes=10)),
     ]
-    # Насильно подменяем ticks в replay, обходя __init__
     replay = MarketReplay.__new__(MarketReplay)
     replay.ticks = ticks
     replay.market_id = "m1"
@@ -33,19 +31,24 @@ def test_entry_strategy_first():
 
     config = {
         "ENTRY_STRATEGY": "first",
-        "STRATEGY_MODE": "PURE_FAVORITE",
-        "FAVORITE_THRESHOLD": "0.55",
-        "FAVORITE_MIN_EDGE": "-0.05",  # чтобы первый тик прошел
+        "STRATEGY_MODE": "OUTSIDER",
+        "TRADE_ON_FLIP": "true",
+        "FLIP_THRESHOLD": "0.30",
+        "OUTSIDER_PWIN_DISCOUNT": "1.0",
+        "OUTS_MIN_EDGE": "0.01",
+        "OUTSIDER_MAX_PRICE": "0.45",
         "TRADE_BET_SIZE_USDC": "5",
         "MAX_BET_SIZE_USDC": "50",
-        "FAVOR_MIN_TIME_LEFT_SEC": "60",
-        "FAVOR_MAX_TIME_LEFT_SEC": "3600",
-        "AUTO_DEAD_ZONE_WIDTH": "0.05",
-        "TRADE_MIN_PRICE": "0.50",
+        "OUTS_MIN_TIME_LEFT_SEC": "60",
+        "OUTS_MAX_TIME_LEFT_SEC": "3600",
+        "OUTS_MIN_TIME_LEFT_MIN": "1.0",
+        "OUTS_MAX_TIME_LEFT_MIN": "60.0",
+        "TRADE_MIN_PRICE": "0.05",
         "TRADE_MAX_PRICE": "0.95",
         "LIQUIDITY_FRACTION": "0.05",
     }
     runner = BacktestRunner(config, b"", "")
+    runner.p_flips = {("m1", 30.0): 0.40, ("m1", 20.0): 0.50, ("m1", 10.0): 0.45}
     runner.run_market(replay)
     
     assert len(runner.trader.trades) == 1
@@ -54,12 +57,12 @@ def test_entry_strategy_first():
 
 
 def test_entry_strategy_best_edge():
-    """best_edge должен выбрать тик со 2-й минуты (edge 0.14 > 0.125 и -0.016)."""
+    """best_edge должен выбрать тик со 2-й минуты (edge выше)."""
     now = datetime.now()
     ticks = [
-        make_tick(0.60, 0.61, 30.0, now - timedelta(minutes=30)),
-        make_tick(0.80, 0.70, 20.0, now - timedelta(minutes=20)),  # Best edge (0.14)
-        make_tick(0.90, 0.80, 10.0, now - timedelta(minutes=10)),
+        make_tick(0.70, 0.71, 30.0, now - timedelta(minutes=30)),
+        make_tick(0.70, 0.71, 20.0, now - timedelta(minutes=20)),  # Best edge (p_flip 0.50)
+        make_tick(0.70, 0.71, 10.0, now - timedelta(minutes=10)),
     ]
     replay = MarketReplay.__new__(MarketReplay)
     replay.ticks = ticks
@@ -69,19 +72,24 @@ def test_entry_strategy_best_edge():
 
     config = {
         "ENTRY_STRATEGY": "best_edge",
-        "STRATEGY_MODE": "PURE_FAVORITE",
-        "FAVORITE_THRESHOLD": "0.55",
-        "FAVORITE_MIN_EDGE": "-0.05",
+        "STRATEGY_MODE": "OUTSIDER",
+        "TRADE_ON_FLIP": "true",
+        "FLIP_THRESHOLD": "0.30",
+        "OUTSIDER_PWIN_DISCOUNT": "1.0",
+        "OUTS_MIN_EDGE": "0.01",
+        "OUTSIDER_MAX_PRICE": "0.45",
         "TRADE_BET_SIZE_USDC": "5",
         "MAX_BET_SIZE_USDC": "50",
-        "FAVOR_MIN_TIME_LEFT_SEC": "60",
-        "FAVOR_MAX_TIME_LEFT_SEC": "3600",
-        "AUTO_DEAD_ZONE_WIDTH": "0.05",
-        "TRADE_MIN_PRICE": "0.50",
+        "OUTS_MIN_TIME_LEFT_SEC": "60",
+        "OUTS_MAX_TIME_LEFT_SEC": "3600",
+        "OUTS_MIN_TIME_LEFT_MIN": "1.0",
+        "OUTS_MAX_TIME_LEFT_MIN": "60.0",
+        "TRADE_MIN_PRICE": "0.05",
         "TRADE_MAX_PRICE": "0.95",
         "LIQUIDITY_FRACTION": "0.05",
     }
     runner = BacktestRunner(config, b"", "")
+    runner.p_flips = {("m1", 30.0): 0.40, ("m1", 20.0): 0.50, ("m1", 10.0): 0.45}
     runner.run_market(replay)
     
     assert len(runner.trader.trades) == 1
@@ -91,14 +99,13 @@ def test_entry_strategy_best_edge():
 
 def test_confirmed_resets_on_action_change():
     """
-    Если тик 1 = BUY_YES, тик 2 = BUY_NO — счётчик сбрасывается.
+    Если тик 1 = BUY_NO, тик 2 = BUY_YES — счётчик сбрасывается.
     Нет 2 подтверждений одного направления → нет сделки.
     """
     now = datetime.now()
     ticks = [
-        make_tick(0.80, 0.70, 30.0, now - timedelta(minutes=30)),  # BUY_YES (edge>0)
-        make_tick(0.20, 0.30, 20.0, now - timedelta(minutes=20)),  # BUY_NO  (смена!)
-        # Только один тик после смены — нет 2 подтверждений
+        make_tick(0.70, 0.71, 30.0, now - timedelta(minutes=30), market_id="m_reset"),  # YES is fav -> BUY_NO
+        make_tick(0.30, 0.31, 20.0, now - timedelta(minutes=20), market_id="m_reset"),  # NO is fav -> BUY_YES (смена!)
     ]
     replay = MarketReplay.__new__(MarketReplay)
     replay.ticks = ticks
@@ -108,19 +115,24 @@ def test_confirmed_resets_on_action_change():
 
     config = {
         "ENTRY_STRATEGY": "confirmed",
-        "STRATEGY_MODE": "PURE_FAVORITE",
-        "FAVORITE_THRESHOLD": "0.55",
-        "FAVORITE_MIN_EDGE": "-0.05",
+        "STRATEGY_MODE": "OUTSIDER",
+        "TRADE_ON_FLIP": "true",
+        "FLIP_THRESHOLD": "0.30",
+        "OUTSIDER_PWIN_DISCOUNT": "1.0",
+        "OUTS_MIN_EDGE": "0.01",
+        "OUTSIDER_MAX_PRICE": "0.45",
         "TRADE_BET_SIZE_USDC": "5",
         "MAX_BET_SIZE_USDC": "50",
-        "FAVOR_MIN_TIME_LEFT_SEC": "60",
-        "FAVOR_MAX_TIME_LEFT_SEC": "3600",
-        "AUTO_DEAD_ZONE_WIDTH": "0.05",
-        "TRADE_MIN_PRICE": "0.50",
+        "OUTS_MIN_TIME_LEFT_SEC": "60",
+        "OUTS_MAX_TIME_LEFT_SEC": "3600",
+        "OUTS_MIN_TIME_LEFT_MIN": "1.0",
+        "OUTS_MAX_TIME_LEFT_MIN": "60.0",
+        "TRADE_MIN_PRICE": "0.05",
         "TRADE_MAX_PRICE": "0.95",
         "LIQUIDITY_FRACTION": "0.05",
     }
     runner = BacktestRunner(config, b"", "")
+    runner.p_flips = {("m_reset", 30.0): 0.40, ("m_reset", 20.0): 0.40}
     runner.run_market(replay)
 
     assert len(runner.trader.trades) == 0, (
@@ -135,9 +147,9 @@ def test_confirmed_enters_after_stable_sequence():
     """
     now = datetime.now()
     ticks = [
-        make_tick(0.80, 0.70, 30.0, now - timedelta(minutes=30)),  # BUY_YES #1
-        make_tick(0.82, 0.72, 20.0, now - timedelta(minutes=20)),  # BUY_YES #2 ← вход здесь
-        make_tick(0.84, 0.74, 10.0, now - timedelta(minutes=10)),  # BUY_YES #3
+        make_tick(0.70, 0.71, 30.0, now - timedelta(minutes=30), market_id="m_stable"),  # BUY_NO #1
+        make_tick(0.70, 0.71, 20.0, now - timedelta(minutes=20), market_id="m_stable"),  # BUY_NO #2 ← вход здесь
+        make_tick(0.70, 0.71, 10.0, now - timedelta(minutes=10), market_id="m_stable"),  # BUY_NO #3
     ]
     replay = MarketReplay.__new__(MarketReplay)
     replay.ticks = ticks
@@ -147,23 +159,27 @@ def test_confirmed_enters_after_stable_sequence():
 
     config = {
         "ENTRY_STRATEGY": "confirmed",
-        "STRATEGY_MODE": "PURE_FAVORITE",
-        "FAVORITE_THRESHOLD": "0.55",
-        "FAVORITE_MIN_EDGE": "-0.05",
+        "STRATEGY_MODE": "OUTSIDER",
+        "TRADE_ON_FLIP": "true",
+        "FLIP_THRESHOLD": "0.30",
+        "OUTSIDER_PWIN_DISCOUNT": "1.0",
+        "OUTS_MIN_EDGE": "0.01",
+        "OUTSIDER_MAX_PRICE": "0.45",
         "TRADE_BET_SIZE_USDC": "5",
         "MAX_BET_SIZE_USDC": "50",
-        "FAVOR_MIN_TIME_LEFT_SEC": "60",
-        "FAVOR_MAX_TIME_LEFT_SEC": "3600",
-        "AUTO_DEAD_ZONE_WIDTH": "0.05",
-        "TRADE_MIN_PRICE": "0.50",
+        "OUTS_MIN_TIME_LEFT_SEC": "60",
+        "OUTS_MAX_TIME_LEFT_SEC": "3600",
+        "OUTS_MIN_TIME_LEFT_MIN": "1.0",
+        "OUTS_MAX_TIME_LEFT_MIN": "60.0",
+        "TRADE_MIN_PRICE": "0.05",
         "TRADE_MAX_PRICE": "0.95",
         "LIQUIDITY_FRACTION": "0.05",
     }
     runner = BacktestRunner(config, b"", "")
+    runner.p_flips = {("m_stable", 30.0): 0.40, ("m_stable", 20.0): 0.40, ("m_stable", 10.0): 0.40}
     runner.run_market(replay)
 
     assert len(runner.trader.trades) == 1
-    # Вход должен быть на тике [1] (второй тик = первое подтверждение)
     assert runner.trader.trades[0].timestamp == ticks[1].recorded_at, (
         f"Вход должен быть на тике [1] ({ticks[1].recorded_at}), "
         f"но был на {runner.trader.trades[0].timestamp}"
@@ -194,10 +210,8 @@ def test_bet_sizing_consistency_between_resolve_and_liquidity():
         "LIQUIDITY_FRACTION": str(fraction),
     }
 
-    # Путь через decision_logic
-    bet_via_logic = _resolve_final_bet(edge, volume, parse_trading_settings(config))
+    bet_via_logic = _resolve_final_bet(edge, volume, parse_trading_settings(config), is_outsider=True)
 
-    # Путь через position_sizing
     bet_via_sizing = compute_bet_size_with_liquidity(
         edge=edge, volume_5min=volume,
         min_bet_usdc=min_bet, max_bet_usdc=max_bet,
@@ -215,11 +229,11 @@ def test_bet_sizing_consistency_between_resolve_and_liquidity():
 def test_evaluate_tick_no_import_overhead():
     """
     _evaluate_tick не должен делать import внутри вызова.
-    Проверяем косвенно: 1000 вызовов должны выполниться быстро (< 1 сек).
+    Проверяем: 1000 вызовов должны выполниться быстро (< 1 сек).
     """
     import time
     now = datetime.now()
-    tick = make_tick(0.80, 0.70, 30.0, now)
+    tick = make_tick(0.70, 0.71, 30.0, now)
 
     replay = MarketReplay.__new__(MarketReplay)
     replay.ticks = [tick]
@@ -229,19 +243,22 @@ def test_evaluate_tick_no_import_overhead():
 
     config = {
         "ENTRY_STRATEGY": "first",
-        "STRATEGY_MODE": "PURE_FAVORITE",
-        "FAVORITE_THRESHOLD": "0.55",
-        "FAVORITE_MIN_EDGE": "-0.05",
+        "STRATEGY_MODE": "OUTSIDER",
+        "TRADE_ON_FLIP": "true",
+        "OUTS_MIN_EDGE": "0.01",
+        "OUTSIDER_MAX_PRICE": "0.45",
         "TRADE_BET_SIZE_USDC": "5",
         "MAX_BET_SIZE_USDC": "50",
-        "MIN_TIME_LEFT_MIN": "1.0",
-        "MAX_TIME_LEFT_MIN": "60.0",
-        "AUTO_DEAD_ZONE_WIDTH": "0.05",
-        "TRADE_MIN_PRICE": "0.50",
+        "OUTS_MIN_TIME_LEFT_SEC": "60",
+        "OUTS_MAX_TIME_LEFT_SEC": "3600",
+        "OUTS_MIN_TIME_LEFT_MIN": "1.0",
+        "OUTS_MAX_TIME_LEFT_MIN": "60.0",
+        "TRADE_MIN_PRICE": "0.05",
         "TRADE_MAX_PRICE": "0.95",
         "LIQUIDITY_FRACTION": "0.05",
     }
     runner = BacktestRunner(config, b"", "")
+    runner.p_flips = {("m_perf", 30.0): 0.40}
 
     start = time.perf_counter()
     for _ in range(1000):
@@ -249,6 +266,6 @@ def test_evaluate_tick_no_import_overhead():
     elapsed = time.perf_counter() - start
 
     assert elapsed < 1.0, (
-        f"1000 вызовов _evaluate_tick заняли {elapsed:.2f}s > 1s — "
-        "вероятно, import внутри цикла замедляет выполнение"
+        f"1000 вызовов _evaluate_tick заняли {elapsed:.2f}s > 1s"
     )
+

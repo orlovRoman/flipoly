@@ -275,7 +275,7 @@ function renderStrategyBreakdown(strategies) {
     }
   });
 
-  const badgeClass = { ML_TREND: 'badge-ml', PURE_FAVORITE: 'badge-fav', OUTSIDER: 'badge-out', SKIP: '' };
+  const badgeClass = { COMBINED: 'badge-fav', ML_TREND: 'badge-ml', OUTSIDER: 'badge-out', SKIP: '' };
   const html = strategies.map(s => `
     <div class="strategy-row">
       <span class="strategy-badge ${badgeClass[s.strategy] || ''}">${s.strategy}</span>
@@ -351,7 +351,7 @@ function renderTradesTable() {
 
   document.getElementById('trades-count').textContent = `${filtered.length} trades`;
 
-  const badgeClass = { ML_TREND: 'badge-ml', PURE_FAVORITE: 'badge-fav', OUTSIDER: 'badge-out' };
+  const badgeClass = { COMBINED: 'badge-fav', ML_TREND: 'badge-ml', OUTSIDER: 'badge-out' };
   const rows = filtered.map(t => `
     <tr>
       <td style="color:var(--text-muted);">#${t.trade_index + 1}</td>
@@ -574,13 +574,14 @@ async function applyLiveSettings() {
     document.getElementById('cfg-outs-min-time').value = s.OUTS_MIN_TIME_LEFT_SEC != null ? (parseInt(s.OUTS_MIN_TIME_LEFT_SEC) / 60).toFixed(1) : '1';
     document.getElementById('cfg-outs-max-time').value = s.OUTS_MAX_TIME_LEFT_SEC != null ? (parseInt(s.OUTS_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
     const modeMap = {
-      ml: 'ML',
-      favorite: 'PURE_FAVORITE',
-      lightgbm: 'ML',
-      combined: 'ML',
-      CRYPTO: 'ML' // @deprecated: legacy value, remove after 2026-08-01
+      ml: 'COMBINED',
+      favorite: 'COMBINED',
+      lightgbm: 'COMBINED',
+      combined: 'COMBINED',
+      outsider: 'OUTSIDER',
+      CRYPTO: 'COMBINED' // @deprecated: legacy value, remove after 2026-08-01
     };
-    document.getElementById('cfg-strategy-mode').value = modeMap[s.TRADING_MODE] ?? 'ML';
+    document.getElementById('cfg-strategy-mode').value = modeMap[s.TRADING_MODE] ?? 'COMBINED';
       const parseThresh = (val) => {
         let f = parseFloat(val);
         if (isNaN(f)) return null;

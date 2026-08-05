@@ -17,7 +17,6 @@ from dataclasses import dataclass
 
 from polyflip.constants import (
     DEFAULT_TRADING_MODE,
-    FAVORITE_MODE_ENTRY_SEC,
     LIVE_POLL_INTERVAL_SECONDS,
 )
 
@@ -75,14 +74,13 @@ REGISTRY: list[SettingDef] = [
 
     # --- Режим торговли ---
     SettingDef("TRADING_MODE", DEFAULT_TRADING_MODE,
-               description="favorite | combined (legacy modes removed)"),
+               description="Режим торговли: combined (единственный активный режим)"),
     SettingDef("TRADING_ENABLED", "false", editable=False,
                description="Управляется только через UI toggle, не через general settings API"),
     SettingDef("LIVE_TRADING_ENABLED", "false", editable=False,
                description="Управляется только через специальный API (kill-switch)"),
 
     # --- Таймеры / опрос ---
-    SettingDef("FAVORITE_MODE_ENTRY_SEC", str(FAVORITE_MODE_ENTRY_SEC)),
     SettingDef("LIVE_POLL_INTERVAL_SECONDS", str(LIVE_POLL_INTERVAL_SECONDS)),
     SettingDef("FAVOR_MIN_TIME_LEFT_SEC", "60",
                description="Мин. время до конца для фаворита (сек)"),
@@ -112,7 +110,7 @@ REGISTRY: list[SettingDef] = [
     SettingDef("FAVORITE_THRESHOLD", "0.55",
                description="Граница фаворит/аутсайдер по mid_price"),
     SettingDef("FAVORITE_MIN_EDGE", "-0.01",
-               description="Мин. edge для PURE_FAVORITE (мягче чем ML)"),
+               description="Мин. edge для ставок на фаворита в Combined"),
     SettingDef("FAVORITE_MIN_PRICE", "0.55",
                description="Мин. цена для входа в фаворита"),
     SettingDef("FAVORITE_MAX_PRICE", "0.95",
@@ -122,7 +120,7 @@ REGISTRY: list[SettingDef] = [
     SettingDef("OUTSIDER_MAX_PRICE", "0.45",
                description="Макс. цена покупки аутсайдера"),
     SettingDef("TRADE_ON_FAVORITE", "true",
-               description="Если включено, бот делает ставки по тренду на фаворита (Pure Favorite/ML Trend/Crypto Trend)."),
+               description="Если включено, бот делает ставки по тренду на фаворита в Combined."),
     SettingDef("TRADE_ON_FLIP", "false",
                description="Торговать на флип (стратегия аутсайдера)"),
     SettingDef("FLIP_THRESHOLD", "0.60",
@@ -130,7 +128,7 @@ REGISTRY: list[SettingDef] = [
     SettingDef("OUTSIDER_PWIN_DISCOUNT", "0.65",
                description="Хранится как коэффициент 0.0-1.0; в UI отображается как проценты (0-100). Дисконт вероятности выигрыша аутсайдера."),
     SettingDef("MAX_SPREAD_PCT", "0.08",
-               description="Макс. спред как доля от mid_price. Шире — сделка не создаётся (PURE_FAVORITE)"),
+               description="Макс. спред как доля от mid_price. Шире — сделка не создаётся"),
     SettingDef("TRADE_FLIP_THRESHOLD", "0.85",
                description="Глобальный порог ПРОТИВ ТОЛПЫ (если нет индивидуального)"),
 

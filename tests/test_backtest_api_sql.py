@@ -95,7 +95,8 @@ async def test_backtest_sql_correctness(db_session):
             "capital": 1000,
             "min_bet": 5,
             "max_bet": 50,
-            "strategy_mode": "PURE_FAVORITE",
+            "strategy_mode": "OUTSIDER",
+            "trade_on_flip": True,
         }
         with patch("polyflip.api.backtest_api.async_session", return_value=DummyAsyncContextManager(db_session)):
             resp = await client.post("/api/backtest/submit", json=payload, headers=headers)

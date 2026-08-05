@@ -315,7 +315,6 @@ document.addEventListener("DOMContentLoaded", () => {
     minDirectionProb: document.getElementById("MIN_DIRECTION_PROB"),
     minWinProb: document.getElementById("MIN_WIN_PROB"),
     tradeFlipThreshold: document.getElementById("TRADE_FLIP_THRESHOLD"),
-    deadZoneWidth: document.getElementById("DEAD_ZONE_WIDTH"),
     dailyLossLimit: document.getElementById("DAILY_LOSS_LIMIT_USDC"),
     tradingEnabled: document.getElementById("TRADING_ENABLED"),
     initialCapital: document.getElementById("INITIAL_CAPITAL"),
@@ -337,8 +336,6 @@ document.addEventListener("DOMContentLoaded", () => {
     takeProfitMultiplier: document.getElementById("TAKE_PROFIT_MULTIPLIER"),
     takeProfitCheckIntervalSec: document.getElementById("TAKE_PROFIT_CHECK_INTERVAL_SEC"),
     tradingModeRadios: document.querySelectorAll('input[name="trading_mode"]'),
-    favoriteModeSettings: document.getElementById('favorite-mode-settings'),
-    favoriteEntrySecInput: document.getElementById('FAVORITE_MODE_ENTRY_SEC'),
     tradingModeBadge: document.getElementById('trading-mode-badge'),
     pollIntervalInput: document.getElementById("LIVE_POLL_INTERVAL_SECONDS"),
 
@@ -348,7 +345,6 @@ document.addEventListener("DOMContentLoaded", () => {
     flipThreshold: document.getElementById("FLIP_THRESHOLD"),
     outsMinEdge: document.getElementById("OUTS_MIN_EDGE"),
 
-    favoriteMinEdge: document.getElementById("FAVORITE_MIN_EDGE"),
     favoriteMinPrice: document.getElementById("FAVORITE_MIN_PRICE"),
     favoriteMaxPrice: document.getElementById("FAVORITE_MAX_PRICE"),
     outsiderMaxPrice: document.getElementById("OUTSIDER_MAX_PRICE"),
@@ -359,41 +355,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   };
 
-  function updateDeadZoneInfo() {
-    if (!settingsElements.autoDeadZone) return;
-    const widthVal = settingsElements.deadZoneWidth ? settingsElements.deadZoneWidth.value : "10";
-    const noFlipVal = settingsElements.noFlipThreshold ? settingsElements.noFlipThreshold.value : "45";
-    const width = parseFloat(widthVal) / 100 || 0.10;
-    const noFlip = parseFloat(noFlipVal) / 100 || 0.45;
-    
-    // Два записа "auto-dead-zone-width-group" больше нет — всегда показываем dead-zone-width-group
-    const zoneGroup = document.getElementById("dead-zone-width-group");
-    if (zoneGroup) zoneGroup.style.display = "block";
-    
-    const lower = noFlip;
-    const upper = noFlip + width;
-    const rangeEl = document.getElementById("dead-zone-range-text");
-    if (rangeEl) {
-      rangeEl.textContent =
-        `${Math.round(lower * 100)}% – ${Math.round(upper * 100)}% (YES < ${Math.round(lower * 100)}%, NO > ${Math.round(upper * 100)}%)`;
-    }
-  }
+  function updateDeadZoneInfo() {}
 
-  if (settingsElements.autoDeadZone) {
-    settingsElements.autoDeadZone.addEventListener("change", updateDeadZoneInfo);
-  }
-  if (settingsElements.deadZoneWidth) {
-    settingsElements.deadZoneWidth.addEventListener("input", updateDeadZoneInfo);
-  }
-  if (settingsElements.noFlipThreshold) {
-    settingsElements.noFlipThreshold.addEventListener("input", updateDeadZoneInfo);
-  }
-  if (settingsElements.flipThreshold) {
-    settingsElements.flipThreshold.addEventListener("input", () => {
-      currentFlipThreshold = parseFloat(settingsElements.flipThreshold.value) / 100 || 0.70;
-      updateDeadZoneInfo();
-    });
-  }
   
   function updateSizingModeUI() {
     if (settingsElements.betSizingMode && settingsElements.maxBetSizeGroup) {
@@ -439,11 +402,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
       const g = data.global;
 
-      // Получаем dead_zone из инпута или API
-      const deadZoneInput = document.getElementById("DEAD_ZONE_WIDTH");
-      const deadZoneVal = deadZoneInput ? parseFloat(deadZoneInput.value) / 100 : g.dead_zone;
-      const deadZonePct = Math.round(deadZoneVal * 100);
-
       // Текущее значение no_flip берем из API
       const currentNoFlipVal = g.current_no_flip || 0.45;
       const currentNoFlipPct = Math.round(currentNoFlipVal * 100);
@@ -456,8 +414,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (hint) {
         hint.innerHTML = `
             Текущее значение: <strong>${currentNoFlipPct}%</strong>
-            &nbsp;(Ширина мёртвой зоны: <strong>${deadZonePct}%</strong>).
-            ${firstAsset ? `Рекомендовано для ${firstAsset}: <strong style="color:#00ff88">${recPct}%</strong>` : ""}
+            ${firstAsset ? `&nbsp;(Рекомендовано для ${firstAsset}: <strong style="color:#00ff88">${recPct}%</strong>)` : ""}
         `;
       }
 
@@ -491,25 +448,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function onTradingModeChange(mode) {
-    const isFavorite = mode === 'favorite';
-    const isCombined = mode === 'combined';
-    if (settingsElements.favoriteModeSettings) {
-      settingsElements.favoriteModeSettings.style.display = isFavorite ? 'block' : 'none';
-    }
     if (settingsElements.combinedModeSettings) {
-      settingsElements.combinedModeSettings.style.display = isCombined ? 'block' : 'none';
+      settingsElements.combinedModeSettings.style.display = 'block';
     }
     if (settingsElements.tradingModeBadge) {
-      if (mode === 'favorite') {
-        settingsElements.tradingModeBadge.textContent = '⚡ Режим: Pure Favorite';
-      } else if (mode === 'lightgbm') {
-        settingsElements.tradingModeBadge.textContent = '🪙 Режим: ML (LightGBM)';
-      } else if (mode === 'combined') {
-        settingsElements.tradingModeBadge.textContent = '⚖️ Режим: ML + LightGBM (Combined)';
-      } else {
-        settingsElements.tradingModeBadge.textContent = '🤖 Режим: ML (LogReg)';
-      }
-      settingsElements.tradingModeBadge.className = `mode-badge mode-${mode}`;
+      settingsElements.tradingModeBadge.textContent = '⚖️ Режим: ML + LightGBM (Combined)';
+      settingsElements.tradingModeBadge.className = `mode-badge mode-combined`;
     }
   }
 
@@ -591,12 +535,6 @@ document.addEventListener("DOMContentLoaded", () => {
         let val = parseFloat(data.TRADE_FLIP_THRESHOLD);
         if (val > 1) val /= 100;
         settingsElements.tradeFlipThreshold.value = Math.round(val * 100);
-      }
-
-      if (settingsElements.deadZoneWidth && data.DEAD_ZONE_WIDTH !== undefined) {
-        let val = parseFloat(data.DEAD_ZONE_WIDTH);
-        if (val > 1) val /= 100;
-        settingsElements.deadZoneWidth.value = Math.round(val * 100);
       }
 
 
@@ -690,10 +628,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
 
-      if (settingsElements.favoriteMinEdge && data.FAVORITE_MIN_EDGE !== undefined) {
-        let val = parseFloat(data.FAVORITE_MIN_EDGE);
-        settingsElements.favoriteMinEdge.value = (val * 100).toFixed(1);
-      }
       if (settingsElements.favoriteMinPrice && data.FAVORITE_MIN_PRICE !== undefined) {
         settingsElements.favoriteMinPrice.value = data.FAVORITE_MIN_PRICE;
       }
@@ -740,15 +674,11 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.combinedCostBuffer.value = isNaN(val) ? "0.020" : val.toFixed(3);
       }
 
-      updateDeadZoneInfo();
       if (data.TRADING_MODE) {
         const mode = data.TRADING_MODE;
         const radio = document.querySelector(`input[name="trading_mode"][value="${mode}"]`);
         if (radio) radio.checked = true;
         onTradingModeChange(mode);
-      }
-      if (settingsElements.favoriteEntrySecInput && data.FAVORITE_MODE_ENTRY_SEC) {
-        settingsElements.favoriteEntrySecInput.value = data.FAVORITE_MODE_ENTRY_SEC;
       }
       if (settingsElements.pollIntervalInput && data.LIVE_POLL_INTERVAL_SECONDS !== undefined) {
         settingsElements.pollIntervalInput.value = data.LIVE_POLL_INTERVAL_SECONDS;
@@ -816,7 +746,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.combinedLogregAbstainBand) settingsToSave.COMBINED_LOGREG_ABSTAIN_BAND = (parseFormattedFloat(settingsElements.combinedLogregAbstainBand.value) / 100).toString();
       if (settingsElements.combinedCostBuffer) settingsToSave.COMBINED_COST_BUFFER = parseFormattedFloat(settingsElements.combinedCostBuffer.value).toString();
       if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;
-      if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
 
       if (settingsElements.dailyLossLimit) settingsToSave.DAILY_LOSS_LIMIT_USDC = settingsElements.dailyLossLimit.value;
       if (settingsElements.stopLossEnabled) settingsToSave.STOP_LOSS_ENABLED = settingsElements.stopLossEnabled.checked ? "true" : "false";
@@ -867,12 +796,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
       if (settingsElements.maxSpreadPct) settingsToSave.MAX_SPREAD_PCT = (parseFloat(settingsElements.maxSpreadPct.value) / 100).toString();
-      const activeMode = document.querySelector('input[name="trading_mode"]:checked')?.value || 'ml';
-      settingsToSave.TRADING_MODE = activeMode;
+      settingsToSave.TRADING_MODE = 'combined';
 
-      if (settingsElements.favoriteEntrySecInput) {
-        settingsToSave.FAVORITE_MODE_ENTRY_SEC = settingsElements.favoriteEntrySecInput.value;
-      }
       if (settingsElements.pollIntervalInput) settingsToSave.LIVE_POLL_INTERVAL_SECONDS = settingsElements.pollIntervalInput.value;
 
       if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFormattedFloat(settingsElements.favoriteThreshold.value);
@@ -881,8 +806,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.flipThreshold) settingsToSave.FLIP_THRESHOLD = parseFormattedFloat(settingsElements.flipThreshold.value) / 100;
       if (settingsElements.outsMinEdge) settingsToSave.OUTS_MIN_EDGE = parseFormattedFloat(settingsElements.outsMinEdge.value) / 100;
 
-
-      if (settingsElements.favoriteMinEdge) settingsToSave.FAVORITE_MIN_EDGE = parseFormattedFloat(settingsElements.favoriteMinEdge.value) / 100;
       if (settingsElements.favoriteMinPrice) settingsToSave.FAVORITE_MIN_PRICE = parseFormattedFloat(settingsElements.favoriteMinPrice.value);
       if (settingsElements.favoriteMaxPrice) settingsToSave.FAVORITE_MAX_PRICE = parseFormattedFloat(settingsElements.favoriteMaxPrice.value);
       if (settingsElements.outsiderMaxPrice) settingsToSave.OUTSIDER_MAX_PRICE = parseFormattedFloat(settingsElements.outsiderMaxPrice.value);

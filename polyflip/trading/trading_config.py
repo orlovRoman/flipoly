@@ -35,7 +35,6 @@ class TradingConfig:
     trade_on_flip: bool
     flip_threshold: float
     outs_min_edge: float
-    entry_sec: int
     favorite_threshold: float
     trade_assets: list[str]
     bet_sizing_mode: str
@@ -100,12 +99,12 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
     trade_assets = [a.strip() for a in trade_assets_str.split(",") if a.strip()]
 
     mode_raw = raw.get("TRADING_MODE", getattr(settings, "TRADING_MODE", "combined")).lower()
-    if mode_raw in ("ml", "lightgbm"):
+    if mode_raw == "combined":
+        mode = mode_raw
+    elif mode_raw in ("ml", "lightgbm", "favorite", "pure_favorite", "outsider"):
         import structlog
         structlog.get_logger(__name__).warning("legacy_trading_mode", mode=mode_raw, new_mode="combined")
         mode = "combined"
-    elif mode_raw in ("favorite", "combined", "pure_favorite", "outsider"):
-        mode = mode_raw
     else:
         import structlog
         structlog.get_logger(__name__).warning("unknown_trading_mode", mode=mode_raw, new_mode="combined")
@@ -129,7 +128,6 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         trade_on_flip=_parse_bool(raw.get("TRADE_ON_FLIP"), getattr(settings, "TRADE_ON_FLIP", False)),
         flip_threshold=parse_float_setting(raw, "FLIP_THRESHOLD", getattr(settings, "FLIP_THRESHOLD", 0.60)),
         outs_min_edge=parse_float_setting(raw, "OUTS_MIN_EDGE", getattr(settings, "OUTS_MIN_EDGE", 0.04)),
-        entry_sec=_parse_int(raw.get("FAVORITE_MODE_ENTRY_SEC"), getattr(settings, "FAVORITE_MODE_ENTRY_SEC", 120)),
         favorite_threshold=parse_float_setting(raw, "FAVORITE_THRESHOLD", getattr(settings, "FAVORITE_THRESHOLD", 0.70)),
         trade_assets=trade_assets,
         bet_sizing_mode=raw.get("BET_SIZING_MODE", getattr(settings, "BET_SIZING_MODE", "fixed")),

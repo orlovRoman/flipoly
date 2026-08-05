@@ -19,7 +19,7 @@ def live_settings_to_backtest_config(live: dict) -> dict:
     Симулирует логику applyLiveSettings() + readConfig() из backtest.js.
     Live-настройки (проценты 0-100) → BacktestConfig (дроби 0-1).
     """
-    mode_map = {"combined": "ML", "favorite": "PURE_FAVORITE", "CRYPTO": "ML"}
+    mode_map = {"combined": "COMBINED", "outsider": "OUTSIDER", "CRYPTO": "COMBINED"}
 
     def pct_to_frac(value, default):
         """Конвертирует % значение из Live в дробь для Pydantic."""
@@ -27,7 +27,7 @@ def live_settings_to_backtest_config(live: dict) -> dict:
         return float(v) / 100 if v is not None else default
 
     return {
-        "strategy_mode": mode_map.get(live.get("TRADING_MODE", "combined"), "ML"),
+        "strategy_mode": mode_map.get(live.get("TRADING_MODE", "combined"), "COMBINED"),
         "no_flip_threshold":    pct_to_frac("TRADE_NO_FLIP_THRESHOLD", 0.35),
         "flip_threshold":       pct_to_frac("FLIP_THRESHOLD", 0.60),
         "auto_dead_zone_width": pct_to_frac("DEAD_ZONE_WIDTH", 0.10),
@@ -116,10 +116,10 @@ class TestPydanticValidationPassesAfterConversion:
 class TestTradingModeMapping:
 
     @pytest.mark.parametrize("live_mode,expected_bt_mode", [
-        ("combined",       "ML"),
-        ("favorite", "PURE_FAVORITE"),
-        ("CRYPTO",   "ML"),          # CRYPTO маппится в ML как наиболее близкий
-        ("unknown",  "ML"),          # неизвестный режим → ML (дефолт)
+        ("combined",       "COMBINED"),
+        ("outsider",       "OUTSIDER"),
+        ("CRYPTO",         "COMBINED"),
+        ("unknown",        "COMBINED"),
     ])
     def test_mode_mapping(self, typical_live_settings, live_mode, expected_bt_mode):
         typical_live_settings["TRADING_MODE"] = live_mode
@@ -127,7 +127,7 @@ class TestTradingModeMapping:
         assert cfg_dict["strategy_mode"] == expected_bt_mode
 
     def test_mode_accepted_by_pydantic(self, typical_live_settings):
-        for mode in ("ML", "PURE_FAVORITE"):
+        for mode in ("COMBINED", "OUTSIDER"):
             cfg = BacktestConfig(
                 **{**live_settings_to_backtest_config(typical_live_settings),
                    "strategy_mode": mode}
