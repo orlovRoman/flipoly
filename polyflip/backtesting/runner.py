@@ -86,15 +86,12 @@ class BacktestRunner:
             decision = decide_favorite(signal, self.config, time_left_sec=tick.time_left_min * 60.0)
             p_flip = 0.0
         else:
-            # Сначала проверяем предсказанное значение из кэша батч-предикшна
-            key = (tick.market_id, tick.time_left_min)
-            if hasattr(self, "p_flips") and key in self.p_flips:
-                p_flip = self.p_flips[key]
-            else:
-                p_flip = self._predict_flip(signal)
-            decision = TradeDecision(action="SKIP", strategy_type="ML_REMOVED", p_up=0.0, edge=0.0, reason="ML", buy_price=0.0, bet_size_usdc=0.0, strike=0.0)
-            if decision.action == "SKIP" and self.trade_on_flip:
-                decision = decide_outsider(signal, p_flip, self.config, time_left_sec=tick.time_left_min * 60.0)
+            # ML/LGBM режим удалён — используем decide_outsider как фолбэк
+            raise NotImplementedError(
+                "ML/LGBM trading mode has been removed. "
+                "Use STRATEGY_MODE='PURE_FAVORITE' or switch to the COMBINED mode "
+                "in production via TRADING_MODE setting."
+            )
         
         return decision, p_flip, signal
 
