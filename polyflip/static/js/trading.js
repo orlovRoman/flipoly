@@ -327,6 +327,8 @@ document.addEventListener("DOMContentLoaded", () => {
     combinedDirStrongThreshold: document.getElementById("COMBINED_DIR_STRONG_THRESHOLD"),
     combinedRequireConsensus: document.getElementById("COMBINED_REQUIRE_CONSENSUS"),
     combinedFallbackToLogregOnNone: document.getElementById("COMBINED_FALLBACK_TO_LOGREG_ON_NONE"),
+    combinedLogregAbstainBand: document.getElementById("COMBINED_LOGREG_ABSTAIN_BAND"),
+    combinedCostBuffer: document.getElementById("COMBINED_COST_BUFFER"),
     stopLossEnabled: document.getElementById("STOP_LOSS_ENABLED"),
     stopLossPctFavorite: document.getElementById("STOP_LOSS_PCT_FAVORITE"),
     stopLossPctOutsider: document.getElementById("STOP_LOSS_PCT_OUTSIDER"),
@@ -729,6 +731,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.combinedFallbackToLogregOnNone && data.COMBINED_FALLBACK_TO_LOGREG_ON_NONE !== undefined) {
         settingsElements.combinedFallbackToLogregOnNone.checked = data.COMBINED_FALLBACK_TO_LOGREG_ON_NONE === "true";
       }
+      if (settingsElements.combinedLogregAbstainBand && data.COMBINED_LOGREG_ABSTAIN_BAND !== undefined) {
+        let val = parseFloat(data.COMBINED_LOGREG_ABSTAIN_BAND);
+        if (val <= 1) val *= 100;
+        settingsElements.combinedLogregAbstainBand.value = isNaN(val) ? "5.0" : val.toFixed(1);
+      }
+      if (settingsElements.combinedCostBuffer && data.COMBINED_COST_BUFFER !== undefined) {
+        let val = parseFloat(data.COMBINED_COST_BUFFER);
+        settingsElements.combinedCostBuffer.value = isNaN(val) ? "0.020" : val.toFixed(3);
+      }
 
       updateDeadZoneInfo();
       if (data.TRADING_MODE) {
@@ -803,6 +814,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.combinedDirStrongThreshold) settingsToSave.COMBINED_DIR_STRONG_THRESHOLD = parseFormattedFloat(settingsElements.combinedDirStrongThreshold.value) / 100;
       if (settingsElements.combinedRequireConsensus) settingsToSave.COMBINED_REQUIRE_CONSENSUS = settingsElements.combinedRequireConsensus.checked ? "true" : "false";
       if (settingsElements.combinedFallbackToLogregOnNone) settingsToSave.COMBINED_FALLBACK_TO_LOGREG_ON_NONE = settingsElements.combinedFallbackToLogregOnNone.checked ? "true" : "false";
+      if (settingsElements.combinedLogregAbstainBand) settingsToSave.COMBINED_LOGREG_ABSTAIN_BAND = (parseFormattedFloat(settingsElements.combinedLogregAbstainBand.value) / 100).toString();
+      if (settingsElements.combinedCostBuffer) settingsToSave.COMBINED_COST_BUFFER = parseFormattedFloat(settingsElements.combinedCostBuffer.value).toString();
       if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;
       if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFloat(settingsElements.deadZoneWidth.value) / 100;
 

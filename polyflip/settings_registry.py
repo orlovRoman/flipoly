@@ -152,6 +152,8 @@ REGISTRY: list[SettingDef] = [
                description="Обе модели (LightGBM и LogReg) должны проголосовать за одно направление. Иначе - SKIP."),
     SettingDef("COMBINED_FALLBACK_TO_LOGREG_ON_NONE", "true",
                description="Если LightGBM выдает NONE, то используется голос LogReg. Если false, то NONE ведет к SKIP."),
+    SettingDef("COMBINED_LOGREG_ABSTAIN_BAND", "0.05",
+               description="Ширина коридора нерешительности LogReg вокруг 0.50 (|p_flip - 0.50| < band -> ABSTAIN)"),
 
     # --- Обучение LogReg / Phase models ---
     SettingDef("MIN_SAMPLES_FOR_PHASE_MODEL", "150",
@@ -291,6 +293,8 @@ REQUIRED_SETTINGS_KEYS = frozenset([
     "FAVORITE_MIN_EDGE",
     "COMBINED_REQUIRE_CONSENSUS",
     "COMBINED_FALLBACK_TO_LOGREG_ON_NONE",
+    "COMBINED_LOGREG_ABSTAIN_BAND",
+    "COMBINED_COST_BUFFER",
 ])
 
 def validate_required_keys():

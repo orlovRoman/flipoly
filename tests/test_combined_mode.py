@@ -138,3 +138,12 @@ def test_decide_combined_mode_fallback_disabled_skips_on_none():
         assert res.decision_obj.action == 'SKIP'
         assert 'LightGBM is NONE, fallback disabled' in res.decision_obj.reason
         assert mock_log_funnel.call_count == 1
+
+def test_evaluate_combined_entry_low_direction_prob_skips_before_consensus():
+    """Когда dir_prob < min_direction_prob, CombinedEntryResult возвращает LOW_DIRECTION_PROB до проверки консенсуса"""
+    sig = CryptoSignal(symbol='BTCUSDT', p_up=0.502, p_down=0.498, direction='UP', signal_strength=0.004, strike=65000.0, threshold_up=0.50, threshold_down=0.50, model_version=2, features_ok=True, risk_vetoed=False, regime='MID_VOL')
+    # min_direction_prob is 0.505 by default > 0.502
+    res = evaluate_combined_entry(crypto_sig=sig, market_phase='mid_vol', entry_requested_key='BTC_mid_vol', entry_model_key='BTC_mid_vol', entry_model_version=5, entry_model_source='PHASE', p_flip=0.1, fresh_yes_price=0.6, yes_ask=0.62, no_ask=0.38, cost_buffer=0.03, time_left_sec=300.0, cfg=_make_cfg(MIN_DIRECTION_PROB='0.505'))
+    assert res.action == 'SKIP'
+    assert res.direction_status == 'LOW_DIRECTION_PROB'
+    assert 'Direction prob' in res.reason and '< min' in res.reason

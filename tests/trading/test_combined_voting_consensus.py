@@ -40,3 +40,17 @@ def test_both_abstain():
     res = resolve_direction_consensus(lgbm_vote="NONE", lr_vote="ABSTAIN", require_consensus=True, fallback_to_logreg_on_none=True)
     assert res.final_side == "SKIP"
     assert res.consensus_type == "BOTH_ABSTAIN"
+
+def test_logreg_direction_vote_abstain_band():
+    from polyflip.trading.combined_voting import logreg_direction_vote
+    # With default 0.05 band: |0.52 - 0.50| = 0.02 < 0.05 -> ABSTAIN
+    assert logreg_direction_vote(p_flip=0.52, fresh_yes_price=0.60) == "ABSTAIN"
+    # With tight 0.01 band: |0.52 - 0.50| = 0.02 >= 0.01 -> BUY_NO (since yes_fav and p_flip > 0.5)
+    assert logreg_direction_vote(p_flip=0.52, fresh_yes_price=0.60, abstain_band=0.01) == "BUY_NO"
+    # With wider 0.10 band: |0.58 - 0.50| = 0.08 < 0.10 -> ABSTAIN
+    assert logreg_direction_vote(p_flip=0.58, fresh_yes_price=0.60, abstain_band=0.10) == "ABSTAIN"
+
+def test_combine_votes_docstring_present():
+    from polyflip.trading.combined_voting import combine_votes
+    assert combine_votes.__doc__ is not None
+    assert len(combine_votes.__doc__.strip()) > 0

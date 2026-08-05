@@ -27,11 +27,13 @@ if TYPE_CHECKING:
     from polyflip.trading.trading_config import TradingConfig
 
 from polyflip.crypto.predictor import CryptoSignal
-from polyflip.trading.position_sizing import compute_edge, is_in_dead_zone
+from polyflip.trading.position_sizing import compute_edge
 
 logger = structlog.get_logger(__name__)
 
 ActionType = Literal["BUY_YES", "BUY_NO", "SKIP"]
+
+_LOGREG_ABSTAIN_BAND: float = 0.05
 
 
 @dataclass(frozen=True)
@@ -49,12 +51,15 @@ class DirectionConsensus:
     consensus_type: str
     reason: str
 
-def logreg_direction_vote(p_flip: Optional[float], fresh_yes_price: float) -> Literal["BUY_YES", "BUY_NO", "ABSTAIN"]:
+def logreg_direction_vote(
+    p_flip: Optional[float],
+    fresh_yes_price: float,
+    abstain_band: float = _LOGREG_ABSTAIN_BAND,
+) -> Literal["BUY_YES", "BUY_NO", "ABSTAIN"]:
     if p_flip is None:
         return "ABSTAIN"
-    # p_flip близкий к 0.5 — нет уверенного сигнала, воздерживаемся
-    LOGREG_ABSTAIN_BAND = 0.05  # |p_flip - 0.5| < 0.05 → ABSTAIN
-    if abs(p_flip - 0.5) < LOGREG_ABSTAIN_BAND:
+    # p_flip близкий к 0.5 — нет уверенного сигнала, воздерживаемся (|p_flip - 0.5| < abstain_band)
+    if abs(p_flip - 0.5) < abstain_band:
         return "ABSTAIN"
     is_yes_fav = fresh_yes_price >= 0.50
     if p_flip > 0.5:
@@ -315,8 +320,40 @@ def evaluate_combined_entry(
             p_flip=p_flip,
         )
 
-    # 3.5 Consensus
-    lr_vote = logreg_direction_vote(p_flip, fresh_yes_price)
+    # 3.5 Валидация минимальной уверенности LightGBM (для UP / DOWN)
+    min_direction_prob_cfg = getattr(cfg, "min_direction_prob", 0.505)
+    if crypto_sig.direction in ("UP", "DOWN") and dir_prob < min_direction_prob_cfg:
+        return CombinedEntryResult(
+            action="SKIP",
+            reason=f"strategy: Direction prob {dir_prob:.4f} < min {min_direction_prob_cfg:.4f} (floor)",
+            direction_status="LOW_DIRECTION_PROB",
+            direction_model_key=crypto_sig.model_key or None,
+            direction_model_version=crypto_sig.model_version,
+            direction_regime=crypto_sig.regime or None,
+            direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
+            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
+            direction_value=dir_val,
+            entry_requested_key=entry_requested_key,
+            entry_model_key=entry_model_key,
+            entry_model_version=entry_model_version,
+            entry_model_phase=market_phase,
+            entry_model_source=entry_model_source,
+            entry_status="DIRECTION_UNAVAILABLE",
+            fallback_reason=fallback_reason,
+            cost_buffer=cost_buffer,
+            strike_source="BINANCE_LAST_CANDLE" if strike else None,
+            strike_proxy=strike,
+            underlying_price=und_price,
+            distance_to_strike_pct=dist_pct,
+            p_flip=p_flip,
+        )
+
+    # 3.6 Consensus
+    lr_abstain_band = getattr(cfg, "combined_logreg_abstain_band", _LOGREG_ABSTAIN_BAND)
+    lr_vote = logreg_direction_vote(p_flip, fresh_yes_price, abstain_band=lr_abstain_band)
     lgbm_vote = crypto_sig.direction or "NONE"
     
     consensus = resolve_direction_consensus(
@@ -376,36 +413,6 @@ def evaluate_combined_entry(
         dir_status_for_result = "DIRECTION_NONE_FALLBACK_LR"
     else:
         dir_status_for_result = dir_status
-
-    min_direction_prob_cfg = getattr(cfg, "min_direction_prob", 0.505)
-    if crypto_sig.direction in ("UP", "DOWN") and dir_prob < min_direction_prob_cfg:
-        return CombinedEntryResult(
-            action="SKIP",
-            reason=f"strategy: Direction prob {dir_prob:.4f} < min {min_direction_prob_cfg:.4f} (floor)",
-            direction_status="LOW_DIRECTION_PROB",
-            direction_model_key=crypto_sig.model_key or None,
-            direction_model_version=crypto_sig.model_version,
-            direction_regime=crypto_sig.regime or None,
-            direction_probability=dir_prob,
-            direction_p_up=getattr(crypto_sig, 'p_up', None),
-            direction_p_down=getattr(crypto_sig, 'p_down', None),
-            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
-            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
-            direction_value=dir_val,
-            entry_requested_key=entry_requested_key,
-            entry_model_key=entry_model_key,
-            entry_model_version=entry_model_version,
-            entry_model_phase=market_phase,
-            entry_model_source=entry_model_source,
-            entry_status="DIRECTION_UNAVAILABLE",
-            fallback_reason=fallback_reason,
-            cost_buffer=cost_buffer,
-            strike_source="BINANCE_LAST_CANDLE" if strike else None,
-            strike_proxy=strike,
-            underlying_price=und_price,
-            distance_to_strike_pct=dist_pct,
-            p_flip=p_flip,
-        )
 
     candidate_side: Literal["BUY_YES", "BUY_NO", "SKIP"] = consensus.final_side
     if candidate_side == "BUY_YES":
