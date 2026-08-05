@@ -243,7 +243,7 @@ async def decide_combined_mode(
             p_flip=None,
             edge=None,
             fresh_price=None,
-            threshold_lower=cfg.no_max_price,
+            threshold_lower=cfg.outsider_max_price,
             threshold_upper=cfg.flip_threshold,
             min_edge_used=cfg.favorite_min_edge,
             g1_model_loaded=bool(models_cache and models_cache.models),

@@ -34,7 +34,6 @@ class TradingConfig:
     trade_on_favorite: bool
     trade_on_flip: bool
     flip_threshold: float
-    no_max_price: float
     outs_min_edge: float
     entry_sec: int
     favorite_threshold: float
@@ -128,7 +127,6 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         trade_on_favorite=_parse_bool(raw.get("TRADE_ON_FAVORITE"), getattr(settings, "TRADE_ON_FAVORITE", True)),
         trade_on_flip=_parse_bool(raw.get("TRADE_ON_FLIP"), getattr(settings, "TRADE_ON_FLIP", False)),
         flip_threshold=parse_float_setting(raw, "FLIP_THRESHOLD", getattr(settings, "FLIP_THRESHOLD", 0.60)),
-        no_max_price=parse_float_setting(raw, "OUTSIDER_MAX_PRICE", getattr(settings, "OUTSIDER_MAX_PRICE", 0.40)),
         outs_min_edge=parse_float_setting(raw, "OUTS_MIN_EDGE", getattr(settings, "OUTS_MIN_EDGE", 0.04)),
         entry_sec=_parse_int(raw.get("FAVORITE_MODE_ENTRY_SEC"), getattr(settings, "FAVORITE_MODE_ENTRY_SEC", 120)),
         favorite_threshold=parse_float_setting(raw, "FAVORITE_THRESHOLD", getattr(settings, "FAVORITE_THRESHOLD", 0.70)),

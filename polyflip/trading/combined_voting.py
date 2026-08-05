@@ -186,7 +186,13 @@ def evaluate_combined_entry(
     Чистая функция оценки входа в Combined-режиме.
     """
 
-    dir_prob = crypto_sig.p_up if crypto_sig.direction == "UP" else (crypto_sig.p_down if crypto_sig.direction == "DOWN" else 0.5)
+    if crypto_sig.direction == "UP":
+        dir_prob = crypto_sig.p_up
+    elif crypto_sig.direction == "DOWN":
+        dir_prob = crypto_sig.p_down
+    else:
+        # NONE: берём max(p_up, p_down) — диагностически корректно
+        dir_prob = max(crypto_sig.p_up or 0.0, crypto_sig.p_down or 0.0)
     dir_val = crypto_sig.direction
     dir_status = crypto_sig.status or ("READY" if crypto_sig.features_ok else "INVALID_FEATURES")
 
@@ -262,70 +268,6 @@ def evaluate_combined_entry(
             entry_model_phase=market_phase,
             entry_model_source=entry_model_source,
             entry_status="DIRECTION_VETOED",
-            fallback_reason=fallback_reason,
-            cost_buffer=cost_buffer,
-            strike_source="BINANCE_LAST_CANDLE" if strike else None,
-            strike_proxy=strike,
-            underlying_price=und_price,
-            distance_to_strike_pct=dist_pct,
-            p_flip=p_flip,
-        )
-
-    if crypto_sig.direction not in ("UP", "DOWN"):
-        return CombinedEntryResult(
-            action="SKIP",
-            reason=(
-                f"strategy: NONE: p_up={crypto_sig.p_up:.3f}, p_down={crypto_sig.p_down:.3f}, "
-                f"режим={crypto_sig.regime}, UP требуется >={crypto_sig.threshold_up:.3f}, "
-                f"DOWN требуется >={crypto_sig.threshold_down:.3f}, "
-                f"модель={crypto_sig.model_key} v{crypto_sig.model_version}"
-            ),
-            direction_status="DIRECTION_NONE",
-            direction_model_key=crypto_sig.model_key or None,
-            direction_model_version=crypto_sig.model_version,
-            direction_regime=crypto_sig.regime or None,
-            direction_probability=dir_prob,
-            direction_p_up=getattr(crypto_sig, 'p_up', None),
-            direction_p_down=getattr(crypto_sig, 'p_down', None),
-            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
-            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
-            direction_value=dir_val,
-            entry_requested_key=entry_requested_key,
-            entry_model_key=entry_model_key,
-            entry_model_version=entry_model_version,
-            entry_model_phase=market_phase,
-            entry_model_source=entry_model_source,
-            entry_status="DIRECTION_NONE",
-            fallback_reason=fallback_reason,
-            cost_buffer=cost_buffer,
-            strike_source="BINANCE_LAST_CANDLE" if strike else None,
-            strike_proxy=strike,
-            underlying_price=und_price,
-            distance_to_strike_pct=dist_pct,
-            p_flip=p_flip,
-        )
-
-    min_direction_prob_cfg = getattr(cfg, "min_direction_prob", 0.505)
-    if dir_prob < min_direction_prob_cfg:
-        return CombinedEntryResult(
-            action="SKIP",
-            reason=f"strategy: Direction prob {dir_prob:.4f} < min {min_direction_prob_cfg:.4f} (floor)",
-            direction_status="LOW_DIRECTION_PROB",
-            direction_model_key=crypto_sig.model_key or None,
-            direction_model_version=crypto_sig.model_version,
-            direction_regime=crypto_sig.regime or None,
-            direction_probability=dir_prob,
-            direction_p_up=getattr(crypto_sig, 'p_up', None),
-            direction_p_down=getattr(crypto_sig, 'p_down', None),
-            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
-            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
-            direction_value=dir_val,
-            entry_requested_key=entry_requested_key,
-            entry_model_key=entry_model_key,
-            entry_model_version=entry_model_version,
-            entry_model_phase=market_phase,
-            entry_model_source=entry_model_source,
-            entry_status="DIRECTION_UNAVAILABLE",
             fallback_reason=fallback_reason,
             cost_buffer=cost_buffer,
             strike_source="BINANCE_LAST_CANDLE" if strike else None,
@@ -412,6 +354,53 @@ def evaluate_combined_entry(
             consensus_type=consensus.consensus_type,
         )
 
+    if consensus.consensus_type == "PARTIAL_LR":
+        logger.info(
+            "combined_none_fallback_to_logreg",
+            asset=crypto_sig.symbol,
+            lgbm_direction=lgbm_vote,
+            lr_vote=lr_vote,
+            p_up=getattr(crypto_sig, 'p_up', None),
+            p_down=getattr(crypto_sig, 'p_down', None),
+            threshold_up=getattr(crypto_sig, 'threshold_up', None),
+            threshold_down=getattr(crypto_sig, 'threshold_down', None),
+        )
+
+    if crypto_sig.direction not in ("UP", "DOWN"):
+        dir_status_for_result = "DIRECTION_NONE_FALLBACK_LR"
+    else:
+        dir_status_for_result = dir_status
+
+    min_direction_prob_cfg = getattr(cfg, "min_direction_prob", 0.505)
+    if crypto_sig.direction in ("UP", "DOWN") and dir_prob < min_direction_prob_cfg:
+        return CombinedEntryResult(
+            action="SKIP",
+            reason=f"strategy: Direction prob {dir_prob:.4f} < min {min_direction_prob_cfg:.4f} (floor)",
+            direction_status="LOW_DIRECTION_PROB",
+            direction_model_key=crypto_sig.model_key or None,
+            direction_model_version=crypto_sig.model_version,
+            direction_regime=crypto_sig.regime or None,
+            direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
+            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
+            direction_value=dir_val,
+            entry_requested_key=entry_requested_key,
+            entry_model_key=entry_model_key,
+            entry_model_version=entry_model_version,
+            entry_model_phase=market_phase,
+            entry_model_source=entry_model_source,
+            entry_status="DIRECTION_UNAVAILABLE",
+            fallback_reason=fallback_reason,
+            cost_buffer=cost_buffer,
+            strike_source="BINANCE_LAST_CANDLE" if strike else None,
+            strike_proxy=strike,
+            underlying_price=und_price,
+            distance_to_strike_pct=dist_pct,
+            p_flip=p_flip,
+        )
+
     candidate_side: Literal["BUY_YES", "BUY_NO", "SKIP"] = consensus.final_side
     if candidate_side == "BUY_YES":
         candidate_ask = yes_ask if (yes_ask is not None and yes_ask > 0) else fresh_yes_price
@@ -420,7 +409,7 @@ def evaluate_combined_entry(
 
     # 4. Расчет вероятности победы кандидата (p_candidate_win)
     # p_flip = вероятность смены лидера (флипа от фаворита к аутсайдеру)
-    if crypto_sig.direction == "UP":
+    if candidate_side == "BUY_YES":
         # Кандидат YES. Если YES - фаворит (price >= 0.50), win prob = 1 - p_flip.
         # Если YES - аутсайдер (price < 0.50), win prob = p_flip.
         p_logreg_win = (1.0 - p_flip) if fresh_yes_price >= 0.50 else p_flip
@@ -466,7 +455,7 @@ def evaluate_combined_entry(
         return CombinedEntryResult(
             action="SKIP",
             reason=f"strategy: Candidate win prob {p_candidate_win:.4f} < min {min_win_prob_cfg:.4f}",
-            direction_status=dir_status,
+            direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
@@ -507,7 +496,7 @@ def evaluate_combined_entry(
         return CombinedEntryResult(
             action="SKIP",
             reason=f"strategy: {time_reason}",
-            direction_status=dir_status,
+            direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
@@ -536,7 +525,7 @@ def evaluate_combined_entry(
         return CombinedEntryResult(
             action="SKIP",
             reason=f"strategy: TRADE_ON_FLIP is disabled, skipping outsider candidate {candidate_side}",
-            direction_status=dir_status,
+            direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
@@ -576,7 +565,7 @@ def evaluate_combined_entry(
         return CombinedEntryResult(
             action="SKIP",
             reason=f"strategy: {price_reason}",
-            direction_status=dir_status,
+            direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
@@ -619,7 +608,7 @@ def evaluate_combined_entry(
         return CombinedEntryResult(
             action="SKIP",
             reason=f"strategy: Insufficient net edge: {net_edge:.4f} < min {min_net_edge:.4f} (gross={gross_edge:.4f}, buffer={cost_buffer:.4f})",
-            direction_status=dir_status,
+            direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
@@ -664,7 +653,7 @@ def evaluate_combined_entry(
         return CombinedEntryResult(
             action="SKIP",
             reason="strategy: Calculated bet size is 0.0 USDC",
-            direction_status=dir_status,
+            direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
             direction_regime=crypto_sig.regime or None,
@@ -711,13 +700,15 @@ def evaluate_combined_entry(
     return CombinedEntryResult(
         action=candidate_side,
         reason=f"COMBINED {candidate_side}: net_edge={net_edge:.4f} (gross={gross_edge:.4f}, dir={crypto_sig.direction}, p_win={p_candidate_win:.3f})",
-        direction_status=dir_status,
+        direction_status=dir_status_for_result,
         direction_model_key=crypto_sig.model_key or None,
         direction_model_version=crypto_sig.model_version,
         direction_regime=crypto_sig.regime or None,
         direction_probability=dir_prob,
         direction_p_up=getattr(crypto_sig, 'p_up', None),
         direction_p_down=getattr(crypto_sig, 'p_down', None),
+        direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+        direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
         direction_value=dir_val,
         entry_requested_key=entry_requested_key,
         entry_model_key=entry_model_key,
@@ -769,6 +760,12 @@ def combine_votes(
     none_bet_multiplier: float = 0.5,
     ml_skip_reason: str = "",
 ) -> VotingResult:
+    import warnings
+    warnings.warn(
+        "combine_votes is deprecated. Use evaluate_combined_entry instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     """Legacy helper maintained for backward compatibility with older tests."""
     if not getattr(crypto_sig, "features_ok", False):
         return VotingResult(
