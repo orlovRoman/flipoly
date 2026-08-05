@@ -685,7 +685,6 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.outsMinEdge.value = (val * 100).toFixed(1);
       }
 
-      }
 
       if (settingsElements.favoriteMinEdge && data.FAVORITE_MIN_EDGE !== undefined) {
         let val = parseFloat(data.FAVORITE_MIN_EDGE);
@@ -705,7 +704,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (settingsElements.maxPriceDrift && data.MAX_PRICE_DRIFT !== undefined) {
         settingsElements.maxPriceDrift.value = data.MAX_PRICE_DRIFT;
-      }
       }
       if (settingsElements.maxSpreadPct && data.MAX_SPREAD_PCT !== undefined) {
         let val = parseFloat(data.MAX_SPREAD_PCT);
