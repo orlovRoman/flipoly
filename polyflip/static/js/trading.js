@@ -987,8 +987,10 @@ document.addEventListener("DOMContentLoaded", () => {
              }
         } else if (isCombined) {
              const errMsg = log.error_msg || "";
-             if (errMsg.includes("Consensus failed")) {
+             if (errMsg.includes("Consensus failed: CONFLICT")) {
                  logregDisplayHTML = `${lrNameBase} <br><span style="color: #ffb020; font-size:0.85em;">(⚠ conflict)</span>`;
+             } else if (errMsg.includes("Consensus failed: BOTH_ABSTAIN") || errMsg.includes("Consensus failed")) {
+                 logregDisplayHTML = `${lrNameBase} <br><span style="color: #ffb020; font-size:0.85em;">(⚠ abstain)</span>`;
              }
         }
 
