@@ -18,6 +18,7 @@ from polyflip.db.execution_models import (
     LiveTradingSession,
     ExecutionRequest,
     ExecutionWorkerStatus,
+    GatewayStatus,
     ExposureReservation,
 )
 from polyflip.db.models import TradeHistory
@@ -130,11 +131,11 @@ async def get_session_budget_snapshot(
     unfilled_expr = case((diff_expr > 0, diff_expr), else_=0)
 
     filled_sq = (
-        select(func.coalesce(func.sum(ExecutionRequest.filled_cost_usdc), 0))
+        select(func.coalesce(func.sum(TradeHistory.entry_cost_usdc), 0))
         .where(
-            ExecutionRequest.live_session_id == session_obj.id,
-            ExecutionRequest.requested_mode == "LIVE",
-            ExecutionRequest.intent == "OPEN",
+            TradeHistory.live_session_id == session_obj.id,
+            TradeHistory.mode == "LIVE",
+            TradeHistory.position_status.in_(["OPENING", "OPEN", "CLOSING"]),
         )
         .scalar_subquery()
     )
