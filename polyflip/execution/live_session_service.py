@@ -18,7 +18,6 @@ from polyflip.db.execution_models import (
     LiveTradingSession,
     ExecutionRequest,
     ExecutionWorkerStatus,
-    GatewayStatus,
     ExposureReservation,
 )
 from polyflip.db.models import TradeHistory
