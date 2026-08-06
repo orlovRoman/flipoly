@@ -1530,7 +1530,7 @@ window.showFunnelDiagnostic = function(logId) {
         g1_model_loaded:   `G1: Модели (LGBM + LogReg)`,
         g2_price_fetched:  `G2: API котировки (цена: ${fmt(funnel.fresh_price)})`,
         g3_dead_zone:      `G3: Сигнал (статус: ${funnel.direction_status || "—"})`,
-        g4_no_flip:        `G4: Консенсус (p_flip: ${fmt(funnel.p_flip)}${funnel.threshold_lower ? ` вне [${funnel.threshold_lower} - ${funnel.threshold_upper}]` : ""})`,
+        g4_no_flip:        `G4: Консенсус (p_flip: ${fmt(funnel.p_flip)}${funnel.threshold_lower ? ` вне [${fmt(Math.min(funnel.threshold_lower, funnel.threshold_upper))} - ${fmt(Math.max(funnel.threshold_lower, funnel.threshold_upper))}]` : ""})`,
         g5_min_edge:       `G5: Вероятность победы (p_win: ${fmt(funnel.p_candidate_win)})`,
         g6_price_range:    `G6: Цена покупки (ask: ${fmt(funnel.candidate_ask)} в рамках лимитов)`,
         g7_crypto_confirm: `G7: Net Edge (${fmt(funnel.net_edge)} ≥ ${fmt(funnel.min_edge_used)})`,
