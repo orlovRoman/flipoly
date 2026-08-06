@@ -157,7 +157,6 @@ REGISTRY: list[SettingDef] = [
         default="false",
         description="Инвертировать сигнал LightGBM: если true, p_up↔p_down меняются местами. "
                     "Используется, когда LGBM является контриндикатором (WinRate < 40%).",
-        value_type="bool",
     ),
 
     # --- Обучение LogReg / Phase models ---
