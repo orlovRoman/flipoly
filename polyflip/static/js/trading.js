@@ -1552,7 +1552,7 @@ window.showFunnelDiagnostic = function(logId) {
         <div>
             <div style="font-weight:600; color:#fff; margin-bottom:6px;">Вердикт (Reason)</div>
             <div style="padding:10px; background:rgba(255,255,255,0.05); color:#e2e8f0; border-radius:6px; font-size:0.9rem; font-family:monospace;">
-                ${funnel.reason || "—"}
+                ${funnel.reason || (funnel.fallback_reason ? funnel.fallback_reason : "✅ Успешно (Trade allowed)")}
             </div>
         </div>
         ${funnel.fallback_reason ? `<div style="padding:10px; background:rgba(255,51,102,0.12); color:#ff3366; border-radius:6px; font-size:0.85rem;"><b>Fallback reason:</b> ${funnel.fallback_reason}</div>` : ""}
