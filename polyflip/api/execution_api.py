@@ -1308,7 +1308,7 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         await db.execute(
             select(LiveTradingSession)
             .where(
-                LiveTradingSession.status.in_(["DRAFT", "READY", "ACTIVE", "STOPPED"])
+                LiveTradingSession.status.in_(["DRAFT", "READY", "ACTIVE"])
             )
             .order_by(LiveTradingSession.created_at.desc())
             .limit(1)
