@@ -365,7 +365,64 @@ canvas {
     background: rgba(255, 255, 255, 0.02);
 }
 
-/* Make status panel wider for tables */
 #status .status-panel {
     max-width: 900px;
+}
+
+/* --- Sortable table headers --- */
+th.sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    position: relative;
+    padding-right: 20px;
+}
+th.sortable::after {
+    content: ' \21C5'; /* ⇅ */
+    font-size: 0.75em;
+    opacity: 0.4;
+    position: absolute;
+    right: 4px;
+}
+th.sortable.sort-asc::after {
+    content: ' \2191'; /* ↑ */
+    opacity: 1;
+}
+th.sortable.sort-desc::after {
+    content: ' \2193'; /* ↓ */
+    opacity: 1;
+}
+
+/* --- Pagination controls --- */
+.table-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 10px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+.table-pagination .page-info {
+    flex: 1;
+    text-align: center;
+}
+.table-pagination button {
+    background: var(--accent-color, #3182ce);
+    color: white;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+.table-pagination button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+.table-pagination select {
+    background: var(--bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 2px 6px;
 }
