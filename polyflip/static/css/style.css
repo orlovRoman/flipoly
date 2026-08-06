@@ -398,8 +398,11 @@ th.sortable.sort-desc::after {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-top: 10px;
+    margin-top: 15px;
+    margin-bottom: 10px;
     font-size: 0.85rem;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
     color: var(--text-muted);
 }
 .table-pagination .page-info {
@@ -407,17 +410,22 @@ th.sortable.sort-desc::after {
     text-align: center;
 }
 .table-pagination button {
-    background: var(--accent-color, #3182ce);
+    background: #4a5568;
     color: white;
     border: none;
-    padding: 4px 12px;
-    border-radius: 4px;
+    padding: 6px 14px;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
+    transition: background 0.2s;
+}
+.table-pagination button:hover:not(:disabled) {
+    background: #2b6cb0;
 }
 .table-pagination button:disabled {
-    opacity: 0.35;
+    opacity: 0.3;
     cursor: not-allowed;
+    background: #2d3748;
 }
 .table-pagination select {
     background: var(--bg-color);
