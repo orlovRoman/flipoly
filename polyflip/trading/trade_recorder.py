@@ -112,6 +112,8 @@ async def save_or_update_skipped_trade(
             existing_skipped.confirm_model_version = confirm_model_version
             existing_skipped.model_attribution_source = "EXACT" if model_key else None
             existing_skipped.direction_value = dir_val
+            if details.get("decision_run_id"):
+                existing_skipped.decision_run_id = details.get("decision_run_id")
             
             existing_skipped.updated_at = start_time
     else:
@@ -135,6 +137,7 @@ async def save_or_update_skipped_trade(
             confirm_model_version=confirm_model_version,
             model_attribution_source="EXACT" if model_key else None,
             direction_value=dir_val,
+            decision_run_id=details.get("decision_run_id"),
             created_at=start_time
         )
         db_session.add(history)
