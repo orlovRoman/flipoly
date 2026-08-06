@@ -969,36 +969,28 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        const modelStr = (() => {
-          if (!log.model_version) {
-            return isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-");
-          }
-          if (isCrypto) {
-              if (log.funnel_log && log.funnel_log.direction_model_key) {
-                  return lgbmName;
-              }
-              return log.model_version ? `LightGBM v${log.model_version}` : "LightGBM";
-          }
-          if (isCombined) {
-             const errMsg = log.error_msg || "";
-             if (errMsg.includes("MODEL_NOT_LOADED")) {
-                 return `Entry: ${log.asset}${rawPhase ? '_' + rawPhase : ''} v${log.model_version}, Direction: MODEL_NOT_LOADED`;
-             } else if (errMsg.includes("REGIME_UNAVAILABLE")) {
-                 return `Entry: ${log.asset}${rawPhase ? '_' + rawPhase : ''} v${log.model_version}, Direction: REGIME_UNAVAILABLE`;
+        let lrNameBase = "";
+        if (!isCrypto || isCombined) {
+             lrNameBase = log.model_version ? `v${log.model_version}${phaseSuffix}` : "";
+        }
+        
+        let logregDisplayHTML = lrNameBase || "-";
+        if (!lrNameBase) {
+             if (isPureFav) {
+                 logregDisplayHTML = `<span title="Стратегия PureFav" style="cursor:help; color:var(--text-muted);">- (PureFav)</span>`;
+             } else if (log.status === "SUCCESS" && !log.funnel_log) {
+                 logregDisplayHTML = `<span title="Старые данные" style="cursor:help; color:var(--text-muted);">- (Legacy)</span>`;
+             } else if (isCrypto && !isCombined) {
+                 logregDisplayHTML = `<span title="Режим CryptoOnly не использует LogReg" style="cursor:help; color:var(--text-muted);">-</span>`;
+             } else {
+                 logregDisplayHTML = `<span style="color:var(--text-muted);">-</span>`;
              }
-             
-             let consensus = null;
-             if (errMsg.includes("Consensus failed: CONFLICT")) consensus = "CONFLICT";
-             else if (errMsg.includes("Consensus failed: BOTH_ABSTAIN")) consensus = "BOTH_ABSTAIN";
-             
-             const lrName = `v${log.model_version}${phaseSuffix}`;
-             
-             if (consensus === "CONFLICT" || consensus === "BOTH_ABSTAIN") return `${lrName} + <span style="color:#00aaff;">${lgbmName}</span> <span style="color: #ffb020; font-size:0.85em;">(⚠ conflict/abstain)</span>`;
-             
-             return `${lrName} + <span style="color:#00aaff;">${lgbmName}</span>`;
-          }
-          return `v${log.model_version}${phaseSuffix}`;
-        })();
+        } else if (isCombined) {
+             const errMsg = log.error_msg || "";
+             if (errMsg.includes("Consensus failed")) {
+                 logregDisplayHTML = `${lrNameBase} <br><span style="color: #ffb020; font-size:0.85em;">(⚠ conflict)</span>`;
+             }
+        }
 
         let pnlText = "-";
         let pnlColor = "var(--text-main)";
@@ -1092,8 +1084,11 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px; color: var(--text-muted); font-family: monospace;">${timeLeftStr}</td>
                         <td style="padding: 8px; color: var(--text-muted);">${timeStr}</td>
                         <td style="padding: 8px;"><a href="#" class="market-link" data-market-id="${log.market_id}" data-asset="${escapeHtml(log.asset)}" style="color: var(--text-main); text-decoration: underline; cursor: pointer;">${escapeHtml(log.question)}</a></td>
-                        <td style="padding: 8px;">${directionBadge}</td>
-                        <td style="padding: 8px; color: var(--poly-blue);">${modelStr}</td>
+                        <td style="padding: 8px;">
+                            ${directionBadge}
+                            ${(lgbmName && lgbmName !== "LightGBM") ? `<br><span style="font-size:0.85em; color:var(--poly-blue);">${lgbmName}</span>` : (isCrypto && log.model_version ? `<br><span style="font-size:0.85em; color:var(--poly-blue);">LightGBM v${log.model_version}</span>` : "")}
+                        </td>
+                        <td style="padding: 8px; color: var(--poly-blue);">${logregDisplayHTML}</td>
                         <td style="padding: 8px; color: ${statusColor};">${displayStatus}</td>
                         <td style="padding: 8px;">${betTypeHtml}</td>
                         <td style="padding: 8px; font-weight: bold; color: var(--text-main);">${betText}</td>
