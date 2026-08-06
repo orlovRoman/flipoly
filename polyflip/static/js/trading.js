@@ -1513,27 +1513,7 @@ window.showFunnelDiagnostic = function(logId) {
     const funnel = window.funnelLogs && window.funnelLogs[logId];
     if (!funnel) return;
 
-    const gateLabels = {
-        g1_model_loaded:   "G1: Модели загружены (LGBM + LogReg)",
-        g2_price_fetched:  "G2: API котировки получены",
-        g3_dead_zone:      "G3: Сигнал направления (LGBM Ready)",
-        g4_no_flip:        "G4: Консенсус моделей (LGBM + LogReg)",
-        g5_min_edge:       "G5: Вероятность победы (P_win ≥ MIN)",
-        g6_price_range:    "G6: Цена и время в диапазоне",
-        g7_crypto_confirm: "G7: Net Edge ≥ MIN (с буфером)",
-        g8_combined_vote:  "G8: Итоговый ордер (Action & Sizing)",
-    };
-
     const fmt = (v) => (v !== null && v !== undefined) ? Number(v).toFixed(4) : "—";
-
-    const gates = funnel.gates || {};
-    const gatesHtml = Object.entries(gateLabels).map(([key, label]) => {
-        const val = gates[key];
-        let color = "#8F9BB3"; let icon = "⚪";
-        if (val === true)  { color = "#00ff88"; icon = "✅"; }
-        if (val === false) { color = "#ff3366"; icon = "❌"; }
-        return `<li style="color:${color}; padding: 3px 0;">${icon} ${label}</li>`;
-    }).join("");
 
     const entryStatusMap = {
         "FAVORITE_DISABLED": "Пропущен: Вход по тренду выкл.",
@@ -1565,10 +1545,10 @@ window.showFunnelDiagnostic = function(logId) {
         </div>
         <hr style="border-color:rgba(255,255,255,0.1); margin:0;">
         <div>
-            <div style="font-weight:600; color:#fff; margin-bottom:6px;">Гейты решения</div>
-            <ul style="list-style:none; padding:0; margin:0; display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.85rem;">
-                ${gatesHtml}
-            </ul>
+            <div style="font-weight:600; color:#fff; margin-bottom:6px;">Вердикт (Reason)</div>
+            <div style="padding:10px; background:rgba(255,255,255,0.05); color:#e2e8f0; border-radius:6px; font-size:0.9rem; font-family:monospace;">
+                ${funnel.reason || "—"}
+            </div>
         </div>
         ${funnel.fallback_reason ? `<div style="padding:10px; background:rgba(255,51,102,0.12); color:#ff3366; border-radius:6px; font-size:0.85rem;"><b>Fallback reason:</b> ${funnel.fallback_reason}</div>` : ""}
     </div>`;
