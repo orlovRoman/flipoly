@@ -462,7 +462,7 @@ async def decide_combined_mode(
     g3_dir = bool(comb_res.direction_status in ("READY", "DIRECTION_NONE_FALLBACK_LR") and comb_res.entry_status not in ("DIRECTION_UNAVAILABLE", "DIRECTION_VETOED", "LOW_DIRECTION_PROB"))
     g4_consensus = bool(comb_res.candidate_side in ("BUY_YES", "BUY_NO") and comb_res.entry_status != "CONSENSUS_FAILED")
     g5_win_prob = bool(comb_res.p_candidate_win is not None and comb_res.p_candidate_win >= getattr(cfg, "min_win_prob", 0.51) and comb_res.entry_status != "LOW_WIN_PROB")
-    g6_price_time = bool(comb_res.entry_status not in ("INVALID_TIME", "OUTSIDER_DISABLED", "PRICE_OUT_OF_BOUNDS"))
+    g6_price_time = bool(comb_res.entry_status not in ("INVALID_TIME", "OUTSIDER_DISABLED", "FAVORITE_DISABLED", "PRICE_OUT_OF_BOUNDS"))
     g7_net_edge = bool(comb_res.net_edge is not None and comb_res.entry_status != "INSUFFICIENT_NET_EDGE" and comb_res.net_edge >= min_edge_val)
     g8_vote = bool(comb_res.action in ("BUY_YES", "BUY_NO") and comb_res.bet_size_usdc > 0)
 

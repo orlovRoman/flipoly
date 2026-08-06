@@ -1515,6 +1515,15 @@ window.showFunnelDiagnostic = function(logId) {
         return `<li style="color:${color}; padding: 3px 0;">${icon} ${label}</li>`;
     }).join("");
 
+    const entryStatusMap = {
+        "FAVORITE_DISABLED": "Пропущен: Вход по тренду выкл.",
+        "OUTSIDER_DISABLED": "Пропущен: Торговля на отскок выкл.",
+        "INVALID_TIME": "Время вне диапазона",
+        "PRICE_OUT_OF_BOUNDS": "Цена вне диапазона",
+        "INSUFFICIENT_NET_EDGE": "Недостаточный Edge"
+    };
+    const mappedEntryStatus = entryStatusMap[funnel.entry_status] || funnel.entry_status || "—";
+
     const html = `
     <div style="display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:65vh;">
         <div>
@@ -1529,7 +1538,7 @@ window.showFunnelDiagnostic = function(logId) {
         <div>
             <div style="font-weight:600; color:#fff; margin-bottom:4px;">Entry Model</div>
             <div>Key: <span style="color:#e2e8f0;">${funnel.entry_model_key || "—"}</span></div>
-            <div>Status: <span style="color:${funnel.entry_status === 'READY' ? '#00ff88' : '#ff3366'};">${funnel.entry_status || "—"}</span></div>
+            <div>Status: <span style="color:${funnel.entry_status === 'READY' ? '#00ff88' : '#ff3366'};">${mappedEntryStatus}</span></div>
             <div>p_flip: <b>${fmt(funnel.p_flip)}</b>&nbsp;&nbsp;
                  edge: <b>${fmt(funnel.edge)}</b>&nbsp;(min_edge=${funnel.min_edge_used ?? "—"})</div>
             <div>threshold_lower: ${funnel.threshold_lower ?? "—"}&nbsp; threshold_upper: ${funnel.threshold_upper ?? "—"}</div>

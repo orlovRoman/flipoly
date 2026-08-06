@@ -1314,6 +1314,21 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
             .limit(1)
         )
     ).scalar_one_or_none()
+    
+    last_stopped_session_dto = None
+    if not active_session:
+        last_stopped = (
+            await db.execute(
+                select(LiveTradingSession)
+                .where(LiveTradingSession.status == "STOPPED")
+                .order_by(LiveTradingSession.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if last_stopped:
+            budget_snap = await get_session_budget_snapshot(db, last_stopped)
+            last_stopped_session_dto = serialize_live_session_dto(last_stopped, budget_snap)
+            last_stopped_session_dto["is_stopped"] = True
 
 
 
@@ -1403,7 +1418,7 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         "session": (
             serialize_live_session_dto(active_session, budget_snap)
             if active_session
-            else None
+            else last_stopped_session_dto
         ),
         "worker": {
             "worker_id": worker_status.worker_id if worker_status else None,

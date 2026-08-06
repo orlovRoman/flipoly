@@ -468,7 +468,43 @@ def _evaluate_combined_entry_inner(
     else:
         candidate_ask = no_ask if (no_ask is not None and no_ask > 0) else round(1.0 - fresh_yes_price, 4)
 
-    # 4. Расчет вероятности победы кандидата (p_candidate_win)
+    is_outsider = (candidate_side == "BUY_YES" and fresh_yes_price < 0.50) or (candidate_side == "BUY_NO" and fresh_yes_price >= 0.50)
+
+    # ВАЖНО: Если TRADE_ON_FAVORITE выключен, мы отсекаем фаворитов ДО выполнения лишних вычислений discount/probabilities
+    if not is_outsider and not cfg.trade_on_favorite:
+        return CombinedEntryResult(
+            action="SKIP",
+            reason=f"TRADE_ON_FAVORITE is disabled, skipping favorite candidate {candidate_side}",
+            direction_status=dir_status_for_result,
+            direction_model_key=crypto_sig.model_key or None,
+            direction_model_version=crypto_sig.model_version,
+            direction_regime=crypto_sig.regime or None,
+            direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
+            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
+            direction_value=dir_val,
+            entry_requested_key=entry_requested_key,
+            entry_model_key=entry_model_key,
+            entry_model_version=entry_model_version,
+            entry_model_phase=market_phase,
+            entry_model_source=entry_model_source,
+            entry_status="FAVORITE_DISABLED",
+            fallback_reason=fallback_reason,
+            lr_direction_vote=lr_vote,
+            lgbm_direction_vote=lgbm_vote,
+            consensus_type=consensus.consensus_type,
+            candidate_side=candidate_side,
+            candidate_ask=candidate_ask,
+            strike_source="BINANCE_LAST_CANDLE" if strike else None,
+            strike_proxy=strike,
+            underlying_price=und_price,
+            distance_to_strike_pct=dist_pct,
+            p_flip=p_flip,
+        )
+
+    # 4. Probabilities & Discountвероятности победы кандидата (p_candidate_win)
     # p_flip = вероятность смены лидера (флипа от фаворита к аутсайдеру)
     if candidate_side == "BUY_YES":
         # Кандидат YES. Если YES - фаворит (price >= 0.50), win prob = 1 - p_flip.
@@ -550,8 +586,6 @@ def _evaluate_combined_entry_inner(
             p_flip=p_flip,
         )
 
-    is_outsider = (candidate_side == "BUY_YES" and fresh_yes_price < 0.50) or (candidate_side == "BUY_NO" and fresh_yes_price >= 0.50)
-    
     is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider)
     if not is_valid_time:
         return CombinedEntryResult(
@@ -620,43 +654,7 @@ def _evaluate_combined_entry_inner(
             p_flip=p_flip,
         )
 
-    if not is_outsider and not cfg.trade_on_favorite:
-        return CombinedEntryResult(
-            action="SKIP",
-            reason=f"TRADE_ON_FAVORITE is disabled, skipping favorite candidate {candidate_side}",
-            direction_status=dir_status_for_result,
-            direction_model_key=crypto_sig.model_key or None,
-            direction_model_version=crypto_sig.model_version,
-            direction_regime=crypto_sig.regime or None,
-            direction_probability=dir_prob,
-            direction_p_up=getattr(crypto_sig, 'p_up', None),
-            direction_p_down=getattr(crypto_sig, 'p_down', None),
-            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
-            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
-            direction_value=dir_val,
-            entry_requested_key=entry_requested_key,
-            entry_model_key=entry_model_key,
-            entry_model_version=entry_model_version,
-            entry_model_phase=market_phase,
-            entry_model_source=entry_model_source,
-            entry_status="FAVORITE_DISABLED",
-            fallback_reason=fallback_reason,
-            p_candidate_win=p_candidate_win,
-            p_logreg_win=p_logreg_win,
-            direction_discount_applied=discount_mult,
-            combined_dir_discount_weight=discount_weight,
-            lr_direction_vote=lr_vote,
-            lgbm_direction_vote=lgbm_vote,
-            consensus_type=consensus.consensus_type,
-            candidate_side=candidate_side,
-            candidate_ask=candidate_ask,
-            cost_buffer=cost_buffer,
-            strike_source="BINANCE_LAST_CANDLE" if strike else None,
-            strike_proxy=strike,
-            underlying_price=und_price,
-            distance_to_strike_pct=dist_pct,
-            p_flip=p_flip,
-        )
+    # (Перенесено наверх, до шага 4)
 
     # 5. Проверка диапазона цен покупки
     is_valid_price, price_reason = cfg.is_price_valid(candidate_ask, is_outsider)

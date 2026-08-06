@@ -452,7 +452,22 @@ if (typeof translateError === 'undefined') {
                     const pct = s.budget_usdc > 0 ? (s.committed_usdc / s.budget_usdc) * 100 : 0;
                     document.getElementById('budget-progress').value = pct;
 
-                    document.getElementById('session-create-form').style.display = 'none';
+                    if (s.is_stopped) {
+                        document.getElementById('session-create-form').style.display = 'block';
+                        let banner = document.getElementById('stopped-session-banner');
+                        if (!banner) {
+                            banner = document.createElement('div');
+                            banner.id = 'stopped-session-banner';
+                            banner.style = "background: rgba(255, 176, 32, 0.15); color: #ffb020; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-weight: bold;";
+                            banner.textContent = "Предыдущая сессия остановлена. Вы можете создать новую сессию.";
+                            document.getElementById('session-info-block').prepend(banner);
+                        }
+                        banner.style.display = 'block';
+                    } else {
+                        document.getElementById('session-create-form').style.display = 'none';
+                        const banner = document.getElementById('stopped-session-banner');
+                        if (banner) banner.style.display = 'none';
+                    }
 
                     document.getElementById('session-limits-block').style.display = 'block';
                     document.getElementById('limit-order-amount').textContent = s.order_amount_usdc !== null ? s.order_amount_usdc.toFixed(2) + " USDC" : "АВТО (из PAPER)";
@@ -708,7 +723,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
-                    <td>${p.created_at ? escapeHtml(p.created_at.substring(5, 19).replace('T', ' ')) : '--'}</td>
+                    <td>${formatDateUTC(p.created_at)}</td>
                     <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
@@ -745,7 +760,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
-                    <td>${p.created_at ? escapeHtml(p.created_at.substring(5, 19).replace('T', ' ')) : '--'}</td>
+                    <td>${formatDateUTC(p.created_at)}</td>
                     <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
@@ -770,7 +785,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.innerHTML = rows.map(p => `
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
-                    <td>${p.created_at ? escapeHtml(p.created_at.substring(5, 19).replace('T', ' ')) : '--'}</td>
+                    <td>${formatDateUTC(p.created_at)}</td>
                     <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
@@ -799,7 +814,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (r.can_mark_no_fill) hasNoFillOptions = true;
             return `
             <tr>
-                <td>${r.created_at ? escapeHtml(r.created_at.substring(5, 19).replace('T', ' ')) : '--'}</td>
+                <td>${formatDateUTC(r.created_at)}</td>
                 <td><strong>${escapeHtml(r.intent)}</strong></td>
                 <td>${escapeHtml(r.asset)}</td>
                 <td>${escapeHtml(r.outcome_to_buy || r.outcome_bought || '--')}</td>
