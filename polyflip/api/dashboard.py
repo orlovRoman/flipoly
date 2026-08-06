@@ -382,7 +382,6 @@ async def get_trade_logs(
                 },
                 "fallback_reason": funnel.fallback_reason,
                 "reason": funnel.skip_reason,
-                "consensus_type": funnel.consensus_type,
             }
             
         items.append(item)
