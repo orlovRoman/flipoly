@@ -973,7 +973,12 @@ document.addEventListener("DOMContentLoaded", () => {
           if (!log.model_version) {
             return isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-");
           }
-          if (isCrypto) return lgbmName;
+          if (isCrypto) {
+              if (log.funnel_data && log.funnel_data.direction_model_key) {
+                  return lgbmName;
+              }
+              return log.model_version ? `LightGBM v${log.model_version}` : "LightGBM";
+          }
           if (isCombined) {
              const errMsg = log.error_msg || "";
              if (errMsg.includes("MODEL_NOT_LOADED")) {
@@ -989,9 +994,9 @@ document.addEventListener("DOMContentLoaded", () => {
              
              const lrName = `v${log.model_version}${phaseSuffix}`;
              
-             if (consensus === "PARTIAL_LR") return lrName;
-             if (consensus === "PARTIAL_LGBM") return lgbmName;
-             if (consensus === "CONFLICT" || consensus === "BOTH_ABSTAIN") return `${lrName} + ${lgbmName} (conflict/abstain)`;
+             if (consensus === "PARTIAL_LR") return `${lrName} <span style="color: var(--text-muted); font-size:0.85em;">(partial)</span>`;
+             if (consensus === "PARTIAL_LGBM") return `${lgbmName} <span style="color: var(--text-muted); font-size:0.85em;">(partial)</span>`;
+             if (consensus === "CONFLICT" || consensus === "BOTH_ABSTAIN") return `${lrName} + ${lgbmName} <span style="color: #ffb020; font-size:0.85em;">(⚠ conflict/abstain)</span>`;
              
              return `${lrName} + ${lgbmName}`;
           }
