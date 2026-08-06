@@ -22,6 +22,9 @@ from polyflip.db.execution_models import (
 )
 from polyflip.db.models import TradeHistory
 
+ACTIVE_TRADABLE_STATUSES = frozenset(["OPENING", "OPEN", "CLOSING", "RECONCILING"])
+
+
 logger = logging.getLogger("live_session_service")
 
 
@@ -134,7 +137,7 @@ async def get_session_budget_snapshot(
         .where(
             TradeHistory.live_session_id == session_obj.id,
             TradeHistory.mode == "LIVE",
-            TradeHistory.position_status.in_(["OPENING", "OPEN", "CLOSING"]),
+            TradeHistory.position_status.in_(ACTIVE_TRADABLE_STATUSES),
         )
         .scalar_subquery()
     )
