@@ -2,7 +2,10 @@ import psycopg2
 import os
 import datetime
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://polyflip:secret@db:5432/polyflip")
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise EnvironmentError("DATABASE_URL environment variable is required. "
+                           "Example: export DATABASE_URL=postgresql://user:pass@host:5432/db")
 conn = psycopg2.connect(DATABASE_URL)
 cursor = conn.cursor()
 cursor.execute("""

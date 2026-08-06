@@ -5,7 +5,9 @@ import os
 import csv
 
 def main():
-    db_url = os.environ.get("DATABASE_URL", "postgresql://polyflip:secret@db:5432/polyflip")
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise EnvironmentError("DATABASE_URL is required")
     conn = psycopg2.connect(db_url)
     
     query = """

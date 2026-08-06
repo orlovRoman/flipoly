@@ -525,5 +525,8 @@ class CryptoPredictor:
                 model_version=-1, features_ok=False, risk_vetoed=False, risk_reason=str(e),
                 stake_multiplier=1.0, funding_rate=0.0, ece=0.0, model_key="",
                 regime="", status="INFERENCE_FAILED",
+                inverted=invert_lgbm_signal,
+                p_up_raw=p_up_raw,
+                p_down_raw=p_down_raw,
             )
 

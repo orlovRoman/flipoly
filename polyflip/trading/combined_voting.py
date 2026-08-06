@@ -172,38 +172,19 @@ def apply_direction_confidence_discount(
         return round(max(0.0, min(1.0, p_logreg_win)), 4)
 
     weakness = (strong_threshold - dir_prob) / band
-    weakness = max(0.0, min(1.0, weakness))
     multiplier = 1.0 - (discount_weight * weakness)
     discounted = p_logreg_win * multiplier
     return round(max(0.0, min(1.0, discounted)), 4)
-def evaluate_combined_entry(
-    crypto_sig: CryptoSignal,
-    market_phase: str,
-    entry_requested_key: Optional[str],
-    entry_model_key: Optional[str],
-    entry_model_version: Optional[int],
-    entry_model_source: str,
-    p_flip: Optional[float],
-    fresh_yes_price: float,
-    yes_ask: Optional[float],
-    no_ask: Optional[float],
-    cfg: "TradingConfig",
-    cost_buffer: float = 0.02,
-    volume_5min: float = 0.0,
-    underlying_price: Optional[float] = None,
-    fallback_reason: Optional[str] = None,
-    time_left_sec: float = 0.0,
-) -> CombinedEntryResult:
-    """Обертка для переноса флагов LightGBM в результат."""
-    result = _evaluate_combined_entry_inner(
-        crypto_sig, market_phase, entry_requested_key, entry_model_key,
-        entry_model_version, entry_model_source, p_flip, fresh_yes_price,
-        yes_ask, no_ask, cfg, cost_buffer, volume_5min, underlying_price,
-        fallback_reason, time_left_sec
-    )
-    result.lgbm_inverted = getattr(crypto_sig, "inverted", False)
-    result.lgbm_p_up_raw = getattr(crypto_sig, "p_up_raw", 0.0)
-    result.lgbm_p_down_raw = getattr(crypto_sig, "p_down_raw", 0.0)
+
+
+def evaluate_combined_entry(*args, **kwargs) -> CombinedEntryResult:
+    """Обёртка для переноса флагов LightGBM в результат."""
+    crypto_sig = args[0] if args else kwargs.get("crypto_sig")
+    result = _evaluate_combined_entry_inner(*args, **kwargs)
+    if crypto_sig:
+        result.lgbm_inverted = getattr(crypto_sig, "inverted", False)
+        result.lgbm_p_up_raw = getattr(crypto_sig, "p_up_raw", 0.0)
+        result.lgbm_p_down_raw = getattr(crypto_sig, "p_down_raw", 0.0)
     return result
 
 
