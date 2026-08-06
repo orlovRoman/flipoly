@@ -325,7 +325,7 @@ def evaluate_combined_entry(
     if crypto_sig.direction in ("UP", "DOWN") and dir_prob < min_direction_prob_cfg:
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"strategy: Direction prob {dir_prob:.4f} < min {min_direction_prob_cfg:.4f} (floor)",
+            reason=f"Direction prob {dir_prob:.4f} < min {min_direction_prob_cfg:.4f} (floor)",
             direction_status="LOW_DIRECTION_PROB",
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
@@ -366,7 +366,7 @@ def evaluate_combined_entry(
     if consensus.final_side == "SKIP":
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"strategy: Consensus failed: {consensus.consensus_type} ({consensus.reason})",
+            reason=f"Consensus failed: {consensus.consensus_type} ({consensus.reason})",
             direction_status=dir_status,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
@@ -467,7 +467,7 @@ def evaluate_combined_entry(
     if p_candidate_win < min_win_prob_cfg:
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"strategy: Candidate win prob {p_candidate_win:.4f} < min {min_win_prob_cfg:.4f}",
+            reason=f"Candidate win prob {p_candidate_win:.4f} < min {min_win_prob_cfg:.4f}",
             direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
@@ -508,7 +508,7 @@ def evaluate_combined_entry(
     if not is_valid_time:
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"strategy: {time_reason}",
+            reason=f"{time_reason}",
             direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
@@ -537,7 +537,7 @@ def evaluate_combined_entry(
     if is_outsider and not cfg.trade_on_flip:
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"strategy: TRADE_ON_FLIP is disabled, skipping outsider candidate {candidate_side}",
+            reason=f"TRADE_ON_FLIP is disabled, skipping outsider candidate {candidate_side}",
             direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
@@ -577,7 +577,7 @@ def evaluate_combined_entry(
     if not is_valid_price:
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"strategy: {price_reason}",
+            reason=f"{price_reason}",
             direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
@@ -620,7 +620,7 @@ def evaluate_combined_entry(
     if net_edge < min_net_edge:
         return CombinedEntryResult(
             action="SKIP",
-            reason=f"strategy: Insufficient net edge: {net_edge:.4f} < min {min_net_edge:.4f} (gross={gross_edge:.4f}, buffer={cost_buffer:.4f})",
+            reason=f"Insufficient net edge: {net_edge:.4f} < min {min_net_edge:.4f} (gross={gross_edge:.4f}, buffer={cost_buffer:.4f})",
             direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,
@@ -665,7 +665,7 @@ def evaluate_combined_entry(
     if bet_size <= 0 and not bypass_bet:
         return CombinedEntryResult(
             action="SKIP",
-            reason="strategy: Calculated bet size is 0.0 USDC",
+            reason="Calculated bet size is 0.0 USDC",
             direction_status=dir_status_for_result,
             direction_model_key=crypto_sig.model_key or None,
             direction_model_version=crypto_sig.model_version,

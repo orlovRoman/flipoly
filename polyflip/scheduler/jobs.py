@@ -95,7 +95,8 @@ async def _check_ath_checkpoint(session: AsyncSession):
 async def trade_job(api_client):
     async with async_session() as session:
         await trade_worker_cycle(session, api_client)
-        await _check_ath_checkpoint(session)
+        # await _check_ath_checkpoint(session)
+
 
 async def stoploss_job(api_client):
     try:

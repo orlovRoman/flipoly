@@ -77,7 +77,7 @@ def decide_outsider(
     """
     is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider=True)
     if not is_valid_time and time_left_sec > 0:
-        return TradeDecision("SKIP", 0, 0, f"strategy: {time_reason}", "OUTSIDER", p_flip=p_flip)
+        return TradeDecision("SKIP", 0, 0, f"{time_reason}", "OUTSIDER", p_flip=p_flip)
         
     flip_thresh = cfg.flip_threshold
     if flip_thresh > 1.0:
@@ -87,14 +87,14 @@ def decide_outsider(
 
     # 1. Сначала проверяем dead zone
     if is_in_dead_zone(signal.mid_price, cfg.dead_zone):
-        return TradeDecision("SKIP", 0, 0, "strategy: dead zone", "SKIP", p_flip=p_flip, edge=0.0)
+        return TradeDecision("SKIP", 0, 0, "dead zone", "SKIP", p_flip=p_flip, edge=0.0)
 
     is_yes_fav = signal.mid_price >= FLIP_MIDPOINT
     outsider_ask = signal.get_no_ask() if is_yes_fav else signal.get_yes_ask()
     outsider_action: ActionType = "BUY_NO" if is_yes_fav else "BUY_YES"
 
     if outsider_ask <= 0:
-        return TradeDecision("SKIP", 0, 0, "strategy: outsider_ask=0", "SKIP", p_flip=p_flip, edge=0.0)
+        return TradeDecision("SKIP", 0, 0, "outsider_ask=0", "SKIP", p_flip=p_flip, edge=0.0)
 
     outsider_pwin_discount = cfg.outsider_pwin_discount
     p_win_outsider = p_flip_effective * outsider_pwin_discount
@@ -112,7 +112,7 @@ def decide_outsider(
     # 2. Потом проверяем порог p_flip
     if p_flip_effective < flip_thresh:
         return TradeDecision("SKIP", 0, 0,
-            f"strategy: p_flip_effective={p_flip_effective:.3f} < threshold={flip_thresh:.3f}", "SKIP",
+            f"p_flip_effective={p_flip_effective:.3f} < threshold={flip_thresh:.3f}", "SKIP",
             p_flip=p_flip, edge=outsider_edge)
 
     edge = outsider_edge
@@ -120,18 +120,18 @@ def decide_outsider(
 
     is_valid_price, price_reason = cfg.is_price_valid(outsider_ask, is_outsider=True)
     if not is_valid_price:
-        return TradeDecision("SKIP", 0, 0, f"strategy: {price_reason}", "SKIP", p_flip=p_flip, edge=edge)
+        return TradeDecision("SKIP", 0, 0, f"{price_reason}", "SKIP", p_flip=p_flip, edge=edge)
 
     if ece and ece > ECE_WARN_THRESHOLD:
         logger.warning("poor_calibration_model", asset=signal.asset, ece=ece, note="p_flip estimates may be unreliable")
 
     if edge < min_edge:
         return TradeDecision("SKIP", 0, 0,
-            f"strategy: edge={edge:.3f} < min={min_edge:.3f}", "SKIP", p_flip=p_flip, edge=edge)
+            f"edge={edge:.3f} < min={min_edge:.3f}", "SKIP", p_flip=p_flip, edge=edge)
 
     bet = _resolve_final_bet(edge, signal.volume_5min, cfg, is_outsider=True)
     if bet <= 0 and not cfg.bypass_bet_size_check:
-        return TradeDecision("SKIP", 0, 0, "strategy: Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
+        return TradeDecision("SKIP", 0, 0, "Bet size 0", "SKIP", p_flip=p_flip, edge=edge)
 
     decision_details = {
         "market_role": "OUTSIDER",
