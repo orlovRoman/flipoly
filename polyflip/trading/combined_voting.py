@@ -54,15 +54,16 @@ class DirectionConsensus:
 def logreg_direction_vote(
     p_flip: Optional[float],
     fresh_yes_price: float,
+    flip_threshold: float,
     abstain_band: float = _LOGREG_ABSTAIN_BAND,
 ) -> Literal["BUY_YES", "BUY_NO", "ABSTAIN"]:
     if p_flip is None:
         return "ABSTAIN"
-    # p_flip близкий к 0.5 — нет уверенного сигнала, воздерживаемся (|p_flip - 0.5| < abstain_band)
-    if abs(p_flip - 0.5) < abstain_band:
+    # p_flip близкий к flip_threshold — нет уверенного сигнала, воздерживаемся (|p_flip - flip_threshold| < abstain_band)
+    if abs(p_flip - flip_threshold) < abstain_band:
         return "ABSTAIN"
     is_yes_fav = fresh_yes_price >= 0.50
-    if p_flip > 0.5:
+    if p_flip > flip_threshold:
         return "BUY_NO" if is_yes_fav else "BUY_YES"
     else:
         return "BUY_YES" if is_yes_fav else "BUY_NO"
@@ -400,7 +401,7 @@ def _evaluate_combined_entry_inner(
 
     # 3.6 Consensus
     lr_abstain_band = getattr(cfg, "combined_logreg_abstain_band", _LOGREG_ABSTAIN_BAND)
-    lr_vote = logreg_direction_vote(p_flip, fresh_yes_price, abstain_band=lr_abstain_band)
+    lr_vote = logreg_direction_vote(p_flip, fresh_yes_price, cfg.flip_threshold, abstain_band=lr_abstain_band)
     lgbm_vote = crypto_sig.direction or "NONE"
     
     consensus = resolve_direction_consensus(
@@ -601,6 +602,44 @@ def _evaluate_combined_entry_inner(
             entry_model_phase=market_phase,
             entry_model_source=entry_model_source,
             entry_status="OUTSIDER_DISABLED",
+            fallback_reason=fallback_reason,
+            p_candidate_win=p_candidate_win,
+            p_logreg_win=p_logreg_win,
+            direction_discount_applied=discount_mult,
+            combined_dir_discount_weight=discount_weight,
+            lr_direction_vote=lr_vote,
+            lgbm_direction_vote=lgbm_vote,
+            consensus_type=consensus.consensus_type,
+            candidate_side=candidate_side,
+            candidate_ask=candidate_ask,
+            cost_buffer=cost_buffer,
+            strike_source="BINANCE_LAST_CANDLE" if strike else None,
+            strike_proxy=strike,
+            underlying_price=und_price,
+            distance_to_strike_pct=dist_pct,
+            p_flip=p_flip,
+        )
+
+    if not is_outsider and not cfg.trade_on_favorite:
+        return CombinedEntryResult(
+            action="SKIP",
+            reason=f"TRADE_ON_FAVORITE is disabled, skipping favorite candidate {candidate_side}",
+            direction_status=dir_status_for_result,
+            direction_model_key=crypto_sig.model_key or None,
+            direction_model_version=crypto_sig.model_version,
+            direction_regime=crypto_sig.regime or None,
+            direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, 'p_up', None),
+            direction_p_down=getattr(crypto_sig, 'p_down', None),
+            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
+            direction_value=dir_val,
+            entry_requested_key=entry_requested_key,
+            entry_model_key=entry_model_key,
+            entry_model_version=entry_model_version,
+            entry_model_phase=market_phase,
+            entry_model_source=entry_model_source,
+            entry_status="FAVORITE_DISABLED",
             fallback_reason=fallback_reason,
             p_candidate_win=p_candidate_win,
             p_logreg_win=p_logreg_win,
