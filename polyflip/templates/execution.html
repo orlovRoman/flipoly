@@ -708,7 +708,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
-                    <td>${p.created_at ? escapeHtml(p.created_at.substring(11, 19)) : '--'}</td>
+                    <td>${p.created_at ? escapeHtml(p.created_at.substring(5, 19).replace('T', ' ')) : '--'}</td>
                     <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
@@ -745,7 +745,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
-                    <td>${p.created_at ? escapeHtml(p.created_at.substring(11, 19)) : '--'}</td>
+                    <td>${p.created_at ? escapeHtml(p.created_at.substring(5, 19).replace('T', ' ')) : '--'}</td>
                     <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
@@ -770,7 +770,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.innerHTML = rows.map(p => `
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
-                    <td>${p.created_at ? escapeHtml(p.created_at.substring(11, 19)) : '--'}</td>
+                    <td>${p.created_at ? escapeHtml(p.created_at.substring(5, 19).replace('T', ' ')) : '--'}</td>
                     <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
@@ -799,7 +799,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (r.can_mark_no_fill) hasNoFillOptions = true;
             return `
             <tr>
-                <td>${r.created_at ? escapeHtml(r.created_at.substring(11, 19)) : '--'}</td>
+                <td>${r.created_at ? escapeHtml(r.created_at.substring(5, 19).replace('T', ' ')) : '--'}</td>
                 <td><strong>${escapeHtml(r.intent)}</strong></td>
                 <td>${escapeHtml(r.asset)}</td>
                 <td>${escapeHtml(r.outcome_to_buy || r.outcome_bought || '--')}</td>
