@@ -1533,9 +1533,9 @@ window.showFunnelDiagnostic = function(logId) {
         g1_model_loaded:   `G1: Модели (LGBM + LogReg)`,
         g2_price_fetched:  `G2: API котировки (цена: ${fmt(funnel.fresh_price)})`,
         g3_dead_zone:      `G3: Сигнал (статус: ${funnel.direction_status || "—"})`,
-        g4_no_flip:        `G4: Консенсус (p_flip: ${fmt(funnel.p_flip)})`,
+        g4_no_flip:        `G4: Консенсус (p_flip: ${fmt(funnel.p_flip)}${funnel.threshold_lower ? ` вне [${funnel.threshold_upper} - ${funnel.threshold_lower}]` : ""})`,
         g5_min_edge:       `G5: Вероятность победы (p_win: ${fmt(funnel.p_candidate_win)})`,
-        g6_price_range:    `G6: Цена покупки (ask: ${fmt(funnel.candidate_ask)})`,
+        g6_price_range:    `G6: Цена покупки (ask: ${fmt(funnel.candidate_ask)} в рамках лимитов)`,
         g7_crypto_confirm: `G7: Net Edge (${fmt(funnel.net_edge)} ≥ ${fmt(funnel.min_edge_used)})`,
         g8_combined_vote:  `G8: Итоговый ордер`,
     };
@@ -1548,9 +1548,9 @@ window.showFunnelDiagnostic = function(logId) {
         if (val === true)  { color = "#00ff88"; icon = "✅"; }
         if (val === false) { 
             color = "#ff3366"; icon = "❌"; 
-            extra = funnel.reason ? `<br><span style="color:#ff3366;font-size:0.8em;">➔ ${funnel.reason}</span>` : "";
+            extra = funnel.reason ? `<br><span style="color:#ff3366;font-size:0.8em; margin-left:24px;">➔ ${funnel.reason}</span>` : "";
         }
-        return `<li style="color:${color}; padding: 4px 0;">${icon} ${label}${extra}</li>`;
+        return `<li style="color:${color}; padding: 6px 0;">${icon} ${label}${extra}</li>`;
     }).join("");
 
     const html = `
@@ -1578,13 +1578,6 @@ window.showFunnelDiagnostic = function(logId) {
             <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; font-size:0.85rem;">
                 ${gatesHtml}
             </ul>
-        </div>
-        <hr style="border-color:rgba(255,255,255,0.1); margin:0;">
-        <div>
-            <div style="font-weight:600; color:#fff; margin-bottom:6px;">Вердикт (Reason)</div>
-            <div style="padding:10px; background:rgba(255,255,255,0.05); color:#e2e8f0; border-radius:6px; font-size:0.9rem; font-family:monospace;">
-                ${funnel.reason || (funnel.fallback_reason ? funnel.fallback_reason : "✅ Успешно (Trade allowed)")}
-            </div>
         </div>
         ${funnel.fallback_reason ? `<div style="padding:10px; background:rgba(255,51,102,0.12); color:#ff3366; border-radius:6px; font-size:0.85rem;"><b>Fallback reason:</b> ${funnel.fallback_reason}</div>` : ""}
     </div>`;
