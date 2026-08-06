@@ -1,4 +1,4 @@
-﻿document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", () => {
   function parseFormattedFloat(val) {
     if (val === null || val === undefined || val === "") return NaN;
     return parseFloat(String(val).trim().replace(",", "."));
@@ -48,7 +48,7 @@
       );
       if (response.status === 401) {
         alert(
-          "РќРµРІРµСЂРЅС‹Р№ API РєР»СЋС‡. Р’РІРµРґРёС‚Рµ РµРіРѕ РЅР° РІРєР»Р°РґРєРµ 'РќР°СЃС‚СЂРѕР№РєРё' РІ РѕСЃРЅРѕРІРЅРѕРј РґР°С€Р±РѕСЂРґРµ.",
+          "Неверный API ключ. Введите его на вкладке 'Настройки' в основном дашборде.",
         );
         return;
       }
@@ -122,7 +122,7 @@
       }
 
       const displayDates = [...sortedDates];
-      // Р•СЃР»Рё РґР°С‚ СЃР»РёС€РєРѕРј РјР°Р»Рѕ (РјРµРЅСЊС€Рµ 7), РґРѕРїРѕР»РЅСЏРµРј Р±СѓРґСѓС‰РёРјРё РґРЅСЏРјРё, С‡С‚РѕР±С‹ РїРµСЂРІС‹Р№ РґРµРЅСЊ РѕС‚РѕР±СЂР°Р¶Р°Р»СЃСЏ СЃР»РµРІР°, Р° РЅРµ СЂР°СЃС‚СЏРіРёРІР°Р»СЃСЏ
+      // Если дат слишком мало (меньше 7), дополняем будущими днями, чтобы первый день отображался слева, а не растягивался
       if (displayDates.length > 0 && displayDates.length < 7) {
         const lastDateStr = displayDates[displayDates.length - 1];
         const lastDate = new Date(lastDateStr);
@@ -137,7 +137,7 @@
         }
       }
 
-      // Р—Р°РіСЂСѓР·РєР° РјР°СЂРєРµСЂРѕРІ СЃРѕР±С‹С‚РёР№ РґР»СЏ РЅР°Р»РѕР¶РµРЅРёСЏ РЅР° PnL РіСЂР°С„РёРє
+      // Загрузка маркеров событий для наложения на PnL график
       let annotations = {};
       try {
         const markersRes = await fetch(`${window.API_BASE}/api/trading/pnl-markers?hours=720`);
@@ -217,7 +217,7 @@
             labels: displayDates,
             datasets: [
               {
-                label: "РљСѓРјСѓР»СЏС‚РёРІРЅС‹Р№ PnL (USDC)",
+                label: "Кумулятивный PnL (USDC)",
                 data: pnlData,
                 borderColor: "#4facfe",
                 backgroundColor: "rgba(79, 172, 254, 0.2)",
@@ -239,7 +239,7 @@
             labels: displayDates,
             datasets: [
               {
-                label: "Р”РЅРµРІРЅРѕР№ PnL (USDC)",
+                label: "Дневной PnL (USDC)",
                 data: dailyPnlData,
                 backgroundColor: dailyColors,
                 maxBarThickness: 30,
@@ -255,7 +255,7 @@
                   label: function(context) {
                     const val = context.raw;
                     if (val === null || val === undefined) return "";
-                    return ` Р”РЅРµРІРЅРѕР№ PnL: ${val >= 0 ? "+" : ""}${val.toFixed(2)} USDC`;
+                    return ` Дневной PnL: ${val >= 0 ? "+" : ""}${val.toFixed(2)} USDC`;
                   }
                 }
               }
@@ -380,9 +380,9 @@
     const statusSpan = document.getElementById("outsider-strategy-status");
     if (!statusSpan || !settingsElements.tradeOnFlip) return;
     if (settingsElements.tradeOnFlip.checked) {
-      statusSpan.innerHTML = `<span style="background: rgba(0, 255, 136, 0.12); border: 1px solid #00ff88; color: #00ff88; padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: bold; margin-left: 8px;">РђРєС‚РёРІРЅР°</span>`;
+      statusSpan.innerHTML = `<span style="background: rgba(0, 255, 136, 0.12); border: 1px solid #00ff88; color: #00ff88; padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: bold; margin-left: 8px;">Активна</span>`;
     } else {
-      statusSpan.innerHTML = `<span style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: bold; margin-left: 8px;">РћС‚РєР»СЋС‡РµРЅР°</span>`;
+      statusSpan.innerHTML = `<span style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: bold; margin-left: 8px;">Отключена</span>`;
     }
   }
 
@@ -404,23 +404,23 @@
       const data = await res.json();
       const g = data.global;
 
-      // РўРµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ no_flip Р±РµСЂРµРј РёР· API
+      // Текущее значение no_flip берем из API
       const currentNoFlipVal = g.current_no_flip || 0.45;
       const currentNoFlipPct = Math.round(currentNoFlipVal * 100);
       
       const firstAsset = Object.keys(data.per_asset)[0];
       const recPct = firstAsset ? Math.round(data.per_asset[firstAsset].recommended_no_flip * 100) : Math.round(currentNoFlipVal * 100);
 
-      // РџРѕРґСЃРєР°Р·РєР° РїРѕРґ РїРѕР»РµРј no_flip
+      // Подсказка под полем no_flip
       const hint = document.getElementById("no-flip-hint");
       if (hint) {
         hint.innerHTML = `
-            РўРµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ: <strong>${currentNoFlipPct}%</strong>
-            ${firstAsset ? `&nbsp;(Р РµРєРѕРјРµРЅРґРѕРІР°РЅРѕ РґР»СЏ ${firstAsset}: <strong style="color:#00ff88">${recPct}%</strong>)` : ""}
+            Текущее значение: <strong>${currentNoFlipPct}%</strong>
+            ${firstAsset ? `&nbsp;(Рекомендовано для ${firstAsset}: <strong style="color:#00ff88">${recPct}%</strong>)` : ""}
         `;
       }
 
-      // РљРЅРѕРїРєР° "РџСЂРёРјРµРЅРёС‚СЊ СЂРµРєРѕРјРµРЅРґРѕРІР°РЅРЅРѕРµ"
+      // Кнопка "Применить рекомендованное"
       const btn = document.getElementById("btn-apply-recommended-no-flip");
       if (btn) {
         if (firstAsset) {
@@ -430,7 +430,7 @@
         }
       }
 
-      // Per-asset РїРѕСЂРѕРіРё (Р°РІС‚РѕРєР°Р»РёР±СЂРѕРІР°РЅРЅС‹Рµ trainer'РѕРј)
+      // Per-asset пороги (автокалиброванные trainer'ом)
       const perAssetDiv = document.getElementById("per-asset-thresholds");
       if (perAssetDiv) {
         if (Object.keys(data.per_asset).length > 0) {
@@ -454,7 +454,7 @@
       settingsElements.combinedModeSettings.style.display = 'block';
     }
     if (settingsElements.tradingModeBadge) {
-      settingsElements.tradingModeBadge.textContent = 'вљ–пёЏ Р РµР¶РёРј: ML + LightGBM (Combined)';
+      settingsElements.tradingModeBadge.textContent = '⚖️ Режим: ML + LightGBM (Combined)';
       settingsElements.tradingModeBadge.className = `mode-badge mode-combined`;
     }
   }
@@ -488,7 +488,7 @@
         if (m.is_active && m.ece !== null && m.ece > 0.10) {
           const warnSpan = document.getElementById(`calibration-warning-${m.asset.toUpperCase()}`);
           if (warnSpan) {
-            warnSpan.textContent = `вљ пёЏ РљР°Р»РёР±СЂРѕРІРєР°: РџР»РѕС…Р°СЏ (ECE: ${m.ece.toFixed(4)})`;
+            warnSpan.textContent = `⚠️ Калибровка: Плохая (ECE: ${m.ece.toFixed(4)})`;
             warnSpan.style.display = "inline-block";
           }
         }
@@ -581,12 +581,12 @@
               if (!res.ok) {
                 e.target.checked = !e.target.checked; // Revert
                 const err = await res.json();
-                alert("РћС€РёР±РєР°: " + (err.detail || "РќРµ СѓРґР°Р»РѕСЃСЊ РёР·РјРµРЅРёС‚СЊ СЃС‚Р°С‚СѓСЃ С‚РѕСЂРіРѕРІР»Рё"));
+                alert("Ошибка: " + (err.detail || "Не удалось изменить статус торговли"));
               }
             } catch (err) {
               e.target.checked = !e.target.checked; // Revert
               console.error(err);
-              alert("РћС€РёР±РєР° СЃРµС‚Рё РїСЂРё РёР·РјРµРЅРµРЅРёРё СЃС‚Р°С‚СѓСЃР° С‚РѕСЂРіРѕРІР»Рё");
+              alert("Ошибка сети при изменении статуса торговли");
             }
           });
         }
@@ -595,7 +595,7 @@
       const statusBadge = document.getElementById("trading-status-badge");
       if (statusBadge && data.TRADING_ENABLED !== undefined) {
         const isEnabled = data.TRADING_ENABLED === "true";
-        statusBadge.textContent = isEnabled ? "РўРѕСЂРіРѕРІР»СЏ: Р’РљР›Р®Р§Р•РќРђ" : "РўРѕСЂРіРѕРІР»СЏ: Р’Р«РљР›Р®Р§Р•РќРђ";
+        statusBadge.textContent = isEnabled ? "Торговля: ВКЛЮЧЕНА" : "Торговля: ВЫКЛЮЧЕНА";
         statusBadge.className = "status-indicator " + (isEnabled ? "online" : "offline");
       }
       if (settingsElements.initialCapital && data.INITIAL_CAPITAL)
@@ -700,7 +700,7 @@
         });
       }
 
-      // Р—Р°РїРѕР»РЅСЏРµРј РёРЅРґРёРІРёРґСѓР°Р»СЊРЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё РїРѕ Р°РєС‚РёРІР°Рј
+      // Заполняем индивидуальные настройки по активам
       const perAssetNames = getPerAssetFields();
       perAssetNames.forEach((asset) => {
         // Individual asset settings removed.
@@ -730,13 +730,13 @@
         apiKey = newKey; // update local scope variable
       }
 
-      // Р’РђР–РќРћ: РЅРѕСЂРјР°Р»РёР·Р°С†РёСЏ Р·РЅР°С‡РµРЅРёР№ РїРµСЂРµРґ СЃРѕС…СЂР°РЅРµРЅРёРµРј РІ Redis:
-      // FAVORITE_MIN_EDGE   в†’ / 100  (С…СЂР°РЅРёС‚СЃСЏ РєР°Рє float, РЅР°РїСЂ. -0.01)
-      // LIQUIDITY_FRACTION  в†’ as-is  (С…СЂР°РЅРёС‚СЃСЏ РєР°Рє float, РЅР°РїСЂ. 0.05)
-      // MAX_PRICE_DRIFT     в†’ as-is  (С…СЂР°РЅРёС‚СЃСЏ РєР°Рє float, РЅР°РїСЂ. 0.03)
-      // NO_MIN_PRICE        в†’ as-is  (С…СЂР°РЅРёС‚СЃСЏ РєР°Рє float, РЅР°РїСЂ. 0.55)
-      // OUTSIDER_MAX_PRICE   в†’ as-is  (С…СЂР°РЅРёС‚СЃСЏ РєР°Рє float)
-      // Р•СЃР»Рё РјРµРЅСЏРµС€СЊ С„РѕСЂРјР°С‚ С…СЂР°РЅРµРЅРёСЏ вЂ” РѕР±РЅРѕРІРё loadSettings() СЃРёРјРјРµС‚СЂРёС‡РЅРѕ.
+      // ВАЖНО: нормализация значений перед сохранением в Redis:
+      // FAVORITE_MIN_EDGE   → / 100  (хранится как float, напр. -0.01)
+      // LIQUIDITY_FRACTION  → as-is  (хранится как float, напр. 0.05)
+      // MAX_PRICE_DRIFT     → as-is  (хранится как float, напр. 0.03)
+      // NO_MIN_PRICE        → as-is  (хранится как float, напр. 0.55)
+      // OUTSIDER_MAX_PRICE   → as-is  (хранится как float)
+      // Если меняешь формат хранения — обнови loadSettings() симметрично.
       const settingsToSave = {};
       if (settingsElements.favorMinTimeLeft) settingsToSave.FAVOR_MIN_TIME_LEFT_SEC = settingsElements.favorMinTimeLeft.value;
       if (settingsElements.favorMaxTimeLeft) settingsToSave.FAVOR_MAX_TIME_LEFT_SEC = settingsElements.favorMaxTimeLeft.value;
@@ -762,7 +762,7 @@
       if (settingsElements.stopLossPctFavorite) {
         const val = parseFloat(settingsElements.stopLossPctFavorite.value);
         if (isNaN(val) || val <= 0 || val >= 100) {
-          alert("РЎС‚РѕРї-Р»РѕСЃСЃ % (С„Р°РІРѕСЂРёС‚) РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РѕС‚ 1 РґРѕ 99");
+          alert("Стоп-лосс % (фаворит) должен быть от 1 до 99");
           return;
         }
         settingsToSave.STOP_LOSS_PCT_FAVORITE = val.toString();
@@ -770,7 +770,7 @@
       if (settingsElements.stopLossPctOutsider) {
         const val = parseFloat(settingsElements.stopLossPctOutsider.value);
         if (isNaN(val) || val <= 0 || val >= 100) {
-          alert("РЎС‚РѕРї-Р»РѕСЃСЃ % (Р°СѓС‚СЃР°Р№РґРµСЂ) РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РѕС‚ 1 РґРѕ 99");
+          alert("Стоп-лосс % (аутсайдер) должен быть от 1 до 99");
           return;
         }
         settingsToSave.STOP_LOSS_PCT_OUTSIDER = val.toString();
@@ -778,7 +778,7 @@
       if (settingsElements.stopLossCheckSec) {
         const val = parseInt(settingsElements.stopLossCheckSec.value);
         if (isNaN(val) || val < 10 || val > 300) {
-          alert("РРЅС‚РµСЂРІР°Р» РїСЂРѕРІРµСЂРєРё СЃС‚РѕРї-Р»РѕСЃСЃР° РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РѕС‚ 10 РґРѕ 300 СЃРµРєСѓРЅРґ");
+          alert("Интервал проверки стоп-лосса должен быть от 10 до 300 секунд");
           return;
         }
         settingsToSave.STOP_LOSS_CHECK_SEC = val.toString();
@@ -789,7 +789,7 @@
       if (settingsElements.takeProfitMultiplier) {
         const val = parseFloat(settingsElements.takeProfitMultiplier.value);
         if (isNaN(val) || val <= 1.0) {
-          alert("РњСѓР»СЊС‚РёРїР»РёРєР°С‚РѕСЂ С‚РµР№Рє-РїСЂРѕС„РёС‚Р° РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ 1.0");
+          alert("Мультипликатор тейк-профита должен быть больше 1.0");
           return;
         }
         settingsToSave.TAKE_PROFIT_MULTIPLIER = val.toString();
@@ -797,7 +797,7 @@
       if (settingsElements.takeProfitCheckIntervalSec) {
         const val = parseInt(settingsElements.takeProfitCheckIntervalSec.value);
         if (isNaN(val) || val < 10 || val > 300) {
-          alert("РРЅС‚РµСЂРІР°Р» РїСЂРѕРІРµСЂРєРё С‚РµР№Рє-РїСЂРѕС„РёС‚Р° РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РѕС‚ 10 РґРѕ 300 СЃРµРєСѓРЅРґ");
+          alert("Интервал проверки тейк-профита должен быть от 10 до 300 секунд");
           return;
         }
         settingsToSave.TAKE_PROFIT_CHECK_INTERVAL_SEC = val.toString();
@@ -829,7 +829,7 @@
       }
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
-      // РЎС‡РёС‚С‹РІР°РµРј РёРЅРґРёРІРёРґСѓР°Р»СЊРЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё РїРѕ Р°РєС‚РёРІР°Рј
+      // Считываем индивидуальные настройки по активам
       const perAssetNames = getPerAssetFields();
       perAssetNames.forEach((asset) => {
         
@@ -864,20 +864,20 @@
           body: JSON.stringify({ settings: settingsToSave }),
         });
         if (!res.ok) {
-          alert("РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ РЅР°СЃС‚СЂРѕР№РєРё (РѕС€РёР±РєР° СЃРµСЂРІРµСЂР°).");
+          alert("Не удалось сохранить настройки (ошибка сервера).");
           return;
         }
         const data = await res.json();
         if (data.errors && Object.keys(data.errors).length > 0) {
-          alert(`РЎРѕС…СЂР°РЅРµРЅРѕ С‡Р°СЃС‚РёС‡РЅРѕ. РћС€РёР±РєРё РІ СЃР»РµРґСѓСЋС‰РёС… РїРѕР»СЏС…:\n` + 
+          alert(`Сохранено частично. Ошибки в следующих полях:\n` + 
                 Object.entries(data.errors).map(([k, v]) => `- ${k}: ${v}`).join("\n"));
         } else {
-          alert("РќР°СЃС‚СЂРѕР№РєРё С‚РѕСЂРіРѕРІР»Рё СѓСЃРїРµС€РЅРѕ СЃРѕС…СЂР°РЅРµРЅС‹!");
+          alert("Настройки торговли успешно сохранены!");
         }
         await loadSettings();
         fetchStats(); // Update capital based on new initial_capital
       } catch (err) {
-        alert("РћС€РёР±РєР° РїСЂРё СЃРѕС…СЂР°РЅРµРЅРёРё РЅР°СЃС‚СЂРѕРµРє: " + err.message);
+        alert("Ошибка при сохранении настроек: " + err.message);
       }
     });
   }
@@ -912,7 +912,7 @@
 
       if (!data.items || data.items.length === 0) {
         tbody.innerHTML =
-          '<tr><td colspan="14" style="text-align:center; padding: 1rem;">РќРµС‚ СЃРѕР±С‹С‚РёР№</td></tr>';
+          '<tr><td colspan="14" style="text-align:center; padding: 1rem;">Нет событий</td></tr>';
         renderPagination(currentPage, totalPages, data.total || 0);
         return;
       }
@@ -929,13 +929,13 @@
         if (log.status === "FAILED") statusColor = "#ff3366";
         
         if (log.status === "SUCCESS" && log.stop_loss_status === "TRIGGERED") {
-            displayStatus = "Р—Р°РєСЂС‹С‚Рѕ РїРѕ СЃС‚РѕРї-Р»РѕСЃСЃСѓ";
+            displayStatus = "Закрыто по стоп-лоссу";
             statusColor = "#ffb020"; // Yellow/orange for stop-loss
         }
         
         if (log.status === "SUCCESS" && log.take_profit_status === "TRIGGERED") {
             const price = log.take_profit_sell_price ? ` @ $${parseFloat(log.take_profit_sell_price).toFixed(3)}` : "";
-            displayStatus = `Р—Р°РєСЂС‹С‚Рѕ РїРѕ С‚РµР№Рє-РїСЂРѕС„РёС‚Сѓ${price}`;
+            displayStatus = `Закрыто по тейк-профиту${price}`;
             statusColor = "#00ff88"; // Green for take-profit
         }
 
@@ -954,7 +954,7 @@
         
         let rawPhase = "";
         let phaseSuffix = "";
-        // phaseSuffix РІС‹С‡РёСЃР»СЏРµС‚СЃСЏ РґР»СЏ ml Рё combined (РѕР±Р° РёСЃРїРѕР»СЊР·СѓСЋС‚ phase-РјРѕРґРµР»Рё)
+        // phaseSuffix вычисляется для ml и combined (оба используют phase-модели)
         if (!isPureFav && !isCrypto && log.executed_price > 0) {
             const dev = Math.abs(log.executed_price - 0.5);
             if (dev < 0.10) { phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(contested)</span>"; rawPhase = "contested"; }
@@ -993,7 +993,7 @@
              
              const lrName = `v${log.model_version}${phaseSuffix}`;
              
-             if (consensus === "CONFLICT" || consensus === "BOTH_ABSTAIN") return `${lrName} + <span style="color:#00aaff;">${lgbmName}</span> <span style="color: #ffb020; font-size:0.85em;">(⚠️ conflict/abstain)</span>`;
+             if (consensus === "CONFLICT" || consensus === "BOTH_ABSTAIN") return `${lrName} + <span style="color:#00aaff;">${lgbmName}</span> <span style="color: #ffb020; font-size:0.85em;">(⚠ conflict/abstain)</span>`;
              
              return `${lrName} + <span style="color:#00aaff;">${lgbmName}</span>`;
           }
@@ -1026,20 +1026,20 @@
         if (isOutsider) {
           betTypeHtml = isLightGBM
             ? `<span class="bet-outsider" style="color: #ffb020; font-weight: 500;">
-                 РЎС‚Р°РІРєР° РЅР° Р°СѓС‚СЃР°Р№РґРµСЂР°
-                 <small style="font-size: 0.8em; color: #aaa;">(СЃРёРіРЅР°Р» ${lgbmName})</small>
+                 Ставка на аутсайдера
+                 <small style="font-size: 0.8em; color: #aaa;">(сигнал ${lgbmName})</small>
                </span>`
             : `<span class="bet-outsider" style="color: #ffb020; font-weight: 500;">
-                 РЎС‚Р°РІРєР° РЅР° Р°СѓС‚СЃР°Р№РґРµСЂР°
+                 Ставка на аутсайдера
                </span>`;
         } else {
           betTypeHtml = isLightGBM
             ? `<span class="bet-favorite" style="color: #00ff88; font-weight: 500;">
-                 РЎС‚Р°РІРєР° РЅР° С„Р°РІРѕСЂРёС‚Р°
-                 <small style="font-size: 0.8em; color: #aaa;">(СЃРёРіРЅР°Р» ${lgbmName})</small>
+                 Ставка на фаворита
+                 <small style="font-size: 0.8em; color: #aaa;">(сигнал ${lgbmName})</small>
                </span>`
             : `<span class="bet-favorite" style="color: #00ff88; font-weight: 500;">
-                 РЎС‚Р°РІРєР° РЅР° С„Р°РІРѕСЂРёС‚Р°
+                 Ставка на фаворита
                </span>`;
         }
 
@@ -1082,7 +1082,7 @@
             const s = diffSec % 60;
             timeLeftStr = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
         } else {
-            // Р¤РѕР»Р±СЌРє, РµСЃР»Рё РґР°РЅРЅС‹С… РѕР± end_time_est РЅРµС‚
+            // Фолбэк, если данных об end_time_est нет
             const minutes = (logDateObj.getUTCMinutes() % 15) + 1;
             timeLeftStr = `${String(minutes).padStart(2, '0')}:00 (offset)`;
         }
@@ -1112,7 +1112,7 @@
                             : "-"
                         }</td>
                         <td style="padding: 8px;">${reasonHtml}</td>
-                        <td style="padding: 8px; text-align: center;">${log.funnel_log ? `<span style="cursor: pointer; font-size: 1.2em;" title="Р”РµС‚Р°Р»Рё РёРЅС„РµСЂРµРЅСЃР°" onclick="showFunnelDiagnostic(${log.id})">рџ”Ќ</span>` : ""}</td>
+                        <td style="padding: 8px; text-align: center;">${log.funnel_log ? `<span style="cursor: pointer; font-size: 1.2em;" title="Детали инференса" onclick="showFunnelDiagnostic(${log.id})">🔍</span>` : ""}</td>
                     </tr>
                 `);
       });
@@ -1121,14 +1121,14 @@
 
       if (rows.length > 0) {
         const tr = tbody.firstElementChild;
-        // РС‰РµРј th РёРјРµРЅРЅРѕ РІ С‚РѕР№ Р¶Рµ С‚Р°Р±Р»РёС†Рµ, С‡С‚Рѕ Рё tbody (РІ РґР°РЅРЅРѕРј СЃР»СѓС‡Р°Рµ #trade-logs-table)
+        // Ищем th именно в той же таблице, что и tbody (в данном случае #trade-logs-table)
         const thCount = document.querySelectorAll(
           "#trade-logs-table th",
         ).length;
         const tdCount = tr ? tr.querySelectorAll("td").length : 0;
         console.assert(
           thCount === tdCount,
-          `РљРѕР»РѕРЅРєРё СЂР°СЃСЃРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°РЅС‹: ${thCount} th vs ${tdCount} td`,
+          `Колонки рассинхронизированы: ${thCount} th vs ${tdCount} td`,
         );
       }
       renderPagination(currentPage, totalPages, data.total || 0);
@@ -1143,7 +1143,7 @@
     const pageInfo = document.getElementById("page-info");
     
     if (pageInfo) {
-      pageInfo.textContent = `РЎС‚СЂ. ${page} РёР· ${pages || 1} (${total} Р·Р°РїРёСЃРµР№)`;
+      pageInfo.textContent = `Стр. ${page} из ${pages || 1} (${total} записей)`;
     }
     if (btnPrev) {
       btnPrev.disabled = page <= 1;
@@ -1160,7 +1160,7 @@
     btnRefreshLogs.addEventListener("click", loadLogs);
   }
 
-  // РћР±СЂР°Р±РѕС‚С‡РёРє РєР»РёРєР° РїРѕ СЃСЃС‹Р»РєРµ РЅР° Polymarket
+  // Обработчик клика по ссылке на Polymarket
   const logsTable = document.getElementById("trade-logs-table");
   if (logsTable) {
     logsTable.addEventListener("click", async (e) => {
@@ -1173,7 +1173,7 @@
       if (!marketId) return;
       
       const originalText = link.textContent;
-      link.textContent = "вЏі...";
+      link.textContent = "⏳...";
       link.style.pointerEvents = "none";
       
       try {
@@ -1294,7 +1294,7 @@
         if (result.status === "success" && elements.dailyPnlTable) {
           elements.dailyPnlTable.innerHTML = "";
           if (!result.data || result.data.length === 0) {
-            elements.dailyPnlTable.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding: 1rem;">РЎРґРµР»РѕРє Р·Р° РІС‹Р±СЂР°РЅРЅС‹Р№ РїРµСЂРёРѕРґ РЅРµ РЅР°Р№РґРµРЅРѕ</td></tr>`;
+            elements.dailyPnlTable.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding: 1rem;">Сделок за выбранный период не найдено</td></tr>`;
           } else {
             result.data.forEach(item => {
               const tr = document.createElement("tr");
@@ -1363,12 +1363,12 @@
       const titleEl = document.getElementById("pnl-analytics-title");
       if (titleEl) {
         const titles = {
-          "24h": "PnL Р·Р° 24 С‡Р°СЃР° (РїРѕ СЃС‚СЂР°С‚РµРіРёСЏРј)",
-          "7d": "PnL Р·Р° 7 РґРЅРµР№ (РїРѕ СЃС‚СЂР°С‚РµРіРёСЏРј)",
-          "30d": "PnL Р·Р° 30 РґРЅРµР№ (РїРѕ СЃС‚СЂР°С‚РµРіРёСЏРј)",
-          "all": "PnL Р·Р° РІСЃРµ РІСЂРµРјСЏ (РїРѕ СЃС‚СЂР°С‚РµРіРёСЏРј)"
+          "24h": "PnL за 24 часа (по стратегиям)",
+          "7d": "PnL за 7 дней (по стратегиям)",
+          "30d": "PnL за 30 дней (по стратегиям)",
+          "all": "PnL за все время (по стратегиям)"
         };
-        titleEl.textContent = titles[tf] || "PnL (РїРѕ СЃС‚СЂР°С‚РµРіРёСЏРј)";
+        titleEl.textContent = titles[tf] || "PnL (по стратегиям)";
       }
       fetchDailyPnL(tf);
     });
@@ -1377,7 +1377,7 @@
 });
 
 
-// --- РЈРїСЂР°РІР»РµРЅРёРµ РїСЂРµСЃРµС‚Р°РјРё (Config Presets) ---
+// --- Управление пресетами (Config Presets) ---
 
 async function loadPresetsListUI() {
   const container = document.getElementById("presets-container");
@@ -1390,29 +1390,29 @@ async function loadPresetsListUI() {
     const activePresetId = localStorage.getItem('active_preset_id');
 
     if (!presets || presets.length === 0) {
-      container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; margin:0;">РќРµС‚ СЃРѕС…СЂР°РЅРµРЅРЅС‹С… РїСЂРµСЃРµС‚РѕРІ</p>';
+      container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; margin:0;">Нет сохраненных пресетов</p>';
       return;
     }
 
     container.innerHTML = presets.map(p => `
       <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 16px; background: ${activePresetId == p.id ? 'rgba(40,167,69,0.1)' : 'rgba(255,255,255,0.03)'}; border:1px solid ${activePresetId == p.id ? '#28a745' : 'rgba(255,255,255,0.08)'}; border-radius:8px;">
         <div style="display:flex; align-items:center; gap:16px;">
-          <span style="font-size:1.2rem;">${p.preset_type === 'manual' ? 'рџ“Њ' : 'рџЏ†'}</span>
+          <span style="font-size:1.2rem;">${p.preset_type === 'manual' ? '📌' : '🏆'}</span>
           <div>
             <div style="font-weight:600; font-size:0.95rem; color:#fff; display:flex; align-items:center; gap:8px;">
               <span>${p.name}</span>
-              ${activePresetId == p.id ? '<span style="font-size:0.75rem; background:#28a745; color:white; padding:2px 8px; border-radius:12px; font-weight:600;">РђРєС‚РёРІРµРЅ</span>' : ''}
-              <span style="font-size:0.75rem; padding:2px 8px; border-radius:12px; background:rgba(255,255,255,0.1); color:#cbd5e1; font-weight:500;">${p.param_count} РїР°СЂР°РјРµС‚СЂРѕРІ</span>
+              ${activePresetId == p.id ? '<span style="font-size:0.75rem; background:#28a745; color:white; padding:2px 8px; border-radius:12px; font-weight:600;">Активен</span>' : ''}
+              <span style="font-size:0.75rem; padding:2px 8px; border-radius:12px; background:rgba(255,255,255,0.1); color:#cbd5e1; font-weight:500;">${p.param_count} параметров</span>
             </div>
             <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
-              РЎРѕС…СЂР°РЅС‘РЅ: ${new Date(p.created_at).toLocaleString()} ${p.capital_at_save ? `В· РљР°РїРёС‚Р°Р»: $${p.capital_at_save.toFixed(2)}` : ''} ${p.pnl_at_save ? `В· PnL: $${p.pnl_at_save.toFixed(2)}` : ''}
+              Сохранён: ${new Date(p.created_at).toLocaleString()} ${p.capital_at_save ? `· Капитал: $${p.capital_at_save.toFixed(2)}` : ''} ${p.pnl_at_save ? `· PnL: $${p.pnl_at_save.toFixed(2)}` : ''}
             </div>
           </div>
         </div>
         <div style="display:flex; gap:8px;">
           <button type="button" onclick="showPresetDiffUI(${p.id})" style="padding:6px 12px; font-size:0.82rem; border-radius:6px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#fff; cursor:pointer; font-weight:500;">Diff</button>
-          <button type="button" onclick="restorePresetUI(${p.id}, '${p.name}')" style="padding:6px 14px; font-size:0.82rem; border-radius:6px; background:#4f46e5; border:none; color:#fff; cursor:pointer; font-weight:600;">РџСЂРёРјРµРЅРёС‚СЊ</button>
-          <button type="button" onclick="deletePresetUI(${p.id})" style="padding:6px 10px; font-size:0.82rem; border-radius:6px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ef4444; cursor:pointer;">вњ•</button>
+          <button type="button" onclick="restorePresetUI(${p.id}, '${p.name}')" style="padding:6px 14px; font-size:0.82rem; border-radius:6px; background:#4f46e5; border:none; color:#fff; cursor:pointer; font-weight:600;">Применить</button>
+          <button type="button" onclick="deletePresetUI(${p.id})" style="padding:6px 10px; font-size:0.82rem; border-radius:6px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ef4444; cursor:pointer;">✕</button>
         </div>
       </div>
     `).join("");
@@ -1425,7 +1425,7 @@ async function savePresetFromUI() {
   const nameInput = document.getElementById("preset-name-input");
   const name = nameInput ? nameInput.value.trim() : "";
   if (!name) {
-    alert("Р’РІРµРґРёС‚Рµ РёРјСЏ РїСЂРµСЃРµС‚Р°!");
+    alert("Введите имя пресета!");
     return;
   }
 
@@ -1437,19 +1437,19 @@ async function savePresetFromUI() {
     });
     if (!res.ok) {
       const err = await res.json();
-      alert(`РћС€РёР±РєР° СЃРѕС…СЂР°РЅРµРЅРёСЏ: ${err.detail || 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ'}`);
+      alert(`Ошибка сохранения: ${err.detail || 'Не удалось сохранить'}`);
       return;
     }
     const data = await res.json();
     if (nameInput) nameInput.value = "";
     loadPresetsListUI();
   } catch (err) {
-    alert(`РћС€РёР±РєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ: ${err.message}`);
+    alert(`Ошибка подключения: ${err.message}`);
   }
 }
 
 async function restorePresetUI(presetId, presetName) {
-  if (!confirm(`Р’С‹ РґРµР№СЃС‚РІРёС‚РµР»СЊРЅРѕ С…РѕС‚РёС‚Рµ РїСЂРёРјРµРЅРёС‚СЊ РїСЂРµСЃРµС‚ "${presetName}"?\nРўРµРєСѓС‰РёРµ РЅР°СЃС‚СЂР°РёРІР°РµРјС‹Рµ РїР°СЂР°РјРµС‚СЂС‹ С‚РѕСЂРіРѕРІР»Рё Р±СѓРґСѓС‚ Р·Р°РјРµРЅРµРЅС‹.`)) {
+  if (!confirm(`Вы действительно хотите применить пресет "${presetName}"?\nТекущие настраиваемые параметры торговли будут заменены.`)) {
     return;
   }
 
@@ -1459,23 +1459,23 @@ async function restorePresetUI(presetId, presetName) {
     });
     if (!res.ok) {
       const err = await res.json();
-      alert(`РћС€РёР±РєР° РїСЂРёРјРµРЅРµРЅРёСЏ: ${err.detail || 'РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРёРјРµРЅРёС‚СЊ'}`);
+      alert(`Ошибка применения: ${err.detail || 'Не удалось применить'}`);
       return;
     }
     const data = await res.json();
-    let msg = `вњ… РџСЂРµСЃРµС‚ "${presetName}" СѓСЃРїРµС€РЅРѕ РїСЂРёРјРµРЅРµРЅ!\n`;
+    let msg = `✅ Пресет "${presetName}" успешно применен!\n`;
     if (data.updated_params && Object.keys(data.updated_params).length > 0) {
       const paramLines = Object.entries(data.updated_params)
-        .map(([k, v]) => `вЂў ${k}: ${v}`)
+        .map(([k, v]) => `• ${k}: ${v}`)
         .join("\n");
-      msg += `\nРР·РјРµРЅС‘РЅРЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹ (${data.changed_keys}):\n${paramLines}`;
+      msg += `\nИзменённые параметры (${data.changed_keys}):\n${paramLines}`;
     } else {
-      msg += `\nРћР±РЅРѕРІР»РµРЅРѕ РїР°СЂР°РјРµС‚СЂРѕРІ: ${data.changed_keys || 0}`;
+      msg += `\nОбновлено параметров: ${data.changed_keys || 0}`;
     }
     alert(msg);
     window.location.reload();
   } catch (err) {
-    alert(`РћС€РёР±РєР° РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ: ${err.message}`);
+    alert(`Ошибка восстановления: ${err.message}`);
   }
 }
 
@@ -1486,19 +1486,19 @@ async function showPresetDiffUI(presetId) {
     const data = await res.json();
 
     if (data.diff_count === 0) {
-      alert("РџСЂРµСЃРµС‚ РїРѕР»РЅРѕСЃС‚СЊСЋ СЃРѕРІРїР°РґР°РµС‚ СЃ С‚РµРєСѓС‰РёРјРё РЅР°СЃС‚СЂРѕР№РєР°РјРё!");
+      alert("Пресет полностью совпадает с текущими настройками!");
       return;
     }
 
-    const lines = Object.entries(data.diff).map(([k, v]) => `${k}:\n  Р’ РїСЂРµСЃРµС‚Рµ: ${v.preset}\n  РЎРµР№С‡Р°СЃ:    ${v.current}`).join("\n\n");
-    alert(`Р Р°Р·Р»РёС‡РёР№: ${data.diff_count}\n\n${lines}`);
+    const lines = Object.entries(data.diff).map(([k, v]) => `${k}:\n  В пресете: ${v.preset}\n  Сейчас:    ${v.current}`).join("\n\n");
+    alert(`Различий: ${data.diff_count}\n\n${lines}`);
   } catch (err) {
-    alert(`РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё diff: ${err.message}`);
+    alert(`Ошибка загрузки diff: ${err.message}`);
   }
 }
 
 async function deletePresetUI(presetId) {
-  if (!confirm("РЈРґР°Р»РёС‚СЊ СЌС‚РѕС‚ РїСЂРµСЃРµС‚?")) return;
+  if (!confirm("Удалить этот пресет?")) return;
   try {
     await fetch(`${window.API_BASE}/api/presets/${presetId}`, { method: "DELETE" });
     loadPresetsListUI();
@@ -1515,37 +1515,37 @@ window.showFunnelDiagnostic = function(logId) {
     const funnel = window.funnelLogs && window.funnelLogs[logId];
     if (!funnel) return;
 
-    const fmt = (v) => (v !== null && v !== undefined) ? Number(v).toFixed(4) : "вЂ”";
+    const fmt = (v) => (v !== null && v !== undefined) ? Number(v).toFixed(4) : "—";
 
     const entryStatusMap = {
-        "FAVORITE_DISABLED": "РџСЂРѕРїСѓС‰РµРЅ: Р’С…РѕРґ РїРѕ С‚СЂРµРЅРґСѓ РІС‹РєР».",
-        "OUTSIDER_DISABLED": "РџСЂРѕРїСѓС‰РµРЅ: РўРѕСЂРіРѕРІР»СЏ РЅР° РѕС‚СЃРєРѕРє РІС‹РєР».",
-        "INVALID_TIME": "Р’СЂРµРјСЏ РІРЅРµ РґРёР°РїР°Р·РѕРЅР°",
-        "PRICE_OUT_OF_BOUNDS": "Р¦РµРЅР° РІРЅРµ РґРёР°РїР°Р·РѕРЅР°",
-        "INSUFFICIENT_NET_EDGE": "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅС‹Р№ Edge"
+        "FAVORITE_DISABLED": "Пропущен: Вход по тренду выкл.",
+        "OUTSIDER_DISABLED": "Пропущен: Торговля на отскок выкл.",
+        "INVALID_TIME": "Время вне диапазона",
+        "PRICE_OUT_OF_BOUNDS": "Цена вне диапазона",
+        "INSUFFICIENT_NET_EDGE": "Недостаточный Edge"
     };
-    const mappedEntryStatus = entryStatusMap[funnel.entry_status] || funnel.entry_status || "вЂ”";
+    const mappedEntryStatus = entryStatusMap[funnel.entry_status] || funnel.entry_status || "—";
 
     const gateLabels = {
-        g1_model_loaded:   `G1: РњРѕРґРµР»Рё (LGBM + LogReg)`,
-        g2_price_fetched:  `G2: API РєРѕС‚РёСЂРѕРІРєРё (С†РµРЅР°: ${fmt(funnel.fresh_price)})`,
-        g3_dead_zone:      `G3: РЎРёРіРЅР°Р» (СЃС‚Р°С‚СѓСЃ: ${funnel.direction_status || "вЂ”"})`,
-        g4_no_flip:        `G4: РљРѕРЅСЃРµРЅСЃСѓСЃ (p_flip: ${fmt(funnel.p_flip)}${funnel.threshold_lower ? ` РІРЅРµ [${funnel.threshold_lower} - ${funnel.threshold_upper}]` : ""})`,
-        g5_min_edge:       `G5: Р’РµСЂРѕСЏС‚РЅРѕСЃС‚СЊ РїРѕР±РµРґС‹ (p_win: ${fmt(funnel.p_candidate_win)})`,
-        g6_price_range:    `G6: Р¦РµРЅР° РїРѕРєСѓРїРєРё (ask: ${fmt(funnel.candidate_ask)} РІ СЂР°РјРєР°С… Р»РёРјРёС‚РѕРІ)`,
-        g7_crypto_confirm: `G7: Net Edge (${fmt(funnel.net_edge)} в‰Ґ ${fmt(funnel.min_edge_used)})`,
-        g8_combined_vote:  `G8: РС‚РѕРіРѕРІС‹Р№ РѕСЂРґРµСЂ`,
+        g1_model_loaded:   `G1: Модели (LGBM + LogReg)`,
+        g2_price_fetched:  `G2: API котировки (цена: ${fmt(funnel.fresh_price)})`,
+        g3_dead_zone:      `G3: Сигнал (статус: ${funnel.direction_status || "—"})`,
+        g4_no_flip:        `G4: Консенсус (p_flip: ${fmt(funnel.p_flip)}${funnel.threshold_lower ? ` вне [${funnel.threshold_lower} - ${funnel.threshold_upper}]` : ""})`,
+        g5_min_edge:       `G5: Вероятность победы (p_win: ${fmt(funnel.p_candidate_win)})`,
+        g6_price_range:    `G6: Цена покупки (ask: ${fmt(funnel.candidate_ask)} в рамках лимитов)`,
+        g7_crypto_confirm: `G7: Net Edge (${fmt(funnel.net_edge)} ≥ ${fmt(funnel.min_edge_used)})`,
+        g8_combined_vote:  `G8: Итоговый ордер`,
     };
 
     const gates = funnel.gates || {};
     const gatesHtml = Object.entries(gateLabels).map(([key, label]) => {
         const val = gates[key];
-        let color = "#8F9BB3"; let icon = "вљЄ";
+        let color = "#8F9BB3"; let icon = "⚪";
         let extra = "";
-        if (val === true)  { color = "#00ff88"; icon = "вњ…"; }
+        if (val === true)  { color = "#00ff88"; icon = "✅"; }
         if (val === false) { 
-            color = "#ff3366"; icon = "вќЊ"; 
-            extra = funnel.reason ? `<br><span style="color:#ff3366;font-size:0.8em; margin-left:24px;">вћ” ${funnel.reason}</span>` : "";
+            color = "#ff3366"; icon = "❌"; 
+            extra = funnel.reason ? `<br><span style="color:#ff3366;font-size:0.8em; margin-left:24px;">➔ ${funnel.reason}</span>` : "";
         }
         return `<li style="color:${color}; padding: 6px 0;">${icon} ${label}${extra}</li>`;
     }).join("");
@@ -1554,24 +1554,24 @@ window.showFunnelDiagnostic = function(logId) {
     <div style="font-family: monospace; display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:65vh;">
         <div>
             <div style="font-weight:600; color:#fff; margin-bottom:4px;">Direction Model</div>
-            <div>Key: <span style="color:#e2e8f0;">${funnel.direction_model_key || "вЂ”"}</span></div>
-            <div>Status: <span style="color:${funnel.direction_status === 'READY' ? '#00ff88' : '#ff3366'};">${funnel.direction_status || "вЂ”"}</span></div>
-            <div>p_up: <b>${fmt(funnel.direction_p_up)}</b> (РїРѕСЂРѕРі в‰Ґ ${funnel.direction_threshold_up ?? "вЂ”"})&nbsp;&nbsp;
-                 p_down: <b>${fmt(funnel.direction_p_down)}</b> (РїРѕСЂРѕРі в‰Ґ ${funnel.direction_threshold_down ?? "вЂ”"})</div>
+            <div>Key: <span style="color:#e2e8f0;">${funnel.direction_model_key || "—"}</span></div>
+            <div>Status: <span style="color:${funnel.direction_status === 'READY' ? '#00ff88' : '#ff3366'};">${funnel.direction_status || "—"}</span></div>
+            <div>p_up: <b>${fmt(funnel.direction_p_up)}</b> (порог ≥ ${funnel.direction_threshold_up ?? "—"})&nbsp;&nbsp;
+                 p_down: <b>${fmt(funnel.direction_p_down)}</b> (порог ≥ ${funnel.direction_threshold_down ?? "—"})</div>
             <div>direction_probability: <b>${fmt(funnel.direction_probability)}</b></div>
         </div>
         <hr style="border-color:rgba(255,255,255,0.1); margin:0;">
         <div>
             <div style="font-weight:600; color:#fff; margin-bottom:4px;">Entry Model</div>
-            <div>Key: <span style="color:#e2e8f0;">${funnel.entry_model_key || "вЂ”"}</span></div>
+            <div>Key: <span style="color:#e2e8f0;">${funnel.entry_model_key || "—"}</span></div>
             <div>Status: <span style="color:${funnel.entry_status === 'READY' ? '#00ff88' : '#ff3366'};">${mappedEntryStatus}</span></div>
             <div>p_flip: <b>${fmt(funnel.p_flip)}</b>&nbsp;&nbsp;
-                 edge: <b>${fmt(funnel.edge)}</b>&nbsp;(min_edge=${funnel.min_edge_used ?? "вЂ”"})</div>
-            <div>threshold_lower: ${funnel.threshold_lower ?? "вЂ”"}&nbsp; threshold_upper: ${funnel.threshold_upper ?? "вЂ”"}</div>
+                 edge: <b>${fmt(funnel.edge)}</b>&nbsp;(min_edge=${funnel.min_edge_used ?? "—"})</div>
+            <div>threshold_lower: ${funnel.threshold_lower ?? "—"}&nbsp; threshold_upper: ${funnel.threshold_upper ?? "—"}</div>
         </div>
         <hr style="border-color:rgba(255,255,255,0.1); margin:0;">
         <div>
-            <div style="font-weight:600; color:#fff; margin-bottom:6px;">Р“РµР№С‚С‹ СЂРµС€РµРЅРёСЏ</div>
+            <div style="font-weight:600; color:#fff; margin-bottom:6px;">Гейты решения</div>
             <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; font-size:0.85rem;">
                 ${gatesHtml}
             </ul>
@@ -1582,4 +1582,3 @@ window.showFunnelDiagnostic = function(logId) {
     document.getElementById("funnel-diagnostic-content").innerHTML = html;
     document.getElementById("funnel-diagnostic-modal").style.display = "flex";
 };
-
