@@ -961,11 +961,19 @@ document.addEventListener("DOMContentLoaded", () => {
             else if (dev < 0.25) { phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(leaning)</span>"; rawPhase = "leaning"; }
             else { phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(decided)</span>"; rawPhase = "decided"; }
         }
+        let lgbmName = "LightGBM";
+        if (log.funnel_data && log.funnel_data.direction_model_key) {
+            lgbmName = log.funnel_data.direction_model_key;
+            if (log.funnel_data.direction_model_version) {
+                lgbmName += ` v${log.funnel_data.direction_model_version}`;
+            }
+        }
+
         const modelStr = (() => {
           if (!log.model_version) {
             return isPureFav ? "PureFav" : (log.status === "SUCCESS" ? "legacy" : "-");
           }
-          if (isCrypto) return `LightGBM v${log.model_version}`;
+          if (isCrypto) return lgbmName;
           if (isCombined) {
              const errMsg = log.error_msg || "";
              if (errMsg.includes("MODEL_NOT_LOADED")) {
@@ -973,7 +981,19 @@ document.addEventListener("DOMContentLoaded", () => {
              } else if (errMsg.includes("REGIME_UNAVAILABLE")) {
                  return `Entry: ${log.asset}${rawPhase ? '_' + rawPhase : ''} v${log.model_version}, Direction: REGIME_UNAVAILABLE`;
              }
-             return `v${log.model_version}${phaseSuffix} + LightGBM`;
+             
+             let consensus = null;
+             if (log.funnel_data) {
+                 consensus = log.funnel_data.consensus_type;
+             }
+             
+             const lrName = `v${log.model_version}${phaseSuffix}`;
+             
+             if (consensus === "PARTIAL_LR") return lrName;
+             if (consensus === "PARTIAL_LGBM") return lgbmName;
+             if (consensus === "CONFLICT" || consensus === "BOTH_ABSTAIN") return `${lrName} + ${lgbmName} (conflict/abstain)`;
+             
+             return `${lrName} + ${lgbmName}`;
           }
           return `v${log.model_version}${phaseSuffix}`;
         })();
@@ -1005,7 +1025,7 @@ document.addEventListener("DOMContentLoaded", () => {
           betTypeHtml = isLightGBM
             ? `<span class="bet-outsider" style="color: #ffb020; font-weight: 500;">
                  Ставка на аутсайдера
-                 <small style="font-size: 0.8em; color: #aaa;">(сигнал LightGBM)</small>
+                 <small style="font-size: 0.8em; color: #aaa;">(сигнал ${lgbmName})</small>
                </span>`
             : `<span class="bet-outsider" style="color: #ffb020; font-weight: 500;">
                  Ставка на аутсайдера
@@ -1014,7 +1034,7 @@ document.addEventListener("DOMContentLoaded", () => {
           betTypeHtml = isLightGBM
             ? `<span class="bet-favorite" style="color: #00ff88; font-weight: 500;">
                  Ставка на фаворита
-                 <small style="font-size: 0.8em; color: #aaa;">(сигнал LightGBM)</small>
+                 <small style="font-size: 0.8em; color: #aaa;">(сигнал ${lgbmName})</small>
                </span>`
             : `<span class="bet-favorite" style="color: #00ff88; font-weight: 500;">
                  Ставка на фаворита
