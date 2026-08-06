@@ -19,7 +19,7 @@ COMBINED-режим принятия решений:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Optional, Any, TYPE_CHECKING, cast
 import structlog
 
@@ -182,9 +182,12 @@ def evaluate_combined_entry(*args, **kwargs) -> CombinedEntryResult:
     crypto_sig = args[0] if args else kwargs.get("crypto_sig")
     result = _evaluate_combined_entry_inner(*args, **kwargs)
     if crypto_sig:
-        result.lgbm_inverted = getattr(crypto_sig, "inverted", False)
-        result.lgbm_p_up_raw = getattr(crypto_sig, "p_up_raw", 0.0)
-        result.lgbm_p_down_raw = getattr(crypto_sig, "p_down_raw", 0.0)
+        result = replace(
+            result,
+            lgbm_inverted=getattr(crypto_sig, "inverted", False),
+            lgbm_p_up_raw=getattr(crypto_sig, "p_up_raw", 0.0),
+            lgbm_p_down_raw=getattr(crypto_sig, "p_down_raw", 0.0)
+        )
     return result
 
 
