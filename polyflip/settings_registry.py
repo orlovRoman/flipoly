@@ -34,7 +34,7 @@ class SettingDef:
 REGISTRY: list[SettingDef] = [
     # --- Мёртвая зона ---
     SettingDef("DEAD_ZONE_WIDTH", "0.10",
-               description="Ширина мёртвой зоны вокруг flip-порога (единый параметр)"),
+               description="Ширина мёртвой зоны вокруг flip-порога. Чем больше значение, тем МЕНЬШЕ сделок."),
 
     # --- Финансы / потери ---
     SettingDef("DAILY_LOSS_LIMIT_USDC", "-100.0",
@@ -102,7 +102,7 @@ REGISTRY: list[SettingDef] = [
 
     # --- Edge ---
     SettingDef("OUTS_MIN_EDGE", "0.04",
-               description="Мин. edge для ставок против толпы (в долях)"),
+               description="Мин. edge для ставок против толпы (в долях). Чем больше значение, тем строже фильтр и МЕНЬШЕ сделок."),
     SettingDef("MAX_BET_EDGE", "0.40",
                description="Edge при котором достигается макс. размер ставки при scaled-режиме"),
 
@@ -124,34 +124,34 @@ REGISTRY: list[SettingDef] = [
     SettingDef("TRADE_ON_FLIP", "false",
                description="Торговать на флип (стратегия аутсайдера)"),
     SettingDef("FLIP_THRESHOLD", "0.60",
-               description="Порог p_flip для входа в аутсайдера"),
+               description="Порог p_flip для входа в аутсайдера. Чем больше значение, тем МЕНЬШЕ сделок."),
     SettingDef("OUTSIDER_PWIN_DISCOUNT", "0.65",
-               description="Хранится как коэффициент 0.0-1.0; в UI отображается как проценты (0-100). Дисконт вероятности выигрыша аутсайдера."),
+               description="Множитель вероятности выигрыша аутсайдера (в UI %). Чем больше значение (ближе к 100%), тем слабее штраф и БОЛЬШЕ сделок."),
     SettingDef("MAX_SPREAD_PCT", "0.08",
-               description="Макс. спред как доля от mid_price. Шире — сделка не создаётся"),
+               description="Макс. спред как доля от mid_price. Чем больше значение, тем БОЛЬШЕ сделок (допускается широкий спред)."),
     SettingDef("TRADE_FLIP_THRESHOLD", "0.85",
                description="Глобальный порог ПРОТИВ ТОЛПЫ (если нет индивидуального)"),
 
     SettingDef("COMBINED_COST_BUFFER", "0.020",
-               description="Буфер транзакционных издержек в Combined-режиме (в USD). Вычитается из gross_edge при расчёте net_edge."),
+               description="Буфер транзакционных издержек в Combined-режиме (в USD). Вычитается из gross_edge. Чем больше значение, тем МЕНЬШЕ сделок."),
 
     SettingDef("MAX_PRICE_DRIFT", "0.10",
-               description="Макс. дрейф цены от момента сигнала до исполнения"),
+               description="Макс. дрейф цены от момента сигнала до исполнения. Чем больше значение, тем БОЛЬШЕ сделок."),
 
     SettingDef("MIN_DIRECTION_PROB", "0.505",
-               description="Мин. уверенность LGBM в направлении (UP/DOWN) для входа в Combined (пол как fallback)"),
+               description="Мин. уверенность LGBM в направлении (UP/DOWN). Чем больше значение, тем МЕНЬШЕ сделок."),
     SettingDef("MIN_WIN_PROB", "0.51",
-               description="Мин. вероятность победы кандидата (LGBM + LogReg) для входа"),
+               description="Мин. вероятность победы кандидата (LGBM + LogReg) для входа. Чем больше значение, тем МЕНЬШЕ сделок."),
     SettingDef("COMBINED_DIR_DISCOUNT_WEIGHT", "0.0",
-               description="Вес дисконта к p_candidate_win за неуверенность LightGBM (0.0 = выкл, 0.3 = до -30% при dir_prob=min_dir_prob)"),
+               description="Вес дисконта к p_candidate_win за неуверенность LightGBM. Чем больше значение, тем сильнее штраф и МЕНЬШЕ сделок."),
     SettingDef("COMBINED_DIR_STRONG_THRESHOLD", "0.65",
-               description="Порог dir_prob, выше которого сигнал LightGBM считается сильным и дисконт равен 0 (0.50-1.0)"),
+               description="Порог dir_prob, выше которого дисконт равен 0. Чем больше значение, тем сложнее снять штраф и МЕНЬШЕ сделок."),
     SettingDef("COMBINED_REQUIRE_CONSENSUS", "true",
                description="Обе модели (LightGBM и LogReg) должны проголосовать за одно направление. Иначе - SKIP."),
     SettingDef("COMBINED_FALLBACK_TO_LOGREG_ON_NONE", "true",
                description="Если LightGBM выдает NONE, то используется голос LogReg. Если false, то NONE ведет к SKIP."),
     SettingDef("COMBINED_LOGREG_ABSTAIN_BAND", "0.05",
-               description="Ширина коридора нерешительности LogReg вокруг 0.50 (|p_flip - 0.50| < band -> ABSTAIN)"),
+               description="Ширина коридора нерешительности LogReg вокруг 0.50. Чем больше значение, тем чаще LogReg воздерживается (МЕНЬШЕ сделок)."),
     SettingDef(
         key="INVERT_LGBM_SIGNAL",
         default="false",
