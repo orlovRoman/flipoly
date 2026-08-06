@@ -355,6 +355,7 @@ async def get_trade_logs(
         if funnel:
             item["funnel_log"] = {
                 "direction_model_key": funnel.direction_model_key,
+                "direction_model_version": funnel.direction_model_version,
                 "direction_status": funnel.direction_status,
                 "direction_p_up": funnel.direction_p_up,
                 "direction_p_down": funnel.direction_p_down,
@@ -362,6 +363,7 @@ async def get_trade_logs(
                 "direction_threshold_up": funnel.direction_threshold_up,
                 "direction_threshold_down": funnel.direction_threshold_down,
                 "entry_model_key": funnel.entry_model_key,
+                "entry_model_version": funnel.entry_model_version,
                 "entry_status": funnel.entry_status,
                 "p_flip": funnel.p_flip,
                 "edge": funnel.edge,
@@ -379,6 +381,8 @@ async def get_trade_logs(
                     "g8_combined_vote": funnel.g8_combined_vote,
                 },
                 "fallback_reason": funnel.fallback_reason,
+                "reason": funnel.skip_reason,
+                "consensus_type": funnel.consensus_type,
             }
             
         items.append(item)
