@@ -1,9 +1,12 @@
 import psycopg2
 import pandas as pd
 from datetime import datetime, timedelta
+import os
+import csv
 
 def main():
-    conn = psycopg2.connect("postgresql://polyflip:secret@db:5432/polyflip")
+    db_url = os.environ.get("DATABASE_URL", "postgresql://polyflip:secret@db:5432/polyflip")
+    conn = psycopg2.connect(db_url)
     
     query = """
     WITH market_outcomes AS (

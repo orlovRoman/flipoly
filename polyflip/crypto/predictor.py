@@ -364,6 +364,9 @@ class CryptoPredictor:
                        контртрендовых позиций при экстремальных ставках.
                        НЕ используется в построении признаков ML (см. feature_builder.py).
         """
+        p_up_raw: float = 0.0
+        p_down_raw: float = 0.0
+
         if symbol not in self._loaded_symbols:
             return CryptoSignal(
                 symbol=symbol, p_up=0.5, p_down=0.5, direction="NONE",
