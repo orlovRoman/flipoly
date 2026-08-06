@@ -505,6 +505,14 @@
                                 </div>
                             </div>
 
+                            <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 1.25rem; background: rgba(244, 63, 94, 0.08); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(244, 63, 94, 0.2);">
+                                <input type="checkbox" id="INVERT_LGBM_SIGNAL" style="width: 1.2rem; height: 1.2rem; accent-color: #f43f5e; cursor: pointer; margin-top: 2px;">
+                                <div>
+                                    <label for="INVERT_LGBM_SIGNAL" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important;">Инвертировать сигнал LightGBM (INVERT_LGBM_SIGNAL)</label>
+                                    <small style="color: var(--text-muted); display: block; margin-top: 2px;">Если включено, предсказания LightGBM для UP и DOWN меняются местами. Полезно, если модель торгует в противофазе.</small>
+                                </div>
+                            </div>
+
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
                                 <div class="form-group">
                                     <label for="MIN_DIRECTION_PROB" title="Минимальная уверенность LGBM в направлении (UP/DOWN) для входа в Combined. Это абсолютный пол, двойная фильтрация отключена.">

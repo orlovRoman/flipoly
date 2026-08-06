@@ -152,6 +152,13 @@ REGISTRY: list[SettingDef] = [
                description="Если LightGBM выдает NONE, то используется голос LogReg. Если false, то NONE ведет к SKIP."),
     SettingDef("COMBINED_LOGREG_ABSTAIN_BAND", "0.05",
                description="Ширина коридора нерешительности LogReg вокруг 0.50 (|p_flip - 0.50| < band -> ABSTAIN)"),
+    SettingDef(
+        key="INVERT_LGBM_SIGNAL",
+        default="false",
+        description="Инвертировать сигнал LightGBM: если true, p_up↔p_down меняются местами. "
+                    "Используется, когда LGBM является контриндикатором (WinRate < 40%).",
+        value_type="bool",
+    ),
 
     # --- Обучение LogReg / Phase models ---
     SettingDef("MIN_SAMPLES_FOR_PHASE_MODEL", "150",
@@ -274,6 +281,7 @@ def editable_keys() -> set[str]:
     return {s.key for s in REGISTRY if s.editable}
 
 REQUIRED_SETTINGS_KEYS = frozenset([
+    "INVERT_LGBM_SIGNAL",
     "FAVOR_MIN_TIME_LEFT_SEC",
     "FAVOR_MAX_TIME_LEFT_SEC",
     "OUTS_MIN_TIME_LEFT_SEC",

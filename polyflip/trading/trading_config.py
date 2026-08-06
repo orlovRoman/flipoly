@@ -61,6 +61,7 @@ class TradingConfig:
     combined_require_consensus: bool = True
     combined_fallback_to_logreg_on_none: bool = True
     combined_logreg_abstain_band: float = 0.05
+    invert_lgbm_signal: bool = False
     max_bet_edge: float = 0.40
     outsider_pwin_discount: float = 0.65
     max_spread_pct: float = 0.08
@@ -154,6 +155,7 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         combined_require_consensus=_parse_bool(raw.get("COMBINED_REQUIRE_CONSENSUS"), getattr(settings, "COMBINED_REQUIRE_CONSENSUS", True)),
         combined_fallback_to_logreg_on_none=_parse_bool(raw.get("COMBINED_FALLBACK_TO_LOGREG_ON_NONE"), getattr(settings, "COMBINED_FALLBACK_TO_LOGREG_ON_NONE", True)),
         combined_logreg_abstain_band=parse_float_setting(raw, "COMBINED_LOGREG_ABSTAIN_BAND", 0.05),
+        invert_lgbm_signal=_parse_bool(raw.get("INVERT_LGBM_SIGNAL"), False),
         max_bet_edge=parse_float_setting(raw, "MAX_BET_EDGE", getattr(settings, "MAX_BET_EDGE", 0.40)),
         outsider_pwin_discount=parse_float_setting(raw, "OUTSIDER_PWIN_DISCOUNT", getattr(settings, "OUTSIDER_PWIN_DISCOUNT", 0.65)),
         max_spread_pct=parse_float_setting(raw, "MAX_SPREAD_PCT", getattr(settings, "MAX_SPREAD_PCT", 0.08)),

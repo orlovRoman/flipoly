@@ -326,6 +326,7 @@ document.addEventListener("DOMContentLoaded", () => {
     combinedDirStrongThreshold: document.getElementById("COMBINED_DIR_STRONG_THRESHOLD"),
     combinedRequireConsensus: document.getElementById("COMBINED_REQUIRE_CONSENSUS"),
     combinedFallbackToLogregOnNone: document.getElementById("COMBINED_FALLBACK_TO_LOGREG_ON_NONE"),
+    invertLgbmSignal: document.getElementById("INVERT_LGBM_SIGNAL"),
     combinedLogregAbstainBand: document.getElementById("COMBINED_LOGREG_ABSTAIN_BAND"),
     combinedCostBuffer: document.getElementById("COMBINED_COST_BUFFER"),
     stopLossEnabled: document.getElementById("STOP_LOSS_ENABLED"),
@@ -670,6 +671,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.combinedFallbackToLogregOnNone && data.COMBINED_FALLBACK_TO_LOGREG_ON_NONE !== undefined) {
         settingsElements.combinedFallbackToLogregOnNone.checked = data.COMBINED_FALLBACK_TO_LOGREG_ON_NONE === "true";
       }
+      if (settingsElements.invertLgbmSignal && data.INVERT_LGBM_SIGNAL !== undefined) {
+        settingsElements.invertLgbmSignal.checked = data.INVERT_LGBM_SIGNAL === "true";
+      }
       if (settingsElements.combinedLogregAbstainBand && data.COMBINED_LOGREG_ABSTAIN_BAND !== undefined) {
         const raw = parseFloat(data.COMBINED_LOGREG_ABSTAIN_BAND);
         settingsElements.combinedLogregAbstainBand.value = isNaN(raw) ? "5.0" : (raw * 100).toFixed(1);
@@ -748,6 +752,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.combinedDirStrongThreshold) settingsToSave.COMBINED_DIR_STRONG_THRESHOLD = parseFormattedFloat(settingsElements.combinedDirStrongThreshold.value) / 100;
       if (settingsElements.combinedRequireConsensus) settingsToSave.COMBINED_REQUIRE_CONSENSUS = settingsElements.combinedRequireConsensus.checked ? "true" : "false";
       if (settingsElements.combinedFallbackToLogregOnNone) settingsToSave.COMBINED_FALLBACK_TO_LOGREG_ON_NONE = settingsElements.combinedFallbackToLogregOnNone.checked ? "true" : "false";
+      if (settingsElements.invertLgbmSignal) settingsToSave.INVERT_LGBM_SIGNAL = settingsElements.invertLgbmSignal.checked ? "true" : "false";
       if (settingsElements.combinedLogregAbstainBand) settingsToSave.COMBINED_LOGREG_ABSTAIN_BAND = (parseFormattedFloat(settingsElements.combinedLogregAbstainBand.value) / 100).toString();
       if (settingsElements.combinedCostBuffer) settingsToSave.COMBINED_COST_BUFFER = parseFormattedFloat(settingsElements.combinedCostBuffer.value).toString();
       if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;

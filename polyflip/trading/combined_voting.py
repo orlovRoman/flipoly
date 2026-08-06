@@ -137,6 +137,9 @@ class CombinedEntryResult:
     lr_direction_vote: Optional[str] = None
     lgbm_direction_vote: Optional[str] = None
     consensus_type: Optional[str] = None
+    lgbm_inverted: bool = False
+    lgbm_p_up_raw: float = 0.0
+    lgbm_p_down_raw: float = 0.0
 
 
 def apply_direction_confidence_discount(

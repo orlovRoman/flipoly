@@ -82,6 +82,9 @@ class CryptoSignal:
     model_key: str = ""      # Точный ключ фактически загруженной модели (напр. BTCUSDT_low_vol)
     regime: str = ""         # Режим волатильности (low_vol / mid_vol / high_vol)
     status: str = "READY"    # READY / MODEL_NOT_LOADED / INVALID_FEATURES / REGIME_UNAVAILABLE / DEGENERATE_PREDICTION / INFERENCE_FAILED
+    inverted: bool = False
+    p_up_raw: float = 0.0
+    p_down_raw: float = 0.0
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
@@ -352,6 +355,7 @@ class CryptoPredictor:
         candles: list[Any],
         symbol: str,
         funding_rate: float | None = None,
+        invert_lgbm_signal: bool = False,
     ) -> CryptoSignal:
         """
         Синхронный инференс по релевантной модели волатильности.
@@ -419,8 +423,15 @@ class CryptoPredictor:
             model_key = f"{symbol}_{selected_regime}"
 
             # 3. Инференс
-            p_up = float(model.predict_proba([fv_array])[0][1])
-            p_down = 1.0 - p_up
+            p_up_raw = float(model.predict_proba([fv_array])[0][1])
+            p_down_raw = 1.0 - p_up_raw
+            
+            if invert_lgbm_signal:
+                p_up = p_down_raw
+                p_down = p_up_raw
+            else:
+                p_up = p_up_raw
+                p_down = p_down_raw
 
             signal_status = "READY"
             DEGENERATE_THRESHOLD = 0.05
@@ -466,7 +477,11 @@ class CryptoPredictor:
                     model_key=model_key,
                     regime=selected_regime,
                     status="FUNDING_VETOED",
+                    inverted=invert_lgbm_signal,
+                    p_up_raw=p_up_raw,
+                    p_down_raw=p_down_raw,
                 )
+
 
             logger.debug(
                 "crypto_signal",
@@ -495,6 +510,9 @@ class CryptoPredictor:
                 model_key=model_key,
                 regime=selected_regime,
                 status=signal_status,
+                inverted=invert_lgbm_signal,
+                p_up_raw=p_up_raw,
+                p_down_raw=p_down_raw,
             )
         except Exception as e:
             logger.exception("crypto_inference_failed", symbol=symbol, error=str(e))

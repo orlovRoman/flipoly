@@ -93,6 +93,7 @@ async def _fetch_lgbm_signal(
     crypto_predictor: Any,
     binance_symbol: str,
     asset_upper: str,
+    cfg: Any,
 ) -> Any:
     """Изолированная LGBM-ветка для asyncio.gather."""
     from polyflip.trading.combined_voting import CryptoSignalProxy
@@ -106,13 +107,19 @@ async def _fetch_lgbm_signal(
             interval = crypto_predictor.get_interval(binance_symbol)
             candles = await get_recent_candles(db_session, binance_symbol, interval=interval, limit=MIN_CANDLES_REQUIRED)
             fr = await _get_funding_rate(db_session, binance_symbol)
-            return crypto_predictor.predict(candles, binance_symbol, funding_rate=fr)
+            return crypto_predictor.predict(
+                candles, 
+                binance_symbol, 
+                funding_rate=fr, 
+                invert_lgbm_signal=cfg.invert_lgbm_signal
+            )
     except Exception as exc:
         logger.error("combined_lgbm_error_fallback", asset=asset_upper, error=str(exc))
         from polyflip.crypto.predictor import CryptoSignal
         return CryptoSignal(
             symbol=binance_symbol, p_up=0.0, p_down=0.0,
             direction="NONE", signal_strength=0.0, strike=0.0,
+
             threshold_up=0.0, threshold_down=0.0, model_version=0,
             features_ok=False, risk_vetoed=False, regime="UNKNOWN"
         )
@@ -234,7 +241,7 @@ async def decide_combined_mode(
     # 2. Получаем сигнал LightGBM (Direction Model)
     binance_symbol = COMBINED_BINANCE_SYMBOLS.get(asset_upper)
     if crypto_predictor is not None and binance_symbol is not None:
-        direction_signal = await _fetch_lgbm_signal(crypto_predictor, binance_symbol, asset_upper)
+        direction_signal = await _fetch_lgbm_signal(crypto_predictor, binance_symbol, asset_upper, cfg)
     else:
         direction_signal = CryptoSignal(
             symbol=binance_symbol or "UNKNOWN", p_up=0.0, p_down=0.0,
@@ -388,6 +395,15 @@ async def decide_combined_mode(
         "distance_to_strike_pct": comb_res.distance_to_strike_pct,
         "market_role": "FAVORITE" if (comb_res.candidate_ask is not None and comb_res.candidate_ask >= 0.50) else "OUTSIDER",
     }
+
+    if comb_res.lgbm_inverted:
+        decision_details["lgbm_signal"] = "[INVERTED]"
+        decision_details["lgbm_p_up_raw"] = comb_res.lgbm_p_up_raw
+        decision_details["lgbm_p_down_raw"] = comb_res.lgbm_p_down_raw
+        decision_details["lgbm_p_up_used"] = 1.0 - comb_res.lgbm_p_up_raw
+        decision_details["lgbm_p_down_used"] = 1.0 - comb_res.lgbm_p_down_raw
+    else:
+        decision_details["lgbm_signal"] = "normal"
 
     lgbm_meta_dict = {
         "lgbm_version": comb_res.direction_model_version,
