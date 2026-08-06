@@ -1529,8 +1529,32 @@ window.showFunnelDiagnostic = function(logId) {
     };
     const mappedEntryStatus = entryStatusMap[funnel.entry_status] || funnel.entry_status || "—";
 
+    const gateLabels = {
+        g1_model_loaded:   `G1: Модели (LGBM + LogReg)`,
+        g2_price_fetched:  `G2: API котировки (цена: ${fmt(funnel.fresh_price)})`,
+        g3_dead_zone:      `G3: Сигнал (статус: ${funnel.direction_status || "—"})`,
+        g4_no_flip:        `G4: Консенсус (p_flip: ${fmt(funnel.p_flip)})`,
+        g5_min_edge:       `G5: Вероятность победы (p_win: ${fmt(funnel.p_candidate_win)})`,
+        g6_price_range:    `G6: Цена покупки (ask: ${fmt(funnel.candidate_ask)})`,
+        g7_crypto_confirm: `G7: Net Edge (${fmt(funnel.net_edge)} ≥ ${fmt(funnel.min_edge_used)})`,
+        g8_combined_vote:  `G8: Итоговый ордер`,
+    };
+
+    const gates = funnel.gates || {};
+    const gatesHtml = Object.entries(gateLabels).map(([key, label]) => {
+        const val = gates[key];
+        let color = "#8F9BB3"; let icon = "⚪";
+        let extra = "";
+        if (val === true)  { color = "#00ff88"; icon = "✅"; }
+        if (val === false) { 
+            color = "#ff3366"; icon = "❌"; 
+            extra = funnel.reason ? `<br><span style="color:#ff3366;font-size:0.8em;">➔ ${funnel.reason}</span>` : "";
+        }
+        return `<li style="color:${color}; padding: 4px 0;">${icon} ${label}${extra}</li>`;
+    }).join("");
+
     const html = `
-    <div style="display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:65vh;">
+    <div style="font-family: monospace; display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:65vh;">
         <div>
             <div style="font-weight:600; color:#fff; margin-bottom:4px;">Direction Model</div>
             <div>Key: <span style="color:#e2e8f0;">${funnel.direction_model_key || "—"}</span></div>
@@ -1547,6 +1571,13 @@ window.showFunnelDiagnostic = function(logId) {
             <div>p_flip: <b>${fmt(funnel.p_flip)}</b>&nbsp;&nbsp;
                  edge: <b>${fmt(funnel.edge)}</b>&nbsp;(min_edge=${funnel.min_edge_used ?? "—"})</div>
             <div>threshold_lower: ${funnel.threshold_lower ?? "—"}&nbsp; threshold_upper: ${funnel.threshold_upper ?? "—"}</div>
+        </div>
+        <hr style="border-color:rgba(255,255,255,0.1); margin:0;">
+        <div>
+            <div style="font-weight:600; color:#fff; margin-bottom:6px;">Гейты решения</div>
+            <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; font-size:0.85rem;">
+                ${gatesHtml}
+            </ul>
         </div>
         <hr style="border-color:rgba(255,255,255,0.1); margin:0;">
         <div>

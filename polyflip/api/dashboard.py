@@ -370,6 +370,10 @@ async def get_trade_logs(
                 "min_edge_used": funnel.min_edge_used,
                 "threshold_lower": funnel.threshold_lower,
                 "threshold_upper": funnel.threshold_upper,
+                "p_candidate_win": funnel.p_candidate_win,
+                "candidate_ask": funnel.candidate_ask,
+                "net_edge": funnel.net_edge,
+                "fresh_price": funnel.fresh_price,
                 "gates": {
                     "g1_model_loaded": funnel.g1_model_loaded,
                     "g2_price_fetched": funnel.g2_price_fetched,
