@@ -84,6 +84,8 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
         await populate_models_cache(db_session)
 
         for market in markets:
+            if market.market_id in _ACTIVE_MARKETS:
+                continue
             _ACTIVE_MARKETS.add(market.market_id)
             try:
                 asset_mode = cfg.trading_mode.lower() if cfg.trading_mode else ""
