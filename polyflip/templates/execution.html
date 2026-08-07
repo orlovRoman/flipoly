@@ -136,6 +136,10 @@
                     </div>
                     <div class="form-grid">
                         <div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted);">Бюджет Сессии</div>
+                            <div id="limit-budget" style="font-weight: 600;">-- USDC</div>
+                        </div>
+                        <div>
                             <div style="font-size: 0.85rem; color: var(--text-muted);">Размер Заявки</div>
                             <div id="limit-order-amount" style="font-weight: 600;">--</div>
                         </div>
@@ -546,6 +550,7 @@ if (typeof translateError === 'undefined') {
                     }
 
                     document.getElementById('session-limits-block').style.display = 'block';
+                    document.getElementById('limit-budget').textContent = (s.budget_usdc || 0).toFixed(2) + " USDC";
                     document.getElementById('limit-order-amount').textContent = s.order_amount_usdc !== null ? s.order_amount_usdc.toFixed(2) + " USDC" : "АВТО (из PAPER)";
                     document.getElementById('limit-max-order').textContent = (s.max_single_order_usdc || 0).toFixed(2) + " USDC";
                     document.getElementById('limit-max-positions').textContent = s.max_open_positions || 0;
