@@ -1,5 +1,5 @@
 """
-LGBM Direction Accuracy Report.
+LGBM Direction Accuracy Report — за последние 24 часа.
 
 Методология:
   1. Берём все записи из decision_funnel_log, где direction_value IS NOT NULL
@@ -54,7 +54,8 @@ async def main():
                 MIN(created_at) as first_log,
                 MAX(created_at) as last_log
             FROM decision_funnel_log
-            WHERE direction_model_key IS NOT NULL;
+            WHERE direction_model_key IS NOT NULL
+              AND created_at >= NOW() - INTERVAL '24 hours';
         """))).mappings().one()
 
         print_subheader("0. Общая статистика funnel_log")
@@ -79,6 +80,7 @@ async def main():
             FROM decision_funnel_log
             WHERE direction_model_key IS NOT NULL
               AND direction_value IS NOT NULL
+              AND created_at >= NOW() - INTERVAL '24 hours'
             GROUP BY direction_model_key, direction_regime, direction_value, direction_status
             ORDER BY direction_model_key, direction_regime, direction_value, direction_status;
         """))).mappings().all()
@@ -118,6 +120,7 @@ async def main():
                   AND f.underlying_price IS NOT NULL
                   AND f.underlying_price > 0
                   AND f.direction_model_key IS NOT NULL
+                  AND f.created_at >= NOW() - INTERVAL '24 hours'
             ),
             candles_5 AS (
                 SELECT DISTINCT ON (s.id)
@@ -216,6 +219,7 @@ async def main():
                 WHERE f.direction_value IS NOT NULL
                   AND f.underlying_price IS NOT NULL
                   AND f.underlying_price > 0
+                  AND f.created_at >= NOW() - INTERVAL '24 hours'
             ),
             joined AS (
                 SELECT DISTINCT ON (s.created_at, s.coin)
