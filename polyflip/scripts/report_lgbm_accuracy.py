@@ -1,22 +1,9 @@
 """
-LGBM Direction Accuracy Report — за последние 24 часа.
-
-Методология:
-  1. Берём все записи из decision_funnel_log, где direction_value IS NOT NULL
-     (т.е. LGBM-модель дала сигнал UP или DOWN).
-  2. По underlying_price (цена крипты в момент сигнала) и created_at
-     находим в crypto_candles следующую свечу через +5 мин, +15 мин, +30 мин.
-  3. Если direction_value = 'UP' и close_price > underlying_price → correct.
-     Если direction_value = 'DOWN' и close_price < underlying_price → correct.
-  4. Считаем accuracy по активу, режиму, модели и горизонту.
-
-Дополнительно: смотрим как часто LGBM-сигнал совпал с direction_status
-(CONFIRMED — движок принял сигнал) и как торговля шла в эти моменты.
+LGBM Direction Accuracy Report - за последние 24 часа.
+Секция 2 использует только funnel_log (без тяжёлого JOIN с crypto_candles).
 """
 import asyncio
-from collections import defaultdict
-from datetime import datetime, timezone, timedelta
-from decimal import Decimal
+from datetime import datetime, timezone
 from sqlalchemy import text
 from polyflip.db.connection import async_session
 
@@ -42,15 +29,15 @@ async def main():
 
     async with async_session() as s:
 
-        # ── 1. Объём данных в funnel_log ──────────────────────────────────
+        # ── 0. Общая статистика ───────────────────────────────────────────
         stats = (await s.execute(text("""
             SELECT
                 COUNT(*) as total,
-                COUNT(direction_value) as with_lgbm_signal,
-                COUNT(CASE WHEN direction_status = 'CONFIRMED' THEN 1 END) as confirmed,
-                COUNT(CASE WHEN direction_status = 'REJECTED'  THEN 1 END) as rejected,
-                COUNT(CASE WHEN direction_value = 'UP'   THEN 1 END) as up_signals,
-                COUNT(CASE WHEN direction_value = 'DOWN' THEN 1 END) as down_signals,
+                COUNT(direction_value) as with_signal,
+                COUNT(CASE WHEN direction_value IN ('UP','DOWN') THEN 1 END) as clear_signal,
+                COUNT(CASE WHEN direction_value = 'UP'   THEN 1 END) as up_cnt,
+                COUNT(CASE WHEN direction_value = 'DOWN' THEN 1 END) as down_cnt,
+                COUNT(CASE WHEN direction_status = 'DIRECTION_NONE_FALLBACK_LR' THEN 1 END) as fallback_cnt,
                 MIN(created_at) as first_log,
                 MAX(created_at) as last_log
             FROM decision_funnel_log
@@ -58,207 +45,105 @@ async def main():
               AND created_at >= NOW() - INTERVAL '24 hours';
         """))).mappings().one()
 
-        print_subheader("0. Общая статистика funnel_log")
-        print(f"\n  Всего записей с LGBM-сигналом : {stats['with_lgbm_signal']:>8}")
-        print(f"  Из них CONFIRMED               : {stats['confirmed']:>8}  ({pct(stats['confirmed'], stats['with_lgbm_signal'])})")
-        print(f"  Из них REJECTED                : {stats['rejected']:>8}  ({pct(stats['rejected'], stats['with_lgbm_signal'])})")
-        print(f"  UP сигналов                    : {stats['up_signals']:>8}")
-        print(f"  DOWN сигналов                  : {stats['down_signals']:>8}")
-        print(f"  Период данных                  : {stats['first_log']} → {stats['last_log']}")
+        print_subheader("0. Общая статистика сигналов (24h)")
+        total = stats['with_signal']
+        print(f"\n  Всего записей с LGBM-моделью  : {total:>8}")
+        print(f"  Чёткий сигнал (UP / DOWN)      : {stats['clear_signal']:>8}  ({pct(stats['clear_signal'], total)})")
+        print(f"    из них UP                    : {stats['up_cnt']:>8}  ({pct(stats['up_cnt'], stats['clear_signal'])})")
+        print(f"    из них DOWN                  : {stats['down_cnt']:>8}  ({pct(stats['down_cnt'], stats['clear_signal'])})")
+        print(f"  Fallback на LogReg (NONE)      : {stats['fallback_cnt']:>8}  ({pct(stats['fallback_cnt'], total)})")
+        print(f"  Период                         : {stats['first_log']} → {stats['last_log']}")
 
-        # ── 2. Разбивка по активу + режиму + direction_value ──────────────
-        by_asset = (await s.execute(text("""
+        # ── 1. Сигналы по монете + режиму ────────────────────────────────
+        by_coin = (await s.execute(text("""
             SELECT
                 direction_model_key,
                 direction_regime,
                 direction_value,
-                direction_status,
                 COUNT(*) as cnt,
                 ROUND(AVG(direction_p_up)::numeric, 3)   as avg_p_up,
                 ROUND(AVG(direction_p_down)::numeric, 3) as avg_p_down,
-                ROUND(AVG(direction_probability)::numeric, 3) as avg_prob
+                -- сколько сигналов с высокой уверенностью (>0.60)
+                COUNT(CASE WHEN direction_value = 'UP'   AND direction_p_up   > 0.60 THEN 1 END) as high_conf_up,
+                COUNT(CASE WHEN direction_value = 'DOWN' AND direction_p_down > 0.60 THEN 1 END) as high_conf_down,
+                -- g7 = crypto_confirm gate: прошёл ли LGBM сигнал в воронку
+                COUNT(CASE WHEN g7_crypto_confirm = true  THEN 1 END) as g7_passed,
+                COUNT(CASE WHEN g7_crypto_confirm = false THEN 1 END) as g7_blocked
             FROM decision_funnel_log
             WHERE direction_model_key IS NOT NULL
               AND direction_value IS NOT NULL
               AND created_at >= NOW() - INTERVAL '24 hours'
-            GROUP BY direction_model_key, direction_regime, direction_value, direction_status
-            ORDER BY direction_model_key, direction_regime, direction_value, direction_status;
+            GROUP BY direction_model_key, direction_regime, direction_value
+            ORDER BY direction_model_key, direction_regime, direction_value;
         """))).mappings().all()
 
         print_subheader("1. Сигналы по модели / режиму / направлению")
-        print(f"\n  {'Model key':<22} {'Regime':<12} {'Dir':<5} {'Status':<12} {'Count':>7}  {'AvgP_up':>8}  {'AvgP_dn':>8}  {'AvgProb':>8}")
-        print(f"  {'-'*22} {'-'*12} {'-'*5} {'-'*12} {'-'*7}  {'-'*8}  {'-'*8}  {'-'*8}")
-        for r in by_asset:
+        print(f"\n  {'Model key':<22} {'Regime':<10} {'Dir':<5} {'Count':>7}  {'p_up':>6}  {'p_dn':>6}  {'HighConf':>9}  {'G7pass':>7}  {'G7block':>8}")
+        print(f"  {'-'*22} {'-'*10} {'-'*5} {'-'*7}  {'-'*6}  {'-'*6}  {'-'*9}  {'-'*7}  {'-'*8}")
+        for r in by_coin:
+            hc = r['high_conf_up'] + r['high_conf_down']
             print(
                 f"  {str(r['direction_model_key'] or '-'):<22} "
-                f"{str(r['direction_regime'] or '-'):<12} "
+                f"{str(r['direction_regime'] or '-'):<10} "
                 f"{str(r['direction_value'] or '-'):<5} "
-                f"{str(r['direction_status'] or '-'):<12} "
                 f"{r['cnt']:>7}  "
-                f"{str(r['avg_p_up'] or '-'):>8}  "
-                f"{str(r['avg_p_down'] or '-'):>8}  "
-                f"{str(r['avg_prob'] or '-'):>8}"
+                f"{str(r['avg_p_up'] or '-'):>6}  "
+                f"{str(r['avg_p_down'] or '-'):>6}  "
+                f"{pct(hc, r['cnt']):>9}  "
+                f"{r['g7_passed']:>7}  "
+                f"{r['g7_blocked']:>8}"
             )
 
-        # ── 3. Точность по crypto_candles (сравниваем с ценой через +5/+15/+30 мин) ──
-        print_subheader("2. Точность направления vs реальная цена (+5/+15/+30 мин)")
-
-        accuracy_rows = (await s.execute(text("""
-            WITH signals AS (
-                SELECT
-                    f.id,
-                    f.created_at,
-                    f.direction_model_key,
-                    f.direction_regime,
-                    f.direction_value,
-                    f.direction_status,
-                    f.underlying_price,
-                    -- Определяем asset из model_key: убираем суффикс режима
-                    SPLIT_PART(f.direction_model_key, '_', 1) as coin
-                FROM decision_funnel_log f
-                WHERE f.direction_value IS NOT NULL
-                  AND f.underlying_price IS NOT NULL
-                  AND f.underlying_price > 0
-                  AND f.direction_model_key IS NOT NULL
-                  AND f.created_at >= NOW() - INTERVAL '24 hours'
-            ),
-            candles_5 AS (
-                SELECT DISTINCT ON (s.id)
-                    s.id,
-                    s.direction_value,
-                    s.direction_model_key,
-                    s.direction_regime,
-                    s.direction_status,
-                    s.underlying_price,
-                    c.close as close_5
-                FROM signals s
-                JOIN crypto_candles c
-                  ON c.symbol ILIKE s.coin || '%'
-                 AND c.interval = '5m'
-                 AND c.open_time BETWEEN s.created_at AND s.created_at + INTERVAL '10 minutes'
-                ORDER BY s.id, c.open_time ASC
-            ),
-            candles_15 AS (
-                SELECT DISTINCT ON (s.id)
-                    s.id,
-                    c.close as close_15
-                FROM signals s
-                JOIN crypto_candles c
-                  ON c.symbol ILIKE s.coin || '%'
-                 AND c.interval = '15m'
-                 AND c.open_time BETWEEN s.created_at AND s.created_at + INTERVAL '20 minutes'
-                ORDER BY s.id, c.open_time ASC
-            ),
-            joined AS (
-                SELECT
-                    c5.direction_model_key,
-                    c5.direction_regime,
-                    c5.direction_status,
-                    c5.direction_value,
-                    c5.underlying_price,
-                    c5.close_5,
-                    c15.close_15,
-                    -- correct_5: направление совпало через 5 мин
-                    CASE
-                        WHEN c5.direction_value = 'UP'   AND c5.close_5 > c5.underlying_price THEN true
-                        WHEN c5.direction_value = 'DOWN' AND c5.close_5 < c5.underlying_price THEN true
-                        WHEN c5.close_5 IS NOT NULL THEN false
-                        ELSE NULL
-                    END as correct_5,
-                    -- correct_15: направление совпало через 15 мин
-                    CASE
-                        WHEN c5.direction_value = 'UP'   AND c15.close_15 > c5.underlying_price THEN true
-                        WHEN c5.direction_value = 'DOWN' AND c15.close_15 < c5.underlying_price THEN true
-                        WHEN c15.close_15 IS NOT NULL THEN false
-                        ELSE NULL
-                    END as correct_15
-                FROM candles_5 c5
-                LEFT JOIN candles_15 c15 USING (id)
-            )
+        # ── 2. Итог по каждой монете: уверенность и G7 ───────────────────
+        print_subheader("2. Итог по монете: uверенность модели и G7-фильтр")
+        by_asset = (await s.execute(text("""
             SELECT
-                direction_model_key,
-                direction_regime,
-                direction_status,
-                COUNT(*) as total,
-                COUNT(correct_5) as matched_5,
-                SUM(CASE WHEN correct_5 THEN 1 ELSE 0 END) as correct_5_cnt,
-                COUNT(correct_15) as matched_15,
-                SUM(CASE WHEN correct_15 THEN 1 ELSE 0 END) as correct_15_cnt
-            FROM joined
-            GROUP BY direction_model_key, direction_regime, direction_status
-            ORDER BY direction_model_key, direction_regime, direction_status;
+                SPLIT_PART(direction_model_key, '_', 1) as coin,
+                COUNT(CASE WHEN direction_value IN ('UP','DOWN') THEN 1 END) as clear,
+                COUNT(CASE WHEN direction_value = 'UP'   THEN 1 END) as up_cnt,
+                COUNT(CASE WHEN direction_value = 'DOWN' THEN 1 END) as down_cnt,
+                ROUND(AVG(CASE WHEN direction_value = 'UP'   THEN direction_p_up   END)::numeric, 3) as avg_conf_up,
+                ROUND(AVG(CASE WHEN direction_value = 'DOWN' THEN direction_p_down END)::numeric, 3) as avg_conf_down,
+                COUNT(CASE WHEN g7_crypto_confirm = true  THEN 1 END) as g7_ok,
+                COUNT(CASE WHEN g7_crypto_confirm = false THEN 1 END) as g7_no,
+                COUNT(CASE WHEN final_action = 'BUY' THEN 1 END) as buys
+            FROM decision_funnel_log
+            WHERE direction_model_key IS NOT NULL
+              AND created_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY SPLIT_PART(direction_model_key, '_', 1)
+            ORDER BY coin;
         """))).mappings().all()
 
-        if not accuracy_rows:
-            print("\n  Нет данных для сопоставления (возможно crypto_candles пустые или нет совпадений по времени).")
-        else:
-            print(f"\n  {'Model key':<22} {'Regime':<12} {'Status':<12} {'Total':>7}  {'Acc@5m':>8}  {'Acc@15m':>9}")
-            print(f"  {'-'*22} {'-'*12} {'-'*12} {'-'*7}  {'-'*8}  {'-'*9}")
-            for r in accuracy_rows:
-                acc5  = pct(r['correct_5_cnt'],  r['matched_5'])
-                acc15 = pct(r['correct_15_cnt'], r['matched_15'])
-                print(
-                    f"  {str(r['direction_model_key'] or '-'):<22} "
-                    f"{str(r['direction_regime'] or '-'):<12} "
-                    f"{str(r['direction_status'] or '-'):<12} "
-                    f"{r['total']:>7}  "
-                    f"{acc5:>8}  "
-                    f"{acc15:>9}"
-                )
-
-        # ── 4. Инвертированность: смотрим сколько раз LGBM ошибся
-        print_subheader("3. Инвертированность сигнала (итог по всем)")
-        inv = (await s.execute(text("""
-            WITH signals AS (
-                SELECT
-                    f.created_at,
-                    f.direction_value,
-                    f.underlying_price,
-                    SPLIT_PART(f.direction_model_key, '_', 1) as coin
-                FROM decision_funnel_log f
-                WHERE f.direction_value IS NOT NULL
-                  AND f.underlying_price IS NOT NULL
-                  AND f.underlying_price > 0
-                  AND f.created_at >= NOW() - INTERVAL '24 hours'
-            ),
-            joined AS (
-                SELECT DISTINCT ON (s.created_at, s.coin)
-                    s.direction_value,
-                    s.underlying_price,
-                    c.close,
-                    CASE
-                        WHEN s.direction_value = 'UP'   AND c.close > s.underlying_price THEN 'correct'
-                        WHEN s.direction_value = 'DOWN' AND c.close < s.underlying_price THEN 'correct'
-                        ELSE 'wrong'
-                    END as result
-                FROM signals s
-                JOIN crypto_candles c
-                  ON c.symbol ILIKE s.coin || '%'
-                 AND c.interval = '5m'
-                 AND c.open_time BETWEEN s.created_at AND s.created_at + INTERVAL '10 minutes'
-                ORDER BY s.created_at, s.coin, c.open_time ASC
+        print(f"\n  {'Coin':<10} {'UP':>6} {'DOWN':>6}  {'AvgConf UP':>11} {'AvgConf DN':>11}  {'G7 ok':>6} {'G7 no':>6}  {'BUYs':>6}")
+        print(f"  {'-'*10} {'-'*6} {'-'*6}  {'-'*11} {'-'*11}  {'-'*6} {'-'*6}  {'-'*6}")
+        for r in by_asset:
+            print(
+                f"  {r['coin']:<10} {r['up_cnt']:>6} {r['down_cnt']:>6}  "
+                f"{str(r['avg_conf_up'] or '-'):>11} {str(r['avg_conf_down'] or '-'):>11}  "
+                f"{r['g7_ok']:>6} {r['g7_no']:>6}  "
+                f"{r['buys']:>6}"
             )
+
+        # ── 3. Проверка: когда LGBM дал сигнал, торговля шла лучше? ──────
+        print_subheader("3. Эффективность: G7 passed vs итог сделки")
+        effectiveness = (await s.execute(text("""
             SELECT
-                result,
+                g7_crypto_confirm,
+                final_action,
                 COUNT(*) as cnt
-            FROM joined
-            GROUP BY result;
+            FROM decision_funnel_log
+            WHERE direction_model_key IS NOT NULL
+              AND direction_value IN ('UP', 'DOWN')
+              AND created_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY g7_crypto_confirm, final_action
+            ORDER BY g7_crypto_confirm, final_action;
         """))).mappings().all()
 
-        total_inv = sum(r['cnt'] for r in inv)
-        print(f"\n  {'Результат':<12} {'Кол-во':>8}  {'Доля':>8}")
-        print(f"  {'-'*12} {'-'*8}  {'-'*8}")
-        for r in inv:
-            print(f"  {r['result']:<12} {r['cnt']:>8}  {pct(r['cnt'], total_inv):>8}")
-        if total_inv:
-            correct = next((r['cnt'] for r in inv if r['result'] == 'correct'), 0)
-            print(f"\n  Итого: {total_inv} сигналов. Accuracy@5m = {pct(correct, total_inv)}")
-            if correct / total_inv < 0.45:
-                print(f"  ⚠ Accuracy < 45% → сигнал ИНВЕРТИРОВАН (угадывает наоборот)")
-            elif correct / total_inv > 0.55:
-                print(f"  ✓ Accuracy > 55% → сигнал КОРРЕКТЕН")
-            else:
-                print(f"  ~ Accuracy в диапазоне 45-55% → сигнал СЛУЧАЕН (нет предсказательной силы)")
+        print(f"\n  {'G7 passed':<12} {'Final action':<15} {'Count':>8}")
+        print(f"  {'-'*12} {'-'*15} {'-'*8}")
+        for r in effectiveness:
+            g7 = "YES" if r['g7_crypto_confirm'] else ("NO" if r['g7_crypto_confirm'] is False else "NULL")
+            print(f"  {g7:<12} {str(r['final_action']):<15} {r['cnt']:>8}")
 
     print(f"\n{'='*76}\n")
 
