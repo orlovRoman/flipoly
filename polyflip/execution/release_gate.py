@@ -286,7 +286,10 @@ async def release_candidate_by_id(
                             break
                     except Exception as e:
                         logger.warning(
-                            f"release_gate_quote_fetch_failed token_id={token_id} attempt={attempt} error={e}"
+                            "release_gate_quote_fetch_failed",
+                            token_id=token_id,
+                            attempt=attempt,
+                            error=str(e),
                         )
                     if attempt == 0:
                         import asyncio
@@ -558,7 +561,11 @@ async def validate_live_release(
     # откладываем заявку, чтобы не делать долгих блокирующих запросов.
     if target_mode == "LIVE":
         if not fresh_prices or fresh_prices.get("best_ask") is None:
-            logger.warning(f"POLYMARKET_QUOTE_UNAVAILABLE for {paper_request.market_id}: fetched outside lock failed")
+            logger.warning(
+                "polymarket_quote_unavailable",
+                market_id=paper_request.market_id,
+                reason="fetched_outside_lock_failed",
+            )
             raise ReleaseDeferred(f"RELEASE_QUOTE_UNAVAILABLE: no prices fetched")
 
         release_entry_price = float(fresh_prices["best_ask"])
@@ -602,7 +609,9 @@ async def validate_live_release(
                 )
             else:
                 logger.warning(
-                    f"EDGE_DECAYED_BEFORE_RELEASE: {release_net_edge:.4f} < {combined_min_net_edge:.4f}, but LIVE_IGNORE_EDGE_DECAY is true. Proceeding anyway."
+                    "EDGE_DECAYED_BEFORE_RELEASE_ignored",
+                    release_net_edge=round(release_net_edge, 4),
+                    combined_min_net_edge=round(combined_min_net_edge, 4),
                 )
 
     # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance, session)

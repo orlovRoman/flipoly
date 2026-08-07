@@ -306,7 +306,7 @@
                         <h3 style="margin: 0;">Аналитика по активам</h3>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <label for="live-asset-tf-select" style="font-size: 0.85rem; color: var(--text-muted);">Период:</label>
-                            <select id="live-asset-tf-select" onchange="fetchLiveAnalytics()" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
+                            <select id="live-asset-tf-select" onchange="fetchLiveAssetAnalytics()" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
                                 <option value="24h">24 часа</option>
                                 <option value="7d">7 дней</option>
                                 <option value="30d">30 дней</option>
@@ -334,7 +334,7 @@
                         <h3 style="margin: 0;">PNL за 24 часа (по стратегиям)</h3>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <label for="live-strategy-tf-select" style="font-size: 0.85rem; color: var(--text-muted);">Период:</label>
-                            <select id="live-strategy-tf-select" onchange="fetchLiveAnalytics()" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
+                            <select id="live-strategy-tf-select" onchange="fetchLiveStrategyAnalytics()" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
                                 <option value="24h" selected>24 часа</option>
                                 <option value="7d">7 дней</option>
                                 <option value="30d">30 дней</option>
@@ -677,11 +677,13 @@ if (typeof translateError === 'undefined') {
                 if (data.asset_analytics && document.getElementById('live-asset-tf-select')?.value === 'all') {
                     renderLiveAssetAnalytics(data.asset_analytics);
                 } else {
-                    fetchLiveAnalytics();
+                    fetchLiveAssetAnalytics();
                 }
 
                 if (data.strategy_analytics_24h && document.getElementById('live-strategy-tf-select')?.value === '24h') {
                     renderLiveStrategyAnalytics(data.strategy_analytics_24h);
+                } else {
+                    fetchLiveStrategyAnalytics();
                 }
 
                 if (data.readiness) {
@@ -1413,25 +1415,29 @@ document.addEventListener('DOMContentLoaded', () => {
             }).join('');
         }
 
-        async function fetchLiveAnalytics() {
-            const assetPeriod = document.getElementById('live-asset-tf-select')?.value || 'all';
-            const strategyPeriod = document.getElementById('live-strategy-tf-select')?.value || '24h';
-            
+        async function fetchLiveAssetAnalytics() {
+            const period = document.getElementById('live-asset-tf-select')?.value || 'all';
             try {
-                const [assetRes, strategyRes] = await Promise.all([
-                    fetch(window.API_BASE + `/api/execution/live/analytics?period=${assetPeriod}`, { headers: getAuthHeaders() }),
-                    fetch(window.API_BASE + `/api/execution/live/analytics?period=${strategyPeriod}`, { headers: getAuthHeaders() })
-                ]);
-                if (assetRes.ok) {
-                    const data = await assetRes.json();
+                const res = await fetch(window.API_BASE + `/api/execution/live/analytics?period=${period}`, { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
                     renderLiveAssetAnalytics(data.asset_analytics);
                 }
-                if (strategyRes.ok) {
-                    const data = await strategyRes.json();
+            } catch (e) {
+                console.warn('Error fetching live asset analytics:', e);
+            }
+        }
+
+        async function fetchLiveStrategyAnalytics() {
+            const period = document.getElementById('live-strategy-tf-select')?.value || '24h';
+            try {
+                const res = await fetch(window.API_BASE + `/api/execution/live/analytics?period=${period}`, { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
                     renderLiveStrategyAnalytics(data.strategy_analytics);
                 }
             } catch (e) {
-                console.warn('Error fetching live analytics:', e);
+                console.warn('Error fetching live strategy analytics:', e);
             }
         }
 

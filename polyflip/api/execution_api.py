@@ -9,7 +9,7 @@ import structlog
 
 from polyflip.db.connection import get_db_session
 from polyflip.api.auth import verify_api_key
-from polyflip.db.models import RuntimeSettings
+from polyflip.db.models import RuntimeSettings, TradeHistory
 from polyflip.db.execution_models import (
     ExecutionWorkerStatus,
     ExecutionRequest,
@@ -1421,7 +1421,6 @@ async def _get_asset_analytics(
 
     conds = [
         TradeHistory.mode == mode,
-        TradeHistory.status == "SUCCESS",
         TradeHistory.position_status.in_(["CLOSED", "RESOLVED_WON", "RESOLVED_LOST", "REDEEMED"]),
     ]
     if period_hours is not None:
@@ -1475,7 +1474,6 @@ async def _get_strategy_analytics(
 
     conds = [
         TradeHistory.mode == mode,
-        TradeHistory.status == "SUCCESS",
         TradeHistory.position_status.in_(["CLOSED", "RESOLVED_WON", "RESOLVED_LOST", "REDEEMED"]),
     ]
     if period_hours is not None:
