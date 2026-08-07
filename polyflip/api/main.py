@@ -98,8 +98,9 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.exception("models_cache_warmup_failed", error=str(e))
 
+    # Запускаем фоновый прогрев моделей во время startup (ДО yield)
     asyncio.create_task(_async_warmup())
-        
+
     yield
 
 app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)

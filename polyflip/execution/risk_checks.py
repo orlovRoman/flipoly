@@ -1,3 +1,4 @@
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case
 from polyflip.db.models import RuntimeSettings, TradeHistory
@@ -7,6 +8,9 @@ from polyflip.execution.states import ACTIVE_POSITION_STATES
 from decimal import Decimal
 import datetime
 from uuid import UUID
+
+logger = structlog.get_logger(__name__)
+DEFAULT_MAX_OPEN_POSITIONS = 20
 
 
 async def _financial_limits_enabled(
@@ -77,8 +81,7 @@ async def check_risk_limits(
     # --- MAX_OPEN_POSITIONS ---
     # Считаем все активные позиции в данном режиме (OPEN + PARTIALLY_CLOSED + EXIT_REQUESTED...)
     # Исключаем текущую OPENING-позицию если trade_history_id задан
-    DEFAULT_MAX_OPEN = 20
-    max_open = DEFAULT_MAX_OPEN
+    max_open = DEFAULT_MAX_OPEN_POSITIONS
 
     max_open_stmt = select(RuntimeSettings).where(
         RuntimeSettings.key == "MAX_OPEN_POSITIONS"
@@ -88,23 +91,12 @@ async def check_risk_limits(
         try:
             max_open = int(max_open_set.value)
         except (ValueError, TypeError) as exc:
-            import structlog
-
-            structlog.get_logger(__name__).warning(
-                "invalid_max_open_positions_setting", error=str(exc)
-            )
+            logger.warning("invalid_max_open_positions_setting", error=str(exc))
 
     if requested_mode == "LIVE":
-        from polyflip.db.execution_models import LiveTradingSession
+        from polyflip.execution.live_session_service import get_active_session
 
-        active_sess = (
-            await session.execute(
-                select(LiveTradingSession)
-                .where(LiveTradingSession.status == "ACTIVE")
-                .order_by(LiveTradingSession.started_at.desc().nulls_last())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
+        active_sess = await get_active_session(session)
         if active_sess and active_sess.max_open_positions and active_sess.max_open_positions > 0:
             max_open = active_sess.max_open_positions
 

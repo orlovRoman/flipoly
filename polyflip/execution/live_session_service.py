@@ -47,6 +47,18 @@ def get_max_order_cost(request: ExecutionRequest) -> Decimal:
     return amount
 
 
+async def get_active_session(db: AsyncSession) -> Optional[LiveTradingSession]:
+    """Возвращает текущую активную LIVE-сессию без блокировки строки (для read-only проверок)."""
+    return (
+        await db.execute(
+            select(LiveTradingSession)
+            .where(LiveTradingSession.status == "ACTIVE")
+            .order_by(LiveTradingSession.started_at.desc().nulls_last())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def get_active_session_for_update(
     db: AsyncSession,
 ) -> Optional[LiveTradingSession]:
