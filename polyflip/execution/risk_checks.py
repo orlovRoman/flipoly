@@ -77,6 +77,7 @@ async def check_risk_limits(
     # --- MAX_OPEN_POSITIONS ---
     # Считаем все активные позиции в данном режиме (OPEN + PARTIALLY_CLOSED + EXIT_REQUESTED...)
     # Исключаем текущую OPENING-позицию если trade_history_id задан
+    max_open = 20
     max_open_stmt = select(RuntimeSettings).where(
         RuntimeSettings.key == "MAX_OPEN_POSITIONS"
     )
@@ -84,10 +85,27 @@ async def check_risk_limits(
     if max_open_set:
         try:
             max_open = int(max_open_set.value)
-            open_count_stmt = select(func.count(TradeHistory.id)).where(
-                TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
-                TradeHistory.mode == requested_mode,
+        except (ValueError, TypeError):
+            pass
+
+    if requested_mode == "LIVE":
+        from polyflip.db.execution_models import LiveTradingSession
+        active_sess = (
+            await session.execute(
+                select(LiveTradingSession)
+                .where(LiveTradingSession.status == "ACTIVE")
+                .order_by(LiveTradingSession.started_at.desc())
+                .limit(1)
             )
+        ).scalar_one_or_none()
+        if active_sess and active_sess.max_open_positions:
+            max_open = active_sess.max_open_positions
+
+    try:
+        open_count_stmt = select(func.count(TradeHistory.id)).where(
+            TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
+            TradeHistory.mode == requested_mode,
+        )
             if trade_history_id is not None:
                 open_count_stmt = open_count_stmt.where(
                     TradeHistory.id != trade_history_id
