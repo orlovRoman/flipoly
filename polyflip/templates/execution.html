@@ -680,8 +680,8 @@ if (typeof translateError === 'undefined') {
                     fetchLiveAssetAnalytics();
                 }
 
-                if (data.strategy_analytics_24h && document.getElementById('live-strategy-tf-select')?.value === '24h') {
-                    renderLiveStrategyAnalytics(data.strategy_analytics_24h);
+                if (data.strategy_analytics && document.getElementById('live-strategy-tf-select')?.value === '24h') {
+                    renderLiveStrategyAnalytics(data.strategy_analytics);
                 } else {
                     fetchLiveStrategyAnalytics();
                 }

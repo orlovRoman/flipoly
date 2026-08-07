@@ -1407,6 +1407,7 @@ async def close_all_session_positions(
 _pnl_expr = func.coalesce(
     TradeHistory.realized_pnl_usdc,
     TradeHistory.pnl,
+    0.0,
 )
 
 
@@ -1683,7 +1684,7 @@ async def get_live_dashboard(
         "positions": positions,
         "requests": request_dtos,
         "asset_analytics": await _get_asset_analytics(db, mode="LIVE", period_hours=analytics_period),
-        "strategy_analytics_24h": await _get_strategy_analytics(db, mode="LIVE", period_hours=24),
+        "strategy_analytics": await _get_strategy_analytics(db, mode="LIVE", period_hours=24),
     }
 
 
