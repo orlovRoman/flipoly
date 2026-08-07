@@ -1193,7 +1193,7 @@ document.addEventListener('DOMContentLoaded', () => {
             event.preventDefault();
             const fallbackUrl = `https://polymarket.com/markets?search=${encodeURIComponent(marketId)}`;
             try {
-                const res = await fetch(`https://gamma-api.polymarket.com/events?market_id=${marketId}`);
+                const res = await fetch(`https://gamma-api.polymarket.com/events?market_id=${encodeURIComponent(marketId)}`);
                 if (!res.ok) {
                     window.open(fallbackUrl, '_blank');
                     return;

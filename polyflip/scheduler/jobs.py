@@ -284,7 +284,7 @@ async def resolve_trades_job():
                     logger.error("resolver_skipped_zero_fill_trade", trade_id=t.id)
                     continue
                 if t.position_status not in ("RESOLVED_REDEEMABLE", "RESOLVED_LOST"):
-                    is_win = (t.outcome_bought == raw_outcome)
+                    is_win = (str(t.outcome_bought).strip().upper() == str(raw_outcome).strip().upper())
                     
                     if is_win:
                         t.position_status = "RESOLVED_REDEEMABLE"
@@ -302,7 +302,9 @@ async def resolve_trades_job():
                         t.realized_pnl_usdc = -entry_basis
                         t.pnl = float(t.realized_pnl_usdc)
                         t.expected_payout_usdc = Decimal("0")
-                        t.remaining_shares = Decimal("0")
+                        
+                        if (t.remaining_shares or 0) > 0:
+                            t.remaining_shares = Decimal("0")
 
                     t.settlement_outcome = raw_outcome
                     logger.info("live_position_resolved", trade_id=t.id, status=t.position_status, winning_outcome=raw_outcome)
