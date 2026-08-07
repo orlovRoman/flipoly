@@ -1008,6 +1008,31 @@ async def reconcile_active_requests():
                     "reconcile_failed", request_id=str(req.id), error=str(e)
                 )
 
+        # --- Auto-resolve MANUAL_REVIEW_REQUIRED CLOSE requests after timeout ---
+        manual_cutoff = now - timedelta(minutes=15)
+        stmt_manual = select(ExecutionRequest).where(
+            ExecutionRequest.state == "MANUAL_REVIEW_REQUIRED",
+            ExecutionRequest.requested_mode == settings.execution_mode.value,
+            ExecutionRequest.intent == "CLOSE",
+            ExecutionRequest.updated_at <= manual_cutoff,
+        )
+        stuck_manual_reqs = (await session.execute(stmt_manual)).scalars().all()
+        for req in stuck_manual_reqs:
+            logger.info(
+                "auto_resolving_stuck_manual_review_close_request",
+                request_id=str(req.id),
+                trade_history_id=req.trade_history_id,
+            )
+            await finalize_request(
+                session,
+                req,
+                state="REJECTED",
+                error="Auto-resolved: no fills confirmed after MANUAL_REVIEW timeout",
+            )
+            if req.trade_history_id:
+                await rebuild_trade_accounting(session, req.trade_history_id)
+            await session.commit()
+
 
 def classify_readiness_error(exc: Exception) -> str:
     message = str(exc).lower()
