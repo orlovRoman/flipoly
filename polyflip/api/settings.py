@@ -377,11 +377,12 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
 
     if key == "LIVE_POLL_INTERVAL_SECONDS":
         try:
-            val = int(payload.value)
+            val_clean = str(payload.value).replace(",", ".")
+            val = int(round(float(val_clean)))
             if not (2 <= val <= 300):
                 raise HTTPException(status_code=400, detail="LIVE_POLL_INTERVAL_SECONDS must be between 2 and 300 seconds")
             payload.value = str(val)
-        except ValueError:
+        except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail="LIVE_POLL_INTERVAL_SECONDS must be an integer")
 
     if key == "STOP_LOSS_ENABLED":

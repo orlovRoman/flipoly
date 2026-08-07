@@ -808,7 +808,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.maxSpreadPct) settingsToSave.MAX_SPREAD_PCT = (parseFloat(settingsElements.maxSpreadPct.value) / 100).toString();
       settingsToSave.TRADING_MODE = 'combined';
 
-      if (settingsElements.pollIntervalInput) settingsToSave.LIVE_POLL_INTERVAL_SECONDS = settingsElements.pollIntervalInput.value;
+      if (settingsElements.pollIntervalInput) {
+        const parsedInt = parseInt(settingsElements.pollIntervalInput.value, 10);
+        settingsToSave.LIVE_POLL_INTERVAL_SECONDS = !isNaN(parsedInt) ? parsedInt.toString() : settingsElements.pollIntervalInput.value;
+      }
 
       if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFormattedFloat(settingsElements.favoriteThreshold.value);
       if (settingsElements.tradeOnFavorite) settingsToSave.TRADE_ON_FAVORITE = settingsElements.tradeOnFavorite.checked ? "true" : "false";
