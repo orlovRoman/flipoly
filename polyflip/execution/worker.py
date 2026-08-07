@@ -165,7 +165,13 @@ async def _finish_submit_exception(
         req.error_reason = f"PAPER retry after submit error: {error}"[:2000]
         req.updated_at = now
     else:
-        is_deterministic = is_deterministic_rejection or ("invalid token" in error.lower())
+        err_lower = error.lower()
+        is_deterministic = (
+            is_deterministic_rejection
+            or ("invalid token" in err_lower)
+            or ("not enough balance" in err_lower)
+            or ("allowance" in err_lower)
+        )
         terminal_state = (
             "REJECTED"
             if (is_deterministic or requested_mode == "PAPER")
