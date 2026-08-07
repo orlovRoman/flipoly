@@ -269,8 +269,17 @@ async def get_trade_logs(
 
     from sqlalchemy import text
 
-    count_stmt = select(func.count(TradeHistory.id))
-    total = (await db.execute(count_stmt)).scalar_one()
+    try:
+        est_stmt = text(
+            "SELECT reltuples::bigint FROM pg_class WHERE relname = 'trade_history'"
+        )
+        total = (await db.execute(est_stmt)).scalar()
+        if total is None or total <= 0:
+            count_stmt = select(func.count(TradeHistory.id))
+            total = (await db.execute(count_stmt)).scalar_one()
+    except Exception:
+        count_stmt = select(func.count(TradeHistory.id))
+        total = (await db.execute(count_stmt)).scalar_one()
 
     stmt = (
         select(TradeHistory, LiveMarket.question, LiveMarket.end_time_est)
@@ -288,11 +297,16 @@ async def get_trade_logs(
     funnel_map = {}
     if decision_run_ids:
         funnel_res = await db.execute(
-            select(DecisionFunnelLog).where(
-                DecisionFunnelLog.decision_run_id.in_(decision_run_ids)
-            )
+            select(DecisionFunnelLog)
+            .where(DecisionFunnelLog.decision_run_id.in_(decision_run_ids))
+            .order_by(DecisionFunnelLog.created_at.asc())
         )
+        # Latest decision_run_id log takes precedence
         funnel_map = {f.decision_run_id: f for f in funnel_res.scalars().all()}
+
+    from polyflip.api.settings import get_all_settings
+
+    settings_dict = await get_all_settings(db=db)
 
     items = []
     for log, question, end_time_est in logs_with_questions:

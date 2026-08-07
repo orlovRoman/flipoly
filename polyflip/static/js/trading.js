@@ -1081,13 +1081,17 @@ document.addEventListener("DOMContentLoaded", () => {
             timeLeftStr = `${String(minutes).padStart(2, '0')}:00 (offset)`;
         }
 
+        const LIVE_COLOR = "#e53e3e";
+        const LIVE_BG_COLOR = "rgba(229, 62, 62, 0.16)";
+        const LIVE_BORDER_COLOR = "rgba(229, 62, 62, 0.3)";
+
         const isLiveTrade = log.mode === "LIVE";
         const trStyle = isLiveTrade
-            ? 'background: rgba(229, 62, 62, 0.16); border-left: 4px solid #e53e3e; border-bottom: 1px solid rgba(229, 62, 62, 0.3);'
+            ? `background: ${LIVE_BG_COLOR}; border-left: 4px solid ${LIVE_COLOR}; border-bottom: 1px solid ${LIVE_BORDER_COLOR};`
             : 'border-bottom: 1px solid rgba(255,255,255,0.05);';
         
         const liveBadge = isLiveTrade
-            ? '<span style="background: #e53e3e; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 800; font-size: 0.75rem; margin-right: 6px; letter-spacing: 0.5px; box-shadow: 0 0 8px rgba(229,62,62,0.8);">🔥 LIVE</span>'
+            ? `<span style="background: ${LIVE_COLOR}; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 800; font-size: 0.75rem; margin-right: 6px; letter-spacing: 0.5px; box-shadow: 0 0 8px rgba(229,62,62,0.8);">🔥 LIVE</span>`
             : '';
 
         rows.push(`

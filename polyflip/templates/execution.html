@@ -1104,7 +1104,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const modal = document.getElementById('confirm-modal');
                 const btnOk = document.getElementById('confirm-modal-ok');
                 const btnCancel = document.getElementById('confirm-modal-cancel');
-                if (!modal) return resolve(confirm("Отключить фильтр EDGE_DECAY?"));
+                if (!modal) return resolve(false);
 
                 modal.style.display = 'flex';
                 
