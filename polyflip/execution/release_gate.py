@@ -568,10 +568,20 @@ async def validate_live_release(
         release_gross_edge = p_candidate_win - release_entry_price
         release_net_edge = release_gross_edge - cost_buffer
         
+        # Check if edge decay rejection is disabled globally
+        ignore_edge_decay_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_IGNORE_EDGE_DECAY"))
+        ignore_edge_decay = ignore_edge_decay_val is not None and ignore_edge_decay_val.strip().lower() == "true"
+
         if release_net_edge < combined_min_net_edge:
-            raise ReleaseRejected(
-                f"EDGE_DECAYED_BEFORE_RELEASE: {release_net_edge:.4f} < {combined_min_net_edge:.4f}"
-            )
+            if not ignore_edge_decay:
+                raise ReleaseRejected(
+                    f"EDGE_DECAYED_BEFORE_RELEASE: {release_net_edge:.4f} < {combined_min_net_edge:.4f}"
+                )
+            else:
+                logger.warning(
+                    "EDGE_DECAYED_BEFORE_RELEASE: %s < %s, but LIVE_IGNORE_EDGE_DECAY is true. Proceeding anyway.",
+                    release_net_edge, combined_min_net_edge
+                )
 
     # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance, session)
     if target_mode == "LIVE":

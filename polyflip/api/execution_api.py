@@ -280,6 +280,21 @@ async def set_release_mode(
     return {"status": "ok", "LIVE_RELEASE_MODE": payload.mode}
 
 
+@router.put(
+    "/ignore-edge-decay", summary="Игнорировать фильтр EDGE_DECAYED_BEFORE_RELEASE"
+)
+async def toggle_ignore_edge_decay(
+    payload: SwitchBoolRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Отключает или включает проверку release_net_edge < combined_min_net_edge в release_gate.
+    """
+    await _set_runtime_flag(db, "LIVE_IGNORE_EDGE_DECAY", str(payload.enabled).lower())
+    logger.info("ignore_edge_decay_toggled", enabled=payload.enabled)
+    return {"status": "ok", "LIVE_IGNORE_EDGE_DECAY": payload.enabled}
+
+
 @router.get("/candidates", summary="Просмотр LiveMirrorCandidate")
 async def get_mirror_candidates(
     state: Optional[str] = Query(
@@ -1415,6 +1430,7 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
             if readiness
             else None
         ),
+        "ignore_edge_decay": await _flag("LIVE_IGNORE_EDGE_DECAY"),
         "session": (
             serialize_live_session_dto(active_session, budget_snap)
             if active_session

@@ -208,8 +208,17 @@
                         <input type="number" id="input-max-exposure" class="form-control" value="5.00" step="0.01">
                     </div>
                 </div>
+                
+                <!-- Дополнительные настройки -->
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="cb-ignore-edge-decay" onchange="toggleIgnoreEdgeDecay(this.checked)">
+                        <span style="font-size: 0.9rem; font-weight: 600;">Игнорировать проскальзывание (отключить проверку EDGE_DECAY)</span>
+                    </label>
+                    <div style="font-size: 0.75rem; color: #e53e3e; margin-top: 4px; margin-left: 24px;">Внимание: Отключение фильтра может привести к покупкам по невыгодной цене, если цена в стакане уже сдвинулась против нас!</div>
+                </div>
 
-                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px;">
                     <button id="btn-create-session" class="btn-action">1. Создать LIVE-Сессию</button>
                     <button id="btn-check-readiness" class="btn-action" style="background: #3182ce;">2. Проверить Готовность</button>
                     <button id="btn-activate-session" class="btn-action" style="background: #38a169;">3. Активировать LIVE</button>
@@ -441,6 +450,10 @@ if (typeof translateError === 'undefined') {
                     ws.textContent = "Остановлен / Ошибка"; ws.className = "worker-offline";
                 }
                 document.getElementById('wallet-balance').textContent = (data.worker.balance_usdc || 0).toFixed(2) + " USDC";
+
+                // Toggle Ignore Edge Decay
+                const cbEdgeDecay = document.getElementById('cb-ignore-edge-decay');
+                if (cbEdgeDecay) cbEdgeDecay.checked = !!data.ignore_edge_decay;
 
                 // Session
                 const s = data.session;
@@ -1069,6 +1082,22 @@ document.addEventListener('DOMContentLoaded', () => {
         function toggleEditLimits(show) {
             document.getElementById('session-limits-edit-block').style.display = show ? 'block' : 'none';
             document.getElementById('session-limits-block').style.display = show ? 'none' : 'block';
+        }
+
+        async function toggleIgnoreEdgeDecay(checked) {
+            const res = await fetch(window.API_BASE + '/api/execution/ignore-edge-decay', {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ enabled: checked })
+            });
+            if (res.ok) {
+                alert(checked ? "Фильтр EDGE_DECAY отключен! Сделки будут проходить даже при ухудшении цены." : "Фильтр EDGE_DECAY включен. Риск проскальзывания минимизирован.");
+                loadLiveDashboard({ force: true });
+            } else {
+                const err = await res.json();
+                alert("Ошибка: " + JSON.stringify(err));
+                document.getElementById('cb-ignore-edge-decay').checked = !checked; // revert
+            }
         }
 
         async function saveSessionLimits() {
