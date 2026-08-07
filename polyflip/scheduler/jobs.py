@@ -275,25 +275,37 @@ async def resolve_trades_job():
 
                 resolved_count += 1
 
-            # LIVE: переводим в RESOLVED_REDEEMABLE — оператор должен запустить
-            # scripts/setup_approvals.py → client.redeem_positions()
+            # LIVE: переводим в RESOLVED_REDEEMABLE или RESOLVED_LOST
             for t in live_trades:
                 raw_outcome = market_outcomes.get(t.market_id)
                 if not raw_outcome:
                     continue
                 if Decimal(str(t.entry_filled_shares or 0)) <= 0:
-                    logger.error(
-                        "resolver_skipped_zero_fill_trade",
-                        trade_id=t.id,
-                    )
+                    logger.error("resolver_skipped_zero_fill_trade", trade_id=t.id)
                     continue
-                if t.position_status not in ("RESOLVED_REDEEMABLE",):
-                    t.position_status = "RESOLVED_REDEEMABLE"
-                    logger.info(
-                        "live_position_resolved_redeemable",
-                        trade_id=t.id,
-                        winning_outcome=raw_outcome,
-                    )
+                if t.position_status not in ("RESOLVED_REDEEMABLE", "RESOLVED_LOST"):
+                    is_win = (t.outcome_bought == raw_outcome)
+                    
+                    if is_win:
+                        t.position_status = "RESOLVED_REDEEMABLE"
+                        t.redemption_status = "PENDING"
+                        payout = Decimal(str(t.remaining_shares))
+                        entry_basis = Decimal(str(t.entry_cost_usdc or 0))
+                        t.realized_pnl_usdc = payout - entry_basis
+                        t.pnl = float(t.realized_pnl_usdc)
+                        t.expected_payout_usdc = payout
+                        t.redeemable_shares = t.remaining_shares
+                    else:
+                        t.position_status = "RESOLVED_LOST"
+                        t.redemption_status = "NOT_REQUIRED"
+                        entry_basis = Decimal(str(t.entry_cost_usdc or 0))
+                        t.realized_pnl_usdc = -entry_basis
+                        t.pnl = float(t.realized_pnl_usdc)
+                        t.expected_payout_usdc = Decimal("0")
+                        t.remaining_shares = Decimal("0")
+
+                    t.settlement_outcome = raw_outcome
+                    logger.info("live_position_resolved", trade_id=t.id, status=t.position_status, winning_outcome=raw_outcome)
                     resolved_count += 1
 
             await session.commit()
