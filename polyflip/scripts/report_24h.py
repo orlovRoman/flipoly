@@ -2,7 +2,7 @@ import asyncio
 import json
 from decimal import Decimal
 from sqlalchemy import text
-from polyflip.db.session import async_session
+from polyflip.db.connection import async_session
 
 def default_json(obj):
     if isinstance(obj, Decimal):
