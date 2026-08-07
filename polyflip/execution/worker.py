@@ -165,9 +165,10 @@ async def _finish_submit_exception(
         req.error_reason = f"PAPER retry after submit error: {error}"[:2000]
         req.updated_at = now
     else:
+        is_deterministic = is_deterministic_rejection or ("invalid token" in error.lower())
         terminal_state = (
             "REJECTED"
-            if (is_deterministic_rejection or requested_mode == "PAPER")
+            if (is_deterministic or requested_mode == "PAPER")
             else "MANUAL_REVIEW_REQUIRED"
         )
         await finalize_request(
@@ -303,8 +304,25 @@ async def process_ready_requests():
         attempt_count = len((await session.execute(attempt_count_stmt)).scalars().all())
         attempt_no = attempt_count + 1
 
-        # --- CLOSE: проверка allowance, без автоматического approve ---
+        # --- CLOSE: проверка экспирации и allowance ---
         if req.intent == "CLOSE":
+            now_utc = datetime.now(timezone.utc)
+            if market and market.end_time_est and now_utc >= market.end_time_est:
+                logger.info(
+                    "market_expired_skipping_close_submit",
+                    request_id=str(req.id),
+                    market_id=req.market_id,
+                    end_time_est=str(market.end_time_est),
+                )
+                await finalize_request(
+                    session,
+                    req,
+                    state="REJECTED",
+                    error=f"MARKET_EXPIRED_AWAITING_RESOLUTION: Market ended at {market.end_time_est}",
+                )
+                await session.commit()
+                return
+
             try:
                 allowance = await gateway.get_token_allowance(token_id)
                 if allowance < (req.requested_shares or Decimal("0")):
