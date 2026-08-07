@@ -170,7 +170,9 @@ async def _finish_submit_exception(
             is_deterministic_rejection
             or ("invalid token" in err_lower)
             or ("not enough balance" in err_lower)
-            or ("allowance" in err_lower)
+            or ("insufficient allowance" in err_lower)
+            or ("allowance exceeded" in err_lower)
+            or ("erc20: insufficient allowance" in err_lower)
         )
         terminal_state = (
             "REJECTED"
@@ -1015,15 +1017,27 @@ async def reconcile_active_requests():
                 )
 
 
+_last_auto_resolve_check: datetime | None = None
+AUTO_RESOLVE_CHECK_INTERVAL_SEC = 60
+
+
 async def _auto_resolve_stuck_manual_reviews(execution_mode: str) -> None:
     """
     Автоматически закрывает зависшие MANUAL_REVIEW_REQUIRED CLOSE-заявки старше 15 минут.
     Перед REJECTED проверяются возможные fills через gateway.
-    Использует собственную изолированную сессию БД.
+    Использует собственную изолированную сессию БД с троттлингом 60 сек.
     """
+    global _last_auto_resolve_check
+    now = datetime.now(timezone.utc)
+    if (
+        _last_auto_resolve_check
+        and (now - _last_auto_resolve_check).total_seconds() < AUTO_RESOLVE_CHECK_INTERVAL_SEC
+    ):
+        return
+    _last_auto_resolve_check = now
+
     settings = ExecutionSettings()
     async with async_session() as session:
-        now = datetime.now(timezone.utc)
         manual_cutoff = now - timedelta(minutes=15)
         stmt_manual = select(ExecutionRequest).where(
             ExecutionRequest.state == "MANUAL_REVIEW_REQUIRED",
