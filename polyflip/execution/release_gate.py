@@ -57,6 +57,7 @@ from polyflip.execution.live_mirror_worker import (
     _compute_hash,
 )
 from polyflip.execution.risk_checks import check_risk_limits
+from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
 import structlog
 
 logger = structlog.get_logger("release_gate")
@@ -616,7 +617,7 @@ async def validate_live_release(
             await session.execute(
                 select(LiveTradingSession)
                 .where(LiveTradingSession.status == "ACTIVE")
-                .order_by(LiveTradingSession.started_at.desc())
+                .order_by(LiveTradingSession.started_at.desc().nulls_last())
                 .limit(1)
                 .with_for_update()
             )

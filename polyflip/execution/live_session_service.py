@@ -55,7 +55,7 @@ async def get_active_session_for_update(
         await db.execute(
             select(LiveTradingSession)
             .where(LiveTradingSession.status.in_(["DRAFT", "READY", "ACTIVE"]))
-            .order_by(LiveTradingSession.started_at.desc())
+            .order_by(LiveTradingSession.started_at.desc().nulls_last())
             .limit(1)
             .with_for_update()
         )
