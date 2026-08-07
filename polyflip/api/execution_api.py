@@ -1421,7 +1421,7 @@ async def _get_asset_analytics(
 
     conds = [
         TradeHistory.mode == mode,
-        TradeHistory.position_status.in_(["CLOSED", "RESOLVED_WON", "RESOLVED_LOST", "REDEEMED"]),
+        TradeHistory.position_status.in_(["CLOSED", "RESOLVED_WON", "RESOLVED_LOST", "REDEEMED", "RESOLVED_REDEEMABLE"]),
     ]
     if period_hours is not None:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=period_hours)
@@ -1474,7 +1474,7 @@ async def _get_strategy_analytics(
 
     conds = [
         TradeHistory.mode == mode,
-        TradeHistory.position_status.in_(["CLOSED", "RESOLVED_WON", "RESOLVED_LOST", "REDEEMED"]),
+        TradeHistory.position_status.in_(["CLOSED", "RESOLVED_WON", "RESOLVED_LOST", "REDEEMED", "RESOLVED_REDEEMABLE"]),
     ]
     if period_hours is not None:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=period_hours)
