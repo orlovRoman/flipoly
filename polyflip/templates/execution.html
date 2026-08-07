@@ -728,7 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
                     <td>${formatDateUTC(p.created_at)}</td>
-                    <td>${escapeHtml(p.asset)} (<a href="#" data-market-id="${escapeHtml(p.market_id)}" onclick="openPolymarketLink(this.dataset.marketId, event)" style="color: #63b3ed; text-decoration: none;" title="Открыть на Polymarket">${escapeHtml(p.market_id.substring(0, 8))}... ↗</a>)</td>
+                    <td>${escapeHtml(p.asset)} (<a href="#" data-market-id="${escapeHtml(p.market_id)}" data-asset="${escapeHtml(p.asset)}" onclick="openPolymarketLink(this, event)" style="color: #63b3ed; text-decoration: none;" title="Открыть на Polymarket">${escapeHtml(p.market_id.substring(0, 8))}... ↗</a>)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
                     <td>${(p.remaining_shares || 0).toFixed(2)}</td>
@@ -765,7 +765,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
                     <td>${formatDateUTC(p.created_at)}</td>
-                    <td>${escapeHtml(p.asset)} (<a href="#" data-market-id="${escapeHtml(p.market_id)}" onclick="openPolymarketLink(this.dataset.marketId, event)" style="color: #63b3ed; text-decoration: none;" title="Открыть на Polymarket">${escapeHtml(p.market_id.substring(0, 8))}... ↗</a>)</td>
+                    <td>${escapeHtml(p.asset)} (<a href="#" data-market-id="${escapeHtml(p.market_id)}" data-asset="${escapeHtml(p.asset)}" onclick="openPolymarketLink(this, event)" style="color: #63b3ed; text-decoration: none;" title="Открыть на Polymarket">${escapeHtml(p.market_id.substring(0, 8))}... ↗</a>)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
                     <td>${(p.remaining_shares || 0).toFixed(2)}</td>
@@ -790,7 +790,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
                     <td>${formatDateUTC(p.created_at)}</td>
-                    <td>${escapeHtml(p.asset)} (<a href="#" data-market-id="${escapeHtml(p.market_id)}" onclick="openPolymarketLink(this.dataset.marketId, event)" style="color: #63b3ed; text-decoration: none;" title="Открыть на Polymarket">${escapeHtml(p.market_id.substring(0, 8))}... ↗</a>)</td>
+                    <td>${escapeHtml(p.asset)} (<a href="#" data-market-id="${escapeHtml(p.market_id)}" data-asset="${escapeHtml(p.asset)}" onclick="openPolymarketLink(this, event)" style="color: #63b3ed; text-decoration: none;" title="Открыть на Polymarket">${escapeHtml(p.market_id.substring(0, 8))}... ↗</a>)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
                     <td>${(p.remaining_shares || 0).toFixed(2)}</td>
@@ -1189,18 +1189,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         dashboardRefreshLoop();
 
-        async function openPolymarketLink(marketId, event) {
+        async function openPolymarketLink(el, event) {
             event.preventDefault();
-            const fallbackUrl = `https://polymarket.com/markets?search=${encodeURIComponent(marketId)}`;
+            const marketId = el.dataset.marketId;
+            const asset = el.dataset.asset || marketId;
+            const fallbackUrl = `https://polymarket.com/?search=${encodeURIComponent(asset)}`;
+            
             try {
-                const res = await fetch(`https://gamma-api.polymarket.com/events?market_id=${encodeURIComponent(marketId)}`);
+                const res = await fetch(`https://gamma-api.polymarket.com/markets/${marketId}`);
                 if (!res.ok) {
                     window.open(fallbackUrl, '_blank');
                     return;
                 }
-                const data = await res.json();
-                if (data && data.length > 0 && data[0].slug) {
-                    window.open(`https://polymarket.com/event/${data[0].slug}`, '_blank');
+                const marketData = await res.json();
+                
+                let slug = marketData.slug || marketData.market_slug;
+                if (slug) {
+                    window.open(`https://polymarket.com/market/${slug}`, '_blank');
+                } else if (marketData.eventSlug) {
+                    window.open(`https://polymarket.com/event/${marketData.eventSlug}`, '_blank');
                 } else {
                     window.open(fallbackUrl, '_blank');
                 }
