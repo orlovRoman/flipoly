@@ -304,9 +304,12 @@ async def get_trade_logs(
         # Latest decision_run_id log takes precedence
         funnel_map = {f.decision_run_id: f for f in funnel_res.scalars().all()}
 
-    from polyflip.api.settings import get_all_settings
-
-    settings_dict = await get_all_settings(db=db)
+    settings_res = await db.execute(
+        select(RuntimeSettings.key, RuntimeSettings.value).where(
+            RuntimeSettings.key.like("TRADING_MODE%")
+        )
+    )
+    settings_dict = {k: v for k, v in settings_res.all()}
 
     items = []
     for log, question, end_time_est in logs_with_questions:
