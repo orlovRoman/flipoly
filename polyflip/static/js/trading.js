@@ -1081,8 +1081,17 @@ document.addEventListener("DOMContentLoaded", () => {
             timeLeftStr = `${String(minutes).padStart(2, '0')}:00 (offset)`;
         }
 
+        const isLiveTrade = log.mode === "LIVE";
+        const trStyle = isLiveTrade
+            ? 'background: rgba(229, 62, 62, 0.16); border-left: 4px solid #e53e3e; border-bottom: 1px solid rgba(229, 62, 62, 0.3);'
+            : 'border-bottom: 1px solid rgba(255,255,255,0.05);';
+        
+        const liveBadge = isLiveTrade
+            ? '<span style="background: #e53e3e; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 800; font-size: 0.75rem; margin-right: 6px; letter-spacing: 0.5px; box-shadow: 0 0 8px rgba(229,62,62,0.8);">🔥 LIVE</span>'
+            : '';
+
         rows.push(`
-                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                    <tr style="${trStyle}">
                         <td style="padding: 8px; color: var(--text-muted); font-family: monospace;">${timeLeftStr}</td>
                         <td style="padding: 8px; color: var(--text-muted);">${timeStr}</td>
                         <td style="padding: 8px;"><a href="#" class="market-link" data-market-id="${log.market_id}" data-asset="${escapeHtml(log.asset)}" style="color: var(--text-main); text-decoration: underline; cursor: pointer;">${escapeHtml(log.question)}</a></td>
@@ -1091,7 +1100,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             ${(lgbmName && lgbmName !== "LightGBM") ? `<br><span style="font-size:0.85em; color:var(--poly-blue);">${lgbmName}</span>` : (isCrypto && log.model_version ? `<br><span style="font-size:0.85em; color:var(--poly-blue);">LightGBM v${log.model_version}</span>` : "")}
                         </td>
                         <td style="padding: 8px; color: var(--poly-blue);">${logregDisplayHTML}</td>
-                        <td style="padding: 8px; color: ${statusColor};">${displayStatus}</td>
+                        <td style="padding: 8px; color: ${statusColor};">${liveBadge}${displayStatus}</td>
                         <td style="padding: 8px;">${betTypeHtml}</td>
                         <td style="padding: 8px; font-weight: bold; color: var(--text-main);">${betText}</td>
                         <td style="padding: 8px;">${parseFloat(log.executed_price) > 0 ? "$" + parseFloat(log.executed_price).toFixed(3) : "-"}</td>

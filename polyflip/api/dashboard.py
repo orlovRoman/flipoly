@@ -269,22 +269,12 @@ async def get_trade_logs(
 
     from sqlalchemy import text
 
-    try:
-        est_stmt = text(
-            "SELECT reltuples::bigint FROM pg_class WHERE relname = 'trade_history'"
-        )
-        total = (await db.execute(est_stmt)).scalar()
-        if total is None or total <= 0:
-            count_stmt = select(func.count(TradeHistory.id))
-            total = (await db.execute(count_stmt)).scalar_one()
-    except Exception:
-        count_stmt = select(func.count(TradeHistory.id))
-        total = (await db.execute(count_stmt)).scalar_one()
+    count_stmt = select(func.count(TradeHistory.id))
+    total = (await db.execute(count_stmt)).scalar_one()
 
     stmt = (
-        select(TradeHistory, LiveMarket.question, LiveMarket.end_time_est, DecisionFunnelLog)
+        select(TradeHistory, LiveMarket.question, LiveMarket.end_time_est)
         .outerjoin(LiveMarket, TradeHistory.market_id == LiveMarket.market_id)
-        .outerjoin(DecisionFunnelLog, and_(TradeHistory.decision_run_id.is_not(None), TradeHistory.decision_run_id == DecisionFunnelLog.decision_run_id))
         .order_by(TradeHistory.created_at.desc())
         .offset(offset)
         .limit(page_size)
@@ -292,12 +282,21 @@ async def get_trade_logs(
     result = await db.execute(stmt)
     logs_with_questions = result.all()
 
-    from polyflip.api.settings import get_all_settings
-
-    settings_dict = await get_all_settings(db=db)
+    decision_run_ids = [
+        log.decision_run_id for log, _, _ in logs_with_questions if log.decision_run_id
+    ]
+    funnel_map = {}
+    if decision_run_ids:
+        funnel_res = await db.execute(
+            select(DecisionFunnelLog).where(
+                DecisionFunnelLog.decision_run_id.in_(decision_run_ids)
+            )
+        )
+        funnel_map = {f.decision_run_id: f for f in funnel_res.scalars().all()}
 
     items = []
-    for log, question, end_time_est, funnel in logs_with_questions:
+    for log, question, end_time_est in logs_with_questions:
+        funnel = funnel_map.get(log.decision_run_id)
         active_feat = getattr(log, "active_features", None)
         if not active_feat and log.status == "SKIPPED":
             base_asset = (
