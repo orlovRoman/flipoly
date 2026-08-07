@@ -20,7 +20,8 @@ from polyflip.db.execution_models import (
     ExecutionFill,
     ExecutionWorkerStatus,
 )
-from polyflip.db.models import LiveMarket, TradeHistory
+from polyflip.db.models import LiveMarket, TradeHistory, RuntimeSettings
+from polyflip.execution.order_strategies import execute_gtc_ttl, execute_fak_retry
 from polyflip.execution.config import ExecutionSettings
 from polyflip.execution.gateways.factory import build_execution_gateway
 from polyflip.execution.contracts import GatewayOrder, GatewayUnavailable
@@ -405,9 +406,6 @@ async def process_ready_requests():
                 requested_shares=req.requested_shares or Decimal("0"),
                 max_spend_usdc=max_spend_usdc,
             )
-            from polyflip.db.models import RuntimeSettings
-            from polyflip.execution.order_strategies import execute_gtc_ttl, execute_fak_retry
-
             order_mode = "FAK"
             gtc_ttl_sec = 5.0
             retry_attempts = 3
@@ -415,29 +413,26 @@ async def process_ready_requests():
 
             if req.requested_mode == "LIVE":
                 try:
-                    mode_val = await session.scalar(
-                        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_ORDER_MODE")
+                    settings_res = await session.execute(
+                        select(RuntimeSettings.key, RuntimeSettings.value).where(
+                            RuntimeSettings.key.in_([
+                                "LIVE_ORDER_MODE",
+                                "LIVE_GTC_TTL_SECONDS",
+                                "LIVE_FAK_RETRY_MAX_ATTEMPTS",
+                                "LIVE_FAK_RETRY_DELAY_SEC",
+                            ])
+                        )
                     )
-                    if mode_val:
-                        order_mode = mode_val.strip().upper()
+                    settings_dict = {row.key: row.value for row in settings_res.all()}
 
-                    ttl_val = await session.scalar(
-                        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_GTC_TTL_SECONDS")
-                    )
-                    if ttl_val:
-                        gtc_ttl_sec = float(ttl_val)
-
-                    attempts_val = await session.scalar(
-                        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_FAK_RETRY_MAX_ATTEMPTS")
-                    )
-                    if attempts_val:
-                        retry_attempts = int(attempts_val)
-
-                    delay_val = await session.scalar(
-                        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_FAK_RETRY_DELAY_SEC")
-                    )
-                    if delay_val:
-                        retry_delay = float(delay_val)
+                    if "LIVE_ORDER_MODE" in settings_dict and settings_dict["LIVE_ORDER_MODE"]:
+                        order_mode = settings_dict["LIVE_ORDER_MODE"].strip().upper()
+                    if "LIVE_GTC_TTL_SECONDS" in settings_dict and settings_dict["LIVE_GTC_TTL_SECONDS"]:
+                        gtc_ttl_sec = float(settings_dict["LIVE_GTC_TTL_SECONDS"])
+                    if "LIVE_FAK_RETRY_MAX_ATTEMPTS" in settings_dict and settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"]:
+                        retry_attempts = int(settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"])
+                    if "LIVE_FAK_RETRY_DELAY_SEC" in settings_dict and settings_dict["LIVE_FAK_RETRY_DELAY_SEC"]:
+                        retry_delay = float(settings_dict["LIVE_FAK_RETRY_DELAY_SEC"])
                 except Exception as setting_err:
                     logger.warning("order_mode_settings_read_failed", error=str(setting_err))
 

@@ -249,8 +249,9 @@ class PolymarketExecutionGateway:
                 await client.cancel_order(order_id=provider_order_id)
             elif hasattr(client, "cancel"):
                 await client.cancel(order_id=provider_order_id)
-            elif hasattr(client, "cancel_all"):
-                await client.cancel_all()
+            else:
+                logger.error("cancel_order_not_supported_by_client", provider_order_id=provider_order_id)
+                return False
             return True
         except Exception as e:
             logger.warning("cancel_order_failed", provider_order_id=provider_order_id, error=str(e))
