@@ -34,7 +34,7 @@ async def main():
         t_stmt = text("""
             SELECT 
                 asset,
-                COALESCE(model_version, 'N/A') as model_version,
+                COALESCE(CAST(model_version AS text), 'N/A') as model_version,
                 COUNT(*) as total_records,
                 COUNT(CASE WHEN status = 'SUCCESS' THEN 1 END) as executed_trades,
                 COUNT(CASE WHEN pnl > 0 THEN 1 END) as win_count,
@@ -52,7 +52,7 @@ async def main():
         t24_stmt = text("""
             SELECT 
                 asset,
-                COALESCE(model_version, 'N/A') as model_version,
+                COALESCE(CAST(model_version AS text), 'N/A') as model_version,
                 COUNT(*) as total_records,
                 COUNT(CASE WHEN status = 'SUCCESS' THEN 1 END) as executed_trades,
                 COUNT(CASE WHEN pnl > 0 THEN 1 END) as win_count,
