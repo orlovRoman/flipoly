@@ -460,7 +460,7 @@ if (typeof translateError === 'undefined') {
                     document.getElementById('budget-progress').value = pct;
 
                     if (s.is_stopped) {
-                        document.getElementById('session-create-form').style.display = 'block';
+                        document.getElementById('session-create-form').style.display = 'grid';
                         let banner = document.getElementById('stopped-session-banner');
                         if (!banner) {
                             banner = document.createElement('div');
@@ -498,7 +498,7 @@ if (typeof translateError === 'undefined') {
                     }
 
                     // Button visibility
-                    document.getElementById('btn-create-session').style.display = 'none';
+                    document.getElementById('btn-create-session').style.display = s.is_stopped ? 'inline-block' : 'none';
 
                     function configureAction(buttonId, enabled, reason) {
                         const button = document.getElementById(buttonId);
