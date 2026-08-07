@@ -223,6 +223,13 @@ class SwitchReleaseModeRequest(BaseModel):
     mode: Literal["DISABLED", "MANUAL", "AUTO"]
 
 
+async def _get_runtime_flag(db: AsyncSession, key: str, default: str = "false") -> str:
+    row = (
+        await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))
+    ).scalar_one_or_none()
+    return row.value if row else default
+
+
 async def _set_runtime_flag(db: AsyncSession, key: str, value: str) -> None:
     now = datetime.now(timezone.utc)
     existing = (
@@ -291,7 +298,12 @@ async def toggle_ignore_edge_decay(
     Отключает или включает проверку release_net_edge < combined_min_net_edge в release_gate.
     """
     await _set_runtime_flag(db, "LIVE_IGNORE_EDGE_DECAY", str(payload.enabled).lower())
-    logger.info("ignore_edge_decay_toggled", enabled=payload.enabled)
+    logger.info(
+        "ignore_edge_decay_toggled",
+        enabled=payload.enabled,
+        updated_by="user_api",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
     return {"status": "ok", "LIVE_IGNORE_EDGE_DECAY": payload.enabled}
 
 
@@ -1430,7 +1442,7 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
             if readiness
             else None
         ),
-        "ignore_edge_decay": await _flag("LIVE_IGNORE_EDGE_DECAY"),
+        "ignore_edge_decay": (await _get_runtime_flag(db, "LIVE_IGNORE_EDGE_DECAY")).lower() == "true",
         "session": (
             serialize_live_session_dto(active_session, budget_snap)
             if active_session

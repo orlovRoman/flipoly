@@ -303,7 +303,7 @@ async def resolve_trades_job():
                         t.pnl = float(t.realized_pnl_usdc)
                         t.expected_payout_usdc = Decimal("0")
                         
-                        if (t.remaining_shares or 0) > 0:
+                        if t.remaining_shares is None or t.remaining_shares > Decimal("0"):
                             t.remaining_shares = Decimal("0")
 
                     t.settlement_outcome = raw_outcome

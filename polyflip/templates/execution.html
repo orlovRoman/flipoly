@@ -216,6 +216,7 @@
                         <span style="font-size: 0.9rem; font-weight: 600;">Игнорировать проскальзывание (отключить проверку EDGE_DECAY)</span>
                     </label>
                     <div style="font-size: 0.75rem; color: #e53e3e; margin-top: 4px; margin-left: 24px;">Внимание: Отключение фильтра может привести к покупкам по невыгодной цене, если цена в стакане уже сдвинулась против нас!</div>
+                    <div id="edge-decay-status-msg" style="font-size: 0.8rem; margin-top: 4px; margin-left: 24px; font-weight: 500;"></div>
                 </div>
 
                 <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px;">
@@ -453,7 +454,7 @@ if (typeof translateError === 'undefined') {
 
                 // Toggle Ignore Edge Decay
                 const cbEdgeDecay = document.getElementById('cb-ignore-edge-decay');
-                if (cbEdgeDecay) cbEdgeDecay.checked = !!data.ignore_edge_decay;
+                if (cbEdgeDecay) cbEdgeDecay.checked = data.ignore_edge_decay === true || data.ignore_edge_decay === "true";
 
                 // Session
                 const s = data.session;
@@ -1085,18 +1086,45 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         async function toggleIgnoreEdgeDecay(checked) {
-            const res = await fetch(window.API_BASE + '/api/execution/ignore-edge-decay', {
-                method: 'PUT',
-                headers: getAuthHeaders(),
-                body: JSON.stringify({ enabled: checked })
-            });
-            if (res.ok) {
-                alert(checked ? "Фильтр EDGE_DECAY отключен! Сделки будут проходить даже при ухудшении цены." : "Фильтр EDGE_DECAY включен. Риск проскальзывания минимизирован.");
-                loadLiveDashboard({ force: true });
-            } else {
-                const err = await res.json();
-                alert("Ошибка: " + JSON.stringify(err));
-                document.getElementById('cb-ignore-edge-decay').checked = !checked; // revert
+            const msgEl = document.getElementById('edge-decay-status-msg');
+            if (checked) {
+                const confirmed = confirm(
+                    "⚠️ ВНИМАНИЕ: Вы отключаете проверку edge decay.\n" +
+                    "Сделки будут проходить даже при ухудшении цены!\n\n" +
+                    "Вы уверены?"
+                );
+                if (!confirmed) {
+                    document.getElementById('cb-ignore-edge-decay').checked = false;
+                    return;
+                }
+            }
+            try {
+                const res = await fetch(window.API_BASE + '/api/execution/ignore-edge-decay', {
+                    method: 'PUT',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ enabled: checked })
+                });
+                if (res.ok) {
+                    if (msgEl) {
+                        msgEl.style.color = checked ? '#e53e3e' : '#38a169';
+                        msgEl.textContent = checked ? "⚠️ Фильтр EDGE_DECAY отключен!" : "✓ Фильтр EDGE_DECAY включен.";
+                        setTimeout(() => { if (msgEl) msgEl.textContent = ""; }, 5000);
+                    }
+                    loadLiveDashboard({ force: true });
+                } else {
+                    const err = await res.json();
+                    if (msgEl) {
+                        msgEl.style.color = '#e53e3e';
+                        msgEl.textContent = "Ошибка: " + (err.detail || JSON.stringify(err));
+                    }
+                    document.getElementById('cb-ignore-edge-decay').checked = !checked;
+                }
+            } catch (e) {
+                if (msgEl) {
+                    msgEl.style.color = '#e53e3e';
+                    msgEl.textContent = "Сетевая ошибка: " + e.message;
+                }
+                document.getElementById('cb-ignore-edge-decay').checked = !checked;
             }
         }
 

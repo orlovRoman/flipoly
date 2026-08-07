@@ -181,11 +181,19 @@ async def release_batch(
     if not candidate_ids:
         return 0
 
-    released = 0
+    ignore_edge_decay_val = await session.scalar(
+        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_IGNORE_EDGE_DECAY")
+    )
+    ignore_edge_decay = (
+        ignore_edge_decay_val is not None
+        and ignore_edge_decay_val.strip().lower() == "true"
+    )
 
     for candidate_id in candidate_ids:
         try:
-            success = await release_candidate_by_id(session, candidate_id, target_mode, api_client)
+            success = await release_candidate_by_id(
+                session, candidate_id, target_mode, api_client, ignore_edge_decay=ignore_edge_decay
+            )
             if success:
                 released += 1
             else:
@@ -214,6 +222,7 @@ async def release_candidate_by_id(
     candidate_id: uuid.UUID,
     target_mode: str,
     api_client: Any = None,
+    ignore_edge_decay: bool = False,
 ) -> bool:
     """
     Получает snapshot кандидата без блокировки, запрашивает котировки вне блокировки,
@@ -310,7 +319,9 @@ async def release_candidate_by_id(
         logger.info(f"Candidate {candidate_id} changed signal_hash during API call")
         return False
 
-    return await _release_one_locked(session, candidate, target_mode, api_client, fresh_prices)
+    return await _release_one_locked(
+        session, candidate, target_mode, api_client, fresh_prices, ignore_edge_decay=ignore_edge_decay
+    )
 
 
 async def _release_one_locked(
@@ -319,6 +330,7 @@ async def _release_one_locked(
     target_mode: str,
     api_client: Any = None,
     fresh_prices: dict | None = None,
+    ignore_edge_decay: bool = False,
 ) -> bool:
     """
     Валидирует и атомарно выпускает заблокированного кандидата.
@@ -366,7 +378,7 @@ async def _release_one_locked(
     # 2. Валидация выпуска
     try:
         release_plan = await validate_live_release(
-            session, candidate, paper_request, paper_trade, target_mode, api_client, fresh_prices
+            session, candidate, paper_request, paper_trade, target_mode, api_client, fresh_prices, ignore_edge_decay=ignore_edge_decay
         )
     except ReleaseDeferred as e:
         logger.info("Deferred release for candidate %s: %s", candidate.id, e)
@@ -469,6 +481,7 @@ async def validate_live_release(
     target_mode: str,
     api_client: Any = None,
     fresh_prices: dict | None = None,
+    ignore_edge_decay: bool = False,
 ) -> LiveReleasePlan | Decimal:
     """
     Проверяет, можно ли сейчас выпустить кандидата в LIVE-исполнение (или SHADOW).
@@ -569,9 +582,6 @@ async def validate_live_release(
         release_net_edge = release_gross_edge - cost_buffer
         
         # Check if edge decay rejection is disabled globally
-        ignore_edge_decay_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_IGNORE_EDGE_DECAY"))
-        ignore_edge_decay = ignore_edge_decay_val is not None and ignore_edge_decay_val.strip().lower() == "true"
-
         if release_net_edge < combined_min_net_edge:
             if not ignore_edge_decay:
                 raise ReleaseRejected(
