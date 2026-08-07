@@ -133,7 +133,7 @@ class PolymarketExecutionGateway:
                 error=str(exc),
             )
 
-    async def submit(self, order: GatewayOrder) -> SubmissionResult:
+    async def submit(self, order: GatewayOrder, order_type: str = "FAK") -> SubmissionResult:
         client = await self.get_client()
         if not client:
             raise GatewayUnavailable("Polymarket client not initialized")
@@ -149,7 +149,7 @@ class PolymarketExecutionGateway:
                     amount=amount_limit,
                     max_spend=amount_limit,
                     max_price=str(order.limit_price),
-                    order_type="FAK",
+                    order_type=order_type,
                 )
             else:
                 resp = await client.place_market_order(
@@ -157,7 +157,7 @@ class PolymarketExecutionGateway:
                     side="SELL",
                     shares=str(order.requested_shares),
                     min_price=str(order.limit_price),
-                    order_type="FAK",
+                    order_type=order_type,
                 )
 
             if not getattr(resp, "ok", False):
@@ -239,6 +239,22 @@ class PolymarketExecutionGateway:
             raise GatewayUnavailable(
                 f"Unexpected Polymarket submission error: {e}"
             ) from e
+
+    async def cancel_order(self, provider_order_id: str) -> bool:
+        client = await self.get_client()
+        if not client:
+            return False
+        try:
+            if hasattr(client, "cancel_order"):
+                await client.cancel_order(order_id=provider_order_id)
+            elif hasattr(client, "cancel"):
+                await client.cancel(order_id=provider_order_id)
+            elif hasattr(client, "cancel_all"):
+                await client.cancel_all()
+            return True
+        except Exception as e:
+            logger.warning("cancel_order_failed", provider_order_id=provider_order_id, error=str(e))
+            return False
 
     async def get_order(self, provider_order_id: str) -> SubmissionResult:
         client = await self.get_client()

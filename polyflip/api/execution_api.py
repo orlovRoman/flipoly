@@ -311,6 +311,63 @@ async def toggle_ignore_edge_decay(
     return {"status": "ok", "LIVE_IGNORE_EDGE_DECAY": payload.enabled}
 
 
+class SwitchOrderModeRequest(BaseModel):
+    mode: Literal["FAK", "GTC_TTL", "FAK_RETRY"]
+    gtc_ttl_seconds: Optional[float] = Field(None, ge=1.0, le=60.0)
+    fak_retry_max_attempts: Optional[int] = Field(None, ge=1, le=10)
+    fak_retry_delay_sec: Optional[float] = Field(None, ge=0.1, le=5.0)
+
+
+@router.get("/order-mode", summary="Получить режим и параметры исполнения ордеров")
+async def get_order_mode(db: AsyncSession = Depends(get_db_session)):
+    mode = await _get_runtime_flag(db, "LIVE_ORDER_MODE", default="FAK")
+    gtc_ttl = await _get_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", default="5.0")
+    retry_attempts = await _get_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", default="3")
+    retry_delay = await _get_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", default="0.75")
+    return {
+        "mode": mode.upper(),
+        "gtc_ttl_seconds": float(gtc_ttl),
+        "fak_retry_max_attempts": int(retry_attempts),
+        "fak_retry_delay_sec": float(retry_delay),
+    }
+
+
+@router.put("/order-mode", summary="Установить режим и параметры исполнения ордеров")
+async def set_order_mode(
+    payload: SwitchOrderModeRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+):
+    client_ip = request.client.host if request.client else "unknown"
+    api_key = request.headers.get("X-API-Key") or "session"
+    
+    await _set_runtime_flag(db, "LIVE_ORDER_MODE", payload.mode.upper())
+    if payload.gtc_ttl_seconds is not None:
+        await _set_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", str(payload.gtc_ttl_seconds))
+    if payload.fak_retry_max_attempts is not None:
+        await _set_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", str(payload.fak_retry_max_attempts))
+    if payload.fak_retry_delay_sec is not None:
+        await _set_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", str(payload.fak_retry_delay_sec))
+
+    logger.info(
+        "order_mode_changed",
+        mode=payload.mode,
+        gtc_ttl_seconds=payload.gtc_ttl_seconds,
+        fak_retry_max_attempts=payload.fak_retry_max_attempts,
+        fak_retry_delay_sec=payload.fak_retry_delay_sec,
+        client_ip=client_ip,
+        api_key_prefix=api_key[:8] if api_key else "unknown",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+    return {
+        "status": "ok",
+        "mode": payload.mode.upper(),
+        "gtc_ttl_seconds": payload.gtc_ttl_seconds or float(await _get_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", default="5.0")),
+        "fak_retry_max_attempts": payload.fak_retry_max_attempts or int(await _get_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", default="3")),
+        "fak_retry_delay_sec": payload.fak_retry_delay_sec or float(await _get_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", default="0.75")),
+    }
+
+
 @router.get("/candidates", summary="Просмотр LiveMirrorCandidate")
 async def get_mirror_candidates(
     state: Optional[str] = Query(
@@ -1447,6 +1504,12 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
             else None
         ),
         "ignore_edge_decay": (await _get_runtime_flag(db, "LIVE_IGNORE_EDGE_DECAY")).lower() == "true",
+        "order_mode_config": {
+            "mode": (await _get_runtime_flag(db, "LIVE_ORDER_MODE", default="FAK")).upper(),
+            "gtc_ttl_seconds": float(await _get_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", default="5.0")),
+            "fak_retry_max_attempts": int(await _get_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", default="3")),
+            "fak_retry_delay_sec": float(await _get_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", default="0.75")),
+        },
         "session": (
             serialize_live_session_dto(active_session, budget_snap)
             if active_session

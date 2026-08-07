@@ -405,7 +405,52 @@ async def process_ready_requests():
                 requested_shares=req.requested_shares or Decimal("0"),
                 max_spend_usdc=max_spend_usdc,
             )
-            sub_res = await gateway.submit(order)
+            from polyflip.db.models import RuntimeSettings
+            from polyflip.execution.order_strategies import execute_gtc_ttl, execute_fak_retry
+
+            order_mode = "FAK"
+            gtc_ttl_sec = 5.0
+            retry_attempts = 3
+            retry_delay = 0.75
+
+            if req.requested_mode == "LIVE":
+                try:
+                    mode_val = await session.scalar(
+                        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_ORDER_MODE")
+                    )
+                    if mode_val:
+                        order_mode = mode_val.strip().upper()
+
+                    ttl_val = await session.scalar(
+                        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_GTC_TTL_SECONDS")
+                    )
+                    if ttl_val:
+                        gtc_ttl_sec = float(ttl_val)
+
+                    attempts_val = await session.scalar(
+                        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_FAK_RETRY_MAX_ATTEMPTS")
+                    )
+                    if attempts_val:
+                        retry_attempts = int(attempts_val)
+
+                    delay_val = await session.scalar(
+                        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_FAK_RETRY_DELAY_SEC")
+                    )
+                    if delay_val:
+                        retry_delay = float(delay_val)
+                except Exception as setting_err:
+                    logger.warning("order_mode_settings_read_failed", error=str(setting_err))
+
+            if order_mode == "GTC_TTL":
+                sub_res = await execute_gtc_ttl(gateway, order, ttl_seconds=gtc_ttl_sec)
+            elif order_mode == "FAK_RETRY":
+                api_client_retry = api_client if api_client else None
+                sub_res = await execute_fak_retry(
+                    gateway, order, api_client=api_client_retry, max_attempts=retry_attempts, delay_seconds=retry_delay
+                )
+            else:
+                sub_res = await gateway.submit(order)
+
             attempt.finished_at = datetime.now(timezone.utc)
             attempt.provider_order_id = sub_res.provider_order_id
             attempt.provider_status = sub_res.provider_status
