@@ -42,7 +42,7 @@ async def main():
                 ROUND(CAST(COALESCE(SUM(pnl), 0) AS numeric), 2) as total_pnl_usdc,
                 ROUND(CAST(COALESCE(SUM(amount_usdc), 0) AS numeric), 2) as total_volume_usdc
             FROM trade_history
-            GROUP BY asset, COALESCE(model_version, 'N/A')
+            GROUP BY asset, COALESCE(CAST(model_version AS text), 'N/A')
             ORDER BY asset, total_pnl_usdc DESC;
         """)
         trades_res = await s.execute(t_stmt)
@@ -60,7 +60,7 @@ async def main():
                 ROUND(CAST(COALESCE(SUM(pnl), 0) AS numeric), 2) as total_pnl_24h
             FROM trade_history
             WHERE created_at >= NOW() - INTERVAL '24 hours'
-            GROUP BY asset, COALESCE(model_version, 'N/A')
+            GROUP BY asset, COALESCE(CAST(model_version AS text), 'N/A')
             ORDER BY asset, total_pnl_24h DESC;
         """)
         trades24_res = await s.execute(t24_stmt)
