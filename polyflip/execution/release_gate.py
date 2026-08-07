@@ -286,10 +286,7 @@ async def release_candidate_by_id(
                             break
                     except Exception as e:
                         logger.warning(
-                            "release_gate_quote_fetch_failed",
-                            token_id=token_id,
-                            attempt=attempt,
-                            error=str(e),
+                            f"release_gate_quote_fetch_failed token_id={token_id} attempt={attempt} error={e}"
                         )
                     if attempt == 0:
                         import asyncio
@@ -520,14 +517,18 @@ async def validate_live_release(
     if _compute_hash(current_snapshot) != candidate.signal_hash:
         raise ReleaseRejected("signal snapshot hash mismatch")
 
-    # 3. Возраст сигнала: не старше 30 секунд от updated_at/created_at
+    # 3. Возраст сигнала: не старше LIVE_MAX_SIGNAL_AGE_SEC секунд (дефолт 60s) от updated_at/created_at
     created_or_updated = paper_request.updated_at or paper_request.created_at
     if created_or_updated:
         if created_or_updated.tzinfo is None:
             created_or_updated = created_or_updated.replace(tzinfo=timezone.utc)
         age_sec = (now - created_or_updated).total_seconds()
-        if age_sec > 30:
-            raise ReleaseRejected(f"Signal is too old ({age_sec:.1f}s > 30s)")
+        max_age_val = await session.scalar(
+            select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_MAX_SIGNAL_AGE_SEC")
+        )
+        max_age_sec = float(max_age_val) if max_age_val is not None else 60.0
+        if age_sec > max_age_sec:
+            raise ReleaseRejected(f"Signal is too old ({age_sec:.1f}s > {max_age_sec:.1f}s)")
 
     # 4. Проверка окончания рынка
     if paper_trade.market_end_time:
@@ -564,6 +565,15 @@ async def validate_live_release(
     release_net_edge = None
     
     if "COMBINED" in active_features:
+        # Читаем флаг отключения проверки проскальзывания из RuntimeSettings
+        ignore_edge_decay_val = await session.scalar(
+            select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_IGNORE_EDGE_DECAY")
+        )
+        ignore_edge_decay = (
+            ignore_edge_decay_val is not None
+            and ignore_edge_decay_val.strip().lower() == "true"
+        )
+
         # Читаем нужные Edge из RuntimeSettings (те же ключи, что обновляет дашборд)
         min_edge_fav_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "FAVORITE_MIN_EDGE"))
         min_edge_out_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "OUTS_MIN_EDGE"))
@@ -592,8 +602,7 @@ async def validate_live_release(
                 )
             else:
                 logger.warning(
-                    "EDGE_DECAYED_BEFORE_RELEASE: %s < %s, but LIVE_IGNORE_EDGE_DECAY is true. Proceeding anyway.",
-                    release_net_edge, combined_min_net_edge
+                    f"EDGE_DECAYED_BEFORE_RELEASE: {release_net_edge:.4f} < {combined_min_net_edge:.4f}, but LIVE_IGNORE_EDGE_DECAY is true. Proceeding anyway."
                 )
 
     # 5. Проверки для LIVE режима (kill-switch, worker, gateway, allowance, balance, session)
