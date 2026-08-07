@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 from sqlalchemy import select, func
@@ -292,16 +292,20 @@ async def set_release_mode(
 )
 async def toggle_ignore_edge_decay(
     payload: SwitchBoolRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ):
     """
     Отключает или включает проверку release_net_edge < combined_min_net_edge в release_gate.
     """
+    client_ip = request.client.host if request.client else "unknown"
+    api_key = request.headers.get("X-API-Key") or "session"
     await _set_runtime_flag(db, "LIVE_IGNORE_EDGE_DECAY", str(payload.enabled).lower())
     logger.info(
         "ignore_edge_decay_toggled",
         enabled=payload.enabled,
-        updated_by="user_api",
+        client_ip=client_ip,
+        api_key_prefix=api_key[:8] if api_key else "unknown",
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
     return {"status": "ok", "LIVE_IGNORE_EDGE_DECAY": payload.enabled}

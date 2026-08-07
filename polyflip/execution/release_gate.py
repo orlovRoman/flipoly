@@ -189,6 +189,8 @@ async def release_batch(
         and ignore_edge_decay_val.strip().lower() == "true"
     )
 
+    released = 0
+
     for candidate_id in candidate_ids:
         try:
             success = await release_candidate_by_id(
