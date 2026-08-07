@@ -522,8 +522,14 @@ if (typeof translateError === 'undefined') {
                     const pct = s.budget_usdc > 0 ? (s.committed_usdc / s.budget_usdc) * 100 : 0;
                     document.getElementById('budget-progress').value = pct;
 
+                    window.lastSessionIsStopped = s.is_stopped;
+                    const editBlock = document.getElementById('session-limits-edit-block');
+                    const currentlyEditing = editBlock && editBlock.style.display !== 'none';
+
                     if (s.is_stopped) {
-                        document.getElementById('session-create-form').style.display = 'grid';
+                        if (!currentlyEditing) {
+                            document.getElementById('session-create-form').style.display = 'grid';
+                        }
                         let banner = document.getElementById('stopped-session-banner');
                         if (!banner) {
                             banner = document.createElement('div');
@@ -549,11 +555,13 @@ if (typeof translateError === 'undefined') {
                     if (btnEdit) {
                         if (s.status === 'DRAFT' || s.status === 'READY' || s.status === 'STOPPED') {
                             btnEdit.style.display = 'inline-block';
-                            document.getElementById('edit-order-amount').value = s.order_amount_usdc !== null ? s.order_amount_usdc : "";
-                            document.getElementById('edit-budget').value = s.budget_usdc;
-                            document.getElementById('edit-max-order').value = s.max_single_order_usdc;
-                            document.getElementById('edit-max-exposure').value = s.max_total_exposure_usdc;
-                            document.getElementById('edit-max-positions').value = s.max_open_positions;
+                            if (!currentlyEditing) {
+                                document.getElementById('edit-order-amount').value = s.order_amount_usdc !== null ? s.order_amount_usdc : "";
+                                document.getElementById('edit-budget').value = s.budget_usdc;
+                                document.getElementById('edit-max-order').value = s.max_single_order_usdc;
+                                document.getElementById('edit-max-exposure').value = s.max_total_exposure_usdc;
+                                document.getElementById('edit-max-positions').value = s.max_open_positions;
+                            }
                         } else {
                             btnEdit.style.display = 'none';
                             toggleEditLimits(false);
@@ -1280,6 +1288,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (msgEl) {
                     msgEl.style.color = '#e53e3e';
                     msgEl.textContent = "Сетевая ошибка: " + e.message;
+                }
+            }
+        }
+
+        function toggleEditLimits(show) {
+            const editBlock = document.getElementById('session-limits-edit-block');
+            const createForm = document.getElementById('session-create-form');
+            if (editBlock) editBlock.style.display = show ? 'block' : 'none';
+            if (createForm) {
+                if (show) {
+                    createForm.style.display = 'none';
+                } else if (window.lastSessionIsStopped || !currentSessionId) {
+                    createForm.style.display = 'grid';
                 }
             }
         }
