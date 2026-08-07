@@ -73,13 +73,10 @@
                  .replace(/"/g, "&quot;")
                  .replace(/'/g, "&#039;");
         }
-
-        function formatDateUTC(dateStr) {
-            if (!dateStr) return '--';
-            const d = new Date(dateStr);
-            if (isNaN(d)) return '--';
-            return d.toLocaleString("ru-RU", { timeZone: "UTC", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) + ' UTC';
-        }
+    </script>
+    <script src="{{ url_for('static', path='/js/utils.js') }}?v={{ static_version }}"></script>
+    <script>
+        const API_KEY = "{{ api_key }}";
     </script>
 </head>
 <body>
@@ -731,7 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
                     <td>${formatDateUTC(p.created_at)}</td>
-                    <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
+                    <td>${escapeHtml(p.asset)} (<a href="#" onclick="openPolymarketLink('${p.market_id}', event)" style="color: #63b3ed; text-decoration: none;" title="Открыть на Polymarket">${escapeHtml(p.market_id.substring(0, 8))}... ↗</a>)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
                     <td>${(p.remaining_shares || 0).toFixed(2)}</td>
@@ -768,7 +765,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
                     <td>${formatDateUTC(p.created_at)}</td>
-                    <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
+                    <td>${escapeHtml(p.asset)} (<a href="#" onclick="openPolymarketLink('${p.market_id}', event)" style="color: #63b3ed; text-decoration: none;" title="Открыть на Polymarket">${escapeHtml(p.market_id.substring(0, 8))}... ↗</a>)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
                     <td>${(p.remaining_shares || 0).toFixed(2)}</td>
@@ -793,7 +790,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr>
                     <td>${escapeHtml(p.id)}</td>
                     <td>${formatDateUTC(p.created_at)}</td>
-                    <td>${escapeHtml(p.asset)} (${escapeHtml(p.market_id.substring(0, 8))}...)</td>
+                    <td>${escapeHtml(p.asset)} (<a href="#" onclick="openPolymarketLink('${p.market_id}', event)" style="color: #63b3ed; text-decoration: none;" title="Открыть на Polymarket">${escapeHtml(p.market_id.substring(0, 8))}... ↗</a>)</td>
                     <td>${escapeHtml(p.outcome_bought)}</td>
                     <td>$${(p.entry_cost_usdc || p.amount_usdc || 0).toFixed(2)}</td>
                     <td>${(p.remaining_shares || 0).toFixed(2)}</td>
@@ -1191,7 +1188,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         dashboardRefreshLoop();
-    </script>
 
+        async function openPolymarketLink(marketId, event) {
+            event.preventDefault();
+            try {
+                const res = await fetch(`https://gamma-api.polymarket.com/events?market_id=${marketId}`);
+                if (!res.ok) throw new Error('Network error');
+                const data = await res.json();
+                if (data && data.length > 0 && data[0].slug) {
+                    window.open(`https://polymarket.com/event/${data[0].slug}`, '_blank');
+                } else {
+                    alert('Не удалось найти ссылку на событие в Polymarket');
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Ошибка при получении ссылки на Polymarket');
+            }
+        }
+    </script>
 </body>
 </html>

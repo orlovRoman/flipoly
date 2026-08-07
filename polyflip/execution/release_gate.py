@@ -548,9 +548,9 @@ async def validate_live_release(
     release_net_edge = None
     
     if "COMBINED" in active_features:
-        # Читаем единые пороги Edge из RuntimeSettings (те же, что отображаются на дашборде)
-        min_edge_fav_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "MIN_EDGE"))
-        min_edge_out_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "NO_MIN_EDGE"))
+        # Читаем нужные Edge из RuntimeSettings (те же ключи, что обновляет дашборд)
+        min_edge_fav_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "FAVORITE_MIN_EDGE"))
+        min_edge_out_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "OUTS_MIN_EDGE"))
         cost_buffer_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_COST_BUFFER"))
         
         cost_buffer = float(cost_buffer_val) if cost_buffer_val is not None else 0.02
