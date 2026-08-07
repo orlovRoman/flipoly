@@ -616,6 +616,8 @@ async def validate_live_release(
             await session.execute(
                 select(LiveTradingSession)
                 .where(LiveTradingSession.status == "ACTIVE")
+                .order_by(LiveTradingSession.started_at.desc())
+                .limit(1)
                 .with_for_update()
             )
         ).scalar_one_or_none()
