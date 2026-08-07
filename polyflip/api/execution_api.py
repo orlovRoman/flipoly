@@ -1404,8 +1404,136 @@ async def close_all_session_positions(
     }
 
 
+_pnl_expr = func.coalesce(
+    TradeHistory.realized_pnl_usdc,
+    TradeHistory.pnl,
+)
+
+
+async def _get_asset_analytics(
+    db: AsyncSession,
+    mode: str = "LIVE",
+    period_hours: int | None = None,
+) -> list[dict]:
+    """Возвращает аналитику по активам: число сделок, winrate, PNL."""
+    from polyflip.db.models import TradeHistory
+    from sqlalchemy import case
+
+    conds = [
+        TradeHistory.mode == mode,
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.position_status.in_(["CLOSED", "RESOLVED_WON", "RESOLVED_LOST", "REDEEMED"]),
+    ]
+    if period_hours is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=period_hours)
+        date_col = func.coalesce(TradeHistory.closed_at, TradeHistory.created_at)
+        conds.append(date_col >= cutoff)
+
+    stmt = (
+        select(
+            TradeHistory.asset,
+            func.count(TradeHistory.id).label("total_trades"),
+            func.sum(
+                case((_pnl_expr > 0, 1), else_=0)
+            ).label("winning_trades"),
+            func.sum(_pnl_expr).label("total_pnl"),
+        )
+        .where(*conds)
+        .group_by(TradeHistory.asset)
+        .order_by(func.sum(_pnl_expr).desc())
+    )
+
+    rows = (await db.execute(stmt)).all()
+
+    return [
+        {
+            "asset": r.asset,
+            "total_trades": int(r.total_trades or 0),
+            "winrate": round(r.winning_trades / r.total_trades * 100, 1)
+            if r.total_trades and r.total_trades > 0
+            else 0.0,
+            "pnl_usdc": round(float(r.total_pnl or 0), 2),
+        }
+        for r in rows
+    ]
+
+
+async def _get_strategy_analytics(
+    db: AsyncSession,
+    mode: str = "LIVE",
+    period_hours: int | None = 24,
+) -> list[dict]:
+    """Возвращает аналитику PnL по стратегиям."""
+    from polyflip.db.models import TradeHistory
+    from sqlalchemy import case
+
+    strategy_col = func.coalesce(
+        TradeHistory.strategy_type,
+        TradeHistory.direction_model_key,
+        "COMBINED",
+    ).label("strategy")
+
+    conds = [
+        TradeHistory.mode == mode,
+        TradeHistory.status == "SUCCESS",
+        TradeHistory.position_status.in_(["CLOSED", "RESOLVED_WON", "RESOLVED_LOST", "REDEEMED"]),
+    ]
+    if period_hours is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=period_hours)
+        date_col = func.coalesce(TradeHistory.closed_at, TradeHistory.created_at)
+        conds.append(date_col >= cutoff)
+
+    stmt = (
+        select(
+            TradeHistory.asset,
+            strategy_col,
+            func.count(TradeHistory.id).label("total_trades"),
+            func.sum(
+                case((_pnl_expr > 0, 1), else_=0)
+            ).label("winning_trades"),
+            func.sum(_pnl_expr).label("total_pnl"),
+        )
+        .where(*conds)
+        .group_by(TradeHistory.asset, strategy_col)
+        .order_by(func.sum(_pnl_expr).desc())
+    )
+
+    rows = (await db.execute(stmt)).all()
+
+    return [
+        {
+            "asset": r.asset,
+            "strategy": r.strategy or "COMBINED",
+            "total_trades": int(r.total_trades or 0),
+            "winrate": round(r.winning_trades / r.total_trades * 100, 1)
+            if r.total_trades and r.total_trades > 0
+            else 0.0,
+            "pnl_usdc": round(float(r.total_pnl or 0), 2),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/live/analytics", summary="Аналитика LIVE-торговли по активам и стратегиям")
+async def get_live_analytics(
+    period: Optional[str] = Query("all", description="24h | 7d | 30d | all"),
+    db: AsyncSession = Depends(get_db_session),
+):
+    period_map = {"24h": 24, "7d": 168, "30d": 720, "all": None}
+    hours = period_map.get(period, None)
+
+    return {
+        "period": period,
+        "asset_analytics": await _get_asset_analytics(db, "LIVE", hours),
+        "strategy_analytics": await _get_strategy_analytics(db, "LIVE", hours),
+    }
+
+
 @router.get("/live/dashboard")
-async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
+async def get_live_dashboard(
+    analytics_period: Optional[int] = Query(None, description="Период аналитики в часах, None = всё время"),
+    db: AsyncSession = Depends(get_db_session),
+):
     active_session = (
         await db.execute(
             select(LiveTradingSession)
@@ -1556,6 +1684,8 @@ async def get_live_dashboard(db: AsyncSession = Depends(get_db_session)):
         "candidates": [],
         "positions": positions,
         "requests": request_dtos,
+        "asset_analytics": await _get_asset_analytics(db, mode="LIVE", period_hours=analytics_period),
+        "strategy_analytics_24h": await _get_strategy_analytics(db, mode="LIVE", period_hours=24),
     }
 
 

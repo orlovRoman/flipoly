@@ -299,6 +299,67 @@
                 <div id="readiness-errors-list" style="margin-top: 10px; font-size: 0.9rem;"></div>
             </div>
 
+            <!-- Блок 3. Виджеты аналитики LIVE-торговли -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 20px;">
+                <div class="panel">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <h3 style="margin: 0;">Аналитика по активам</h3>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label for="live-asset-tf-select" style="font-size: 0.85rem; color: var(--text-muted);">Период:</label>
+                            <select id="live-asset-tf-select" onchange="fetchLiveAnalytics()" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
+                                <option value="24h">24 часа</option>
+                                <option value="7d">7 дней</option>
+                                <option value="30d">30 дней</option>
+                                <option value="all" selected>За все время</option>
+                            </select>
+                        </div>
+                    </div>
+                    <table class="data-table" id="live-asset-stats-table" style="width: 100%; text-align: left; margin-top: 0.5rem;">
+                        <thead>
+                            <tr>
+                                <th>Актив</th>
+                                <th>Сделок</th>
+                                <th>Winrate</th>
+                                <th>PNL</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Загрузка...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="panel">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <h3 style="margin: 0;">PNL за 24 часа (по стратегиям)</h3>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label for="live-strategy-tf-select" style="font-size: 0.85rem; color: var(--text-muted);">Период:</label>
+                            <select id="live-strategy-tf-select" onchange="fetchLiveAnalytics()" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
+                                <option value="24h" selected>24 часа</option>
+                                <option value="7d">7 дней</option>
+                                <option value="30d">30 дней</option>
+                                <option value="all">Все время</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                        <table class="data-table" id="live-strategy-stats-table" style="width: 100%; text-align: left; margin-top: 0.5rem;">
+                            <thead>
+                                <tr>
+                                    <th>Актив &amp; Стратегия</th>
+                                    <th>Сделок</th>
+                                    <th>Win Rate</th>
+                                    <th>PnL (USDC)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Загрузка...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <!-- Блок 3. Торгуемые позиции -->
             <div class="panel" id="tradable-panel" style="margin-bottom: 20px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -612,6 +673,16 @@ if (typeof translateError === 'undefined') {
                 // Render Positions & Requests
                 renderPositions(data.positions || []);
                 renderRequests(data.requests || []);
+
+                if (data.asset_analytics && document.getElementById('live-asset-tf-select')?.value === 'all') {
+                    renderLiveAssetAnalytics(data.asset_analytics);
+                } else {
+                    fetchLiveAnalytics();
+                }
+
+                if (data.strategy_analytics_24h && document.getElementById('live-strategy-tf-select')?.value === '24h') {
+                    renderLiveStrategyAnalytics(data.strategy_analytics_24h);
+                }
 
                 if (data.readiness) {
                     updateChecklistUI(data.readiness);
@@ -1294,6 +1365,73 @@ document.addEventListener('DOMContentLoaded', () => {
                     msgEl.style.color = '#e53e3e';
                     msgEl.textContent = "Сетевая ошибка: " + e.message;
                 }
+            }
+        }
+
+        function renderLiveAssetAnalytics(rows) {
+            const tbody = document.querySelector('#live-asset-stats-table tbody');
+            if (!tbody) return;
+            if (!rows || rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Нет данных за выбранный период</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rows.map(r => {
+                const pnlClass = r.pnl_usdc >= 0 ? 'check-pass' : 'check-fail';
+                const pnlSign = r.pnl_usdc >= 0 ? '+' : '';
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(r.asset)}</strong></td>
+                        <td>${r.total_trades}</td>
+                        <td>${r.winrate.toFixed(1)}%</td>
+                        <td class="${pnlClass}" style="font-weight: 600;">${pnlSign}${r.pnl_usdc.toFixed(2)} USDC</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderLiveStrategyAnalytics(rows) {
+            const tbody = document.querySelector('#live-strategy-stats-table tbody');
+            if (!tbody) return;
+            if (!rows || rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Нет данных за выбранный период</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rows.map(r => {
+                const pnlClass = r.pnl_usdc >= 0 ? 'check-pass' : 'check-fail';
+                const pnlSign = r.pnl_usdc >= 0 ? '+' : '';
+                return `
+                    <tr>
+                        <td>
+                            <strong>${escapeHtml(r.asset)}</strong>
+                            <span style="margin-left: 6px; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3);">${escapeHtml(r.strategy)}</span>
+                        </td>
+                        <td>${r.total_trades}</td>
+                        <td>${r.winrate.toFixed(1)}%</td>
+                        <td class="${pnlClass}" style="font-weight: 600;">${pnlSign}${r.pnl_usdc.toFixed(2)} USDC</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function fetchLiveAnalytics() {
+            const assetPeriod = document.getElementById('live-asset-tf-select')?.value || 'all';
+            const strategyPeriod = document.getElementById('live-strategy-tf-select')?.value || '24h';
+            
+            try {
+                const [assetRes, strategyRes] = await Promise.all([
+                    fetch(window.API_BASE + `/api/execution/live/analytics?period=${assetPeriod}`, { headers: getAuthHeaders() }),
+                    fetch(window.API_BASE + `/api/execution/live/analytics?period=${strategyPeriod}`, { headers: getAuthHeaders() })
+                ]);
+                if (assetRes.ok) {
+                    const data = await assetRes.json();
+                    renderLiveAssetAnalytics(data.asset_analytics);
+                }
+                if (strategyRes.ok) {
+                    const data = await strategyRes.json();
+                    renderLiveStrategyAnalytics(data.strategy_analytics);
+                }
+            } catch (e) {
+                console.warn('Error fetching live analytics:', e);
             }
         }
 
