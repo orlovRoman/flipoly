@@ -416,3 +416,12 @@ class LiveTradingSession(Base):
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+    __table_args__ = (
+        Index(
+            "uq_live_trading_session_active",
+            "status",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+    )

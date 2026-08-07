@@ -33,8 +33,9 @@ async def execute_gtc_ttl(
     filled = False
 
     try:
-        start_time = asyncio.get_event_loop().time()
-        while (asyncio.get_event_loop().time() - start_time) < ttl_seconds:
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
+        while (loop.time() - start_time) < ttl_seconds:
             await asyncio.sleep(0.5)
             if hasattr(gateway, "fetch_order_fills"):
                 fills = await gateway.fetch_order_fills(provider_order_id, token_id)
@@ -131,6 +132,13 @@ async def execute_fak_retry(
                         logger.warning("fak_retry_price_refresh_failed", attempt=attempt, error=str(refresh_err))
                 continue
 
+    logger.warning(
+        "fak_retry_exhausted",
+        max_attempts=max_attempts,
+        order_id=str(order.attempt_id),
+        last_status=last_result.provider_status if last_result else "unknown",
+        error=last_result.error_message if last_result else None,
+    )
     return last_result or SubmissionResult(
         accepted=False,
         provider_status="NO_LIQUIDITY_FAK",

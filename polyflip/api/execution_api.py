@@ -1131,6 +1131,20 @@ async def activate_live_session(
                 )
             )
 
+    # Деактивируем любые предшествующие активные сессии
+    other_active_sessions = (
+        await db.scalars(
+            select(LiveTradingSession).where(
+                LiveTradingSession.status == "ACTIVE",
+                LiveTradingSession.id != session_obj.id,
+            )
+        )
+    ).all()
+    for other_s in other_active_sessions:
+        other_s.status = "STOPPED"
+        other_s.stopped_at = now
+        other_s.stop_reason = "superseded_by_new_activation"
+
     session_obj.status = "ACTIVE"
     if session_obj.started_at is None:
         session_obj.started_at = now
