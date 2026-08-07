@@ -1008,27 +1008,75 @@ async def reconcile_active_requests():
                     "reconcile_failed", request_id=str(req.id), error=str(e)
                 )
 
-        # --- Auto-resolve MANUAL_REVIEW_REQUIRED CLOSE requests after timeout ---
+
+async def _auto_resolve_stuck_manual_reviews(execution_mode: str) -> None:
+    """
+    Автоматически закрывает зависшие MANUAL_REVIEW_REQUIRED CLOSE-заявки старше 15 минут.
+    Перед REJECTED проверяются возможные fills через gateway.
+    Использует собственную изолированную сессию БД.
+    """
+    settings = ExecutionSettings()
+    async with async_session() as session:
+        now = datetime.now(timezone.utc)
         manual_cutoff = now - timedelta(minutes=15)
         stmt_manual = select(ExecutionRequest).where(
             ExecutionRequest.state == "MANUAL_REVIEW_REQUIRED",
-            ExecutionRequest.requested_mode == settings.execution_mode.value,
+            ExecutionRequest.requested_mode == execution_mode,
             ExecutionRequest.intent == "CLOSE",
             ExecutionRequest.updated_at <= manual_cutoff,
         )
         stuck_manual_reqs = (await session.execute(stmt_manual)).scalars().all()
+        if not stuck_manual_reqs:
+            return
+
+        gateway = build_execution_gateway(settings)
         for req in stuck_manual_reqs:
             logger.info(
                 "auto_resolving_stuck_manual_review_close_request",
                 request_id=str(req.id),
                 trade_history_id=req.trade_history_id,
             )
-            await finalize_request(
-                session,
-                req,
-                state="REJECTED",
-                error="Auto-resolved: no fills confirmed after MANUAL_REVIEW timeout",
+            attempt_stmt = (
+                select(ExecutionAttempt)
+                .where(ExecutionAttempt.request_id == req.id)
+                .order_by(ExecutionAttempt.attempt_no.desc())
+                .limit(1)
             )
+            attempt = (await session.execute(attempt_stmt)).scalar_one_or_none()
+
+            fills = []
+            if attempt and attempt.provider_order_id:
+                try:
+                    market = await session.scalar(
+                        select(LiveMarket).where(LiveMarket.market_id == req.market_id)
+                    )
+                    token_id = (
+                        market.yes_token_id
+                        if market and req.outcome_to_buy == "YES"
+                        else (market.no_token_id if market else "")
+                    )
+                    if token_id:
+                        fills = await gateway.fetch_order_fills(
+                            attempt.provider_order_id, token_id
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "auto_resolve_fills_fetch_failed",
+                        request_id=str(req.id),
+                        error=str(e),
+                    )
+
+            if fills and attempt:
+                await _persist_fills(session, attempt, fills)
+                await finalize_request(session, req, state="FILLED")
+            else:
+                await finalize_request(
+                    session,
+                    req,
+                    state="REJECTED",
+                    error="Auto-resolved: no fills confirmed after MANUAL_REVIEW timeout",
+                )
+
             if req.trade_history_id:
                 await rebuild_trade_accounting(session, req.trade_history_id)
             await session.commit()
@@ -1250,6 +1298,7 @@ async def execution_worker_loop():
             try:
                 await process_ready_requests()
                 await reconcile_active_requests()
+                await _auto_resolve_stuck_manual_reviews(execution_mode)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

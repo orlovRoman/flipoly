@@ -809,8 +809,10 @@ document.addEventListener("DOMContentLoaded", () => {
       settingsToSave.TRADING_MODE = 'combined';
 
       if (settingsElements.pollIntervalInput) {
-        const parsedInt = parseInt(settingsElements.pollIntervalInput.value, 10);
-        settingsToSave.LIVE_POLL_INTERVAL_SECONDS = !isNaN(parsedInt) ? parsedInt.toString() : settingsElements.pollIntervalInput.value;
+        let parsedInt = parseInt(settingsElements.pollIntervalInput.value, 10);
+        if (isNaN(parsedInt) || parsedInt < 2) parsedInt = 2;
+        if (parsedInt > 300) parsedInt = 300;
+        settingsToSave.LIVE_POLL_INTERVAL_SECONDS = parsedInt.toString();
       }
 
       if (settingsElements.favoriteThreshold) settingsToSave.FAVORITE_THRESHOLD = parseFormattedFloat(settingsElements.favoriteThreshold.value);
