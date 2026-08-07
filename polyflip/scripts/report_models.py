@@ -1,10 +1,3 @@
-"""
-Аналитика по моделям (ML Model Audit Report).
-Выводит:
- 1. Реестр моделей (без blob) — параметры, качество, активность
- 2. Торговая статистика по версиям модели (all-time)
- 3. Торговая статистика за последние 24 часа
-"""
 import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -12,9 +5,14 @@ from sqlalchemy import text
 from polyflip.db.connection import async_session
 
 
+def get_model_type(asset: str) -> str:
+    """Classifies model by asset name. Temporary: no model_type column in DB yet."""
+    return "lgbm" if "USDT" in asset else "logreg"
+
+
 def fmt(v, digits=4):
     if v is None:
-        return "—"
+        return "-"
     if isinstance(v, (Decimal, float)):
         return f"{float(v):.{digits}f}"
     if isinstance(v, datetime):
@@ -24,47 +22,88 @@ def fmt(v, digits=4):
 
 def fmt_pnl(v):
     if v is None:
-        return "—"
+        return "-"
     f = float(v)
     sign = "+" if f > 0 else ""
     return f"{sign}{f:.2f}"
 
 
-def print_section(title):
+def wr_str(wins, trades):
+    return "-" if not trades else f"{100 * wins / trades:.1f}%"
+
+
+def print_header(title):
     print()
-    print("=" * 70)
+    print("=" * 72)
     print(f"  {title}")
-    print("=" * 70)
+    print("=" * 72)
+
+
+def print_subheader(title):
+    print(f"\n  -- {title} {'-' * max(1, 65 - len(title))}")
+
+
+def print_registry_table(models):
+    print(
+        f"  {'Asset':<22} {'Ver':>4}  {'Act':>5}  {'Accuracy':>9}  "
+        f"{'Baseline':>9}  {'Thr':>6}  {'F1':>6}  {'BkPnL':>8}  Trained"
+    )
+    print(
+        f"  {'-'*22} {'-'*4}  {'-'*5}  {'-'*9}  {'-'*9}  "
+        f"{'-'*6}  {'-'*6}  {'-'*8}  {'-'*16}"
+    )
+    for m in models:
+        act = "* ACT" if m["is_active"] else "     "
+        print(
+            f"  {m['asset']:<22} {fmt(m['version']):>4}  {act}  "
+            f"{fmt(m['accuracy'], 4):>9}  {fmt(m['baseline'], 4):>9}  "
+            f"{fmt(m['decision_threshold'], 3):>6}  {fmt(m['f1_at_threshold'], 3):>6}  "
+            f"{fmt_pnl(m['backtest_pnl']):>8}  {fmt(m['trained_at'])}"
+        )
+        qgr = m.get("quality_gate_reasons")
+        if qgr and qgr not in ("[]", None):
+            print(f"  {'':>22}  ! QGate: {str(qgr)[:55]}")
+
+
+def print_trades_table(rows, label_24h=False):
+    pc = "PnL(24h)" if label_24h else "PnL(all)"
+    print(
+        f"  {'Asset':<22} {'Model':>6}  {'Records':>8}  {'Trades':>7}  "
+        f"{'Wins':>5}  {'Loss':>5}  {'WR':>7}  {pc:>10}  {'Volume':>10}"
+    )
+    print(
+        f"  {'-'*22} {'-'*6}  {'-'*8}  {'-'*7}  {'-'*5}  "
+        f"{'-'*5}  {'-'*7}  {'-'*10}  {'-'*10}"
+    )
+    for r in rows:
+        et = int(r["executed_trades"] or 0)
+        w  = int(r["win_count"] or 0)
+        l  = int(r["loss_count"] or 0)
+        vol = fmt(r.get("total_volume"), 2) if not label_24h else "-"
+        print(
+            f"  {r['asset']:<22} {r['model_version']:>6}  "
+            f"{r['total_records']:>8}  {et:>7}  {w:>5}  {l:>5}  "
+            f"{wr_str(w, et):>7}  {fmt_pnl(r['total_pnl']):>10}  {vol:>10}"
+        )
 
 
 async def main():
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    print(f"\n{'='*70}")
-    print(f"  ML MODEL AUDIT REPORT  |  {now_utc}")
-    print(f"{'='*70}")
+    print(f"\n{'='*72}\n  ML MODEL AUDIT REPORT  |  {now_utc}\n{'='*72}")
 
     async with async_session() as s:
-
-        # ── 1. Реестр моделей ─────────────────────────────────────────────
-        m_stmt = text("""
-            SELECT
-                id, asset, version, is_active,
-                accuracy, baseline,
-                decision_threshold, decision_threshold_down,
-                train_samples, validation_samples, positive_rate,
-                precision_at_threshold, recall_at_threshold,
-                f1_at_threshold, brier_score, ece,
-                backtest_pnl, backtest_trades, backtest_wr,
-                quality_gate_passed, quality_gate_reasons,
-                activation_source, activated_at, trained_at, features
+        models = [dict(x) for x in (await s.execute(text("""
+            SELECT id, asset, version, is_active,
+                   accuracy, baseline,
+                   decision_threshold, f1_at_threshold,
+                   backtest_pnl, backtest_wr,
+                   quality_gate_passed, quality_gate_reasons,
+                   activation_source, trained_at
             FROM model_registry
             ORDER BY asset, version DESC;
-        """)
-        models_res = await s.execute(m_stmt)
-        models = [dict(x) for x in models_res.mappings()]
+        """))).mappings()]
 
-        # ── 2. Торговая статистика (all-time) ─────────────────────────────
-        t_stmt = text("""
+        trades = [dict(x) for x in (await s.execute(text("""
             SELECT
                 asset,
                 COALESCE(CAST(model_version AS text), 'N/A') as model_version,
@@ -77,12 +116,9 @@ async def main():
             FROM trade_history
             GROUP BY asset, COALESCE(CAST(model_version AS text), 'N/A')
             ORDER BY asset, total_pnl DESC;
-        """)
-        trades_res = await s.execute(t_stmt)
-        trades = [dict(x) for x in trades_res.mappings()]
+        """))).mappings()]
 
-        # ── 3. Торговая статистика (24h) ──────────────────────────────────
-        t24_stmt = text("""
+        trades24 = [dict(x) for x in (await s.execute(text("""
             SELECT
                 asset,
                 COALESCE(CAST(model_version AS text), 'N/A') as model_version,
@@ -95,84 +131,41 @@ async def main():
             WHERE created_at >= NOW() - INTERVAL '24 hours'
             GROUP BY asset, COALESCE(CAST(model_version AS text), 'N/A')
             ORDER BY asset, total_pnl DESC;
-        """)
-        t24_res = await s.execute(t24_stmt)
-        trades24 = [dict(x) for x in t24_res.mappings()]
+        """))).mappings()]
 
-    # ── Вывод: Реестр моделей ─────────────────────────────────────────────
-    print_section("1. РЕЕСТР МОДЕЛЕЙ")
+    logreg_models   = [m for m in models   if get_model_type(m["asset"]) == "logreg"]
+    lgbm_models     = [m for m in models   if get_model_type(m["asset"]) == "lgbm"]
+    logreg_trades   = [r for r in trades   if get_model_type(r["asset"]) == "logreg"]
+    lgbm_trades     = [r for r in trades   if get_model_type(r["asset"]) == "lgbm"]
+    logreg_trades24 = [r for r in trades24 if get_model_type(r["asset"]) == "logreg"]
+    lgbm_trades24   = [r for r in trades24 if get_model_type(r["asset"]) == "lgbm"]
 
-    # Группируем по asset для читаемости
-    assets = sorted(set(m["asset"] for m in models))
-    for asset in assets:
-        asset_models = [m for m in models if m["asset"] == asset]
-        active = [m for m in asset_models if m["is_active"]]
-        inactive = [m for m in asset_models if not m["is_active"]]
+    active_logreg = [m for m in logreg_models if m["is_active"]]
+    active_lgbm   = [m for m in lgbm_models   if m["is_active"]]
 
-        print(f"\n▶ {asset}  (всего моделей: {len(asset_models)}, активных: {len(active)})")
-        print(f"  {'Ver':>4}  {'Active':>6}  {'Accuracy':>9}  {'Baseline':>9}  "
-              f"{'Thr↑':>6}  {'Thr↓':>6}  {'F1':>6}  {'BkPnL':>8}  {'QGate':>6}  Trained")
+    # === BLOCK 1: LogReg ===
+    print_header(f"BLOCK 1 -- LogReg (Polymarket)  |  active: {len(active_logreg)}")
+    print_subheader("1.1 Active models")
+    print_registry_table(active_logreg) if active_logreg else print("  None.")
+    print_subheader("1.2 All versions")
+    print_registry_table(logreg_models)
+    print_subheader("1.3 All-Time trades")
+    print_trades_table(logreg_trades) if logreg_trades else print("  No data.")
+    print_subheader("1.4 Last 24h trades")
+    print_trades_table(logreg_trades24, label_24h=True) if logreg_trades24 else print("  No trades in last 24h.")
 
-        for m in asset_models:
-            qg = "✓" if m["quality_gate_passed"] else ("✗" if m["quality_gate_passed"] is False else "—")
-            active_mark = "✓ ACT" if m["is_active"] else "      "
-            trained = fmt(m["trained_at"])
-            print(
-                f"  {fmt(m['version']):>4}  {active_mark:>6}  "
-                f"{fmt(m['accuracy'], 4):>9}  {fmt(m['baseline'], 4):>9}  "
-                f"{fmt(m['decision_threshold'], 3):>6}  {fmt(m['decision_threshold_down'], 3):>6}  "
-                f"{fmt(m['f1_at_threshold'], 3):>6}  {fmt_pnl(m['backtest_pnl']):>8}  "
-                f"{qg:>6}  {trained}"
-            )
-            # Фичи
-            if m["features"]:
-                feats = m["features"]
-                if len(feats) > 60:
-                    feats = feats[:57] + "..."
-                print(f"         features: {feats}")
-            # Причины quality gate
-            if m["quality_gate_reasons"] and m["quality_gate_reasons"] != "[]":
-                print(f"         QGate reasons: {m['quality_gate_reasons']}")
+    # === BLOCK 2: LightGBM ===
+    print_header(f"BLOCK 2 -- LightGBM (Crypto OHLCV)  |  active: {len(active_lgbm)}")
+    print_subheader("2.1 Active models")
+    print_registry_table(active_lgbm) if active_lgbm else print("  None.")
+    print_subheader("2.2 All versions")
+    print_registry_table(lgbm_models) if lgbm_models else print("  No LGBM models.")
+    print_subheader("2.3 All-Time trades")
+    print_trades_table(lgbm_trades) if lgbm_trades else print("  No data.")
+    print_subheader("2.4 Last 24h trades")
+    print_trades_table(lgbm_trades24, label_24h=True) if lgbm_trades24 else print("  No trades in last 24h.")
 
-    # ── Вывод: All-time торговля ──────────────────────────────────────────
-    print_section("2. ТОРГОВАЯ СТАТИСТИКА ПО МОДЕЛЯМ (ALL-TIME)")
-
-    if not trades:
-        print("  Нет данных.")
-    else:
-        print(f"\n  {'Asset':>8}  {'Model':>6}  {'Records':>8}  {'Trades':>7}  "
-              f"{'Wins':>5}  {'Loss':>5}  {'WR%':>6}  {'PnL':>9}  {'Volume':>10}")
-        for r in trades:
-            exec_t = int(r["executed_trades"] or 0)
-            wins = int(r["win_count"] or 0)
-            wr = f"{100*wins/exec_t:.1f}" if exec_t > 0 else "—"
-            print(
-                f"  {r['asset']:>8}  {r['model_version']:>6}  "
-                f"{r['total_records']:>8}  {exec_t:>7}  "
-                f"{wins:>5}  {int(r['loss_count'] or 0):>5}  {wr:>6}  "
-                f"{fmt_pnl(r['total_pnl']):>9}  {fmt(r['total_volume'], 2):>10}"
-            )
-
-    # ── Вывод: 24h торговля ───────────────────────────────────────────────
-    print_section("3. ТОРГОВАЯ СТАТИСТИКА ЗА ПОСЛЕДНИЕ 24 ЧАСА")
-
-    if not trades24:
-        print("  Нет сделок за последние 24 часа.")
-    else:
-        print(f"\n  {'Asset':>8}  {'Model':>6}  {'Records':>8}  {'Trades':>7}  "
-              f"{'Wins':>5}  {'Loss':>5}  {'WR%':>6}  {'PnL(24h)':>10}")
-        for r in trades24:
-            exec_t = int(r["executed_trades"] or 0)
-            wins = int(r["win_count"] or 0)
-            wr = f"{100*wins/exec_t:.1f}" if exec_t > 0 else "—"
-            print(
-                f"  {r['asset']:>8}  {r['model_version']:>6}  "
-                f"{r['total_records']:>8}  {exec_t:>7}  "
-                f"{wins:>5}  {int(r['loss_count'] or 0):>5}  {wr:>6}  "
-                f"{fmt_pnl(r['total_pnl']):>10}"
-            )
-
-    print(f"\n{'='*70}\n")
+    print(f"\n{'='*72}\n")
 
 
 if __name__ == "__main__":
