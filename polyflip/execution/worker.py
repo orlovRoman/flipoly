@@ -472,8 +472,14 @@ async def process_ready_requests():
                         attempt.provider_order_id, token_id
                     )
                 if len(fills) == 0:
-                    attempt.status = "UNKNOWN"
-                    req.state = "RECONCILING"
+                    attempt.status = "FAILED"
+                    attempt.error_msg = "Order cancelled or expired on exchange without fills"
+                    await finalize_request(
+                        session,
+                        req,
+                        state="REJECTED",
+                        error="NO_FILLS_UNFILLED: 0 shares matched on exchange",
+                    )
                 else:
                     attempt.status = "SUCCESS"
                     await _persist_fills(session, attempt, fills)

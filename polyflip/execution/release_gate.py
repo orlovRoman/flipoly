@@ -57,9 +57,9 @@ from polyflip.execution.live_mirror_worker import (
     _compute_hash,
 )
 from polyflip.execution.risk_checks import check_risk_limits
-from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
+import structlog
 
-logger = logging.getLogger("release_gate")
+logger = structlog.get_logger("release_gate")
 
 
 @dataclass(frozen=True)
