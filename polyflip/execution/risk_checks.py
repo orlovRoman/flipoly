@@ -106,15 +106,15 @@ async def check_risk_limits(
             TradeHistory.position_status.in_(ACTIVE_POSITION_STATES),
             TradeHistory.mode == requested_mode,
         )
-            if trade_history_id is not None:
-                open_count_stmt = open_count_stmt.where(
-                    TradeHistory.id != trade_history_id
-                )
-            open_count = (await session.execute(open_count_stmt)).scalar_one()
-            if open_count >= max_open:
-                return f"Max open positions limit reached ({max_open})"
-        except (ValueError, TypeError) as exc:
-            return f"Invalid MAX_OPEN_POSITIONS configuration: {exc}"
+        if trade_history_id is not None:
+            open_count_stmt = open_count_stmt.where(
+                TradeHistory.id != trade_history_id
+            )
+        open_count = (await session.execute(open_count_stmt)).scalar_one()
+        if open_count >= max_open:
+            return f"Max open positions limit reached ({max_open})"
+    except (ValueError, TypeError) as exc:
+        return f"Invalid MAX_OPEN_POSITIONS configuration: {exc}"
 
     # --- MAX_TOTAL_EXPOSURE_USDC ---
     # Для частично закрытых позиций экспозиция = entry_cost * remaining / entry_filled
