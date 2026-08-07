@@ -1406,7 +1406,6 @@ async def close_all_session_positions(
 
 _pnl_expr = func.coalesce(
     TradeHistory.realized_pnl_usdc,
-    TradeHistory.pnl,
     0.0,
 )
 

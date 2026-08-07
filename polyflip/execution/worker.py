@@ -345,6 +345,7 @@ async def process_ready_requests():
                 return
 
         # --- Проверка цены перед попыткой исполнения ---
+        api_client = None
         executable_price = float(limit_price)
         if req.intent == "OPEN":
             if req.requested_mode == "LIVE":
