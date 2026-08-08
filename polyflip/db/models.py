@@ -80,6 +80,7 @@ class ModelRegistry(Base):
     backtest_wr = Column(Float, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     interval = Column(String(5), nullable=False, server_default='15m')
+    model_type = Column(String(20), nullable=False, server_default='logreg')
     dataset_fingerprint = Column(String(32), nullable=True)
     trained_at = Column(DateTime(timezone=True), nullable=False)
 
@@ -100,6 +101,7 @@ class ModelRegistry(Base):
 
     __table_args__ = (
         Index("idx_model_registry_asset_active", "asset", "is_active"),
+        CheckConstraint("model_type IN ('logreg', 'lgbm')", name="ck_model_registry_model_type"),
     )
 
 

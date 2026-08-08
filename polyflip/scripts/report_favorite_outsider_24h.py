@@ -53,11 +53,11 @@ async def main():
                 COALESCE(market_role, 'UNKNOWN') as role,
                 COUNT(*) as total_records,
                 COUNT(CASE WHEN status = 'SUCCESS' THEN 1 END) as executed_trades,
-                COUNT(CASE WHEN status = 'SUCCESS' AND pnl > 0 THEN 1 END) as win_count,
-                COUNT(CASE WHEN status = 'SUCCESS' AND pnl < 0 THEN 1 END) as loss_count,
-                COUNT(CASE WHEN status = 'SUCCESS' AND pnl = 0 THEN 1 END) as zero_count,
+                COUNT(CASE WHEN status = 'SUCCESS' AND COALESCE(realized_pnl_usdc, pnl, 0) > 0 THEN 1 END) as win_count,
+                COUNT(CASE WHEN status = 'SUCCESS' AND COALESCE(realized_pnl_usdc, pnl, 0) < 0 THEN 1 END) as loss_count,
+                COUNT(CASE WHEN status = 'SUCCESS' AND COALESCE(realized_pnl_usdc, pnl, 0) = 0 THEN 1 END) as zero_count,
                 COUNT(CASE WHEN status = 'SUCCESS' AND position_status = 'OPEN' THEN 1 END) as open_count,
-                ROUND(CAST(COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN pnl ELSE 0 END), 0) AS numeric), 2) as total_pnl,
+                ROUND(CAST(COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN COALESCE(realized_pnl_usdc, pnl, 0) ELSE 0 END), 0) AS numeric), 2) as total_pnl,
                 ROUND(CAST(COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN amount_usdc ELSE 0 END), 0) AS numeric), 2) as total_volume,
                 ROUND(CAST(AVG(CASE WHEN status = 'SUCCESS' THEN executed_price END) AS numeric), 4) as avg_entry_price,
                 ROUND(CAST(AVG(CASE WHEN status = 'SUCCESS' THEN amount_usdc END) AS numeric), 2) as avg_bet_size
@@ -68,8 +68,8 @@ async def main():
         """))).mappings().all()
 
         print_subheader("1. ОБЩАЯ СВОДКА ЗА 24 ЧАСА")
-        print(f"\n  {'Role':<12} {'Records':>8} {'Trades':>8} {'Wins':>6} {'Loss':>6} {'Open':>6} {'WR%':>7} {'AvgPrice':>9} {'AvgBet':>8} {'Volume':>10} {'PnL (USDC)':>12}")
-        print(f"  {'-'*12} {'-'*8} {'-'*8} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*9} {'-'*8} {'-'*10} {'-'*12}")
+        print(f"\n  {'Role':<12} {'Records':>8} {'Trades':>8} {'Wins':>6} {'Loss':>6} {'Open':>6} {'WR%(closed)':>11} {'AvgPrice':>9} {'AvgBet':>8} {'Volume':>10} {'PnL (USDC)':>12}")
+        print(f"  {'-'*12} {'-'*8} {'-'*8} {'-'*6} {'-'*6} {'-'*6} {'-'*11} {'-'*9} {'-'*8} {'-'*10} {'-'*12}")
 
         total_all_trades = 0
         total_all_wins = 0
@@ -99,14 +99,14 @@ async def main():
                 f"{wins:>6} "
                 f"{losses:>6} "
                 f"{r['open_count']:>6} "
-                f"{wr:>7} "
+                f"{wr:>11} "
                 f"{fmt(r['avg_entry_price'], 4):>9} "
                 f"{fmt(r['avg_bet_size'], 2):>8} "
                 f"{fmt(vol, 2):>10} "
                 f"{fmt_pnl(pnl):>12}"
             )
 
-        print(f"  {'-'*12} {'-'*8} {'-'*8} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*9} {'-'*8} {'-'*10} {'-'*12}")
+        print(f"  {'-'*12} {'-'*8} {'-'*8} {'-'*6} {'-'*6} {'-'*6} {'-'*11} {'-'*9} {'-'*8} {'-'*10} {'-'*12}")
         total_closed = total_all_wins + total_all_losses
         print(
             f"  {'ИТОГО':<12} "
@@ -115,7 +115,7 @@ async def main():
             f"{total_all_wins:>6} "
             f"{total_all_losses:>6} "
             f"{sum(r['open_count'] for r in summary):>6} "
-            f"{wr_str(total_all_wins, total_closed):>7} "
+            f"{wr_str(total_all_wins, total_closed):>11} "
             f"{'-':>9} "
             f"{'-':>8} "
             f"{fmt(total_all_vol, 2):>10} "
@@ -128,10 +128,10 @@ async def main():
                 asset,
                 COALESCE(market_role, 'UNKNOWN') as role,
                 COUNT(CASE WHEN status = 'SUCCESS' THEN 1 END) as executed_trades,
-                COUNT(CASE WHEN status = 'SUCCESS' AND pnl > 0 THEN 1 END) as win_count,
-                COUNT(CASE WHEN status = 'SUCCESS' AND pnl < 0 THEN 1 END) as loss_count,
+                COUNT(CASE WHEN status = 'SUCCESS' AND COALESCE(realized_pnl_usdc, pnl, 0) > 0 THEN 1 END) as win_count,
+                COUNT(CASE WHEN status = 'SUCCESS' AND COALESCE(realized_pnl_usdc, pnl, 0) < 0 THEN 1 END) as loss_count,
                 COUNT(CASE WHEN status = 'SUCCESS' AND position_status = 'OPEN' THEN 1 END) as open_count,
-                ROUND(CAST(COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN pnl ELSE 0 END), 0) AS numeric), 2) as total_pnl,
+                ROUND(CAST(COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN COALESCE(realized_pnl_usdc, pnl, 0) ELSE 0 END), 0) AS numeric), 2) as total_pnl,
                 ROUND(CAST(COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN amount_usdc ELSE 0 END), 0) AS numeric), 2) as total_volume,
                 ROUND(CAST(AVG(CASE WHEN status = 'SUCCESS' THEN executed_price END) AS numeric), 4) as avg_entry_price
             FROM trade_history
@@ -141,8 +141,8 @@ async def main():
         """))).mappings().all()
 
         print_subheader("2. РАЗБИВКА ПО АКТИВАМ (ASSET x ROLE)")
-        print(f"\n  {'Asset':<10} {'Role':<10} {'Trades':>7} {'Wins':>5} {'Loss':>5} {'Open':>5} {'WR%':>7} {'AvgPrice':>9} {'Volume':>9} {'PnL (USDC)':>11}")
-        print(f"  {'-'*10} {'-'*10} {'-'*7} {'-'*5} {'-'*5} {'-'*5} {'-'*7} {'-'*9} {'-'*9} {'-'*11}")
+        print(f"\n  {'Asset':<10} {'Role':<10} {'Trades':>7} {'Wins':>5} {'Loss':>5} {'Open':>5} {'WR%(closed)':>11} {'AvgPrice':>9} {'Volume':>9} {'PnL (USDC)':>11}")
+        print(f"  {'-'*10} {'-'*10} {'-'*7} {'-'*5} {'-'*5} {'-'*5} {'-'*11} {'-'*9} {'-'*9} {'-'*11}")
 
         for r in by_asset:
             exec_t = int(r["executed_trades"] or 0)
@@ -157,7 +157,7 @@ async def main():
                 f"{wins:>5} "
                 f"{losses:>5} "
                 f"{r['open_count']:>5} "
-                f"{wr:>7} "
+                f"{wr:>11} "
                 f"{fmt(r['avg_entry_price'], 4):>9} "
                 f"{fmt(r['total_volume'], 2):>9} "
                 f"{fmt_pnl(r['total_pnl']):>11}"
@@ -169,9 +169,9 @@ async def main():
                 COALESCE(strategy_type, mode, 'N/A') as strategy,
                 COALESCE(market_role, 'UNKNOWN') as role,
                 COUNT(CASE WHEN status = 'SUCCESS' THEN 1 END) as executed_trades,
-                COUNT(CASE WHEN status = 'SUCCESS' AND pnl > 0 THEN 1 END) as win_count,
-                COUNT(CASE WHEN status = 'SUCCESS' AND pnl < 0 THEN 1 END) as loss_count,
-                ROUND(CAST(COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN pnl ELSE 0 END), 0) AS numeric), 2) as total_pnl,
+                COUNT(CASE WHEN status = 'SUCCESS' AND COALESCE(realized_pnl_usdc, pnl, 0) > 0 THEN 1 END) as win_count,
+                COUNT(CASE WHEN status = 'SUCCESS' AND COALESCE(realized_pnl_usdc, pnl, 0) < 0 THEN 1 END) as loss_count,
+                ROUND(CAST(COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN COALESCE(realized_pnl_usdc, pnl, 0) ELSE 0 END), 0) AS numeric), 2) as total_pnl,
                 ROUND(CAST(COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN amount_usdc ELSE 0 END), 0) AS numeric), 2) as total_volume
             FROM trade_history
             WHERE created_at >= NOW() - INTERVAL '24 hours'
@@ -180,8 +180,8 @@ async def main():
         """))).mappings().all()
 
         print_subheader("3. СТРАТЕГИИ И РЕЖИМЫ (STRATEGY x ROLE)")
-        print(f"\n  {'Strategy':<20} {'Role':<10} {'Trades':>7} {'Wins':>5} {'Loss':>5} {'WR%':>7} {'Volume':>9} {'PnL (USDC)':>11}")
-        print(f"  {'-'*20} {'-'*10} {'-'*7} {'-'*5} {'-'*5} {'-'*7} {'-'*9} {'-'*11}")
+        print(f"\n  {'Strategy':<20} {'Role':<10} {'Trades':>7} {'Wins':>5} {'Loss':>5} {'WR%(closed)':>11} {'Volume':>9} {'PnL (USDC)':>11}")
+        print(f"  {'-'*20} {'-'*10} {'-'*7} {'-'*5} {'-'*5} {'-'*11} {'-'*9} {'-'*11}")
 
         for r in by_strat:
             exec_t = int(r["executed_trades"] or 0)
@@ -195,7 +195,7 @@ async def main():
                 f"{exec_t:>7} "
                 f"{wins:>5} "
                 f"{losses:>5} "
-                f"{wr:>7} "
+                f"{wr:>11} "
                 f"{fmt(r['total_volume'], 2):>9} "
                 f"{fmt_pnl(r['total_pnl']):>11}"
             )
@@ -206,7 +206,7 @@ async def main():
                 COALESCE(market_role, 'UNKNOWN') as role,
                 COALESCE(exit_reason, position_status, 'UNKNOWN') as exit_type,
                 COUNT(*) as cnt,
-                ROUND(CAST(COALESCE(SUM(pnl), 0) AS numeric), 2) as pnl
+                ROUND(CAST(COALESCE(SUM(COALESCE(realized_pnl_usdc, pnl, 0)), 0) AS numeric), 2) as pnl
             FROM trade_history
             WHERE created_at >= NOW() - INTERVAL '24 hours'
               AND status = 'SUCCESS'

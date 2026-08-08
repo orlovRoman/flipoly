@@ -727,6 +727,7 @@ class ModelTrainer:
         new_model_record = ModelRegistry(
             asset=asset,
             version=next_version,
+            model_type="logreg",
             model_blob=model_bytes,
             accuracy=val_acc,
             baseline=baseline_acc,

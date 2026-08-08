@@ -305,9 +305,7 @@ async def get_trade_logs(
         funnel_map = {f.decision_run_id: f for f in funnel_res.scalars().all()}
 
     settings_res = await db.execute(
-        select(RuntimeSettings.key, RuntimeSettings.value).where(
-            RuntimeSettings.key.like("TRADING_MODE%")
-        )
+        select(RuntimeSettings.key, RuntimeSettings.value)
     )
     settings_dict = {k: v for k, v in settings_res.all()}
 

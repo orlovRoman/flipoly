@@ -592,6 +592,7 @@ class CryptoModelTrainer:
                 self.db.add(ModelRegistry(
                     asset=regime_asset,
                     version=next_version,
+                    model_type="lgbm",
                     model_blob=model_bytes,
                     accuracy=val_auc,
                     baseline=baseline_auc,
