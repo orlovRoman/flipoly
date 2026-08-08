@@ -49,6 +49,9 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "hour_cos",          # cos(2*pi*hour/24)
     "dow_sin",           # sin(2*pi*dow/7)
     "dow_cos",           # cos(2*pi*dow/7)
+    # --- Live Funding Rate runtime features ---
+    "funding_rate",      # текущая ставка финансирования
+    "funding_rate_ma3",  # скользящая средняя за 3 периода (24ч)
 ]
 
 
@@ -63,6 +66,8 @@ class CryptoFeatureVector:
 def build_crypto_features(
     candles: Sequence | pd.DataFrame,
     min_candles: int = 100,
+    funding_rate: float = 0.0,
+    funding_rate_ma3: float = 0.0,
 ) -> CryptoFeatureVector:
     if isinstance(candles, pd.DataFrame):
         df = candles.copy()
@@ -194,6 +199,7 @@ def build_crypto_features(
         range_1, range_avg,
         consec_balance,
         hour_sin, hour_cos, dow_sin, dow_cos,
+        float(funding_rate), float(funding_rate_ma3),
     ]], dtype=np.float64)
 
     vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
@@ -274,7 +280,7 @@ def build_features(
     ema21 = close.ewm(span=21, adjust=False).mean()
     out["ema_ratio_9_21"] = ema9 / (ema21 + 1e-10)
 
-    # ── Bollinger Bands (20, 2σ) ─────────────────────────────────
+    # ── Bollinger Bands (20, 2σ) ───────────────────────────────
     bb_mean  = close.rolling(20, min_periods=10).mean()
     bb_std   = close.rolling(20, min_periods=10).std()
     bb_upper = bb_mean + 2 * bb_std
@@ -297,7 +303,6 @@ def build_features(
     dirs = (close >= df["open"]).astype(int).values
     result = []
     for i in range(len(dirs)):
-        # смотрим назад от i (не включая i — нет lookahead)
         cu = 0
         for j in range(i - 1, -1, -1):
             if dirs[j] == 1: cu += 1
@@ -315,6 +320,10 @@ def build_features(
     out["hour_cos"] = np.cos(2 * np.pi * dt.dt.hour / 24)
     out["dow_sin"]  = np.sin(2 * np.pi * dt.dt.weekday / 7)
     out["dow_cos"]  = np.cos(2 * np.pi * dt.dt.weekday / 7)
+
+    # ── Live Funding Rate runtime features ───────────────────────
+    out["funding_rate"]     = float(funding_rate)
+    out["funding_rate_ma3"] = float(funding_rate_ma3)
 
     # ── NaN → 0 (safety net) ────────────────────────────────────
     out = out.fillna(0.0)

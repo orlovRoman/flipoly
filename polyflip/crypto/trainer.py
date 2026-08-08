@@ -57,6 +57,8 @@ CRYPTO_FEATURES = [
     "consec_balance",
     # Time (Cyclic)
     "hour_sin", "hour_cos", "dow_sin", "dow_cos",
+    # Live Funding Rate runtime features
+    "funding_rate", "funding_rate_ma3",
 ]
 
 
