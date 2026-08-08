@@ -173,6 +173,7 @@ async def _finish_submit_exception(
             or ("insufficient allowance" in err_lower)
             or ("allowance exceeded" in err_lower)
             or ("erc20: insufficient allowance" in err_lower)
+            or ("allowance" in err_lower)
         )
         terminal_state = (
             "REJECTED"
@@ -1017,7 +1018,7 @@ async def reconcile_active_requests():
                 )
 
 
-_last_auto_resolve_check: datetime | None = None
+_last_auto_resolve_check_by_mode: dict[str, datetime] = {}
 AUTO_RESOLVE_CHECK_INTERVAL_SEC = 60
 
 
@@ -1025,16 +1026,17 @@ async def _auto_resolve_stuck_manual_reviews(execution_mode: str) -> None:
     """
     Автоматически закрывает зависшие MANUAL_REVIEW_REQUIRED CLOSE-заявки старше 15 минут.
     Перед REJECTED проверяются возможные fills через gateway.
-    Использует собственную изолированную сессию БД с троттлингом 60 сек.
+    Использует собственную изолированную сессию БД с троттлингом 60 сек на каждый режим.
     """
-    global _last_auto_resolve_check
+    global _last_auto_resolve_check_by_mode
     now = datetime.now(timezone.utc)
+    last_check = _last_auto_resolve_check_by_mode.get(execution_mode)
     if (
-        _last_auto_resolve_check
-        and (now - _last_auto_resolve_check).total_seconds() < AUTO_RESOLVE_CHECK_INTERVAL_SEC
+        last_check
+        and (now - last_check).total_seconds() < AUTO_RESOLVE_CHECK_INTERVAL_SEC
     ):
         return
-    _last_auto_resolve_check = now
+    _last_auto_resolve_check_by_mode[execution_mode] = now
 
     settings = ExecutionSettings()
     async with async_session() as session:

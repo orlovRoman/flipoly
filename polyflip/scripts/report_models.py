@@ -38,8 +38,8 @@ def print_subheader(title):
     print(f"\n  -- {title} {'-' * max(1, 65 - len(title))}")
 
 
-def print_registry_table(models, is_lgbm=False):
-    if not is_lgbm:
+def print_registry_table(models, model_type="logreg"):
+    if model_type != "lgbm":
         print(
             f"  {'Asset':<22} {'Ver':>4}  {'Act':>5}  {'Accuracy':>9}  "
             f"{'Baseline':>9}  {'Thr':>6}  {'F1':>6}  {'BkPnL':>8}  Trained"
@@ -96,7 +96,7 @@ def print_trades_table(rows, label_24h=False):
         w  = int(r["win_count"] or 0)
         l  = int(r["loss_count"] or 0)
         mtype = r.get("model_type") or "N/A"
-        vol = fmt(r.get("total_volume"), 2) if not label_24h else "-"
+        vol = fmt(r.get("total_volume"), 2)
         print(
             f"  {r['asset']:<22} {r['model_version']:>6}  {mtype:>6}  "
             f"{r['total_records']:>8}  {et:>7}  {w:>5}  {l:>5}  "
@@ -132,7 +132,7 @@ async def main():
                 ROUND(CAST(COALESCE(SUM(CASE WHEN th.status = 'SUCCESS' THEN COALESCE(th.realized_pnl_usdc, th.pnl, 0) ELSE 0 END), 0) AS numeric), 2) as total_pnl,
                 ROUND(CAST(COALESCE(SUM(CASE WHEN th.status = 'SUCCESS' THEN th.amount_usdc ELSE 0 END), 0) AS numeric), 2) as total_volume
             FROM trade_history th
-            LEFT JOIN model_registry mr ON mr.asset = th.asset AND mr.version = th.model_version AND mr.is_active = true
+            LEFT JOIN model_registry mr ON mr.asset = th.asset AND mr.version = th.model_version
             GROUP BY th.asset, COALESCE(CAST(th.model_version AS text), 'N/A'), COALESCE(mr.model_type, CASE WHEN th.asset LIKE '%USDT%' THEN 'lgbm' ELSE 'logreg' END)
             ORDER BY model_type, th.asset, total_pnl DESC;
         """))).mappings()]
@@ -146,9 +146,10 @@ async def main():
                 COUNT(CASE WHEN th.status = 'SUCCESS' THEN 1 END) as executed_trades,
                 COUNT(CASE WHEN th.status = 'SUCCESS' AND COALESCE(th.realized_pnl_usdc, th.pnl, 0) > 0 THEN 1 END) as win_count,
                 COUNT(CASE WHEN th.status = 'SUCCESS' AND COALESCE(th.realized_pnl_usdc, th.pnl, 0) < 0 THEN 1 END) as loss_count,
-                ROUND(CAST(COALESCE(SUM(CASE WHEN th.status = 'SUCCESS' THEN COALESCE(th.realized_pnl_usdc, th.pnl, 0) ELSE 0 END), 0) AS numeric), 2) as total_pnl
+                ROUND(CAST(COALESCE(SUM(CASE WHEN th.status = 'SUCCESS' THEN COALESCE(th.realized_pnl_usdc, th.pnl, 0) ELSE 0 END), 0) AS numeric), 2) as total_pnl,
+                ROUND(CAST(COALESCE(SUM(CASE WHEN th.status = 'SUCCESS' THEN th.amount_usdc ELSE 0 END), 0) AS numeric), 2) as total_volume
             FROM trade_history th
-            LEFT JOIN model_registry mr ON mr.asset = th.asset AND mr.version = th.model_version AND mr.is_active = true
+            LEFT JOIN model_registry mr ON mr.asset = th.asset AND mr.version = th.model_version
             WHERE th.created_at >= NOW() - INTERVAL '24 hours'
             GROUP BY th.asset, COALESCE(CAST(th.model_version AS text), 'N/A'), COALESCE(mr.model_type, CASE WHEN th.asset LIKE '%USDT%' THEN 'lgbm' ELSE 'logreg' END)
             ORDER BY model_type, th.asset, total_pnl DESC;
@@ -167,9 +168,9 @@ async def main():
     # === BLOCK 1: LogReg ===
     print_header(f"BLOCK 1 -- LogReg (Polymarket Binary)  |  active: {len(active_logreg)}")
     print_subheader("1.1 Active models")
-    print_registry_table(active_logreg, is_lgbm=False) if active_logreg else print("  None.")
+    print_registry_table(active_logreg, model_type="logreg") if active_logreg else print("  None.")
     print_subheader("1.2 All versions")
-    print_registry_table(logreg_models, is_lgbm=False)
+    print_registry_table(logreg_models, model_type="logreg")
     print_subheader("1.3 All-Time trades")
     print_trades_table(logreg_trades) if logreg_trades else print("  No data.")
     print_subheader("1.4 Last 24h trades")
@@ -178,9 +179,9 @@ async def main():
     # === BLOCK 2: LightGBM ===
     print_header(f"BLOCK 2 -- LightGBM (Crypto OHLCV)  |  active: {len(active_lgbm)}")
     print_subheader("2.1 Active models")
-    print_registry_table(active_lgbm, is_lgbm=True) if active_lgbm else print("  None.")
+    print_registry_table(active_lgbm, model_type="lgbm") if active_lgbm else print("  None.")
     print_subheader("2.2 All versions")
-    print_registry_table(lgbm_models, is_lgbm=True) if lgbm_models else print("  No LGBM models.")
+    print_registry_table(lgbm_models, model_type="lgbm") if lgbm_models else print("  No LGBM models.")
     print_subheader("2.3 All-Time trades")
     print_trades_table(lgbm_trades) if lgbm_trades else print("  No data.")
     print_subheader("2.4 Last 24h trades")
