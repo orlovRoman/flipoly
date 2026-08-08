@@ -49,9 +49,6 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "hour_cos",          # cos(2*pi*hour/24)
     "dow_sin",           # sin(2*pi*dow/7)
     "dow_cos",           # cos(2*pi*dow/7)
-    # --- Live Funding Rate runtime features ---
-    "funding_rate",      # текущая ставка финансирования
-    "funding_rate_ma3",  # скользящая средняя за 3 периода (24ч)
 ]
 
 
@@ -66,8 +63,6 @@ class CryptoFeatureVector:
 def build_crypto_features(
     candles: Sequence | pd.DataFrame,
     min_candles: int = 100,
-    funding_rate: float = 0.0,
-    funding_rate_ma3: float = 0.0,
 ) -> CryptoFeatureVector:
     if isinstance(candles, pd.DataFrame):
         df = candles.copy()
@@ -199,7 +194,6 @@ def build_crypto_features(
         range_1, range_avg,
         consec_balance,
         hour_sin, hour_cos, dow_sin, dow_cos,
-        float(funding_rate), float(funding_rate_ma3),
     ]], dtype=np.float64)
 
     vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
@@ -217,8 +211,6 @@ def build_crypto_features(
 
 def build_features(
     candles: Sequence | pd.DataFrame,
-    funding_rate: float = 0.0,
-    funding_rate_ma3: float = 0.0,
 ) -> pd.DataFrame:
     if isinstance(candles, pd.DataFrame):
         df = candles.copy()
@@ -320,10 +312,6 @@ def build_features(
     out["hour_cos"] = np.cos(2 * np.pi * dt.dt.hour / 24)
     out["dow_sin"]  = np.sin(2 * np.pi * dt.dt.weekday / 7)
     out["dow_cos"]  = np.cos(2 * np.pi * dt.dt.weekday / 7)
-
-    # ── Live Funding Rate runtime features ───────────────────────
-    out["funding_rate"]     = float(funding_rate)
-    out["funding_rate_ma3"] = float(funding_rate_ma3)
 
     # ── NaN → 0 (safety net) ────────────────────────────────────
     out = out.fillna(0.0)

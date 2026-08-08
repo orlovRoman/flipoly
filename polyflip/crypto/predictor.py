@@ -52,9 +52,6 @@ class CryptoFeaturesValidator(BaseModel):
     hour_cos: float
     dow_sin: float
     dow_cos: float
-    # Live Funding Rate runtime features
-    funding_rate: float = 0.0
-    funding_rate_ma3: float = 0.0
     @field_validator("*", mode="before")
     @classmethod
     def check_nan_or_none(cls, v: Any) -> float:
@@ -402,15 +399,8 @@ class CryptoPredictor:
             )
 
         try:
-            # 1. Сборка вектора признаков с использованием актуальных ставок финансирования
-            fr_live = funding_rate if funding_rate is not None else self._funding_rates.get(symbol, 0.0)
-            fr_ma3_live = self._funding_rate_ma3s.get(symbol, 0.0)
-
-            feature_vector = build_crypto_features(
-                candles,
-                funding_rate=fr_live,
-                funding_rate_ma3=fr_ma3_live,
-            )
+            # 1. Сборка вектора признаков
+            feature_vector = build_crypto_features(candles)
 
             if not feature_vector.valid:
                 return CryptoSignal(
