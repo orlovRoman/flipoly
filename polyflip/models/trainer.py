@@ -23,9 +23,17 @@ from polyflip.constants import (
     MODEL_THRESHOLD_MAX,
 )
 
-logger = structlog.get_logger(__name__)
-
 _TRAINING_LOCKS: dict[str, asyncio.Lock] = {}
+_TRAINING_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+async def _get_training_semaphore(db: AsyncSession) -> asyncio.Semaphore:
+    global _TRAINING_SEMAPHORE
+    if _TRAINING_SEMAPHORE is None:
+        from polyflip.services.settings_service import get_int
+        max_jobs = await get_int(db, "TRAIN_MAX_PARALLEL_JOBS") or 2
+        _TRAINING_SEMAPHORE = asyncio.Semaphore(max_jobs)
+    return _TRAINING_SEMAPHORE
 
 from polyflip.models.feature_lags import add_lag_features, LAG_FEATURE_NAMES
 
@@ -188,39 +196,42 @@ def _fit_and_serialize(
             ),
         )
 
-    # --- Grid search по C ---
-    C_GRID = [0.05, 0.1, 0.5, 1.0, 2.0, 5.0]
-    gkf_search = GroupKFold(n_splits=CV_N_SPLITS)
+    # --- Grid search по C (оптимизировано: 1 сплит GroupShuffleSplit) ---
+    C_GRID = [0.1, 0.5, 1.0, 5.0]
     c_results = {}
-    
-    for c_val in C_GRID:
-        probe = Pipeline([
-            ("scaler", StandardScaler()),
-            ("model", LogisticRegression(
-                class_weight="balanced", C=c_val,
-                random_state=CV_RANDOM_STATE, max_iter=1000,
-            )),
-        ])
-        probe_aucs = []
-        for tr_idx, vl_idx in gkf_search.split(X, y, groups=groups):
-            if len(np.unique(y.iloc[tr_idx])) < 2 or len(np.unique(y.iloc[vl_idx])) < 2:
-                continue
-            m = clone(probe)
-            m_weight = sample_weight[tr_idx] if sample_weight is not None else None
-            m.fit(X.iloc[tr_idx], y.iloc[tr_idx], model__sample_weight=m_weight)
-            proba = m.predict_proba(X.iloc[vl_idx])[:, 1]
-            probe_aucs.append(roc_auc_score(y.iloc[vl_idx], proba))
-        if probe_aucs:
-            c_results[c_val] = round(float(np.mean(probe_aucs)), 4)
-    
-    best_C = max(c_results, key=c_results.get) if c_results else 5.0
+    gss_search = GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=CV_RANDOM_STATE)
+
+    try:
+        tr_idx, vl_idx = next(gss_search.split(X, y, groups=groups))
+        if len(np.unique(y.iloc[tr_idx])) >= 2 and len(np.unique(y.iloc[vl_idx])) >= 2:
+            m_weight_tr = sample_weight[tr_idx] if sample_weight is not None else None
+            for c_val in C_GRID:
+                probe = Pipeline([
+                    ("scaler", StandardScaler()),
+                    ("model", LogisticRegression(
+                        class_weight="balanced", C=c_val,
+                        random_state=CV_RANDOM_STATE, max_iter=300,
+                        solver="lbfgs", n_jobs=1,
+                    )),
+                ])
+                probe.fit(X.iloc[tr_idx], y.iloc[tr_idx], model__sample_weight=m_weight_tr)
+                proba = probe.predict_proba(X.iloc[vl_idx])[:, 1]
+                c_results[c_val] = round(float(roc_auc_score(y.iloc[vl_idx], proba)), 4)
+    except Exception as e:
+        logger.warning("c_grid_search_fallback", error=str(e))
+
+    best_C = max(c_results, key=c_results.get) if c_results else 1.0
     logger.info("c_grid_search_results", c_grid=c_results, best_C=best_C)
 
     # 3. Обучаем модель с кросс-валидацией
     gkf = GroupKFold(n_splits=CV_N_SPLITS)
     base_model = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(class_weight="balanced", C=best_C, random_state=CV_RANDOM_STATE, max_iter=1000))
+        ("model", LogisticRegression(
+            class_weight="balanced", C=best_C,
+            random_state=CV_RANDOM_STATE, max_iter=300,
+            solver="lbfgs", n_jobs=1,
+        ))
     ])
     
     from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
@@ -563,18 +574,20 @@ class ModelTrainer:
                 f"Убедись что df.reset_index(drop=True) вызван перед X = df[FEATURE_COLS]"
             )
 
-        # Выполняем CPU-bound обучение в отдельном потоке (BUG-A2 FIX)
+        # Выполняем CPU-bound обучение в отдельном потоке с лимитом параллелизма (Semaphore)
         fee_per_trade = await get_float(self.db, "BACKTEST_FEE_PER_TRADE")
-        fit_res = await asyncio.to_thread(
-            _fit_and_serialize, X, y, groups,
-            mid_prices=df["mid_price"],
-            sample_weight=sample_weights,
-            lr_coef_threshold=lr_coef_threshold,
-            lr_min_features=lr_min_features,
-            min_precision=min_precision,
-            max_suspicious=max_suspicious,
-            fee_per_trade=fee_per_trade,
-        )
+        sem = await _get_training_semaphore(self.db)
+        async with sem:
+            fit_res = await asyncio.to_thread(
+                _fit_and_serialize, X, y, groups,
+                mid_prices=df["mid_price"],
+                sample_weight=sample_weights,
+                lr_coef_threshold=lr_coef_threshold,
+                lr_min_features=lr_min_features,
+                min_precision=min_precision,
+                max_suspicious=max_suspicious,
+                fee_per_trade=fee_per_trade,
+            )
         model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest = fit_res
 
         logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc, ece=ece)
@@ -816,19 +829,21 @@ class ModelTrainer:
             )
 
             try:
-                fit_res_phase = await asyncio.to_thread(
-                    _fit_and_serialize,
-                    X_phase,
-                    y_phase,
-                    grp_phase,
-                    mid_prices=df_phase["mid_price"],
-                    sample_weight=phase_weights,
-                    lr_coef_threshold=lr_coef_threshold,
-                    lr_min_features=lr_min_features,
-                    min_precision=min_precision,
-                    max_suspicious=max_suspicious,
-                    fee_per_trade=fee_per_trade,
-                )
+                sem_phase = await _get_training_semaphore(self.db)
+                async with sem_phase:
+                    fit_res_phase = await asyncio.to_thread(
+                        _fit_and_serialize,
+                        X_phase,
+                        y_phase,
+                        grp_phase,
+                        mid_prices=df_phase["mid_price"],
+                        sample_weight=phase_weights,
+                        lr_coef_threshold=lr_coef_threshold,
+                        lr_min_features=lr_min_features,
+                        min_precision=min_precision,
+                        max_suspicious=max_suspicious,
+                        fee_per_trade=fee_per_trade,
+                    )
             except Exception as e:
                 logger.error("price_phase_fit_failed", asset=asset, phase=phase_name, error=str(e))
                 phase_results[phase_name] = f"failed: {e}"
