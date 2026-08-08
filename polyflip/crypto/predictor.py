@@ -52,6 +52,9 @@ class CryptoFeaturesValidator(BaseModel):
     hour_cos: float
     dow_sin: float
     dow_cos: float
+    # Live Funding Rate runtime features
+    funding_rate: float = 0.0
+    funding_rate_ma3: float = 0.0
     @field_validator("*", mode="before")
     @classmethod
     def check_nan_or_none(cls, v: Any) -> float:
@@ -146,6 +149,39 @@ class CryptoPredictor:
         self._funding_rates.pop(symbol, None)
         self._funding_rate_ma3s.pop(symbol, None)
         self._loading_locks.pop(symbol, None)
+
+    async def refresh_runtime_params(self, db: AsyncSession, symbol: str) -> None:
+        """Обновляет только live-параметры (funding rate, vol-квантили) без сброса моделей."""
+        try:
+            fr_key = f"FUNDING_RATE_{symbol}"
+            fr_row = (await db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
+            )).scalar_one_or_none()
+            if fr_row and fr_row.value is not None:
+                self._funding_rates[symbol] = float(fr_row.value)
+
+            fr_ma3_key = f"FUNDING_RATE_MA3_{symbol}"
+            fr_ma3_row = (await db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
+            )).scalar_one_or_none()
+            if fr_ma3_row and fr_ma3_row.value is not None:
+                self._funding_rate_ma3s[symbol] = float(fr_ma3_row.value)
+
+            p33_key = f"CRYPTO_VOL_P33_{symbol}"
+            p33_row = (await db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == p33_key)
+            )).scalar_one_or_none()
+            if p33_row and p33_row.value is not None:
+                self._vol_p33s[symbol] = float(p33_row.value)
+
+            p67_key = f"CRYPTO_VOL_P67_{symbol}"
+            p67_row = (await db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == p67_key)
+            )).scalar_one_or_none()
+            if p67_row and p67_row.value is not None:
+                self._vol_p67s[symbol] = float(p67_row.value)
+        except Exception as e:
+            logger.warning("failed_to_refresh_runtime_params", symbol=symbol, error=str(e))
 
 
 
@@ -377,8 +413,15 @@ class CryptoPredictor:
             )
 
         try:
-            # 1. Сборка вектора признаков
-            feature_vector = build_crypto_features(candles)
+            # 1. Сборка вектора признаков с использованием актуальных ставок финансирования
+            fr_live = funding_rate if funding_rate is not None else self._funding_rates.get(symbol, 0.0)
+            fr_ma3_live = self._funding_rate_ma3s.get(symbol, 0.0)
+
+            feature_vector = build_crypto_features(
+                candles,
+                funding_rate=fr_live,
+                funding_rate_ma3=fr_ma3_live,
+            )
 
             if not feature_vector.valid:
                 return CryptoSignal(
