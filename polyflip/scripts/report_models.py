@@ -124,7 +124,7 @@ async def main():
             SELECT
                 th.asset,
                 COALESCE(CAST(th.model_version AS text), 'N/A') as model_version,
-                COALESCE(mr.model_type, CASE WHEN th.asset LIKE '%USDT%' THEN 'lgbm' ELSE 'logreg' END) as model_type,
+                COALESCE(mr.model_type, 'logreg') as model_type,
                 COUNT(*) as total_records,
                 COUNT(CASE WHEN th.status = 'SUCCESS' THEN 1 END) as executed_trades,
                 COUNT(CASE WHEN th.status = 'SUCCESS' AND COALESCE(th.realized_pnl_usdc, th.pnl, 0) > 0 THEN 1 END) as win_count,
@@ -133,7 +133,7 @@ async def main():
                 ROUND(CAST(COALESCE(SUM(CASE WHEN th.status = 'SUCCESS' THEN th.amount_usdc ELSE 0 END), 0) AS numeric), 2) as total_volume
             FROM trade_history th
             LEFT JOIN model_registry mr ON mr.asset = th.asset AND mr.version = th.model_version
-            GROUP BY th.asset, COALESCE(CAST(th.model_version AS text), 'N/A'), COALESCE(mr.model_type, CASE WHEN th.asset LIKE '%USDT%' THEN 'lgbm' ELSE 'logreg' END)
+            GROUP BY th.asset, COALESCE(CAST(th.model_version AS text), 'N/A'), COALESCE(mr.model_type, 'logreg')
             ORDER BY model_type, th.asset, total_pnl DESC;
         """))).mappings()]
 
@@ -141,7 +141,7 @@ async def main():
             SELECT
                 th.asset,
                 COALESCE(CAST(th.model_version AS text), 'N/A') as model_version,
-                COALESCE(mr.model_type, CASE WHEN th.asset LIKE '%USDT%' THEN 'lgbm' ELSE 'logreg' END) as model_type,
+                COALESCE(mr.model_type, 'logreg') as model_type,
                 COUNT(*) as total_records,
                 COUNT(CASE WHEN th.status = 'SUCCESS' THEN 1 END) as executed_trades,
                 COUNT(CASE WHEN th.status = 'SUCCESS' AND COALESCE(th.realized_pnl_usdc, th.pnl, 0) > 0 THEN 1 END) as win_count,
@@ -151,7 +151,7 @@ async def main():
             FROM trade_history th
             LEFT JOIN model_registry mr ON mr.asset = th.asset AND mr.version = th.model_version
             WHERE th.created_at >= NOW() - INTERVAL '24 hours'
-            GROUP BY th.asset, COALESCE(CAST(th.model_version AS text), 'N/A'), COALESCE(mr.model_type, CASE WHEN th.asset LIKE '%USDT%' THEN 'lgbm' ELSE 'logreg' END)
+            GROUP BY th.asset, COALESCE(CAST(th.model_version AS text), 'N/A'), COALESCE(mr.model_type, 'logreg')
             ORDER BY model_type, th.asset, total_pnl DESC;
         """))).mappings()]
 

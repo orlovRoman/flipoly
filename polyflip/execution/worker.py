@@ -170,10 +170,7 @@ async def _finish_submit_exception(
             is_deterministic_rejection
             or ("invalid token" in err_lower)
             or ("not enough balance" in err_lower)
-            or ("insufficient allowance" in err_lower)
-            or ("allowance exceeded" in err_lower)
-            or ("erc20: insufficient allowance" in err_lower)
-            or ("allowance" in err_lower)
+            or ("allowance" in err_lower)  # covers: insufficient allowance, allowance exceeded, erc20: insufficient allowance
         )
         terminal_state = (
             "REJECTED"
