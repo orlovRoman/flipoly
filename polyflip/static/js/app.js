@@ -853,26 +853,30 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function loadModelsHistory() {
+    setupModelTypeFilter();
+    setupModelStatusFilter();
+
     try {
-      setupModelTypeFilter();
-      setupModelStatusFilter();
-      const [resModels, resPnl] = await Promise.all([
-        fetch(window.API_BASE + "/api/analytics/models", { headers: getHeaders() }),
-        fetch(window.API_BASE + "/api/dashboard/model_pnl", { headers: getHeaders() })
-      ]);
-
-      rawModelsData = await resModels.json();
-      try {
-        const pnlJson = await resPnl.json();
-        rawModelsPnlData = pnlJson.data || {};
-      } catch (e) {
-        console.error("Failed to parse model PnL", e);
+      const resModels = await fetch(window.API_BASE + "/api/analytics/models", { headers: getHeaders() });
+      if (resModels.ok) {
+        rawModelsData = await resModels.json();
       }
-
-      renderModelsTable();
-      setupModelsTableSorting();
     } catch (e) {
       console.error("Failed to load models history", e);
+    }
+
+    renderModelsTable();
+    setupModelsTableSorting();
+
+    try {
+      const resPnl = await fetch(window.API_BASE + "/api/dashboard/model_pnl", { headers: getHeaders() });
+      if (resPnl.ok) {
+        const pnlJson = await resPnl.json();
+        rawModelsPnlData = pnlJson.data || {};
+        renderModelsTable();
+      }
+    } catch (e) {
+      console.warn("Failed to parse model PnL", e);
     }
   }
 

@@ -67,7 +67,7 @@ _dashboard_cache = {}
 _DASHBOARD_CACHE_TTL = 30  # 30 секунд кэша
 
 _model_pnl_cache = {}
-_MODEL_PNL_CACHE_TTL = 60  # 60 секунд кэша
+_MODEL_PNL_CACHE_TTL = 300  # 300 секунд кэша
 
 
 def invalidate_dashboard_cache():
