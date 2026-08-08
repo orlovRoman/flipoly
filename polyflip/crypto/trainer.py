@@ -33,6 +33,11 @@ from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.feature_builder import build_features, CRYPTO_FEATURE_COLUMNS
 from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
 
+# Импортируем общий семафор из LogReg-трейнера.
+# NOTE: Семафор инициализируется один раз при первом вызове и кэшируется до перезапуска сервиса.
+# Изменение TRAIN_MAX_PARALLEL_JOBS в RuntimeSettings вступит в силу только после рестарта.
+from polyflip.models.trainer import _get_training_semaphore
+
 logger = structlog.get_logger(__name__)
 
 CRYPTO_FEATURES = [
@@ -395,6 +400,9 @@ class CryptoModelTrainer:
         trained_any = False
         from polyflip.crypto.predictor import CryptoPredictor
 
+        # Получаем семафор один раз для всего цикла по режимам
+        sem = await _get_training_semaphore(self.db)
+
         for regime, df_regime in [("low_vol", df_low), ("mid_vol", df_mid), ("high_vol", df_high)]:
             if len(df_regime) < 500:
                 logger.warning("regime_too_small", regime=regime, rows=len(df_regime))
@@ -418,21 +426,22 @@ class CryptoModelTrainer:
                 
                 logger.info("adaptive_lgbm_params", regime=regime, n_regime=n_regime, num_leaves=adaptive_params["num_leaves"])
 
-                # CPU-bound в thread
+                # CPU-bound в thread, ограничиваем параллелизм через общий семафор
                 t0 = time.monotonic()
                 try:
-                    result = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            _fit_lgbm_and_serialize,
-                            X_r, y_r, cv_n_splits,
-                            min_precision,
-                            min_valid_thr,
-                            max_valid_thr,
-                            thr_fallback,
-                            **adaptive_params
-                        ),
-                        timeout=1800.0,   # 30 минут — hard limit
-                    )
+                    async with sem:
+                        result = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                _fit_lgbm_and_serialize,
+                                X_r, y_r, cv_n_splits,
+                                min_precision,
+                                min_valid_thr,
+                                max_valid_thr,
+                                thr_fallback,
+                                **adaptive_params
+                            ),
+                            timeout=1800.0,   # 30 минут — hard limit
+                        )
                 except asyncio.TimeoutError:
                     logger.error("regime_train_timeout", symbol=symbol, regime=regime)
                     continue
@@ -665,4 +674,3 @@ class CryptoModelTrainer:
             CryptoPredictor.invalidate_all(symbol)
             return True
         return False
-
