@@ -137,46 +137,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      // Загрузка маркеров событий для наложения на PnL график
-      let annotations = {};
-      try {
-        const markersRes = await fetch(`${window.API_BASE}/api/trading/pnl-markers?hours=720`);
-        if (markersRes.ok) {
-          const markersData = await markersRes.json();
-          (markersData.markers || []).forEach((m, idx) => {
-            const dateStr = m.timestamp.split("T")[0];
-            if (displayDates.includes(dateStr)) {
-              annotations[`marker_${idx}`] = {
-                type: 'line',
-                xMin: dateStr,
-                xMax: dateStr,
-                borderColor: m.marker_type === 'ath' ? '#f59e0b' : '#818cf8',
-                borderWidth: m.marker_type === 'ath' ? 2 : 1,
-                borderDash: [4, 4],
-                label: {
-                  display: true,
-                  content: m.label,
-                  position: 'start',
-                  font: { size: 10, weight: 'bold' },
-                  backgroundColor: m.marker_type === 'ath' ? 'rgba(245, 158, 11, 0.85)' : 'rgba(99, 102, 241, 0.85)',
-                  color: '#ffffff',
-                  padding: 4,
-                  borderRadius: 4
-                }
-              };
-            }
-          });
-        }
-      } catch (err) {
-        console.warn("pnl_markers_fetch_error", err);
-      }
-
       const pnlOptions = {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
           legend: { display: true, labels: { color: "white" } },
-          annotation: { annotations }
         },
         scales: {
           x: {
