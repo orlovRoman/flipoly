@@ -28,6 +28,11 @@ _TRAINING_SEMAPHORE: asyncio.Semaphore | None = None
 
 
 async def _get_training_semaphore(db: AsyncSession) -> asyncio.Semaphore:
+    """
+    Возвращает синглтон-семафор для лимита параллельных вызовов обучения.
+    ВНИМАНИЕ: Изменение TRAIN_MAX_PARALLEL_JOBS в RuntimeSettings вступает в силу
+    после перезапуска сервиса, так как Семафор инициализируется один раз при старте.
+    """
     global _TRAINING_SEMAPHORE
     if _TRAINING_SEMAPHORE is None:
         from polyflip.services.settings_service import get_int

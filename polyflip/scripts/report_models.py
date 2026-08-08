@@ -120,6 +120,8 @@ async def main():
             ORDER BY model_type, asset, version DESC;
         """))).mappings()]
 
+        # Примечание: COALESCE(mr.model_type, 'logreg') использует 'logreg' как безопасный фоллбэк,
+        # если запись в trade_history ссылается на незарегистрированную версию модели.
         trades = [dict(x) for x in (await s.execute(text("""
             SELECT
                 th.asset,
