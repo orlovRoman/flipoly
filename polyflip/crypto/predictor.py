@@ -151,37 +151,26 @@ class CryptoPredictor:
         self._loading_locks.pop(symbol, None)
 
     async def refresh_runtime_params(self, db: AsyncSession, symbol: str) -> None:
-        """Обновляет только live-параметры (funding rate, vol-квантили) без сброса моделей."""
+        """Обновляет только live runtime-параметры без инвалидации кэша модели."""
+        if symbol not in self._loaded_symbols:
+            return
         try:
-            fr_key = f"FUNDING_RATE_{symbol}"
-            fr_row = (await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
-            )).scalar_one_or_none()
-            if fr_row and fr_row.value is not None:
-                self._funding_rates[symbol] = float(fr_row.value)
-
-            fr_ma3_key = f"FUNDING_RATE_MA3_{symbol}"
-            fr_ma3_row = (await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
-            )).scalar_one_or_none()
-            if fr_ma3_row and fr_ma3_row.value is not None:
-                self._funding_rate_ma3s[symbol] = float(fr_ma3_row.value)
-
-            p33_key = f"CRYPTO_VOL_P33_{symbol}"
-            p33_row = (await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == p33_key)
-            )).scalar_one_or_none()
-            if p33_row and p33_row.value is not None:
-                self._vol_p33s[symbol] = float(p33_row.value)
-
-            p67_key = f"CRYPTO_VOL_P67_{symbol}"
-            p67_row = (await db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == p67_key)
-            )).scalar_one_or_none()
-            if p67_row and p67_row.value is not None:
-                self._vol_p67s[symbol] = float(p67_row.value)
+            for attr, key_tpl in [
+                ("_funding_rates",     "FUNDING_RATE_{}"),
+                ("_funding_rate_ma3s", "FUNDING_RATE_MA3_{}"),
+                ("_vol_p33s",          "CRYPTO_VOL_P33_{}"),
+                ("_vol_p67s",          "CRYPTO_VOL_P67_{}"),
+            ]:
+                key = key_tpl.format(symbol)
+                row = (await db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == key)
+                )).scalar_one_or_none()
+                if row is not None and row.value is not None:
+                    getattr(self, attr)[symbol] = float(row.value)
+            logger.info("runtime_params_refreshed", symbol=symbol,
+                        funding_rate=self._funding_rates.get(symbol))
         except Exception as e:
-            logger.warning("failed_to_refresh_runtime_params", symbol=symbol, error=str(e))
+            logger.warning("refresh_runtime_params_failed", symbol=symbol, error=str(e))
 
 
 
