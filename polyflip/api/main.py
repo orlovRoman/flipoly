@@ -108,6 +108,8 @@ app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)
 # Подключаем middleware ограничения частоты запросов
 app.add_middleware(SimpleRateLimitMiddleware, limit=200, window=60)
 
+from starlette.responses import JSONResponse, RedirectResponse
+
 app.include_router(analytics_router)
 app.include_router(dashboard_router)
 app.include_router(trading_dashboard_router)
@@ -118,6 +120,13 @@ app.include_router(presets_router)
 app.include_router(crypto_router)
 app.include_router(crypto_backtest_router)
 app.include_router(execution_router)
+
+@app.get("/crypto", include_in_schema=False)
+@app.get("/crypto/{path:path}", include_in_schema=False)
+async def redirect_crypto_to_lightgbm(path: str = ""):
+    """Редирект со старого пути /crypto на /lightgbm"""
+    target = f"/lightgbm/{path}" if path else "/lightgbm"
+    return RedirectResponse(url=target, status_code=307)
 
 # Подключение статических файлов
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

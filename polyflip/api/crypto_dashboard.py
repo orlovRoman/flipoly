@@ -37,7 +37,7 @@ from polyflip.crypto.predictor import CryptoPredictor
 from polyflip.settings_registry import registry_defaults
 
 logger = structlog.get_logger(__name__)
-router = APIRouter(prefix="/crypto", tags=["Crypto"])
+router = APIRouter(prefix="/lightgbm", tags=["LightGBM"])
 
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
