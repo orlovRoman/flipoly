@@ -15,6 +15,12 @@ tests/
 scripts/*_check*.py
 scripts/fast_check.py
 backups/
+*.sql
+**/*.sql
+*.csv
+**/*.csv
+*.tar
+*.gz
 *.sqlite
 *.db
 *.log
