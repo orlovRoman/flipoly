@@ -255,7 +255,15 @@ def _fit_and_serialize(
         tr_weight = sample_weight[train_index] if sample_weight is not None else None
         fold_base.fit(X_train, y_train, model__sample_weight=tr_weight)
         
-        y_proba = fold_base.predict_proba(X_val)[:, 1]
+        # Калибровка внутри фолда для честной оценки ECE откалиброванной модели
+        fold_calib = CalibratedClassifierCV(
+            estimator=FrozenEstimator(fold_base),
+            method="sigmoid",
+            cv=None
+        )
+        fold_calib.fit(X_train, y_train)
+        
+        y_proba = fold_calib.predict_proba(X_val)[:, 1]
         oof_scores[val_index] = y_proba
         aucs.append(roc_auc_score(y_val, y_proba))
         
@@ -264,7 +272,7 @@ def _fit_and_serialize(
     # Baseline ROC-AUC/Accuracy (доля мажоритарного класса)
     baseline_acc = float(max(y.mean(), 1.0 - y.mean()))
     
-    # ECE Diagnostic
+    # ECE Diagnostic по откалиброванным предсказаниям
     from sklearn.calibration import calibration_curve
     frac_pos, mean_pred = calibration_curve(y, oof_scores, n_bins=10, strategy="uniform")
     ece = float(np.mean(np.abs(frac_pos - mean_pred)))
