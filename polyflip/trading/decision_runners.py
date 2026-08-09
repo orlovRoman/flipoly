@@ -105,13 +105,12 @@ async def _fetch_lgbm_signal(
         async with async_session() as db_session:
             await crypto_predictor.load(db_session, binance_symbol)
             interval = crypto_predictor.get_interval(binance_symbol)
-            candles = await get_recent_candles(db_session, binance_symbol, interval=interval, limit=MIN_CANDLES_REQUIRED)
-            fr = await _get_funding_rate(db_session, binance_symbol)
-            return crypto_predictor.predict(
-                candles, 
-                binance_symbol, 
-                funding_rate=fr, 
-                invert_lgbm_signal=cfg.invert_lgbm_signal
+            from polyflip.crypto.market_direction_service import get_or_create_market_direction_signal
+            return await get_or_create_market_direction_signal(
+                db_session,
+                market,
+                candles,
+                crypto_predictor,
             )
     except Exception as exc:
         logger.error("combined_lgbm_error_fallback", asset=asset_upper, error=str(exc))

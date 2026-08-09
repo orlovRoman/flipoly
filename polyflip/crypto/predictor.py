@@ -301,58 +301,37 @@ class CryptoPredictor:
                         missing_regimes.append(regime)
                         continue
 
+                    # Item 10: Активировать только канонические модели с target_source == POLYMARKET_FINAL_OUTCOME
+                    params = row.training_params or {}
+                    target_src = params.get("target_source")
+                    if target_src != "POLYMARKET_FINAL_OUTCOME":
+                        logger.warning(
+                            "legacy_non_canonical_model_ignored",
+                            symbol=symbol,
+                            regime=regime,
+                            version=row.version,
+                            target_source=target_src,
+                            hint="Model trained on Binance synthetic target ret_1.shift(-1) is deprecated",
+                        )
+                        missing_regimes.append(regime)
+                        continue
+
                     self._models[symbol][regime] = pickle.loads(row.model_blob)
                     self._model_versions[symbol][regime] = row.version
                     self._model_intervals[symbol][regime] = getattr(row, 'interval', '15m')
-                    self._model_eces[symbol][regime] = row.ece or 0.0 # BUG-AO
+                    self._model_eces[symbol][regime] = row.ece or 0.0
 
-                    thr_up_key = f"CRYPTO_THRESHOLD_{regime_asset}"
-                    thr_down_key = f"CRYPTO_THRESHOLD_DOWN_{regime_asset}"
-                    thr_rows = (await db.execute(
-                        select(RuntimeSettings).where(RuntimeSettings.key.in_([thr_up_key, thr_down_key]))
-                    )).scalars().all()
-                    
-                    thr_dict = {r.key: float(r.value) for r in thr_rows}
-
-                    from polyflip.services.settings_service import get_float
-                    min_valid_thresh = await get_float(db, "LGBM_MIN_VALID_THRESHOLD")
-                    max_valid_thresh = await get_float(db, "LGBM_MAX_VALID_THRESHOLD")
-                    threshold_fallback = await get_float(db, "LGBM_THRESHOLD_FALLBACK")
-
-                    if thr_up_key in thr_dict and thr_down_key in thr_dict:
-                        th_up = thr_dict[thr_up_key]
-                        th_down = thr_dict[thr_down_key]
-                        for key, threshold in [(thr_up_key, th_up), (thr_down_key, th_down)]:
-                            if not (min_valid_thresh <= threshold <= max_valid_thresh):
-                                logger.error(
-                                    "invalid_threshold_in_db_using_fallback",
-                                    key=key,
-                                    invalid=round(threshold, 4),
-                                    fallback=threshold_fallback,
-                                )
-                                if key == thr_up_key:
-                                    th_up = threshold_fallback
-                                else:
-                                    th_down = threshold_fallback
-                    else:
-                        # Fallback 1: есть только старый UP-порог без DOWN (до первого переобучения)
-                        if thr_up_key in thr_dict:
-                            th_up = thr_dict[thr_up_key]
-                            th_down = round(1.0 - th_up, 4)
-                            logger.warning(
-                                "threshold_down_not_found_using_mirror",
-                                asset=regime_asset,
-                                th_up=th_up,
-                                th_down=th_down,
-                                hint="Retrain the model to get a proper DOWN threshold",
-                            )
-                        else:
-                            # Fallback 2: ничего нет — дефолты
-                            th_up = 0.55
-                            th_down = 0.45
+                    # Item 9: ModelRegistry как единственный источник истины для порогов
+                    th_up = row.decision_threshold if row.decision_threshold is not None else 0.55
+                    th_down = row.decision_threshold_down if row.decision_threshold_down is not None else 0.45
 
                     self._thresholds[symbol][regime] = (th_up, th_down)
                     loaded_regimes += 1
+                    logger.info(
+                        "crypto_regime_model_loaded",
+                        symbol=symbol, regime=regime, version=row.version,
+                        th_up=th_up, th_down=th_down, vol_p33=self._vol_p33s[symbol], vol_p67=self._vol_p67s[symbol]
+                    )
                     logger.info(
                         "crypto_regime_model_loaded",
                         symbol=symbol, regime=regime, version=row.version,
@@ -391,13 +370,12 @@ class CryptoPredictor:
         symbol: str,
         funding_rate: float | None = None,
         invert_lgbm_signal: bool = False,
+        underlying_price: float | None = None,
     ) -> CryptoSignal:
         """
         Синхронный инференс по релевантной модели волатильности.
 
-        funding_rate — передаётся в check_funding_veto() для блокировки
-                       контртрендовых позиций при экстремальных ставках.
-                       НЕ используется в построении признаков ML (см. feature_builder.py).
+        underlying_price — канонический страйк (цена Polymarket/Chainlink на момент открытия рынка).
         """
         p_up_raw: float = 0.0
         p_down_raw: float = 0.0
@@ -482,8 +460,8 @@ class CryptoPredictor:
             
             signal_strength, direction = compute_crypto_signal_strength(p_up, th_up, th_down)
             
-            # Страйк (цена последней закрытой свечи)
-            strike = float(candles[-1].open) if candles else 0.0
+            # Страйк (канонический underlying_price без подмены на candles[-1].open)
+            strike = float(underlying_price) if underlying_price is not None else 0.0
 
             ece = (self._model_eces.get(symbol, {}).get(selected_regime)
                    or next(iter(self._model_eces.get(symbol, {}).values()), 0.0))

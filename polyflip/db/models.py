@@ -480,3 +480,36 @@ class ConfigPreset(Base):
     )
 
 
+class MarketDirectionSignal(Base):
+    """
+    Таблица для атомарной фиксации единого прогноза LightGBM на 15-минутный рынок.
+    Исключает пересчеты и дрейф сигналов при повторных вызовах в рамках одного market_id.
+    """
+    __tablename__ = "market_direction_signals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    market_id = Column(String(128), nullable=False, unique=True)
+    asset = Column(String(32), nullable=False)
+    symbol = Column(String(32), nullable=False)
+    regime = Column(String(32), nullable=False)
+    direction = Column(String(16), nullable=False)  # "UP", "DOWN", "NONE"
+    p_up = Column(Float, nullable=False)
+    p_down = Column(Float, nullable=False)
+    signal_strength = Column(Float, nullable=False)
+    strike = Column(Float, nullable=True)
+    threshold_up = Column(Float, nullable=False)
+    threshold_down = Column(Float, nullable=False)
+    model_key = Column(String(64), nullable=False)
+    model_version = Column(Integer, nullable=False)
+    features_ok = Column(Boolean, nullable=False, default=True)
+    risk_vetoed = Column(Boolean, nullable=False, default=False)
+    risk_reason = Column(String(256), nullable=True)
+    status = Column(String(32), nullable=False, default="READY")
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_direction_signal_market", "market_id"),
+        Index("idx_direction_signal_asset_created", "asset", "created_at"),
+    )
+
+

@@ -873,6 +873,7 @@ async def crypto_models_analytics(
         WHERE COALESCE(direction_model_key, confirm_model_key) IS NOT NULL
           AND execution_mode = :decision_mode
           AND decision_run_id IS NOT NULL
+          AND (direction_status IS NULL OR direction_status IN ('OK', 'READY'))
           {veto_date_filter}
         GROUP BY
             COALESCE(direction_model_key, confirm_model_key),
