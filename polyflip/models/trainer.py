@@ -25,6 +25,7 @@ from polyflip.constants import (
 
 _TRAINING_LOCKS: dict[str, asyncio.Lock] = {}
 _TRAINING_SEMAPHORE: asyncio.Semaphore | None = None
+logger = structlog.get_logger(__name__)
 
 
 async def _get_training_semaphore(db: AsyncSession) -> asyncio.Semaphore:
