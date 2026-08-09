@@ -450,7 +450,6 @@ class CryptoModelTrainer:
 
         logger.info(
             "training_dataset_validated",
-            event="training_dataset_validated",
             total_resolved_markets=len(df_filtered),
             matched_rows=len(df_filtered),
             coverage=1.0,
