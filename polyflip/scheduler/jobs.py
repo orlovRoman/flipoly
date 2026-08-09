@@ -582,14 +582,14 @@ async def main():
         misfire_grace_time=3600,
     )
     
-    # Запускаем торговый движок каждые 5 секунд с передачей общих клиентов
+    # Запускаем торговый движок с интервалом poll_interval (15 сек)
     scheduler.add_job(
         trade_job,
-        trigger=IntervalTrigger(seconds=5),
+        trigger=IntervalTrigger(seconds=poll_interval),
         id="trade_job",
         replace_existing=True,
         max_instances=1,
-        misfire_grace_time=3,
+        misfire_grace_time=10,
         kwargs={"api_client": api_client}
     )
     
