@@ -377,6 +377,9 @@ async def decide_combined_mode(
     lgbm_applied = (lgbm_mode == "ACTIVE")
     lgbm_shadow = (lgbm_mode == "SHADOW")
 
+    applied_direction_key = comb_res.direction_model_key if lgbm_applied else None
+    applied_direction_version = comb_res.direction_model_version if lgbm_applied else None
+
     # 6. Формируем decision_details и TradeDecision
     decision_details = {
         "decision_run_id": decision_run_id,
@@ -385,8 +388,14 @@ async def decide_combined_mode(
         "decision_source": "LOGREG_PLUS_LIGHTGBM" if lgbm_applied else "LOGREG_ONLY",
         "consensus_type": comb_res.consensus_type,
         "direction_status": "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if lgbm_mode == "OFF" else comb_res.direction_status),
-        "direction_model_key": comb_res.direction_model_key,
-        "direction_model_version": comb_res.direction_model_version,
+        "direction_model_key": applied_direction_key,
+        "direction_model_version": applied_direction_version,
+        "shadow_direction_model_key": comb_res.direction_model_key if lgbm_shadow else None,
+        "shadow_direction_model_version": comb_res.direction_model_version if lgbm_shadow else None,
+        "shadow_direction_value": comb_res.direction_value if lgbm_shadow else None,
+        "shadow_direction_probability": comb_res.direction_probability if lgbm_shadow else None,
+        "shadow_inference_status": direction_signal.status if direction_signal else None,
+        "shadow_features_ok": direction_signal.features_ok if direction_signal else False,
         "direction_regime": comb_res.direction_regime,
         "direction_probability": comb_res.direction_probability,
         "direction_value": comb_res.direction_value,
@@ -431,7 +440,8 @@ async def decide_combined_mode(
         "lgbm_version": comb_res.direction_model_version if lgbm_applied else None,
         "lgbm_model_key": comb_res.direction_model_key if lgbm_applied else None,
         "lgbm_direction": comb_res.direction_value,
-        "lgbm_features_ok": (comb_res.direction_status == "READY"),
+        "lgbm_features_ok": direction_signal.features_ok if direction_signal else False,
+        "shadow_inference_status": direction_signal.status if direction_signal else "NONE",
         "is_fallback": (comb_res.entry_model_source in ("BASE", "GLOBAL")),
         "vote_action": comb_res.action,
         "bet_size_multiplier": 1.0,
@@ -581,6 +591,6 @@ async def decide_combined_mode(
         skip_reason=comb_res.reason if comb_res.action == "SKIP" else None,
         lgbm_metadata=lgbm_meta,
         used_model_key=comb_res.entry_model_key,
-        confirm_model_key=comb_res.direction_model_key,
-        confirm_model_version=comb_res.direction_model_version,
+        confirm_model_key=confirm_model_key,
+        confirm_model_version=confirm_model_version,
     )

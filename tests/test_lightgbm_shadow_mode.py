@@ -14,7 +14,6 @@ def test_lightgbm_mode_active_parsing():
 def test_shadow_ignores_invalid_lgbm_and_uses_logreg():
     cfg = parse_trading_settings({"LIGHTGBM_DECISION_MODE": "SHADOW"})
     
-    # LightGBM fails / disabled
     crypto_sig = CryptoSignal(
         symbol="BTCUSDT",
         p_up=0.0,
@@ -56,7 +55,6 @@ def test_shadow_ignores_invalid_lgbm_and_uses_logreg():
 def test_shadow_mode_opposing_lgbm_signal_and_veto_ignored():
     cfg = parse_trading_settings({"LIGHTGBM_DECISION_MODE": "SHADOW"})
 
-    # LightGBM predicts UP and has funding veto
     crypto_sig = CryptoSignal(
         symbol="BTCUSDT",
         p_up=0.90,
@@ -74,7 +72,6 @@ def test_shadow_mode_opposing_lgbm_signal_and_veto_ignored():
         status="READY",
     )
 
-    # LogReg predicts p_flip=0.75 at fresh_yes_price=0.50 (fav YES) -> votes BUY_NO
     result = evaluate_combined_entry(
         crypto_sig=crypto_sig,
         market_phase="contested",
@@ -156,7 +153,6 @@ def test_ece_correction_toggle_disabled():
         cfg=cfg_enabled, cost_buffer=0.02, time_left_sec=120.0, underlying_price=100000.0,
         entry_model_ece=0.25,
     )
-    # High ECE (0.25) shrinks p_flip from 0.75 down to 0.50 when enabled
     assert res_enabled.p_flip == 0.50
 
     res_disabled = evaluate_combined_entry(
@@ -166,6 +162,37 @@ def test_ece_correction_toggle_disabled():
         cfg=cfg_disabled, cost_buffer=0.02, time_left_sec=120.0, underlying_price=100000.0,
         entry_model_ece=0.25,
     )
-    # When disabled, p_flip is kept raw at 0.75
     assert res_disabled.p_flip == 0.75
 
+def test_shadow_mode_attribution_isolation():
+    cfg = parse_trading_settings({"LIGHTGBM_DECISION_MODE": "SHADOW"})
+    
+    crypto_sig = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.85, p_down=0.15, direction="UP",
+        signal_strength=0.25, strike=100000.0, threshold_up=0.60, threshold_down=0.40,
+        model_version=14, features_ok=True, risk_vetoed=False, regime="low_vol",
+        status="READY", model_key="BTCUSDT_low_vol",
+    )
+
+    comb_res = evaluate_combined_entry(
+        crypto_sig=crypto_sig, market_phase="contested", entry_requested_key="BTC_contested",
+        entry_model_key="BTC_contested_v5", entry_model_version=5, entry_model_source="phase_matched",
+        p_flip=0.75, fresh_yes_price=0.50, yes_ask=0.51, no_ask=0.51,
+        cfg=cfg, cost_buffer=0.02, time_left_sec=120.0, underlying_price=100000.0,
+    )
+
+    lgbm_mode = cfg.lightgbm_decision_mode
+    lgbm_applied = (lgbm_mode == "ACTIVE")
+    lgbm_shadow = (lgbm_mode == "SHADOW")
+
+    confirm_model_key = comb_res.direction_model_key if lgbm_applied else None
+    confirm_model_version = comb_res.direction_model_version if lgbm_applied else None
+
+    assert confirm_model_key is None
+    assert confirm_model_version is None
+
+    applied_direction_key = comb_res.direction_model_key if lgbm_applied else None
+    assert applied_direction_key is None
+
+    shadow_key = comb_res.direction_model_key if lgbm_shadow else None
+    assert shadow_key == "BTCUSDT_low_vol"
