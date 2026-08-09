@@ -160,6 +160,16 @@ REGISTRY: list[SettingDef] = [
         description="Инвертировать сигнал LightGBM: если true, p_up↔p_down меняются местами. "
                     "Используется, когда LGBM является контриндикатором (WinRate < 40%).",
     ),
+    SettingDef(
+        key="ENABLE_ECE_CORRECTION",
+        default="true",
+        description="Коррекция вероятности p_flip по показателю ECE (Expected Calibration Error).",
+    ),
+    SettingDef(
+        key="LIGHTGBM_DECISION_MODE",
+        default="SHADOW",
+        description="Режим применения прогнозов LightGBM: SHADOW (теневой аналитический) | ACTIVE (торговый).",
+    ),
 
     # --- Обучение LogReg / Phase models ---
     SettingDef("TRAIN_MAX_PARALLEL_JOBS", "2",
@@ -307,6 +317,8 @@ REQUIRED_SETTINGS_KEYS = frozenset([
     "COMBINED_FALLBACK_TO_LOGREG_ON_NONE",
     "COMBINED_LOGREG_ABSTAIN_BAND",
     "COMBINED_COST_BUFFER",
+    "ENABLE_ECE_CORRECTION",
+    "LIGHTGBM_DECISION_MODE",
 ])
 
 def validate_required_keys():
