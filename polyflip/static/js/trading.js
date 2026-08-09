@@ -1020,22 +1020,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         let directionBadge = "-";
-        let dirVal = log.direction_value;
-        if (!dirVal) {
-          if (log.error_msg && log.error_msg.startsWith("NONE:")) {
-            dirVal = "NONE";
-          } else if (log.outcome_bought === "YES") {
-            dirVal = "UP";
-          } else if (log.outcome_bought === "NO") {
-            dirVal = "DOWN";
-          }
-        }
-        
+        let dirVal = log.direction_value || "NONE";
+
         if (dirVal === "UP") {
           directionBadge = `<span style="color: #00ff88; font-size: 0.8em; padding: 2px 6px; background: rgba(0,255,136,0.1); border-radius: 4px; font-weight: bold;">UP</span>`;
         } else if (dirVal === "DOWN") {
           directionBadge = `<span style="color: #ff3366; font-size: 0.8em; padding: 2px 6px; background: rgba(255,51,102,0.1); border-radius: 4px; font-weight: bold;">DOWN</span>`;
-        } else if (dirVal === "NONE") {
+        } else {
           directionBadge = `<span style="color: #999; font-size: 0.8em; padding: 2px 6px; background: rgba(153,153,153,0.1); border-radius: 4px; font-weight: bold;">NONE</span>`;
         }
 
