@@ -94,6 +94,7 @@ async def _fetch_lgbm_signal(
     binance_symbol: str,
     asset_upper: str,
     cfg: Any,
+    market: LiveMarket,
 ) -> Any:
     """Изолированная LGBM-ветка для asyncio.gather."""
     from polyflip.trading.combined_voting import CryptoSignalProxy
@@ -105,12 +106,21 @@ async def _fetch_lgbm_signal(
         async with async_session() as db_session:
             await crypto_predictor.load(db_session, binance_symbol)
             interval = crypto_predictor.get_interval(binance_symbol)
+            candles = await get_recent_candles(
+                db_session,
+                binance_symbol,
+                interval,
+                limit=MIN_CANDLES_REQUIRED,
+            )
+            funding_rate = await _get_funding_rate(db_session, binance_symbol)
             from polyflip.crypto.market_direction_service import get_or_create_market_direction_signal
             return await get_or_create_market_direction_signal(
                 db_session,
                 market,
                 candles,
                 crypto_predictor,
+                funding_rate=funding_rate,
+                invert_lgbm_signal=cfg.invert_lgbm_signal,
             )
     except Exception as exc:
         logger.error("combined_lgbm_error_fallback", asset=asset_upper, error=str(exc))
@@ -242,7 +252,13 @@ async def decide_combined_mode(
     lgbm_mode = getattr(cfg, "lightgbm_decision_mode", "SHADOW")
 
     if lgbm_mode in {"ACTIVE", "SHADOW"} and crypto_predictor is not None and binance_symbol is not None:
-        direction_signal = await _fetch_lgbm_signal(crypto_predictor, binance_symbol, asset_upper, cfg)
+        direction_signal = await _fetch_lgbm_signal(
+            crypto_predictor,
+            binance_symbol,
+            asset_upper,
+            cfg,
+            market,
+        )
     else:
         direction_signal = CryptoSignal(
             symbol=binance_symbol or "UNKNOWN", p_up=0.0, p_down=0.0,

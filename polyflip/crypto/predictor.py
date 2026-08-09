@@ -332,11 +332,6 @@ class CryptoPredictor:
                         symbol=symbol, regime=regime, version=row.version,
                         th_up=th_up, th_down=th_down, vol_p33=self._vol_p33s[symbol], vol_p67=self._vol_p67s[symbol]
                     )
-                    logger.info(
-                        "crypto_regime_model_loaded",
-                        symbol=symbol, regime=regime, version=row.version,
-                        th_up=th_up, th_down=th_down, vol_p33=self._vol_p33s[symbol], vol_p67=self._vol_p67s[symbol]
-                    )
 
                 if loaded_regimes == 0:
                     logger.error(

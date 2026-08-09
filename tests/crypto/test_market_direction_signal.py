@@ -54,6 +54,7 @@ async def test_get_or_create_market_direction_signal_reuses_existing_record():
 @pytest.mark.asyncio
 async def test_get_or_create_market_direction_signal_creates_new_record():
     db = AsyncMock()
+    db.add = MagicMock()
     mock_res = MagicMock()
     mock_res.scalar_one_or_none.return_value = None
     db.execute.return_value = mock_res
@@ -88,3 +89,11 @@ async def test_get_or_create_market_direction_signal_creates_new_record():
     assert sig.direction == "DOWN"
     assert predictor.predict.call_count == 1
     assert db.add.call_count == 1
+    db.commit.assert_awaited_once()
+    predictor.predict.assert_called_once_with(
+        [],
+        "ETHUSDT",
+        funding_rate=None,
+        invert_lgbm_signal=False,
+        underlying_price=3500.0,
+    )

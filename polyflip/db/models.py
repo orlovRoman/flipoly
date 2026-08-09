@@ -504,7 +504,13 @@ class MarketDirectionSignal(Base):
     features_ok = Column(Boolean, nullable=False, default=True)
     risk_vetoed = Column(Boolean, nullable=False, default=False)
     risk_reason = Column(String(256), nullable=True)
+    stake_multiplier = Column(Float, nullable=False, default=1.0)
+    funding_rate = Column(Float, nullable=False, default=0.0)
+    ece = Column(Float, nullable=False, default=0.0)
     status = Column(String(32), nullable=False, default="READY")
+    inverted = Column(Boolean, nullable=False, default=False)
+    p_up_raw = Column(Float, nullable=False, default=0.0)
+    p_down_raw = Column(Float, nullable=False, default=0.0)
     created_at = Column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (

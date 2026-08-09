@@ -131,29 +131,13 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
             ModelRegistry.recall_at_threshold,
             ModelRegistry.f1_at_threshold,
             ModelRegistry.brier_score,
+            ModelRegistry.decision_threshold,
+            ModelRegistry.decision_threshold_down,
         )
         .where(ModelRegistry.asset.in_(allowed_assets))
         .order_by(ModelRegistry.asset, ModelRegistry.version.desc())
     )
     rows = (await db.execute(stmt)).all()
-
-    # Пороги из RuntimeSettings
-    thr_keys = [f"CRYPTO_THRESHOLD_{a}" for a in allowed_assets]
-    thr_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(thr_keys))
-    thr_rows = (await db.execute(thr_stmt)).scalars().all()
-    
-    thresholds = {}
-    for row in thr_rows:
-        asset = row.key.replace("CRYPTO_THRESHOLD_", "")
-        try:
-            thresholds[asset] = float(row.value)
-        except (TypeError, ValueError):
-            logger.warning(
-                "invalid_crypto_threshold",
-                key=row.key,
-                value=row.value,
-            )
-            thresholds[asset] = None
 
     # Важность признаков из RuntimeSettings
     fi_keys = [f"CRYPTO_FI_{a}" for a in allowed_assets]
@@ -232,7 +216,8 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
                 "auc": round_optional(m.accuracy),
                 "baseline": round_optional(m.baseline),
                 "ece": round_optional(m.ece) if getattr(m, "ece", None) else None,
-                "threshold": thresholds.get(m.asset),
+                "threshold": round_optional(m.decision_threshold),
+                "threshold_down": round_optional(m.decision_threshold_down),
                 "features": m.features.split(",") if getattr(m, "features", None) else [],
                 "trained_at": (
                     m.trained_at.isoformat() if getattr(m, "trained_at", None) else None
@@ -873,7 +858,7 @@ async def crypto_models_analytics(
         WHERE COALESCE(direction_model_key, confirm_model_key) IS NOT NULL
           AND execution_mode = :decision_mode
           AND decision_run_id IS NOT NULL
-          AND (direction_status IS NULL OR direction_status IN ('OK', 'READY'))
+          AND direction_status IN ('OK', 'READY')
           {veto_date_filter}
         GROUP BY
             COALESCE(direction_model_key, confirm_model_key),
@@ -1032,28 +1017,6 @@ async def activate_crypto_model(
             activation_reason=payload.reason,
         )
     )
-
-    # Атомарная синхронизация порогов
-    if model.decision_threshold is not None:
-        thr_up_key = f"CRYPTO_THRESHOLD_{asset}"
-        thr_down_key = f"CRYPTO_THRESHOLD_DOWN_{asset}"
-        
-        for key, val in [(thr_up_key, model.decision_threshold), (thr_down_key, model.decision_threshold_down)]:
-            if val is not None:
-                row = (await db.execute(
-                    select(RuntimeSettings).where(RuntimeSettings.key == key)
-                )).scalar_one_or_none()
-                if row:
-                    row.value = str(round(val, 4))
-                    row.updated_at = now
-                    row.updated_by = "dashboard"
-                else:
-                    db.add(RuntimeSettings(
-                        key=key,
-                        value=str(round(val, 4)),
-                        updated_at=now,
-                        updated_by="dashboard",
-                    ))
 
     await db.commit()
 
