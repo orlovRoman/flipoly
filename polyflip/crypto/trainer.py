@@ -383,14 +383,15 @@ class CryptoModelTrainer:
         )
 
         now = datetime.now(timezone.utc)
-        for key, val in [(f"CRYPTO_VOL_P33_{symbol}", vol_p33), (f"CRYPTO_VOL_P67_{symbol}", vol_p67)]:
-            row = (await self.db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
-            if row:
-                row.value = str(round(val, 4))
-                row.updated_at = now
-                row.updated_by = "crypto_train_job"
-            else:
-                self.db.add(RuntimeSettings(key=key, value=str(round(val, 4)), updated_at=now, updated_by="crypto_train_job"))
+        if save_settings:
+            for key, val in [(f"CRYPTO_VOL_P33_{symbol}", vol_p33), (f"CRYPTO_VOL_P67_{symbol}", vol_p67)]:
+                row = (await self.db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+                if row:
+                    row.value = str(round(val, 4))
+                    row.updated_at = now
+                    row.updated_by = "crypto_train_job"
+                else:
+                    self.db.add(RuntimeSettings(key=key, value=str(round(val, 4)), updated_at=now, updated_by="crypto_train_job"))
 
         # Разбиваем датасет на 3 режима
         df_low  = df_filtered[df_filtered["vol_trend"] <= vol_p33]
@@ -549,53 +550,54 @@ class CryptoModelTrainer:
                 )
                 next_version = (v_res.scalar_one_or_none() or 0) + 1
 
-                # Сохраняем порог в RuntimeSettings
-                for thr_suffix, thr_val in [("", threshold), ("_DOWN", threshold_down)]:
-                    thr_key = f"CRYPTO_THRESHOLD{thr_suffix}_{regime_asset}"
-                    thr_row = (await self.db.execute(
-                        select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+                if save_settings:
+                    # Сохраняем порог в RuntimeSettings
+                    for thr_suffix, thr_val in [("", threshold), ("_DOWN", threshold_down)]:
+                        thr_key = f"CRYPTO_THRESHOLD{thr_suffix}_{regime_asset}"
+                        thr_row = (await self.db.execute(
+                            select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+                        )).scalar_one_or_none()
+
+                        threshold_quality = "ok"
+                        if thr_val < 0.40 or thr_val > 0.65:
+                            threshold_quality = "marginal"
+
+                        logger.info(
+                            "threshold_saved",
+                            key=thr_key,
+                            value=round(thr_val, 4),
+                            quality=threshold_quality,
+                        )
+
+                        if should_activate or not thr_row:
+                            if thr_row:
+                                thr_row.value = str(round(thr_val, 4))
+                                thr_row.updated_at = now
+                                thr_row.updated_by = "crypto_train_job"
+                            else:
+                                self.db.add(RuntimeSettings(
+                                    key=thr_key,
+                                    value=str(round(thr_val, 4)),
+                                    updated_at=now,
+                                    updated_by="crypto_train_job",
+                                ))
+
+                    # Сохраняем feature importance в RuntimeSettings
+                    fi_key = f"CRYPTO_FI_{regime_asset}"
+                    fi_row = (await self.db.execute(
+                        select(RuntimeSettings).where(RuntimeSettings.key == fi_key)
                     )).scalar_one_or_none()
-
-                    threshold_quality = "ok"
-                    if thr_val < 0.40 or thr_val > 0.65:
-                        threshold_quality = "marginal"
-
-                    logger.info(
-                        "threshold_saved",
-                        key=thr_key,
-                        value=round(thr_val, 4),
-                        quality=threshold_quality,
-                    )
-
-                    if should_activate or not thr_row:
-                        if thr_row:
-                            thr_row.value = str(round(thr_val, 4))
-                            thr_row.updated_at = now
-                            thr_row.updated_by = "crypto_train_job"
-                        else:
-                            self.db.add(RuntimeSettings(
-                                key=thr_key,
-                                value=str(round(thr_val, 4)),
-                                updated_at=now,
-                                updated_by="crypto_train_job",
-                            ))
-
-                # Сохраняем feature importance в RuntimeSettings
-                fi_key = f"CRYPTO_FI_{regime_asset}"
-                fi_row = (await self.db.execute(
-                    select(RuntimeSettings).where(RuntimeSettings.key == fi_key)
-                )).scalar_one_or_none()
-                if fi_row:
-                    fi_row.value = json.dumps(fi)
-                    fi_row.updated_at = now
-                    fi_row.updated_by = "crypto_train_job"
-                else:
-                    self.db.add(RuntimeSettings(
-                        key=fi_key,
-                        value=json.dumps(fi),
-                        updated_at=now,
-                        updated_by="crypto_train_job",
-                    ))
+                    if fi_row:
+                        fi_row.value = json.dumps(fi)
+                        fi_row.updated_at = now
+                        fi_row.updated_by = "crypto_train_job"
+                    else:
+                        self.db.add(RuntimeSettings(
+                            key=fi_key,
+                            value=json.dumps(fi),
+                            updated_at=now,
+                            updated_by="crypto_train_job",
+                        ))
 
                 # Сохраняем модель
                 self.db.add(ModelRegistry(

@@ -408,7 +408,7 @@ class ModelTrainer:
         self.status_messages = {}
 
     @serialize_training
-    async def train_model(self, asset: str) -> bool:
+    async def train_model(self, asset: str, save_settings: bool = True) -> bool:
         """
         Обучает модель LogisticRegression для заданного актива на основе 
         исторических (разрезолвленных) данных и сохраняет в БД.
@@ -727,20 +727,21 @@ class ModelTrainer:
 
         # Сохраняем калиброванный порог в RuntimeSettings только если модель активируется или если нет настроек
         threshold_key = f"AUTO_FLIP_THRESHOLD_{asset}"
-        existing = await self.db.execute(
-            select(RuntimeSettings).where(RuntimeSettings.key == threshold_key)
-        )
-        existing_row = existing.scalar_one_or_none()
-        if should_activate or not existing_row:
-            if existing_row:
-                existing_row.value = str(round(optimal_threshold, 4))
-            else:
-                self.db.add(RuntimeSettings(
-                    key=threshold_key,
-                    value=str(round(optimal_threshold, 4)),
-                    updated_at=datetime.now(timezone.utc),
-                    updated_by="train_job"
-                ))
+        if save_settings:
+            existing = await self.db.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == threshold_key)
+            )
+            existing_row = existing.scalar_one_or_none()
+            if should_activate or not existing_row:
+                if existing_row:
+                    existing_row.value = str(round(optimal_threshold, 4))
+                else:
+                    self.db.add(RuntimeSettings(
+                        key=threshold_key,
+                        value=str(round(optimal_threshold, 4)),
+                        updated_at=datetime.now(timezone.utc),
+                        updated_by="train_job"
+                    ))
 
         # 7. Сохраняем новую модель
         new_model_record = ModelRegistry(
@@ -875,18 +876,19 @@ class ModelTrainer:
                 .order_by(ModelRegistry.version.desc()).limit(1)
             )).scalar_one_or_none()
 
-            # Сохраняем порог
-            thr_key = f"AUTO_FLIP_THRESHOLD_{phase_asset}"
-            existing_thr = (await self.db.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
-            )).scalar_one_or_none()
-            if existing_thr:
-                existing_thr.value = str(round(threshold_p, 4))
-            else:
-                self.db.add(RuntimeSettings(
-                    key=thr_key, value=str(round(threshold_p, 4)),
-                    updated_at=datetime.now(timezone.utc), updated_by="train_job_phase"
-                ))
+            if save_settings:
+                # Сохраняем порог
+                thr_key = f"AUTO_FLIP_THRESHOLD_{phase_asset}"
+                existing_thr = (await self.db.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
+                )).scalar_one_or_none()
+                if existing_thr:
+                    existing_thr.value = str(round(threshold_p, 4))
+                else:
+                    self.db.add(RuntimeSettings(
+                        key=thr_key, value=str(round(threshold_p, 4)),
+                        updated_at=datetime.now(timezone.utc), updated_by="train_job_phase"
+                    ))
 
             self.db.add(ModelRegistry(
                 asset=phase_asset, version=(last_v_p or 0) + 1,
@@ -907,3 +909,6 @@ class ModelTrainer:
             self.status_messages[asset] = f"{self.status_messages.get(asset, '')} | Фазы: [{phase_summary}]"
 
         return True
+
+    async def train(self, asset: str, save_settings: bool = True) -> bool:
+        return await self.train_model(asset, save_settings=save_settings)
