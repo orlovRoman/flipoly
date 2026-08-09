@@ -363,7 +363,9 @@ class CryptoModelTrainer:
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
 
-    async def train(self, symbol: str, interval: str = "15m") -> bool:
+    async def train(
+        self, symbol: str, interval: str = "15m", save_settings: bool = True
+    ) -> bool:
         logger.info("crypto_training_start", symbol=symbol, interval=interval)
 
         # Загружаем все свечи для символа
