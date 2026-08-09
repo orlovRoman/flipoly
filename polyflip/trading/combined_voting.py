@@ -260,7 +260,8 @@ def _evaluate_combined_entry_inner(
 
     # ECE-коррекция p_flip (управляется параметром enable_ece_correction)
     p_flip_raw = p_flip
-    if p_flip is not None and entry_model_ece > 0.0 and getattr(cfg, "enable_ece_correction", True):
+    ece_val = float(entry_model_ece) if isinstance(entry_model_ece, (int, float)) and not isinstance(entry_model_ece, bool) else 0.0
+    if p_flip is not None and ece_val > 0.0 and getattr(cfg, "enable_ece_correction", True):
         from polyflip.trading.position_sizing import apply_ece_correction
         p_flip_effective = apply_ece_correction(p_flip, entry_model_ece)
         logger.info(

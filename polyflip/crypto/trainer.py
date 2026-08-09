@@ -31,6 +31,7 @@ from polyflip.constants import (
 from polyflip.services.settings_service import get_float, get_int
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.feature_builder import build_features, CRYPTO_FEATURE_COLUMNS
+from polyflip.crypto.market_outcome_dataset import build_market_outcome_dataset
 from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
 
 # Импортируем общий семафор из LogReg-трейнера.
@@ -67,33 +68,7 @@ assert not _unknown, (
 )
 
 
-def _build_target(df: pd.DataFrame, epsilon_quantile: float = 0.70) -> pd.DataFrame:
-    """
-    Вычисляет таргет Up(1)/Down(0) и применяет epsilon-фильтрацию.
-    """
-    df = df.copy()
-    next_ret = df["ret_1"].shift(-1)
-    df["target"] = (next_ret > 0).astype(int)
-    df["abs_ret_next"] = next_ret.abs()
-    df = df.dropna(subset=["target", "abs_ret_next"])
-
-    # Фильтр: обучаем только на "значимых" движениях
-    epsilon = float(df["abs_ret_next"].quantile(epsilon_quantile))
-    df_filtered = df[df["abs_ret_next"] >= epsilon].copy()
-
-    if len(df_filtered) < 200:
-        logger.warning("epsilon_too_aggressive", rows=len(df_filtered))
-        return df  # fallback на unfiltered
-
-    logger.info(
-        "target_epsilon_filter",
-        epsilon_quantile=epsilon_quantile,
-        epsilon=round(epsilon, 6),
-        before=len(df),
-        after=len(df_filtered),
-        kept_pct=round(len(df_filtered) / len(df) * 100, 1),
-    )
-    return df_filtered
+# Epsilon filter removed as per MARKET_WINDOW_V1 spec.
 
 
 def _make_lgbm(**params) -> LGBMClassifier:
@@ -352,18 +327,26 @@ class CryptoModelTrainer:
             ma3=funding_rate_ma3,
         )
 
-        # Строим фичи
-        df = build_features(
-            candles,
-            funding_rate=funding_rate,
-            funding_rate_ma3=funding_rate_ma3,
-        )
+        # Загружаем выравненный торговый датасет на канонических исходах Polymarket (MARKET_WINDOW_V1)
+        df_filtered = await build_market_outcome_dataset(self.db, symbol=symbol, interval=interval)
+        if df_filtered is None or df_filtered.empty:
+            # Fallback на фичи Binance без epsilon-фильтрации и без lookahead
+            df_filtered = build_features(candles, funding_rate=funding_rate, funding_rate_ma3=funding_rate_ma3)
+            df_filtered["target"] = (df_filtered["close"] > df_filtered["open"]).astype(int)
+            df_filtered = df_filtered.dropna(subset=["target"]).copy()
 
-        df_filtered = _build_target(df, epsilon_quantile=epsilon_quantile)
-
-        if len(df_filtered) < 500:
-            logger.warning("too_few_candles", symbol=symbol, rows=len(df_filtered))
+        if len(df_filtered) < 100:
+            logger.warning("too_few_samples_for_training", symbol=symbol, rows=len(df_filtered))
             return False
+
+        # Сохраняем обязательные метаданные схемы
+        lgbm_params.update({
+            "target_source": "POLYMARKET_FINAL_OUTCOME",
+            "resolution_source": "CHAINLINK",
+            "alignment_version": "MARKET_WINDOW_V1",
+            "feature_cutoff": "MARKET_START",
+            "feature_schema_version": "CRYPTO_FEATURES_V2",
+        })
 
         # Оставляем только доступные фичи
         available = [f for f in CRYPTO_FEATURES if f in df_filtered.columns]
@@ -371,7 +354,7 @@ class CryptoModelTrainer:
         if missing:
             logger.warning("missing_features", missing=list(missing))
 
-        # Определяем vol-режим по P33/P67 vol_trend
+        # Определяем vol-режим по P33/P67 vol_trend (без фильтрации по будущему)
         vol_p33 = float(df_filtered["vol_trend"].quantile(0.33))
         vol_p67 = float(df_filtered["vol_trend"].quantile(0.67))
 

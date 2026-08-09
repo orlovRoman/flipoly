@@ -345,10 +345,13 @@ async def decide_combined_mode(
             und_price = float(market.underlying_price)
     except (TypeError, ValueError):
         und_price = None
-
     entry_model_ece = 0.0
     if models_cache and entry_model_key and hasattr(models_cache, "eces"):
-        entry_model_ece = models_cache.eces.get(entry_model_key, 0.0) or 0.0
+        ece_map = getattr(models_cache, "eces", None)
+        if isinstance(ece_map, dict):
+            val = ece_map.get(entry_model_key, 0.0)
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                entry_model_ece = float(val)
 
     comb_res = evaluate_combined_entry(
         crypto_sig=direction_signal,

@@ -1,130 +1,135 @@
 """
-Join Binance candles с историческими ценами Polymarket (MarketSnapshot).
+polyflip/crypto/polymarket_join.py
 
-Алгоритм:
-  1. Загрузить все MarketSnapshot для нужного актива и периода
-     (расширенного на ±tolerance_sec, чтобы не пропустить снапшоты на границах).
-  2. Отсортировать оба DataFrame по времени.
-  3. pd.merge_asof с tolerance=tolerance_sec → nearest match.
-  4. Вернуть расширенный DataFrame с pm_yes_price, pm_outcome, pm_market_id.
+Модуль соединения снапшотов и исходов Polymarket с Binance-свечами и точками принятия решений.
 
-Использование в backtester:
-  df_merged = await join_polymarket_prices(session, df_candles, "BTC")
-  run_backtest(..., polymarket_prices=df_merged, pnl_mode="polymarket")
+Основан на двух строгих функциях без использования lookahead / nearest matching:
+  1. join_market_outcomes_by_window: Привязка канонического исхода Polymarket к окну рынка [market_start, market_end].
+  2. join_entry_snapshot_by_decision_time: Привязка цены входа (mid_price) через merge_asof direction='backward' по market_id.
 """
 from __future__ import annotations
 
 from datetime import timedelta
-
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
-from polyflip.db.models import MarketSnapshot
+from polyflip.db.models import LiveMarket, MarketSnapshot
 
 logger = structlog.get_logger(__name__)
 
 
-async def join_polymarket_prices(
+async def join_market_outcomes_by_window(
     session: AsyncSession,
-    df_candles: pd.DataFrame,      # колонка open_time (tz-aware, UTC)
-    asset: str,                    # "BTC" или "ETH"
-    tolerance_sec: int = 450,      # ±7.5 мин для 15m-свечей
+    df_candles: pd.DataFrame,
+    asset: str,
 ) -> pd.DataFrame:
     """
-    Для каждой свечи находит ближайший MarketSnapshot по времени.
-
-    Добавляет колонки:
-      pm_yes_price   — mid_price (цена YES-токена, 0..1)
-      pm_outcome     — "YES" | "NO"
-      pm_market_id   — для отладки
-
-    SQL-запрос расширяет диапазон на ±tolerance_sec, чтобы не пропустить
-    снапшоты случайно попавшие незадолго до/после границ t_min / t_max.
-
-    Строки без совпадения → pm_yes_price = NaN, pm_outcome = None.
-    INVALID снапшоты отфильтрованы на уровне SQL.
+    Привязывает канонический исход Polymarket по окну рынка [market_start, market_end].
+    Не использует время снапшота для определения принадлежности к окну.
+    
+    Для свечи с open_time = 09:00:
+      market_start = 09:00, market_end = 09:15.
     """
     if df_candles.empty:
-        logger.warning("join_polymarket_prices: empty candles df", asset=asset)
         return df_candles.copy()
 
-    t_min = df_candles["open_time"].min()
-    t_max = df_candles["open_time"].max()
+    df_out = df_candles.copy()
+    df_out["open_time"] = pd.to_datetime(df_out["open_time"], utc=True)
 
-    # FIX: расширяем диапазон на ±tolerance_sec — не потеряем снапшоты на границах
-    # Например: первая свеча 12:00, снапшот 11:58 (в пределах 7.5 мин) — попадёт
-    _tolerance = timedelta(seconds=tolerance_sec)
-    t_query_min = t_min - _tolerance
-    t_query_max = t_max + _tolerance
-
-    stmt = (
-        select(
-            MarketSnapshot.market_id,
-            MarketSnapshot.mid_price,
-            MarketSnapshot.final_outcome,
-            MarketSnapshot.recorded_at,
-        )
-        .where(
-            MarketSnapshot.asset == asset,
-            MarketSnapshot.recorded_at >= t_query_min,
-            MarketSnapshot.recorded_at <= t_query_max,
-            MarketSnapshot.final_outcome.in_(["YES", "NO"]),  # INVALID отфильтрован в SQL
-        )
-        .order_by(MarketSnapshot.recorded_at)
+    # Загружаем рынки
+    stmt = select(
+        LiveMarket.market_id,
+        LiveMarket.asset,
+        LiveMarket.end_time_est,
+        LiveMarket.final_outcome,
+    ).where(
+        LiveMarket.asset == asset,
+        LiveMarket.final_outcome.in_(["YES", "NO"]),
     )
     rows = (await session.execute(stmt)).all()
-
     if not rows:
-        logger.warning(
-            "join_polymarket_prices: no snapshots found",
-            asset=asset,
-            t_query_min=str(t_query_min),
-            t_query_max=str(t_query_max),
-        )
-        df_out = df_candles.copy()
+        logger.warning("join_market_outcomes_by_window: no resolved markets found", asset=asset)
         df_out["pm_yes_price"] = float("nan")
-        df_out["pm_outcome"]   = None
+        df_out["pm_outcome"] = None
         df_out["pm_market_id"] = None
         return df_out
 
-    df_snaps = pd.DataFrame(
-        [(r.market_id, r.mid_price, r.final_outcome, r.recorded_at) for r in rows],
-        columns=["pm_market_id", "pm_yes_price", "pm_outcome", "recorded_at"],
+    df_markets = pd.DataFrame(
+        [(r.market_id, r.end_time_est, r.final_outcome) for r in rows],
+        columns=["pm_market_id", "end_time_est", "pm_outcome"],
     )
+    df_markets["end_time_est"] = pd.to_datetime(df_markets["end_time_est"], utc=True)
+    df_markets["market_start"] = df_markets["end_time_est"] - pd.Timedelta(minutes=15)
 
-    # Нормализуем timezone: оба должны быть datetime64[ns, UTC]
-    df_snaps["recorded_at"] = pd.to_datetime(df_snaps["recorded_at"], utc=True).dt.tz_convert("UTC")
-    df_snaps = df_snaps.sort_values("recorded_at").reset_index(drop=True)
-
-    df_left = df_candles.copy()
-    # FIX: явное приведение к datetime64[ns, UTC] — защита от несовместимых tz-типов pandas
-    df_left["open_time"] = pd.to_datetime(df_left["open_time"], utc=True).dt.tz_convert("UTC")
-    df_left = df_left.sort_values("open_time").reset_index(drop=True)
-
-    tolerance_td = pd.Timedelta(seconds=tolerance_sec)
-    df_merged = pd.merge_asof(
-        df_left,
-        df_snaps,
+    # Стыкуем по точной дате начала рынка: open_time == market_start
+    df_merged = pd.merge(
+        df_out,
+        df_markets[["pm_market_id", "market_start", "pm_outcome"]],
         left_on="open_time",
+        right_on="market_start",
+        how="left",
+    )
+    df_merged = df_merged.drop(columns=["market_start"], errors="ignore")
+    return df_merged
+
+
+async def join_entry_snapshot_by_decision_time(
+    session: AsyncSession,
+    decisions: pd.DataFrame,
+    asset: str,
+) -> pd.DataFrame:
+    """
+    Привязывает последний снапшот, существовавший К МОМЕНТУ принятия решения (decision_at).
+    Использует direction='backward' и группировку by='market_id'.
+    """
+    if decisions.empty or "decision_at" not in decisions.columns or "market_id" not in decisions.columns:
+        return decisions.copy()
+
+    decisions_sorted = decisions.sort_values("decision_at").reset_index(drop=True)
+    decisions_sorted["decision_at"] = pd.to_datetime(decisions_sorted["decision_at"], utc=True)
+
+    stmt = select(
+        MarketSnapshot.market_id,
+        MarketSnapshot.mid_price,
+        MarketSnapshot.recorded_at,
+    ).where(
+        MarketSnapshot.asset == asset,
+    ).order_by(MarketSnapshot.recorded_at)
+
+    rows = (await session.execute(stmt)).all()
+    if not rows:
+        decisions_sorted["entry_yes_price"] = float("nan")
+        return decisions_sorted
+
+    snapshots = pd.DataFrame(
+        [(r.market_id, r.mid_price, r.recorded_at) for r in rows],
+        columns=["market_id", "entry_yes_price", "recorded_at"],
+    )
+    snapshots["recorded_at"] = pd.to_datetime(snapshots["recorded_at"], utc=True)
+    snapshots = snapshots.sort_values("recorded_at").reset_index(drop=True)
+
+    df_merged = pd.merge_asof(
+        decisions_sorted,
+        snapshots,
+        left_on="decision_at",
         right_on="recorded_at",
-        direction="nearest",
-        tolerance=tolerance_td,
+        by="market_id",
+        direction="backward",
     )
-
-    matched      = df_merged["pm_yes_price"].notna().sum()
-    total        = len(df_merged)
-    coverage_pct = round(matched / total * 100, 1) if total > 0 else 0.0
-
-    logger.info(
-        "join_polymarket_prices: done",
-        asset=asset,
-        total_candles=total,
-        matched=matched,
-        coverage_pct=coverage_pct,
-        snapshots_loaded=len(df_snaps),
-    )
-
     df_merged = df_merged.drop(columns=["recorded_at"], errors="ignore")
     return df_merged
+
+
+async def join_polymarket_prices(
+    session: AsyncSession,
+    df_candles: pd.DataFrame,
+    asset: str,
+    tolerance_sec: int = 450,
+) -> pd.DataFrame:
+    """
+    Обратная совместимость: обертка над join_market_outcomes_by_window
+    без вызова direction='nearest'.
+    """
+    return await join_market_outcomes_by_window(session, df_candles, asset)

@@ -37,7 +37,6 @@ BACKTEST_TRAIN_RATIO = 0.70
 POLYMARKET_FEE_RATE = 0.002
 from polyflip.crypto.trainer import (
     CRYPTO_FEATURES,
-    _build_target,
     _fit_lgbm_and_serialize,
 )
 
@@ -134,17 +133,15 @@ def run_backtest(
     df_train_raw = df_features.iloc[:n_train].copy()
     df_test_raw  = df_features.iloc[n_train:].copy()
 
-    if epsilon_quantile is not None:
-        epsilon_val = float(df_train_raw["ret_1"].abs().quantile(epsilon_quantile))
-    else:
-        epsilon_val = _EPSILON
+    epsilon_val = _EPSILON
 
-    df_train = _build_target(df_train_raw)
-    df_test  = _build_target(df_test_raw)
+    if "target" not in df_train_raw.columns:
+        df_train_raw["target"] = (df_train_raw["close"] > df_train_raw["open"]).astype(int)
+    if "target" not in df_test_raw.columns:
+        df_test_raw["target"] = (df_test_raw["close"] > df_test_raw["open"]).astype(int)
 
-    if epsilon_quantile is not None:
-        df_train = df_train[df_train["abs_ret_next"] >= epsilon_val].copy()
-        df_test  = df_test[df_test["abs_ret_next"] >= epsilon_val].copy()
+    df_train = df_train_raw.dropna(subset=["target"]).copy()
+    df_test  = df_test_raw.dropna(subset=["target"]).copy()
 
     feature_list = features if features is not None else CRYPTO_FEATURES
     available    = [f for f in feature_list if f in df_train.columns]
@@ -248,8 +245,8 @@ def run_backtest(
             trades,
             pm,
             on="open_time",
-            direction="nearest",
-            tolerance=pd.Timedelta(seconds=450),
+            direction="backward",
+            tolerance=pd.Timedelta(seconds=5),
         )
 
         matched   = trades.dropna(subset=["pm_yes_price", "pm_outcome"]).copy()

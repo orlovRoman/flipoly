@@ -9,7 +9,7 @@ from polyflip.trading.decision_runners import decide_combined_mode, DecisionResu
 from polyflip.trading.trading_config import parse_trading_settings
 
 def _make_cfg(**overrides):
-    base = {'OUTS_MIN_EDGE': '0.03', 'NO_OUTS_MIN_EDGE': '0.03', 'TRADE_MIN_PRICE': '0.05', 'TRADE_MAX_PRICE': '0.95', 'FAVORITE_MIN_PRICE': '0.05', 'FAVORITE_MAX_PRICE': '0.95', 'OUTSIDER_MAX_PRICE': '0.49', 'TRADE_ON_FLIP': 'true', 'FAVORITE_THRESHOLD': '0.50'}
+    base = {'LIGHTGBM_DECISION_MODE': 'ACTIVE', 'OUTS_MIN_EDGE': '0.03', 'NO_OUTS_MIN_EDGE': '0.03', 'TRADE_MIN_PRICE': '0.05', 'TRADE_MAX_PRICE': '0.95', 'FAVORITE_MIN_PRICE': '0.05', 'FAVORITE_MAX_PRICE': '0.95', 'OUTSIDER_MAX_PRICE': '0.49', 'TRADE_ON_FLIP': 'true', 'FAVORITE_THRESHOLD': '0.50'}
     base.update(overrides)
     return parse_trading_settings(base)
 
@@ -84,7 +84,7 @@ def test_decide_combined_mode_full_flow():
     market.no_token_id = 'token_no_123'
     market.volume_5min = 500.0
     market.underlying_price = 65000.0
-    cfg = parse_trading_settings({'COMBINED_COST_BUFFER': '0.03'})
+    cfg = parse_trading_settings({'LIGHTGBM_DECISION_MODE': 'ACTIVE', 'COMBINED_COST_BUFFER': '0.03'})
     raw_settings = {}
     mock_model = MagicMock()
     models_cache = MagicMock()
@@ -121,7 +121,7 @@ def test_decide_combined_mode_fallback_disabled_skips_on_none():
     market.volume_5min = 500.0
     market.underlying_price = 150.0
     market.current_spread = 0.01
-    cfg = parse_trading_settings({'COMBINED_FALLBACK_TO_LOGREG_ON_NONE': 'false', 'OUTS_MIN_EDGE': '0.03'})
+    cfg = parse_trading_settings({'LIGHTGBM_DECISION_MODE': 'ACTIVE', 'COMBINED_FALLBACK_TO_LOGREG_ON_NONE': 'false', 'OUTS_MIN_EDGE': '0.03'})
     raw_settings = {'COMBINED_FALLBACK_TO_LOGREG_ON_NONE': 'false'}
     models_cache = MagicMock()
     crypto_predictor = MagicMock()
