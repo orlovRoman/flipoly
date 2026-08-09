@@ -425,7 +425,7 @@
 
         async function fetchLgbmDecisionMode() {
             try {
-                const res = await fetch(API_BASE + '/api/lightgbm-decision-mode', { headers: H });
+                const res = await fetch(API_BASE + '/crypto/api/lightgbm-decision-mode', { headers: H });
                 if (!res.ok) return;
                 const data = await res.json();
                 renderLgbmDecisionMode(data.mode);
@@ -480,7 +480,7 @@
             }
 
             try {
-                const res = await fetch(API_BASE + '/api/lightgbm-decision-mode', {
+                const res = await fetch(API_BASE + '/crypto/api/lightgbm-decision-mode', {
                     method: 'PATCH',
                     headers: H,
                     body: JSON.stringify({ mode: targetMode, reason: 'UI button click' })
