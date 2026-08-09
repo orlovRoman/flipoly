@@ -68,6 +68,7 @@ class TradingConfig:
     combined_cost_buffer: float = 0.02
     lgbm_unavailable_policy: str = "SKIP"
     lightgbm_decision_mode: str = "SHADOW"
+    enable_ece_correction: bool = True
 
     def get_min_edge(self, is_outsider: bool) -> float:
         """Единый источник правды для минимального Edge."""
@@ -168,4 +169,5 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
             if raw.get("LIGHTGBM_DECISION_MODE", "SHADOW").strip().upper() in {"OFF", "SHADOW", "ACTIVE"}
             else "SHADOW"
         ),
+        enable_ece_correction=_parse_bool(raw.get("ENABLE_ECE_CORRECTION"), getattr(settings, "ENABLE_ECE_CORRECTION", True)),
     )

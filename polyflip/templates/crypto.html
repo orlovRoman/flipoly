@@ -285,6 +285,13 @@
                         <label for="p-min-edge">Порог сигнала (min_edge)</label>
                         <input type="number" id="p-min-edge" step="0.01" value="{{ defaults.min_edge }}">
                     </div>
+                    <div class="settings-group" style="grid-column: span 2; display: flex; align-items: center; gap: 12px; margin-top: 10px;">
+                        <input type="checkbox" id="p-enable-ece-correction" style="width: 20px; height: 20px; cursor: pointer;" {% if defaults.enable_ece_correction %}checked{% endif %}>
+                        <div>
+                            <label for="p-enable-ece-correction" style="cursor: pointer; font-weight: 700; color: #ffc107;">Коррекция вероятностей по ECE</label>
+                            <span style="display: block; font-size: 0.8rem; color: var(--text-muted);">Сжимать вероятности к 50% при высоком ECE (отключите, чтобы видеть реальные сырые вероятности)</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1398,6 +1405,7 @@
                 colsample_bytree: parseFloat(document.getElementById('p-colsample-bytree').value),
                 epsilon_quantile: parseFloat(document.getElementById('p-epsilon-quantile').value),
                 min_edge: parseFloat(document.getElementById('p-min-edge').value),
+                enable_ece_correction: document.getElementById('p-enable-ece-correction').checked,
             };
 
             try {

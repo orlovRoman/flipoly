@@ -137,3 +137,35 @@ def test_off_mode_parsing_and_disabled_status():
 
     assert result.consensus_type == "LOGREG_ONLY"
     assert result.direction_status == "DISABLED_BY_OPERATOR"
+
+def test_ece_correction_toggle_disabled():
+    cfg_enabled = parse_trading_settings({"ENABLE_ECE_CORRECTION": True})
+    cfg_disabled = parse_trading_settings({"ENABLE_ECE_CORRECTION": False})
+    
+    crypto_sig = CryptoSignal(
+        symbol="BTCUSDT", p_up=0.0, p_down=0.0, direction="NONE",
+        signal_strength=0.0, strike=0.0, threshold_up=0.0, threshold_down=0.0,
+        model_version=-1, features_ok=False, risk_vetoed=False, regime="UNKNOWN",
+        status="DISABLED_BY_OPERATOR",
+    )
+
+    res_enabled = evaluate_combined_entry(
+        crypto_sig=crypto_sig, market_phase="decided", entry_requested_key="BTC_decided",
+        entry_model_key="BTC_decided_v10", entry_model_version=10, entry_model_source="phase_matched",
+        p_flip=0.75, fresh_yes_price=0.50, yes_ask=0.51, no_ask=0.51,
+        cfg=cfg_enabled, cost_buffer=0.02, time_left_sec=120.0, underlying_price=100000.0,
+        entry_model_ece=0.25,
+    )
+    # High ECE (0.25) shrinks p_flip from 0.75 down to 0.50 when enabled
+    assert res_enabled.p_flip == 0.50
+
+    res_disabled = evaluate_combined_entry(
+        crypto_sig=crypto_sig, market_phase="decided", entry_requested_key="BTC_decided",
+        entry_model_key="BTC_decided_v10", entry_model_version=10, entry_model_source="phase_matched",
+        p_flip=0.75, fresh_yes_price=0.50, yes_ask=0.51, no_ask=0.51,
+        cfg=cfg_disabled, cost_buffer=0.02, time_left_sec=120.0, underlying_price=100000.0,
+        entry_model_ece=0.25,
+    )
+    # When disabled, p_flip is kept raw at 0.75
+    assert res_disabled.p_flip == 0.75
+

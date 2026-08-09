@@ -173,6 +173,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "CRYPTO_LGBM_REG_LAMBDA",
         "BACKTEST_MIN_EDGE",
         "LGBM_EPSILON_QUANTILE",
+        "ENABLE_ECE_CORRECTION",
     ]
     set_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
     set_rows = (await db.execute(set_stmt)).scalars().all()
@@ -210,6 +211,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "reg_lambda": _safe_float("CRYPTO_LGBM_REG_LAMBDA", "1.0"),
         "min_edge": _safe_float("BACKTEST_MIN_EDGE", "0.04"),
         "epsilon_quantile": _safe_float("LGBM_EPSILON_QUANTILE", "0.6"),
+        "enable_ece_correction": db_settings.get("ENABLE_ECE_CORRECTION", "true").lower() in ("true", "1", "yes"),
     }
 
     models_info = {}
@@ -350,11 +352,12 @@ async def save_crypto_settings(
         "reg_lambda": "CRYPTO_LGBM_REG_LAMBDA",
         "min_edge": "BACKTEST_MIN_EDGE",
         "epsilon_quantile": "LGBM_EPSILON_QUANTILE",
+        "enable_ece_correction": "ENABLE_ECE_CORRECTION",
     }
 
     for key, db_key in keys_map.items():
         if key in settings:
-            val_str = str(settings[key])
+            val_str = str(settings[key]).lower() if isinstance(settings[key], bool) else str(settings[key])
             row = (
                 await db.execute(
                     select(RuntimeSettings).where(RuntimeSettings.key == db_key)
@@ -377,6 +380,44 @@ async def save_crypto_settings(
     await db.commit()
     _cache.pop("status", None)
     return {"status": "success", "message": "Настройки успешно сохранены!"}
+
+
+class SetEceCorrectionRequest(BaseModel):
+    enabled: bool
+
+@router.get("/api/enable-ece-correction", dependencies=[Depends(verify_api_key)])
+async def get_ece_correction_status(db: AsyncSession = Depends(get_db_session)):
+    row = (await db.execute(
+        select(RuntimeSettings).where(RuntimeSettings.key == "ENABLE_ECE_CORRECTION")
+    )).scalar_one_or_none()
+    enabled = row.value.lower() in ("true", "1", "yes") if row else True
+    return {"enabled": enabled}
+
+@router.patch("/api/enable-ece-correction", dependencies=[Depends(verify_api_key)])
+async def set_ece_correction_status(
+    payload: SetEceCorrectionRequest,
+    db: AsyncSession = Depends(get_db_session)
+):
+    now = datetime.now(timezone.utc)
+    val_str = "true" if payload.enabled else "false"
+    row = (await db.execute(
+        select(RuntimeSettings).where(RuntimeSettings.key == "ENABLE_ECE_CORRECTION").with_for_update()
+    )).scalar_one_or_none()
+
+    if row:
+        row.value = val_str
+        row.updated_at = now
+        row.updated_by = "crypto_dashboard_ui"
+    else:
+        db.add(RuntimeSettings(
+            key="ENABLE_ECE_CORRECTION",
+            value=val_str,
+            updated_at=now,
+            updated_by="crypto_dashboard_ui",
+        ))
+
+    await db.commit()
+    return {"status": "success", "enabled": payload.enabled}
 
 
 @router.get("/api/backtest", dependencies=[Depends(verify_api_key)])
