@@ -373,10 +373,18 @@ async def decide_combined_mode(
     elapsed = time.monotonic() - t0
     logger.info("combined_mode_latency", asset=asset_upper, elapsed_ms=round(elapsed * 1000, 1))
 
+    lgbm_mode = getattr(cfg, "lightgbm_decision_mode", "SHADOW")
+    lgbm_applied = (lgbm_mode == "ACTIVE")
+    lgbm_shadow = (lgbm_mode == "SHADOW")
+
     # 6. Формируем decision_details и TradeDecision
     decision_details = {
         "decision_run_id": decision_run_id,
-        "direction_status": comb_res.direction_status,
+        "lightgbm_decision_mode": lgbm_mode,
+        "lightgbm_applied": lgbm_applied,
+        "decision_source": "LOGREG_PLUS_LIGHTGBM" if lgbm_applied else "LOGREG_ONLY",
+        "consensus_type": comb_res.consensus_type,
+        "direction_status": "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if lgbm_mode == "OFF" else comb_res.direction_status),
         "direction_model_key": comb_res.direction_model_key,
         "direction_model_version": comb_res.direction_model_version,
         "direction_regime": comb_res.direction_regime,
@@ -420,16 +428,19 @@ async def decide_combined_mode(
         decision_details["lgbm_signal"] = "normal"
 
     lgbm_meta_dict = {
-        "lgbm_version": comb_res.direction_model_version,
-        "lgbm_model_key": comb_res.direction_model_key,
+        "lgbm_version": comb_res.direction_model_version if lgbm_applied else None,
+        "lgbm_model_key": comb_res.direction_model_key if lgbm_applied else None,
         "lgbm_direction": comb_res.direction_value,
         "lgbm_features_ok": (comb_res.direction_status == "READY"),
         "is_fallback": (comb_res.entry_model_source in ("BASE", "GLOBAL")),
         "vote_action": comb_res.action,
         "bet_size_multiplier": 1.0,
-        "trading_mode": "COMBINED",
+        "trading_mode": "COMBINED" if lgbm_applied else "LOGREG_ONLY",
+        "original_strategy": "COMBINED" if lgbm_applied else "LOGREG_ONLY",
+        "lightgbm_decision_mode": lgbm_mode,
+        "lightgbm_applied": lgbm_applied,
+        "decision_source": "LOGREG_PLUS_LIGHTGBM" if lgbm_applied else "LOGREG_ONLY",
         "ml_phase_model": comb_res.entry_model_key,
-        "original_strategy": "COMBINED",
     }
     lgbm_meta = json.dumps(lgbm_meta_dict)
 
@@ -439,7 +450,7 @@ async def decide_combined_mode(
             buy_price=comb_res.candidate_ask or 0.0,
             bet_size_usdc=comb_res.bet_size_usdc,
             reason=comb_res.reason,
-            strategy_type="COMBINED",
+            strategy_type="COMBINED" if lgbm_applied else "LOGREG_ONLY",
             p_flip=comb_res.p_flip,
             p_up=comb_res.direction_probability if comb_res.direction_value == "UP" else (1.0 - comb_res.direction_probability if comb_res.direction_probability is not None else None),
             strike=comb_res.strike_proxy,
@@ -454,7 +465,7 @@ async def decide_combined_mode(
             buy_price=comb_res.candidate_ask or 0.0,
             bet_size_usdc=0.0,
             reason=comb_res.reason,
-            strategy_type="COMBINED",
+            strategy_type="COMBINED" if lgbm_applied else "LOGREG_ONLY",
             p_flip=comb_res.p_flip,
             p_up=comb_res.direction_probability if comb_res.direction_value == "UP" else None,
             strike=comb_res.strike_proxy,
@@ -471,20 +482,30 @@ async def decide_combined_mode(
     ) if comb_res.candidate_side else False
     min_edge_val = cfg.get_min_edge(is_outsider=is_outsider)
 
-    g1_loaded = bool(entry_model is not None and comb_res.direction_status not in ("MODEL_NOT_LOADED", "PREDICTOR_NOT_AVAILABLE", "REGIME_UNAVAILABLE"))
+    g1_loaded = bool(entry_model is not None and (lgbm_applied or comb_res.entry_status not in ("MODEL_NOT_FOUND", "MODEL_NOT_LOADED")))
     g2_fetched = True
-    g3_dir = bool(comb_res.direction_status in ("READY", "DIRECTION_NONE_FALLBACK_LR") and comb_res.entry_status not in ("DIRECTION_UNAVAILABLE", "DIRECTION_VETOED", "LOW_DIRECTION_PROB"))
+    if lgbm_applied:
+        g3_dir = bool(comb_res.direction_status in ("READY", "DIRECTION_NONE_FALLBACK_LR") and comb_res.entry_status not in ("DIRECTION_UNAVAILABLE", "DIRECTION_VETOED", "LOW_DIRECTION_PROB"))
+    else:
+        g3_dir = bool(comb_res.entry_status not in ("LOGREG_ABSTAIN", "MODEL_NOT_FOUND") and comb_res.candidate_side in ("BUY_YES", "BUY_NO"))
+
     g4_consensus = bool(comb_res.candidate_side in ("BUY_YES", "BUY_NO") and comb_res.entry_status != "CONSENSUS_FAILED")
     g5_win_prob = bool(comb_res.p_candidate_win is not None and comb_res.p_candidate_win >= getattr(cfg, "min_win_prob", 0.51) and comb_res.entry_status != "LOW_WIN_PROB")
     g6_price_time = bool(comb_res.entry_status not in ("INVALID_TIME", "OUTSIDER_DISABLED", "FAVORITE_DISABLED", "PRICE_OUT_OF_BOUNDS"))
     g7_net_edge = bool(comb_res.net_edge is not None and comb_res.entry_status != "INSUFFICIENT_NET_EDGE" and comb_res.net_edge >= min_edge_val)
+    g7_crypto_confirm = g7_net_edge if lgbm_applied else None
     g8_vote = bool(comb_res.action in ("BUY_YES", "BUY_NO") and comb_res.bet_size_usdc > 0)
+
+    confirm_model_key = comb_res.direction_model_key if lgbm_applied else None
+    confirm_model_version = comb_res.direction_model_version if lgbm_applied else None
+    confirm_passed = (comb_res.direction_status == "READY") if lgbm_applied else None
+    final_dir_status = "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if lgbm_mode == "OFF" else comb_res.direction_status)
 
     await log_funnel(
         db_session,
         market_id=market.market_id,
         asset=market.asset,
-        trading_mode="COMBINED",
+        trading_mode="COMBINED" if lgbm_applied else "LOGREG_ONLY",
         execution_mode=execution_mode,
         decision_run_id=decision_run_id,
         used_model=comb_res.entry_model_key,
@@ -500,20 +521,20 @@ async def decide_combined_mode(
         g4_no_flip=g4_consensus,
         g5_min_edge=g5_win_prob,
         g6_price_range=g6_price_time,
-        g7_crypto_confirm=g7_net_edge,
+        g7_crypto_confirm=g7_crypto_confirm,
         g8_combined_vote=g8_vote,
         primary_model_key=comb_res.entry_model_key,
         primary_model_version=comb_res.entry_model_version,
-        confirm_model_key=comb_res.direction_model_key,
-        confirm_model_version=comb_res.direction_model_version,
+        confirm_model_key=confirm_model_key,
+        confirm_model_version=confirm_model_version,
         proposed_action=comb_res.action,
         proposed_price=comb_res.candidate_ask,
         proposed_amount_usdc=comb_res.bet_size_usdc if comb_res.action != "SKIP" else 0.0,
         confirm_direction=comb_res.direction_value,
-        confirm_passed=(comb_res.direction_status == "READY"),
+        confirm_passed=confirm_passed,
         
         # Новая телеметрия
-        direction_status=comb_res.direction_status,
+        direction_status=final_dir_status,
         direction_model_key=comb_res.direction_model_key,
         direction_model_version=comb_res.direction_model_version,
         direction_regime=comb_res.direction_regime,
