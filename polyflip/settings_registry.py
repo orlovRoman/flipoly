@@ -160,6 +160,8 @@ REGISTRY: list[SettingDef] = [
     ),
 
     # --- Обучение LogReg / Phase models ---
+    SettingDef("TRAIN_MAX_PARALLEL_JOBS", "2",
+               description="Максимальное количество параллельных задач обучения моделей"),
     SettingDef("MIN_SAMPLES_FOR_PHASE_MODEL", "150",
                description="Мин. количество сэмплов для обучения фазовой модели (contested/leaning/decided)"),
     SettingDef("LR_MIN_AUC_FOR_DEPLOY", "0.53",
