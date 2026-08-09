@@ -223,9 +223,9 @@ class PolymarketExecutionGateway:
             )
 
             if any(marker in err_lower for marker in fak_no_liquidity_markers):
+                mode_label = "GTD" if order_type.upper() in ("GTC", "GTD", "GTC_TTL") else order_type.upper()
                 raise GatewayOrderRejected(
-                    "NO_LIQUIDITY_FAK: FAK-заявка не нашла встречной ликвидности "
-                    "и не была исполнена"
+                    f"NO_LIQUIDITY_{mode_label}: [{mode_label}] Заявка не нашла встречной ликвидности в стакане"
                 ) from e
 
             if any(keyword in err_lower for keyword in rejection_keywords):
