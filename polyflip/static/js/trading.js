@@ -292,6 +292,7 @@ document.addEventListener("DOMContentLoaded", () => {
     combinedRequireConsensus: document.getElementById("COMBINED_REQUIRE_CONSENSUS"),
     combinedFallbackToLogregOnNone: document.getElementById("COMBINED_FALLBACK_TO_LOGREG_ON_NONE"),
     invertLgbmSignal: document.getElementById("INVERT_LGBM_SIGNAL"),
+    enableEceCorrection: document.getElementById("ENABLE_ECE_CORRECTION"),
     combinedLogregAbstainBand: document.getElementById("COMBINED_LOGREG_ABSTAIN_BAND"),
     combinedCostBuffer: document.getElementById("COMBINED_COST_BUFFER"),
     stopLossEnabled: document.getElementById("STOP_LOSS_ENABLED"),
@@ -639,6 +640,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.invertLgbmSignal && data.INVERT_LGBM_SIGNAL !== undefined) {
         settingsElements.invertLgbmSignal.checked = data.INVERT_LGBM_SIGNAL === "true";
       }
+      if (settingsElements.enableEceCorrection && data.ENABLE_ECE_CORRECTION !== undefined) {
+        settingsElements.enableEceCorrection.checked = data.ENABLE_ECE_CORRECTION === "true";
+      }
       if (settingsElements.combinedLogregAbstainBand && data.COMBINED_LOGREG_ABSTAIN_BAND !== undefined) {
         const raw = parseFloat(data.COMBINED_LOGREG_ABSTAIN_BAND);
         settingsElements.combinedLogregAbstainBand.value = isNaN(raw) ? "5.0" : (raw * 100).toFixed(1);
@@ -718,6 +722,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.combinedRequireConsensus) settingsToSave.COMBINED_REQUIRE_CONSENSUS = settingsElements.combinedRequireConsensus.checked ? "true" : "false";
       if (settingsElements.combinedFallbackToLogregOnNone) settingsToSave.COMBINED_FALLBACK_TO_LOGREG_ON_NONE = settingsElements.combinedFallbackToLogregOnNone.checked ? "true" : "false";
       if (settingsElements.invertLgbmSignal) settingsToSave.INVERT_LGBM_SIGNAL = settingsElements.invertLgbmSignal.checked ? "true" : "false";
+      if (settingsElements.enableEceCorrection) settingsToSave.ENABLE_ECE_CORRECTION = settingsElements.enableEceCorrection.checked ? "true" : "false";
       if (settingsElements.combinedLogregAbstainBand) settingsToSave.COMBINED_LOGREG_ABSTAIN_BAND = (parseFormattedFloat(settingsElements.combinedLogregAbstainBand.value) / 100).toString();
       if (settingsElements.combinedCostBuffer) settingsToSave.COMBINED_COST_BUFFER = parseFormattedFloat(settingsElements.combinedCostBuffer.value).toString();
       if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;

@@ -490,6 +490,14 @@
                                     <h4 class="settings-section-title">🧠 ML-модели, пороги и Combined-режим</h4>
                                 </div>
 
+                            <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 1.25rem; background: rgba(234, 179, 8, 0.08); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(234, 179, 8, 0.2);">
+                                <input type="checkbox" id="ENABLE_ECE_CORRECTION" style="width: 1.2rem; height: 1.2rem; accent-color: #eab308; cursor: pointer; margin-top: 2px;">
+                                <div>
+                                    <label for="ENABLE_ECE_CORRECTION" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important;">Коррекция вероятностей по ECE (ENABLE_ECE_CORRECTION)</label>
+                                    <small style="color: var(--text-muted); display: block; margin-top: 2px;">Сжимать вероятности к 50% при высоком ECE (отключите, чтобы использовать сырые вероятности моделей без сжатия).</small>
+                                </div>
+                            </div>
+
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 1.25rem; background: rgba(168, 85, 247, 0.08); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.2);">
                                 <input type="checkbox" id="COMBINED_REQUIRE_CONSENSUS" style="width: 1.2rem; height: 1.2rem; accent-color: #a855f7; cursor: pointer; margin-top: 2px;">
                                 <div>
