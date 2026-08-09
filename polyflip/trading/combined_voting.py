@@ -54,7 +54,7 @@ class DirectionConsensus:
 def logreg_direction_vote(
     p_flip: Optional[float],
     fresh_yes_price: float,
-    flip_threshold: float,
+    flip_threshold: float = 0.50,
     abstain_band: float = _LOGREG_ABSTAIN_BAND,
 ) -> Literal["BUY_YES", "BUY_NO", "ABSTAIN"]:
     if p_flip is None:
@@ -173,6 +173,7 @@ def apply_direction_confidence_discount(
         return round(max(0.0, min(1.0, p_logreg_win)), 4)
 
     weakness = (strong_threshold - dir_prob) / band
+    weakness = max(0.0, min(1.0, weakness))
     multiplier = 1.0 - (discount_weight * weakness)
     discounted = p_logreg_win * multiplier
     return round(max(0.0, min(1.0, discounted)), 4)
