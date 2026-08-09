@@ -480,14 +480,14 @@
                                 <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">Бот будет анализировать рынки только для выбранных активов.</small>
                             </div>
 
-                            <!-- 2. ML-модели и Combined-режим -->
-                        <div class="settings-section-card group-models">
-                            <div class="settings-section-header">
-                                <h4 class="settings-section-title">🧠 ML-модели, пороги и Combined-режим</h4>
-                            </div>
+                            <!-- 2-column layout container for modules -->
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 1.5rem; align-items: start;">
 
-                            
-                            </div>
+                            <!-- 2. ML-модели и Combined-режим -->
+                            <div class="settings-section-card group-models">
+                                <div class="settings-section-header">
+                                    <h4 class="settings-section-title">🧠 ML-модели, пороги и Combined-режим</h4>
+                                </div>
 
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 1.25rem; background: rgba(168, 85, 247, 0.08); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.2);">
                                 <input type="checkbox" id="COMBINED_REQUIRE_CONSENSUS" style="width: 1.2rem; height: 1.2rem; accent-color: #a855f7; cursor: pointer; margin-top: 2px;">
@@ -768,9 +768,10 @@
                                         <label for="OUTSIDER_MAX_PRICE" title="Максимальная цена покупки токена аутсайдера.">Макс. цена аутсайдера (NO и YES)</label>
                                         <input type="number" step="0.01" min="0.01" max="0.99" id="OUTSIDER_MAX_PRICE" value="0.45">
                                     </div>
-                                </div>
                             </div>
                         </div>
+
+                        </div> <!-- /2-column grid layout -->
 
                     </form>
                 </div>

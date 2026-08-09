@@ -654,6 +654,46 @@ def _evaluate_combined_entry_inner(
             p_flip=p_flip,
         )
 
+    if is_outsider:
+        flip_thresh_val = cfg.flip_threshold / 100.0 if cfg.flip_threshold > 1.0 else cfg.flip_threshold
+        if p_flip is not None and p_flip < flip_thresh_val:
+            return CombinedEntryResult(
+                action="SKIP",
+                reason=f"p_flip {p_flip:.4f} < FLIP_THRESHOLD {flip_thresh_val:.4f}",
+                direction_status=dir_status_for_result,
+                direction_model_key=crypto_sig.model_key or None,
+                direction_model_version=crypto_sig.model_version,
+                direction_regime=crypto_sig.regime or None,
+                direction_probability=dir_prob,
+                direction_p_up=getattr(crypto_sig, 'p_up', None),
+                direction_p_down=getattr(crypto_sig, 'p_down', None),
+                direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+                direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
+                direction_value=dir_val,
+                entry_requested_key=entry_requested_key,
+                entry_model_key=entry_model_key,
+                entry_model_version=entry_model_version,
+                entry_model_phase=market_phase,
+                entry_model_source=entry_model_source,
+                entry_status="PFLIP_BELOW_FLIP_THRESHOLD",
+                fallback_reason=fallback_reason,
+                p_candidate_win=p_candidate_win,
+                p_logreg_win=p_logreg_win,
+                direction_discount_applied=discount_mult,
+                combined_dir_discount_weight=discount_weight,
+                lr_direction_vote=lr_vote,
+                lgbm_direction_vote=lgbm_vote,
+                consensus_type=consensus.consensus_type,
+                candidate_side=candidate_side,
+                candidate_ask=candidate_ask,
+                cost_buffer=cost_buffer,
+                strike_source="BINANCE_LAST_CANDLE" if strike else None,
+                strike_proxy=strike,
+                underlying_price=und_price,
+                distance_to_strike_pct=dist_pct,
+                p_flip=p_flip,
+            )
+
     # (Перенесено наверх, до шага 4)
 
     # 5. Проверка диапазона цен покупки
