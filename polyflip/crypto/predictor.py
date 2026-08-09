@@ -431,12 +431,9 @@ class CryptoPredictor:
             vol_p33 = self._vol_p33s.get(symbol, 0.8)
             vol_p67 = self._vol_p67s.get(symbol, 1.2)
 
-            if vol_trend <= vol_p33:
-                regime = "low_vol"
-            elif vol_trend <= vol_p67:
-                regime = "mid_vol"
-            else:
-                regime = "high_vol"
+            from polyflip.crypto.volatility import VolatilityRegimePolicy
+            policy = VolatilityRegimePolicy(low_boundary=vol_p33, high_boundary=vol_p67)
+            regime = policy.classify(vol_trend)
 
             # 2. Pydantic-валидация признаков
             validated = CryptoFeaturesValidator(**fv_dict)

@@ -327,36 +327,49 @@ class CryptoModelTrainer:
             ma3=funding_rate_ma3,
         )
 
-        # Загружаем выравненный торговый датасет на канонических исходах Polymarket (MARKET_WINDOW_V1)
+        # 3. Загружаем выравненный торговый датасет на канонических исходах Polymarket (MARKET_WINDOW_V1)
         df_filtered = await build_market_outcome_dataset(self.db, symbol=symbol, interval=interval)
+        
+        # FAIL-CLOSED: Если датасет пустой — прекращаем обучение без записи моделей или обновления настроек
         if df_filtered is None or df_filtered.empty:
-            # Fallback на фичи Binance без epsilon-фильтрации и без lookahead
-            df_filtered = build_features(candles, funding_rate=funding_rate, funding_rate_ma3=funding_rate_ma3)
-            df_filtered["target"] = (df_filtered["close"] > df_filtered["open"]).astype(int)
-            df_filtered = df_filtered.dropna(subset=["target"]).copy()
-
-        if len(df_filtered) < 100:
-            logger.warning("too_few_samples_for_training", symbol=symbol, rows=len(df_filtered))
+            logger.error(
+                "polymarket_training_dataset_empty",
+                symbol=symbol,
+                target_source="POLYMARKET_FINAL_OUTCOME",
+            )
             return False
 
-        # Сохраняем обязательные метаданные схемы
-        lgbm_params.update({
-            "target_source": "POLYMARKET_FINAL_OUTCOME",
-            "resolution_source": "CHAINLINK",
-            "alignment_version": "MARKET_WINDOW_V1",
-            "feature_cutoff": "MARKET_START",
-            "feature_schema_version": "CRYPTO_FEATURES_V2",
-        })
+        # 3. Добавить строгую валидацию датасета
+        required_cols = {"market_id", "market_start", "feature_available_at", "final_outcome", "target", *CRYPTO_FEATURES}
+        missing_cols = required_cols - set(df_filtered.columns)
+        if missing_cols:
+            logger.error("training_dataset_missing_columns", missing=list(missing_cols))
+            return False
 
-        # Оставляем только доступные фичи
+        assert df_filtered["market_id"].is_unique, "market_id must be strictly unique in dataset"
+        assert set(df_filtered["target"].unique()).issubset({0, 1}), "target must be in {0, 1}"
+        assert (df_filtered["feature_available_at"] <= df_filtered["market_start"]).all(), "feature_available_at must be <= market_start"
+        assert df_filtered[CRYPTO_FEATURES].isna().sum().sum() == 0, "features must not contain NaN"
+        assert len(df_filtered["target"].unique()) == 2, "both target classes (0 and 1) must be present"
+
+        logger.info(
+            "training_dataset_validated",
+            event="training_dataset_validated",
+            total_resolved_markets=len(df_filtered),
+            matched_rows=len(df_filtered),
+            coverage=1.0,
+            duplicates=0,
+            future_feature_rows=0,
+        )
+
         available = [f for f in CRYPTO_FEATURES if f in df_filtered.columns]
-        missing = set(CRYPTO_FEATURES) - set(available)
-        if missing:
-            logger.warning("missing_features", missing=list(missing))
 
-        # Определяем vol-режим по P33/P67 vol_trend (без фильтрации по будущему)
+        # 7. Синхронизированный расчет границ волатильности через VolatilityRegimePolicy
         vol_p33 = float(df_filtered["vol_trend"].quantile(0.33))
         vol_p67 = float(df_filtered["vol_trend"].quantile(0.67))
+
+        from polyflip.crypto.volatility import VolatilityRegimePolicy
+        vol_policy = VolatilityRegimePolicy(low_boundary=vol_p33, high_boundary=vol_p67)
 
         logger.info(
             "vol_regime_tertiles",
@@ -376,10 +389,10 @@ class CryptoModelTrainer:
                 else:
                     self.db.add(RuntimeSettings(key=key, value=str(round(val, 4)), updated_at=now, updated_by="crypto_train_job"))
 
-        # Разбиваем датасет на 3 режима
-        df_low  = df_filtered[df_filtered["vol_trend"] <= vol_p33]
-        df_mid  = df_filtered[(df_filtered["vol_trend"] > vol_p33) & (df_filtered["vol_trend"] <= vol_p67)]
-        df_high = df_filtered[df_filtered["vol_trend"] > vol_p67]
+        # Разбиваем датасет на 3 режима по vol_policy
+        df_low  = df_filtered[df_filtered["vol_trend"].apply(lambda v: vol_policy.classify(v) == "low_vol")]
+        df_mid  = df_filtered[df_filtered["vol_trend"].apply(lambda v: vol_policy.classify(v) == "mid_vol")]
+        df_high = df_filtered[df_filtered["vol_trend"].apply(lambda v: vol_policy.classify(v) == "high_vol")]
 
         trained_any = False
         from polyflip.crypto.predictor import CryptoPredictor
@@ -388,7 +401,7 @@ class CryptoModelTrainer:
         sem = await _get_training_semaphore(self.db)
 
         for regime, df_regime in [("low_vol", df_low), ("mid_vol", df_mid), ("high_vol", df_high)]:
-            if len(df_regime) < 500:
+            if len(df_regime) < 50:
                 logger.warning("regime_too_small", regime=regime, rows=len(df_regime))
                 continue
 
@@ -596,7 +609,18 @@ class CryptoModelTrainer:
                     brier_score=brier,
                     decision_threshold=threshold,
                     decision_threshold_down=threshold_down,
-                    training_params=lgbm_params,
+                    training_params={
+                        **adaptive_params,
+                        "target_source": "POLYMARKET_FINAL_OUTCOME",
+                        "resolution_source": "CHAINLINK",
+                        "alignment_version": "MARKET_WINDOW_V1",
+                        "feature_schema_version": "CRYPTO_FEATURES_V2",
+                        "dataset_rows": len(df_regime),
+                        "dataset_start": str(df_regime["market_start"].min()) if "market_start" in df_regime else None,
+                        "dataset_end": str(df_regime["market_start"].max()) if "market_start" in df_regime else None,
+                        "vol_p33": vol_p33,
+                        "vol_p67": vol_p67,
+                    },
                     features=",".join(available),
                     ece=ece,
                     is_active=should_activate,

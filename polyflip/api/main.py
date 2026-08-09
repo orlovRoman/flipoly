@@ -103,12 +103,29 @@ async def lifespan(app: FastAPI):
 
     yield
 
+class CryptoRouteRewriteMiddleware:
+    """
+    Middleware перезаписи пути со старых роутов /crypto на /lightgbm.
+    Сохраняет HTTP-метод (POST/PUT/GET), заголовки, API-ключи, query-параметры и тело запросов.
+    """
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = scope.get("path", "")
+            if path == "/crypto":
+                scope["path"] = "/lightgbm"
+            elif path.startswith("/crypto/"):
+                scope["path"] = "/lightgbm/" + path[8:]
+        await self.app(scope, receive, send)
+
+
 app = FastAPI(title="PolyFlip API", version="0.1.0", lifespan=lifespan)
 
-# Подключаем middleware ограничения частоты запросов
+# Подключаем middleware сохранения роутов и ограничения частоты запросов
+app.add_middleware(CryptoRouteRewriteMiddleware)
 app.add_middleware(SimpleRateLimitMiddleware, limit=200, window=60)
-
-from starlette.responses import JSONResponse, RedirectResponse
 
 app.include_router(analytics_router)
 app.include_router(dashboard_router)
@@ -120,13 +137,6 @@ app.include_router(presets_router)
 app.include_router(crypto_router)
 app.include_router(crypto_backtest_router)
 app.include_router(execution_router)
-
-@app.get("/crypto", include_in_schema=False)
-@app.get("/crypto/{path:path}", include_in_schema=False)
-async def redirect_crypto_to_lightgbm(path: str = ""):
-    """Редирект со старого пути /crypto на /lightgbm"""
-    target = f"/lightgbm/{path}" if path else "/lightgbm"
-    return RedirectResponse(url=target, status_code=307)
 
 # Подключение статических файлов
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

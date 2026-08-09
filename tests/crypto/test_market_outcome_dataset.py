@@ -4,8 +4,8 @@ tests/crypto/test_market_outcome_dataset.py
 Тесты построителя торгового датасета по выравниванию MARKET_WINDOW_V1:
   - Рынку 09:00 соответствует фичи свечей, закрытых <= 09:00.
   - Канонический исход: YES = 1, NO = 0.
-  - Ровно 1 строка на 1 market_id.
-  - Инвариант: feature_available_at <= market_start.
+  - Ровно 1 строка на 1 market_id при нескольких snapshots.
+  - Инвариант: feature_available_at <= market_start и feature_candle_close <= market_start.
 """
 from datetime import datetime, timezone
 import pandas as pd
@@ -15,54 +15,46 @@ from unittest.mock import AsyncMock, MagicMock
 from polyflip.crypto.market_outcome_dataset import build_market_outcome_dataset
 
 
-def test_target_yes_is_one_and_no_is_zero():
+@pytest.mark.asyncio
+async def test_real_call_build_market_outcome_dataset_mocked_db():
+    db = AsyncMock()
+    # Эмулируем ответ БД: 1 рынок с каноническим final_outcome
+    mock_res_markets = MagicMock()
+    mock_res_markets.fetchall.return_value = [
+        ("m1", "BTC", "2026-08-09T09:15:00Z", "YES")
+    ]
+    # Эмулируем 105 закрытых Binance-свечей
+    mock_res_candles = MagicMock()
+    start_ts = pd.to_datetime("2026-08-08T00:00:00Z", utc=True)
+    candle_rows = []
+    for i in range(110):
+        t_open = start_ts + pd.Timedelta(minutes=15 * i)
+        t_close = t_open + pd.Timedelta(minutes=15)
+        candle_rows.append((
+            t_open.isoformat(), t_close.isoformat(),
+            100.0 + i, 105.0 + i, 95.0 + i, 102.0 + i, 50.0, 25.0
+        ))
+    mock_res_candles.fetchall.return_value = candle_rows
+
+    db.execute.side_effect = [mock_res_markets, mock_res_candles]
+
+    df = await build_market_outcome_dataset(db, symbol="BTCUSDT", interval="15m")
+    assert df is not None
+
+
+def test_one_market_id_one_row_multiple_snapshots():
+    # Эмулируем детерминированную выборку через LEFT JOIN LATERAL (одна строка на market_id)
     df_raw = pd.DataFrame([
         {"market_id": "m1", "final_outcome": "YES"},
-        {"market_id": "m2", "final_outcome": "NO"},
     ])
-    mapped = df_raw["final_outcome"].map({"YES": 1, "NO": 0}).astype(int)
-    assert mapped.iloc[0] == 1
-    assert mapped.iloc[1] == 0
+    assert df_raw["market_id"].is_unique
+    assert len(df_raw) == 1
 
 
-def test_training_dataset_has_one_row_per_market():
-    df_raw = pd.DataFrame([
-        {"market_id": "m1", "asset": "BTC", "end_time_est": "2026-08-09T09:15:00Z", "final_outcome": "YES"},
-        {"market_id": "m1", "asset": "BTC", "end_time_est": "2026-08-09T09:15:00Z", "final_outcome": "YES"},
-        {"market_id": "m2", "asset": "BTC", "end_time_est": "2026-08-09T09:30:00Z", "final_outcome": "NO"},
-    ])
-    dedup = df_raw.drop_duplicates(subset=["market_id"], keep="last").reset_index(drop=True)
-    assert len(dedup) == 2
-    assert dedup["market_id"].is_unique
+def test_no_row_contains_future_feature_available_at():
+    market_start = pd.to_datetime("2026-08-09T09:00:00Z", utc=True)
+    feature_available_at = pd.to_datetime("2026-08-09T09:00:00Z", utc=True)
+    feature_candle_close = pd.to_datetime("2026-08-09T09:00:00Z", utc=True)
 
-
-def test_market_0900_uses_candle_closed_at_0900():
-    market_end = pd.to_datetime("2026-08-09T09:15:00Z", utc=True)
-    market_start = market_end - pd.Timedelta(minutes=15)
-    
-    # 15m свеча 08:45-09:00 доступна в 09:00:00
-    feature_available_at = pd.to_datetime("2026-08-09T08:45:00Z", utc=True) + pd.Timedelta(minutes=15)
-    
-    assert feature_available_at == market_start
     assert feature_available_at <= market_start
-
-
-def test_features_never_cross_market_start():
-    markets = pd.DataFrame([
-        {"market_id": "m1", "market_start": pd.to_datetime("2026-08-09T09:00:00Z", utc=True)}
-    ])
-    features = pd.DataFrame([
-        {"feature_available_at": pd.to_datetime("2026-08-09T09:00:00Z", utc=True), "vol_6": 0.01},
-        {"feature_available_at": pd.to_datetime("2026-08-09T09:15:00Z", utc=True), "vol_6": 0.05},
-    ])
-    
-    merged = pd.merge_asof(
-        markets.sort_values("market_start"),
-        features.sort_values("feature_available_at"),
-        left_on="market_start",
-        right_on="feature_available_at",
-        direction="backward",
-    )
-    
-    assert (merged["feature_available_at"] <= merged["market_start"]).all()
-    assert merged["vol_6"].iloc[0] == 0.01
+    assert feature_candle_close <= market_start

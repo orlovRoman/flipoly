@@ -127,6 +127,10 @@ def run_backtest(
     coverage_pct = n_matched / n_signals * 100
       (% сделок с ценой Polymarket, не % всех свечей).
     """
+    # 6. В режиме polymarket отсутствие target должно быть ошибкой
+    if pnl_mode == "polymarket" and "target" not in df_features.columns:
+        raise ValueError("Polymarket backtest requires canonical final_outcome target")
+
     n_total = len(df_features)
     n_train = int(n_total * BACKTEST_TRAIN_RATIO)
 
@@ -146,21 +150,28 @@ def run_backtest(
     feature_list = features if features is not None else CRYPTO_FEATURES
     available    = [f for f in feature_list if f in df_train.columns]
 
-    if len(df_train) < 300 or len(available) == 0:
+    if len(df_train) < 100 or len(available) == 0:
         return _empty_result(symbol, n_total, len(df_test), epsilon_val, pnl_mode)
 
-    vol_median = float(df_train["vol_trend"].median()) if "vol_trend" in df_train.columns else 1.0
+    # 7. Единый VolatilityRegimePolicy для бэктестера
+    vol_p33 = float(df_train["vol_trend"].quantile(0.33)) if "vol_trend" in df_train.columns else 0.5
+    vol_p67 = float(df_train["vol_trend"].quantile(0.67)) if "vol_trend" in df_train.columns else 1.5
+
+    from polyflip.crypto.volatility import VolatilityRegimePolicy
+    vol_policy = VolatilityRegimePolicy(low_boundary=vol_p33, high_boundary=vol_p67)
+
     models: dict[str, Any] = {}
     train_aucs: list[float] = []
 
     has_vol = "vol_trend" in df_train.columns
     regime_masks = [
-        ("low_vol",  df_train["vol_trend"] <= vol_median if has_vol else pd.Series(True, index=df_train.index)),
-        ("high_vol", df_train["vol_trend"] >  vol_median if has_vol else pd.Series(False, index=df_train.index)),
+        ("low_vol",  df_train["vol_trend"].apply(lambda v: vol_policy.classify(v) == "low_vol") if has_vol else pd.Series(True, index=df_train.index)),
+        ("mid_vol",  df_train["vol_trend"].apply(lambda v: vol_policy.classify(v) == "mid_vol") if has_vol else pd.Series(False, index=df_train.index)),
+        ("high_vol", df_train["vol_trend"].apply(lambda v: vol_policy.classify(v) == "high_vol") if has_vol else pd.Series(False, index=df_train.index)),
     ]
     for regime, mask in regime_masks:
         df_r = df_train[mask]
-        if len(df_r) < 150:
+        if len(df_r) < 30:
             continue
         _lgbm = lgbm_params or {}
         model_bytes, auc, *_ = _fit_lgbm_and_serialize(

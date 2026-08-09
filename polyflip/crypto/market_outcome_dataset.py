@@ -3,7 +3,7 @@ polyflip/crypto/market_outcome_dataset.py
 
 Построитель торгового датасета для LightGBM на канонических исходах Polymarket (Chainlink resolution).
 Каждая строка соответствует ровно одному рынку (market_id) с фичами Binance-свечей,
-закрытых ДО начала этого рынка (feature_available_at <= market_start).
+закрытых ДО начала этого рынка (feature_candle_close <= market_start, feature_available_at <= market_start).
 """
 from __future__ import annotations
 
@@ -27,25 +27,33 @@ async def build_market_outcome_dataset(
     """
     Создает торговый датасет для выравнивания MARKET_WINDOW_V1:
       - 1 строка на один market_id (однозначный target: YES=1, NO=0).
+      - Детерминированный SQL-выбор через LEFT JOIN LATERAL (последняя финализированная запись).
       - Точное временное выравнивание: market_start = end_time_est - 15m.
-      - Фичи закрытых свечей: feature_available_at <= market_start (без lookahead).
+      - Фичи закрытых свечей: feature_candle_close <= market_start и feature_available_at <= market_start.
     """
     asset = symbol.removesuffix("USDT")
     logger.info("building_market_outcome_dataset_start", symbol=symbol, asset=asset, interval=interval)
 
-    # 1. Сбор рынков с финализированным исходом (YES/NO) из live_markets и market_snapshots
+    # 4. Детерминированный выбор исхода рынка через LEFT JOIN LATERAL
     res_markets = await db.execute(text(
         """
-        SELECT 
+        SELECT
             m.market_id,
             m.asset,
             m.end_time_est,
-            COALESCE(m.final_outcome, s.final_outcome) AS final_outcome
+            COALESCE(m.final_outcome, latest.final_outcome) AS final_outcome
         FROM live_markets m
-        LEFT JOIN market_snapshots s ON m.market_id = s.market_id
+        LEFT JOIN LATERAL (
+            SELECT s.final_outcome
+            FROM market_snapshots s
+            WHERE s.market_id = m.market_id
+              AND s.final_outcome IN ('YES', 'NO')
+            ORDER BY s.recorded_at DESC
+            LIMIT 1
+        ) latest ON TRUE
         WHERE m.asset = :asset
-          AND COALESCE(m.final_outcome, s.final_outcome) IN ('YES', 'NO')
-        ORDER BY m.market_id;
+          AND m.end_time_est IS NOT NULL
+          AND COALESCE(m.final_outcome, latest.final_outcome) IN ('YES', 'NO');
         """
     ), {"asset": asset})
 
@@ -55,12 +63,9 @@ async def build_market_outcome_dataset(
         return pd.DataFrame()
 
     markets = pd.DataFrame(market_rows, columns=["market_id", "asset", "end_time_est", "final_outcome"])
+    assert markets["market_id"].is_unique, "SQL must guarantee 1 row per market_id"
 
-    # 1.3. Ровно одна строка на один рынок
-    markets = markets.drop_duplicates(subset=["market_id"], keep="last").reset_index(drop=True)
-    assert markets["market_id"].is_unique, "market_id must be strictly unique"
-
-    # 1.4. Точное временное выравнивание
+    # Точное временное выравнивание
     markets["end_time_est"] = pd.to_datetime(markets["end_time_est"], utc=True)
     markets["market_start"] = markets["end_time_est"] - pd.Timedelta(minutes=15)
     markets["target"] = markets["final_outcome"].map({"YES": 1, "NO": 0}).astype(int)
@@ -97,8 +102,10 @@ async def build_market_outcome_dataset(
         fv = build_crypto_features(sub_df, min_candles=min_window)
         if fv.valid:
             row_dict = dict(zip(CRYPTO_FEATURE_COLUMNS, fv.features[0]))
-            # Момент доступности фичей = время закрытия свечи (open_time + 15m)
-            row_dict["feature_available_at"] = sub_df.iloc[-1]["open_time"] + pd.Timedelta(minutes=15)
+            # 5. Хранение двух временных меток доступности фичей
+            last_candle = sub_df.iloc[-1]
+            row_dict["feature_candle_close"] = last_candle["close_time"]
+            row_dict["feature_available_at"] = last_candle["open_time"] + pd.Timedelta(minutes=15)
             feature_records.append(row_dict)
 
     if not feature_records:
@@ -106,6 +113,7 @@ async def build_market_outcome_dataset(
         return pd.DataFrame()
 
     features = pd.DataFrame(feature_records)
+    features["feature_candle_close"] = pd.to_datetime(features["feature_candle_close"], utc=True)
     features["feature_available_at"] = pd.to_datetime(features["feature_available_at"], utc=True)
 
     # 4. merge_asof backward: feature_available_at <= market_start
@@ -124,10 +132,13 @@ async def build_market_outcome_dataset(
     # Очистка строк без признаков
     dataset = dataset.dropna(subset=["feature_available_at", "target"]).reset_index(drop=True)
 
-    # Инвариант: признаки никогда не выходят за пределы market_start
+    # 5. Инвариант: проверяем feature_candle_close <= market_start и feature_available_at <= market_start
     if not dataset.empty:
         assert (dataset["feature_available_at"] <= dataset["market_start"]).all(), (
             "Invariant violation: feature_available_at must be <= market_start"
+        )
+        assert (dataset["feature_candle_close"] <= dataset["market_start"]).all(), (
+            "Invariant violation: feature_candle_close must be <= market_start"
         )
 
     logger.info(
