@@ -39,6 +39,8 @@ ZERO_DEFAULT_FEATURES: frozenset[str] = frozenset({
     "price_deviation_sq",
     "velocity_x_phase",
     "dev_sq_x_phase",
+    "price_velocity_lag1",
+    "time_phase",
 })
 
 
