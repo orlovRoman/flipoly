@@ -163,11 +163,22 @@ def run_model_inference(
     """
     missing = [f for f in features if f not in df.columns]
     if missing:
+        from polyflip.constants import ZERO_DEFAULT_FEATURES
+        missing_required = [f for f in missing if f not in ZERO_DEFAULT_FEATURES]
+        if missing_required:
+            logger.error(
+                "inference_feature_mismatch",
+                missing=missing_required,
+                available=list(df.columns),
+                note="Model expects required features missing from dataframe",
+            )
+            raise ValueError(f"MODEL_FEATURE_MISMATCH: Missing required features: {missing_required}")
+
         logger.warning(
-            "inference_missing_features",
+            "inference_missing_zero_default_features",
             missing=missing,
             available=list(df.columns),
-            note="Model expects features not in dataframe - filling with 0.0"
+            note="Filling allowed zero-default features with 0.0",
         )
         for col in missing:
             df[col] = 0.0

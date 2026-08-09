@@ -86,6 +86,9 @@ async def log_funnel(
     distance_to_strike_pct: Optional[float] = None,
     # P0: детальная причина сбоя Direction Model
     direction_error_detail: Optional[str] = None,
+    would_live_accept: Optional[bool] = None,
+    p_flip_raw: Optional[float] = None,
+    entry_model_ece: Optional[float] = None,
 
     # Итог
     final_action: str = "SKIP",
@@ -100,8 +103,11 @@ async def log_funnel(
             execution_mode=execution_mode,
             used_model=used_model,
             p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            entry_model_ece=entry_model_ece,
             edge=edge,
             fresh_price=fresh_price,
+            would_live_accept=would_live_accept,
             threshold_lower=threshold_lower,
             threshold_upper=threshold_upper,
             min_edge_used=min_edge_used,

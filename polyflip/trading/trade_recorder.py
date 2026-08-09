@@ -112,6 +112,9 @@ async def save_or_update_skipped_trade(
             existing_skipped.confirm_model_version = confirm_model_version
             existing_skipped.model_attribution_source = "EXACT" if model_key else None
             existing_skipped.direction_value = dir_val
+            existing_skipped.would_live_accept = details.get("would_live_accept")
+            existing_skipped.p_flip_raw = details.get("p_flip_raw")
+            existing_skipped.entry_model_ece = details.get("entry_model_ece")
             if details.get("decision_run_id"):
                 existing_skipped.decision_run_id = details.get("decision_run_id")
             
@@ -137,6 +140,9 @@ async def save_or_update_skipped_trade(
             confirm_model_version=confirm_model_version,
             model_attribution_source="EXACT" if model_key else None,
             direction_value=dir_val,
+            would_live_accept=details.get("would_live_accept"),
+            p_flip_raw=details.get("p_flip_raw"),
+            entry_model_ece=details.get("entry_model_ece"),
             decision_run_id=details.get("decision_run_id"),
             created_at=start_time
         )
@@ -274,6 +280,9 @@ async def execute_and_record(
         cost_buffer=c_buffer,
         net_edge=n_edge,
         decision_run_id=dec_run_id,
+        would_live_accept=details.get("would_live_accept"),
+        p_flip_raw=details.get("p_flip_raw"),
+        entry_model_ece=details.get("entry_model_ece"),
     )
     
     if cfg.stop_loss_enabled:

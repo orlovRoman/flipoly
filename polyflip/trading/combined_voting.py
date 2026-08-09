@@ -141,6 +141,10 @@ class CombinedEntryResult:
     lgbm_inverted: bool = False
     lgbm_p_up_raw: float = 0.0
     lgbm_p_down_raw: float = 0.0
+    p_flip_raw: Optional[float] = None
+    p_flip_effective: Optional[float] = None
+    entry_model_ece: float = 0.0
+    would_live_accept: Optional[bool] = None
 
 
 def _normalize_threshold(value: float) -> float:
@@ -201,6 +205,7 @@ def evaluate_combined_entry(
     underlying_price: Optional[float] = None,
     fallback_reason: Optional[str] = None,
     time_left_sec: float = 0.0,
+    entry_model_ece: float = 0.0,
 ) -> CombinedEntryResult:
     """Обёртка для переноса флагов LightGBM в результат."""
     result = _evaluate_combined_entry_inner(
@@ -220,6 +225,7 @@ def evaluate_combined_entry(
         underlying_price=underlying_price,
         fallback_reason=fallback_reason,
         time_left_sec=time_left_sec,
+        entry_model_ece=entry_model_ece,
     )
     if crypto_sig:
         result = replace(
@@ -248,8 +254,25 @@ def _evaluate_combined_entry_inner(
     underlying_price: Optional[float] = None,
     fallback_reason: Optional[str] = None,
     time_left_sec: float = 0.0,
+    entry_model_ece: float = 0.0,
 ) -> CombinedEntryResult:
     """Внутренняя логика оценки."""
+
+    # ECE-коррекция p_flip (P0-2)
+    p_flip_raw = p_flip
+    if p_flip is not None and entry_model_ece > 0.0:
+        from polyflip.trading.position_sizing import apply_ece_correction
+        p_flip_effective = apply_ece_correction(p_flip, entry_model_ece)
+        logger.info(
+            "ece_correction_applied",
+            p_flip_raw=round(p_flip_raw, 4),
+            p_flip_effective=round(p_flip_effective, 4),
+            entry_model_ece=round(entry_model_ece, 4),
+        )
+    else:
+        p_flip_effective = p_flip
+
+    p_flip = p_flip_effective
 
     if crypto_sig.direction == "UP":
         dir_prob = crypto_sig.p_up or 0.0
@@ -284,34 +307,57 @@ def _evaluate_combined_entry_inner(
         else:
             reason_str = f"Direction Model unavailable (status={dir_status})"
 
-        return CombinedEntryResult(
-            action="SKIP",
-            reason=reason_str,
-            direction_status=dir_status,
-            direction_error_detail=error_detail or None,
-            direction_model_key=crypto_sig.model_key or None,
-            direction_model_version=crypto_sig.model_version if crypto_sig.model_version >= 0 else None,
-            direction_regime=crypto_sig.regime or None,
-            direction_probability=dir_prob,
-            direction_p_up=getattr(crypto_sig, 'p_up', None),
-            direction_p_down=getattr(crypto_sig, 'p_down', None),
-            direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
-            direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
-            direction_value=dir_val,
-            entry_requested_key=entry_requested_key,
-            entry_model_key=entry_model_key,
-            entry_model_version=entry_model_version,
-            entry_model_phase=market_phase,
-            entry_model_source=entry_model_source,
-            entry_status="DIRECTION_UNAVAILABLE",
-            fallback_reason=fallback_reason,
-            cost_buffer=cost_buffer,
-            strike_source="BINANCE_LAST_CANDLE" if strike else None,
-            strike_proxy=strike,
-            underlying_price=und_price,
-            distance_to_strike_pct=dist_pct,
-            p_flip=p_flip,
-        )
+        unavailable_statuses = {"MODEL_NOT_LOADED", "REGIME_UNAVAILABLE", "INFERENCE_FAILED"}
+        policy = getattr(cfg, "lgbm_unavailable_policy", "SKIP")
+        if dir_status in unavailable_statuses and policy == "LOGREG_FALLBACK":
+            logger.warning(
+                "lgbm_unavailable_logreg_fallback",
+                status=dir_status,
+                symbol=crypto_sig.symbol,
+                reason=reason_str,
+            )
+            crypto_sig = replace(
+                crypto_sig,
+                direction="NONE",
+                features_ok=True,
+                model_version=-1,
+                status="LGBM_FALLBACK",
+            )
+            dir_status = "LGBM_FALLBACK"
+            dir_val = "NONE"
+        else:
+            return CombinedEntryResult(
+                action="SKIP",
+                reason=reason_str,
+                direction_status=dir_status,
+                direction_error_detail=error_detail or None,
+                direction_model_key=crypto_sig.model_key or None,
+                direction_model_version=crypto_sig.model_version if (crypto_sig.model_version is not None and crypto_sig.model_version >= 0) else None,
+                direction_regime=crypto_sig.regime or None,
+                direction_probability=dir_prob,
+                direction_p_up=getattr(crypto_sig, 'p_up', None),
+                direction_p_down=getattr(crypto_sig, 'p_down', None),
+                direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+                direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
+                direction_value=dir_val,
+                entry_requested_key=entry_requested_key,
+                entry_model_key=entry_model_key,
+                entry_model_version=entry_model_version,
+                entry_model_phase=market_phase,
+                entry_model_source=entry_model_source,
+                entry_status="DIRECTION_UNAVAILABLE",
+                fallback_reason=fallback_reason,
+                cost_buffer=cost_buffer,
+                strike_source="BINANCE_LAST_CANDLE" if strike else None,
+                strike_proxy=strike,
+                underlying_price=und_price,
+                distance_to_strike_pct=dist_pct,
+                p_flip=p_flip,
+                p_flip_raw=p_flip_raw,
+                p_flip_effective=p_flip_effective,
+                entry_model_ece=entry_model_ece,
+                would_live_accept=False,
+            )
 
     if crypto_sig.risk_vetoed:
         return CombinedEntryResult(
@@ -319,7 +365,7 @@ def _evaluate_combined_entry_inner(
             reason=f"Direction Model funding veto: {crypto_sig.risk_reason}",
             direction_status="FUNDING_VETOED",
             direction_model_key=crypto_sig.model_key or None,
-            direction_model_version=crypto_sig.model_version,
+            direction_model_version=crypto_sig.model_version if (crypto_sig.model_version is not None and crypto_sig.model_version >= 0) else None,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
             direction_p_up=getattr(crypto_sig, 'p_up', None),
@@ -340,6 +386,10 @@ def _evaluate_combined_entry_inner(
             underlying_price=und_price,
             distance_to_strike_pct=dist_pct,
             p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
+            would_live_accept=False,
         )
 
     # 3. Валидация LogReg Entry Model
@@ -349,7 +399,7 @@ def _evaluate_combined_entry_inner(
             reason="Entry Model (LogReg) evaluation failed or unavailable",
             direction_status=dir_status,
             direction_model_key=crypto_sig.model_key or None,
-            direction_model_version=crypto_sig.model_version,
+            direction_model_version=crypto_sig.model_version if (crypto_sig.model_version is not None and crypto_sig.model_version >= 0) else None,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
             direction_p_up=getattr(crypto_sig, 'p_up', None),
@@ -372,6 +422,9 @@ def _evaluate_combined_entry_inner(
             underlying_price=und_price,
             distance_to_strike_pct=dist_pct,
             p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
         )
 
     # 3.5 Валидация минимальной уверенности LightGBM (для UP / DOWN)
@@ -382,7 +435,7 @@ def _evaluate_combined_entry_inner(
             reason=f"Direction prob {dir_prob:.4f} < min {min_direction_prob_cfg:.4f} (floor)",
             direction_status="LOW_DIRECTION_PROB",
             direction_model_key=crypto_sig.model_key or None,
-            direction_model_version=crypto_sig.model_version,
+            direction_model_version=crypto_sig.model_version if (crypto_sig.model_version is not None and crypto_sig.model_version >= 0) else None,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
             direction_p_up=getattr(crypto_sig, 'p_up', None),
@@ -403,6 +456,9 @@ def _evaluate_combined_entry_inner(
             underlying_price=und_price,
             distance_to_strike_pct=dist_pct,
             p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
         )
 
     # 3.6 Consensus
@@ -423,7 +479,7 @@ def _evaluate_combined_entry_inner(
             reason=f"Consensus failed: {consensus.consensus_type} ({consensus.reason})",
             direction_status=dir_status,
             direction_model_key=crypto_sig.model_key or None,
-            direction_model_version=crypto_sig.model_version,
+            direction_model_version=crypto_sig.model_version if (crypto_sig.model_version is not None and crypto_sig.model_version >= 0) else None,
             direction_regime=crypto_sig.regime or None,
             direction_probability=dir_prob,
             direction_p_up=getattr(crypto_sig, 'p_up', None),
@@ -446,6 +502,9 @@ def _evaluate_combined_entry_inner(
             underlying_price=und_price,
             distance_to_strike_pct=dist_pct,
             p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
             lr_direction_vote=lr_vote,
             lgbm_direction_vote=lgbm_vote,
             consensus_type=consensus.consensus_type,
@@ -590,6 +649,9 @@ def _evaluate_combined_entry_inner(
             underlying_price=und_price,
             distance_to_strike_pct=dist_pct,
             p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
         )
 
     is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider)
@@ -615,11 +677,12 @@ def _evaluate_combined_entry_inner(
             entry_status="INVALID_TIME",
             fallback_reason=fallback_reason,
             p_candidate_win=p_candidate_win,
-            p_flip=p_flip,
-            strike_source="BINANCE_LAST_CANDLE" if strike else None,
-            strike_proxy=strike,
             underlying_price=und_price,
             distance_to_strike_pct=dist_pct,
+            p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
         )
     
     if is_outsider and not cfg.trade_on_flip:
@@ -658,6 +721,9 @@ def _evaluate_combined_entry_inner(
             underlying_price=und_price,
             distance_to_strike_pct=dist_pct,
             p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
         )
 
     if is_outsider:
@@ -738,6 +804,9 @@ def _evaluate_combined_entry_inner(
             underlying_price=und_price,
             distance_to_strike_pct=dist_pct,
             p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
         )
 
     # 6. Расчет Gross Edge и Net Edge
@@ -783,6 +852,9 @@ def _evaluate_combined_entry_inner(
             underlying_price=und_price,
             distance_to_strike_pct=dist_pct,
             p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
         )
 
     # 7. Расчет размера ставки
@@ -829,6 +901,9 @@ def _evaluate_combined_entry_inner(
             underlying_price=und_price,
             distance_to_strike_pct=dist_pct,
             p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
         )
 
     # 8. Расчет max_acceptable_price (защита от дрейфа и спреда)
@@ -837,6 +912,10 @@ def _evaluate_combined_entry_inner(
     max_price_by_edge = round(p_candidate_win - cost_buffer - min_net_edge, 3)
     max_price_by_drift = round(candidate_ask + max_drift, 3)
     max_acceptable_price = min(max_price_by_edge, max_price_by_drift, cfg.trade_max_price)
+
+    would_live_accept = (entry_model_source == "PHASE")
+    if dir_status == "LGBM_FALLBACK":
+        would_live_accept = False
 
     return CombinedEntryResult(
         action=candidate_side,
@@ -877,6 +956,10 @@ def _evaluate_combined_entry_inner(
         underlying_price=und_price,
         distance_to_strike_pct=dist_pct,
         p_flip=p_flip,
+        p_flip_raw=p_flip_raw,
+        p_flip_effective=p_flip_effective,
+        entry_model_ece=entry_model_ece,
+        would_live_accept=would_live_accept,
     )
 
 

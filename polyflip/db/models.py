@@ -262,6 +262,9 @@ class TradeHistory(Base):
     net_edge = Column(Float, nullable=True)
     decision_run_id = Column(String(64), nullable=True)
     direction_value = Column(String(16), nullable=True)
+    would_live_accept = Column(Boolean, nullable=True)
+    p_flip_raw = Column(Float, nullable=True)
+    entry_model_ece = Column(Float, nullable=True)
 
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),
@@ -364,8 +367,11 @@ class DecisionFunnelLog(Base):
 
     # ML-метрики
     p_flip       = Column(Float, nullable=True)
+    p_flip_raw   = Column(Float, nullable=True)
+    entry_model_ece = Column(Float, nullable=True)
     edge         = Column(Float, nullable=True)
     fresh_price  = Column(Float, nullable=True)
+    would_live_accept = Column(Boolean, nullable=True)
 
     # Пороги, применявшиеся в этом прогоне (для дебага изменений настроек)
     threshold_lower = Column(Float, nullable=True)   # NO_FLIP_THRESHOLD (lower)

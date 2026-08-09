@@ -150,6 +150,8 @@ REGISTRY: list[SettingDef] = [
                description="Обе модели (LightGBM и LogReg) должны проголосовать за одно направление. Иначе - SKIP."),
     SettingDef("COMBINED_FALLBACK_TO_LOGREG_ON_NONE", "true",
                description="Если LightGBM выдает NONE, то используется голос LogReg. Если false, то NONE ведет к SKIP."),
+    SettingDef("COMBINED_LGBM_UNAVAILABLE_POLICY", "SKIP",
+               description="Поведение при недоступности LightGBM: LOGREG_FALLBACK | SKIP"),
     SettingDef("COMBINED_LOGREG_ABSTAIN_BAND", "0.05",
                description="Ширина коридора нерешительности LogReg вокруг 0.50. Чем больше значение, тем чаще LogReg воздерживается (МЕНЬШЕ сделок)."),
     SettingDef(

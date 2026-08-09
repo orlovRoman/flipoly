@@ -341,6 +341,10 @@ async def decide_combined_mode(
     except (TypeError, ValueError):
         und_price = None
 
+    entry_model_ece = 0.0
+    if models_cache and entry_model_key and hasattr(models_cache, "eces"):
+        entry_model_ece = models_cache.eces.get(entry_model_key, 0.0) or 0.0
+
     comb_res = evaluate_combined_entry(
         crypto_sig=direction_signal,
         market_phase=phase,
@@ -358,6 +362,7 @@ async def decide_combined_mode(
         underlying_price=und_price,
         time_left_sec=time_left_sec,
         fallback_reason=fallback_reason,
+        entry_model_ece=entry_model_ece,
     )
 
     elapsed = time.monotonic() - t0
@@ -393,6 +398,10 @@ async def decide_combined_mode(
         "strike_proxy": comb_res.strike_proxy,
         "underlying_price": comb_res.underlying_price,
         "distance_to_strike_pct": comb_res.distance_to_strike_pct,
+        "would_live_accept": comb_res.would_live_accept,
+        "p_flip_raw": comb_res.p_flip_raw,
+        "p_flip_effective": comb_res.p_flip_effective,
+        "entry_model_ece": comb_res.entry_model_ece,
         "market_role": "FAVORITE" if (comb_res.candidate_ask is not None and comb_res.candidate_ask >= 0.50) else "OUTSIDER",
     }
 
@@ -530,6 +539,9 @@ async def decide_combined_mode(
         underlying_price=comb_res.underlying_price,
         distance_to_strike_pct=comb_res.distance_to_strike_pct,
         direction_error_detail=comb_res.direction_error_detail,
+        would_live_accept=comb_res.would_live_accept,
+        p_flip_raw=comb_res.p_flip_raw,
+        entry_model_ece=comb_res.entry_model_ece,
 
         final_action=comb_res.action,
         skip_reason=comb_res.reason if comb_res.action == "SKIP" else None,

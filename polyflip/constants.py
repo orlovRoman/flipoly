@@ -31,6 +31,10 @@ PRICE_PHASE_BOUNDARIES: dict[str, tuple[float, float]] = {
 }
 
 
+# --- Признаки с допустимым нулевым дефолтом при инференсе ---
+ZERO_DEFAULT_FEATURES: frozenset[str] = frozenset({"volume_5min", "price_velocity"})
+
+
 def get_price_phase(mid_price: float) -> str:
     """Определяет фазу по mid_price. Единое место истины для trainer и engine."""
     dev = round(abs(mid_price - 0.5), 4)
