@@ -290,8 +290,14 @@ def _evaluate_combined_entry_inner(
     if und_price and strike and strike > 0:
         dist_pct = round((und_price - strike) / strike * 100.0, 4)
 
-    # 1. Валидация LightGBM Direction
-    if not crypto_sig.features_ok or crypto_sig.model_version is None or crypto_sig.model_version < 0:
+    lgbm_mode = getattr(cfg, "lightgbm_decision_mode", "SHADOW")
+    logreg_only = lgbm_mode in {"SHADOW", "OFF"}
+
+    if logreg_only:
+        dir_status = "SHADOW_NOT_APPLIED" if lgbm_mode == "SHADOW" else "DISABLED_BY_OPERATOR"
+
+    # 1. Валидация LightGBM Direction (пропускается в режиме logreg_only)
+    if not logreg_only and (not crypto_sig.features_ok or crypto_sig.model_version is None or crypto_sig.model_version < 0):
         # P0: формируем информативный reason
         symbol = crypto_sig.symbol or ""
         regime = crypto_sig.regime or ""
@@ -359,7 +365,7 @@ def _evaluate_combined_entry_inner(
                 would_live_accept=False,
             )
 
-    if crypto_sig.risk_vetoed:
+    if not logreg_only and crypto_sig.risk_vetoed:
         return CombinedEntryResult(
             action="SKIP",
             reason=f"Direction Model funding veto: {crypto_sig.risk_reason}",
@@ -429,7 +435,9 @@ def _evaluate_combined_entry_inner(
 
     # 3.5 Валидация минимальной уверенности LightGBM (для UP / DOWN)
     min_direction_prob_cfg = getattr(cfg, "min_direction_prob", 0.505)
-    if crypto_sig.direction in ("UP", "DOWN") and dir_prob < min_direction_prob_cfg:
+    # 3.5 Валидация минимальной уверенности LightGBM (для UP / DOWN) - пропускается в logreg_only
+    min_direction_prob_cfg = getattr(cfg, "min_direction_prob", 0.505)
+    if not logreg_only and crypto_sig.direction in ("UP", "DOWN") and dir_prob < min_direction_prob_cfg:
         return CombinedEntryResult(
             action="SKIP",
             reason=f"Direction prob {dir_prob:.4f} < min {min_direction_prob_cfg:.4f} (floor)",
@@ -461,17 +469,56 @@ def _evaluate_combined_entry_inner(
             entry_model_ece=entry_model_ece,
         )
 
-    # 3.6 Consensus
+    # 3.6 Consensus / LogReg-Only Direction Selection
     lr_abstain_band = getattr(cfg, "combined_logreg_abstain_band", _LOGREG_ABSTAIN_BAND)
     lr_vote = logreg_direction_vote(p_flip, fresh_yes_price, cfg.flip_threshold, abstain_band=lr_abstain_band)
     lgbm_vote = crypto_sig.direction or "NONE"
     
-    consensus = resolve_direction_consensus(
-        lgbm_vote=lgbm_vote,
-        lr_vote=lr_vote,
-        require_consensus=getattr(cfg, "combined_require_consensus", True),
-        fallback_to_logreg_on_none=getattr(cfg, "combined_fallback_to_logreg_on_none", True),
-    )
+    if logreg_only:
+        if lr_vote == "ABSTAIN":
+            return CombinedEntryResult(
+                action="SKIP",
+                reason="LogReg did not yield a confident direction (ABSTAIN)",
+                direction_status=dir_status,
+                direction_model_key=crypto_sig.model_key or None,
+                direction_model_version=crypto_sig.model_version if (crypto_sig.model_version is not None and crypto_sig.model_version >= 0) else None,
+                direction_regime=crypto_sig.regime or None,
+                direction_probability=dir_prob,
+                direction_p_up=getattr(crypto_sig, 'p_up', None),
+                direction_p_down=getattr(crypto_sig, 'p_down', None),
+                direction_threshold_up=getattr(crypto_sig, 'threshold_up', None),
+                direction_threshold_down=getattr(crypto_sig, 'threshold_down', None),
+                direction_value=dir_val,
+                entry_requested_key=entry_requested_key,
+                entry_model_key=entry_model_key,
+                entry_model_version=entry_model_version,
+                entry_model_phase=market_phase,
+                entry_model_source=entry_model_source,
+                entry_status="LOGREG_ABSTAIN",
+                fallback_reason=fallback_reason,
+                candidate_side=None,
+                candidate_ask=None,
+                cost_buffer=cost_buffer,
+                strike_source="BINANCE_LAST_CANDLE" if strike else None,
+                strike_proxy=strike,
+                underlying_price=und_price,
+                distance_to_strike_pct=dist_pct,
+                p_flip=p_flip,
+                p_flip_raw=p_flip_raw,
+                p_flip_effective=p_flip_effective,
+                entry_model_ece=entry_model_ece,
+                lr_direction_vote=lr_vote,
+                lgbm_direction_vote=lgbm_vote,
+                consensus_type="LOGREG_ONLY",
+            )
+        consensus = DirectionConsensus(final_side=lr_vote, consensus_type="LOGREG_ONLY", reason="LogReg-only mode active")
+    else:
+        consensus = resolve_direction_consensus(
+            lgbm_vote=lgbm_vote,
+            lr_vote=lr_vote,
+            require_consensus=getattr(cfg, "combined_require_consensus", True),
+            fallback_to_logreg_on_none=getattr(cfg, "combined_fallback_to_logreg_on_none", True),
+        )
     
     if consensus.final_side == "SKIP":
         return CombinedEntryResult(
@@ -522,7 +569,7 @@ def _evaluate_combined_entry_inner(
             threshold_down=getattr(crypto_sig, 'threshold_down', None),
         )
 
-    if crypto_sig.direction not in ("UP", "DOWN"):
+    if not logreg_only and crypto_sig.direction not in ("UP", "DOWN"):
         dir_status_for_result = "DIRECTION_NONE_FALLBACK_LR"
     else:
         dir_status_for_result = dir_status
@@ -582,23 +629,28 @@ def _evaluate_combined_entry_inner(
 
     p_logreg_win = round(max(0.0, min(1.0, p_logreg_win)), 4)
 
-    # Применяем дисконт за неуверенность LightGBM
-    discount_weight = getattr(cfg, "combined_dir_discount_weight", 0.0)
-    strong_thresh = getattr(cfg, "combined_dir_strong_threshold", 0.65)
-    min_dir_prob_val = getattr(cfg, "min_direction_prob", 0.505)
-
-    p_candidate_win = apply_direction_confidence_discount(
-        p_logreg_win=p_logreg_win,
-        dir_prob=dir_prob,
-        min_direction_prob=min_dir_prob_val,
-        strong_threshold=strong_thresh,
-        discount_weight=discount_weight,
-    )
-    if p_logreg_win > 0:
-        discount_mult = round(p_candidate_win / p_logreg_win, 4)
+    # Применяем дисконт за неуверенность LightGBM (отключен в logreg_only режиме)
+    if logreg_only:
+        discount_weight = 0.0
+        p_candidate_win = p_logreg_win
+        discount_mult = 1.0
     else:
-        discount_mult = 0.0
-        logger.warning("combined_discount_mult_zero_logreg", asset=crypto_sig.symbol, p_flip=p_flip)
+        discount_weight = getattr(cfg, "combined_dir_discount_weight", 0.0)
+        strong_thresh = getattr(cfg, "combined_dir_strong_threshold", 0.65)
+        min_dir_prob_val = getattr(cfg, "min_direction_prob", 0.505)
+
+        p_candidate_win = apply_direction_confidence_discount(
+            p_logreg_win=p_logreg_win,
+            dir_prob=dir_prob,
+            min_direction_prob=min_dir_prob_val,
+            strong_threshold=strong_thresh,
+            discount_weight=discount_weight,
+        )
+        if p_logreg_win > 0:
+            discount_mult = round(p_candidate_win / p_logreg_win, 4)
+        else:
+            discount_mult = 0.0
+            logger.warning("combined_discount_mult_zero_logreg", asset=crypto_sig.symbol, p_flip=p_flip)
 
     if discount_weight > 0.0:
         logger.info(

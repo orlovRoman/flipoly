@@ -240,17 +240,22 @@ async def decide_combined_mode(
 
     # 2. Получаем сигнал LightGBM (Direction Model)
     binance_symbol = COMBINED_BINANCE_SYMBOLS.get(asset_upper)
-    if crypto_predictor is not None and binance_symbol is not None:
+    lgbm_mode = getattr(cfg, "lightgbm_decision_mode", "SHADOW")
+
+    if lgbm_mode in {"ACTIVE", "SHADOW"} and crypto_predictor is not None and binance_symbol is not None:
         direction_signal = await _fetch_lgbm_signal(crypto_predictor, binance_symbol, asset_upper, cfg)
     else:
         direction_signal = CryptoSignal(
             symbol=binance_symbol or "UNKNOWN", p_up=0.0, p_down=0.0,
             direction="NONE", signal_strength=0.0, strike=0.0,
-            threshold_up=0.0, threshold_down=0.0, model_version=0,
+            threshold_up=0.0, threshold_down=0.0, model_version=-1,
             features_ok=False, risk_vetoed=False,
-            regime="UNKNOWN", status="PREDICTOR_NOT_AVAILABLE"
+            regime="UNKNOWN", status="DISABLED_BY_OPERATOR" if lgbm_mode == "OFF" else "PREDICTOR_NOT_AVAILABLE"
         )
-        logger.warning("combined_no_crypto_predictor", asset=asset_upper)
+        if lgbm_mode == "OFF":
+            logger.info("combined_lightgbm_disabled_by_operator", asset=asset_upper)
+        else:
+            logger.warning("combined_no_crypto_predictor", asset=asset_upper)
 
     # 2.1 Fallback на ML (LogReg) режим, если LightGBM выдал NONE и включена настройка COMBINED_FALLBACK_TO_ML_ON_NONE
     # cfg уже содержит актуальное значение из raw_settings (через parse_trading_settings) — источник один.

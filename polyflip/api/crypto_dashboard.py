@@ -261,6 +261,77 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     return result
 
 
+class LightGBMDecisionModeRequest(BaseModel):
+    mode: Literal["OFF", "SHADOW", "ACTIVE"]
+    reason: str | None = None
+
+
+@router.get("/api/lightgbm-decision-mode", dependencies=[Depends(verify_api_key)])
+async def get_lightgbm_decision_mode(
+    db: AsyncSession = Depends(get_db_session),
+):
+    row = (await db.execute(
+        select(RuntimeSettings).where(RuntimeSettings.key == "LIGHTGBM_DECISION_MODE")
+    )).scalar_one_or_none()
+
+    mode = row.value.upper() if (row and row.value) else "SHADOW"
+    if mode not in {"OFF", "SHADOW", "ACTIVE"}:
+        mode = "SHADOW"
+
+    return {
+        "mode": mode,
+        "affects_trading": mode == "ACTIVE",
+        "paper_uses_logreg_only": mode != "ACTIVE",
+        "live_uses_logreg_only": mode != "ACTIVE",
+        "updated_at": row.updated_at.isoformat() if (row and row.updated_at) else None,
+        "updated_by": row.updated_by if row else None,
+    }
+
+
+@router.patch("/api/lightgbm-decision-mode", dependencies=[Depends(verify_api_key)])
+async def set_lightgbm_decision_mode(
+    payload: LightGBMDecisionModeRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    now = datetime.now(timezone.utc)
+
+    row = (await db.execute(
+        select(RuntimeSettings)
+        .where(RuntimeSettings.key == "LIGHTGBM_DECISION_MODE")
+        .with_for_update()
+    )).scalar_one_or_none()
+
+    if row:
+        old_mode = row.value
+        row.value = payload.mode
+        row.updated_at = now
+        row.updated_by = "crypto_dashboard_ui"
+    else:
+        old_mode = "SHADOW"
+        db.add(RuntimeSettings(
+            key="LIGHTGBM_DECISION_MODE",
+            value=payload.mode,
+            updated_at=now,
+            updated_by="crypto_dashboard_ui",
+        ))
+
+    await db.commit()
+
+    logger.warning(
+        "lightgbm_decision_mode_changed",
+        old_mode=old_mode,
+        new_mode=payload.mode,
+        reason=payload.reason,
+    )
+
+    return {
+        "status": "success",
+        "old_mode": old_mode,
+        "mode": payload.mode,
+        "effective_immediately": True,
+    }
+
+
 @router.post("/api/settings", dependencies=[Depends(verify_api_key)])
 async def save_crypto_settings(
     settings: dict, db: AsyncSession = Depends(get_db_session)

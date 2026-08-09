@@ -67,6 +67,7 @@ class TradingConfig:
     max_spread_pct: float = 0.08
     combined_cost_buffer: float = 0.02
     lgbm_unavailable_policy: str = "SKIP"
+    lightgbm_decision_mode: str = "SHADOW"
 
     def get_min_edge(self, is_outsider: bool) -> float:
         """Единый источник правды для минимального Edge."""
@@ -162,4 +163,9 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         max_spread_pct=parse_float_setting(raw, "MAX_SPREAD_PCT", getattr(settings, "MAX_SPREAD_PCT", 0.08)),
         combined_cost_buffer=parse_float_setting(raw, "COMBINED_COST_BUFFER", 0.02),
         lgbm_unavailable_policy=raw.get("COMBINED_LGBM_UNAVAILABLE_POLICY", getattr(settings, "COMBINED_LGBM_UNAVAILABLE_POLICY", "SKIP")).strip().upper(),
+        lightgbm_decision_mode=(
+            raw.get("LIGHTGBM_DECISION_MODE", "SHADOW").strip().upper()
+            if raw.get("LIGHTGBM_DECISION_MODE", "SHADOW").strip().upper() in {"OFF", "SHADOW", "ACTIVE"}
+            else "SHADOW"
+        ),
     )
