@@ -768,6 +768,11 @@
                 const d = await statusRes.json();
                 statusData = d;
                 
+                if (d.active_settings && d.active_settings.enable_ece_correction !== undefined) {
+                    const chk = document.getElementById('p-enable-ece-correction');
+                    if (chk) chk.checked = !!d.active_settings.enable_ece_correction;
+                }
+
                 // Синхронизируем состояние активных обучений
                 localActiveTrainings = d.active_trainings || {};
                 updateTrainButtonsAndBanner(localActiveTrainings);

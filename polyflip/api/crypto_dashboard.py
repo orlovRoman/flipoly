@@ -51,10 +51,16 @@ _active_trainings: dict[str, dict] = {}
 
 
 @router.get("")
-async def crypto_page(request: Request):
+async def crypto_page(request: Request, db: AsyncSession = Depends(get_db_session)):
     """HTML-страница крипто-дашборда."""
     defs = registry_defaults()
     api_key = request.cookies.get("api_key", "")
+
+    row = (await db.execute(
+        select(RuntimeSettings).where(RuntimeSettings.key == "ENABLE_ECE_CORRECTION")
+    )).scalar_one_or_none()
+    enable_ece = row.value.lower() in ("true", "1", "yes") if row else True
+
     return templates.TemplateResponse(
         request=request,
         name="crypto.html",
@@ -77,6 +83,7 @@ async def crypto_page(request: Request):
                 "reg_alpha": float(defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1")),
                 "reg_lambda": float(defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0")),
                 "min_edge": float(defs.get("BACKTEST_MIN_EDGE", "0.04")),
+                "enable_ece_correction": enable_ece,
             },
         },
     )
