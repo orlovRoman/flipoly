@@ -227,3 +227,89 @@ async def test_fak_no_liquidity_is_deterministic_rejection():
 
     with pytest.raises(GatewayOrderRejected, match="NO_LIQUIDITY_FAK"):
         await gateway.submit(order)
+
+@pytest.mark.asyncio
+async def test_gateway_routes_gtc_to_limit_order():
+    gateway = PolymarketExecutionGateway(
+        private_key=KNOWN_PRIVATE_KEY,
+        wallet_address="0xDummyAddress",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address=KNOWN_SIGNER_ADDRESS,
+    )
+    client = AsyncMock()
+    client.place_limit_order.return_value = MagicMock(
+        ok=True,
+        order_id="gtc-order-1",
+        status="LIVE",
+        trade_ids=[],
+    )
+    gateway.get_client = AsyncMock(return_value=client)
+
+    order = GatewayOrder(
+        attempt_id=uuid4(),
+        market_id="market-gtc",
+        asset="BTC",
+        outcome_to_buy="YES",
+        token_id="token-yes",
+        side="BUY",
+        requested_shares=Decimal("10"),
+        max_spend_usdc=Decimal("5"),
+        limit_price=Decimal("0.5"),
+    )
+
+    submission = await gateway.submit(order, order_type="GTC")
+
+    assert submission.accepted is True
+    assert submission.provider_order_id == "gtc-order-1"
+    client.place_limit_order.assert_awaited_once_with(
+        token_id="token-yes",
+        price="0.5",
+        size="10",
+        side="BUY",
+        post_only=False,
+        expiration=None,
+    )
+    client.place_market_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_gateway_routes_gtd_to_limit_order_with_expiration():
+    gateway = PolymarketExecutionGateway(
+        private_key=KNOWN_PRIVATE_KEY,
+        wallet_address="0xDummyAddress",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address=KNOWN_SIGNER_ADDRESS,
+    )
+    client = AsyncMock()
+    client.place_limit_order.return_value = MagicMock(
+        ok=True,
+        order_id="gtd-order-1",
+        status="LIVE",
+        trade_ids=[],
+    )
+    gateway.get_client = AsyncMock(return_value=client)
+
+    order = GatewayOrder(
+        attempt_id=uuid4(),
+        market_id="market-gtd",
+        asset="ETH",
+        outcome_to_buy="NO",
+        token_id="token-no",
+        side="SELL",
+        requested_shares=Decimal("4"),
+        limit_price=Decimal("0.4"),
+    )
+
+    submission = await gateway.submit(order, order_type="GTD")
+
+    assert submission.accepted is True
+    kwargs = client.place_limit_order.await_args.kwargs
+    assert kwargs["token_id"] == "token-no"
+    assert kwargs["price"] == "0.4"
+    assert kwargs["size"] == "4"
+    assert kwargs["side"] == "SELL"
+    assert kwargs["post_only"] is False
+    assert isinstance(kwargs["expiration"], int)
+    assert kwargs["expiration"] > 0
+    client.place_market_order.assert_not_awaited()
+

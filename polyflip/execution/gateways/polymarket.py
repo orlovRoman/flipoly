@@ -139,25 +139,57 @@ class PolymarketExecutionGateway:
             raise GatewayUnavailable("Polymarket client not initialized")
 
         try:
-            if order.side.upper() == "BUY":
-                amount_limit = (
-                    str(order.max_spend_usdc) if order.max_spend_usdc else "0"
-                )
-                resp = await client.place_market_order(
+            normalized_order_type = order_type.upper()
+            side = order.side.upper()
+
+            if normalized_order_type in {"GTC", "GTD", "GTC_TTL"}:
+                if order.requested_shares <= 0:
+                    raise GatewayOrderRejected(
+                        "Limit order requires requested_shares > 0"
+                    )
+
+                # polymarket-client 0.2.0 represents GTC/GTD through
+                # place_limit_order: no expiration means GTC, while a future
+                # expiration means GTD. The external GTC_TTL strategy still
+                # cancels this resting order after LIVE_GTC_TTL_SECONDS.
+                expiration = None
+                if normalized_order_type == "GTD":
+                    # The SDK requires expiration to be at least three minutes
+                    # in the future. Five minutes also leaves clock-skew buffer.
+                    expiration = int(datetime.now(timezone.utc).timestamp()) + 300
+
+                resp = await client.place_limit_order(
                     token_id=order.token_id,
-                    side="BUY",
-                    amount=amount_limit,
-                    max_spend=amount_limit,
-                    max_price=str(order.limit_price),
-                    order_type=order_type,
+                    price=str(order.limit_price),
+                    size=str(order.requested_shares),
+                    side=side,
+                    post_only=False,
+                    expiration=expiration,
                 )
+            elif normalized_order_type in {"FAK", "FOK"}:
+                if side == "BUY":
+                    amount_limit = (
+                        str(order.max_spend_usdc) if order.max_spend_usdc else "0"
+                    )
+                    resp = await client.place_market_order(
+                        token_id=order.token_id,
+                        side="BUY",
+                        amount=amount_limit,
+                        max_spend=amount_limit,
+                        max_price=str(order.limit_price),
+                        order_type=normalized_order_type,
+                    )
+                else:
+                    resp = await client.place_market_order(
+                        token_id=order.token_id,
+                        side="SELL",
+                        shares=str(order.requested_shares),
+                        min_price=str(order.limit_price),
+                        order_type=normalized_order_type,
+                    )
             else:
-                resp = await client.place_market_order(
-                    token_id=order.token_id,
-                    side="SELL",
-                    shares=str(order.requested_shares),
-                    min_price=str(order.limit_price),
-                    order_type=order_type,
+                raise GatewayOrderRejected(
+                    f"Unsupported Polymarket order type: {order_type}"
                 )
 
             if not getattr(resp, "ok", False):
