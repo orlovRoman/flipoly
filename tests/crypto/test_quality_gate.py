@@ -1,55 +1,88 @@
-"""
-tests/crypto/test_quality_gate.py
+"""Behavioral tests for Trainer Quality Gate validation."""
+import pickle
 
-Тесты Quality Gate проверки в trainer.py и ручного обхода (quality_override) в crypto_dashboard.py.
-"""
+import numpy as np
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime, timezone
 
-from polyflip.db.models import ModelRegistry
+from polyflip.constants import MODEL_THRESHOLD_MAX, MODEL_THRESHOLD_MIN
+from polyflip.crypto.trainer import CRYPTO_FEATURES, _evaluate_quality_gate
 
 
-def test_quality_gate_passed_audit_fields():
-    model = ModelRegistry(
-        asset="BTCUSDT_low_vol",
-        version=5,
-        model_type="lgbm",
-        accuracy=0.62,
-        baseline=0.51,
-        ece=0.08,
-        quality_gate_passed=True,
-        quality_gate_reasons={"reasons": [], "auc": 0.62, "ece": 0.08},
-        activation_source="TRAINER",
-        quality_override=False,
-        activated_at=datetime.now(timezone.utc),
-        activated_by="trainer",
-        is_active=True,
+class _SmokeModel:
+    n_features_in_ = len(CRYPTO_FEATURES)
+
+    def __init__(self, probabilities=(0.4, 0.6)):
+        self.probabilities = probabilities
+
+    def predict_proba(self, rows):
+        return np.asarray([self.probabilities] * len(rows), dtype=float)
+
+
+def _evaluate(**overrides):
+    values = {
+        "model_bytes": pickle.dumps(_SmokeModel()),
+        "val_auc": 0.62,
+        "baseline_auc": 0.55,
+        "ece": 0.08,
+        "threshold": 0.55,
+        "threshold_down": 0.53,
+        "active_accuracy": 0.61,
+        "active_version": 4,
+    }
+    values.update(overrides)
+    return _evaluate_quality_gate(**values)
+
+
+def test_valid_model_passes_quality_gate():
+    passed, reasons, threshold_up, threshold_down = _evaluate()
+
+    assert passed is True
+    assert reasons == []
+    assert threshold_up == pytest.approx(0.55)
+    assert threshold_down == pytest.approx(0.53)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"val_auc": 0.50, "baseline_auc": 0.52}, "Negative lift vs baseline"),
+        ({"ece": 0.151}, "Excessive ECE calibration error"),
+        ({"val_auc": 0.58, "active_accuracy": 0.61}, "Accuracy degraded vs active model v4"),
+        ({"val_auc": float("nan")}, "Non-finite quality metrics"),
+    ],
+)
+def test_metric_failures_are_audited(overrides, reason):
+    passed, reasons, _, _ = _evaluate(**overrides)
+
+    assert passed is False
+    assert any(reason in item for item in reasons)
+
+
+def test_both_decision_thresholds_are_validated_and_sanitized():
+    passed, reasons, threshold_up, threshold_down = _evaluate(
+        threshold=MODEL_THRESHOLD_MIN - 0.2,
+        threshold_down=MODEL_THRESHOLD_MAX + 0.2,
     )
-    assert model.quality_gate_passed is True
-    assert model.activation_source == "TRAINER"
-    assert model.quality_override is False
-    assert model.is_active is True
+
+    assert passed is False
+    assert threshold_up == MODEL_THRESHOLD_MIN
+    assert threshold_down == MODEL_THRESHOLD_MAX
+    assert any("UP threshold" in item for item in reasons)
+    assert any("DOWN threshold" in item for item in reasons)
 
 
-def test_quality_gate_failed_audit_fields():
-    model = ModelRegistry(
-        asset="ETHUSDT_high_vol",
-        version=3,
-        model_type="lgbm",
-        accuracy=0.48,
-        baseline=0.52,
-        ece=0.22,
-        quality_gate_passed=False,
-        quality_gate_reasons={"reasons": ["Negative lift vs baseline", "Excessive ECE: 0.22 > 0.15"], "auc": 0.48, "ece": 0.22},
-        activation_source=None,
-        quality_override=False,
-        activated_at=None,
-        activated_by=None,
-        is_active=False,
+@pytest.mark.parametrize(
+    "probabilities",
+    [
+        (float("nan"), 0.5),
+        (-0.1, 1.1),
+        (0.2, 0.2),
+    ],
+)
+def test_smoke_test_rejects_invalid_probabilities(probabilities):
+    passed, reasons, _, _ = _evaluate(
+        model_bytes=pickle.dumps(_SmokeModel(probabilities)),
     )
-    assert model.quality_gate_passed is False
-    assert model.activation_source is None
-    assert model.quality_override is False
-    assert model.is_active is False
-    assert len(model.quality_gate_reasons["reasons"]) == 2
+
+    assert passed is False
+    assert any("invalid predict_proba result" in item for item in reasons)

@@ -933,7 +933,7 @@ async def activate_crypto_model(
     Активирует указанную версию крипто-модели, деактивируя остальные.
 
     Если модель не прошла Quality Gate и force=False → HTTP 409.
-    Если force=True → активация помечается как MANUAL.
+    Если force=True → активация помечается как DASHBOARD.
     """
     allowed_assets = []
     for s in CRYPTO_SYMBOLS:
@@ -953,19 +953,13 @@ async def activate_crypto_model(
 
     # 1.5 Smoke Test: Проверка совместимости формата признаков
     if model.model_blob and model.model_blob not in (b"fake", b"v1", b"v2", b"sol", b"v5"):
-        import pickle
-        import numpy as np
-        from polyflip.crypto.trainer import CRYPTO_FEATURES
-        try:
-            clf = pickle.loads(model.model_blob)
-            if hasattr(clf, "predict_proba"):
-                fv_array = np.zeros(len(CRYPTO_FEATURES), dtype=np.float64)
-                clf.predict_proba([fv_array])
-        except Exception as e:
+        from polyflip.crypto.trainer import CRYPTO_FEATURES, _model_smoke_test
+        smoke_error = _model_smoke_test(model.model_blob)
+        if smoke_error:
             raise HTTPException(
                 status_code=422,
                 detail=f"Smoke Test Failed: Модель несовместима с текущим форматом признаков ({len(CRYPTO_FEATURES)}). "
-                       f"Ошибка инференса: {str(e)}. Необходимо переобучить модель.",
+                       f"Ошибка инференса: {smoke_error}. Необходимо переобучить модель.",
             )
 
     # 2. Quality Gate check — только если поле явно False (None = legacy, не блокируем)
@@ -998,7 +992,7 @@ async def activate_crypto_model(
     # Семантика (баг #4): activation_source показывает КТО активировал,
     # quality_override показывает, был ли обойдён Quality Gate
     now = datetime.now(timezone.utc)
-    is_quality_override = bool(payload.force or model.quality_gate_passed is False)
+    is_quality_override = model.quality_gate_passed is False
 
     await db.execute(
         update(ModelRegistry)

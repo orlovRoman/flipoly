@@ -406,3 +406,43 @@ async def test_crypto_train_allows_retrain_on_success_or_fail():
             assert _active_trainings["TESTUSDT2"]["status"] == "training"
         finally:
             _active_trainings.pop("TESTUSDT2", None)
+
+
+@pytest.mark.asyncio
+async def test_force_on_passed_model_is_not_quality_override(db_session):
+    """force is permission to bypass a failed gate, not an override by itself."""
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from polyflip.api.crypto_dashboard import activate_crypto_model, ActivateModelRequest
+    from polyflip.db.models import ModelRegistry
+
+    model = ModelRegistry(
+        asset="BTCUSDT_mid_vol",
+        version=7,
+        model_blob=b"v1",
+        is_active=False,
+        accuracy=0.61,
+        baseline=0.50,
+        trained_at=datetime.now(timezone.utc),
+        quality_gate_passed=True,
+    )
+    db_session.add(model)
+    await db_session.commit()
+
+    result = await activate_crypto_model(
+        asset="BTCUSDT_mid_vol",
+        version=7,
+        payload=ActivateModelRequest(force=True, reason="operator activation"),
+        db=db_session,
+    )
+
+    row = (await db_session.execute(
+        select(ModelRegistry).where(
+            ModelRegistry.asset == "BTCUSDT_mid_vol",
+            ModelRegistry.version == 7,
+        )
+    )).scalar_one()
+    assert result["quality_override"] is False
+    assert row.quality_override is False
+    assert row.activation_source == "DASHBOARD"
+    assert row.activation_reason == "operator activation"

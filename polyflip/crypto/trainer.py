@@ -68,6 +68,102 @@ assert not _unknown, (
 )
 
 
+QUALITY_GATE_MIN_LIFT = -0.005
+QUALITY_GATE_MAX_ECE = 0.15
+QUALITY_GATE_MAX_ACTIVE_DEGRADATION = 0.02
+
+
+def _model_smoke_test(model_bytes: bytes) -> str | None:
+    """Return an audit-friendly error when a serialized model is unsafe to activate."""
+    try:
+        clf = pickle.loads(model_bytes)
+        expected = len(CRYPTO_FEATURES)
+        actual = getattr(clf, "n_features_in_", None)
+        if actual != expected:
+            return f"ModelCompatibilityError: expected={expected}, actual={actual}"
+
+        predict_proba = getattr(clf, "predict_proba", None)
+        if not callable(predict_proba):
+            return "ModelCompatibilityError: predict_proba is not callable"
+
+        proba = np.asarray(
+            predict_proba(np.zeros((1, expected), dtype=np.float64)),
+            dtype=np.float64,
+        )
+        if (
+            proba.shape != (1, 2)
+            or not np.isfinite(proba).all()
+            or np.any((proba < 0.0) | (proba > 1.0))
+            or not np.allclose(proba.sum(axis=1), 1.0, atol=1e-6)
+        ):
+            return "ModelCompatibilityError: invalid predict_proba result"
+    except Exception as exc:
+        return f"ModelCompatibilityError: failed to load or test model - {exc}"
+    return None
+
+
+def _evaluate_quality_gate(
+    *,
+    model_bytes: bytes,
+    val_auc: float,
+    baseline_auc: float,
+    ece: float,
+    threshold: float,
+    threshold_down: float,
+    active_accuracy: float | None = None,
+    active_version: int | None = None,
+) -> tuple[bool, list[str], float, float]:
+    """Evaluate every activation invariant and return sanitized decision thresholds."""
+    reasons: list[str] = []
+
+    metrics = {"accuracy": val_auc, "baseline": baseline_auc, "ece": ece}
+    invalid_metrics = [name for name, value in metrics.items() if not np.isfinite(value)]
+    if invalid_metrics:
+        reasons.append(f"Non-finite quality metrics: {', '.join(invalid_metrics)}")
+    else:
+        lift = val_auc - baseline_auc
+        if lift < QUALITY_GATE_MIN_LIFT:
+            reasons.append(
+                f"Negative lift vs baseline: {lift:+.4f} "
+                f"(accuracy={val_auc:.4f}, baseline={baseline_auc:.4f})"
+            )
+        if ece > QUALITY_GATE_MAX_ECE:
+            reasons.append(
+                f"Excessive ECE calibration error: {ece:.4f} > {QUALITY_GATE_MAX_ECE:.2f}"
+            )
+
+    if active_accuracy is not None:
+        if not np.isfinite(active_accuracy):
+            reasons.append("Active model accuracy is non-finite")
+        elif np.isfinite(val_auc):
+            acc_diff = val_auc - active_accuracy
+            if acc_diff < -QUALITY_GATE_MAX_ACTIVE_DEGRADATION:
+                reasons.append(
+                    f"Accuracy degraded vs active model v{active_version}: "
+                    f"{acc_diff:+.4f} < -{QUALITY_GATE_MAX_ACTIVE_DEGRADATION:.2f}"
+                )
+
+    sanitized_thresholds: list[float] = []
+    for label, value in (("UP", threshold), ("DOWN", threshold_down)):
+        if not np.isfinite(value):
+            sanitized = (MODEL_THRESHOLD_MIN + MODEL_THRESHOLD_MAX) / 2
+            reasons.append(f"{label} threshold is non-finite, reset to {sanitized:.4f}")
+        else:
+            sanitized = max(MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, value))
+            if sanitized != value:
+                reasons.append(
+                    f"{label} threshold {value:.4f} outside safe bounds "
+                    f"[{MODEL_THRESHOLD_MIN}, {MODEL_THRESHOLD_MAX}], clipped to {sanitized:.4f}"
+                )
+        sanitized_thresholds.append(sanitized)
+
+    smoke_error = _model_smoke_test(model_bytes)
+    if smoke_error:
+        reasons.append(smoke_error)
+
+    return not reasons, reasons, sanitized_thresholds[0], sanitized_thresholds[1]
+
+
 # Epsilon filter removed as per MARKET_WINDOW_V1 spec.
 
 
@@ -461,9 +557,6 @@ class CryptoModelTrainer:
                 regime_asset = f"{symbol}_{regime}"
 
                 # --- Crypto Model Quality Gate Check ---
-                lift = val_auc - baseline_auc
-                max_lift_loss = -0.005
-
                 active_crypto_stmt = (
                     select(ModelRegistry)
                     .where(ModelRegistry.asset == regime_asset, ModelRegistry.is_active == True)
@@ -472,48 +565,16 @@ class CryptoModelTrainer:
                 active_res = await self.db.execute(active_crypto_stmt)
                 active_crypto_model = active_res.scalar_one_or_none()
 
-                passed_quality_gate = True
-                gate_reasons = []
-
-                if lift < max_lift_loss:
-                    passed_quality_gate = False
-                    gate_reasons.append(f"Negative lift vs baseline: {lift:+.4f} (accuracy={val_auc:.4f}, baseline={baseline_auc:.4f})")
-
-                if ece > 0.15:
-                    passed_quality_gate = False
-                    gate_reasons.append(f"Excessive ECE calibration error: {ece:.4f} > 0.15")
-
-                if active_crypto_model is not None and active_crypto_model.accuracy is not None:
-                    acc_diff = val_auc - active_crypto_model.accuracy
-                    if acc_diff < -0.02:
-                        passed_quality_gate = False
-                        gate_reasons.append(f"Accuracy degraded vs active model v{active_crypto_model.version}: {acc_diff:+.4f} < -0.02")
-
-                if threshold < MODEL_THRESHOLD_MIN or threshold > MODEL_THRESHOLD_MAX:
-                    clipped = max(MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, threshold))
-                    passed_quality_gate = False
-                    gate_reasons.append(
-                        f"Threshold {threshold:.4f} outside safe bounds [{MODEL_THRESHOLD_MIN}, {MODEL_THRESHOLD_MAX}], clipped to {clipped:.4f}"
-                    )
-                    threshold = clipped
-
-                # --- Smoke Test: Compatibility Check ---
-                try:
-                    clf = pickle.loads(model_bytes)
-                    expected = len(CRYPTO_FEATURES)
-                    actual = getattr(clf, "n_features_in_", None)
-                    if actual != expected:
-                        passed_quality_gate = False
-                        gate_reasons.append(f"ModelCompatibilityError: expected={expected}, actual={actual}")
-                    else:
-                        test_vector = np.zeros((1, expected), dtype=np.float64)
-                        proba = clf.predict_proba(test_vector)
-                        if proba.shape != (1, 2) or not np.isfinite(proba).all():
-                            passed_quality_gate = False
-                            gate_reasons.append("ModelCompatibilityError: invalid predict_proba result")
-                except Exception as e:
-                    passed_quality_gate = False
-                    gate_reasons.append(f"ModelCompatibilityError: failed to load or test model - {e}")
+                passed_quality_gate, gate_reasons, threshold, threshold_down = _evaluate_quality_gate(
+                    model_bytes=model_bytes,
+                    val_auc=val_auc,
+                    baseline_auc=baseline_auc,
+                    ece=ece,
+                    threshold=threshold,
+                    threshold_down=threshold_down,
+                    active_accuracy=(active_crypto_model.accuracy if active_crypto_model else None),
+                    active_version=(active_crypto_model.version if active_crypto_model else None),
+                )
 
                 should_activate = passed_quality_gate
                 if not passed_quality_gate:
@@ -547,37 +608,6 @@ class CryptoModelTrainer:
                 next_version = (v_res.scalar_one_or_none() or 0) + 1
 
                 if save_settings:
-                    # Сохраняем порог в RuntimeSettings
-                    for thr_suffix, thr_val in [("", threshold), ("_DOWN", threshold_down)]:
-                        thr_key = f"CRYPTO_THRESHOLD{thr_suffix}_{regime_asset}"
-                        thr_row = (await self.db.execute(
-                            select(RuntimeSettings).where(RuntimeSettings.key == thr_key)
-                        )).scalar_one_or_none()
-
-                        threshold_quality = "ok"
-                        if thr_val < 0.40 or thr_val > 0.65:
-                            threshold_quality = "marginal"
-
-                        logger.info(
-                            "threshold_saved",
-                            key=thr_key,
-                            value=round(thr_val, 4),
-                            quality=threshold_quality,
-                        )
-
-                        if should_activate or not thr_row:
-                            if thr_row:
-                                thr_row.value = str(round(thr_val, 4))
-                                thr_row.updated_at = now
-                                thr_row.updated_by = "crypto_train_job"
-                            else:
-                                self.db.add(RuntimeSettings(
-                                    key=thr_key,
-                                    value=str(round(thr_val, 4)),
-                                    updated_at=now,
-                                    updated_by="crypto_train_job",
-                                ))
-
                     # Сохраняем feature importance в RuntimeSettings
                     fi_key = f"CRYPTO_FI_{regime_asset}"
                     fi_row = (await self.db.execute(
@@ -629,7 +659,19 @@ class CryptoModelTrainer:
                     # Quality Gate audit
                     quality_gate_passed=passed_quality_gate,
                     quality_gate_reasons=(
-                        {"reasons": gate_reasons, "auc": val_auc, "ece": ece}
+                        {
+                            "reasons": gate_reasons,
+                            "auc": val_auc if np.isfinite(val_auc) else None,
+                            "baseline": baseline_auc if np.isfinite(baseline_auc) else None,
+                            "lift": (
+                                val_auc - baseline_auc
+                                if np.isfinite(val_auc) and np.isfinite(baseline_auc)
+                                else None
+                            ),
+                            "ece": ece if np.isfinite(ece) else None,
+                            "threshold_up": threshold,
+                            "threshold_down": threshold_down,
+                        }
                         if gate_reasons else None
                     ),
                     # Activation audit: TRAINER если прошла QG и стала активной
