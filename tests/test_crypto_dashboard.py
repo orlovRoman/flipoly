@@ -66,7 +66,7 @@ async def test_crypto_models_analytics_veto_logic(db_session):
     l_inside = DecisionFunnelLog(
         decision_run_id="run1",
         market_id="m1", asset="BTCUSDT_low_vol",
-        execution_mode="PAPER", confirm_passed=False,
+        execution_mode="PAPER", direction_status="OK", confirm_passed=False,
         confirm_model_key="BTCUSDT_low_vol", confirm_model_version=1,
         final_action="SKIP",
         created_at=datetime(2026, 8, 2, 12, 0, 0, tzinfo=timezone.utc)
@@ -75,7 +75,7 @@ async def test_crypto_models_analytics_veto_logic(db_session):
     l_before = DecisionFunnelLog(
         decision_run_id="run2",
         market_id="m2", asset="BTCUSDT_low_vol",
-        execution_mode="PAPER", confirm_passed=False,
+        execution_mode="PAPER", direction_status="OK", confirm_passed=False,
         confirm_model_key="BTCUSDT_low_vol", confirm_model_version=1,
         final_action="SKIP",
         created_at=datetime(2026, 8, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -84,7 +84,7 @@ async def test_crypto_models_analytics_veto_logic(db_session):
     l_after = DecisionFunnelLog(
         decision_run_id="run3",
         market_id="m3", asset="BTCUSDT_low_vol",
-        execution_mode="PAPER", confirm_passed=False,
+        execution_mode="PAPER", direction_status="OK", confirm_passed=False,
         confirm_model_key="BTCUSDT_low_vol", confirm_model_version=1,
         final_action="SKIP",
         created_at=datetime(2026, 8, 3, 12, 0, 0, tzinfo=timezone.utc)

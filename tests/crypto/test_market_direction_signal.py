@@ -62,6 +62,7 @@ async def test_get_or_create_market_direction_signal_creates_new_record():
     market = MagicMock()
     market.market_id = "m200"
     market.asset = "ETH"
+    market.binance_symbol = None
     market.underlying_price = 3500.0
 
     new_sig = CryptoSignal(

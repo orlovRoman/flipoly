@@ -55,7 +55,12 @@ async def get_or_create_market_direction_signal(
     invert_lgbm_signal: bool = False,
 ) -> CryptoSignal:
     market_id = str(market.market_id)
-    symbol = getattr(market, "binance_symbol", None) or f"{market.asset}USDT"
+    configured_symbol = getattr(market, "binance_symbol", None)
+    symbol = (
+        configured_symbol
+        if isinstance(configured_symbol, str) and configured_symbol
+        else f"{market.asset}USDT"
+    )
     stmt = select(MarketDirectionSignal).where(
         MarketDirectionSignal.market_id == market_id
     )
