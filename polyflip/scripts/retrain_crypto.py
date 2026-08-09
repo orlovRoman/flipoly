@@ -13,7 +13,7 @@ logger = logging.getLogger("background_retrain")
 from polyflip.db.connection import async_session
 from polyflip.crypto.trainer import CryptoModelTrainer
 
-SYMBOLS = ["BTC", "ETH", "SOL", "XRP", "DOGE"]
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
 
 async def run_sequential_retrain():
     logger.info("Starting background retraining for symbols: %s", SYMBOLS)
