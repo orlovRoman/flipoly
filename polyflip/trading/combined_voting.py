@@ -143,6 +143,11 @@ class CombinedEntryResult:
     lgbm_p_down_raw: float = 0.0
 
 
+def _normalize_threshold(value: float) -> float:
+    """Нормализует порог: если передан в процентах (> 1.0), делит на 100."""
+    return value / 100.0 if value > 1.0 else value
+
+
 def apply_direction_confidence_discount(
     p_logreg_win: float,
     dir_prob: float,
@@ -656,7 +661,7 @@ def _evaluate_combined_entry_inner(
         )
 
     if is_outsider:
-        flip_thresh_val = cfg.flip_threshold / 100.0 if cfg.flip_threshold > 1.0 else cfg.flip_threshold
+        flip_thresh_val = _normalize_threshold(cfg.flip_threshold)
         if p_flip is not None and p_flip < flip_thresh_val:
             return CombinedEntryResult(
                 action="SKIP",
@@ -694,8 +699,6 @@ def _evaluate_combined_entry_inner(
                 distance_to_strike_pct=dist_pct,
                 p_flip=p_flip,
             )
-
-    # (Перенесено наверх, до шага 4)
 
     # 5. Проверка диапазона цен покупки
     is_valid_price, price_reason = cfg.is_price_valid(candidate_ask, is_outsider)

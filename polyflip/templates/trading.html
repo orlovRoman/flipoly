@@ -479,9 +479,10 @@
                                 </div>
                                 <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">Бот будет анализировать рынки только для выбранных активов.</small>
                             </div>
+                        </div> <!-- /group-global -->
 
-                            <!-- 2-column layout container for modules -->
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 1.5rem; align-items: start;">
+                        <!-- 2-column layout container for modules -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 1.5rem; align-items: start;">
 
                             <!-- 2. ML-модели и Combined-режим -->
                             <div class="settings-section-card group-models">
@@ -769,12 +770,13 @@
                                         <input type="number" step="0.01" min="0.01" max="0.99" id="OUTSIDER_MAX_PRICE" value="0.45">
                                     </div>
                             </div>
-                        </div>
+                        </div> <!-- /outsider block -->
+                        </div> <!-- /group-strategies -->
 
-                        </div> <!-- /2-column grid layout -->
+                        </div> <!-- /2-column layout container -->
 
                     </form>
-                </div>
+                </div> <!-- /stat-card -->
                 
             </section>
         </main>
