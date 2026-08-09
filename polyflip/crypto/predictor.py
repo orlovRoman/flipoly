@@ -133,6 +133,19 @@ class CryptoPredictor:
         cls._instances = alive
         logger.info("predictor_cache_invalidated", symbol=symbol, instances=len(alive))
 
+    @classmethod
+    async def refresh_runtime_params_all(cls, db: AsyncSession, symbol: str) -> None:
+        """
+        Обновляет live-параметры (vol_p33, vol_p67, funding_rate) во всех живых инстансах предиктора.
+        """
+        alive = []
+        for ref in cls._instances:
+            inst = ref()
+            if inst is not None:
+                await inst.refresh_runtime_params(db, symbol)
+                alive.append(ref)
+        cls._instances = alive
+
     def invalidate(self, symbol: str) -> None:
         """Инвалидирует локальный кэш для указанного символа."""
         self._loaded_symbols.discard(symbol)

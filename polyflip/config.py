@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     # Дефолтные настройки, которые могут быть переопределены в БД
     LIVE_POLL_INTERVAL_SECONDS: int = _DEFAULT_POLL_INTERVAL
+    TRADE_JOB_INTERVAL_SECONDS: int = 15
     RETRAIN_INTERVAL_HOURS: int = 24
     MIN_SAMPLES_FOR_MODEL: int = 50
     

@@ -27,7 +27,18 @@ from polyflip.crypto.candle_pruner import prune_old_candles
 from polyflip.crypto.historical_loader import load_history_all
 
 
+from polyflip.crypto.predictor import CryptoPredictor
+from polyflip.constants import COMBINED_BINANCE_SYMBOLS
+
+
 logger = structlog.get_logger(__name__)
+
+async def refresh_predictor_params_job():
+    logger.info("starting_refresh_predictor_params_job")
+    async with async_session() as session:
+        for symbol in COMBINED_BINANCE_SYMBOLS.keys():
+            await CryptoPredictor.refresh_runtime_params_all(session, symbol)
+    logger.info("finished_refresh_predictor_params_job")
 
 async def collector_job():
     logger.info("starting_collector_job")
@@ -439,6 +450,7 @@ async def check_settings_job(scheduler):
 
 async def main():
     poll_interval = settings.LIVE_POLL_INTERVAL_SECONDS
+    trade_interval = getattr(settings, "TRADE_JOB_INTERVAL_SECONDS", 15)
     stoploss_interval = 30
     takeprofit_interval = 30
     try:
@@ -448,6 +460,12 @@ async def main():
             setting = res.scalar_one_or_none()
             if setting:
                 poll_interval = int(setting.value)
+
+            stmt_tr = select(RuntimeSettings).where(RuntimeSettings.key == "TRADE_JOB_INTERVAL_SECONDS")
+            res_tr = await session.execute(stmt_tr)
+            setting_tr = res_tr.scalar_one_or_none()
+            if setting_tr:
+                trade_interval = int(setting_tr.value)
                 
             stmt_sl = select(RuntimeSettings).where(RuntimeSettings.key == "STOP_LOSS_CHECK_SEC")
             res_sl = await session.execute(stmt_sl)
@@ -463,7 +481,7 @@ async def main():
     except Exception as e:
         logger.warning("failed_to_load_initial_intervals", error=str(e))
 
-    logger.info("scheduler_starting", interval=poll_interval, stoploss_interval=stoploss_interval, takeprofit_interval=takeprofit_interval)
+    logger.info("scheduler_starting", poll_interval=poll_interval, trade_interval=trade_interval, stoploss_interval=stoploss_interval, takeprofit_interval=takeprofit_interval)
     
     # Инициализируем общие клиенты для переиспользования соединений
     # Вызов одноразового backfill свечей и обновления ставок финансирования при старте
@@ -582,15 +600,25 @@ async def main():
         misfire_grace_time=3600,
     )
     
-    # Запускаем торговый движок с интервалом poll_interval (15 сек)
+    # Запускаем торговый движок с интервалом trade_interval (15 сек), misfire_grace_time=30
     scheduler.add_job(
         trade_job,
-        trigger=IntervalTrigger(seconds=poll_interval),
+        trigger=IntervalTrigger(seconds=trade_interval),
         id="trade_job",
         replace_existing=True,
         max_instances=1,
-        misfire_grace_time=10,
+        misfire_grace_time=30,
         kwargs={"api_client": api_client}
+    )
+
+    # Обновление live-параметров предиктора (раз в 15 минут)
+    scheduler.add_job(
+        refresh_predictor_params_job,
+        trigger=IntervalTrigger(minutes=15),
+        id="refresh_predictor_params_job",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=120,
     )
     
     # Ежедневный бэкап базы данных (раз в 24 часа)
