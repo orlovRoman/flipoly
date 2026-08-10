@@ -29,16 +29,23 @@ def test_trade_logs_table_header_order():
 
 
 
-def test_direction_badge_does_not_infer_signal_from_bought_outcome():
-    """The direction column must display the frozen signal, never the executed side."""
+def test_direction_badge_uses_api_display_contract():
     js_path = os.path.join(
         os.path.dirname(__file__), "..", "polyflip", "static", "js", "trading.js"
     )
     with open(js_path, encoding="utf-8") as file:
         source = file.read()
 
-    badge_block = source.split('let directionBadge = "-";', 1)[1].split(
-        "const betText", 1
-    )[0]
-    assert 'log.direction_value || "NONE"' in badge_block
-    assert "outcome_bought" not in badge_block
+    assert 'let dirVal = log.direction_display || "NONE";' in source
+    assert 'dirVal = log.outcome_bought' not in source
+
+
+def test_direction_display_distinguishes_none_from_unavailable():
+    from polyflip.ui_helpers import direction_display_value
+
+    assert direction_display_value("UP", "MODEL_NOT_LOADED") == "UP"
+    assert direction_display_value(None, "READY") == "NONE"
+    assert direction_display_value(None, "OK") == "NONE"
+    assert direction_display_value(None, "MODEL_NOT_LOADED") == "UNAVAILABLE"
+    assert direction_display_value(None, "PREDICT_ERROR") == "UNAVAILABLE"
+    assert direction_display_value(None, "READY", "DIRECTION_UNAVAILABLE") == "UNAVAILABLE"

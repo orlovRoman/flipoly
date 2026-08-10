@@ -22,6 +22,7 @@ from polyflip.db.models import (
     RuntimeSettings,
     DecisionFunnelLog,
 )
+from polyflip.ui_helpers import direction_display_value
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
 
@@ -402,6 +403,12 @@ async def get_trade_logs(
                 "reason": funnel.skip_reason,
             }
             
+        item["direction_display"] = direction_display_value(
+            getattr(log, "direction_value", None),
+            getattr(funnel, "direction_status", None) if funnel else None,
+            getattr(funnel, "entry_status", None) if funnel else None,
+        )
+
         items.append(item)
         
     out_data = {

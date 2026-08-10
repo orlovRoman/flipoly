@@ -5,10 +5,16 @@ tests/crypto/test_predictor_canonical_guard.py
   - Игнорирование устаревших моделей без target_source == "POLYMARKET_FINAL_OUTCOME".
   - Использование underlying_price в качестве страйка вместо candles[-1].open.
 """
+import pickle
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from polyflip.crypto.predictor import CryptoPredictor
 from polyflip.db.models import ModelRegistry
+
+
+class _PredictModel:
+    def predict_proba(self, rows):
+        return [[0.4, 0.6] for _ in rows]
 
 
 @pytest.mark.asyncio
@@ -35,7 +41,44 @@ async def test_predictor_ignores_legacy_binance_model():
     assert "low_vol" not in predictor._models.get("BTCUSDT", {})
 
 
+
+
+@pytest.mark.asyncio
+async def test_predictor_loads_thresholds_only_from_model_registry():
+    db = AsyncMock()
+    canonical_model = ModelRegistry(
+        asset="BTCUSDT_low_vol",
+        version=2,
+        model_blob=pickle.dumps(_PredictModel()),
+        accuracy=0.6,
+        is_active=True,
+        decision_threshold=0.61,
+        decision_threshold_down=0.39,
+        training_params={"target_source": "POLYMARKET_FINAL_OUTCOME"},
+    )
+    async def execute(statement):
+        value = MagicMock()
+        value.scalar_one_or_none.return_value = None
+        value.all.return_value = []
+        if "model_registry" in str(statement).lower():
+            value.scalars.return_value.first.return_value = canonical_model
+        else:
+            value.scalars.return_value.first.return_value = None
+        return value
+
+    db.execute.side_effect = execute
+
+
+    predictor = CryptoPredictor()
+    await predictor.load(db, "BTCUSDT")
+
+    assert predictor._thresholds["BTCUSDT"]["low_vol"] == pytest.approx(
+        (0.61, 0.39)
+    )
+
+
 def test_predictor_uses_underlying_price_as_strike():
+
     predictor = CryptoPredictor()
     predictor._loaded_symbols.add("BTCUSDT")
     predictor._vol_p33s["BTCUSDT"] = 0.8

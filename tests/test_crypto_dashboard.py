@@ -245,6 +245,7 @@ async def test_bad_model_with_force_becomes_active(db_session, _bad_model_factor
 
     assert result["status"] == "success"
     assert result["activation_source"] == "DASHBOARD"
+    assert result["quality_override"] is True
     assert result["quality_gate_passed"] is False
     assert "warning" in result
 
@@ -256,6 +257,7 @@ async def test_bad_model_with_force_becomes_active(db_session, _bad_model_factor
     )).scalar_one()
     assert row.is_active is True
     assert row.activation_source == "DASHBOARD"
+    assert row.quality_override is True
     assert row.activated_by == "dashboard"
     assert row.activation_reason == "PAPER тест"
 
