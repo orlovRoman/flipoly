@@ -37,6 +37,29 @@ def _group_timeline(groups: pd.Series, timestamps: pd.Series) -> pd.DataFrame:
     )
 
 
+def _non_overlapping_time_cohorts(timeline: pd.DataFrame) -> list[pd.DataFrame]:
+    """Keep simultaneous or overlapping markets in one indivisible cohort."""
+    if timeline.empty:
+        return []
+
+    cohorts: list[pd.DataFrame] = []
+    cohort_start_index = 0
+    cohort_start = pd.Timestamp(timeline.iloc[0]["min"])
+    cohort_end = pd.Timestamp(timeline.iloc[0]["max"])
+    for index in range(1, len(timeline)):
+        row_start = pd.Timestamp(timeline.iloc[index]["min"])
+        row_end = pd.Timestamp(timeline.iloc[index]["max"])
+        if row_start == cohort_start or row_start < cohort_end:
+            cohort_end = max(cohort_end, row_end)
+            continue
+        cohorts.append(timeline.iloc[cohort_start_index:index].reset_index(drop=True))
+        cohort_start_index = index
+        cohort_start = row_start
+        cohort_end = row_end
+    cohorts.append(timeline.iloc[cohort_start_index:].reset_index(drop=True))
+    return cohorts
+
+
 def grouped_walk_forward_folds(
     groups: pd.Series,
     timestamps: pd.Series,
@@ -49,11 +72,19 @@ def grouped_walk_forward_folds(
     consequently early observations intentionally have no OOF prediction.
     """
     timeline = _group_timeline(groups.reset_index(drop=True), timestamps)
-    if len(timeline) < 3:
+    cohorts = _non_overlapping_time_cohorts(timeline)
+    if len(cohorts) < 3:
         return []
 
-    block_count = min(max(2, n_splits + 1), len(timeline))
-    blocks = [block for block in np.array_split(timeline, block_count) if len(block)]
+    block_count = min(max(2, n_splits + 1), len(cohorts))
+    cohort_blocks = [
+        indexes for indexes in np.array_split(np.arange(len(cohorts)), block_count)
+        if len(indexes)
+    ]
+    blocks = [
+        pd.concat([cohorts[int(index)] for index in indexes], ignore_index=True)
+        for indexes in cohort_blocks
+    ]
     group_values = groups.astype(str).reset_index(drop=True)
     folds: list[TemporalFold] = []
 
@@ -68,13 +99,19 @@ def grouped_walk_forward_folds(
         )
         if set(train_groups) & set(validation_groups):
             raise AssertionError("Market leakage between temporal train and validation")
+        train_end = pd.Timestamp(train_table["max"].max())
+        validation_start = pd.Timestamp(validation_table["min"].min())
+        if train_end > validation_start:
+            raise AssertionError(
+                "Temporal leakage: training markets overlap validation markets"
+            )
         folds.append(TemporalFold(
             train_index=train_index,
             validation_index=validation_index,
             train_groups=train_groups,
             validation_groups=validation_groups,
-            train_end=pd.Timestamp(train_table["max"].max()),
-            validation_start=pd.Timestamp(validation_table["min"].min()),
+            train_end=train_end,
+            validation_start=validation_start,
             validation_end=pd.Timestamp(validation_table["max"].max()),
         ))
     return folds
@@ -88,12 +125,26 @@ def latest_group_holdout(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Split whole markets chronologically, reserving the newest groups."""
     timeline = _group_timeline(groups.reset_index(drop=True), timestamps)
-    if len(timeline) < 2:
-        raise ValueError("At least two markets are required for a temporal holdout")
-    validation_count = max(1, int(np.ceil(len(timeline) * validation_fraction)))
-    validation_count = min(validation_count, len(timeline) - 1)
-    train_groups = set(timeline.iloc[:-validation_count]["group"].astype(str))
-    validation_groups = set(timeline.iloc[-validation_count:]["group"].astype(str))
+    cohorts = _non_overlapping_time_cohorts(timeline)
+    if len(cohorts) < 2:
+        raise ValueError(
+            "At least two non-overlapping market cohorts are required for a temporal holdout"
+        )
+    validation_target = max(1, int(np.ceil(len(timeline) * validation_fraction)))
+    validation_cohorts: list[pd.DataFrame] = []
+    validation_size = 0
+    for cohort in reversed(cohorts[1:]):
+        validation_cohorts.append(cohort)
+        validation_size += len(cohort)
+        if validation_size >= validation_target:
+            break
+    validation_table = pd.concat(validation_cohorts, ignore_index=True)
+    validation_groups = set(validation_table["group"].astype(str))
+    train_groups = set(
+        timeline.loc[
+            ~timeline["group"].isin(validation_groups), "group"
+        ].astype(str)
+    )
     group_values = groups.astype(str).reset_index(drop=True)
     return (
         np.flatnonzero(group_values.isin(train_groups).to_numpy()),

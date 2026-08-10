@@ -97,3 +97,20 @@ def test_velocity_interaction_fills_nan_and_supports_missing_column():
 
     assert with_nan.loc[0, "velocity_x_phase"] == 0.0
     assert without_column.loc[0, "velocity_x_phase"] == 0.0
+
+
+def test_velocity_lag_imputation_uses_only_prior_rows_in_each_market():
+    frame = pd.DataFrame({
+        "market_id": ["a", "a", "a", "b", "b"],
+        "recorded_at": pd.date_range("2026-01-01", periods=5, freq="min", tz="UTC"),
+        "mid_price": [0.5] * 5,
+        "spread": [0.01] * 5,
+        "volume_5min": [1.0] * 5,
+        "price_velocity": [0.1, np.nan, 0.3, 9.0, 8.0],
+    })
+
+    result = add_lag_features(frame)
+
+    assert result["price_velocity_lag1"].tolist() == pytest.approx(
+        [0.0, 0.1, 0.1, 0.0, 9.0]
+    )

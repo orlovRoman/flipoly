@@ -61,12 +61,13 @@ class BacktestRunner:
         if not self.model or not self.features:
             return 0.0
 
-
         prior_ticks = [
             candidate for candidate in replay.ticks
             if candidate.recorded_at < tick.recorded_at
         ]
         history = prior_ticks[-MAX_INFERENCE_HISTORY_SNAPSHOTS:]
+        # Training and live inference use the market-lifetime expanding maximum.
+        # Only lag-frame rows are capped; changing this maximum would create skew.
         observed_prices = [
             candidate.mid_price for candidate in prior_ticks
         ] + [tick.mid_price]
@@ -81,6 +82,7 @@ class BacktestRunner:
             closed_candles=self.closed_candles_by_asset.get(tick.asset),
         )
         return run_model_inference(frame, self.model, self.features)
+
     def _calc_bet_size(self, decision, signal=None) -> float:
         """Скейлинг ставки по edge с учётом ликвидности."""
         if self.bet_sizing_mode != "scaled":

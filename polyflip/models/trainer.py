@@ -343,6 +343,7 @@ def _fit_and_serialize(
     from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
     
     aucs = []
+    calibration_fallback_folds = 0
     oof_scores = np.full(len(y), np.nan, dtype=float)
     for train_index, val_index in validation_splits:
         X_train, X_val = X.iloc[train_index], X.iloc[val_index]
@@ -367,6 +368,7 @@ def _fit_and_serialize(
             len(np.unique(y_train.iloc[base_idx])) < 2
             or len(np.unique(y_train.iloc[calibration_idx])) < 2
         ):
+            calibration_fallback_folds += 1
             tr_weight = sample_weight[train_index] if sample_weight is not None else None
             fold_base.fit(X_train, y_train, model__sample_weight=tr_weight)
             y_proba = fold_base.predict_proba(X_val)[:, 1]
@@ -388,7 +390,15 @@ def _fit_and_serialize(
             y_proba = fold_calib.predict_proba(X_val)[:, 1]
         oof_scores[val_index] = y_proba
         aucs.append(roc_auc_score(y_val, y_proba))
-        
+
+    if calibration_fallback_folds:
+        logger.warning(
+            "calibration_fold_fallback",
+            fallback_folds=calibration_fallback_folds,
+            evaluated_folds=len(aucs),
+            reason="inner split does not contain both target classes",
+        )
+
     val_acc = float(np.mean(aucs)) if aucs else 0.5
     
     # Baseline ROC-AUC/Accuracy (доля мажоритарного класса)

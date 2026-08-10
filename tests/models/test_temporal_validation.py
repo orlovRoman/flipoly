@@ -79,3 +79,57 @@ def test_invalid_timestamp_is_rejected():
     groups = pd.Series(["a", "b", "c"])
     with pytest.raises(ValueError, match="valid timestamps"):
         grouped_walk_forward_folds(groups, pd.Series([None, None, None]))
+
+
+def test_parallel_markets_are_kept_in_the_same_temporal_cohort():
+    base = pd.Timestamp("2026-01-01T12:00:00Z")
+    groups = pd.Series([
+        "parallel-a", "parallel-a", "parallel-b", "parallel-b",
+        "parallel-c", "parallel-c", "later-d", "later-d",
+        "later-e", "later-e", "later-f", "later-f",
+    ])
+    timestamps = pd.Series([
+        base, base + timedelta(minutes=10),
+        base, base + timedelta(minutes=12),
+        base, base + timedelta(minutes=8),
+        base + timedelta(minutes=15), base + timedelta(minutes=25),
+        base + timedelta(minutes=30), base + timedelta(minutes=40),
+        base + timedelta(minutes=45), base + timedelta(minutes=55),
+    ])
+
+    folds = grouped_walk_forward_folds(groups, timestamps, n_splits=4)
+
+    assert folds
+    parallel_groups = {"parallel-a", "parallel-b", "parallel-c"}
+    for fold in folds:
+        assert fold.train_end <= fold.validation_start
+        assert not (
+            parallel_groups & set(fold.train_groups)
+            and parallel_groups & set(fold.validation_groups)
+        )
+
+
+def test_market_balancing_single_market_returns_unit_weights():
+    weights = market_balanced_weights(pd.Series(["only"] * 4))
+
+    assert weights == pytest.approx(np.ones(4))
+
+def test_latest_holdout_keeps_parallel_newest_markets_together():
+    base = pd.Timestamp("2026-01-01T12:00:00Z")
+    groups = pd.Series([
+        "old", "old", "middle", "middle",
+        "parallel-a", "parallel-a", "parallel-b", "parallel-b",
+    ])
+    timestamps = pd.Series([
+        base, base + timedelta(minutes=10),
+        base + timedelta(minutes=15), base + timedelta(minutes=25),
+        base + timedelta(minutes=30), base + timedelta(minutes=40),
+        base + timedelta(minutes=30), base + timedelta(minutes=42),
+    ])
+
+    train, validation = latest_group_holdout(
+        groups, timestamps, validation_fraction=0.2
+    )
+
+    assert set(groups.iloc[validation]) == {"parallel-a", "parallel-b"}
+    assert set(groups.iloc[train]) == {"old", "middle"}

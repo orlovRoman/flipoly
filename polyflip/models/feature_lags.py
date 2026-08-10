@@ -57,9 +57,12 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # ── volume_trend: всплеск объёма ──────────────────────────────────────
     vol_lag = grp["volume_5min"].shift(LAG_3)
-    median_velocity = df["price_velocity_lag1"].median()
-    df["price_velocity_lag1"] = df["price_velocity_lag1"].fillna(
-        0.0 if pd.isna(median_velocity) else float(median_velocity)
+    # Use only observations already seen inside this market. A global median
+    # would let future validation rows influence temporal training features.
+    df["price_velocity_lag1"] = (
+        df.groupby("market_id", sort=False)["price_velocity_lag1"]
+        .ffill()
+        .fillna(0.0)
     )
 
     df["volume_trend"] = df["volume_5min"] / (vol_lag + 1e-8)

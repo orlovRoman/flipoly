@@ -5,6 +5,9 @@ import pytest
 
 from polyflip.models.sequence_features import (
     FEATURE_EXPERIMENT_VARIANTS,
+    MIN_SEQUENCE_HISTORY,
+    SEQUENCE_CANDLE_INTERVAL_MINUTES,
+    SEQUENCE_LOOKBACK_MINUTES,
     SEQUENCE_DIRECTION_FEATURES,
     normalize_experiment_variant,
     SEQUENCE_CANDLE_FEATURES,
@@ -143,3 +146,11 @@ def test_run_length_is_capped_and_resets_after_direction_change():
     assert result.iloc[9]["consecutive_up"] == 8
     assert result.iloc[10]["consecutive_up"] == 0
     assert result.iloc[10]["consecutive_down"] == 1
+
+
+def test_sequence_query_lookback_has_missing_candle_buffer():
+    minimum_history_minutes = (
+        MIN_SEQUENCE_HISTORY * SEQUENCE_CANDLE_INTERVAL_MINUTES
+    )
+
+    assert SEQUENCE_LOOKBACK_MINUTES >= minimum_history_minutes * 2
