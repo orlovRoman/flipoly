@@ -108,9 +108,12 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     # Preserve the exact schema used by legacy LogReg artifacts. These are
     # calculated for compatibility but are not auto-added to new models.
     df["time_phase"] = time_phase
-    df["velocity_x_phase"] = (
-        df.get("price_velocity", 0.0) * (1.0 - time_phase)
+    velocity = (
+        df["price_velocity"].fillna(0.0)
+        if "price_velocity" in df.columns
+        else 0.0
     )
+    df["velocity_x_phase"] = velocity * (1.0 - time_phase)
     df["dev_sq_x_phase"] = df["price_deviation_sq"] * (1.0 - time_phase)
 
     df["is_final_phase"] = (time_phase <= 0.20).astype(float)
@@ -295,6 +298,7 @@ def _fit_and_serialize(
             fold_calib.fit(
                 X_train.iloc[calibration_idx], y_train.iloc[calibration_idx]
             )
+            y_proba = fold_calib.predict_proba(X_val)[:, 1]
         oof_scores[val_index] = y_proba
         aucs.append(roc_auc_score(y_val, y_proba))
         
@@ -817,6 +821,10 @@ class ModelTrainer:
                 "reasons": gate_reasons, "auc": val_acc, "ece": ece,
                 "backtest": backtest,
             },
+            training_params={
+                "quality_gate_mode": "ADVISORY",
+                "backtest_strategy_branch": backtest["strategy_branch"],
+            },
             activation_source="TRAINER",
             quality_override=not passed_quality_gate,
             activated_at=datetime.now(timezone.utc),
@@ -979,6 +987,10 @@ class ModelTrainer:
                     "ece": ece_p, "backtest": backtest_p,
                 },
                 activation_source="TRAINER",
+                training_params={
+                    "quality_gate_mode": "ADVISORY",
+                    "backtest_strategy_branch": backtest_p["strategy_branch"],
+                },
                 quality_override=bool(phase_gate_reasons),
                 activated_at=datetime.now(timezone.utc),
                 activated_by="trainer",

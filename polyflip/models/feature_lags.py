@@ -36,8 +36,8 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         for col in LAG_FEATURE_NAMES:
             df[col] = 0.0
-        return df
         df["price_velocity_lag1"] = 0.0
+        return df
 
     # Сортируем для корректного shift() внутри каждого рынка
     df = df.sort_values(["market_id", "recorded_at"]).reset_index(drop=True)
