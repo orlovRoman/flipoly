@@ -2,9 +2,10 @@
 import pytest
 import pickle
 from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 from httpx import AsyncClient, ASGITransport
 from polyflip.api.main import app
-from polyflip.api.backtest_api import _compute_max_drawdown, _build_result
+from polyflip.api.backtest_api import _compute_max_drawdown, _build_result, _build_slice_breakdowns
 from polyflip.api.backtest_schemas import EquityCurvePoint, BacktestConfig
 
 
@@ -111,3 +112,47 @@ async def test_history_empty():
         resp = await client.get("/api/backtest/history", headers=headers)
         assert resp.status_code == 200
         assert "runs" in resp.json()
+
+
+def test_slice_breakdowns_keep_direction_price_and_phase_separate():
+    def item(direction, price_bucket, phase, pnl, won, price, edge):
+        trade = SimpleNamespace(
+            bet_size=10.0,
+            executed_price=price,
+            decision=SimpleNamespace(edge=edge),
+        )
+        return {
+            "trade": trade,
+            "direction": direction,
+            "price_bucket": price_bucket,
+            "market_phase": phase,
+            "pnl": pnl,
+            "won": won,
+        }
+
+    slices = _build_slice_breakdowns([
+        item("UP", "0.20-0.35", "EARLY_10_15", 4.0, True, 0.30, 0.10),
+        item("DOWN", "0.65-0.80", "FINAL_0_5", -2.0, False, 0.70, 0.05),
+    ])
+
+    by_key = {(row.dimension, row.bucket): row for row in slices}
+    assert by_key[("DIRECTION", "UP")].net_pnl == 4.0
+    assert by_key[("DIRECTION", "DOWN")].net_pnl == -2.0
+    assert by_key[("PRICE", "0.20-0.35")].avg_entry_price == 0.30
+    assert by_key[("PHASE", "FINAL_0_5")].win_rate_pct == 0.0
+
+
+def test_slice_schema_is_optional_for_cached_legacy_results():
+    from polyflip.api.backtest_schemas import BacktestResult
+    from datetime import datetime, timezone
+
+    result = BacktestResult(
+        run_id="legacy", config=BacktestConfig(assets=["BTC"]),
+        started_at=datetime.now(timezone.utc), finished_at=datetime.now(timezone.utc),
+        duration_sec=0, total_markets_loaded=0, tradeable_markets=0,
+        skipped_markets=0, total_trades=0, total_invested=0, net_profit=0,
+        roi_pct=0, win_rate_pct=0, avg_trade_pnl=0, max_drawdown_pct=0,
+        sharpe_ratio=None, profit_factor=0, strategies=[], assets=[],
+        equity_curve=[], top_trades=[], worst_trades=[],
+    )
+    assert result.slices == []

@@ -12,7 +12,7 @@ import time
 import pickle
 import asyncio
 import statistics
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import structlog
@@ -25,15 +25,17 @@ import concurrent.futures
 import functools
 
 from polyflip.db.connection import get_db_session, async_session
-from polyflip.db.models import MarketSnapshot, ModelRegistry
+from polyflip.db.models import CryptoCandle, MarketSnapshot, ModelRegistry
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
+from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
 from polyflip.api.backtest_schemas import (
     BacktestConfig,
     BacktestResult,
     BacktestRunResponse,
     StrategyBreakdown,
     AssetBreakdown,
+    SliceBreakdown,
     EquityCurvePoint,
 )
 from polyflip.backtesting.market_replay import (
@@ -285,25 +287,55 @@ async def _execute_backtest_logic(
     )
     skipped = max(0, (total_markets_in_window or 0) - tradeable)
 
-    model_blob: Optional[bytes] = None
-    features_str: str = ""
-    if config.strategy_mode == "ML":
-        model_stmt = select(ModelRegistry).where(ModelRegistry.is_active == True)
-        if config.model_id:
-            model_stmt = select(ModelRegistry).where(
-                ModelRegistry.id == config.model_id
-            )
-        elif config.assets:
-            model_stmt = model_stmt.where(ModelRegistry.asset == config.assets[0])
+    if len(config.assets) != 1:
+        raise ValueError("LogReg backtest requires exactly one asset per run")
 
-        model_row = (await db.execute(model_stmt)).scalars().first()
-        if model_row:
-            model_blob = model_row.model_blob
-            features_str = model_row.features or ""
+    model_stmt = select(ModelRegistry)
+    if config.model_id:
+        model_stmt = model_stmt.where(ModelRegistry.id == config.model_id)
+    else:
+        model_stmt = model_stmt.where(
+            ModelRegistry.asset == config.assets[0],
+            ModelRegistry.is_active.is_(True),
+            ModelRegistry.model_type == "logreg",
+        )
+    model_row = (await db.execute(model_stmt)).scalars().first()
+    if not model_row:
+        raise ValueError("No LogReg model found for the selected asset")
+    if model_row.model_type != "logreg":
+        raise ValueError("Selected model is not a LogReg model")
+    model_asset = model_row.asset.split("_")[0].upper()
+    if model_asset != config.assets[0].upper():
+        raise ValueError(
+            f"Selected model belongs to {model_row.asset}, not {config.assets[0]}"
+        )
+
+    candle_map: dict[str, list[CryptoCandle]] = {}
+    symbol = ASSET_TO_BINANCE_SYMBOL.get(config.assets[0].upper())
+    if symbol:
+        decision_times = [tick.recorded_at for replay in replays.values() for tick in replay.ticks]
+        candle_stmt = (
+            select(CryptoCandle)
+            .where(
+                CryptoCandle.symbol == symbol,
+                CryptoCandle.interval == "15m",
+                CryptoCandle.is_closed.is_(True),
+                CryptoCandle.close_time >= min(decision_times) - timedelta(days=2),
+                CryptoCandle.close_time <= max(decision_times),
+            )
+            .order_by(CryptoCandle.close_time.asc())
+        )
+        candle_map[config.assets[0].upper()] = (
+            await db.execute(candle_stmt)
+        ).scalars().all()
 
     runner_config = config.to_runner_config()
-    runner = BacktestRunner(runner_config, model_blob, features_str)
-
+    runner = BacktestRunner(
+        runner_config,
+        model_row.model_blob,
+        model_row.features or "",
+        closed_candles_by_asset=candle_map,
+    )
     job.progress = 70
     trades = await _run_cpu_task(runner.run_all, replays, timeout_sec=180)
     job.progress = 90
@@ -320,6 +352,13 @@ async def _execute_backtest_logic(
         skipped,
         trades,
         replays,
+        {
+            "id": model_row.id,
+            "asset": model_row.asset,
+            "version": model_row.version,
+            "feature_set_version": (model_row.training_params or {}).get("feature_set_version"),
+            "validation_scheme": (model_row.training_params or {}).get("validation_scheme"),
+        },
         timeout_sec=180,
     )
     return backtest_result
@@ -356,6 +395,7 @@ async def list_backtest_history():
                 "run_id": run_id,
                 "started_at": res.started_at.isoformat(),
                 "duration_sec": res.duration_sec,
+                "model_metadata": res.model_metadata,
                 "assets": res.config.assets,
                 "strategy_mode": res.config.strategy_mode,
                 "total_trades": res.total_trades,
@@ -380,7 +420,9 @@ async def list_available_models(db: AsyncSession = Depends(get_db_session)):
         ModelRegistry.is_active,
         ModelRegistry.trained_at,
         ModelRegistry.features,
-    ).order_by(ModelRegistry.trained_at.desc())
+        ModelRegistry.training_params,
+        ModelRegistry.model_type,
+    ).where(ModelRegistry.model_type == "logreg").order_by(ModelRegistry.trained_at.desc())
     rows = (await db.execute(stmt)).all()
     return {
         "models": [
@@ -391,6 +433,8 @@ async def list_available_models(db: AsyncSession = Depends(get_db_session)):
                 "is_active": r.is_active,
                 "trained_at": r.trained_at.isoformat() if r.trained_at else None,
                 "features": r.features,
+                "feature_set_version": (r.training_params or {}).get("feature_set_version", "legacy"),
+                "validation_scheme": (r.training_params or {}).get("validation_scheme"),
             }
             for r in rows
         ]
@@ -431,6 +475,60 @@ async def get_dataset_stats(db: AsyncSession = Depends(get_db_session)):
 # ─── Internal: build BacktestResult ──────────────────────────────────────────
 
 
+def _price_bucket(price: float) -> str:
+    if price < 0.20:
+        return "0.01-0.20"
+    if price < 0.35:
+        return "0.20-0.35"
+    if price < 0.50:
+        return "0.35-0.50"
+    if price < 0.65:
+        return "0.50-0.65"
+    if price < 0.80:
+        return "0.65-0.80"
+    return "0.80-0.99"
+
+
+def _market_phase(time_left_min: float) -> str:
+    if time_left_min <= 5.0:
+        return "FINAL_0_5"
+    if time_left_min <= 10.0:
+        return "MIDDLE_5_10"
+    return "EARLY_10_15"
+
+
+def _build_slice_breakdowns(trade_results: list[dict]) -> list[SliceBreakdown]:
+    definitions = {
+        "DIRECTION": lambda item: item["direction"],
+        "PRICE": lambda item: item["price_bucket"],
+        "PHASE": lambda item: item["market_phase"],
+    }
+    result: list[SliceBreakdown] = []
+    for dimension, bucket_fn in definitions.items():
+        grouped: dict[str, list[dict]] = {}
+        for item in trade_results:
+            grouped.setdefault(bucket_fn(item), []).append(item)
+        for bucket, items in sorted(grouped.items()):
+            invested = sum(item["trade"].bet_size for item in items)
+            pnl = sum(item["pnl"] for item in items)
+            edges = [
+                item["trade"].decision.edge for item in items
+                if item["trade"].decision.edge is not None
+            ]
+            result.append(SliceBreakdown(
+                dimension=dimension,
+                bucket=bucket,
+                trades=len(items),
+                net_pnl=round(pnl, 4),
+                roi_pct=round(pnl / invested * 100, 2) if invested else 0.0,
+                win_rate_pct=round(sum(item["won"] for item in items) / len(items) * 100, 2),
+                avg_entry_price=round(statistics.mean(
+                    item["trade"].executed_price for item in items
+                ), 4),
+                avg_edge=round(statistics.mean(edges), 4) if edges else None,
+            ))
+    return result
+
 def _build_result(
     run_id: str,
     config: BacktestConfig,
@@ -441,6 +539,7 @@ def _build_result(
     skipped: int,
     trades,
     replays,
+    model_metadata: dict | None = None,
 ) -> BacktestResult:
     """Собирает BacktestResult из raw trades + replays."""
     duration = (finished_at - started_at).total_seconds()
@@ -452,6 +551,7 @@ def _build_result(
             started_at=started_at,
             finished_at=finished_at,
             duration_sec=duration,
+            model_metadata=model_metadata or {},
             total_markets_loaded=total_loaded,
             tradeable_markets=tradeable,
             skipped_markets=skipped,
@@ -479,7 +579,21 @@ def _build_result(
             continue
         pnl = compute_trade_pnl(t, replay)
         won = pnl > 0
-        trade_results.append({"trade": t, "pnl": pnl, "won": won, "replay": replay})
+        entry_tick = min(
+            replay.ticks,
+            key=lambda tick: abs((tick.recorded_at - t.timestamp).total_seconds()),
+        )
+        direction = "UP" if t.decision.action == "BUY_YES" else "DOWN"
+        trade_results.append({
+            "trade": t,
+            "pnl": pnl,
+            "won": won,
+            "replay": replay,
+            "direction": direction,
+            "price_bucket": _price_bucket(t.executed_price),
+            "market_phase": _market_phase(entry_tick.time_left_min),
+            "entry_tick": entry_tick,
+        })
 
     if not trade_results:
         return BacktestResult(
@@ -488,6 +602,7 @@ def _build_result(
             started_at=started_at,
             finished_at=finished_at,
             duration_sec=duration,
+            model_metadata=model_metadata or {},
             total_markets_loaded=total_loaded,
             tradeable_markets=tradeable,
             skipped_markets=skipped,
@@ -535,6 +650,11 @@ def _build_result(
                 edge=t.decision.edge,
                 bet_size=t.bet_size,
                 executed_price=t.executed_price,
+                direction=tr["direction"],
+                price_bucket=tr["price_bucket"],
+                market_phase=tr["market_phase"],
+                time_left_min=round(tr["entry_tick"].time_left_min, 4),
+                entry_time=t.timestamp,
             )
         )
 
@@ -609,6 +729,7 @@ def _build_result(
         started_at=started_at,
         finished_at=finished_at,
         duration_sec=round(duration, 3),
+        model_metadata=model_metadata or {},
         total_markets_loaded=total_loaded,
         tradeable_markets=tradeable,
         skipped_markets=skipped,
@@ -623,6 +744,7 @@ def _build_result(
         profit_factor=profit_factor,
         strategies=strategies,
         assets=assets_breakdown,
+        slices=_build_slice_breakdowns(trade_results),
         equity_curve=equity_curve,
         top_trades=sorted_desc[:10],
         worst_trades=sorted_asc[:10],

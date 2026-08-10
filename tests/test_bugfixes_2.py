@@ -1,9 +1,20 @@
 import pytest
 from polyflip.trading.trading_config import TradingConfig
 from polyflip.backtesting.runner import BacktestRunner
+import pickle
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+
+class ConstantFlipModel:
+    def predict_proba(self, frame):
+        import numpy as np
+        return np.tile([0.1, 0.9], (len(frame), 1))
 
 @pytest.fixture
 def mock_cfg():
+
+
     return TradingConfig(
         trading_enabled=True, trading_mode="combined",
         favor_min_time_left=60, favor_max_time_left=600,
@@ -44,3 +55,33 @@ def test_bet_size_is_outsider_usage(mock_cfg):
     # We just want to ensure it runs without error.
     assert bet_fav > 0.0
     assert bet_out > 0.0
+
+
+def test_backtest_runner_uses_selected_logreg_model():
+    from polyflip.backtesting.market_replay import MarketReplay
+
+    now = datetime.now(timezone.utc)
+    snapshots = [
+        SimpleNamespace(
+            market_id="m1", asset="BTC", time_left_min=14.0,
+            mid_price=0.70, spread=0.02, volume_5min=100.0,
+            price_velocity=0.01, hour_of_day=now.hour,
+            final_outcome="NO", recorded_at=now,
+        ),
+        SimpleNamespace(
+            market_id="m1", asset="BTC", time_left_min=10.0,
+            mid_price=0.72, spread=0.02, volume_5min=100.0,
+            price_velocity=0.01, hour_of_day=now.hour,
+            final_outcome="NO", recorded_at=now + timedelta(minutes=4),
+        ),
+    ]
+    replay = MarketReplay(snapshots)
+    runner = BacktestRunner(
+        {"STRATEGY_MODE": "OUTSIDER"},
+        pickle.dumps(ConstantFlipModel()),
+        "mid_price",
+    )
+
+    probability = runner._predict_flip(replay.ticks[-1], replay)
+
+    assert probability == pytest.approx(0.9)

@@ -497,7 +497,7 @@
             
             <div class="config-group">
               <label>Активы <span class="tooltip-icon tooltip-icon--left" data-tooltip="Коды токенов для тестирования через запятую. Пример: BTC, ETH, TRUMP." data-pos="down">❓</span></label>
-              <input id="cfg-assets" type="text" value="BTC,ETH">
+              <input id="cfg-assets" type="text" value="BTC">
             </div>
 
             <div class="config-grid">
@@ -530,8 +530,7 @@
             <div class="config-group">
               <label>Режим стратегии <span class="tooltip-icon tooltip-icon--left" data-tooltip="COMBINED — торговля на основе ансамбля моделей. OUTSIDER — только поиск аномалий и флипов." data-pos="down">❓</span></label>
               <select id="cfg-strategy-mode" onchange="onStrategyChange()">
-                <option value="COMBINED">Combined (Фаворит + Аутсайдер)</option>
-                <option value="OUTSIDER">Outsider (Только аутсайдеры)</option>
+                <option value="OUTSIDER">Outsider LogReg</option>
               </select>
             </div>
 
@@ -543,7 +542,7 @@
               </div>
               <div class="config-group">
                 <label>Фаворит (макс. мин) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Макс время для фаворитов.">❓</span></label>
-                <input id="cfg-favor-max-time" type="number" value="60" step="1" min="1">
+                <input id="cfg-favor-max-time" type="number" value="15" step="1" min="1">
               </div>
             </div>
             
@@ -554,7 +553,7 @@
               </div>
               <div class="config-group">
                 <label>Аутсайдер (макс. мин) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Макс время для аутсайдеров.">❓</span></label>
-                <input id="cfg-outs-max-time" type="number" value="60" step="1" min="1">
+                <input id="cfg-outs-max-time" type="number" value="15" step="1" min="1">
               </div>
             </div>
 
@@ -719,6 +718,10 @@
               <div class="value" id="kpi-duration">—</div>
               <div class="label">Время расчета</div>
             </div>
+            <div class="metric-card neutral">
+              <div class="value" id="kpi-model" style="font-size:1rem;">—</div>
+              <div class="label">LogReg model / feature set</div>
+            </div>
           </div>
 
           <!-- Результаты и графики -->
@@ -727,6 +730,7 @@
               <button class="bt-tab active" onclick="switchTab('equity')">📈 Кривая доходности</button>
               <button class="bt-tab" onclick="switchTab('strategies')">🎯 По стратегиям</button>
               <button class="bt-tab" onclick="switchTab('assets')">🏷️ По активам</button>
+              <button class="bt-tab" onclick="switchTab('slices')">Slices: direction / price / phase</button>
               <button class="bt-tab" onclick="switchTab('trades')">📋 Журнал сделок</button>
               <button class="bt-tab" onclick="switchTab('dataset')">🗄️ База данных</button>
             </div>
@@ -762,6 +766,23 @@
             </div>
 
             <!-- Вкладка: Таблица сделок -->
+            <div class="bt-tab-content" id="tab-slices">
+              <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;">
+                <label for="slice-dimension" style="color:var(--text-muted);font-size:.85rem;">Dimension</label>
+                <select id="slice-dimension" onchange="renderSliceBreakdowns()" style="background:rgba(10,14,23,.8);border:1px solid var(--border-color);border-radius:6px;color:var(--text-main);padding:.4rem .65rem;">
+                  <option value="DIRECTION">UP / DOWN</option>
+                  <option value="PRICE">Entry price buckets</option>
+                  <option value="PHASE">Market phase</option>
+                </select>
+              </div>
+              <div style="overflow-x:auto;">
+                <table class="trades-table">
+                  <thead><tr><th>Bucket</th><th>Trades</th><th>Net PnL</th><th>ROI</th><th>Win rate</th><th>Avg price</th><th>Avg edge</th></tr></thead>
+                  <tbody id="slice-tbody"><tr><td colspan="7" class="no-data">Run a backtest to see slices</td></tr></tbody>
+                </table>
+              </div>
+              <div style="margin-top:.8rem;color:var(--text-muted);font-size:.78rem;">Only buckets from the same run and selected model are compared.</div>
+            </div>
             <div class="bt-tab-content" id="tab-trades">
               <div style="display:flex; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap;">
                 <select id="trades-filter-outcome" onchange="renderTradesTable()" style="font-size:0.8rem; padding:0.35rem 0.6rem; background:rgba(10,14,23,0.8); border:1px solid var(--border-color); border-radius:6px; color:var(--text-main);">

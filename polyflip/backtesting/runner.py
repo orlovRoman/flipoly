@@ -3,25 +3,27 @@
 """
 from __future__ import annotations
 import pickle
-import pandas as pd
-from typing import Any
 
 from polyflip.backtesting.market_replay import MarketReplay
 from polyflip.backtesting.simulated_trader import SimulatedTrader
 from polyflip.trading.decision_logic import decide_outsider, TradeDecision
-from polyflip.trading.feature_builder import build_feature_vector, FEATURE_COLUMNS
 from polyflip.trading.trading_config import parse_trading_settings
+from polyflip.trading.ml_inference import (
+    build_inference_dataframe,
+    run_model_inference,
+)
 
 
 SUPPORTED_BACKTEST_MODES = {"OUTSIDER"}
 
 class BacktestRunner:
-    def __init__(self, config: dict, model_blob: bytes, features: str):
+    def __init__(self, config: dict, model_blob: bytes, features: str, closed_candles_by_asset: dict | None = None):
         self.config = config
         self.cfg = parse_trading_settings(config)
         self.model = pickle.loads(model_blob) if model_blob and len(model_blob) > 0 else None
         self.features = [f.strip() for f in features.split(',')] if features else []
         self.trader = SimulatedTrader(slippage_pct=float(config.get("SLIPPAGE_PCT", 0.005)))
+        self.closed_candles_by_asset = closed_candles_by_asset or {}
         
         _tof = config.get("TRADE_ON_FLIP", False)
         self.trade_on_flip = _tof if isinstance(_tof, bool) else str(_tof).lower() == "true"
@@ -41,35 +43,31 @@ class BacktestRunner:
         self.min_edge = float(config.get("MIN_EDGE", -0.05))
         self.max_edge = 0.40
 
-    def _predict_flip(self, signal) -> float:
-        """Получает P(flip) от модели для данного тика (оптимизировано без Pandas)."""
+    def _predict_flip(self, tick, replay: MarketReplay) -> float:
+        override = getattr(self, "p_flips", {}).get((tick.market_id, tick.time_left_min))
+        if override is not None:
+            return float(override)
+        """Run the same feature-building contract used by live LogReg inference."""
         if not self.model or not self.features:
             return 0.0
-            
-        import math
-        
-        price_dev = abs(signal.mid_price - 0.5)
-        row_dict = {
-            "time_left_min": signal.time_left_min,
-            "mid_price": signal.mid_price,
-            "spread": signal.spread,
-            "volume_5min": signal.volume_5min,
-            "price_velocity": signal.price_velocity,
-            "hour_of_day": signal.hour_of_day,
-            "price_deviation": price_dev,
-            "spread_pct": min(signal.spread / (signal.mid_price + 1e-6), 10.0),
-            "log_time_left": math.log1p(signal.time_left_min),
-        }
-        
-        # Проверяем наличие всех фичей
-        missing = [f for f in self.features if f not in row_dict]
-        if missing:
-            return 0.0
-            
-        X = [[row_dict[f] for f in self.features]]
-        proba = self.model.predict_proba(X)[0]
-        return float(proba[1] if len(proba) > 1 else 0.0)
 
+
+        history = [
+            candidate for candidate in replay.ticks
+            if candidate.recorded_at < tick.recorded_at
+        ]
+        observed_prices = [candidate.mid_price for candidate in history] + [tick.mid_price]
+        frame = build_inference_dataframe(
+            market=tick,
+            history_snaps=history,
+            fresh_yes_price=tick.mid_price,
+            fresh_spread=tick.spread,
+            global_max=max(observed_prices),
+            start_time=tick.recorded_at,
+            time_left_sec=tick.time_left_min * 60.0,
+            closed_candles=self.closed_candles_by_asset.get(tick.asset),
+        )
+        return run_model_inference(frame, self.model, self.features)
     def _calc_bet_size(self, decision, signal=None) -> float:
         """Скейлинг ставки по edge с учётом ликвидности."""
         if self.bet_sizing_mode != "scaled":
@@ -91,10 +89,13 @@ class BacktestRunner:
         
         return round(bet, 2)
 
-    def _evaluate_tick(self, tick):
+    def _evaluate_tick(self, tick, replay=None):
+        if replay is None:
+            replay = MarketReplay.__new__(MarketReplay)
+            replay.ticks = [tick]
         signal = tick.to_signal()
         if self.strategy_mode == "OUTSIDER":
-            p_flip = getattr(self, 'p_flips', {}).get((tick.market_id, tick.time_left_min), 0.0)
+            p_flip = self._predict_flip(tick, replay)
             decision = decide_outsider(signal, p_flip, self.cfg, ece=0.0,
                                        time_left_sec=tick.time_left_min * 60.0)
         else:
@@ -122,7 +123,7 @@ class BacktestRunner:
         consecutive_edges = 0
         
         for tick in ticks:
-            decision, p_flip, signal = self._evaluate_tick(tick)
+            decision, p_flip, signal = self._evaluate_tick(tick, replay)
             
             if decision.action == "SKIP":
                 consecutive_edges = 0

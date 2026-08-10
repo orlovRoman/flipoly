@@ -163,6 +163,7 @@ function renderAll(result) {
   renderEquityCurve(result.equity_curve);
   renderStrategyBreakdown(result.strategies);
   renderAssetBreakdown(result.assets);
+  renderSliceBreakdowns();
   renderTradesTable();
 }
 
@@ -177,6 +178,9 @@ function renderKPIs(r) {
   document.getElementById('kpi-pf').textContent      = r.profit_factor >= 999 ? '∞' : r.profit_factor.toFixed(2);
   document.getElementById('kpi-dd').textContent      = r.max_drawdown_pct.toFixed(1) + '%';
   document.getElementById('kpi-duration').textContent = r.duration_sec.toFixed(2) + 's';
+  const meta = r.model_metadata || {};
+  document.getElementById('kpi-model').textContent =
+    meta.id ? `#${meta.id} · ${meta.feature_set_version || 'legacy'}` : '—';
 
   // Цвет PnL и ROI
   setCardColor('kpi-pnl-card', pnlSign);
@@ -333,6 +337,25 @@ function renderAssetBreakdown(assets) {
 }
 
 // ─── TRADES TABLE ────────────────────────────────────────────────────────
+function renderSliceBreakdowns() {
+  const tbody = document.getElementById('slice-tbody');
+  if (!tbody) return;
+  const dimension = document.getElementById('slice-dimension')?.value || 'DIRECTION';
+  const rows = (currentResult?.slices || []).filter(item => item.dimension === dimension);
+  tbody.innerHTML = rows.map(item => {
+    const pnlColor = item.net_pnl >= 0 ? '#00d084' : '#ff4d4d';
+    const edge = item.avg_edge == null ? '-' : `${(item.avg_edge * 100).toFixed(1)}%`;
+    return `<tr>
+      <td><strong>${item.bucket}</strong></td>
+      <td>${item.trades}</td>
+      <td style="color:${pnlColor};font-weight:600;">${item.net_pnl >= 0 ? '+' : ''}$${item.net_pnl.toFixed(2)}</td>
+      <td style="color:${item.roi_pct >= 0 ? '#00d084' : '#ff4d4d'};">${item.roi_pct.toFixed(1)}%</td>
+      <td>${item.win_rate_pct.toFixed(1)}%</td>
+      <td>${item.avg_entry_price.toFixed(3)}</td>
+      <td>${edge}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="no-data">No trades in this dimension</td></tr>';
+}
 function renderTradesTable() {
   if (!allTrades.length) return;
 
@@ -427,7 +450,7 @@ async function loadHistoricRun(runId) {
         } else {
           document.getElementById('cfg-model-id').value   = "";
         }
-        document.getElementById('cfg-strategy-mode').value = cfg.strategy_mode || 'ML';
+        document.getElementById('cfg-strategy-mode').value = 'OUTSIDER';
         document.getElementById('cfg-favor-min-time').value = cfg.favor_min_time_left_min || 1;
         document.getElementById('cfg-favor-max-time').value = cfg.favor_max_time_left_min || 60;
         document.getElementById('cfg-outs-min-time').value = cfg.outs_min_time_left_min || 1;
@@ -514,7 +537,7 @@ async function loadModels() {
     data.models.forEach(m => {
       const opt = document.createElement('option');
       opt.value = m.id;
-      opt.textContent = `${m.asset} v${m.version}${m.is_active ? ' (активная)' : ''}`;
+      opt.textContent = `${m.asset} v${m.version} - ${m.feature_set_version || 'legacy'}${m.is_active ? ' (active)' : ''}`;
       sel.appendChild(opt);
     });
   } catch (e) { /* silent */ }
@@ -523,7 +546,7 @@ async function loadModels() {
 // ─── UI HELPERS ──────────────────────────────────────────────────────────
 function switchTab(name) {
   document.querySelectorAll('.bt-tab').forEach((btn, i) => {
-    const names = ['equity','strategies','assets','trades','dataset'];
+    const names = ['equity','strategies','assets','slices','trades','dataset'];
     btn.classList.toggle('active', names[i] === name);
   });
   document.querySelectorAll('.bt-tab-content').forEach(el => {
@@ -539,11 +562,11 @@ function onStrategyChange() {
 
 
 function resetConfig() {
-  document.getElementById('cfg-assets').value     = 'BTC,ETH';
+  document.getElementById('cfg-assets').value     = 'BTC';
   document.getElementById('cfg-favor-min-time').value = '1';
-  document.getElementById('cfg-favor-max-time').value = '60';
+  document.getElementById('cfg-favor-max-time').value = '15';
   document.getElementById('cfg-outs-min-time').value = '1';
-  document.getElementById('cfg-outs-max-time').value = '60';
+  document.getElementById('cfg-outs-max-time').value = '15';
   document.getElementById('cfg-strategy-mode').value = 'ML';
   document.getElementById('cfg-no-flip').value    = '35';
   document.getElementById('cfg-flip').value       = '60';
@@ -568,20 +591,12 @@ function resetConfig() {
 async function applyLiveSettings() {
   try {
     const s = await API.getLiveSettings();
-    document.getElementById('cfg-assets').value     = s.TRADE_ASSETS || 'BTC,ETH';
+    document.getElementById('cfg-assets').value     = (s.TRADE_ASSETS || 'BTC').split(',')[0].trim();
     document.getElementById('cfg-favor-min-time').value = s.FAVOR_MIN_TIME_LEFT_SEC != null ? (parseInt(s.FAVOR_MIN_TIME_LEFT_SEC) / 60).toFixed(1) : '1';
     document.getElementById('cfg-favor-max-time').value = s.FAVOR_MAX_TIME_LEFT_SEC != null ? (parseInt(s.FAVOR_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
     document.getElementById('cfg-outs-min-time').value = s.OUTS_MIN_TIME_LEFT_SEC != null ? (parseInt(s.OUTS_MIN_TIME_LEFT_SEC) / 60).toFixed(1) : '1';
     document.getElementById('cfg-outs-max-time').value = s.OUTS_MAX_TIME_LEFT_SEC != null ? (parseInt(s.OUTS_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
-    const modeMap = {
-      ml: 'COMBINED',
-      favorite: 'COMBINED',
-      lightgbm: 'COMBINED',
-      combined: 'COMBINED',
-      outsider: 'OUTSIDER',
-      CRYPTO: 'COMBINED' // @deprecated: legacy value, remove after 2026-08-01
-    };
-    document.getElementById('cfg-strategy-mode').value = modeMap[s.TRADING_MODE] ?? 'COMBINED';
+    document.getElementById('cfg-strategy-mode').value = 'OUTSIDER';
       const parseThresh = (val) => {
         let f = parseFloat(val);
         if (isNaN(f)) return null;

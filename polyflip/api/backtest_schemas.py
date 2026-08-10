@@ -137,6 +137,16 @@ class AssetBreakdown(BaseModel):
     win_rate_pct: float
 
 
+class SliceBreakdown(BaseModel):
+    dimension: Literal["DIRECTION", "PRICE", "PHASE"]
+    bucket: str
+    trades: int
+    net_pnl: float
+    roi_pct: float
+    win_rate_pct: float
+    avg_entry_price: float
+    avg_edge: Optional[float]
+
 class EquityCurvePoint(BaseModel):
     trade_index: int
     cumulative_pnl: float
@@ -149,6 +159,11 @@ class EquityCurvePoint(BaseModel):
     edge: Optional[float]
     bet_size: float
     executed_price: float
+    direction: Optional[str] = None
+    price_bucket: Optional[str] = None
+    market_phase: Optional[str] = None
+    time_left_min: Optional[float] = None
+    entry_time: Optional[datetime] = None
 
 
 class BacktestResult(BaseModel):
@@ -158,6 +173,7 @@ class BacktestResult(BaseModel):
     started_at: datetime
     finished_at: datetime
     duration_sec: float
+    model_metadata: dict = Field(default_factory=dict)
 
     # Датасет
     total_markets_loaded: int
@@ -178,6 +194,7 @@ class BacktestResult(BaseModel):
     # Детализация
     strategies: list[StrategyBreakdown]
     assets: list[AssetBreakdown]
+    slices: list[SliceBreakdown] = Field(default_factory=list)
     equity_curve: list[EquityCurvePoint]  # для графика
 
     # Топ-10 лучших и худших сделок
