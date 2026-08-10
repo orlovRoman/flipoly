@@ -151,26 +151,26 @@ def _compute_backtest_pnl(
     fee_per_trade: float = 0.02,
     stake: float = 1.0,
 ) -> dict:
-    signals = oof_scores >= threshold
-    if signals.sum() == 0:
+    outsider_signals = oof_scores >= threshold
+    if outsider_signals.sum() == 0:
         return {
             "total_pnl": 0.0,
             "n_trades": 0,
             "win_rate": 0.0,
             "avg_trade_pnl": 0.0,
-            "sharpe": None,
+            "sharpe": None, "strategy_branch": "OUTSIDER_ONLY",
         }
     
     # flip_vs_final=True means the current favourite loses: buy the outsider.
-    prices = np.minimum(mid_prices.values[signals], 1.0 - mid_prices.values[signals])
-    targets = y.values[signals]
+    prices = np.minimum(mid_prices.values[outsider_signals], 1.0 - mid_prices.values[outsider_signals])
+    targets = y.values[outsider_signals]
     trade_pnl = np.where(
         targets == 1,
         (1.0 - prices) * stake - fee_per_trade,
         -prices * stake - fee_per_trade,
     )
     total_pnl = float(trade_pnl.sum())
-    n_trades = int(signals.sum())
+    n_trades = int(outsider_signals.sum())
     win_rate = float((trade_pnl > 0).mean())
     avg_pnl = float(trade_pnl.mean())
     if n_trades > 1 and trade_pnl.std() > 1e-9:
@@ -183,6 +183,7 @@ def _compute_backtest_pnl(
         "win_rate": round(win_rate, 4),
         "avg_trade_pnl": round(avg_pnl, 4),
         "sharpe": round(sharpe, 4) if sharpe else None,
+        "strategy_branch": "OUTSIDER_ONLY",
     }
 
 
@@ -629,11 +630,11 @@ class ModelTrainer:
                 max_suspicious=max_suspicious,
                 fee_per_trade=fee_per_trade,
             )
-        model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest = fit_res
         if fit_res is None:
             logger.error("model_fit_failed", asset=asset)
             self.status_messages[asset] = "Training failed: no valid OOF predictions"
             return False
+        model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest = fit_res
 
         logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc, ece=ece)
 

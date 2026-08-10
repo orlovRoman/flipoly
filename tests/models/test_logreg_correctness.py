@@ -1,8 +1,9 @@
+import inspect
 import numpy as np
 import pandas as pd
 import pytest
 
-from polyflip.models.trainer import _compute_backtest_pnl, add_derived_features
+from polyflip.models.trainer import ModelTrainer, _compute_backtest_pnl, add_derived_features
 from polyflip.trading.feature_builder import MarketSignal, build_feature_vector, FEATURE_COLUMNS
 
 
@@ -16,6 +17,7 @@ def test_flip_backtest_prices_yes_and_no_outsiders_symmetrically():
     )
 
     assert result["total_pnl"] == pytest.approx(0.56)
+    assert result["strategy_branch"] == "OUTSIDER_ONLY"
 
 
 def test_default_market_duration_is_fifteen_minutes():
@@ -52,3 +54,13 @@ def test_legacy_derived_features_are_reconstructed_not_zeroed():
 
 def test_legacy_features_are_not_permitted_zero_defaults():
     from polyflip.constants import ZERO_DEFAULT_FEATURES
+
+
+def test_none_fit_result_is_checked_before_unpacking():
+    source = inspect.getsource(ModelTrainer.train_model.__wrapped__)
+    check_position = source.index("if fit_res is None:")
+    unpack_position = source.index(
+        "model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest = fit_res"
+    )
+
+    assert check_position < unpack_position
