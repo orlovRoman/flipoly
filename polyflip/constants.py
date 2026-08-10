@@ -23,6 +23,14 @@ ASSET_TO_BINANCE_SYMBOL = {
 COMBINED_BINANCE_SYMBOLS = ASSET_TO_BINANCE_SYMBOL
 COMBINED_MODE_SUPPORTED_ASSETS = frozenset({"BTC", "ETH", "DOGE", "XRP", "SOL"})
 
+
+def resolve_binance_symbol(asset: object) -> str | None:
+    """Accept a base asset, Binance symbol, or model key and return SYMBOLUSDT."""
+    token = str(asset or "").strip().upper().split("_", 1)[0]
+    if token in ASSET_TO_BINANCE_SYMBOL.values():
+        return token
+    return ASSET_TO_BINANCE_SYMBOL.get(token)
+
 # --- Price-Phase Split Boundaries ---
 PRICE_PHASE_BOUNDARIES: dict[str, tuple[float, float]] = {
     "contested": (0.00, 0.10),  # mid_price 0.40–0.60: рынок не решён

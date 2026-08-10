@@ -15,3 +15,12 @@ def test_phase_symmetry():
     assert get_price_phase(0.30) == get_price_phase(0.70)
     assert get_price_phase(0.20) == get_price_phase(0.80)
     assert get_price_phase(0.10) == get_price_phase(0.90)
+
+
+def test_resolve_binance_symbol_accepts_base_canonical_and_model_keys():
+    from polyflip.constants import resolve_binance_symbol
+
+    assert resolve_binance_symbol("BTC") == "BTCUSDT"
+    assert resolve_binance_symbol("btcusdt") == "BTCUSDT"
+    assert resolve_binance_symbol("BTCUSDT_low_vol") == "BTCUSDT"
+    assert resolve_binance_symbol("UNKNOWN") is None

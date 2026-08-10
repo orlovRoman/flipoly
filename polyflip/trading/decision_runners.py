@@ -59,10 +59,10 @@ async def infer_flip_for_market(
         if s.recorded_at >= cutoff_time
     ] + [fresh_price]
     global_max = max(filtered_prices) if filtered_prices else fresh_price
-    from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
+    from polyflip.constants import resolve_binance_symbol
 
     closed_candles = []
-    candle_symbol = ASSET_TO_BINANCE_SYMBOL.get(str(market.asset).upper())
+    candle_symbol = resolve_binance_symbol(market.asset)
     if candle_symbol:
         recent_candles = await get_recent_candles(
             db_session, candle_symbol, "15m", limit=32
@@ -304,40 +304,37 @@ async def decide_combined_mode(
     entry_features = []
     entry_source = "NONE"
     fallback_reason = None
+    p_flip: Optional[float] = None
 
+    candidate_specs: list[tuple[str, str]] = []
+    fallback_notes: list[str] = []
     if models_cache and models_cache.models:
         if phase_asset in models_cache.models:
-            entry_model = models_cache.models[phase_asset]
-            entry_model_key = phase_asset
-            entry_model_ver = models_cache.versions.get(phase_asset)
-            entry_features = models_cache.features.get(phase_asset, [])
-            entry_source = "PHASE"
+            candidate_specs.append((phase_asset, "PHASE"))
+        elif execution_mode == "PAPER":
+            fallback_notes.append(f"Phase model {phase_asset} not found")
         else:
-            if execution_mode == "PAPER":
-                if asset_upper in models_cache.models:
-                    entry_model = models_cache.models[asset_upper]
-                    entry_model_key = asset_upper
-                    entry_model_ver = models_cache.versions.get(asset_upper)
-                    entry_features = models_cache.features.get(asset_upper, [])
-                    entry_source = "BASE"
-                    fallback_reason = f"Phase model {phase_asset} not found, fell back to base {asset_upper}"
-                elif "GLOBAL" in models_cache.models:
-                    entry_model = models_cache.models["GLOBAL"]
-                    entry_model_key = "GLOBAL"
-                    entry_model_ver = models_cache.versions.get("GLOBAL")
-                    entry_features = models_cache.features.get("GLOBAL", [])
-                    entry_source = "GLOBAL"
-                    fallback_reason = f"Base model {asset_upper} not found, fell back to GLOBAL"
-                else:
-                    fallback_reason = "No active model matches phase, base asset, or GLOBAL"
-            else:
-                fallback_reason = f"Phase model {phase_asset} not found, and fallback is forbidden in {execution_mode}"
+            fallback_reason = (
+                f"Phase model {phase_asset} not found, and fallback is "
+                f"forbidden in {execution_mode}"
+            )
+
+        if execution_mode == "PAPER":
+            if asset_upper in models_cache.models and asset_upper != phase_asset:
+                candidate_specs.append((asset_upper, "BASE"))
+            elif asset_upper not in models_cache.models:
+                fallback_notes.append(f"Base model {asset_upper} not found")
+            if "GLOBAL" in models_cache.models:
+                candidate_specs.append(("GLOBAL", "GLOBAL"))
     else:
         fallback_reason = "ModelsCache is empty"
 
-    # 4. Вычисляем p_flip через Entry Model (если доступна)
-    p_flip: Optional[float] = None
-    if entry_model is not None:
+    for candidate_key, candidate_source in candidate_specs:
+        entry_model = models_cache.models[candidate_key]
+        entry_model_key = candidate_key
+        entry_model_ver = models_cache.versions.get(candidate_key)
+        entry_features = models_cache.features.get(candidate_key, [])
+        entry_source = candidate_source
         try:
             p_flip = await infer_flip_for_market(
                 db_session=db_session,
@@ -350,10 +347,34 @@ async def decide_combined_mode(
                 time_left_sec=time_left_sec,
                 max_time_left=max(cfg.favor_max_time_left, cfg.outs_max_time_left),
             )
-        except Exception as e:
-            logger.error("combined_mode_infer_flip_error", asset=asset_upper, error=str(e))
+            if candidate_source != "PHASE":
+                fallback_notes.append(
+                    f"fell back to {candidate_source.lower()} {candidate_key}"
+                )
+                fallback_reason = "; ".join(fallback_notes)
+            break
+        except Exception as exc:
+            logger.error(
+                "combined_mode_infer_flip_error",
+                asset=asset_upper,
+                model_key=candidate_key,
+                model_source=candidate_source,
+                error=str(exc),
+            )
             p_flip = None
-            fallback_reason = f"Infer flip exception: {e}"
+            fallback_notes.append(
+                f"{candidate_source} model {candidate_key} inference failed: {exc}"
+            )
+            if execution_mode != "PAPER":
+                break
+    else:
+        if fallback_notes:
+            fallback_reason = "; ".join(fallback_notes)
+        elif fallback_reason is None:
+            fallback_reason = "No active model matches phase, base asset, or GLOBAL"
+
+    if p_flip is None and fallback_notes:
+        fallback_reason = "; ".join(fallback_notes)
 
     # 5. Оценка входа через evaluate_combined_entry
     comb_cost_buffer = cfg.combined_cost_buffer

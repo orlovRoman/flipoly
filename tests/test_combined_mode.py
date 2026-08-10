@@ -2,10 +2,16 @@ import pytest
 import math
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from polyflip.trading.combined_voting import evaluate_combined_entry, CombinedEntryResult
 from polyflip.crypto.predictor import CryptoSignal
-from polyflip.trading.decision_runners import decide_combined_mode, DecisionResult
+from polyflip.trading.decision_runners import (
+    decide_combined_mode,
+    infer_flip_for_market,
+    DecisionResult,
+)
 from polyflip.trading.trading_config import parse_trading_settings
 
 def _make_cfg(**overrides):
@@ -147,3 +153,132 @@ def test_evaluate_combined_entry_low_direction_prob_skips_before_consensus():
     assert res.action == 'SKIP'
     assert res.direction_status == 'LOW_DIRECTION_PROB'
     assert 'Direction prob' in res.reason and '< min' in res.reason
+
+@pytest.mark.asyncio
+async def test_infer_flip_loads_candles_for_canonical_binance_asset():
+    db_session = AsyncMock()
+    snapshots_result = MagicMock()
+    snapshots_result.scalars.return_value.all.return_value = []
+    db_session.execute = AsyncMock(return_value=snapshots_result)
+    start_time = datetime.now(timezone.utc)
+    candle = SimpleNamespace(
+        close_time=start_time - timedelta(minutes=15),
+        is_closed=True,
+    )
+    market = SimpleNamespace(
+        market_id="m-canonical",
+        asset="BTCUSDT",
+        price_velocity=0.0,
+        volume_5min=0.0,
+    )
+
+    with patch(
+        "polyflip.trading.decision_runners.get_recent_candles",
+        AsyncMock(return_value=[candle]),
+    ) as get_candles, patch(
+        "polyflip.trading.decision_runners.build_inference_dataframe",
+        return_value=MagicMock(),
+    ) as build_frame, patch(
+        "polyflip.trading.decision_runners.run_model_inference",
+        return_value=0.42,
+    ):
+        result = await infer_flip_for_market(
+            db_session=db_session,
+            market=market,
+            model=MagicMock(),
+            active_features=["mid_price"],
+            fresh_price=0.55,
+            fresh_spread=0.01,
+            start_time=start_time,
+            time_left_sec=300.0,
+            max_time_left=900.0,
+        )
+
+    assert result == 0.42
+    get_candles.assert_awaited_once_with(db_session, "BTCUSDT", "15m", limit=32)
+    assert build_frame.call_args.kwargs["closed_candles"] == [candle]
+
+
+@pytest.mark.asyncio
+async def test_paper_falls_back_to_base_when_phase_inference_has_no_sequence_data():
+    db_session = AsyncMock()
+    api_client = AsyncMock()
+    api_client.get_market_prices.return_value = {
+        "current_yes_price": "0.60",
+        "best_ask": "0.62",
+        "current_spread": "0.02",
+    }
+    market = SimpleNamespace(
+        market_id="m-fallback",
+        asset="BTC",
+        yes_token_id="yes",
+        no_token_id=None,
+        current_spread=0.02,
+        volume_5min=500.0,
+        underlying_price=65000.0,
+    )
+    cfg = parse_trading_settings({
+        "LIGHTGBM_DECISION_MODE": "ACTIVE",
+        "COMBINED_COST_BUFFER": "0.03",
+    })
+    phase_model = MagicMock(name="phase_model")
+    base_model = MagicMock(name="base_model")
+    models_cache = SimpleNamespace(
+        models={"BTC_leaning": phase_model, "BTC": base_model},
+        versions={"BTC_leaning": 4, "BTC": 3},
+        features={
+            "BTC_leaning": ["direction_lag_1"],
+            "BTC": ["mid_price"],
+        },
+        eces={"BTC_leaning": 0.0, "BTC": 0.0},
+    )
+    crypto_sig = CryptoSignal(
+        symbol="BTCUSDT",
+        model_key="BTCUSDT_mid_vol",
+        p_up=0.85,
+        p_down=0.15,
+        direction="UP",
+        signal_strength=0.7,
+        strike=65000.0,
+        threshold_up=0.55,
+        threshold_down=0.45,
+        model_version=10,
+        features_ok=True,
+        risk_vetoed=False,
+        regime="MID_VOL",
+        status="OK",
+    )
+    inference = AsyncMock(side_effect=[
+        ValueError("MODEL_FEATURE_DATA_UNAVAILABLE: non-finite sequence"),
+        0.15,
+    ])
+
+    with patch(
+        "polyflip.trading.decision_runners._fetch_lgbm_signal",
+        AsyncMock(return_value=crypto_sig),
+    ), patch(
+        "polyflip.trading.decision_runners.infer_flip_for_market",
+        inference,
+    ), patch(
+        "polyflip.trading.decision_runners.log_funnel",
+        AsyncMock(),
+    ) as log_funnel:
+        result = await decide_combined_mode(
+            db_session=db_session,
+            api_client=api_client,
+            market=market,
+            cfg=cfg,
+            raw_settings={},
+            models_cache=models_cache,
+            crypto_predictor=MagicMock(),
+            start_time=datetime.now(timezone.utc),
+            time_left_sec=300.0,
+            execution_mode="PAPER",
+        )
+
+    assert inference.await_count == 2
+    assert result.used_model_key == "BTC"
+    funnel = log_funnel.call_args.kwargs
+    assert funnel["entry_model_source"] == "BASE"
+    assert "PHASE model BTC_leaning inference failed" in funnel["fallback_reason"]
+    assert "fell back to base BTC" in funnel["fallback_reason"]
