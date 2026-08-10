@@ -35,3 +35,20 @@ def test_derived_features_use_fifteen_minute_fallback():
     }))
 
     assert result.loc[0, "is_final_phase"] == 1.0
+
+
+def test_legacy_derived_features_are_reconstructed_not_zeroed():
+    result = add_derived_features(pd.DataFrame({
+        "mid_price": [0.8], "spread": [0.01], "time_left_min": [3.0],
+        "price_velocity": [0.02], "market_duration_min": [15.0],
+    }))
+
+    assert result.loc[0, "deviation_x_time"] == pytest.approx(0.9)
+    assert result.loc[0, "price_deviation_sq"] == pytest.approx(0.09)
+    assert result.loc[0, "time_phase"] == pytest.approx(0.2, abs=1e-6)
+    assert result.loc[0, "velocity_x_phase"] == pytest.approx(0.016, abs=1e-6)
+    assert result.loc[0, "dev_sq_x_phase"] == pytest.approx(0.072, abs=1e-6)
+
+
+def test_legacy_features_are_not_permitted_zero_defaults():
+    from polyflip.constants import ZERO_DEFAULT_FEATURES

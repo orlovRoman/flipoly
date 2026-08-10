@@ -59,6 +59,8 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     df["price_deviation"]     = (df["mid_price"] - 0.5).abs()
     df["spread_pct"]          = (df["spread"] / (df["mid_price"] + 1e-6)).clip(upper=10.0)
     df["log_time_left"]       = np.log1p(df["time_left_min"])
+    df["deviation_x_time"] = df["price_deviation"] * df["time_left_min"]
+    df["price_deviation_sq"] = df["price_deviation"] ** 2
 
     if "day_of_week" not in df.columns:
         if "recorded_at" in df.columns:
@@ -103,6 +105,14 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         time_phase = 1.0
 
     # --- Interaction Features ---
+    # Preserve the exact schema used by legacy LogReg artifacts. These are
+    # calculated for compatibility but are not auto-added to new models.
+    df["time_phase"] = time_phase
+    df["velocity_x_phase"] = (
+        df.get("price_velocity", 0.0) * (1.0 - time_phase)
+    )
+    df["dev_sq_x_phase"] = df["price_deviation_sq"] * (1.0 - time_phase)
+
     df["is_final_phase"] = (time_phase <= 0.20).astype(float)
     df["high_price_final"] = df["price_deviation"] * (1.0 - time_phase)
 

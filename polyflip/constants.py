@@ -35,12 +35,6 @@ PRICE_PHASE_BOUNDARIES: dict[str, tuple[float, float]] = {
 ZERO_DEFAULT_FEATURES: frozenset[str] = frozenset({
     "volume_5min",
     "price_velocity",
-    "deviation_x_time",
-    "price_deviation_sq",
-    "velocity_x_phase",
-    "dev_sq_x_phase",
-    "price_velocity_lag1",
-    "time_phase",
 })
 
 
