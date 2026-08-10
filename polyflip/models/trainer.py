@@ -96,9 +96,9 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
             )
             time_phase = (df["time_left_min"] / (denominator + 1e-6)).clip(0, 1)
         else:
-            time_phase = (df["time_left_min"] / 60.0).clip(0, 1)
+            time_phase = (df["time_left_min"] / 15.0).clip(0, 1)
     elif "time_left_min" in df.columns:
-        time_phase = (df["time_left_min"] / 60.0).clip(0, 1)
+        time_phase = (df["time_left_min"] / 15.0).clip(0, 1)
     else:
         time_phase = 1.0
 
@@ -151,7 +151,8 @@ def _compute_backtest_pnl(
             "sharpe": None,
         }
     
-    prices = mid_prices.values[signals]
+    # flip_vs_final=True means the current favourite loses: buy the outsider.
+    prices = np.minimum(mid_prices.values[signals], 1.0 - mid_prices.values[signals])
     targets = y.values[signals]
     trade_pnl = np.where(
         targets == 1,
@@ -243,7 +244,7 @@ def _fit_and_serialize(
     from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
     
     aucs = []
-    oof_scores = np.zeros(len(y))
+    oof_scores = np.full(len(y), np.nan, dtype=float)
     for train_index, val_index in gkf.split(X, y, groups=groups):
         X_train, X_val = X.iloc[train_index], X.iloc[val_index]
         y_train, y_val = y.iloc[train_index], y.iloc[val_index]
@@ -270,12 +271,23 @@ def _fit_and_serialize(
     val_acc = float(np.mean(aucs)) if aucs else 0.5
     
     # Baseline ROC-AUC/Accuracy (доля мажоритарного класса)
-    baseline_acc = float(max(y.mean(), 1.0 - y.mean()))
+    valid_oof_mask = np.isfinite(oof_scores)
+    if not valid_oof_mask.any():
+        return None
+    valid_y = y.to_numpy()[valid_oof_mask]
+    valid_scores = oof_scores[valid_oof_mask]
+
+    baseline_acc = 0.5
     
     # ECE Diagnostic по откалиброванным предсказаниям
-    from sklearn.calibration import calibration_curve
-    frac_pos, mean_pred = calibration_curve(y, oof_scores, n_bins=10, strategy="uniform")
-    ece = float(np.mean(np.abs(frac_pos - mean_pred)))
+    bin_ids = np.minimum((valid_scores * 10).astype(int), 9)
+    ece = 0.0
+    for bin_id in range(10):
+        in_bin = bin_ids == bin_id
+        if in_bin.any():
+            ece += float(in_bin.mean()) * abs(
+                float(valid_y[in_bin].mean()) - float(valid_scores[in_bin].mean())
+            )
     logger.info("calibration_check", ece=round(ece, 4))
     
     # Обучаем финальную модель на всех данных (с holdout для честной калибровки)
@@ -332,7 +344,7 @@ def _fit_and_serialize(
         )
     
     # Калибровка порога с использованием Out-Of-Fold предсказаний (исключаем Data Leakage)
-    precision_arr, recall_arr, thresholds_pr = precision_recall_curve(y, oof_scores)
+    precision_arr, recall_arr, thresholds_pr = precision_recall_curve(valid_y, valid_scores)
 
     # Найти порог с лучшим F1 среди тех где precision >= min_precision
     valid_mask = precision_arr[:-1] >= min_precision
@@ -376,9 +388,9 @@ def _fit_and_serialize(
     model_bytes = pickle.dumps(final_model)
     
     backtest = _compute_backtest_pnl(
-        oof_scores=oof_scores,
-        y=y,
-        mid_prices=mid_prices,
+        oof_scores=valid_scores,
+        y=pd.Series(valid_y),
+        mid_prices=pd.Series(mid_prices.to_numpy()[valid_oof_mask]),
         threshold=optimal_threshold,
         fee_per_trade=fee_per_trade,
     )
@@ -562,10 +574,15 @@ class ModelTrainer:
         groups = df["market_id"]
 
         import hashlib
-        max_rec_str = str(df["recorded_at"].max()) if "recorded_at" in df.columns else "unknown"
-        time_min_str = f"{df['time_left_min'].min():.1f}-{df['time_left_min'].max():.1f}" if "time_left_min" in df.columns else "unknown"
+        fingerprint_rows = pd.util.hash_pandas_object(
+            df[["market_id", "time_left_min", "mid_price", "target"]],
+            index=False,
+        ).values.tobytes()
+        fingerprint_meta = (
+            f"{asset}|n={len(df)}|features={','.join(active_features)}"
+        ).encode()
         dataset_fingerprint = hashlib.md5(
-            f"{asset}|n={len(df)}|max_rec={max_rec_str}|features={','.join(sorted(active_features))}|time_range={time_min_str}".encode()
+            fingerprint_meta + fingerprint_rows
         ).hexdigest()
 
         lr_coef_threshold = await get_float(self.db, "LR_COEF_THRESHOLD")
@@ -603,6 +620,10 @@ class ModelTrainer:
                 fee_per_trade=fee_per_trade,
             )
         model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest = fit_res
+        if fit_res is None:
+            logger.error("model_fit_failed", asset=asset)
+            self.status_messages[asset] = "Training failed: no valid OOF predictions"
+            return False
 
         logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc, ece=ece)
 
@@ -649,12 +670,10 @@ class ModelTrainer:
                 )
 
         if optimal_threshold < MODEL_THRESHOLD_MIN or optimal_threshold > MODEL_THRESHOLD_MAX:
-            clipped = max(MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, optimal_threshold))
             passed_quality_gate = False
             gate_reasons.append(
-                f"Threshold {optimal_threshold:.4f} outside safe bounds [{MODEL_THRESHOLD_MIN}, {MODEL_THRESHOLD_MAX}], clipped to {clipped:.4f}"
+                f"Threshold {optimal_threshold:.4f} outside advisory bounds [{MODEL_THRESHOLD_MIN}, {MODEL_THRESHOLD_MAX}]"
             )
-            optimal_threshold = clipped
 
         # Новая проверка: backtested PnL
         MIN_BACKTEST_TRADES = await get_int(self.db, "BACKTEST_MIN_TRADES")
@@ -675,7 +694,8 @@ class ModelTrainer:
                 min_required=MIN_BACKTEST_TRADES,
             )
 
-        should_activate = passed_quality_gate
+        # LogReg quality metrics are advisory; only technical failures block use.
+        should_activate = True
         if not passed_quality_gate:
             logger.warning(
                 "model_quality_gate_failed",
@@ -684,7 +704,7 @@ class ModelTrainer:
                 val_auc=val_acc,
                 baseline_auc=baseline_acc,
                 ece=ece,
-                action="Model saved as is_active=False. Retaining current active model."
+                action="Diagnostic warning only. Model remains eligible for PAPER activation."
             )
         else:
             logger.info("model_quality_gate_passed", asset=asset, val_auc=val_acc, baseline_auc=baseline_acc)
@@ -714,10 +734,9 @@ class ModelTrainer:
                 min_auc_required=min_auc,
             )
             self.status_messages[asset] = (
-                f"Пропущено: AUC {val_acc:.3f} < min_auc {min_auc:.2f} — "
-                f"модель не задеплоена, используется предыдущая версия"
+                f"Предупреждение: AUC {val_acc:.3f} < min_auc {min_auc:.2f}; "
+                f"LogReg активирована для непрерывной PAPER-оценки"
             )
-            return False
 
         # Если модель прошла проверку, деактивируем старые записи
         if should_activate:
@@ -762,6 +781,16 @@ class ModelTrainer:
             features=",".join(active_features),
             ece=ece,
             is_active=should_activate,
+            decision_threshold=optimal_threshold,
+            quality_gate_passed=passed_quality_gate,
+            quality_gate_reasons={
+                "reasons": gate_reasons, "auc": val_acc, "ece": ece,
+                "backtest": backtest,
+            },
+            activation_source="TRAINER",
+            quality_override=not passed_quality_gate,
+            activated_at=datetime.now(timezone.utc),
+            activated_by="trainer",
             interval="15m",
             dataset_fingerprint=dataset_fingerprint,
             trained_at=datetime.now(timezone.utc),
@@ -869,11 +898,19 @@ class ModelTrainer:
 
             model_bytes_p, val_acc_p, baseline_acc_p, threshold_p, ece_p, backtest_p = fit_res_phase
 
+            phase_gate_reasons = []
             if val_acc_p < min_auc:
-                logger.warning("price_phase_auc_too_low", asset=asset, phase=phase_name,
-                               val_auc=round(val_acc_p, 4), min_auc=min_auc)
-                phase_results[phase_name] = f"auc_too_low ({val_acc_p:.3f})"
-                continue
+                phase_gate_reasons.append(f"AUC {val_acc_p:.4f} below {min_auc:.4f}")
+            if ece_p > 0.15:
+                phase_gate_reasons.append(f"ECE {ece_p:.4f} above 0.15")
+            if threshold_p < MODEL_THRESHOLD_MIN or threshold_p > MODEL_THRESHOLD_MAX:
+                phase_gate_reasons.append(
+                    f"Threshold {threshold_p:.4f} outside advisory bounds"
+                )
+            if backtest_p["n_trades"] >= MIN_BACKTEST_TRADES and backtest_p["total_pnl"] < MIN_BACKTEST_PNL:
+                phase_gate_reasons.append(
+                    f"Backtest PnL {backtest_p['total_pnl']:.4f} below {MIN_BACKTEST_PNL:.4f}"
+                )
 
             # Деактивируем старые
             await self.db.execute(
@@ -905,10 +942,23 @@ class ModelTrainer:
                 ece=ece_p, is_active=True, interval="15m",
                 trained_at=datetime.now(timezone.utc),
                 backtest_pnl=backtest_p["total_pnl"],
+                decision_threshold=threshold_p,
+                quality_gate_passed=not phase_gate_reasons,
+                quality_gate_reasons={
+                    "reasons": phase_gate_reasons, "auc": val_acc_p,
+                    "ece": ece_p, "backtest": backtest_p,
+                },
+                activation_source="TRAINER",
+                quality_override=bool(phase_gate_reasons),
+                activated_at=datetime.now(timezone.utc),
+                activated_by="trainer",
                 backtest_trades=backtest_p["n_trades"],
                 backtest_wr=backtest_p["win_rate"],
             ))
-            phase_results[phase_name] = f"ok (AUC {val_acc_p:.3f}, n={n_phase})"
+            phase_state = "warning" if phase_gate_reasons else "ok"
+            phase_results[phase_name] = (
+                f"{phase_state} (AUC {val_acc_p:.3f}, n={n_phase})"
+            )
 
         await self.db.commit()
         logger.info("price_phase_models_complete", asset=asset, results=phase_results)

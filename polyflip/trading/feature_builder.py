@@ -45,7 +45,7 @@ class MarketSignal:
     hour_of_day: int          # час дня в UTC (0–23); намеренно UTC — зафиксировано как стандарт.
                               # Переход на ET (UTC-5/UTC-4) отложен до v2.x: потребует переобучения моделей.
     time_left_min: float      # минут до закрытия рынка
-    market_duration_min: float = 60.0  # полная длительность рынка в минутах (default 60.0)
+    market_duration_min: float = 15.0  # canonical duration of the supported market
 
     yes_bid: float | None = None
     yes_ask: float | None = None
@@ -87,7 +87,7 @@ def build_feature_vector(
     from polyflip.models.trainer import add_derived_features
     from polyflip.models.feature_lags import add_lag_features
 
-    current_duration = getattr(signal, "market_duration_min", 60.0) or 60.0
+    current_duration = getattr(signal, "market_duration_min", 15.0) or 15.0
 
     current_row = {
         "market_id": signal.asset,
@@ -143,5 +143,5 @@ def signal_from_snapshot_row(row) -> MarketSignal:
         price_velocity=float(row.price_velocity) if row.price_velocity else 0.0,
         hour_of_day=int(row.hour_of_day) if row.hour_of_day is not None else 0,
         time_left_min=float(row.time_left_min) if row.time_left_min else 0.0,
-        market_duration_min=float(getattr(row, "market_duration_min", 60.0) or 60.0),
+        market_duration_min=float(getattr(row, "market_duration_min", 15.0) or 15.0),
     )
