@@ -58,3 +58,40 @@ def test_target_is_forward_looking_not_current():
     assert result.train_auc < 0.60, (
         f"AUC={result.train_auc:.3f} на рандомных данных — возможен data leakage!"
     )
+
+
+def test_backtest_derives_target_from_next_return():
+    from polyflip.crypto.backtester import _prepare_backtest_frame
+
+    frame = pd.DataFrame(
+        {
+            "open_time": pd.date_range("2025-01-01", periods=4, freq="15min"),
+            "ret_1": [0.5, -0.2, 0.3, -0.4],
+        }
+    )
+    prepared = _prepare_backtest_frame(frame, "binance")
+
+    assert prepared["target"].iloc[:3].tolist() == [0.0, 1.0, 0.0]
+    assert pd.isna(prepared["target"].iloc[-1])
+
+
+def test_backtest_raw_candles_use_next_candle_outcome():
+    from polyflip.crypto.backtester import _prepare_backtest_frame
+
+    frame = pd.DataFrame(
+        {
+            "open": [100.0, 100.0, 100.0],
+            "close": [200.0, 90.0, 110.0],
+        }
+    )
+    prepared = _prepare_backtest_frame(frame, "binance")
+
+    assert prepared["target"].iloc[:2].tolist() == [0.0, 1.0]
+    assert pd.isna(prepared["target"].iloc[-1])
+
+
+def test_polymarket_backtest_rejects_missing_canonical_target():
+    from polyflip.crypto.backtester import _prepare_backtest_frame
+
+    with pytest.raises(ValueError, match="canonical final_outcome target"):
+        _prepare_backtest_frame(pd.DataFrame({"ret_1": [0.1, -0.1]}), "polymarket")

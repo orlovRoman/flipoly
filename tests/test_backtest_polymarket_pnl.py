@@ -50,6 +50,8 @@ def _make_minimal_features(n: int = 600) -> pd.DataFrame:
             df[col] = np.random.randint(0, 5, n).astype(float)
         else:
             df[col] = np.random.randn(n) * 0.01
+    future_return = df["ret_1"].shift(-1)
+    df["target"] = (future_return > 0.0).astype(float).where(future_return.notna())
     return df
 
 

@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import asyncio
 import functools
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
@@ -12,11 +12,12 @@ from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score, precision_recall_curve
+from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score, precision_recall_curve
 
-from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
+from polyflip.db.models import CryptoCandle, MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.config import settings
 from polyflip.constants import (
+    ASSET_TO_BINANCE_SYMBOL,
     CV_N_SPLITS,
     CV_RANDOM_STATE,
     MODEL_THRESHOLD_MIN,
@@ -42,6 +43,21 @@ async def _get_training_semaphore(db: AsyncSession) -> asyncio.Semaphore:
     return _TRAINING_SEMAPHORE
 
 from polyflip.models.feature_lags import add_lag_features, LAG_FEATURE_NAMES
+from polyflip.models.sequence_features import (
+    FEATURE_EXPERIMENT_LABELS,
+    FEATURE_EXPERIMENT_VARIANTS,
+    SEQUENCE_DIRECTION_FEATURES,
+    SEQUENCE_CANDLE_FEATURES,
+    normalize_experiment_variant,
+    SEQUENCE_FEATURE_SET_VERSION,
+    attach_closed_candle_features,
+    sequence_history_ready,
+)
+from polyflip.models.temporal_validation import (
+    grouped_walk_forward_folds,
+    latest_group_holdout,
+    market_balanced_weights,
+)
 
 DERIVED_FEATURES = [
     "price_deviation",
@@ -190,6 +206,57 @@ def _compute_backtest_pnl(
     }
 
 
+def _group_holdout_indices(
+    X: pd.DataFrame,
+    y: pd.Series,
+    groups: pd.Series,
+    timestamps: pd.Series | None,
+    *,
+    validation_fraction: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    if timestamps is not None:
+        return latest_group_holdout(
+            groups, timestamps, validation_fraction=validation_fraction
+        )
+    splitter = GroupShuffleSplit(
+        n_splits=1,
+        test_size=validation_fraction,
+        random_state=CV_RANDOM_STATE,
+    )
+    return next(splitter.split(X, y, groups=groups))
+
+
+def _outer_validation_splits(
+    X: pd.DataFrame,
+    y: pd.Series,
+    groups: pd.Series,
+    timestamps: pd.Series | None,
+) -> tuple[list[tuple[np.ndarray, np.ndarray]], list[dict]]:
+    if timestamps is None:
+        n_splits = min(CV_N_SPLITS, int(groups.nunique()))
+        if n_splits < 2:
+            return [], []
+        splitter = GroupKFold(n_splits=n_splits)
+        return list(splitter.split(X, y, groups=groups)), []
+
+    folds = grouped_walk_forward_folds(
+        groups, timestamps, n_splits=CV_N_SPLITS
+    )
+    metadata = [
+        {
+            "train_markets": len(fold.train_groups),
+            "validation_markets": len(fold.validation_groups),
+            "train_end": fold.train_end.isoformat(),
+            "validation_start": fold.validation_start.isoformat(),
+            "validation_end": fold.validation_end.isoformat(),
+        }
+        for fold in folds
+    ]
+    return [
+        (fold.train_index, fold.validation_index) for fold in folds
+    ], metadata
+
+
 def _fit_and_serialize(
     X: pd.DataFrame,
     y: pd.Series,
@@ -199,10 +266,19 @@ def _fit_and_serialize(
     lr_coef_threshold: float = 0.005,
     lr_min_features: int = 4,
     min_precision: float = 0.52,
+    timestamps: pd.Series | None = None,
     max_suspicious: float = 0.95,
     fee_per_trade: float = 0.02,
 ):
     """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
+    X = X.reset_index(drop=True)
+    y = y.reset_index(drop=True)
+    groups = groups.reset_index(drop=True)
+    mid_prices = mid_prices.reset_index(drop=True)
+    if timestamps is not None:
+        timestamps = pd.Series(timestamps).reset_index(drop=True)
+    sample_weight = market_balanced_weights(groups, sample_weight)
+
     if sample_weight is not None:
         logger.info(
             "sample_weights_distribution",
@@ -220,10 +296,12 @@ def _fit_and_serialize(
     # --- Grid search по C (оптимизировано: 1 сплит GroupShuffleSplit) ---
     C_GRID = [0.1, 0.5, 1.0, 5.0]
     c_results = {}
-    gss_search = GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=CV_RANDOM_STATE)
 
     try:
-        tr_idx, vl_idx = next(gss_search.split(X, y, groups=groups))
+        tr_idx, vl_idx = _group_holdout_indices(
+            X, y, groups, timestamps,
+            validation_fraction=0.25,
+        )
         if len(np.unique(y.iloc[tr_idx])) >= 2 and len(np.unique(y.iloc[vl_idx])) >= 2:
             m_weight_tr = sample_weight[tr_idx] if sample_weight is not None else None
             for c_val in C_GRID:
@@ -245,7 +323,9 @@ def _fit_and_serialize(
     logger.info("c_grid_search_results", c_grid=c_results, best_C=best_C)
 
     # 3. Обучаем модель с кросс-валидацией
-    gkf = GroupKFold(n_splits=CV_N_SPLITS)
+    validation_splits, validation_fold_metadata = _outer_validation_splits(
+        X, y, groups, timestamps
+    )
     base_model = Pipeline([
         ("scaler", StandardScaler()),
         ("model", LogisticRegression(
@@ -259,7 +339,7 @@ def _fit_and_serialize(
     
     aucs = []
     oof_scores = np.full(len(y), np.nan, dtype=float)
-    for train_index, val_index in gkf.split(X, y, groups=groups):
+    for train_index, val_index in validation_splits:
         X_train, X_val = X.iloc[train_index], X.iloc[val_index]
         y_train, y_val = y.iloc[train_index], y.iloc[val_index]
         
@@ -269,11 +349,13 @@ def _fit_and_serialize(
         # Split the outer training markets again: the calibrator must never see
         # rows used to fit the base estimator.
         inner_groups = groups.iloc[train_index].reset_index(drop=True)
-        inner_split = GroupShuffleSplit(
-            n_splits=1, test_size=0.2, random_state=CV_RANDOM_STATE
+        inner_timestamps = (
+            timestamps.iloc[train_index].reset_index(drop=True)
+            if timestamps is not None else None
         )
-        base_idx, calibration_idx = next(
-            inner_split.split(X_train, y_train, groups=inner_groups)
+        base_idx, calibration_idx = _group_holdout_indices(
+            X_train, y_train, inner_groups, inner_timestamps,
+            validation_fraction=0.2,
         )
         fold_base = clone(base_model)
         if (
@@ -326,8 +408,10 @@ def _fit_and_serialize(
     
     # Обучаем финальную модель на всех данных (с holdout для честной калибровки)
     # Чтобы исключить Group Leakage (BUG-05), разбиваем выборку по группам (market_id)
-    gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
-    train_idx, cal_idx = next(gss.split(X, y, groups=groups))
+    train_idx, cal_idx = _group_holdout_indices(
+        X, y, groups, timestamps,
+        validation_fraction=0.2,
+    )
     X_train_cal, X_cal = X.iloc[train_idx], X.iloc[cal_idx]
     y_train_cal, y_cal = y.iloc[train_idx], y.iloc[cal_idx]
     
@@ -428,6 +512,21 @@ def _fit_and_serialize(
         threshold=optimal_threshold,
         fee_per_trade=fee_per_trade,
     )
+    backtest.update({
+        "validation_scheme": (
+            "GROUPED_WALK_FORWARD" if timestamps is not None else "GROUP_K_FOLD"
+        ),
+        "validation_folds": validation_fold_metadata,
+        "oot_samples": int(valid_oof_mask.sum()),
+        "oot_markets": int(pd.Series(
+            groups.to_numpy()[valid_oof_mask]
+        ).nunique()),
+        "brier_score": round(float(brier_score_loss(valid_y, valid_scores)), 6),
+        "log_loss": round(float(log_loss(valid_y, valid_scores, labels=[0, 1])), 6),
+        "model_config": {"penalty": "l2", "solver": "lbfgs", "C": best_C},
+        "c_search_auc": {str(key): value for key, value in c_results.items()},
+        "market_balanced_weights": True,
+    })
 
     logger.info(
         "backtest_pnl_result",
@@ -462,7 +561,9 @@ class ModelTrainer:
         self.status_messages = {}
 
     @serialize_training
-    async def train_model(self, asset: str, save_settings: bool = True) -> bool:
+    async def train_model(
+        self, asset: str, save_settings: bool = True, feature_set: str = "AUTO"
+    ) -> bool:
         """
         Обучает модель LogisticRegression для заданного актива на основе 
         исторических (разрезолвленных) данных и сохраняет в БД.
@@ -470,6 +571,7 @@ class ModelTrainer:
         logger.info("starting_training", asset=asset)
         
         # Получаем активные фичи из RuntimeSettings
+        experiment_variant = normalize_experiment_variant(feature_set)
         settings_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "ACTIVE_FEATURES")
         settings_result = await self.db.execute(settings_stmt)
         active_features_setting = settings_result.scalar_one_or_none()
@@ -481,6 +583,11 @@ class ModelTrainer:
             
         active_features = [f.strip() for f in active_features if f.strip()]
         
+        if experiment_variant in FEATURE_EXPERIMENT_VARIANTS:
+            active_features = [
+                feature for feature in active_features
+                if feature not in SEQUENCE_CANDLE_FEATURES
+            ]
         if not active_features:
             logger.error("no_active_features_selected", asset=asset)
             self.status_messages[asset] = "Ошибка: не выбраны активные признаки"
@@ -520,7 +627,20 @@ class ModelTrainer:
 
         # 2. Формируем DataFrame
         data = []
+        target_mismatches = 0
         for s in snapshots:
+            if s.recorded_at is None:
+                target_mismatches += 1
+                continue
+            expected_flip = (
+                False
+                if float(s.mid_price) == 0.5
+                else ((float(s.mid_price) > 0.5) != (s.final_outcome == "YES"))
+            )
+            if bool(s.flip_vs_final) != expected_flip:
+                target_mismatches += 1
+                continue
+
             data.append({
                 "market_id": s.market_id,
                 "recorded_at": s.recorded_at,
@@ -536,6 +656,72 @@ class ModelTrainer:
             
         df = pd.DataFrame(data)
         
+        if target_mismatches:
+            logger.warning(
+                "training_rows_rejected_by_target_contract",
+                asset=asset,
+                rejected=target_mismatches,
+                target_source="POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+            )
+        df = (
+            df.drop_duplicates(["market_id", "recorded_at"], keep="last")
+            .sort_values(["market_id", "recorded_at"])
+            .reset_index(drop=True)
+        )
+        if df.empty:
+            self.status_messages[asset] = "Training failed: no target-consistent rows"
+            return False
+
+        sequence_coverage = 0.0
+        sequence_enabled = False
+        sequence_symbol = ASSET_TO_BINANCE_SYMBOL.get(asset.split("_")[0])
+        if sequence_symbol:
+            candle_start = pd.Timestamp(df["recorded_at"].min()).to_pydatetime() - timedelta(days=2)
+            candle_end = pd.Timestamp(df["recorded_at"].max()).to_pydatetime()
+            candle_stmt = (
+                select(CryptoCandle)
+                .where(
+                    CryptoCandle.symbol == sequence_symbol,
+                    CryptoCandle.interval == "15m",
+                    CryptoCandle.is_closed.is_(True),
+                    CryptoCandle.close_time.is_not(None),
+                    CryptoCandle.close_time >= candle_start,
+                    CryptoCandle.close_time <= candle_end,
+                )
+                .order_by(CryptoCandle.close_time.asc())
+            )
+            candle_rows = (await self.db.execute(candle_stmt)).scalars().all()
+            df = attach_closed_candle_features(df, candle_rows)
+            ready_mask = sequence_history_ready(df)
+            sequence_coverage = float(ready_mask.mean()) if len(df) else 0.0
+            sequence_enabled = sequence_coverage >= 0.80
+            if sequence_enabled:
+                df = df.loc[ready_mask].reset_index(drop=True)
+            logger.info(
+                "closed_candle_sequence_coverage",
+                asset=asset,
+                symbol=sequence_symbol,
+                candles=len(candle_rows),
+                coverage=round(sequence_coverage, 4),
+                enabled=sequence_enabled,
+                feature_set=SEQUENCE_FEATURE_SET_VERSION,
+            )
+
+        requested_sequence = set(active_features) & set(SEQUENCE_CANDLE_FEATURES)
+        if requested_sequence and not sequence_enabled:
+            self.status_messages[asset] = (
+                "Training failed: closed-candle sequence history coverage "
+                f"{sequence_coverage:.1%} is below 80%"
+            )
+            return False
+
+        if len(df) < settings.MIN_SAMPLES_FOR_MODEL:
+            self.status_messages[asset] = (
+                f"Training failed: {len(df)} valid rows remain after data contracts"
+            )
+            return False
+
+
         if not df.empty:
             logger.info("time_left_distribution", 
                 asset=asset,
@@ -552,16 +738,24 @@ class ModelTrainer:
         # Добавляем инженерные признаки
         df = add_derived_features(df)
         df = add_lag_features(df)
+        df["_decision_at"] = pd.to_datetime(df["recorded_at"], utc=True)
         df.drop(columns=["recorded_at"], errors="ignore", inplace=True)
 
         # Автоматически расширяем active_features производными признаками,
         # если их базовые источники (mid_price, spread, time_left_min) присутствуют
         base_for_derived = {"mid_price", "spread", "time_left_min"}
         if base_for_derived.issubset(set(active_features)):
-            for feat in DERIVED_FEATURES:
+            generated_features = list(DERIVED_FEATURES)
+            if experiment_variant in FEATURE_EXPERIMENT_VARIANTS:
+                generated_features.extend(
+                    FEATURE_EXPERIMENT_VARIANTS[experiment_variant]
+                )
+            elif sequence_enabled:
+                generated_features.extend(SEQUENCE_CANDLE_FEATURES)
+            for feat in generated_features:
                 if feat not in active_features:
                     active_features.append(feat)
-            logger.info("derived_features_added", features=DERIVED_FEATURES, asset=asset)
+            logger.info("derived_features_added", features=generated_features, asset=asset)
             
             # Синхронизируем расширенный список с БД RuntimeSettings (без принудительной молчаливой перезаписи)
             derived_setting = await self.db.execute(
@@ -609,7 +803,10 @@ class ModelTrainer:
 
         import hashlib
         fingerprint_rows = pd.util.hash_pandas_object(
-            df[["market_id", "time_left_min", "mid_price", "target"]],
+            pd.concat(
+                [df[["market_id", "target", "_decision_at"]], X],
+                axis=1,
+            ),
             index=False,
         ).values.tobytes()
         fingerprint_meta = (
@@ -649,6 +846,7 @@ class ModelTrainer:
                 sample_weight=sample_weights,
                 lr_coef_threshold=lr_coef_threshold,
                 lr_min_features=lr_min_features,
+                timestamps=df["_decision_at"],
                 min_precision=min_precision,
                 max_suspicious=max_suspicious,
                 fee_per_trade=fee_per_trade,
@@ -824,6 +1022,20 @@ class ModelTrainer:
             training_params={
                 "quality_gate_mode": "ADVISORY",
                 "backtest_strategy_branch": backtest["strategy_branch"],
+                "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+                "validation_scheme": backtest["validation_scheme"],
+                "validation_folds": backtest["validation_folds"],
+                "feature_set_version": FEATURE_EXPERIMENT_LABELS.get(
+                    experiment_variant,
+                    SEQUENCE_FEATURE_SET_VERSION if sequence_enabled else "baseline-v1",
+                ),
+                "experiment_variant": experiment_variant,
+                "sequence_coverage": round(sequence_coverage, 6),
+                "sequence_source": "CLOSED_UNDERLYING_15M",
+                "model_config": backtest["model_config"],
+                "brier_score": backtest["brier_score"],
+                "log_loss": backtest["log_loss"],
+                "oot_markets": backtest["oot_markets"],
             },
             activation_source="TRAINER",
             quality_override=not passed_quality_gate,
@@ -831,6 +1043,8 @@ class ModelTrainer:
             activated_by="trainer",
             interval="15m",
             dataset_fingerprint=dataset_fingerprint,
+            training_window_start=df["_decision_at"].min().to_pydatetime(),
+            training_window_end=df["_decision_at"].max().to_pydatetime(),
             trained_at=datetime.now(timezone.utc),
             backtest_pnl=backtest["total_pnl"],
             backtest_trades=backtest["n_trades"],
@@ -922,6 +1136,7 @@ class ModelTrainer:
                         sample_weight=phase_weights,
                         lr_coef_threshold=lr_coef_threshold,
                         lr_min_features=lr_min_features,
+                        timestamps=df_phase["_decision_at"],
                         min_precision=min_precision,
                         max_suspicious=max_suspicious,
                         fee_per_trade=fee_per_trade,
@@ -990,6 +1205,17 @@ class ModelTrainer:
                 training_params={
                     "quality_gate_mode": "ADVISORY",
                     "backtest_strategy_branch": backtest_p["strategy_branch"],
+                    "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+                    "validation_scheme": backtest_p["validation_scheme"],
+                    "validation_folds": backtest_p["validation_folds"],
+                    "feature_set_version": FEATURE_EXPERIMENT_LABELS.get(
+                        experiment_variant,
+                        SEQUENCE_FEATURE_SET_VERSION if sequence_enabled else "baseline-v1",
+                    ),
+                    "experiment_variant": experiment_variant,
+                    "sequence_coverage": round(sequence_coverage, 6),
+                    "model_config": backtest_p["model_config"],
+                    "oot_markets": backtest_p["oot_markets"],
                 },
                 quality_override=bool(phase_gate_reasons),
                 activated_at=datetime.now(timezone.utc),

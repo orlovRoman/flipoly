@@ -104,6 +104,7 @@ def build_inference_dataframe(
     global_max: float,
     start_time: datetime,
     time_left_sec: float,
+    closed_candles: list[Any] | None = None,
 ) -> pd.DataFrame:
     """
     Строит DataFrame для инференса модели на основе исторических снапшотов и текущих (свежих) данных.
@@ -142,6 +143,12 @@ def build_inference_dataframe(
     df["price_distance_from_max"] = (global_max - df["mid_price"]).clip(lower=0.0)
     df = add_lag_features(df)
     
+    if closed_candles is not None:
+        from polyflip.models.sequence_features import attach_closed_candle_features
+        df = attach_closed_candle_features(
+            df, closed_candles, decision_time_col="recorded_at"
+        )
+
     if "recorded_at" in df.columns:
         df["day_of_week"] = pd.to_datetime(df["recorded_at"]).dt.dayofweek.astype(float)
         df = df.sort_values("recorded_at").reset_index(drop=True)
@@ -184,6 +191,15 @@ def run_model_inference(
             df[col] = 0.0
 
     X = df[features]
+    non_finite = ~np.isfinite(X.astype(float).to_numpy())
+    if non_finite.any():
+        invalid_features = sorted(set(
+            X.columns[np.flatnonzero(non_finite.any(axis=0))].tolist()
+        ))
+        raise ValueError(
+            "MODEL_FEATURE_DATA_UNAVAILABLE: non-finite values for "
+            f"{invalid_features}"
+        )
 
     # Явная проверка порядка фич
     expected_features = None

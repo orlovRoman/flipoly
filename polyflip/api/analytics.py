@@ -155,6 +155,59 @@ _models_cache_lock = asyncio.Lock()
 def invalidate_models_cache():
     _models_cache.clear()
 
+def _iso(value):
+    return value.isoformat() if value else None
+
+
+def _model_experiment_payload(model: ModelRegistry) -> dict[str, Any]:
+    """Expose persisted OOT metadata needed for apples-to-apples comparisons."""
+    params = model.training_params or {}
+    backtest = (model.quality_gate_reasons or {}).get("backtest", {})
+    target_source = params.get("target_source")
+    validation_scheme = params.get("validation_scheme")
+    feature_set = params.get("feature_set_version", "legacy")
+    strategy_branch = params.get(
+        "backtest_strategy_branch", backtest.get("strategy_branch", "UNKNOWN")
+    )
+    window_start = _iso(model.training_window_start)
+    window_end = _iso(model.training_window_end)
+    comparison_key = "|".join(
+        str(value or "UNKNOWN")
+        for value in (
+            model.asset, target_source, validation_scheme, strategy_branch,
+            window_start, window_end,
+        )
+    )
+    model_type, algorithm = get_model_type(model.asset)
+    return {
+        "asset": model.asset,
+        "version": model.version,
+        "accuracy": round(model.accuracy, 4) if model.accuracy is not None else None,
+        "baseline": round(model.baseline, 4) if model.baseline is not None else None,
+        "lift": round(model.accuracy - model.baseline, 4)
+        if model.accuracy is not None and model.baseline is not None else None,
+        "ece": round(model.ece, 4) if model.ece is not None else None,
+        "brier_score": (model.brier_score if model.brier_score is not None else params.get("brier_score")),
+        "log_loss": params.get("log_loss"),
+        "features": model.features or "",
+        "feature_set_version": feature_set,
+        "model_config": params.get("model_config", {}),
+        "validation_scheme": validation_scheme,
+        "oot_markets": params.get("oot_markets"),
+        "target_source": target_source,
+        "strategy_branch": strategy_branch,
+        "training_window_start": window_start,
+        "training_window_end": window_end,
+        "comparison_key": comparison_key,
+        "backtest_pnl": model.backtest_pnl,
+        "backtest_trades": model.backtest_trades,
+        "backtest_wr": model.backtest_wr,
+        "is_active": model.is_active,
+        "trained_at": _iso(model.trained_at),
+        "model_type": model_type,
+        "algorithm": algorithm,
+    }
+
 @router.get("/analytics/models")
 async def list_models(db: AsyncSession = Depends(get_db_session)):
     """Получение истории ВСЕХ моделей с мгновенной загрузкой метаданных без скачивания model_blob"""
@@ -175,21 +228,7 @@ async def list_models(db: AsyncSession = Depends(get_db_session)):
 
         result = []
         for m in models:
-            m_type, algo_label = get_model_type(m.asset)
-            lift_val = round(m.accuracy - m.baseline, 4) if (m.accuracy is not None and m.baseline is not None) else None
-            result.append({
-                "asset": m.asset,
-                "version": m.version,
-                "accuracy": round(m.accuracy, 4) if m.accuracy is not None else None,
-                "baseline": round(m.baseline, 4) if m.baseline is not None else None,
-                "lift": lift_val,
-                "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
-                "features": m.features or "",
-                "is_active": m.is_active,
-                "trained_at": m.trained_at.isoformat() if m.trained_at else None,
-                "model_type": m_type,
-                "algorithm": algo_label
-            })
+            result.append(_model_experiment_payload(m))
 
         _models_cache["time"] = time.time()
         _models_cache["data"] = result
@@ -426,9 +465,13 @@ async def get_training_status(session: AsyncSession, asset: str) -> Dict[str, An
     return {"status": "idle", "message": "", "last_run": None}
 
 @router.post("/analytics/train/{asset}", dependencies=[Depends(verify_api_key)])
-async def trigger_training(asset: str, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db_session)):
+async def trigger_training(asset: str, background_tasks: BackgroundTasks,
+                           feature_set: str = "AUTO", db: AsyncSession = Depends(get_db_session)):
     """Ручной запуск обучения моделей для конкретного актива"""
     asset = asset.upper()
+    feature_set = feature_set.strip().upper()
+    if feature_set not in {"AUTO", "A", "B", "C"}:
+        raise HTTPException(status_code=400, detail="feature_set must be AUTO, A, B or C")
     if asset not in settings.asset_list:
         raise HTTPException(status_code=400, detail=f"Актив {asset} не настроен в системе")
     
@@ -442,7 +485,7 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks, db: As
             async with async_session() as bg_session:
                 trainer = ModelTrainer(bg_session)
                 try:
-                    training_ok = await trainer.train_model(asset)
+                    training_ok = await trainer.train_model(asset, feature_set=feature_set)
                     msg = trainer.status_messages.get(asset, "Статус неизвестен")
                 except Exception as e:
                     logger.exception("train_model_failed_for_asset", asset=asset, error=str(e))

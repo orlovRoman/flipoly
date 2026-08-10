@@ -107,6 +107,45 @@ def _empty_result(
     )
 
 
+def _prepare_backtest_frame(
+    df_features: pd.DataFrame,
+    pnl_mode: Literal["binance", "polymarket"],
+) -> pd.DataFrame:
+    """Normalize ordering and build only a genuinely forward target."""
+    frame = df_features.copy()
+    if "open_time" in frame.columns:
+        frame["open_time"] = pd.to_datetime(frame["open_time"], utc=True)
+        frame = frame.sort_values("open_time", kind="stable").reset_index(drop=True)
+
+    if "target" in frame.columns:
+        if pnl_mode == "binance" and "ret_1" in frame.columns:
+            frame["_future_return"] = pd.to_numeric(
+                frame["ret_1"], errors="coerce"
+            ).shift(-1)
+        non_null = frame["target"].dropna()
+        if not non_null.isin([0, 1, False, True]).all():
+            raise ValueError("Backtest target must be binary")
+        return frame
+
+    if pnl_mode == "polymarket":
+        raise ValueError("Polymarket backtest requires canonical final_outcome target")
+
+    if "ret_1" in frame.columns:
+        future_return = pd.to_numeric(frame["ret_1"], errors="coerce").shift(-1)
+    elif {"open", "close"}.issubset(frame.columns):
+        next_open = pd.to_numeric(frame["open"], errors="coerce").shift(-1)
+        next_close = pd.to_numeric(frame["close"], errors="coerce").shift(-1)
+        future_return = next_close / next_open.replace(0.0, np.nan) - 1.0
+    else:
+        raise ValueError(
+            "Binance backtest without target requires ret_1 or raw open/close candles"
+        )
+
+    frame["_future_return"] = future_return
+    frame["target"] = (future_return > 0.0).astype(float).where(future_return.notna())
+    return frame
+
+
 def run_backtest(
     df_features: pd.DataFrame,
     symbol: str,
@@ -128,8 +167,7 @@ def run_backtest(
       (% сделок с ценой Polymarket, не % всех свечей).
     """
     # 6. В режиме polymarket отсутствие target должно быть ошибкой
-    if pnl_mode == "polymarket" and "target" not in df_features.columns:
-        raise ValueError("Polymarket backtest requires canonical final_outcome target")
+    df_features = _prepare_backtest_frame(df_features, pnl_mode)
 
     n_total = len(df_features)
     n_train = int(n_total * BACKTEST_TRAIN_RATIO)
@@ -138,11 +176,13 @@ def run_backtest(
     df_test_raw  = df_features.iloc[n_train:].copy()
 
     epsilon_val = _EPSILON
+    if epsilon_quantile is not None and "_future_return" in df_features.columns:
+        epsilon_val = float(
+            df_train_raw["_future_return"].abs().quantile(epsilon_quantile)
+        )
+        df_train_raw = df_train_raw[df_train_raw["_future_return"].abs() >= epsilon_val]
+        df_test_raw = df_test_raw[df_test_raw["_future_return"].abs() >= epsilon_val]
 
-    if "target" not in df_train_raw.columns:
-        df_train_raw["target"] = (df_train_raw["close"] > df_train_raw["open"]).astype(int)
-    if "target" not in df_test_raw.columns:
-        df_test_raw["target"] = (df_test_raw["close"] > df_test_raw["open"]).astype(int)
 
     df_train = df_train_raw.dropna(subset=["target"]).copy()
     df_test  = df_test_raw.dropna(subset=["target"]).copy()
@@ -189,16 +229,20 @@ def run_backtest(
 
     X_test    = df_test[available]
     probas    = np.full(len(df_test), 0.5)
-    has_vol_test = "vol_trend" in df_test.columns
-    low_mask  = df_test["vol_trend"] <= vol_median if has_vol_test else pd.Series(True, index=df_test.index)
-    high_mask = ~low_mask if has_vol_test else pd.Series(False, index=df_test.index)
+    if "vol_trend" in df_test.columns:
+        test_regimes = df_test["vol_trend"].apply(vol_policy.classify)
+    else:
+        test_regimes = pd.Series("low_vol", index=df_test.index)
 
-    if "low_vol" in models and low_mask.any():
-        probas[low_mask.values] = models["low_vol"].predict_proba(X_test[low_mask])[:, 1]
-    if "high_vol" in models and high_mask.any():
-        probas[high_mask.values] = models["high_vol"].predict_proba(X_test[high_mask])[:, 1]
-    elif "low_vol" in models and high_mask.any():
-        probas[high_mask.values] = models["low_vol"].predict_proba(X_test[high_mask])[:, 1]
+    fallback_model = (
+        models.get("mid_vol") or models.get("low_vol") or models.get("high_vol")
+    )
+    for regime in ("low_vol", "mid_vol", "high_vol"):
+        mask = test_regimes == regime
+        if not mask.any():
+            continue
+        model = models.get(regime) or fallback_model
+        probas[mask.to_numpy()] = model.predict_proba(X_test.loc[mask])[:, 1]
 
     _min_edge   = min_edge   if min_edge   is not None else BACKTEST_MIN_EDGE
     _commission = commission if commission is not None else BACKTEST_COMMISSION

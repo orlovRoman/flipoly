@@ -514,13 +514,15 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", async (e) => {
       requestNotificationPermission();
       const asset = e.target.getAttribute("data-asset");
+      const featureSet = document.getElementById("logreg-feature-set")?.value || "AUTO";
+      const featureSetQuery = encodeURIComponent(featureSet);
       const originalText = e.target.innerText;
       
       e.target.innerText = `Обучение ${asset}...`;
       e.target.disabled = true;
 
       try {
-        const res = await fetch(window.API_BASE + `/api/analytics/train/${asset}`, {
+        const res = await fetch(window.API_BASE + `/api/analytics/train/${asset}?feature_set=${featureSetQuery}`, {
           method: "POST",
           headers: getHeaders(),
         });
@@ -854,6 +856,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function loadModelsHistory() {
     setupModelTypeFilter();
+    window.renderExperimentComparison = renderExperimentComparison;
     setupModelStatusFilter();
 
     try {
@@ -867,6 +870,74 @@ document.addEventListener("DOMContentLoaded", () => {
 
     renderModelsTable();
     setupModelsTableSorting();
+
+
+  function renderExperimentComparison() {
+    const select = document.getElementById("experiment-group-select");
+    const tbody = document.querySelector("#experiment-comparison-table tbody");
+    if (!select || !tbody) return;
+
+    const groups = new Map();
+    (rawModelsData || [])
+      .filter(m => m.model_type !== "lightgbm" && m.comparison_key)
+      .forEach(m => {
+        if (!groups.has(m.comparison_key)) groups.set(m.comparison_key, []);
+        groups.get(m.comparison_key).push(m);
+      });
+    const comparable = [...groups.entries()]
+      .filter(([, models]) => models.length >= 2)
+      .sort((a, b) => {
+        const aDate = Math.max(...a[1].map(m => Date.parse(m.trained_at) || 0));
+        const bDate = Math.max(...b[1].map(m => Date.parse(m.trained_at) || 0));
+        return bDate - aDate;
+      });
+
+    const previous = select.value;
+    select.innerHTML = comparable.map(([key, models]) => {
+      const sample = models[0];
+      const start = sample.training_window_start ? new Date(sample.training_window_start).toLocaleDateString() : "?";
+      const end = sample.training_window_end ? new Date(sample.training_window_end).toLocaleDateString() : "?";
+      const label = `${sample.asset}: ${start} - ${end}, ${sample.strategy_branch}, ${models.length} variants`;
+      return `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`;
+    }).join("");
+
+    if (!comparable.length) {
+      tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">Comparable experiments appear after two runs on the same OOT window</td></tr>';
+      return;
+    }
+    if (comparable.some(([key]) => key === previous)) select.value = previous;
+    const models = groups.get(select.value || comparable[0][0]) || [];
+    const fmt = (value, digits = 4) => value === null || value === undefined ? "-" : Number(value).toFixed(digits);
+    const bestAuc = Math.max(...models.map(m => Number(m.accuracy ?? -Infinity)));
+    const bestPnl = Math.max(...models.map(m => Number(m.backtest_pnl ?? -Infinity)));
+
+    tbody.innerHTML = [...models]
+      .sort((a, b) => (b.accuracy || 0) - (a.accuracy || 0))
+      .map(m => {
+        const aucStyle = Number(m.accuracy) === bestAuc ? ' style="color:var(--poly-green);font-weight:700;"' : "";
+        const pnlStyle = Number(m.backtest_pnl) === bestPnl ? ' style="color:var(--poly-green);font-weight:700;"' : "";
+        const config = m.model_config || {};
+        const configText = Object.entries(config).map(([k, v]) => `${k}=${v}`).join(", ") || "-";
+        return `<tr>
+          <td>v${m.version}${m.is_active ? " - active" : ""}</td>
+          <td>${escapeHtml(m.feature_set_version || "legacy")}</td>
+          <td${aucStyle}>${fmt(m.accuracy)}</td>
+          <td>${fmt(m.lift)}</td>
+          <td>${fmt(m.brier_score)}</td>
+          <td>${fmt(m.ece)}</td>
+          <td>${fmt(m.log_loss)}</td>
+          <td>${m.oot_markets ?? "-"}</td>
+          <td${pnlStyle}>${fmt(m.backtest_pnl, 2)}</td>
+          <td>${m.backtest_trades ?? "-"}</td>
+          <td style="font-size:.8rem;">${escapeHtml(configText)}</td>
+        </tr>`;
+      }).join("");
+
+    if (!select.dataset.bound) {
+      select.addEventListener("change", renderExperimentComparison);
+      select.dataset.bound = "1";
+    }
+  }
 
     try {
       const resPnl = await fetch(window.API_BASE + "/api/dashboard/model_pnl", { headers: getHeaders() });
@@ -892,6 +963,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     let filteredData = rawModelsData;
+    window.renderExperimentComparison?.();
     if (modelsTypeFilter !== "all") {
       filteredData = rawModelsData.filter(m => {
         const isLgbm = m.model_type === "lightgbm" || ["_low_vol", "_mid_vol", "_high_vol"].some(s => m.asset.endsWith(s));

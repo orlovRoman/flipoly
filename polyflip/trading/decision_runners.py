@@ -59,6 +59,23 @@ async def infer_flip_for_market(
         if s.recorded_at >= cutoff_time
     ] + [fresh_price]
     global_max = max(filtered_prices) if filtered_prices else fresh_price
+    from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
+
+    closed_candles = []
+    candle_symbol = ASSET_TO_BINANCE_SYMBOL.get(str(market.asset).upper())
+    if candle_symbol:
+        recent_candles = await get_recent_candles(
+            db_session, candle_symbol, "15m", limit=32
+        )
+        for candle in recent_candles:
+            close_time = getattr(candle, "close_time", None)
+            if close_time is None or getattr(candle, "is_closed", None) is not True:
+                continue
+            if close_time.tzinfo is None:
+                close_time = close_time.replace(tzinfo=timezone.utc)
+            if close_time <= start_time:
+                closed_candles.append(candle)
+
 
     df = build_inference_dataframe(
         market=market,
@@ -68,6 +85,7 @@ async def infer_flip_for_market(
         global_max=global_max,
         start_time=start_time,
         time_left_sec=time_left_sec,
+        closed_candles=closed_candles,
     )
     
     return float(run_model_inference(df, model, active_features))
