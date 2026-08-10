@@ -263,19 +263,38 @@ def _fit_and_serialize(
         if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
             continue
         
-        fold_base = clone(base_model)
-        tr_weight = sample_weight[train_index] if sample_weight is not None else None
-        fold_base.fit(X_train, y_train, model__sample_weight=tr_weight)
-        
-        # Калибровка внутри фолда для честной оценки ECE откалиброванной модели
-        fold_calib = CalibratedClassifierCV(
-            estimator=FrozenEstimator(fold_base),
-            method="sigmoid",
-            cv=None
+        # Split the outer training markets again: the calibrator must never see
+        # rows used to fit the base estimator.
+        inner_groups = groups.iloc[train_index].reset_index(drop=True)
+        inner_split = GroupShuffleSplit(
+            n_splits=1, test_size=0.2, random_state=CV_RANDOM_STATE
         )
-        fold_calib.fit(X_train, y_train)
-        
-        y_proba = fold_calib.predict_proba(X_val)[:, 1]
+        base_idx, calibration_idx = next(
+            inner_split.split(X_train, y_train, groups=inner_groups)
+        )
+        fold_base = clone(base_model)
+        if (
+            len(np.unique(y_train.iloc[base_idx])) < 2
+            or len(np.unique(y_train.iloc[calibration_idx])) < 2
+        ):
+            tr_weight = sample_weight[train_index] if sample_weight is not None else None
+            fold_base.fit(X_train, y_train, model__sample_weight=tr_weight)
+            y_proba = fold_base.predict_proba(X_val)[:, 1]
+        else:
+            tr_weight = (
+                sample_weight[train_index][base_idx]
+                if sample_weight is not None else None
+            )
+            fold_base.fit(
+                X_train.iloc[base_idx], y_train.iloc[base_idx],
+                model__sample_weight=tr_weight,
+            )
+            fold_calib = CalibratedClassifierCV(
+                estimator=FrozenEstimator(fold_base), method="sigmoid", cv=None
+            )
+            fold_calib.fit(
+                X_train.iloc[calibration_idx], y_train.iloc[calibration_idx]
+            )
         oof_scores[val_index] = y_proba
         aucs.append(roc_auc_score(y_val, y_proba))
         
