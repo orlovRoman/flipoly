@@ -152,12 +152,6 @@
                     <div style="margin-top: 1.5rem; margin-bottom: 2rem;">
                         <h2>Точность моделей (Accuracy) со временем</h2>
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
-                            <select id="logreg-feature-set" title="Use the same variant across assets for comparable OOT experiments" style="background:rgba(0,0,0,.3);color:white;border:1px solid var(--border-color);border-radius:6px;padding:.45rem .6rem;">
-                            <option value="AUTO">Feature set: AUTO</option>
-                            <option value="A">A - control</option>
-                            <option value="B">B - candle direction and runs</option>
-                            <option value="C">C - direction, runs, body and range</option>
-                        </select>
                         {% for asset in assets %}
                             <div class="chart-box">
                                 <h3>{{ asset }}</h3>
@@ -172,12 +166,6 @@
                         <div style="display: flex; gap: 10px; align-items: center;">
                             <button id="btn-load-charts" class="btn primary-btn" style="padding: 0.5rem 1rem;">Обновить графики параметров</button>
                             <select id="asset-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; font-size: 1rem; cursor: pointer;">
-                                <select id="logreg-feature-set" title="Use the same variant across assets for comparable OOT experiments" style="background:rgba(0,0,0,.3);color:white;border:1px solid var(--border-color);border-radius:6px;padding:.45rem .6rem;">
-                            <option value="AUTO">Feature set: AUTO</option>
-                            <option value="A">A - control</option>
-                            <option value="B">B - candle direction and runs</option>
-                            <option value="C">C - direction, runs, body and range</option>
-                        </select>
                         {% for asset in assets %}
                                 <option value="{{ asset }}">{{ asset }}</option>
                                 {% endfor %}

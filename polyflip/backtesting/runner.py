@@ -15,22 +15,32 @@ from polyflip.trading.ml_inference import (
 
 
 SUPPORTED_BACKTEST_MODES = {"OUTSIDER"}
+MAX_INFERENCE_HISTORY_SNAPSHOTS = 64
 
 class BacktestRunner:
-    def __init__(self, config: dict, model_blob: bytes, features: str, closed_candles_by_asset: dict | None = None):
+    def __init__(
+        self,
+        config: dict,
+        model_blob: bytes,
+        features: str,
+        closed_candles_by_asset: dict | None = None,
+        prediction_overrides: dict[tuple[str, float], float] | None = None,
+    ):
         self.config = config
         self.cfg = parse_trading_settings(config)
         self.model = pickle.loads(model_blob) if model_blob and len(model_blob) > 0 else None
         self.features = [f.strip() for f in features.split(',')] if features else []
         self.trader = SimulatedTrader(slippage_pct=float(config.get("SLIPPAGE_PCT", 0.005)))
         self.closed_candles_by_asset = closed_candles_by_asset or {}
+        # Explicit simulation hook; production runs leave this empty.
+        self.prediction_overrides = prediction_overrides or {}
         
         _tof = config.get("TRADE_ON_FLIP", False)
         self.trade_on_flip = _tof if isinstance(_tof, bool) else str(_tof).lower() == "true"
         
         self.strategy_mode = config.get("STRATEGY_MODE", "OUTSIDER").upper()
         if self.strategy_mode in ("PURE_FAVORITE", "FAVORITE"):
-            raise ValueError("Pure Favorite mode has been removed. Use 'combined' or 'outsider'.")
+            raise ValueError("Pure Favorite mode has been removed. Use OUTSIDER.")
         if self.strategy_mode not in SUPPORTED_BACKTEST_MODES:
             raise ValueError(
                 f"Backtest strategy_mode='{self.strategy_mode}' is not supported. "
@@ -44,19 +54,22 @@ class BacktestRunner:
         self.max_edge = 0.40
 
     def _predict_flip(self, tick, replay: MarketReplay) -> float:
-        override = getattr(self, "p_flips", {}).get((tick.market_id, tick.time_left_min))
+        """Run the same feature-building contract used by live LogReg inference."""
+        override = self.prediction_overrides.get((tick.market_id, tick.time_left_min))
         if override is not None:
             return float(override)
-        """Run the same feature-building contract used by live LogReg inference."""
         if not self.model or not self.features:
             return 0.0
 
 
-        history = [
+        prior_ticks = [
             candidate for candidate in replay.ticks
             if candidate.recorded_at < tick.recorded_at
         ]
-        observed_prices = [candidate.mid_price for candidate in history] + [tick.mid_price]
+        history = prior_ticks[-MAX_INFERENCE_HISTORY_SNAPSHOTS:]
+        observed_prices = [
+            candidate.mid_price for candidate in prior_ticks
+        ] + [tick.mid_price]
         frame = build_inference_dataframe(
             market=tick,
             history_snaps=history,
@@ -91,8 +104,7 @@ class BacktestRunner:
 
     def _evaluate_tick(self, tick, replay=None):
         if replay is None:
-            replay = MarketReplay.__new__(MarketReplay)
-            replay.ticks = [tick]
+            replay = MarketReplay([tick])
         signal = tick.to_signal()
         if self.strategy_mode == "OUTSIDER":
             p_flip = self._predict_flip(tick, replay)
@@ -170,13 +182,6 @@ class BacktestRunner:
             )
 
     def run_all(self, replays: dict[str, MarketReplay]) -> list:
-        self.p_flips = {}  # Сбрасываем кэш предсказаний перед новым запуском
-        if self.strategy_mode == "ML":
-            raise ValueError(
-                "ML/LGBM backtesting has been removed. "
-                "Use strategy_mode='PURE_FAVORITE' or 'COMBINED'."
-            )
-
-        for market_id, replay in replays.items():
+        for replay in replays.values():
             self.run_market(replay)
         return self.trader.trades

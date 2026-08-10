@@ -50,6 +50,8 @@ from polyflip.models.sequence_features import (
     SEQUENCE_CANDLE_FEATURES,
     normalize_experiment_variant,
     SEQUENCE_FEATURE_SET_VERSION,
+    MIN_SEQUENCE_COVERAGE,
+    SEQUENCE_LOOKBACK_MINUTES,
     attach_closed_candle_features,
     sequence_history_ready,
 )
@@ -277,6 +279,9 @@ def _fit_and_serialize(
     mid_prices = mid_prices.reset_index(drop=True)
     if timestamps is not None:
         timestamps = pd.Series(timestamps).reset_index(drop=True)
+    # Always normalize total influence per market. `sample_weight` remains
+    # the optional row-level policy; balancing prevents heavily sampled
+    # markets from dominating either policy.
     sample_weight = market_balanced_weights(groups, sample_weight)
 
     if sample_weight is not None:
@@ -676,7 +681,10 @@ class ModelTrainer:
         sequence_enabled = False
         sequence_symbol = ASSET_TO_BINANCE_SYMBOL.get(asset.split("_")[0])
         if sequence_symbol:
-            candle_start = pd.Timestamp(df["recorded_at"].min()).to_pydatetime() - timedelta(days=2)
+            candle_start = (
+                pd.Timestamp(df["recorded_at"].min()).to_pydatetime()
+                - timedelta(minutes=SEQUENCE_LOOKBACK_MINUTES)
+            )
             candle_end = pd.Timestamp(df["recorded_at"].max()).to_pydatetime()
             candle_stmt = (
                 select(CryptoCandle)
@@ -694,7 +702,7 @@ class ModelTrainer:
             df = attach_closed_candle_features(df, candle_rows)
             ready_mask = sequence_history_ready(df)
             sequence_coverage = float(ready_mask.mean()) if len(df) else 0.0
-            sequence_enabled = sequence_coverage >= 0.80
+            sequence_enabled = sequence_coverage >= MIN_SEQUENCE_COVERAGE
             if sequence_enabled:
                 df = df.loc[ready_mask].reset_index(drop=True)
             logger.info(
@@ -711,7 +719,8 @@ class ModelTrainer:
         if requested_sequence and not sequence_enabled:
             self.status_messages[asset] = (
                 "Training failed: closed-candle sequence history coverage "
-                f"{sequence_coverage:.1%} is below 80%"
+                f"{sequence_coverage:.1%} is below "
+                f"{MIN_SEQUENCE_COVERAGE:.0%}"
             )
             return False
 
@@ -722,18 +731,20 @@ class ModelTrainer:
             return False
 
 
-        if not df.empty:
-            logger.info("time_left_distribution", 
-                asset=asset,
-                n_snapshots=len(df),
-                min_min=round(df["time_left_min"].min(), 2),
-                max_min=round(df["time_left_min"].max(), 2),
-                median_min=round(df["time_left_min"].median(), 2),
-                p25=round(df["time_left_min"].quantile(0.25), 2),
-                p75=round(df["time_left_min"].quantile(0.75), 2),
-                n_markets=df["market_id"].nunique(),
-                snapshots_per_market=round(len(df) / max(df["market_id"].nunique(), 1), 1),
-            )
+        logger.info(
+            "time_left_distribution",
+            asset=asset,
+            n_snapshots=len(df),
+            min_min=round(df["time_left_min"].min(), 2),
+            max_min=round(df["time_left_min"].max(), 2),
+            median_min=round(df["time_left_min"].median(), 2),
+            p25=round(df["time_left_min"].quantile(0.25), 2),
+            p75=round(df["time_left_min"].quantile(0.75), 2),
+            n_markets=df["market_id"].nunique(),
+            snapshots_per_market=round(
+                len(df) / max(df["market_id"].nunique(), 1), 1
+            ),
+        )
 
         # Добавляем инженерные признаки
         df = add_derived_features(df)

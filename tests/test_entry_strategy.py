@@ -47,8 +47,7 @@ def test_entry_strategy_first():
         "TRADE_MAX_PRICE": "0.95",
         "LIQUIDITY_FRACTION": "0.05",
     }
-    runner = BacktestRunner(config, b"", "")
-    runner.p_flips = {("m1", 30.0): 0.40, ("m1", 20.0): 0.50, ("m1", 10.0): 0.45}
+    runner = BacktestRunner(config, b"", "", prediction_overrides={("m1", 30.0): 0.40, ("m1", 20.0): 0.50, ("m1", 10.0): 0.45})
     runner.run_market(replay)
     
     assert len(runner.trader.trades) == 1
@@ -88,8 +87,7 @@ def test_entry_strategy_best_edge():
         "TRADE_MAX_PRICE": "0.95",
         "LIQUIDITY_FRACTION": "0.05",
     }
-    runner = BacktestRunner(config, b"", "")
-    runner.p_flips = {("m1", 30.0): 0.40, ("m1", 20.0): 0.50, ("m1", 10.0): 0.45}
+    runner = BacktestRunner(config, b"", "", prediction_overrides={("m1", 30.0): 0.40, ("m1", 20.0): 0.50, ("m1", 10.0): 0.45})
     runner.run_market(replay)
     
     assert len(runner.trader.trades) == 1
@@ -131,8 +129,7 @@ def test_confirmed_resets_on_action_change():
         "TRADE_MAX_PRICE": "0.95",
         "LIQUIDITY_FRACTION": "0.05",
     }
-    runner = BacktestRunner(config, b"", "")
-    runner.p_flips = {("m_reset", 30.0): 0.40, ("m_reset", 20.0): 0.40}
+    runner = BacktestRunner(config, b"", "", prediction_overrides={("m_reset", 30.0): 0.40, ("m_reset", 20.0): 0.40})
     runner.run_market(replay)
 
     assert len(runner.trader.trades) == 0, (
@@ -175,8 +172,7 @@ def test_confirmed_enters_after_stable_sequence():
         "TRADE_MAX_PRICE": "0.95",
         "LIQUIDITY_FRACTION": "0.05",
     }
-    runner = BacktestRunner(config, b"", "")
-    runner.p_flips = {("m_stable", 30.0): 0.40, ("m_stable", 20.0): 0.40, ("m_stable", 10.0): 0.40}
+    runner = BacktestRunner(config, b"", "", prediction_overrides={("m_stable", 30.0): 0.40, ("m_stable", 20.0): 0.40, ("m_stable", 10.0): 0.40})
     runner.run_market(replay)
 
     assert len(runner.trader.trades) == 1
@@ -257,8 +253,7 @@ def test_evaluate_tick_no_import_overhead():
         "TRADE_MAX_PRICE": "0.95",
         "LIQUIDITY_FRACTION": "0.05",
     }
-    runner = BacktestRunner(config, b"", "")
-    runner.p_flips = {("m_perf", 30.0): 0.40}
+    runner = BacktestRunner(config, b"", "", prediction_overrides={("m_perf", 30.0): 0.40})
 
     start = time.perf_counter()
     for _ in range(1000):

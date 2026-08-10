@@ -451,6 +451,9 @@ async function loadHistoricRun(runId) {
           document.getElementById('cfg-model-id').value   = "";
         }
         document.getElementById('cfg-strategy-mode').value = 'OUTSIDER';
+    if (s.TRADING_MODE && !['outsider', 'ml'].includes(String(s.TRADING_MODE).toLowerCase())) {
+      showAlert('Live strategy is not supported by this Backtest Engine; using OUTSIDER LogReg.', 'info');
+    }
         document.getElementById('cfg-favor-min-time').value = cfg.favor_min_time_left_min || 1;
         document.getElementById('cfg-favor-max-time').value = cfg.favor_max_time_left_min || 60;
         document.getElementById('cfg-outs-min-time').value = cfg.outs_min_time_left_min || 1;
@@ -597,6 +600,9 @@ async function applyLiveSettings() {
     document.getElementById('cfg-outs-min-time').value = s.OUTS_MIN_TIME_LEFT_SEC != null ? (parseInt(s.OUTS_MIN_TIME_LEFT_SEC) / 60).toFixed(1) : '1';
     document.getElementById('cfg-outs-max-time').value = s.OUTS_MAX_TIME_LEFT_SEC != null ? (parseInt(s.OUTS_MAX_TIME_LEFT_SEC) / 60).toFixed(0) : '60';
     document.getElementById('cfg-strategy-mode').value = 'OUTSIDER';
+    if (s.TRADING_MODE && !['outsider', 'ml'].includes(String(s.TRADING_MODE).toLowerCase())) {
+      showAlert('Live strategy is not supported by this Backtest Engine; using OUTSIDER LogReg.', 'info');
+    }
       const parseThresh = (val) => {
         let f = parseFloat(val);
         if (isNaN(f)) return null;

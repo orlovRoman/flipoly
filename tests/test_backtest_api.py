@@ -114,6 +114,32 @@ async def test_history_empty():
         assert "runs" in resp.json()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload, detail",
+    [
+        (
+            {"assets": ["BTC", "ETH"], "strategy_mode": "OUTSIDER"},
+            "exactly one asset",
+        ),
+        (
+            {"assets": ["BTC"], "strategy_mode": "COMBINED"},
+            "Only OUTSIDER",
+        ),
+    ],
+)
+async def test_submit_rejects_unsupported_backtest_contract(payload, detail):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/backtest/submit",
+            json=payload,
+            headers={"X-API-Key": "test-key"},
+        )
+
+    assert response.status_code == 422
+    assert detail in response.json()["detail"]
+
 def test_slice_breakdowns_keep_direction_price_and_phase_separate():
     def item(direction, price_bucket, phase, pnl, won, price, edge):
         trade = SimpleNamespace(

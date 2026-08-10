@@ -13,7 +13,10 @@ class BacktestConfig(BaseModel):
     """Параметры одного прогона бэктеста. Все поля с дефолтами → можно запустить без настроек."""
 
     # Фильтрация данных
-    assets: list[str] = Field(default=["BTC", "ETH"], description="Список ассетов для теста")
+    assets: list[str] = Field(
+        default_factory=lambda: ["BTC"],
+        description="Exactly one asset per LogReg backtest",
+    )
     date_from: Optional[datetime] = Field(default=None, description="Начало периода (UTC)")
     date_to: Optional[datetime] = Field(default=None, description="Конец периода (UTC)")
     min_snapshots_per_market: int = Field(default=3, ge=1, le=50)

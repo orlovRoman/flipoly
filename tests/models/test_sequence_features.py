@@ -132,3 +132,14 @@ def test_feature_experiment_variant_validation():
     import pytest
     with pytest.raises(ValueError, match="AUTO, A, B or C"):
         normalize_experiment_variant("D")
+
+
+def test_run_length_is_capped_and_resets_after_direction_change():
+    result = build_closed_candle_feature_frame(
+        [candle(i, 1) for i in range(10)] + [candle(10, -1)]
+    )
+
+    assert result.iloc[8]["consecutive_up"] == 8
+    assert result.iloc[9]["consecutive_up"] == 8
+    assert result.iloc[10]["consecutive_up"] == 0
+    assert result.iloc[10]["consecutive_down"] == 1

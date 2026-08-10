@@ -56,6 +56,11 @@ def normalize_experiment_variant(value: str | None) -> str:
 
 SEQUENCE_FEATURE_SET_VERSION = "underlying-sequence-v1"
 MIN_SEQUENCE_HISTORY = 6
+SEQUENCE_CANDLE_INTERVAL_MINUTES = 15
+MIN_SEQUENCE_COVERAGE = 0.80
+SEQUENCE_LOOKBACK_MINUTES = (
+    MIN_SEQUENCE_HISTORY + 1
+) * SEQUENCE_CANDLE_INTERVAL_MINUTES
 
 
 def _read(row: Any, name: str, default: Any = None) -> Any:
@@ -65,12 +70,15 @@ def _read(row: Any, name: str, default: Any = None) -> Any:
 
 
 def _run_length(direction: pd.Series, expected: int, cap: int = 8) -> pd.Series:
-    result: list[float] = []
-    run = 0
-    for value in direction.fillna(0).astype(int):
-        run = min(run + 1, cap) if value == expected else 0
-        result.append(float(run))
-    return pd.Series(result, index=direction.index, dtype=float)
+    matches = direction.fillna(0).astype(int).eq(expected)
+    reset_groups = (~matches).cumsum()
+    return (
+        matches.astype(int)
+        .groupby(reset_groups, sort=False)
+        .cumsum()
+        .clip(upper=cap)
+        .astype(float)
+    )
 
 
 def _alternation_rate(values: np.ndarray) -> float:

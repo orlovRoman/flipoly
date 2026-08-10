@@ -1,9 +1,15 @@
+import pickle
+
 import pytest
 from datetime import datetime, timezone, timedelta
 from httpx import AsyncClient, ASGITransport
 from polyflip.api.main import app
-from polyflip.db.models import MarketSnapshot
+from polyflip.db.models import MarketSnapshot, ModelRegistry
 from polyflip.api.backtest_api import get_db_session
+
+class ConstantFlipModel:
+    def predict_proba(self, X):
+        return [[0.4, 0.6] for _ in range(len(X))]
 
 class DummyAsyncContextManager:
     def __init__(self, session):
@@ -73,7 +79,17 @@ async def test_backtest_sql_correctness(db_session):
             final_outcome="NO", flip_vs_final=False, recorded_at=now - timedelta(minutes=120)
         ),
     ]
-    db_session.add_all(snaps)
+    model = ModelRegistry(
+        asset="BTC",
+        version=1,
+        model_blob=pickle.dumps(ConstantFlipModel()),
+        accuracy=0.5,
+        features="mid_price",
+        model_type="logreg",
+        is_active=True,
+        trained_at=now,
+    )
+    db_session.add_all([*snaps, model])
     await db_session.commit()
 
     from unittest.mock import patch

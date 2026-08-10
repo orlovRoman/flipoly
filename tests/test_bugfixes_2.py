@@ -85,3 +85,35 @@ def test_backtest_runner_uses_selected_logreg_model():
     probability = runner._predict_flip(replay.ticks[-1], replay)
 
     assert probability == pytest.approx(0.9)
+
+
+def test_logreg_feature_set_selector_is_unique_and_not_nested():
+    from html.parser import HTMLParser
+    from pathlib import Path
+
+    class SelectParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.select_depth = 0
+            self.nested_selects = 0
+            self.feature_set_ids = 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag != "select":
+                return
+            if self.select_depth:
+                self.nested_selects += 1
+            self.select_depth += 1
+            if dict(attrs).get("id") == "logreg-feature-set":
+                self.feature_set_ids += 1
+
+        def handle_endtag(self, tag):
+            if tag == "select":
+                self.select_depth -= 1
+
+    template = Path("polyflip/templates/index.html").read_text(encoding="utf-8")
+    parser = SelectParser()
+    parser.feed(template)
+
+    assert parser.feature_set_ids == 1
+    assert parser.nested_selects == 0

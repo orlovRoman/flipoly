@@ -29,6 +29,7 @@ from polyflip.db.models import CryptoCandle, MarketSnapshot, ModelRegistry
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
 from polyflip.constants import ASSET_TO_BINANCE_SYMBOL
+from polyflip.models.sequence_features import SEQUENCE_LOOKBACK_MINUTES
 from polyflip.api.backtest_schemas import (
     BacktestConfig,
     BacktestResult,
@@ -119,6 +120,17 @@ async def submit_backtest(
     background_tasks: BackgroundTasks,
 ):
     """Принимает задачу, отвечает мгновенно, запускает в фоне."""
+    if len(config.assets) != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="LogReg backtest requires exactly one asset per run",
+        )
+    if config.strategy_mode != "OUTSIDER":
+        raise HTTPException(
+            status_code=422,
+            detail="Only OUTSIDER LogReg backtests are currently supported",
+        )
+
     if any(j.status == JobStatus.RUNNING for j in list(_jobs.values())):
         raise HTTPException(
             status_code=429, detail="Another backtest is already running. Please wait."
@@ -312,15 +324,21 @@ async def _execute_backtest_logic(
 
     candle_map: dict[str, list[CryptoCandle]] = {}
     symbol = ASSET_TO_BINANCE_SYMBOL.get(config.assets[0].upper())
-    if symbol:
-        decision_times = [tick.recorded_at for replay in replays.values() for tick in replay.ticks]
+    decision_times = [
+        tick.recorded_at
+        for replay in replays.values()
+        for tick in replay.ticks
+    ]
+    if symbol and decision_times:
         candle_stmt = (
             select(CryptoCandle)
             .where(
                 CryptoCandle.symbol == symbol,
                 CryptoCandle.interval == "15m",
                 CryptoCandle.is_closed.is_(True),
-                CryptoCandle.close_time >= min(decision_times) - timedelta(days=2),
+                CryptoCandle.close_time
+                >= min(decision_times)
+                - timedelta(minutes=SEQUENCE_LOOKBACK_MINUTES),
                 CryptoCandle.close_time <= max(decision_times),
             )
             .order_by(CryptoCandle.close_time.asc())
