@@ -454,8 +454,12 @@ async def crypto_backtest(
     async with async_session() as session:
         if min_edge is None:
             min_edge = await get_float(session, "BACKTEST_MIN_EDGE")
+        epsilon_quantile = await get_float(session, "LGBM_EPSILON_QUANTILE")
 
         lgbm_params = {
+            "learning_rate": await get_float(
+                session, "CRYPTO_LGBM_LEARNING_RATE"
+            ),
             "subsample": await get_float(session, "CRYPTO_LGBM_SUBSAMPLE"),
             "colsample_bytree": await get_float(
                 session, "CRYPTO_LGBM_COLSAMPLE_BYTREE"
@@ -488,6 +492,7 @@ async def crypto_backtest(
         min_edge,
         commission,
         lgbm_params=lgbm_params,
+        epsilon_quantile=epsilon_quantile,
         feature_set=normalized_feature_set,
         closed_candles=candles,
     )
