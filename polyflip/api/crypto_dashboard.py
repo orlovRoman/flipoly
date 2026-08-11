@@ -32,7 +32,7 @@ from polyflip.crypto.backtester import run_backtest
 from polyflip.crypto.feature_builder import build_features
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.trainer import CryptoModelTrainer
-from polyflip.crypto.feature_sets import CONTROL_FEATURES, normalize_feature_set, parse_feature_names, validate_feature_schema
+from polyflip.crypto.feature_sets import CONTROL_FEATURES, get_feature_set, normalize_feature_set, parse_feature_names, validate_feature_schema
 from polyflip.db.connection import async_session, get_db_session
 from polyflip.db.models import ModelRegistry, TradeHistory, RuntimeSettings
 from polyflip.crypto.predictor import CryptoPredictor
@@ -225,6 +225,11 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
                 "features": m.features.split(",") if getattr(m, "features", None) else list(CONTROL_FEATURES),
                 "feature_set": (m.training_params or {}).get("feature_set", "A"),
                 "feature_set_version": (m.training_params or {}).get("feature_set_version", "legacy"),
+                "comparison_key": (m.training_params or {}).get("comparison_key"),
+                "validation_scheme": (m.training_params or {}).get("validation_scheme"),
+                "oot_samples": (m.training_params or {}).get("oot_samples"),
+                "oot_markets": (m.training_params or {}).get("oot_markets"),
+                "log_loss": (m.training_params or {}).get("log_loss"),
                 "target_source": (m.training_params or {}).get("target_source"),
                 "is_loadable": (m.training_params or {}).get("target_source") == "POLYMARKET_FINAL_OUTCOME",
                 "loadability_reason": (None if (m.training_params or {}).get("target_source") == "POLYMARKET_FINAL_OUTCOME" else "NON_CANONICAL_TARGET"),
@@ -427,12 +432,17 @@ async def crypto_backtest(
     interval: str = "15m",
     min_edge: float | None = Query(None),
     commission: float | None = Query(None),
+    feature_set: str = "A",
 ):
     """
     Запускает walk-forward backtest и возвращает детальные метрики и PnL-кривую.
     Результат кэшируется на 5 минут для предотвращения перегрузки CPU.
     """
-    cache_key = f"backtest_{symbol}_{interval}_{min_edge}_{commission}"
+    try:
+        normalized_feature_set = normalize_feature_set(feature_set)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    cache_key = f"backtest_{symbol}_{interval}_{min_edge}_{commission}_{normalized_feature_set}"
     now = time.time()
     if cache_key in _cache and now - _cache[cache_key]["ts"] < 300:
         return _cache[cache_key]["data"]
@@ -470,11 +480,20 @@ async def crypto_backtest(
 
     # Запускаем backtest в пуле потоков (CPU-bound)
     result = await asyncio.to_thread(
-        run_backtest, df, symbol, min_edge, commission, lgbm_params=lgbm_params
+        run_backtest,
+        df,
+        symbol,
+        min_edge,
+        commission,
+        lgbm_params=lgbm_params,
+        feature_set=normalized_feature_set,
+        closed_candles=candles,
     )
 
     data = {
         "symbol": result.symbol,
+        "feature_set": normalized_feature_set,
+        "feature_set_version": get_feature_set(normalized_feature_set).version,
         "n_candles_total": result.n_candles_total,
         "n_candles_test": result.n_candles_test,
         "n_trades": result.n_trades,

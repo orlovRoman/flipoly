@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Sequence
 
 from sqlalchemy import select, func, desc, case
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -49,22 +50,43 @@ async def upsert_candles(
     batch_size = 500
     for i in range(0, len(rows), batch_size):
         batch = rows[i:i + batch_size]
-        stmt = pg_insert(CryptoCandle).values(batch)
-        stmt = stmt.on_conflict_do_update(
-            constraint="uix_crypto_candle",
-            set_={
-                "is_closed": case(
-                    (CryptoCandle.is_closed.is_(True), True),
-                    else_=stmt.excluded.is_closed
-                ),
-                "close_time": stmt.excluded.close_time,
-                "close": stmt.excluded.close,
-                "high": stmt.excluded.high,
-                "low": stmt.excluded.low,
-                "volume": stmt.excluded.volume,
-                "taker_buy_volume": stmt.excluded.taker_buy_volume,
-            }
-        )
+        # PostgreSQL accepts the named constraint while SQLite requires the
+        # concrete conflict columns (the latter is used by the test database).
+        dialect_name = session.get_bind().dialect.name
+        if dialect_name == "sqlite":
+            stmt = sqlite_insert(CryptoCandle).values(batch)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["symbol", "interval", "open_time"],
+                set_={
+                    "is_closed": case(
+                        (CryptoCandle.is_closed.is_(True), True),
+                        else_=stmt.excluded.is_closed
+                    ),
+                    "close_time": stmt.excluded.close_time,
+                    "close": stmt.excluded.close,
+                    "high": stmt.excluded.high,
+                    "low": stmt.excluded.low,
+                    "volume": stmt.excluded.volume,
+                    "taker_buy_volume": stmt.excluded.taker_buy_volume,
+                }
+            )
+        else:
+            stmt = pg_insert(CryptoCandle).values(batch)
+            stmt = stmt.on_conflict_do_update(
+                constraint="uix_crypto_candle",
+                set_={
+                    "is_closed": case(
+                        (CryptoCandle.is_closed.is_(True), True),
+                        else_=stmt.excluded.is_closed
+                    ),
+                    "close_time": stmt.excluded.close_time,
+                    "close": stmt.excluded.close,
+                    "high": stmt.excluded.high,
+                    "low": stmt.excluded.low,
+                    "volume": stmt.excluded.volume,
+                    "taker_buy_volume": stmt.excluded.taker_buy_volume,
+                }
+            )
         result = await session.execute(stmt)
         total_inserted += result.rowcount
         

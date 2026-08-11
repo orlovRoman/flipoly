@@ -39,6 +39,8 @@ from polyflip.crypto.trainer import (
     CRYPTO_FEATURES,
     _fit_lgbm_and_serialize,
 )
+from polyflip.crypto.feature_sets import get_feature_set
+from polyflip.models.sequence_features import attach_closed_candle_features, sequence_history_ready
 
 # Малый положительный порог вместо нуля (защита от деления на ноль в логарифмических вычислениях)
 _EPSILON: float = 1e-9
@@ -156,6 +158,8 @@ def run_backtest(
     lgbm_params: dict | None = None,
     pnl_mode: Literal["binance", "polymarket"] = "binance",
     polymarket_prices: pd.DataFrame | None = None,
+    feature_set: str = "A",
+    closed_candles: list | tuple | None = None,
 ) -> BacktestResult:
     """
     Принимает DataFrame с фичами (выход build_features()).
@@ -167,7 +171,18 @@ def run_backtest(
       (% сделок с ценой Polymarket, не % всех свечей).
     """
     # 6. В режиме polymarket отсутствие target должно быть ошибкой
+    feature_spec = get_feature_set(feature_set)
     df_features = _prepare_backtest_frame(df_features, pnl_mode)
+    if feature_spec.key != "A":
+        if closed_candles is None:
+            raise ValueError(
+                f"Feature set {feature_spec.key} requires closed_candles for a leakage-safe backtest"
+            )
+        df_features = attach_closed_candle_features(
+            df_features, closed_candles, decision_time_col="open_time"
+        )
+        ready = sequence_history_ready(df_features)
+        df_features = df_features.loc[ready].reset_index(drop=True)
 
     n_total = len(df_features)
     n_train = int(n_total * BACKTEST_TRAIN_RATIO)
@@ -187,7 +202,7 @@ def run_backtest(
     df_train = df_train_raw.dropna(subset=["target"]).copy()
     df_test  = df_test_raw.dropna(subset=["target"]).copy()
 
-    feature_list = features if features is not None else CRYPTO_FEATURES
+    feature_list = features if features is not None else list(feature_spec.features)
     available    = [f for f in feature_list if f in df_train.columns]
 
     if len(df_train) < 100 or len(available) == 0:

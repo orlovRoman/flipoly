@@ -171,7 +171,10 @@ def _model_experiment_payload(model: ModelRegistry) -> dict[str, Any]:
     )
     window_start = _iso(model.training_window_start)
     window_end = _iso(model.training_window_end)
-    comparison_key = "|".join(
+    # Trainers may persist an explicit day-granular comparison key.  This is
+    # important for sequence variants: B/C can drop their first six rows while
+    # still being the same experiment window as control A.
+    comparison_key = params.get("comparison_key") or "|".join(
         str(value or "UNKNOWN")
         for value in (
             model.asset, target_source, validation_scheme, strategy_branch,

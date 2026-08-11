@@ -185,3 +185,13 @@ async def test_partial_regime_set_loads_available_model(db_session):
         
         assert await predictor.load(db_session, "BTCUSDT") is True
         assert set(predictor._models["BTCUSDT"]) == {"low_vol"}
+
+
+def test_lgbm_optional_oot_metrics_are_returned():
+    df = make_fake_df(n=220)
+    result = _fit_lgbm_and_serialize(
+        df[CRYPTO_FEATURES], df["target"], n_splits=2, return_metrics=True
+    )
+    assert len(result) == 12
+    assert result[11]["oot_samples"] > 0
+    assert result[11]["brier_score"] >= 0.0

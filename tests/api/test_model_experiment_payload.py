@@ -62,3 +62,9 @@ def test_feature_set_does_not_change_comparison_key():
     candidate = _model_experiment_payload(_model(training_params=params))
 
     assert original["comparison_key"] == candidate["comparison_key"]
+
+
+def test_explicit_comparison_key_is_preferred():
+    params = dict(_model().training_params, comparison_key="BTCUSDT_low_vol|A-B-C-window")
+    payload = _model_experiment_payload(_model(training_params=params))
+    assert payload["comparison_key"] == "BTCUSDT_low_vol|A-B-C-window"

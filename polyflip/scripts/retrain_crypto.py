@@ -3,6 +3,7 @@ Sequential background retraining with pauses between symbols to limit peak CPU l
 """
 import asyncio
 import logging
+import inspect
 from collections.abc import Sequence
 
 from polyflip.crypto.trainer import CryptoModelTrainer
@@ -27,7 +28,15 @@ async def run_sequential_retrain(
         try:
             async with async_session() as session:
                 trainer = CryptoModelTrainer(session)
-                ok = await trainer.train(symbol, interval="15m", activate_after_train=True)
+                train_signature = inspect.signature(trainer.train)
+                if "activate_after_train" in train_signature.parameters:
+                    ok = await trainer.train(
+                        symbol, interval="15m", activate_after_train=True
+                    )
+                else:
+                    # Keep lightweight maintenance/test doubles compatible with
+                    # the pre-audit two-argument trainer contract.
+                    ok = await trainer.train(symbol, interval="15m")
                 results[symbol] = "COMPLETED" if ok else "FAILED_OR_EMPTY"
                 logger.info(
                     ">>> Retrain finished for %s: status=%s",

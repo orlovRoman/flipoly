@@ -310,6 +310,11 @@
                         <select id="bt-symbol" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 130px;">
                             {% for sym in symbols %}<option>{{ sym }}</option>{% endfor %}
                         </select>
+                        <select id="bt-feature-set" title="Compare A/B/C feature variants" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 180px;">
+                            <option value="A">A - control</option>
+                            <option value="B">B - directions and runs</option>
+                            <option value="C">C - candle structure</option>
+                        </select>
                         <button class="btn primary-btn" onclick="runBacktester()">▶ Запустить бэктест</button>
                     </div>
                 </div>
@@ -1559,12 +1564,13 @@
         async function runBacktester() {
             const sym = document.getElementById('bt-symbol').value;
             const minEdge = parseFloat(document.getElementById('p-min-edge').value);
+            const featureSet = document.getElementById('bt-feature-set')?.value || 'A';
             
             document.getElementById('backtest-loading').style.display = 'block';
             document.getElementById('backtest-container').style.display = 'none';
 
             try {
-                const r = await fetch(`/lightgbm/api/backtest?symbol=${sym}&min_edge=${minEdge}`, { headers: H });
+                const r = await fetch(`/lightgbm/api/backtest?symbol=${sym}&min_edge=${minEdge}&feature_set=${encodeURIComponent(featureSet)}`, { headers: H });
                 const d = await r.json();
                 
                 document.getElementById('backtest-loading').style.display = 'none';

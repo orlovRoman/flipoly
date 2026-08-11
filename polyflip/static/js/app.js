@@ -879,7 +879,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const groups = new Map();
     (rawModelsData || [])
-      .filter(m => m.model_type !== "lightgbm" && m.comparison_key)
+      .filter(m => m.comparison_key)
       .forEach(m => {
         if (!groups.has(m.comparison_key)) groups.set(m.comparison_key, []);
         groups.get(m.comparison_key).push(m);

@@ -19,7 +19,7 @@ import pandas as pd
 import structlog
 from lightgbm import LGBMClassifier
 from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator, calibration_curve
-from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, brier_score_loss, precision_recall_curve
+from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, brier_score_loss, precision_recall_curve, log_loss
 from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -211,6 +211,7 @@ def _fit_lgbm_and_serialize(
     min_valid_thr: float = 0.30,
     max_valid_thr: float = 0.75,
     thr_fallback: float = 0.55,
+    return_metrics: bool = False,
     **lgbm_params,
 ) -> tuple[bytes, float, float, float, float, float, dict[str, int], float, float, float, float]:
     """
@@ -349,8 +350,12 @@ def _fit_lgbm_and_serialize(
     recall = float(recall_score(y_oof, y_pred, zero_division=0))
     f1_metric = float(f1_score(y_oof, y_pred, zero_division=0))
     brier = float(brier_score_loss(y_oof, p_oof))
+    try:
+        oot_log_loss = float(log_loss(y_oof, p_oof, labels=[0, 1]))
+    except ValueError:
+        oot_log_loss = None
 
-    return (
+    result = (
         pickle.dumps(final_cal),
         val_auc,
         baseline_auc,
@@ -363,6 +368,13 @@ def _fit_lgbm_and_serialize(
         f1_metric,
         brier,
     )
+    if return_metrics:
+        return result + ({
+            "oot_samples": int(valid_mask.sum()),
+            "brier_score": brier,
+            "log_loss": oot_log_loss,
+        },)
+    return result
 
 
 async def _get_float_setting(db: AsyncSession, key: str, default: float = 0.0) -> float:
@@ -540,6 +552,22 @@ class CryptoModelTrainer:
                 continue
 
             dataset_fingerprint = _dataset_fingerprint(df_regime, available)
+            market_times = pd.to_datetime(df_regime["market_start"], utc=True)
+            training_window_start = market_times.min()
+            training_window_end = market_times.max()
+            # The comparison window is day-granular so the first six rows
+            # dropped by sequence features do not split otherwise identical
+            # A/B/C experiments into separate groups. Exact timestamps and
+            # the feature-specific fingerprint remain available for auditing.
+            comparison_key = "|".join((
+                f"{symbol}_{regime}",
+                "POLYMARKET_FINAL_OUTCOME",
+                "TIME_SERIES_SPLIT",
+                "LIGHTGBM_TIME_SERIES_SPLIT",
+                interval,
+                training_window_start.floor("D").isoformat(),
+                training_window_end.floor("D").isoformat(),
+            ))
             try:
                 X_r = df_regime[available].reset_index(drop=True)
                 y_r = df_regime["target"].reset_index(drop=True)
@@ -570,6 +598,7 @@ class CryptoModelTrainer:
                                 min_valid_thr,
                                 max_valid_thr,
                                 thr_fallback,
+                                return_metrics=True,
                                 **adaptive_params
                             ),
                             timeout=1800.0,   # 30 минут — hard limit
@@ -581,7 +610,8 @@ class CryptoModelTrainer:
                     logger.info("regime_train_duration", symbol=symbol, regime=regime,
                                 elapsed_sec=round(time.monotonic() - t0, 1))
 
-                model_bytes, val_auc, baseline_auc, threshold, threshold_down, ece, fi, precision, recall, f1, brier = result
+                model_bytes, val_auc, baseline_auc, threshold, threshold_down, ece, fi, precision, recall, f1, brier = result[:11]
+                fit_metrics = result[11] if len(result) > 11 else {}
 
                 logger.info(
                     "crypto_regime_model_trained",
@@ -677,19 +707,32 @@ class CryptoModelTrainer:
                         "feature_schema_hash": feature_schema_hash(available),
                         "feature_count": len(available),
                         "validation_scheme": "TIME_SERIES_SPLIT",
+                        "validation_folds": cv_n_splits,
+                        "backtest_strategy_branch": "LIGHTGBM_TIME_SERIES_SPLIT",
+                        "comparison_key": comparison_key,
                         "activate_after_train": activate_after_train,
                         "resolution_source": "CHAINLINK",
                         "alignment_version": "MARKET_WINDOW_V1",
                         "feature_schema_version": "CRYPTO_FEATURES_V2",
                         "dataset_rows": len(df_regime),
                         "dataset_fingerprint": dataset_fingerprint,
-                        "dataset_start": str(df_regime["market_start"].min()) if "market_start" in df_regime else None,
-                        "dataset_end": str(df_regime["market_start"].max()) if "market_start" in df_regime else None,
+                        "dataset_start": training_window_start.isoformat(),
+                        "dataset_end": training_window_end.isoformat(),
+                        "oot_samples": fit_metrics.get("oot_samples"),
+                        "oot_markets": len(df_regime),
+                        "brier_score": fit_metrics.get("brier_score", brier),
+                        "log_loss": fit_metrics.get("log_loss"),
+                        "model_config": adaptive_params,
                         "vol_p33": vol_p33,
                         "vol_p67": vol_p67,
                     },
                     features=",".join(available),
                     feature_importance=fi,
+                    train_samples=len(df_regime),
+                    validation_samples=fit_metrics.get("oot_samples"),
+                    positive_rate=float(y_r.mean()),
+                    training_window_start=training_window_start.to_pydatetime(),
+                    training_window_end=training_window_end.to_pydatetime(),
                     dataset_fingerprint=dataset_fingerprint,
                     ece=ece,
                     is_active=should_activate,
@@ -712,6 +755,7 @@ class CryptoModelTrainer:
                             "ece": ece if np.isfinite(ece) else None,
                             "threshold_up": threshold,
                             "threshold_down": threshold_down,
+                            "oot_metrics": fit_metrics,
                         }
                         if gate_reasons else None
                     ),
