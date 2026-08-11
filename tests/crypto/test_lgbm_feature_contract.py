@@ -11,7 +11,11 @@ from polyflip.crypto.feature_sets import (
     validate_feature_schema,
 )
 from polyflip.crypto.trainer import _dataset_fingerprint, _model_smoke_test
-from polyflip.crypto.feature_audit import feature_audit_summary, summarize_fold_importance
+from polyflip.crypto.feature_audit import (
+    feature_audit_summary,
+    model_gain_importance,
+    summarize_fold_importance,
+)
 
 
 def test_control_schema_is_stable_and_hashable():
@@ -81,3 +85,30 @@ def test_feature_importance_audit_is_fold_stable_and_descriptive():
     assert summary["version"] == "feature-audit-v1"
     assert "strong" in summary["stable_features"]
     assert summary["zero_gain_features"] == []
+
+
+def test_zero_gain_feature_is_detected():
+    audit = summarize_fold_importance(
+        [[10.0, 0.0], [8.0, 0.0]],
+        ("strong", "dead"),
+    )
+    summary = feature_audit_summary(audit)
+    assert "dead" in summary["zero_gain_features"]
+    assert "strong" not in summary["zero_gain_features"]
+
+class _NamedBooster:
+    def feature_name(self):
+        return ["second", "first"]
+
+    def feature_importance(self, importance_type="gain"):
+        assert importance_type == "gain"
+        return np.asarray([2.0, 1.0])
+
+
+class _NamedModel:
+    booster_ = _NamedBooster()
+
+
+def test_feature_importance_uses_booster_names_not_positions():
+    values = model_gain_importance(_NamedModel(), ("first", "second"))
+    assert values.tolist() == [1.0, 2.0]

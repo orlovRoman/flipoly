@@ -262,6 +262,7 @@ def _fit_lgbm_and_serialize(
     max_valid_thr: float = 0.75,
     thr_fallback: float = 0.55,
     return_metrics: bool = False,
+    compute_feature_audit: bool = False,
     **lgbm_params,
 ) -> LGBMFitResult:
     """
@@ -280,7 +281,8 @@ def _fit_lgbm_and_serialize(
 
         fold_lgbm = _make_lgbm(**lgbm_params)
         fold_lgbm.fit(X_train, y_train)
-        fold_gain_importances.append(model_gain_importance(fold_lgbm, X.columns))
+        if compute_feature_audit:
+            fold_gain_importances.append(model_gain_importance(fold_lgbm, X.columns))
 
         # Калибруем на первой половине val, измеряем AUC на второй — без пересечения
         mid = len(val_idx) // 2
@@ -393,13 +395,17 @@ def _fit_lgbm_and_serialize(
             hint="Consider removing these features in next refactor",
         )
     logger.info("crypto_feature_importance", top5=dict(sorted(fi.items(), key=lambda x: -x[1])[:5]))
-    feature_audit = summarize_fold_importance(fold_gain_importances, tuple(X.columns))
-    audit_summary = feature_audit_summary(feature_audit)
-    logger.info(
-        "crypto_feature_importance_stability",
-        stable_features=audit_summary["stable_features"],
-        zero_gain_features=audit_summary["zero_gain_features"],
-    )
+    if compute_feature_audit:
+        feature_audit = summarize_fold_importance(fold_gain_importances, tuple(X.columns))
+        audit_summary = feature_audit_summary(feature_audit)
+        logger.info(
+            "crypto_feature_importance_stability",
+            stable_features=audit_summary["stable_features"],
+            zero_gain_features=audit_summary["zero_gain_features"],
+        )
+    else:
+        feature_audit = {}
+        audit_summary = {}
 
     y_oof = y[valid_mask].astype(int)
     p_oof = oof_scores[valid_mask]
@@ -655,6 +661,7 @@ class CryptoModelTrainer:
                                 max_valid_thr,
                                 thr_fallback,
                                 return_metrics=True,
+                                compute_feature_audit=True,
                                 **adaptive_params
                             ),
                             timeout=1800.0,   # 30 минут — hard limit
@@ -798,7 +805,6 @@ class CryptoModelTrainer:
                         "brier_score": fit_metrics.get("brier_score", brier),
                         "log_loss": fit_metrics.get("log_loss"),
                         "feature_audit_version": fit_metrics.get("feature_audit_summary", {}).get("version"),
-                        "feature_audit": fit_metrics.get("feature_audit", {}),
                         "feature_audit_summary": fit_metrics.get("feature_audit_summary", {}),
                         "feature_selection_policy": "diagnostic_only",
                         "model_config": adaptive_params,

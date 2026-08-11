@@ -117,7 +117,8 @@ def test_small_fold_oof_scores_not_zero():
         df[CRYPTO_FEATURES], df["target"], n_splits=2
     )
     auc = res[1]
-    #    .
+    # The expensive fold audit is opt-in for backtests.
+    assert res.feature_audit == {}
     assert auc > 0
 
 def test_calibration_ece_isotonic_better_than_uncalibrated():
@@ -190,7 +191,7 @@ async def test_partial_regime_set_loads_available_model(db_session):
 def test_lgbm_optional_oot_metrics_are_returned():
     df = make_fake_df(n=220)
     result = _fit_lgbm_and_serialize(
-        df[CRYPTO_FEATURES], df["target"], n_splits=2, return_metrics=True
+        df[CRYPTO_FEATURES], df["target"], n_splits=2, return_metrics=True, compute_feature_audit=True
     )
     assert result.oot_samples is not None
     assert result.oot_samples > 0

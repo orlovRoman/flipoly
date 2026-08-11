@@ -8,6 +8,7 @@ consistently unused inputs visible before the next training run.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+import logging
 from typing import Any
 
 import numpy as np
@@ -16,11 +17,19 @@ import numpy as np
 FEATURE_AUDIT_VERSION = "feature-audit-v1"
 FEATURE_AUDIT_STABILITY_MIN = 0.60
 
+logger = logging.getLogger(__name__)
+
 
 def _coerce_importance(values: Any, feature_names: Sequence[str]) -> np.ndarray:
     """Return a finite, non-negative vector aligned to feature_names."""
     array = np.asarray(values if values is not None else [], dtype=float).reshape(-1)
     result = np.zeros(len(feature_names), dtype=float)
+    if len(array) != len(feature_names):
+        logger.warning(
+            "feature_importance_length_mismatch expected=%d got=%d",
+            len(feature_names),
+            len(array),
+        )
     count = min(len(result), len(array))
     if count:
         result[:count] = array[:count]
@@ -35,6 +44,22 @@ def model_gain_importance(model: Any, feature_names: Sequence[str]) -> np.ndarra
     if booster is not None:
         try:
             values = booster.feature_importance(importance_type="gain")
+            booster_names = tuple(booster.feature_name())
+            if len(booster_names) == len(values):
+                by_name = dict(zip(booster_names, values))
+                feature_name_set = set(feature_names)
+                missing = [name for name in feature_names if name not in by_name]
+                extra = [name for name in booster_names if name not in feature_name_set]
+                if missing or extra:
+                    logger.warning(
+                        "feature_importance_name_mismatch missing=%s extra=%s",
+                        missing,
+                        extra,
+                    )
+                return _coerce_importance(
+                    [by_name.get(name, 0.0) for name in feature_names],
+                    feature_names,
+                )
         except Exception:
             values = None
     if values is None:
