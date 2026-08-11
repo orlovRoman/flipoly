@@ -27,7 +27,7 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - API_KEY=${API_KEY:-test-key}
       - ASSETS=${ASSETS:-BTC,ETH,SOL,XRP,DOGE}
@@ -56,7 +56,7 @@ services:
     depends_on:
       - db
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - API_KEY=${API_KEY:-test-key}
       - ASSETS=${ASSETS:-BTC,ETH,SOL,XRP,DOGE}
@@ -87,7 +87,7 @@ services:
     depends_on:
       - db
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - EXECUTION_MODE=PAPER
     volumes:
@@ -99,19 +99,58 @@ services:
         limits:
           memory: 512M
 
-  execution_worker_live:
+  live_mirror_worker:
     build: .
-    container_name: polyflip_execution_worker_live
-    restart: always
+    container_name: flipoly-live_mirror_worker-1
+    restart: unless-stopped
+    profiles: ["live-v2"]
     depends_on:
       - db
-    profiles: ["live"]
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
-      - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
-      - POLYGON_PRIVATE_KEY=${POLYGON_PRIVATE_KEY}
-      - POLYGON_ADDRESS=${POLYGON_ADDRESS}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
+      - MIRROR_TARGET_MODE=LIVE
+      - MIRROR_POLL_INTERVAL=10
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python -m polyflip.execution.live_mirror_worker
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  release_gate_worker:
+    build: .
+    container_name: flipoly-release_gate_worker-1
+    restart: unless-stopped
+    profiles: ["live-v2"]
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+    command: python -m polyflip.execution.release_gate --mode=LIVE
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  execution_worker_live:
+    build: .
+    container_name: flipoly-execution_worker_live-1
+    restart: unless-stopped
+    profiles: ["live-v2"]
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - EXECUTION_MODE=LIVE
+      - POLYGON_PRIVATE_KEY=${POLYGON_PRIVATE_KEY:-}
+      - POLYGON_ADDRESS=${POLYGON_ADDRESS:-}
+      - POLYMARKET_RELAYER_API_KEY=${POLYMARKET_RELAYER_API_KEY:-}
+      - POLYMARKET_RELAYER_API_KEY_ADDRESS=${POLYMARKET_RELAYER_API_KEY_ADDRESS:-}
     volumes:
       - ./polyflip:/app/polyflip
       - ./scripts:/app/scripts
@@ -129,7 +168,7 @@ services:
       - db
     profiles: ["shadow"]
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - EXECUTION_MODE=SHADOW
     volumes:
