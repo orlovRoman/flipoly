@@ -14,6 +14,7 @@ import os
 STATIC_VERSION = os.getenv("POLYFLIP_BUILD_SHA", "dev")
 import json
 import time
+from typing import Literal
 from datetime import datetime, timezone
 import numpy as np
 

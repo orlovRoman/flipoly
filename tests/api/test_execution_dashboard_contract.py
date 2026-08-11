@@ -5,7 +5,7 @@ from polyflip.api.execution_api import get_live_trading_status
 
 
 def test_trading_pnl_markers_route_matches_frontend_contract():
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])
 
     assert "/api/trading/pnl-markers" in paths
     assert "/pnl-markers" in paths
