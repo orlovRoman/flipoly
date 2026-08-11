@@ -2,12 +2,16 @@
 from dataclasses import dataclass
 
 
-def compute_take_profit_price(entry_price: float, multiplier: float) -> float:
-    """tp_price = entry_price * multiplier. Clamp в [0.01, 0.99]."""
+def compute_take_profit_price(entry_price: float, multiplier: float) -> float | None:
+    """tp_price = entry_price * multiplier.
+    Если цель > 0.99 (недостижима на Polymarket), возвращает None.
+    """
     if multiplier <= 1.0:
         raise ValueError(f"take_profit_multiplier must be > 1.0, got {multiplier}")
     raw = entry_price * multiplier
-    return max(0.01, min(0.99, round(raw, 4)))
+    if raw > 0.99:
+        return None
+    return max(0.01, round(raw, 4))
 
 
 @dataclass
@@ -29,6 +33,14 @@ def evaluate_take_profit(
     токенов на Polymarket исполняется по цене лучшего покупателя (bid).
     """
     tp_price = compute_take_profit_price(entry_price, tp_multiplier)
+    if tp_price is None:
+        return TakeProfitDecision(
+            should_sell=False,
+            current_price=current_bid,
+            tp_price=0.0,
+            reason="target_exceeds_max_price",
+        )
+
     should_sell = current_bid >= tp_price
     return TakeProfitDecision(
         should_sell=should_sell,

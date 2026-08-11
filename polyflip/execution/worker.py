@@ -765,10 +765,14 @@ async def rebuild_trade_accounting(session, trade_id: int):
                 multiplier = Decimal(
                     str(getattr(trade, "take_profit_multiplier", 1.5) or 1.5)
                 )
-                # take_profit не выше 0.99 (цена бинарного токена не может превысить 1.0)
-                trade.take_profit_price = float(
-                    min(Decimal("0.99"), avg_entry_cost_per_share * multiplier)
-                )
+                raw_target = avg_entry_cost_per_share * multiplier
+                if raw_target > Decimal("0.99"):
+                    # Цель выходит за пределы рынка (>0.99). Отключаем TP, чтобы позиция спокойно
+                    # доходила до разрешения/экспирации и получала полные $1.00 без досрочной обрезки.
+                    trade.take_profit_status = "SKIPPED"
+                    trade.take_profit_price = None
+                else:
+                    trade.take_profit_price = float(raw_target)
 
     # Общий статус
     if open_shares > Decimal("0"):
