@@ -68,3 +68,25 @@ def test_explicit_comparison_key_is_preferred():
     params = dict(_model().training_params, comparison_key="BTCUSDT_low_vol|A-B-C-window")
     payload = _model_experiment_payload(_model(training_params=params))
     assert payload["comparison_key"] == "BTCUSDT_low_vol|A-B-C-window"
+
+
+def test_lightgbm_payload_has_comparable_oot_fields():
+    params = dict(
+        _model().training_params,
+        feature_set="B",
+        feature_set_version="B-direction-sequence-v1",
+        comparison_key="BTCUSDT_low_vol|window",
+        oot_samples=123,
+        oot_markets=123,
+        log_loss=0.61,
+    )
+    payload = _model_experiment_payload(_model(
+        asset="BTCUSDT_low_vol",
+        model_type="lgbm",
+        training_params=params,
+    ))
+    assert payload["model_type"] == "lightgbm"
+    assert payload["feature_set_version"] == "B-direction-sequence-v1"
+    assert payload["oot_markets"] == 123
+    assert payload["log_loss"] == 0.61
+    assert payload["comparison_key"] == "BTCUSDT_low_vol|window"

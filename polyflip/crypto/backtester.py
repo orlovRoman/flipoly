@@ -229,13 +229,13 @@ def run_backtest(
         if len(df_r) < 30:
             continue
         _lgbm = lgbm_params or {}
-        model_bytes, auc, *_ = _fit_lgbm_and_serialize(
+        fit_result = _fit_lgbm_and_serialize(
             df_r[available], df_r["target"],
             n_splits=min(CV_N_SPLITS, 3),
             **_lgbm,
         )
-        models[regime] = pickle.loads(model_bytes)
-        train_aucs.append(auc)
+        models[regime] = pickle.loads(fit_result.model_bytes)
+        train_aucs.append(fit_result.val_auc)
 
     if not models:
         return _empty_result(symbol, n_total, len(df_test), epsilon_val, pnl_mode)

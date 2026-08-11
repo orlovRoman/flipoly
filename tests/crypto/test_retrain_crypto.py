@@ -22,7 +22,7 @@ async def test_retrain_continues_after_failure_and_reports_truthful_status(monke
         def __init__(self, session):
             self.session = session
 
-        async def train(self, symbol, interval):
+        async def train(self, symbol, interval, *, activate_after_train=True):
             calls.append((symbol, interval))
             outcome = outcomes[symbol]
             if isinstance(outcome, Exception):
@@ -59,7 +59,7 @@ async def test_single_symbol_does_not_sleep(monkeypatch):
         def __init__(self, session):
             self.session = session
 
-        async def train(self, symbol, interval):
+        async def train(self, symbol, interval, *, activate_after_train=True):
             return True
 
     sleep = AsyncMock()

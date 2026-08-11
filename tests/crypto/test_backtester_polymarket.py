@@ -31,6 +31,7 @@ def test_sequence_backtest_requires_closed_candles():
         "open_time": pd.date_range("2025-01-01", periods=8, freq="15min"),
         "ret_1": [0.01, -0.01] * 4,
         "vol_trend": [1.0] * 8,
+        "target": [0, 1] * 4,
     })
     with pytest.raises(ValueError, match="requires closed_candles"):
         run_backtest(frame, symbol="BTCUSDT", feature_set="B")

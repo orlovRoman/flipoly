@@ -192,6 +192,6 @@ def test_lgbm_optional_oot_metrics_are_returned():
     result = _fit_lgbm_and_serialize(
         df[CRYPTO_FEATURES], df["target"], n_splits=2, return_metrics=True
     )
-    assert len(result) == 12
-    assert result[11]["oot_samples"] > 0
-    assert result[11]["brier_score"] >= 0.0
+    assert result.oot_samples is not None
+    assert result.oot_samples > 0
+    assert result.brier >= 0.0

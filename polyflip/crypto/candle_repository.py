@@ -52,7 +52,7 @@ async def upsert_candles(
         batch = rows[i:i + batch_size]
         # PostgreSQL accepts the named constraint while SQLite requires the
         # concrete conflict columns (the latter is used by the test database).
-        dialect_name = session.get_bind().dialect.name
+        dialect_name = session.sync_session.get_bind().dialect.name
         if dialect_name == "sqlite":
             stmt = sqlite_insert(CryptoCandle).values(batch)
             stmt = stmt.on_conflict_do_update(

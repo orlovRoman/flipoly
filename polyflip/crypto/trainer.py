@@ -12,6 +12,7 @@ import hashlib
 import json
 import pickle
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import numpy as np
@@ -183,6 +184,48 @@ def _evaluate_quality_gate(
 # Epsilon filter removed as per MARKET_WINDOW_V1 spec.
 
 
+@dataclass(frozen=True)
+class LGBMFitResult:
+    """Named, stable result of one LightGBM fit.
+
+    ``__iter__``/``__getitem__`` preserve the historic eleven-value tuple
+    contract for private callers while the trainer uses explicit attributes.
+    Optional OOT fields are always present on the object, never appended to a
+    tuple conditionally.
+    """
+
+    model_bytes: bytes
+    val_auc: float
+    baseline_auc: float
+    threshold: float
+    threshold_down: float
+    ece: float
+    feature_importance: dict[str, int]
+    precision: float
+    recall: float
+    f1: float
+    brier: float
+    oot_samples: int | None = None
+    log_loss: float | None = None
+
+    def _legacy_values(self) -> tuple[object, ...]:
+        return (
+            self.model_bytes, self.val_auc, self.baseline_auc,
+            self.threshold, self.threshold_down, self.ece,
+            self.feature_importance, self.precision, self.recall,
+            self.f1, self.brier,
+        )
+
+    def __iter__(self):
+        return iter(self._legacy_values())
+
+    def __getitem__(self, index):
+        return self._legacy_values()[index]
+
+    def __len__(self) -> int:
+        return 11
+
+
 def _make_lgbm(**params) -> LGBMClassifier:
     """Вспомогательная функция для создания квалифицированного LGBMClassifier."""
     defaults = {
@@ -213,10 +256,10 @@ def _fit_lgbm_and_serialize(
     thr_fallback: float = 0.55,
     return_metrics: bool = False,
     **lgbm_params,
-) -> tuple[bytes, float, float, float, float, float, dict[str, int], float, float, float, float]:
+) -> LGBMFitResult:
     """
     CPU-bound. Обучает LightGBM с TimeSeriesSplit.
-    Возвращает: (model_bytes, val_auc, baseline_auc, optimal_threshold, optimal_threshold_down, ece, feature_importance, ...)
+    Returns a named LGBMFitResult with stable OOT audit fields.
     """
     tscv = TimeSeriesSplit(n_splits=n_splits)
 
@@ -355,26 +398,21 @@ def _fit_lgbm_and_serialize(
     except ValueError:
         oot_log_loss = None
 
-    result = (
-        pickle.dumps(final_cal),
-        val_auc,
-        baseline_auc,
-        optimal_threshold,
-        optimal_threshold_down,
-        ece,
-        fi,
-        precision,
-        recall,
-        f1_metric,
-        brier,
+    return LGBMFitResult(
+        model_bytes=pickle.dumps(final_cal),
+        val_auc=val_auc,
+        baseline_auc=baseline_auc,
+        threshold=optimal_threshold,
+        threshold_down=optimal_threshold_down,
+        ece=ece,
+        feature_importance=fi,
+        precision=precision,
+        recall=recall,
+        f1=f1_metric,
+        brier=brier,
+        oot_samples=int(valid_mask.sum()) if return_metrics else None,
+        log_loss=oot_log_loss if return_metrics else None,
     )
-    if return_metrics:
-        return result + ({
-            "oot_samples": int(valid_mask.sum()),
-            "brier_score": brier,
-            "log_loss": oot_log_loss,
-        },)
-    return result
 
 
 async def _get_float_setting(db: AsyncSession, key: str, default: float = 0.0) -> float:
@@ -610,8 +648,22 @@ class CryptoModelTrainer:
                     logger.info("regime_train_duration", symbol=symbol, regime=regime,
                                 elapsed_sec=round(time.monotonic() - t0, 1))
 
-                model_bytes, val_auc, baseline_auc, threshold, threshold_down, ece, fi, precision, recall, f1, brier = result[:11]
-                fit_metrics = result[11] if len(result) > 11 else {}
+                model_bytes = result.model_bytes
+                val_auc = result.val_auc
+                baseline_auc = result.baseline_auc
+                threshold = result.threshold
+                threshold_down = result.threshold_down
+                ece = result.ece
+                fi = result.feature_importance
+                precision = result.precision
+                recall = result.recall
+                f1 = result.f1
+                brier = result.brier
+                fit_metrics = {
+                    "oot_samples": result.oot_samples,
+                    "brier_score": result.brier,
+                    "log_loss": result.log_loss,
+                }
 
                 logger.info(
                     "crypto_regime_model_trained",
@@ -715,11 +767,14 @@ class CryptoModelTrainer:
                         "alignment_version": "MARKET_WINDOW_V1",
                         "feature_schema_version": "CRYPTO_FEATURES_V2",
                         "dataset_rows": len(df_regime),
+                        "dataset_markets": len(df_regime),
                         "dataset_fingerprint": dataset_fingerprint,
                         "dataset_start": training_window_start.isoformat(),
                         "dataset_end": training_window_end.isoformat(),
                         "oot_samples": fit_metrics.get("oot_samples"),
-                        "oot_markets": len(df_regime),
+                        # One canonical dataset row represents one market;
+                        # only the OOF rows are counted as OOT observations.
+                        "oot_markets": fit_metrics.get("oot_samples"),
                         "brier_score": fit_metrics.get("brier_score", brier),
                         "log_loss": fit_metrics.get("log_loss"),
                         "model_config": adaptive_params,
