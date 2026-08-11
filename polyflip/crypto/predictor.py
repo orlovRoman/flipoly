@@ -18,6 +18,7 @@ from polyflip.crypto.edge import compute_crypto_signal_strength
 from polyflip.crypto.feature_sets import CONTROL_FEATURES, parse_feature_names, validate_feature_schema
 from polyflip.models.sequence_features import (
     SEQUENCE_CANDLE_FEATURES,
+    SEQUENCE_DIRECTION_FEATURES,
     build_closed_candle_feature_frame,
 )
 
@@ -428,27 +429,6 @@ class CryptoPredictor:
 
             fv_dict = dict(zip(CRYPTO_FEATURE_COLUMNS, feature_vector.features[0]))
 
-            # Experimental B/C models consume the same closed-candle contract as
-            # training. The builder ignores incomplete candles and computes every
-            # value from history ending at the latest closed candle, so an open
-            # candle can never leak into live inference.
-            sequence_frame = build_closed_candle_feature_frame(candles)
-            if decision_time is not None and not sequence_frame.empty:
-                cutoff = pd.Timestamp(decision_time)
-                if cutoff.tzinfo is None:
-                    cutoff = cutoff.tz_localize("UTC")
-                else:
-                    cutoff = cutoff.tz_convert("UTC")
-                sequence_frame = sequence_frame.loc[
-                    sequence_frame["sequence_asof_close_time"] <= cutoff
-                ]
-            if not sequence_frame.empty:
-                latest_sequence = sequence_frame.iloc[-1]
-                fv_dict.update({
-                    name: latest_sequence[name]
-                    for name in SEQUENCE_CANDLE_FEATURES
-                })
-
             # Determine the volatility regime after building the full feature map.
             vol_trend = fv_dict.get("vol_trend", 1.0)
             vol_p33 = self._vol_p33s.get(symbol, 0.8)
@@ -471,6 +451,32 @@ class CryptoPredictor:
             selected_regime = regime
             model = self._models.get(symbol, {})[selected_regime]
             feature_names = self._model_features.get(symbol, {}).get(selected_regime, tuple(CRYPTO_FEATURES))
+
+            # Build sequence features only for B/C artifacts.  A/control models
+            # avoid this extra work while all variants keep the same closed-candle
+            # and decision-time contract.
+            sequence_feature_names = set(
+                (*SEQUENCE_DIRECTION_FEATURES, *SEQUENCE_CANDLE_FEATURES)
+            )
+            needs_sequence = any(name in sequence_feature_names for name in feature_names)
+            if needs_sequence:
+                sequence_frame = build_closed_candle_feature_frame(candles)
+                if decision_time is not None and not sequence_frame.empty:
+                    cutoff = pd.Timestamp(decision_time)
+                    if cutoff.tzinfo is None:
+                        cutoff = cutoff.tz_localize("UTC")
+                    else:
+                        cutoff = cutoff.tz_convert("UTC")
+                    sequence_frame = sequence_frame.loc[
+                        sequence_frame["sequence_asof_close_time"] <= cutoff
+                    ]
+                if not sequence_frame.empty:
+                    latest_sequence = sequence_frame.iloc[-1]
+                    fv_dict.update({
+                        name: latest_sequence[name]
+                        for name in SEQUENCE_CANDLE_FEATURES
+                    })
+
             missing_features = [name for name in feature_names if name not in fv_dict]
             if missing_features:
                 raise ValueError(f"FEATURE_SCHEMA_UNAVAILABLE: {missing_features}")

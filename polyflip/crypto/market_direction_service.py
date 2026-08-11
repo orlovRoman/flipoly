@@ -95,7 +95,14 @@ async def get_or_create_market_direction_signal(
     if isinstance(market_end, datetime):
         if market_end.tzinfo is None:
             market_end = market_end.replace(tzinfo=timezone.utc)
-        prediction_kwargs["decision_time"] = market_end - timedelta(minutes=15)
+        interval = "15m"
+        get_interval = getattr(predictor, "get_interval", None)
+        if callable(get_interval):
+            configured_interval = get_interval(symbol)
+            if isinstance(configured_interval, str):
+                interval = configured_interval
+        interval_minutes = {"15m": 15, "1h": 60, "4h": 240}.get(interval, 15)
+        prediction_kwargs["decision_time"] = market_end - timedelta(minutes=interval_minutes)
 
     signal = predictor.predict(
         candles,

@@ -392,7 +392,7 @@ class CryptoModelTrainer:
         save_settings: bool = True,
         *,
         feature_set: str = "A",
-        activate_after_train: bool = True,
+        activate_after_train: bool = False,
     ) -> bool:
         feature_spec = get_feature_set(feature_set)
         available = list(feature_spec.features)

@@ -178,6 +178,7 @@ async def build_market_outcome_dataset(
                 "sequence_feature_coverage_empty",
                 symbol=symbol,
                 feature_set=feature_spec.key,
+                reason="SEQUENCE_COVERAGE_INSUFFICIENT",
             )
 
     logger.info(

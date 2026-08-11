@@ -52,7 +52,9 @@ FEATURE_SETS: dict[str, CryptoFeatureSet] = {
     ),
 }
 
-EXPERIMENTAL_FEATURES: tuple[str, ...] = tuple(dict.fromkeys(SEQUENCE_CANDLE_FEATURES))
+EXPERIMENTAL_FEATURES: tuple[str, ...] = tuple(
+    dict.fromkeys((*SEQUENCE_DIRECTION_FEATURES, *SEQUENCE_CANDLE_FEATURES))
+)
 ALL_CRYPTO_FEATURES: tuple[str, ...] = tuple(
     dict.fromkeys((*CRYPTO_FEATURE_COLUMNS, *EXPERIMENTAL_FEATURES))
 )
