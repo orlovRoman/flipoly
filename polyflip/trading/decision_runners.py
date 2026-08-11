@@ -147,8 +147,9 @@ async def _fetch_lgbm_signal(
             symbol=binance_symbol, p_up=0.0, p_down=0.0,
             direction="NONE", signal_strength=0.0, strike=0.0,
 
-            threshold_up=0.0, threshold_down=0.0, model_version=0,
-            features_ok=False, risk_vetoed=False, regime="UNKNOWN"
+            threshold_up=0.0, threshold_down=0.0, model_version=-1,
+            features_ok=False, risk_vetoed=False, regime="UNKNOWN",
+            status="INFERENCE_FAILED", risk_reason=str(exc), model_key=""
         )
 
 async def decide_combined_mode(
@@ -494,11 +495,17 @@ async def decide_combined_mode(
         decision_details["lgbm_signal"] = "normal"
 
     lgbm_meta_dict = {
-        "lgbm_version": comb_res.direction_model_version if lgbm_applied else None,
-        "lgbm_model_key": comb_res.direction_model_key if lgbm_applied else None,
+        # SHADOW retains model attribution even though it is excluded from trading.
+        "lgbm_version": comb_res.direction_model_version,
+        "lgbm_model_key": comb_res.direction_model_key,
         "lgbm_direction": comb_res.direction_value,
         "lgbm_features_ok": direction_signal.features_ok if direction_signal else False,
         "shadow_inference_status": direction_signal.status if direction_signal else "NONE",
+        "lgbm_regime": comb_res.direction_regime,
+        "lgbm_probability": comb_res.direction_probability,
+        "lgbm_p_up": comb_res.direction_p_up,
+        "lgbm_p_down": comb_res.direction_p_down,
+        "lightgbm_observed": lgbm_mode in {"ACTIVE", "SHADOW"},
         "is_fallback": (comb_res.entry_model_source in ("BASE", "GLOBAL")),
         "vote_action": comb_res.action,
         "bet_size_multiplier": 1.0,

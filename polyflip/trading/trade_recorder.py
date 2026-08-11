@@ -66,8 +66,10 @@ async def save_or_update_skipped_trade(
     dir_model_ver = details.get("direction_model_version")
     dir_regime = details.get("direction_regime")
     dir_prob = details.get("direction_probability")
-    # direction_value: prefer explicit arg; fallback to decision_details for backward compat
-    dir_val = direction_value or details.get("direction_value")
+    # direction_value: prefer the explicit decision value, including the
+    # literal "NONE". It is distinct from a missing value (None), which
+    # means that no direction telemetry was produced.
+    dir_val = direction_value if direction_value is not None else details.get("direction_value")
     ent_model_key = details.get("entry_model_key") or model_key
     ent_model_ver = details.get("entry_model_version") or model_version
     ent_model_phase = details.get("entry_model_phase")
@@ -92,10 +94,22 @@ async def save_or_update_skipped_trade(
             existing_skipped.lgbm_metadata != lgbm_metadata or
             (market_role and existing_skipped.market_role != market_role)
         )
+        direction_attribution_changed = (
+            dir_val is not None and existing_skipped.direction_value != dir_val
+        )
+        direction_model_changed = (
+            dir_model_key is not None
+            and existing_skipped.direction_model_key != dir_model_key
+        ) or (
+            dir_model_ver is not None
+            and existing_skipped.direction_model_version != dir_model_ver
+        )
         attribution_changed = (
             existing_skipped.model_key != model_key
             or existing_skipped.confirm_model_key != confirm_model_key
             or existing_skipped.confirm_model_version != confirm_model_version
+            or direction_attribution_changed
+            or direction_model_changed
         )
         if decision_changed or attribution_changed:
             existing_skipped.error_msg = reason
@@ -111,7 +125,25 @@ async def save_or_update_skipped_trade(
             existing_skipped.confirm_model_key = confirm_model_key
             existing_skipped.confirm_model_version = confirm_model_version
             existing_skipped.model_attribution_source = "EXACT" if model_key else None
-            existing_skipped.direction_value = dir_val
+            if dir_val is not None:
+                existing_skipped.direction_value = dir_val
+            if dir_model_key is not None:
+                existing_skipped.direction_model_key = dir_model_key
+            if dir_model_ver is not None:
+                existing_skipped.direction_model_version = dir_model_ver
+            if ent_model_key is not None:
+                existing_skipped.entry_model_key = ent_model_key
+            if ent_model_ver is not None:
+                existing_skipped.entry_model_version = ent_model_ver
+            if ent_model_src is not None:
+                existing_skipped.entry_model_source = ent_model_src
+            existing_skipped.p_candidate_win = details.get("p_candidate_win")
+            existing_skipped.p_logreg_win = details.get("p_logreg_win")
+            existing_skipped.direction_discount_mult = details.get("direction_discount_applied")
+            existing_skipped.combined_dir_discount_weight = details.get("combined_dir_discount_weight")
+            existing_skipped.gross_edge = details.get("gross_edge")
+            existing_skipped.cost_buffer = details.get("cost_buffer")
+            existing_skipped.net_edge = details.get("net_edge")
             existing_skipped.would_live_accept = details.get("would_live_accept")
             existing_skipped.p_flip_raw = details.get("p_flip_raw")
             existing_skipped.entry_model_ece = details.get("entry_model_ece")
@@ -139,6 +171,18 @@ async def save_or_update_skipped_trade(
             confirm_model_key=confirm_model_key,
             confirm_model_version=confirm_model_version,
             model_attribution_source="EXACT" if model_key else None,
+            direction_model_key=dir_model_key,
+            direction_model_version=dir_model_ver,
+            entry_model_key=ent_model_key,
+            entry_model_version=ent_model_ver,
+            entry_model_source=ent_model_src,
+            p_candidate_win=details.get("p_candidate_win"),
+            p_logreg_win=details.get("p_logreg_win"),
+            direction_discount_mult=details.get("direction_discount_applied"),
+            combined_dir_discount_weight=details.get("combined_dir_discount_weight"),
+            gross_edge=details.get("gross_edge"),
+            cost_buffer=details.get("cost_buffer"),
+            net_edge=n_edge,
             direction_value=dir_val,
             would_live_accept=details.get("would_live_accept"),
             p_flip_raw=details.get("p_flip_raw"),
@@ -148,6 +192,8 @@ async def save_or_update_skipped_trade(
         )
         db_session.add(history)
 
+    # Make newly persisted SHADOW telemetry visible immediately.
+    invalidate_dashboard_cache()
 
 
 async def execute_and_record(

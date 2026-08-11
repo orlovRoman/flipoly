@@ -313,6 +313,15 @@ async def get_trade_logs(
     items = []
     for log, question, end_time_est in logs_with_questions:
         funnel = funnel_map.get(log.decision_run_id)
+        # The funnel row is the canonical record for the decision that was
+        # just evaluated. A TradeHistory row can predate direction telemetry
+        # (or be a legacy SKIP row with NULL direction_value).
+        funnel_direction_value = getattr(funnel, "direction_value", None) if funnel else None
+        direction_value = (
+            funnel_direction_value
+            if funnel_direction_value is not None
+            else getattr(log, "direction_value", None)
+        )
         active_feat = getattr(log, "active_features", None)
         if not active_feat and log.status == "SKIPPED":
             base_asset = (
@@ -364,7 +373,7 @@ async def get_trade_logs(
                     if getattr(log, "updated_at", None)
                     else None
                 ),
-                "direction_value": getattr(log, "direction_value", None),
+                "direction_value": direction_value,
             }
         
         if funnel:
@@ -377,6 +386,7 @@ async def get_trade_logs(
                 "direction_probability": funnel.direction_probability,
                 "direction_threshold_up": funnel.direction_threshold_up,
                 "direction_threshold_down": funnel.direction_threshold_down,
+                "direction_value": funnel.direction_value,
                 "entry_model_key": funnel.entry_model_key,
                 "entry_model_version": funnel.entry_model_version,
                 "entry_status": funnel.entry_status,
@@ -404,7 +414,7 @@ async def get_trade_logs(
             }
             
         item["direction_display"] = direction_display_value(
-            getattr(log, "direction_value", None),
+            direction_value,
             getattr(funnel, "direction_status", None) if funnel else None,
             getattr(funnel, "entry_status", None) if funnel else None,
         )

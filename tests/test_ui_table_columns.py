@@ -44,6 +44,7 @@ def test_direction_display_distinguishes_none_from_unavailable():
     from polyflip.ui_helpers import direction_display_value
 
     assert direction_display_value("UP", "MODEL_NOT_LOADED") == "UP"
+    assert direction_display_value("DOWN", "SHADOW_NOT_APPLIED") == "DOWN"
     assert direction_display_value(None, "READY") == "NONE"
     assert direction_display_value(None, "OK") == "NONE"
     assert direction_display_value(None, "MODEL_NOT_LOADED") == "UNAVAILABLE"
