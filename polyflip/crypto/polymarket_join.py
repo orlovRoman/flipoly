@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from polyflip.db.models import LiveMarket, MarketSnapshot
+from decimal import Decimal
 
 logger = structlog.get_logger(__name__)
 
@@ -132,4 +133,70 @@ async def join_polymarket_prices(
     Обратная совместимость: обертка над join_market_outcomes_by_window
     без вызова direction='nearest'.
     """
-    return await join_market_outcomes_by_window(session, df_candles, asset)
+    if df_candles.empty:
+        return df_candles.copy()
+
+    result = df_candles.copy()
+    result["open_time"] = pd.to_datetime(result["open_time"], utc=True)
+    min_time = result["open_time"].min()
+    max_time = result["open_time"].max()
+    tolerance = pd.Timedelta(seconds=tolerance_sec)
+
+    stmt = select(
+        MarketSnapshot.market_id,
+        MarketSnapshot.mid_price.label("pm_yes_price"),
+        MarketSnapshot.final_outcome.label("pm_outcome"),
+        MarketSnapshot.recorded_at,
+    ).where(
+        MarketSnapshot.asset == asset,
+        MarketSnapshot.recorded_at >= min_time - tolerance,
+        MarketSnapshot.recorded_at <= max_time,
+    ).order_by(MarketSnapshot.recorded_at.asc())
+    rows = (await session.execute(stmt)).all()
+
+    if not rows:
+        result["pm_yes_price"] = float("nan")
+        result["pm_outcome"] = None
+        result["pm_market_id"] = None
+        return result
+
+    snapshot_rows = []
+    for row in rows:
+        price = getattr(row, "pm_yes_price", None)
+        if not isinstance(price, (int, float, Decimal)):
+            # Compatibility with lightweight row objects exposing the model
+            # field name (mid_price) instead of the SQL label.
+            price = getattr(row, "mid_price", None)
+        outcome = getattr(row, "pm_outcome", None)
+        if outcome not in {"YES", "NO", "PENDING", "INVALID"}:
+            outcome = getattr(row, "final_outcome", None)
+        snapshot_rows.append(
+            (row.market_id, price, outcome, row.recorded_at)
+        )
+    snapshots = pd.DataFrame(
+        snapshot_rows,
+        columns=["pm_market_id", "pm_yes_price", "pm_outcome", "recorded_at"],
+    )
+    snapshots["recorded_at"] = pd.to_datetime(
+        snapshots["recorded_at"], utc=True, errors="coerce"
+    )
+    snapshots["pm_yes_price"] = pd.to_numeric(
+        snapshots["pm_yes_price"], errors="coerce"
+    )
+    snapshots = snapshots.dropna(subset=["recorded_at", "pm_yes_price"])
+    snapshots = snapshots.sort_values("recorded_at").reset_index(drop=True)
+    if snapshots.empty:
+        result["pm_yes_price"] = float("nan")
+        result["pm_outcome"] = None
+        result["pm_market_id"] = None
+        return result
+
+    result = pd.merge_asof(
+        result.sort_values("open_time").reset_index(drop=True),
+        snapshots,
+        left_on="open_time",
+        right_on="recorded_at",
+        direction="backward",
+        tolerance=tolerance,
+    )
+    return result.drop(columns=["recorded_at"], errors="ignore")

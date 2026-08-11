@@ -119,7 +119,28 @@ async def get_session_exposure(db: AsyncSession, session_id: uuid.UUID) -> Decim
             ExposureReservation.released_at.is_(None),
         )
     )
-    return Decimal(str(pos_exp or 0)) + Decimal(str(res_exp or 0))
+    # During a partial fill the worker updates ExecutionRequest first and
+    # rebuilds TradeHistory afterwards. Count that filled quote once when the
+    # accounting row is still empty (or is not linked to the session).
+    request_filled = await db.scalar(
+        select(func.coalesce(func.sum(ExecutionRequest.filled_cost_usdc), 0))
+        .select_from(ExecutionRequest)
+        .outerjoin(TradeHistory, TradeHistory.id == ExecutionRequest.trade_history_id)
+        .where(
+            ExecutionRequest.live_session_id == session_id,
+            ExecutionRequest.intent == "OPEN",
+            ExecutionRequest.filled_cost_usdc > 0,
+            or_(
+                TradeHistory.id.is_(None),
+                func.coalesce(TradeHistory.entry_cost_usdc, 0) <= 0,
+            ),
+        )
+    )
+    return (
+        Decimal(str(pos_exp or 0))
+        + Decimal(str(res_exp or 0))
+        + Decimal(str(request_filled or 0))
+    )
 
 
 @dataclass(frozen=True)
@@ -146,12 +167,28 @@ async def get_session_budget_snapshot(
     )
     unfilled_expr = case((diff_expr > 0, diff_expr), else_=0)
 
-    filled_sq = (
+    filled_trade_sq = (
         select(func.coalesce(func.sum(TradeHistory.entry_cost_usdc), 0))
         .where(
             TradeHistory.live_session_id == session_obj.id,
             TradeHistory.mode == "LIVE",
             TradeHistory.position_status.in_(ACTIVE_TRADABLE_STATUSES),
+        )
+        .scalar_subquery()
+    )
+
+    filled_request_sq = (
+        select(func.coalesce(func.sum(ExecutionRequest.filled_cost_usdc), 0))
+        .select_from(ExecutionRequest)
+        .outerjoin(TradeHistory, TradeHistory.id == ExecutionRequest.trade_history_id)
+        .where(
+            ExecutionRequest.live_session_id == session_obj.id,
+            ExecutionRequest.intent == "OPEN",
+            ExecutionRequest.filled_cost_usdc > 0,
+            or_(
+                TradeHistory.id.is_(None),
+                func.coalesce(TradeHistory.entry_cost_usdc, 0) <= 0,
+            ),
         )
         .scalar_subquery()
     )
@@ -169,9 +206,9 @@ async def get_session_budget_snapshot(
         .scalar_subquery()
     )
 
-    row = (await db.execute(select(filled_sq, reserved_sq))).one()
-    filled = Decimal(str(row[0] or 0))
-    reserved = Decimal(str(row[1] or 0))
+    row = (await db.execute(select(filled_trade_sq, filled_request_sq, reserved_sq))).one()
+    filled = Decimal(str(row[0] or 0)) + Decimal(str(row[1] or 0))
+    reserved = Decimal(str(row[2] or 0))
     committed = filled + reserved
     remaining = max(
         Decimal("0"),

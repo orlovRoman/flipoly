@@ -469,6 +469,13 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks,
                            feature_set: str = "AUTO", db: AsyncSession = Depends(get_db_session)):
     """Ручной запуск обучения моделей для конкретного актива"""
     asset = asset.upper()
+    # Preserve the pre-feature_set direct-call signature:
+    # trigger_training(asset, background_tasks, db_session). FastAPI always
+    # supplies a string here; this branch is for internal callers only.
+    if not isinstance(feature_set, str) and hasattr(feature_set, "execute"):
+        if db is not None and not hasattr(db, "execute"):
+            db = feature_set
+        feature_set = "AUTO"
     feature_set = feature_set.strip().upper()
     if feature_set not in {"AUTO", "A", "B", "C"}:
         raise HTTPException(status_code=400, detail="feature_set must be AUTO, A, B or C")

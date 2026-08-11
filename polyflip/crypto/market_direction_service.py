@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.crypto.predictor import CryptoPredictor, CryptoSignal
 from polyflip.db.models import CryptoCandle, MarketDirectionSignal
+from polyflip.constants import resolve_binance_symbol
 
 logger = structlog.get_logger(__name__)
 
@@ -56,11 +57,16 @@ async def get_or_create_market_direction_signal(
 ) -> CryptoSignal:
     market_id = str(market.market_id)
     configured_symbol = getattr(market, "binance_symbol", None)
-    symbol = (
-        configured_symbol
-        if isinstance(configured_symbol, str) and configured_symbol
-        else f"{market.asset}USDT"
-    )
+    # LiveMarket.asset is not consistent across collector and trading paths:
+    # older rows contain BTC while newer rows may already contain BTCUSDT.
+    # Appending USDT blindly turns the latter into BTCUSDTUSDT and makes every
+    # loaded model look unavailable. Resolve both forms canonically.
+    symbol = resolve_binance_symbol(configured_symbol)
+    if symbol is None:
+        symbol = resolve_binance_symbol(getattr(market, "asset", None))
+    if symbol is None:
+        raw_asset = str(getattr(market, "asset", "")).strip().upper().split("_", 1)[0]
+        symbol = raw_asset if raw_asset.endswith("USDT") else f"{raw_asset}USDT"
     stmt = select(MarketDirectionSignal).where(
         MarketDirectionSignal.market_id == market_id
     )

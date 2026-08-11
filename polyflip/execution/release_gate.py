@@ -529,7 +529,15 @@ async def validate_live_release(
         max_age_val = await session.scalar(
             select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_MAX_SIGNAL_AGE_SEC")
         )
-        max_age_sec = float(max_age_val) if max_age_val is not None else 60.0
+        try:
+            max_age_sec = float(max_age_val) if max_age_val is not None else 60.0
+        except (TypeError, ValueError):
+            logger.warning(
+                "invalid_live_signal_age_setting",
+                value=str(max_age_val),
+                fallback_seconds=60.0,
+            )
+            max_age_sec = 60.0
         if age_sec > max_age_sec:
             raise ReleaseRejected(f"Signal is too old ({age_sec:.1f}s > {max_age_sec:.1f}s)")
 

@@ -98,3 +98,47 @@ async def test_get_or_create_market_direction_signal_creates_new_record():
         invert_lgbm_signal=False,
         underlying_price=3500.0,
     )
+
+
+@pytest.mark.asyncio
+async def test_market_direction_signal_normalizes_canonical_asset_symbol():
+    """Canonical BTCUSDT must not become the invalid BTCUSDTUSDT symbol."""
+    db = AsyncMock()
+    db.add = MagicMock()
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = None
+    db.execute.return_value = mock_res
+
+    market = MagicMock()
+    market.market_id = "m-canonical"
+    market.asset = "BTCUSDT"
+    market.binance_symbol = None
+    market.underlying_price = 65000.0
+
+    predictor = MagicMock(spec=CryptoPredictor)
+    predictor.predict.return_value = CryptoSignal(
+        symbol="BTCUSDT",
+        model_key="BTCUSDT_low_vol",
+        direction="UP",
+        p_up=0.7,
+        p_down=0.3,
+        signal_strength=0.2,
+        strike=65000.0,
+        threshold_up=0.55,
+        threshold_down=0.45,
+        model_version=3,
+        features_ok=True,
+        risk_vetoed=False,
+        regime="low_vol",
+        status="READY",
+    )
+
+    await get_or_create_market_direction_signal(db, market, [], predictor)
+
+    predictor.predict.assert_called_once_with(
+        [],
+        "BTCUSDT",
+        funding_rate=None,
+        invert_lgbm_signal=False,
+        underlying_price=65000.0,
+    )
