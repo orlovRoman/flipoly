@@ -375,6 +375,11 @@ async def test_release_rejected_when_signal_too_old(mock_client_class, db_sessio
     await _set_release_mode(db_session, "AUTO")
     trade = await _make_paper_trade(db_session)
     req = await _make_paper_request(db_session, trade)
+    db_session.add(RuntimeSettings(
+        key="LIVE_MAX_SIGNAL_AGE_SEC", value="30",
+        updated_at=datetime.now(timezone.utc), updated_by="test",
+    ))
+
 
     # Старый сигнал (40 секунд назад)
     req.updated_at = datetime.now(timezone.utc) - timedelta(seconds=40)

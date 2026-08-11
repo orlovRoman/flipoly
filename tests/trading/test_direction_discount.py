@@ -86,6 +86,7 @@ def test_evaluate_combined_entry_with_discount():
     raw_config = {
         "TRADING_ENABLED": "true",
         "TRADING_MODE": "combined",
+        "LIGHTGBM_DECISION_MODE": "ACTIVE",
         "TRADE_ASSETS": "BTC",
         "MIN_DIRECTION_PROB": "0.505",
         "MIN_WIN_PROB": "0.51",

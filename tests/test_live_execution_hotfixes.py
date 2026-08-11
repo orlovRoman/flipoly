@@ -458,7 +458,7 @@ async def test_minimum_live_order_amount_validation():
     candidate.signal_hash = sig_hash
 
     db_session = AsyncMock()
-    db_session.scalar.side_effect = ["true", 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    db_session.scalar.side_effect = ["60", "true", 0, 0, 0, 0, 0, 0, 0, 0]
 
     active_session_mock = MagicMock()
     active_session_mock.max_single_order_usdc = Decimal("10.0")
@@ -474,7 +474,7 @@ async def test_minimum_live_order_amount_validation():
 
     execute_result = MagicMock()
     execute_result.scalar_one_or_none.return_value = active_session_mock
-    execute_result.one.return_value = (Decimal("0"), Decimal("0"))
+    execute_result.one.return_value = (Decimal("0"), Decimal("0"), Decimal("0"))
     db_session.execute.return_value = execute_result
 
     with patch(

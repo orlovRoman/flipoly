@@ -84,7 +84,7 @@ def make_test_sig(**kwargs) -> CryptoSignal:
 
 
 def test_lgbm_unavailable_policy_skip():
-    cfg = make_test_cfg(lgbm_unavailable_policy="SKIP")
+    cfg = make_test_cfg(lgbm_unavailable_policy="SKIP", lightgbm_decision_mode="ACTIVE")
     sig = make_test_sig(
         direction="NONE",
         p_up=0.5,
@@ -113,7 +113,7 @@ def test_lgbm_unavailable_policy_skip():
 
 
 def test_lgbm_unavailable_policy_logreg_fallback():
-    cfg = make_test_cfg(lgbm_unavailable_policy="LOGREG_FALLBACK")
+    cfg = make_test_cfg(lgbm_unavailable_policy="LOGREG_FALLBACK", lightgbm_decision_mode="ACTIVE")
     sig = make_test_sig(
         direction="NONE",
         p_up=0.5,

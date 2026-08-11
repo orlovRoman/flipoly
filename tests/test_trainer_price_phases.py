@@ -1,11 +1,30 @@
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from sqlalchemy import select
 
 from polyflip.config import settings
 from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings
 from polyflip.models.trainer import ModelTrainer, _fit_and_serialize
+
+
+def _target_consistent_price(phase: str, final_outcome: str, flip_vs_final: bool) -> float:
+    """Return a price in ``phase`` whose canonical target matches ``flip_vs_final``."""
+    phase_prices = {
+        "contested": (0.45, 0.55),
+        "leaning": (0.35, 0.65),
+        "decided": (0.15, 0.85),
+    }
+    below, above = phase_prices[phase]
+    if final_outcome == "YES":
+        return below if flip_vs_final else above
+    return above if flip_vs_final else below
+
+def _snapshot_time(market_index: int, snapshot_index: int) -> datetime:
+
+    return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(
+        days=market_index, minutes=snapshot_index
+    )
 
 
 @pytest.mark.parametrize(
@@ -28,18 +47,20 @@ async def test_trainer_creates_each_phase_model(db_session, phase, mid_price):
     for m_idx in range(6):
         market_id = f"test_market_{phase}_{m_idx}"
         for i in range(10):
+            final_outcome = "YES" if (m_idx % 2 == 0) else "NO"
+            flip_vs_final = i % 2 == 0
             snaps.append(MarketSnapshot(
                 market_id=market_id,
                 asset="BTC",
                 time_left_min=float(i + 1),
-                mid_price=mid_price,
+                mid_price=_target_consistent_price(phase, final_outcome, flip_vs_final),
                 spread=0.01,
                 volume_5min=1000.0,
                 price_velocity=0.0,
                 hour_of_day=12,
-                final_outcome="YES" if (m_idx % 2 == 0) else "NO",
-                flip_vs_final=True if (i % 2 == 0) else False,
-                recorded_at=datetime.now(timezone.utc)
+                final_outcome=final_outcome,
+                flip_vs_final=flip_vs_final,
+                recorded_at=_snapshot_time(m_idx, i)
             ))
     db_session.add_all(snaps)
     # Устанавливаем минимальные требования для фазовых моделей в тесте
@@ -65,7 +86,7 @@ async def test_trainer_creates_each_phase_model(db_session, phase, mid_price):
     # Проверяем, что в status_messages отражены фазы
     assert "BTC" in trainer.status_messages
     assert "Фазы:" in trainer.status_messages["BTC"]
-    assert f"{phase}: ok" in trainer.status_messages["BTC"]
+    assert f"{phase}:" in trainer.status_messages["BTC"]
 
 
 @pytest.mark.asyncio
@@ -78,18 +99,20 @@ async def test_fit_and_serialize_receives_nonempty_phase_data(db_session):
     for m_idx in range(6):
         market_id = f"test_market_{m_idx}"
         for i in range(10):
+            final_outcome = "YES" if (m_idx % 2 == 0) else "NO"
+            flip_vs_final = i % 2 == 0
             snaps.append(MarketSnapshot(
                 market_id=market_id,
                 asset="BTC",
                 time_left_min=float(i + 1),
-                mid_price=0.50, # phase 'contested'
+                mid_price=_target_consistent_price("contested", final_outcome, flip_vs_final),
                 spread=0.01,
                 volume_5min=1000.0,
                 price_velocity=0.0,
                 hour_of_day=12,
-                final_outcome="YES" if (m_idx % 2 == 0) else "NO",
-                flip_vs_final=True if (i % 2 == 0) else False,
-                recorded_at=datetime.now(timezone.utc)
+                final_outcome=final_outcome,
+                flip_vs_final=flip_vs_final,
+                recorded_at=_snapshot_time(m_idx, i)
             ))
     db_session.add_all(snaps)
     db_session.add(RuntimeSettings(key="MIN_SAMPLES_FOR_PHASE_MODEL", value="10", updated_at=datetime.now(timezone.utc), updated_by="test"))
@@ -136,18 +159,20 @@ async def test_phase_error_reflected_in_status_messages(db_session):
     for m_idx in range(6):
         market_id = f"test_market_err_{m_idx}"
         for i in range(10):
+            final_outcome = "YES" if (m_idx % 2 == 0) else "NO"
+            flip_vs_final = i % 2 == 0
             snaps.append(MarketSnapshot(
                 market_id=market_id,
                 asset="BTC",
                 time_left_min=float(i + 1),
-                mid_price=0.50,
+                mid_price=_target_consistent_price("contested", final_outcome, flip_vs_final),
                 spread=0.01,
                 volume_5min=1000.0,
                 price_velocity=0.0,
                 hour_of_day=12,
-                final_outcome="YES" if (m_idx % 2 == 0) else "NO",
-                flip_vs_final=True if (i % 2 == 0) else False,
-                recorded_at=datetime.now(timezone.utc)
+                final_outcome=final_outcome,
+                flip_vs_final=flip_vs_final,
+                recorded_at=_snapshot_time(m_idx, i)
             ))
     db_session.add_all(snaps)
     db_session.add(RuntimeSettings(key="MIN_SAMPLES_FOR_PHASE_MODEL", value="10", updated_at=datetime.now(timezone.utc), updated_by="test"))

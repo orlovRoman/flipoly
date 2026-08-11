@@ -359,13 +359,26 @@ def _fit_and_serialize(
             timestamps.iloc[train_index].reset_index(drop=True)
             if timestamps is not None else None
         )
-        base_idx, calibration_idx = _group_holdout_indices(
-            X_train, y_train, inner_groups, inner_timestamps,
-            validation_fraction=0.2,
-        )
+        try:
+            base_idx, calibration_idx = _group_holdout_indices(
+                X_train, y_train, inner_groups, inner_timestamps,
+                validation_fraction=0.2,
+            )
+        except (ValueError, IndexError) as exc:
+            # The earliest walk-forward fold can contain only one market. It
+            # cannot be split into disjoint calibration groups; fit that fold
+            # without calibration instead of aborting the whole training job.
+            logger.warning(
+                "calibration_split_unavailable",
+                error=str(exc),
+                train_groups=int(inner_groups.nunique()),
+            )
+            base_idx = calibration_idx = None
         fold_base = clone(base_model)
         if (
-            len(np.unique(y_train.iloc[base_idx])) < 2
+            base_idx is None
+            or calibration_idx is None
+            or len(np.unique(y_train.iloc[base_idx])) < 2
             or len(np.unique(y_train.iloc[calibration_idx])) < 2
         ):
             calibration_fallback_folds += 1

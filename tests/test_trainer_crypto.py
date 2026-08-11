@@ -159,8 +159,8 @@ async def test_partial_regime_set_loads_available_model(db_session):
     # 2. Добавляем две реальные строки из трех (low_vol, high_vol)
     dummy_model = b"dummy_model_data"
     db_session.add_all([
-        ModelRegistry(asset="BTCUSDT_low_vol", is_active=True, version=1, model_blob=dummy_model, ece=0.1, trained_at=now, accuracy=0.8),
-        ModelRegistry(asset="BTCUSDT_high_vol", is_active=True, version=2, model_blob=dummy_model, ece=0.2, trained_at=now, accuracy=0.8),
+        ModelRegistry(asset="BTCUSDT_low_vol", is_active=True, version=1, model_blob=dummy_model, ece=0.1, trained_at=now, accuracy=0.8, training_params={"target_source": "POLYMARKET_FINAL_OUTCOME"}),
+        ModelRegistry(asset="BTCUSDT_high_vol", is_active=True, version=2, model_blob=dummy_model, ece=0.2, trained_at=now, accuracy=0.8, training_params={"target_source": "POLYMARKET_FINAL_OUTCOME"}),
     ])
     await db_session.commit()
     
