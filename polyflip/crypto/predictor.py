@@ -13,7 +13,9 @@ import structlog
 from polyflip.db.models import ModelRegistry, RuntimeSettings
 from polyflip.crypto.feature_builder import build_crypto_features, CRYPTO_FEATURE_COLUMNS
 from polyflip.crypto.edge import compute_crypto_signal_strength
-from polyflip.crypto.trainer import CRYPTO_FEATURES
+from polyflip.crypto.feature_sets import CONTROL_FEATURES, parse_feature_names, validate_feature_schema
+
+CRYPTO_FEATURES = list(CONTROL_FEATURES)
 
 logger = structlog.get_logger(__name__)
 
@@ -97,6 +99,7 @@ class CryptoPredictor:
         ]
         self._models: dict[str, dict[str, Any]] = {}
         self._model_versions: dict[str, dict[str, int]] = {}
+        self._model_features: dict[str, dict[str, tuple[str, ...]]] = {}
         self._model_intervals: dict[str, dict[str, str]] = {}
         self._thresholds: dict[str, dict[str, tuple[float, float]]] = {}
         self._model_eces: dict[str, dict[str, float]] = {} # BUG-AO
@@ -121,6 +124,7 @@ class CryptoPredictor:
                 inst._loaded_symbols.discard(symbol)
                 inst._models.pop(symbol, None)
                 inst._model_versions.pop(symbol, None)
+                inst._model_features.pop(symbol, None)
                 inst._model_eces.pop(symbol, None) # BUG-AO
                 inst._model_intervals.pop(symbol, None)
                 inst._thresholds.pop(symbol, None)
@@ -151,6 +155,7 @@ class CryptoPredictor:
         self._loaded_symbols.discard(symbol)
         self._models.pop(symbol, None)
         self._model_versions.pop(symbol, None)
+        self._model_features.pop(symbol, None)
         self._model_intervals.pop(symbol, None)
         self._thresholds.pop(symbol, None)
         self._model_eces.pop(symbol, None) # BUG-AO
@@ -271,6 +276,7 @@ class CryptoPredictor:
 
                 self._models[symbol] = {}
                 self._model_versions[symbol] = {}
+                self._model_features[symbol] = {}
                 self._model_intervals[symbol] = {}
                 self._model_eces[symbol] = {}
                 self._thresholds[symbol] = {}
@@ -316,7 +322,23 @@ class CryptoPredictor:
                         missing_regimes.append(regime)
                         continue
 
-                    self._models[symbol][regime] = pickle.loads(row.model_blob)
+                    try:
+                        feature_names = validate_feature_schema(
+                            parse_feature_names(row.features) or tuple(CRYPTO_FEATURES)
+                        )
+                        loaded_model = pickle.loads(row.model_blob)
+                        actual = getattr(loaded_model, "n_features_in_", None)
+                        if isinstance(actual, (int, np.integer)) and actual != len(feature_names):
+                            raise ValueError(f"FEATURE_COUNT_MISMATCH expected={len(feature_names)} actual={actual}")
+                        if not callable(getattr(loaded_model, "predict_proba", None)):
+                            raise ValueError("PREDICT_PROBA_UNAVAILABLE")
+                    except Exception as exc:
+                        logger.error("crypto_model_not_loadable", symbol=symbol, regime=regime, version=row.version, reason=str(exc))
+                        missing_regimes.append(regime)
+                        continue
+
+                    self._models[symbol][regime] = loaded_model
+                    self._model_features[symbol][regime] = feature_names
                     self._model_versions[symbol][regime] = row.version
                     self._model_intervals[symbol][regime] = getattr(row, 'interval', '15m')
                     self._model_eces[symbol][regime] = row.ece or 0.0
@@ -408,12 +430,6 @@ class CryptoPredictor:
             policy = VolatilityRegimePolicy(low_boundary=vol_p33, high_boundary=vol_p67)
             regime = policy.classify(vol_trend)
 
-            # 2. Pydantic-валидация признаков
-            validated = CryptoFeaturesValidator(**fv_dict)
-            
-            # Порядок фичей для LightGBM
-            fv_array = np.array([getattr(validated, f) for f in CRYPTO_FEATURES], dtype=np.float64)
-
             if regime not in self._models.get(symbol, {}):
                 logger.warning("regime_unavailable_for_predict", symbol=symbol, regime=regime)
                 return CryptoSignal(
@@ -426,6 +442,13 @@ class CryptoPredictor:
 
             selected_regime = regime
             model = self._models.get(symbol, {})[selected_regime]
+            feature_names = self._model_features.get(symbol, {}).get(selected_regime, tuple(CRYPTO_FEATURES))
+            missing_features = [name for name in feature_names if name not in fv_dict]
+            if missing_features:
+                raise ValueError(f"FEATURE_SCHEMA_UNAVAILABLE: {missing_features}")
+            fv_array = np.asarray([fv_dict[name] for name in feature_names], dtype=np.float64)
+            if not np.isfinite(fv_array).all():
+                raise ValueError("FEATURE_VALUES_NON_FINITE")
             version = self._model_versions.get(symbol, {}).get(selected_regime, -1)
             th_up, th_down = self._thresholds.get(symbol, {}).get(selected_regime, (0.55, 0.45))
             model_key = f"{symbol}_{selected_regime}"

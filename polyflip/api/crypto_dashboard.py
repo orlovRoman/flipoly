@@ -32,6 +32,7 @@ from polyflip.crypto.backtester import run_backtest
 from polyflip.crypto.feature_builder import build_features
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.trainer import CryptoModelTrainer
+from polyflip.crypto.feature_sets import CONTROL_FEATURES, normalize_feature_set, parse_feature_names, validate_feature_schema
 from polyflip.db.connection import async_session, get_db_session
 from polyflip.db.models import ModelRegistry, TradeHistory, RuntimeSettings
 from polyflip.crypto.predictor import CryptoPredictor
@@ -128,6 +129,8 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
             ModelRegistry.quality_override,
             ModelRegistry.activated_at,
             ModelRegistry.activation_reason,
+            ModelRegistry.training_params,
+            ModelRegistry.feature_importance,
             ModelRegistry.precision_at_threshold,
             ModelRegistry.recall_at_threshold,
             ModelRegistry.f1_at_threshold,
@@ -219,11 +222,16 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
                 "ece": round_optional(m.ece) if getattr(m, "ece", None) else None,
                 "threshold": round_optional(m.decision_threshold),
                 "threshold_down": round_optional(m.decision_threshold_down),
-                "features": m.features.split(",") if getattr(m, "features", None) else [],
+                "features": m.features.split(",") if getattr(m, "features", None) else list(CONTROL_FEATURES),
+                "feature_set": (m.training_params or {}).get("feature_set", "A"),
+                "feature_set_version": (m.training_params or {}).get("feature_set_version", "legacy"),
+                "target_source": (m.training_params or {}).get("target_source"),
+                "is_loadable": (m.training_params or {}).get("target_source") == "POLYMARKET_FINAL_OUTCOME",
+                "loadability_reason": (None if (m.training_params or {}).get("target_source") == "POLYMARKET_FINAL_OUTCOME" else "NON_CANONICAL_TARGET"),
                 "trained_at": (
                     m.trained_at.isoformat() if getattr(m, "trained_at", None) else None
                 ),
-                "feature_importance": feature_importances.get(m.asset, {}),
+                "feature_importance": m.feature_importance or feature_importances.get(m.asset, {}),
                 # Аудит Quality Gate и активации
                 "quality_gate_passed": m.quality_gate_passed,
                 "quality_gate_reasons": m.quality_gate_reasons,
@@ -491,11 +499,18 @@ async def crypto_train(
     background_tasks: BackgroundTasks,
     symbol: str = "BTCUSDT",
     interval: str = "15m",
+    feature_set: str = "A",
+    activate_after_train: bool = False,
 ):
     """
     Запускает переобучение LightGBM-модели в фоне.
     Не блокирует HTTP-ответ — обучение идёт в background task.
     """
+    try:
+        normalized_feature_set = normalize_feature_set(feature_set)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     existing_training = _active_trainings.get(symbol)
     if existing_training and existing_training.get("status") == "training":
         return {
@@ -515,7 +530,12 @@ async def crypto_train(
         try:
             async with async_session() as session:
                 trainer = CryptoModelTrainer(session)
-                ok = await trainer.train(symbol, interval)
+                ok = await trainer.train(
+                    symbol,
+                    interval,
+                    feature_set=normalized_feature_set,
+                    activate_after_train=activate_after_train,
+                )
                 logger.info("crypto_retrain_done", symbol=symbol, success=ok)
                 _active_trainings[symbol] = {
                     "status": "success" if ok else "failed",
@@ -570,6 +590,8 @@ async def crypto_models_coverage(db: AsyncSession = Depends(get_db_session)):
             ModelRegistry.trained_at,
             ModelRegistry.quality_gate_passed,
             ModelRegistry.activation_source,
+            ModelRegistry.training_params,
+            ModelRegistry.features,
         )
         .where(ModelRegistry.asset.in_(allowed_assets))
         .order_by(ModelRegistry.asset, ModelRegistry.version.desc())
@@ -597,10 +619,14 @@ async def crypto_models_coverage(db: AsyncSession = Depends(get_db_session)):
                 ),
                 "quality_gate_passed": active_row.quality_gate_passed if active_row else None,
                 "activation_source": active_row.activation_source if active_row else None,
+                "target_source": (active_row.training_params or {}).get("target_source") if active_row else None,
+                "feature_set_version": (active_row.training_params or {}).get("feature_set_version", "legacy") if active_row else None,
+                "is_loadable": bool(active_row and (active_row.training_params or {}).get("target_source") == "POLYMARKET_FINAL_OUTCOME"),
                 "recent_versions": all_versions,
                 "status": (
-                    "ACTIVE" if active_row else
-                    ("HAS_INACTIVE" if all_versions else "MISSING")
+                    ("ACTIVE" if (active_row and (active_row.training_params or {}).get("target_source") == "POLYMARKET_FINAL_OUTCOME") else
+                     "ACTIVE_UNLOADABLE" if active_row else
+                     ("HAS_INACTIVE" if all_versions else "MISSING"))
                 ),
             }
 
@@ -662,6 +688,8 @@ async def crypto_models_analytics(
             ModelRegistry.f1_at_threshold,
             ModelRegistry.brier_score,
             ModelRegistry.activation_source,
+            ModelRegistry.training_params,
+            ModelRegistry.features,
             ModelRegistry.quality_gate_passed,
             ModelRegistry.quality_override,
         )
@@ -952,32 +980,34 @@ async def activate_crypto_model(
     if not model:
         raise HTTPException(status_code=404, detail=f"Версия {version} не найдена")
 
-    # 1.5 Smoke Test: Проверка совместимости формата признаков
-    if model.model_blob and model.model_blob not in (b"fake", b"v1", b"v2", b"sol", b"v5"):
-        from polyflip.crypto.trainer import CRYPTO_FEATURES, _model_smoke_test
-        smoke_error = _model_smoke_test(model.model_blob)
-        if smoke_error:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Smoke Test Failed: Модель несовместима с текущим форматом признаков ({len(CRYPTO_FEATURES)}). "
-                       f"Ошибка инференса: {smoke_error}. Необходимо переобучить модель.",
-            )
-
-    # 2. Quality Gate check — только если поле явно False (None = legacy, не блокируем)
-    if model.quality_gate_passed is False and not payload.force:
-        reasons = model.quality_gate_reasons or {}
+    # 1.5 Technical artifact validation. Performance metrics are advisory and
+    # must not block manual experiments.
+    params = model.training_params or {}
+    if params.get("target_source") != "POLYMARKET_FINAL_OUTCOME":
         raise HTTPException(
-            status_code=409,
+            status_code=422,
             detail={
-                "code": "QUALITY_GATE_OVERRIDE_REQUIRED",
-                "message": f"Модель {asset} v{version} не прошла Quality Gate. Передайте force=true для ручной активации.",
-                "metrics": {
-                    "auc": model.accuracy,
-                    "ece": model.ece,
-                    "precision": model.precision_at_threshold,
-                    "recall": model.recall_at_threshold,
-                    "reasons": reasons.get("reasons", []),
-                },
+                "code": "NON_CANONICAL_TARGET",
+                "message": "Only POLYMARKET_FINAL_OUTCOME models can be activated",
+                "target_source": params.get("target_source"),
+            },
+        )
+    try:
+        model_features = validate_feature_schema(
+            parse_feature_names(model.features) or tuple(CONTROL_FEATURES)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    from polyflip.crypto.trainer import _model_smoke_test
+    smoke_error = _model_smoke_test(model.model_blob, model_features)
+    if smoke_error:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "MODEL_ARTIFACT_INVALID",
+                "message": "Model artifact is incompatible with its feature schema",
+                "error": smoke_error,
             },
         )
 
@@ -993,7 +1023,7 @@ async def activate_crypto_model(
     # Семантика (баг #4): activation_source показывает КТО активировал,
     # quality_override показывает, был ли обойдён Quality Gate
     now = datetime.now(timezone.utc)
-    is_quality_override = model.quality_gate_passed is False
+    is_quality_override = False
 
     await db.execute(
         update(ModelRegistry)

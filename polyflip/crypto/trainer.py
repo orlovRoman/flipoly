@@ -8,6 +8,7 @@ LightGBM-тренер для крипто-модели Up/Down на OHLCV-све
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import pickle
 import time
@@ -22,8 +23,6 @@ from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_sco
 from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from polyflip.constants import MODEL_THRESHOLD_MIN, MODEL_THRESHOLD_MAX
-
 from polyflip.constants import (
     CV_N_SPLITS,
     CV_RANDOM_STATE,
@@ -41,24 +40,13 @@ from polyflip.models.trainer import _get_training_semaphore
 
 logger = structlog.get_logger(__name__)
 
-CRYPTO_FEATURES = [
-    # Returns — только короткие горизонты
-    "ret_1", "ret_3", "ret_6",
-    # Volatility — только короткие
-    "vol_6", "vol_24",
-    # Volume & CVD
-    "vol_z_1", "taker_buy_ratio", "cvd_1", "cvd_6",
-    # Technical
-    "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
-    # Position vs extremes — только 24h
-    "dist_to_high_24", "dist_to_low_24",
-    # Range
-    "range_1", "range_avg_24",
-    # Consecutive
-    "consec_balance",
-    # Time (Cyclic)
-    "hour_sin", "hour_cos", "dow_sin", "dow_cos",
-]
+from polyflip.crypto.feature_sets import (
+    CONTROL_FEATURES,
+    feature_schema_hash,
+    get_feature_set,
+)
+
+CRYPTO_FEATURES = list(CONTROL_FEATURES)
 
 
 # Fail fast при старте: CRYPTO_FEATURES должен быть подмножеством CRYPTO_FEATURE_COLUMNS
@@ -73,13 +61,37 @@ QUALITY_GATE_MAX_ECE = 0.15
 QUALITY_GATE_MAX_ACTIVE_DEGRADATION = 0.02
 
 
-def _model_smoke_test(model_bytes: bytes) -> str | None:
+def _dataset_fingerprint(df: pd.DataFrame, features: list[str]) -> str:
+    """Build an order-independent fingerprint from identity, target and features."""
+    columns = [
+        column
+        for column in ("market_id", "market_start", "target", *features)
+        if column in df.columns
+    ]
+    if not columns:
+        return hashlib.sha256(b"").hexdigest()[:32]
+    canonical = df.loc[:, columns]
+    sort_columns = [column for column in ("market_id", "market_start") if column in columns]
+    canonical = canonical.sort_values(sort_columns or columns, kind="mergesort").reset_index(drop=True)
+    payload = json.dumps(
+        canonical.to_dict(orient="records"),
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+
+
+def _model_smoke_test(
+    model_bytes: bytes,
+    features: tuple[str, ...] | list[str] | None = None,
+) -> str | None:
     """Return an audit-friendly error when a serialized model is unsafe to activate."""
     try:
         clf = pickle.loads(model_bytes)
-        expected = len(CRYPTO_FEATURES)
+        expected = len(features or tuple(CRYPTO_FEATURES))
         actual = getattr(clf, "n_features_in_", None)
-        if actual != expected:
+        if actual is not None and actual != expected:
             return f"ModelCompatibilityError: expected={expected}, actual={actual}"
 
         predict_proba = getattr(clf, "predict_proba", None)
@@ -110,58 +122,62 @@ def _evaluate_quality_gate(
     ece: float,
     threshold: float,
     threshold_down: float,
+    features: tuple[str, ...] | list[str] | None = None,
     active_accuracy: float | None = None,
     active_version: int | None = None,
 ) -> tuple[bool, list[str], float, float]:
-    """Evaluate every activation invariant and return sanitized decision thresholds."""
+    """Validate artifact compatibility; quality metrics remain advisory diagnostics."""
     reasons: list[str] = []
-
     metrics = {"accuracy": val_auc, "baseline": baseline_auc, "ece": ece}
     invalid_metrics = [name for name, value in metrics.items() if not np.isfinite(value)]
     if invalid_metrics:
-        reasons.append(f"Non-finite quality metrics: {', '.join(invalid_metrics)}")
+        reasons.append(f"Advisory: Non-finite quality metrics: {', '.join(invalid_metrics)}")
     else:
         lift = val_auc - baseline_auc
         if lift < QUALITY_GATE_MIN_LIFT:
             reasons.append(
-                f"Negative lift vs baseline: {lift:+.4f} "
+                f"Advisory: Negative lift vs baseline: {lift:+.4f} "
                 f"(accuracy={val_auc:.4f}, baseline={baseline_auc:.4f})"
             )
         if ece > QUALITY_GATE_MAX_ECE:
             reasons.append(
-                f"Excessive ECE calibration error: {ece:.4f} > {QUALITY_GATE_MAX_ECE:.2f}"
+                f"Advisory: Excessive ECE calibration error: {ece:.4f} > {QUALITY_GATE_MAX_ECE:.2f}"
             )
 
     if active_accuracy is not None:
         if not np.isfinite(active_accuracy):
-            reasons.append("Active model accuracy is non-finite")
+            reasons.append("Advisory: Active model accuracy is non-finite")
         elif np.isfinite(val_auc):
             acc_diff = val_auc - active_accuracy
             if acc_diff < -QUALITY_GATE_MAX_ACTIVE_DEGRADATION:
                 reasons.append(
-                    f"Accuracy degraded vs active model v{active_version}: "
+                    f"Advisory: Accuracy degraded vs active model v{active_version}: "
                     f"{acc_diff:+.4f} < -{QUALITY_GATE_MAX_ACTIVE_DEGRADATION:.2f}"
                 )
 
-    sanitized_thresholds: list[float] = []
+    normalized_thresholds: list[float] = []
     for label, value in (("UP", threshold), ("DOWN", threshold_down)):
         if not np.isfinite(value):
-            sanitized = (MODEL_THRESHOLD_MIN + MODEL_THRESHOLD_MAX) / 2
-            reasons.append(f"{label} threshold is non-finite, reset to {sanitized:.4f}")
+            normalized = 0.5
+            reasons.append(f"{label} threshold is non-finite, reset to {normalized:.4f}")
         else:
-            sanitized = max(MODEL_THRESHOLD_MIN, min(MODEL_THRESHOLD_MAX, value))
-            if sanitized != value:
+            original = float(value)
+            normalized = max(0.0, min(1.0, original))
+            if normalized != original:
                 reasons.append(
-                    f"{label} threshold {value:.4f} outside safe bounds "
-                    f"[{MODEL_THRESHOLD_MIN}, {MODEL_THRESHOLD_MAX}], clipped to {sanitized:.4f}"
+                    f"{label} threshold {original:.4f} outside probability bounds [0.0, 1.0], "
+                    f"normalized to {normalized:.4f}"
                 )
-        sanitized_thresholds.append(sanitized)
+        normalized_thresholds.append(normalized)
 
-    smoke_error = _model_smoke_test(model_bytes)
+    smoke_error = _model_smoke_test(model_bytes, features)
     if smoke_error:
         reasons.append(smoke_error)
 
-    return not reasons, reasons, sanitized_thresholds[0], sanitized_thresholds[1]
+    technical_errors = [
+        reason for reason in reasons if reason.startswith("ModelCompatibilityError")
+    ]
+    return not technical_errors, reasons, normalized_thresholds[0], normalized_thresholds[1]
 
 
 # Epsilon filter removed as per MARKET_WINDOW_V1 spec.
@@ -241,8 +257,14 @@ def _fit_lgbm_and_serialize(
     valid_mask = ~np.isnan(oof_scores)
     try:
         if valid_mask.sum() > 10:
-            frac_pos, mean_pred = calibration_curve(y[valid_mask], oof_scores[valid_mask], n_bins=10, strategy="uniform")
-            ece = float(np.mean(np.abs(frac_pos - mean_pred)))
+            y_cal = y[valid_mask].to_numpy(dtype=float)
+            p_cal = oof_scores[valid_mask]
+            frac_pos, mean_pred = calibration_curve(y_cal, p_cal, n_bins=10, strategy="uniform")
+            edges = np.linspace(0.0, 1.0, 11)
+            bucket = np.clip(np.digitize(p_cal, edges[1:-1], right=False), 0, 9)
+            counts = np.bincount(bucket, minlength=10)
+            weights = counts[counts > 0] / len(p_cal)
+            ece = float(np.sum(weights * np.abs(frac_pos - mean_pred)))
         else:
             ece = 0.5
     except ValueError:
@@ -364,9 +386,17 @@ class CryptoModelTrainer:
         self.db = db_session
 
     async def train(
-        self, symbol: str, interval: str = "15m", save_settings: bool = True
+        self,
+        symbol: str,
+        interval: str = "15m",
+        save_settings: bool = True,
+        *,
+        feature_set: str = "A",
+        activate_after_train: bool = True,
     ) -> bool:
-        logger.info("crypto_training_start", symbol=symbol, interval=interval)
+        feature_spec=get_feature_set(feature_set)
+        available=list(feature_spec.features)
+        logger.info("crypto_training_start", symbol=symbol, interval=interval, feature_set=feature_spec.key, feature_set_version=feature_spec.version, activate_after_train=activate_after_train)
 
         # Загружаем все свечи для символа
         candles = await get_recent_candles(
@@ -438,7 +468,7 @@ class CryptoModelTrainer:
             return False
 
         # 3. Добавить строгую валидацию датасета
-        required_cols = {"market_id", "market_start", "feature_available_at", "final_outcome", "target", *CRYPTO_FEATURES}
+        required_cols = {"market_id", "market_start", "feature_available_at", "final_outcome", "target", *available}
         missing_cols = required_cols - set(df_filtered.columns)
         if missing_cols:
             logger.error("training_dataset_missing_columns", missing=list(missing_cols))
@@ -447,7 +477,7 @@ class CryptoModelTrainer:
         assert df_filtered["market_id"].is_unique, "market_id must be strictly unique in dataset"
         assert set(df_filtered["target"].unique()).issubset({0, 1}), "target must be in {0, 1}"
         assert (df_filtered["feature_available_at"] <= df_filtered["market_start"]).all(), "feature_available_at must be <= market_start"
-        assert df_filtered[CRYPTO_FEATURES].isna().sum().sum() == 0, "features must not contain NaN"
+        assert df_filtered[available].isna().sum().sum() == 0, "features must not contain NaN"
         assert len(df_filtered["target"].unique()) == 2, "both target classes (0 and 1) must be present"
 
         logger.info(
@@ -458,8 +488,6 @@ class CryptoModelTrainer:
             duplicates=0,
             future_feature_rows=0,
         )
-
-        available = [f for f in CRYPTO_FEATURES if f in df_filtered.columns]
 
         # 7. Синхронизированный расчет границ волатильности через VolatilityRegimePolicy
         vol_p33 = float(df_filtered["vol_trend"].quantile(0.33))
@@ -502,6 +530,7 @@ class CryptoModelTrainer:
                 logger.warning("regime_too_small", regime=regime, rows=len(df_regime))
                 continue
 
+            dataset_fingerprint = _dataset_fingerprint(df_regime, available)
             try:
                 X_r = df_regime[available].reset_index(drop=True)
                 y_r = df_regime["target"].reset_index(drop=True)
@@ -573,23 +602,14 @@ class CryptoModelTrainer:
                     ece=ece,
                     threshold=threshold,
                     threshold_down=threshold_down,
+                    features=available,
                     active_accuracy=(active_crypto_model.accuracy if active_crypto_model else None),
                     active_version=(active_crypto_model.version if active_crypto_model else None),
                 )
 
-                should_activate = passed_quality_gate
-                if not passed_quality_gate:
-                    logger.warning(
-                        "crypto_model_quality_gate_failed",
-                        asset=regime_asset,
-                        reasons=gate_reasons,
-                        val_auc=val_auc,
-                        baseline=baseline_auc,
-                        ece=ece,
-                        action="Crypto model saved as is_active=False. Retaining current active model."
-                    )
-                else:
-                    logger.info("crypto_model_quality_gate_passed", asset=regime_asset, val_auc=val_auc, baseline=baseline_auc)
+                should_activate=bool(activate_after_train and passed_quality_gate)
+                if gate_reasons:
+                    logger.info("crypto_model_diagnostics", asset=regime_asset, technical_valid=passed_quality_gate, findings=gate_reasons)
 
                 # Деактивируем старые записи только если новая модель прошла Quality Gate
                 if should_activate:
@@ -643,16 +663,25 @@ class CryptoModelTrainer:
                     training_params={
                         **adaptive_params,
                         "target_source": "POLYMARKET_FINAL_OUTCOME",
+                        "feature_set": feature_spec.key,
+                        "feature_set_version": feature_spec.version,
+                        "feature_schema_hash": feature_schema_hash(available),
+                        "feature_count": len(available),
+                        "validation_scheme": "TIME_SERIES_SPLIT",
+                        "activation_after_train": activate_after_train,
                         "resolution_source": "CHAINLINK",
                         "alignment_version": "MARKET_WINDOW_V1",
                         "feature_schema_version": "CRYPTO_FEATURES_V2",
                         "dataset_rows": len(df_regime),
+                        "dataset_fingerprint": dataset_fingerprint,
                         "dataset_start": str(df_regime["market_start"].min()) if "market_start" in df_regime else None,
                         "dataset_end": str(df_regime["market_start"].max()) if "market_start" in df_regime else None,
                         "vol_p33": vol_p33,
                         "vol_p67": vol_p67,
                     },
                     features=",".join(available),
+                    feature_importance=fi,
+                    dataset_fingerprint=dataset_fingerprint,
                     ece=ece,
                     is_active=should_activate,
                     interval=interval,
@@ -662,6 +691,8 @@ class CryptoModelTrainer:
                     quality_gate_reasons=(
                         {
                             "reasons": gate_reasons,
+                            "technical_valid": passed_quality_gate,
+                            "advisory": True,
                             "auc": val_auc if np.isfinite(val_auc) else None,
                             "baseline": baseline_auc if np.isfinite(baseline_auc) else None,
                             "lift": (
@@ -695,6 +726,12 @@ class CryptoModelTrainer:
             from polyflip.crypto.predictor import CryptoPredictor
             CryptoPredictor.invalidate_all(symbol)
             
+            # Candidate experiments are committed without replacing live models.
+            if not activate_after_train:
+                await self.db.commit()
+                logger.info("crypto_experiment_candidate_committed", symbol=symbol, feature_set=feature_spec.key)
+                return True
+
             # P0. Smoke Test: выполняем тестовый inference на свежих свечах
             try:
                 

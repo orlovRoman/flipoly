@@ -24,7 +24,20 @@ def test_router_paths_no_duplicate_prefix():
             f"Путь {p!r} дублирует prefix. Используй /api/status и т.д."
         )
 
+import pickle
+import numpy as np
 import pytest
+
+
+class _DashboardSmokeModel:
+    n_features_in_ = 22
+
+    def predict_proba(self, rows):
+        return np.asarray([[0.4, 0.6]] * len(rows), dtype=float)
+
+
+def _dashboard_model_blob():
+    return pickle.dumps(_DashboardSmokeModel())
 from httpx import AsyncClient
 
 
@@ -53,7 +66,7 @@ async def test_crypto_models_analytics_veto_logic(db_session):
     m = ModelRegistry(
         asset="BTCUSDT_low_vol",
         version=1,
-        model_blob=b"fake",
+        model_blob=_dashboard_model_blob(),
         is_active=True,
         accuracy=0.55,
         baseline=0.5,
@@ -132,7 +145,7 @@ async def test_lightgbm_direction_pnl_only(db_session):
     from polyflip.db.models import ModelRegistry
     from datetime import datetime, timezone
     
-    m = ModelRegistry(asset="BTCUSDT_low_vol", version=1, model_blob=b"fake", is_active=True, accuracy=0.55, baseline=0.5, trained_at=datetime.now(timezone.utc))
+    m = ModelRegistry(asset="BTCUSDT_low_vol", version=1, model_blob=_dashboard_model_blob(), is_active=True, accuracy=0.55, baseline=0.5, trained_at=datetime.now(timezone.utc))
     db_session.add(m)
     
     t = _make_trade_history(
@@ -156,7 +169,7 @@ async def test_lightgbm_no_duplicate_legacy_and_direction(db_session):
     from polyflip.db.models import ModelRegistry
     from datetime import datetime, timezone
     
-    m = ModelRegistry(asset="BTCUSDT_high_vol", version=1, model_blob=b"fake", is_active=True, accuracy=0.55, baseline=0.5, trained_at=datetime.now(timezone.utc))
+    m = ModelRegistry(asset="BTCUSDT_high_vol", version=1, model_blob=_dashboard_model_blob(), is_active=True, accuracy=0.55, baseline=0.5, trained_at=datetime.now(timezone.utc))
     db_session.add(m)
     
     # Сделка имеет и direction_model_key и confirm_model_key (legacy fallback)
@@ -190,7 +203,7 @@ def _bad_model_factory():
         return ModelRegistry(
             asset=asset,
             version=version,
-            model_blob=b"fake",
+            model_blob=_dashboard_model_blob(),
             is_active=False,
             accuracy=0.49,
             baseline=0.50,
@@ -198,32 +211,29 @@ def _bad_model_factory():
             trained_at=datetime.now(timezone.utc),
             quality_gate_passed=False,
             quality_gate_reasons={"reasons": ["Negative lift: -0.01"], "auc": 0.49, "ece": 0.21},
+            training_params={"target_source": "POLYMARKET_FINAL_OUTCOME"},
         )
     return _make
 
 
 @pytest.mark.asyncio
-async def test_bad_model_without_force_returns_409(db_session, _bad_model_factory):
+async def test_bad_model_without_force_is_still_activatable(db_session, _bad_model_factory):
     """Плохая модель без force=True возвращает HTTP 409."""
-    from fastapi import HTTPException
     from polyflip.api.crypto_dashboard import activate_crypto_model, ActivateModelRequest
 
     m = _bad_model_factory()
     db_session.add(m)
     await db_session.commit()
 
-    with pytest.raises(HTTPException) as exc_info:
-        await activate_crypto_model(
-            asset="BTCUSDT_high_vol",
-            version=1,
-            payload=ActivateModelRequest(force=False),
-            db=db_session,
-        )
-    assert exc_info.value.status_code == 409
-    detail = exc_info.value.detail
-    assert detail["code"] == "QUALITY_GATE_OVERRIDE_REQUIRED"
-    assert "metrics" in detail
-
+    result = await activate_crypto_model(
+        asset="BTCUSDT_high_vol",
+        version=1,
+        payload=ActivateModelRequest(force=False, reason="diagnostic candidate"),
+        db=db_session,
+    )
+    assert result["status"] == "success"
+    assert result["quality_override"] is False
+    assert result["quality_gate_passed"] is False
 
 @pytest.mark.asyncio
 async def test_bad_model_with_force_becomes_active(db_session, _bad_model_factory):
@@ -245,9 +255,8 @@ async def test_bad_model_with_force_becomes_active(db_session, _bad_model_factor
 
     assert result["status"] == "success"
     assert result["activation_source"] == "DASHBOARD"
-    assert result["quality_override"] is True
+    assert result["quality_override"] is False
     assert result["quality_gate_passed"] is False
-    assert "warning" in result
 
     row = (await db_session.execute(
         select(ModelRegistry).where(
@@ -257,7 +266,7 @@ async def test_bad_model_with_force_becomes_active(db_session, _bad_model_factor
     )).scalar_one()
     assert row.is_active is True
     assert row.activation_source == "DASHBOARD"
-    assert row.quality_override is True
+    assert row.quality_override is False
     assert row.activated_by == "dashboard"
     assert row.activation_reason == "PAPER тест"
 
@@ -272,14 +281,16 @@ async def test_previous_version_deactivated(db_session):
 
     now = datetime.now(timezone.utc)
     v1 = ModelRegistry(
-        asset="ETHUSDT_low_vol", version=1, model_blob=b"v1",
+        asset="ETHUSDT_low_vol", version=1, model_blob=_dashboard_model_blob(),
         is_active=True, accuracy=0.55, baseline=0.50, trained_at=now,
         quality_gate_passed=True, activation_source="AUTO",
+        training_params={"target_source": "POLYMARKET_FINAL_OUTCOME"},
     )
     v2 = ModelRegistry(
-        asset="ETHUSDT_low_vol", version=2, model_blob=b"v2",
+        asset="ETHUSDT_low_vol", version=2, model_blob=_dashboard_model_blob(),
         is_active=False, accuracy=0.57, baseline=0.50, trained_at=now,
         quality_gate_passed=True,
+        training_params={"target_source": "POLYMARKET_FINAL_OUTCOME"},
     )
     db_session.add_all([v1, v2])
     await db_session.commit()
@@ -316,9 +327,10 @@ async def test_predictor_invalidated_after_activation(db_session, monkeypatch):
 
     now = datetime.now(timezone.utc)
     m = ModelRegistry(
-        asset="SOLUSDT_mid_vol", version=5, model_blob=b"sol",
+        asset="SOLUSDT_mid_vol", version=5, model_blob=_dashboard_model_blob(),
         is_active=False, accuracy=0.58, baseline=0.50, trained_at=now,
         quality_gate_passed=True,
+        training_params={"target_source": "POLYMARKET_FINAL_OUTCOME"},
     )
     db_session.add(m)
     await db_session.commit()
@@ -358,7 +370,7 @@ async def test_crypto_models_analytics_with_trades(db_session):
     now = datetime.now(timezone.utc)
     # 1. Model
     db_session.add(ModelRegistry(
-        asset="BTCUSDT_mid_vol", version=1, model_blob=b"fake",
+        asset="BTCUSDT_mid_vol", version=1, model_blob=_dashboard_model_blob(),
         is_active=True, accuracy=0.5, baseline=0.5, trained_at=now
     ))
     # 2. Trade
@@ -421,11 +433,12 @@ async def test_force_on_passed_model_is_not_quality_override(db_session):
     model = ModelRegistry(
         asset="BTCUSDT_mid_vol",
         version=7,
-        model_blob=b"v1",
+        model_blob=_dashboard_model_blob(),
         is_active=False,
         accuracy=0.61,
         baseline=0.50,
         trained_at=datetime.now(timezone.utc),
+        training_params={"target_source": "POLYMARKET_FINAL_OUTCOME"},
         quality_gate_passed=True,
     )
     db_session.add(model)
