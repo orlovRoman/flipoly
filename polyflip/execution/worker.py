@@ -46,6 +46,32 @@ _MODE_LOCK_KEYS = {
 }
 _ADVISORY_LOCK_NAMESPACE = 2001
 
+
+def _resolve_requested_shares(
+    *,
+    requested_shares: Decimal | None,
+    max_spend_usdc: Decimal | None,
+    limit_price: Decimal | None,
+    side: str,
+) -> Decimal:
+    """Return a positive BUY size when a request omitted its token quantity.
+
+    GTC/GTD orders are size-based at the Polymarket CLOB. Some release-gate
+    requests intentionally leave requested_shares empty because they only
+    carry a USDC budget. Derive that size from the same limit price used for
+    the order, while keeping SELL requests and invalid budgets fail-closed.
+    """
+    if requested_shares is not None and requested_shares > 0:
+        return requested_shares
+
+    spend = max_spend_usdc or Decimal("0")
+    price = limit_price or Decimal("0")
+    if side.upper() == "BUY" and spend > 0 and price > 0:
+        return spend / price
+    return Decimal("0")
+
+
+
 # Через сколько секунд неопределённого состояния переходим в MANUAL_REVIEW_REQUIRED
 MAX_RECONCILIATION_AGE_SEC = 900  # 15 минут
 
@@ -420,6 +446,26 @@ async def process_ready_requests():
         try:
             # Конструирование заказа тоже должно находиться внутри try.
             # Иначе Pydantic ValidationError оставляет заявку в SUBMITTING.
+            resolved_requested_shares = _resolve_requested_shares(
+                requested_shares=req.requested_shares,
+                max_spend_usdc=max_spend_usdc,
+                limit_price=limit_price,
+                side=side,
+            )
+            if (
+                (req.requested_shares is None or req.requested_shares <= 0)
+                and resolved_requested_shares > 0
+            ):
+                req.requested_shares = resolved_requested_shares
+                req.updated_at = datetime.now(timezone.utc)
+                logger.info(
+                    "requested_shares_derived_from_budget",
+                    request_id=str(req.id),
+                    max_spend_usdc=str(max_spend_usdc),
+                    limit_price=str(limit_price),
+                    requested_shares=str(resolved_requested_shares),
+                )
+
             order = GatewayOrder(
                 attempt_id=attempt_id,
                 market_id=req.market_id,
@@ -428,7 +474,7 @@ async def process_ready_requests():
                 token_id=token_id,
                 side=side,
                 limit_price=limit_price,
-                requested_shares=req.requested_shares or Decimal("0"),
+                requested_shares=resolved_requested_shares,
                 max_spend_usdc=max_spend_usdc,
             )
             order_mode = "FAK"
