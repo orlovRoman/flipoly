@@ -723,6 +723,10 @@ async def rebuild_trade_accounting(session, trade_id: int):
         trade.position_status = "CLOSED"
         if latest_close_time:
             trade.closed_at = latest_close_time
+        if trade.exit_reason == "TAKE_PROFIT":
+            trade.take_profit_status = "TRIGGERED"
+        elif trade.exit_reason == "STOP_LOSS":
+            trade.stop_loss_status = "TRIGGERED"
     elif remaining_shares > Decimal("0") and remaining_shares < open_shares:
         trade.position_status = "PARTIALLY_CLOSED"
     elif remaining_shares > Decimal("0"):

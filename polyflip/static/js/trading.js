@@ -903,13 +903,15 @@ document.addEventListener("DOMContentLoaded", () => {
         if (log.status === "SUCCESS") statusColor = "#00ff88";
         if (log.status === "FAILED") statusColor = "#ff3366";
         
-        if (log.status === "SUCCESS" && log.stop_loss_status === "TRIGGERED") {
+        if (log.status === "SUCCESS" && (log.stop_loss_status === "TRIGGERED" || log.exit_reason === "STOP_LOSS")) {
             displayStatus = "Закрыто по стоп-лоссу";
             statusColor = "#ffb020"; // Yellow/orange for stop-loss
         }
         
-        if (log.status === "SUCCESS" && log.take_profit_status === "TRIGGERED") {
-            const price = log.take_profit_sell_price ? ` @ $${parseFloat(log.take_profit_sell_price).toFixed(3)}` : "";
+        const isTpClosed = log.take_profit_status === "TRIGGERED" || log.take_profit_status === "QUEUED" || log.exit_reason === "TAKE_PROFIT";
+        if (log.status === "SUCCESS" && isTpClosed) {
+            const sellPrice = log.take_profit_sell_price || log.close_price;
+            const price = sellPrice ? ` @ $${parseFloat(sellPrice).toFixed(3)}` : "";
             displayStatus = `Закрыто по тейк-профиту${price}`;
             statusColor = "#00ff88"; // Green for take-profit
         }

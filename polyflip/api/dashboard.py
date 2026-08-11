@@ -364,6 +364,8 @@ async def get_trade_logs(
                 "edge": getattr(log, "edge", None),
                 "stop_loss_status": getattr(log, "stop_loss_status", None),
                 "take_profit_status": getattr(log, "take_profit_status", None),
+                "exit_reason": getattr(log, "exit_reason", None),
+                "close_price": getattr(log, "close_price", None),
                 "take_profit_hit_at": log.take_profit_hit_at.isoformat() if getattr(log, "take_profit_hit_at", None) else None,
                 "take_profit_sell_price": getattr(log, "take_profit_sell_price", None),
                 "take_profit_sell_size": getattr(log, "take_profit_sell_size", None),
