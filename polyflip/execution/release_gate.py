@@ -546,8 +546,8 @@ async def validate_live_release(
         end_time = paper_trade.market_end_time
         if end_time.tzinfo is None:
             end_time = end_time.replace(tzinfo=timezone.utc)
-        if end_time <= now or (end_time - now).total_seconds() < 120:
-            raise ReleaseRejected("Market is closed or ending soon (< 120s)")
+        if end_time <= now:
+            raise ReleaseRejected("Market is already closed")
 
     # 4.1 Проверка минимального размера ордера
     order_amount = Decimal(str(paper_request.target_amount_usdc or 0))
