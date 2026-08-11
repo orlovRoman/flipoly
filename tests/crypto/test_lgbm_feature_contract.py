@@ -4,6 +4,7 @@ import pytest
 
 from polyflip.crypto.feature_sets import (
     CONTROL_FEATURES,
+    FEATURE_SETS,
     feature_schema_hash,
     normalize_feature_set,
     parse_feature_names,
@@ -49,3 +50,20 @@ def test_dataset_fingerprint_is_independent_of_row_order():
         ]
     )
     assert _dataset_fingerprint(frame, ["ret_1"]) == _dataset_fingerprint(frame.iloc[::-1], ["ret_1"])
+
+
+def test_lightgbm_variants_are_incremental_and_named():
+    assert FEATURE_SETS["A"].version == "A-control-v1"
+    assert FEATURE_SETS["B"].version == "B-direction-sequence-v1"
+    assert FEATURE_SETS["C"].version == "C-candle-structure-v1"
+    assert set(FEATURE_SETS["A"].features).issubset(FEATURE_SETS["B"].features)
+    assert set(FEATURE_SETS["B"].features).issubset(FEATURE_SETS["C"].features)
+    assert len(FEATURE_SETS["B"].features) > len(FEATURE_SETS["A"].features)
+    assert len(FEATURE_SETS["C"].features) > len(FEATURE_SETS["B"].features)
+    assert validate_feature_schema(FEATURE_SETS["C"].features) == FEATURE_SETS["C"].features
+
+
+def test_control_features_match_builder_schema():
+    from polyflip.crypto.feature_builder import CRYPTO_FEATURE_COLUMNS
+
+    assert set(CONTROL_FEATURES).issubset(set(CRYPTO_FEATURE_COLUMNS))

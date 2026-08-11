@@ -1,10 +1,12 @@
 from __future__ import annotations
+from datetime import datetime
 import asyncio
 import pickle
 import weakref
 from dataclasses import dataclass
 from typing import Optional, Any
 import numpy as np
+import pandas as pd
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +16,10 @@ from polyflip.db.models import ModelRegistry, RuntimeSettings
 from polyflip.crypto.feature_builder import build_crypto_features, CRYPTO_FEATURE_COLUMNS
 from polyflip.crypto.edge import compute_crypto_signal_strength
 from polyflip.crypto.feature_sets import CONTROL_FEATURES, parse_feature_names, validate_feature_schema
+from polyflip.models.sequence_features import (
+    SEQUENCE_CANDLE_FEATURES,
+    build_closed_candle_feature_frame,
+)
 
 CRYPTO_FEATURES = list(CONTROL_FEATURES)
 
@@ -388,6 +394,7 @@ class CryptoPredictor:
         funding_rate: float | None = None,
         invert_lgbm_signal: bool = False,
         underlying_price: float | None = None,
+        decision_time: datetime | None = None,
     ) -> CryptoSignal:
         """
         Синхронный инференс по релевантной модели волатильности.
@@ -420,8 +427,29 @@ class CryptoPredictor:
                 )
 
             fv_dict = dict(zip(CRYPTO_FEATURE_COLUMNS, feature_vector.features[0]))
-            
-            # Определяем режим волатильности
+
+            # Experimental B/C models consume the same closed-candle contract as
+            # training. The builder ignores incomplete candles and computes every
+            # value from history ending at the latest closed candle, so an open
+            # candle can never leak into live inference.
+            sequence_frame = build_closed_candle_feature_frame(candles)
+            if decision_time is not None and not sequence_frame.empty:
+                cutoff = pd.Timestamp(decision_time)
+                if cutoff.tzinfo is None:
+                    cutoff = cutoff.tz_localize("UTC")
+                else:
+                    cutoff = cutoff.tz_convert("UTC")
+                sequence_frame = sequence_frame.loc[
+                    sequence_frame["sequence_asof_close_time"] <= cutoff
+                ]
+            if not sequence_frame.empty:
+                latest_sequence = sequence_frame.iloc[-1]
+                fv_dict.update({
+                    name: latest_sequence[name]
+                    for name in SEQUENCE_CANDLE_FEATURES
+                })
+
+            # Determine the volatility regime after building the full feature map.
             vol_trend = fv_dict.get("vol_trend", 1.0)
             vol_p33 = self._vol_p33s.get(symbol, 0.8)
             vol_p67 = self._vol_p67s.get(symbol, 1.2)

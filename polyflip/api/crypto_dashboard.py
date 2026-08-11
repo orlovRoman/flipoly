@@ -523,6 +523,8 @@ async def crypto_train(
         "status": "training",
         "started_at": datetime.now(timezone.utc).isoformat(),
         "symbol": symbol,
+        "feature_set": normalized_feature_set,
+        "activate_after_train": bool(activate_after_train),
     }
     _cache.pop("status", None)
 
@@ -541,6 +543,8 @@ async def crypto_train(
                     "status": "success" if ok else "failed",
                     "finished_at": datetime.now(timezone.utc).isoformat(),
                     "symbol": symbol,
+                    "feature_set": normalized_feature_set,
+                    "activate_after_train": bool(activate_after_train),
                 }
         except Exception as exc:
             logger.exception("crypto_retrain_error", symbol=symbol, error=str(exc))
@@ -548,6 +552,8 @@ async def crypto_train(
                 "status": "failed",
                 "finished_at": datetime.now(timezone.utc).isoformat(),
                 "symbol": symbol,
+                "feature_set": normalized_feature_set,
+                "activate_after_train": bool(activate_after_train),
                 "error": str(exc),
             }
         finally:
@@ -620,6 +626,7 @@ async def crypto_models_coverage(db: AsyncSession = Depends(get_db_session)):
                 "quality_gate_passed": active_row.quality_gate_passed if active_row else None,
                 "activation_source": active_row.activation_source if active_row else None,
                 "target_source": (active_row.training_params or {}).get("target_source") if active_row else None,
+                "feature_set": (active_row.training_params or {}).get("feature_set", "A") if active_row else None,
                 "feature_set_version": (active_row.training_params or {}).get("feature_set_version", "legacy") if active_row else None,
                 "is_loadable": bool(active_row and (active_row.training_params or {}).get("target_source") == "POLYMARKET_FINAL_OUTCOME"),
                 "recent_versions": all_versions,
@@ -927,6 +934,8 @@ async def crypto_models_analytics(
 
             # Метрики качества из ModelRegistry
             "auc_lift": round(m.accuracy - 0.5, 4) if m.accuracy else None,
+            "feature_set": (m.training_params or {}).get("feature_set", "A"),
+            "feature_set_version": (m.training_params or {}).get("feature_set_version", "legacy"),
             "precision": round(m.precision_at_threshold, 4) if getattr(m, "precision_at_threshold", None) is not None else None,
             "recall": round(m.recall_at_threshold, 4) if getattr(m, "recall_at_threshold", None) is not None else None,
             "f1": round(m.f1_at_threshold, 4) if getattr(m, "f1_at_threshold", None) is not None else None,

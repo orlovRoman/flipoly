@@ -136,7 +136,14 @@
         <main class="main-content">
             <header class="tab-header">
                 <h1>🪙 Управление Crypto LightGBM (15m)</h1>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;" id="train-buttons-container">
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;" id="train-buttons-container">
+                    <label for="lgbm-feature-set" style="font-size: 0.85rem; color: var(--text-muted);">Feature set:</label>
+                    <select id="lgbm-feature-set" title="A - control, B - direction sequence, C - candle structure"
+                            style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.65rem; border-radius: 6px;">
+                        <option value="A">A - control</option>
+                        <option value="B">B - directions and runs</option>
+                        <option value="C">C - candle structure</option>
+                    </select>
                     {% for sym in symbols %}
                     <button class="btn primary-btn" id="btn-train-{{ sym }}" onclick="retrain('{{ sym }}')">🔄 Обучить {{ sym }}</button>
                     {% endfor %}
@@ -889,7 +896,7 @@
                     if (rData.status === 'ACTIVE') {
                         bg = 'rgba(40,167,69,0.15)';
                         color = 'var(--poly-green)';
-                        text = `v${rData.active_version}`;
+                        text = `v${rData.active_version} ? ${rData.feature_set || 'A'}`;
                     } else if (rData.status === 'HAS_INACTIVE') {
                         bg = 'rgba(255,152,0,0.1)';
                         color = '#ff9f43';
@@ -1111,6 +1118,7 @@
                         ${m.is_active && m.quality_override ? `<div style="font-size:0.7rem; color:#ff9f43; margin-top:0.2rem;">QG override</div>` : ''}
                     </td>
                     <td style="padding: 0.7rem 0.5rem; text-align: center; font-size:0.85rem; color:white;">v${m.version}</td>
+                    <td style="padding: 0.7rem 0.5rem; text-align: center; font-size:0.8rem; color:var(--text-muted);" title="${m.feature_set_version || 'legacy'}">${m.feature_set || 'A'}</td>
                     <td style="padding: 0.7rem 0.5rem; text-align: center;">
                         <div style="font-size:0.95rem; color:white;" title="Base AUC: ${m.baseline}">${m.auc}</div>
                         <div style="font-size:0.75rem; color:var(--text-muted);">Lift: ${liftBadge}</div>
@@ -1150,6 +1158,7 @@
                         <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
                             <th style="padding: 0.5rem; text-align: left;"><button class="table-sort" onclick="setSort('asset')">Символ ${getSortIndicator('asset')}</button></th>
                             <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('version')">Версия ${getSortIndicator('version')}</button></th>
+                            <th style="padding: 0.5rem; text-align: center;">Feature set</th>
                             <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('auc')">AUC ${getSortIndicator('auc')}</button></th>
                             <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('ece')">ECE ${getSortIndicator('ece')}</button></th>
                             <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('precision')">Prec ${getSortIndicator('precision')}</button></th>
@@ -1432,7 +1441,8 @@
             updateTrainButtonsAndBanner(localActiveTrainings);
 
             try {
-                const r = await fetch(`/lightgbm/api/train?symbol=${symbol}`, { method: 'POST', headers: H });
+                const featureSet = document.getElementById('lgbm-feature-set')?.value || 'A';
+                const r = await fetch(`/lightgbm/api/train?symbol=${symbol}&feature_set=${encodeURIComponent(featureSet)}&activate_after_train=false`, { method: 'POST', headers: H });
                 const d = await r.json();
                 if (!r.ok || d.status === "already_running") {
                     if (d.status === "already_running") {

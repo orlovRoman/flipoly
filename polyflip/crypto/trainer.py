@@ -394,9 +394,16 @@ class CryptoModelTrainer:
         feature_set: str = "A",
         activate_after_train: bool = True,
     ) -> bool:
-        feature_spec=get_feature_set(feature_set)
-        available=list(feature_spec.features)
-        logger.info("crypto_training_start", symbol=symbol, interval=interval, feature_set=feature_spec.key, feature_set_version=feature_spec.version, activate_after_train=activate_after_train)
+        feature_spec = get_feature_set(feature_set)
+        available = list(feature_spec.features)
+        logger.info(
+            "crypto_training_start",
+            symbol=symbol,
+            interval=interval,
+            feature_set=feature_spec.key,
+            feature_set_version=feature_spec.version,
+            activate_after_train=activate_after_train,
+        )
 
         # Загружаем все свечи для символа
         candles = await get_recent_candles(
@@ -456,7 +463,9 @@ class CryptoModelTrainer:
         )
 
         # 3. Загружаем выравненный торговый датасет на канонических исходах Polymarket (MARKET_WINDOW_V1)
-        df_filtered = await build_market_outcome_dataset(self.db, symbol=symbol, interval=interval)
+        df_filtered = await build_market_outcome_dataset(
+            self.db, symbol=symbol, interval=interval, feature_set=feature_spec.key
+        )
         
         # FAIL-CLOSED: Если датасет пустой — прекращаем обучение без записи моделей или обновления настроек
         if df_filtered is None or df_filtered.empty:
@@ -607,7 +616,7 @@ class CryptoModelTrainer:
                     active_version=(active_crypto_model.version if active_crypto_model else None),
                 )
 
-                should_activate=bool(activate_after_train and passed_quality_gate)
+                should_activate = bool(activate_after_train and passed_quality_gate)
                 if gate_reasons:
                     logger.info("crypto_model_diagnostics", asset=regime_asset, technical_valid=passed_quality_gate, findings=gate_reasons)
 
@@ -668,7 +677,7 @@ class CryptoModelTrainer:
                         "feature_schema_hash": feature_schema_hash(available),
                         "feature_count": len(available),
                         "validation_scheme": "TIME_SERIES_SPLIT",
-                        "activation_after_train": activate_after_train,
+                        "activate_after_train": activate_after_train,
                         "resolution_source": "CHAINLINK",
                         "alignment_version": "MARKET_WINDOW_V1",
                         "feature_schema_version": "CRYPTO_FEATURES_V2",

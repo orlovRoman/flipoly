@@ -5,7 +5,7 @@ Persist one immutable LightGBM direction signal for the lifetime of a 15-minute 
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 
 import structlog
@@ -87,12 +87,23 @@ async def get_or_create_market_direction_signal(
         if getattr(market, "underlying_price", None) is not None
         else 0.0
     )
+    # The frozen signal must use the same information boundary as training:
+    # only candles closed by the market opening time.  Keep the optional kwarg
+    # out for legacy/mock market objects that do not expose a real timestamp.
+    prediction_kwargs = {}
+    market_end = getattr(market, "end_time_est", None)
+    if isinstance(market_end, datetime):
+        if market_end.tzinfo is None:
+            market_end = market_end.replace(tzinfo=timezone.utc)
+        prediction_kwargs["decision_time"] = market_end - timedelta(minutes=15)
+
     signal = predictor.predict(
         candles,
         symbol,
         funding_rate=funding_rate,
         invert_lgbm_signal=invert_lgbm_signal,
         underlying_price=underlying_price,
+        **prediction_kwargs,
     )
     row = MarketDirectionSignal(
         market_id=market_id,

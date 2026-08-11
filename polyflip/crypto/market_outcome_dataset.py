@@ -15,6 +15,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.crypto.feature_builder import build_crypto_features, CRYPTO_FEATURE_COLUMNS
+from polyflip.crypto.feature_sets import get_feature_set
+from polyflip.models.sequence_features import attach_closed_candle_features, sequence_history_ready
 
 logger = structlog.get_logger(__name__)
 
@@ -23,6 +25,7 @@ async def build_market_outcome_dataset(
     db: AsyncSession,
     symbol: str,
     interval: str = "15m",
+    feature_set: str = "A",
 ) -> pd.DataFrame:
     """
     Создает торговый датасет для выравнивания MARKET_WINDOW_V1:
@@ -31,8 +34,16 @@ async def build_market_outcome_dataset(
       - Точное временное выравнивание: market_start = end_time_est - 15m.
       - Фичи закрытых свечей: feature_candle_close <= market_start и feature_available_at <= market_start.
     """
+    feature_spec = get_feature_set(feature_set)
     asset = symbol.removesuffix("USDT")
-    logger.info("building_market_outcome_dataset_start", symbol=symbol, asset=asset, interval=interval)
+    logger.info(
+        "building_market_outcome_dataset_start",
+        symbol=symbol,
+        asset=asset,
+        interval=interval,
+        feature_set=feature_spec.key,
+        feature_set_version=feature_spec.version,
+    )
 
     # 4. Детерминированный выбор исхода рынка через LEFT JOIN LATERAL
     res_markets = await db.execute(text(
@@ -141,13 +152,43 @@ async def build_market_outcome_dataset(
             "Invariant violation: feature_candle_close must be <= market_start"
         )
 
+    # B/C use only fully closed candles available at market_start.  The
+    # backward as-of join keeps the timestamp contract explicit and prevents
+    # future candle data from entering the training matrix.
+    if feature_spec.key != "A":
+        dataset = attach_closed_candle_features(
+            dataset,
+            df_candles.to_dict(orient="records"),
+            decision_time_col="market_start",
+        )
+        sequence_ready = sequence_history_ready(dataset)
+        dropped = int((~sequence_ready).sum())
+        if dropped:
+            logger.info(
+                "sequence_rows_excluded_from_lgbm_dataset",
+                symbol=symbol,
+                feature_set=feature_spec.key,
+                rows_dropped=dropped,
+                rows_remaining=int(sequence_ready.sum()),
+                min_history=6,
+            )
+        dataset = dataset.loc[sequence_ready].reset_index(drop=True)
+        if dataset.empty:
+            logger.warning(
+                "sequence_feature_coverage_empty",
+                symbol=symbol,
+                feature_set=feature_spec.key,
+            )
+
     logger.info(
         "market_outcome_dataset_built",
         symbol=symbol,
         total_markets=len(markets),
         dataset_rows=len(dataset),
-        yes_count=int((dataset["target"] == 1).sum()),
-        no_count=int((dataset["target"] == 0).sum()),
+        yes_count=int((dataset["target"] == 1).sum()) if not dataset.empty else 0,
+        no_count=int((dataset["target"] == 0).sum()) if not dataset.empty else 0,
+        feature_set=feature_spec.key,
+        feature_set_version=feature_spec.version,
     )
 
     return dataset

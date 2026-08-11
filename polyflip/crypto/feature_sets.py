@@ -12,6 +12,10 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from polyflip.crypto.feature_builder import CRYPTO_FEATURE_COLUMNS
+from polyflip.models.sequence_features import (
+    SEQUENCE_CANDLE_FEATURES,
+    SEQUENCE_DIRECTION_FEATURES,
+)
 
 
 @dataclass(frozen=True)
@@ -21,8 +25,8 @@ class CryptoFeatureSet:
     features: tuple[str, ...]
 
 
-# The existing LightGBM schema.  B and C are deliberately added in a later
-# phase so that this control remains a stable baseline for the experiments.
+# The existing LightGBM schema.  It is intentionally frozen as the A/control
+# baseline so experiment metrics remain comparable across training runs.
 CONTROL_FEATURES: tuple[str, ...] = (
     "ret_1", "ret_3", "ret_6",
     "vol_6", "vol_24",
@@ -36,7 +40,31 @@ CONTROL_FEATURES: tuple[str, ...] = (
 
 FEATURE_SETS: dict[str, CryptoFeatureSet] = {
     "A": CryptoFeatureSet("A", "A-control-v1", CONTROL_FEATURES),
+    "B": CryptoFeatureSet(
+        "B",
+        "B-direction-sequence-v1",
+        (*CONTROL_FEATURES, *SEQUENCE_DIRECTION_FEATURES),
+    ),
+    "C": CryptoFeatureSet(
+        "C",
+        "C-candle-structure-v1",
+        (*CONTROL_FEATURES, *SEQUENCE_CANDLE_FEATURES),
+    ),
 }
+
+EXPERIMENTAL_FEATURES: tuple[str, ...] = tuple(dict.fromkeys(SEQUENCE_CANDLE_FEATURES))
+ALL_CRYPTO_FEATURES: tuple[str, ...] = tuple(
+    dict.fromkeys((*CRYPTO_FEATURE_COLUMNS, *EXPERIMENTAL_FEATURES))
+)
+
+_CONTROL_SCHEMA_DRIFT = sorted(
+    set(CONTROL_FEATURES) - set(CRYPTO_FEATURE_COLUMNS)
+)
+if _CONTROL_SCHEMA_DRIFT:
+    raise RuntimeError(
+        "CONTROL_FEATURES contains columns absent from CRYPTO_FEATURE_COLUMNS: "
+        f"{_CONTROL_SCHEMA_DRIFT}"
+    )
 
 
 def normalize_feature_set(value: str | None) -> str:
@@ -75,7 +103,7 @@ def validate_feature_schema(features: Iterable[str]) -> tuple[str, ...]:
     names = parse_feature_names(features)
     if not names:
         raise ValueError("Model feature schema is empty")
-    unknown = sorted(set(names) - set(CRYPTO_FEATURE_COLUMNS))
+    unknown = sorted(set(names) - set(ALL_CRYPTO_FEATURES))
     if unknown:
         raise ValueError(f"Unknown crypto model features: {unknown}")
     return names
