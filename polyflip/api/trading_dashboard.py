@@ -27,8 +27,9 @@ templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
 @router.get("/trading")
 async def get_trading_dashboard(request: Request):
     return templates.TemplateResponse(
-        "trading.html",
-        {
+        request=request,
+        name="trading.html",
+        context={
             "request": request,
             "timestamp": int(time.time()),
             "static_version": STATIC_VERSION,

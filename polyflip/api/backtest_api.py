@@ -65,7 +65,9 @@ _MAX_CACHE_SIZE = 20  # храним последние 20 прогонов
 async def backtest_page(request: Request):
     """Страница дашборда бэктестов."""
     return templates.TemplateResponse(
-        "backtest.html", {"request": request, "api_key": settings.API_KEY}
+        request=request,
+        name="backtest.html",
+        context={"request": request, "api_key": settings.API_KEY},
     )
 
 

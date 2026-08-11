@@ -39,8 +39,9 @@ async def get_dashboard(request: Request):
     """Отдает главную страницу дашборда"""
 
     return templates.TemplateResponse(
-        "index.html",
-        {
+        request=request,
+        name="index.html",
+        context={
             "request": request,
             "timestamp": int(time.time()),
             "static_version": STATIC_VERSION,
@@ -54,8 +55,9 @@ async def get_dashboard(request: Request):
 async def get_execution_dashboard(request: Request):
     """Отдает страницу дашборда Исполнения"""
     return templates.TemplateResponse(
-        "execution.html",
-        {
+        request=request,
+        name="execution.html",
+        context={
             "request": request,
             "timestamp": int(time.time()),
             "static_version": STATIC_VERSION,
