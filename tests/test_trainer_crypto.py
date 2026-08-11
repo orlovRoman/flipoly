@@ -195,3 +195,5 @@ def test_lgbm_optional_oot_metrics_are_returned():
     assert result.oot_samples is not None
     assert result.oot_samples > 0
     assert result.brier >= 0.0
+    assert set(result.feature_audit) == set(CRYPTO_FEATURES)
+    assert result.feature_audit_summary["version"] == "feature-audit-v1"

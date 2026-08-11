@@ -192,6 +192,8 @@ def _model_experiment_payload(model: ModelRegistry) -> dict[str, Any]:
         "ece": round(model.ece, 4) if model.ece is not None else None,
         "brier_score": (model.brier_score if model.brier_score is not None else params.get("brier_score")),
         "log_loss": params.get("log_loss"),
+        "feature_audit": params.get("feature_audit", {}),
+        "feature_audit_summary": params.get("feature_audit_summary", {}),
         "features": model.features or "",
         "feature_set_version": feature_set,
         "model_config": params.get("model_config", {}),

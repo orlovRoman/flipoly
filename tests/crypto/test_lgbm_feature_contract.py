@@ -11,6 +11,7 @@ from polyflip.crypto.feature_sets import (
     validate_feature_schema,
 )
 from polyflip.crypto.trainer import _dataset_fingerprint, _model_smoke_test
+from polyflip.crypto.feature_audit import feature_audit_summary, summarize_fold_importance
 
 
 def test_control_schema_is_stable_and_hashable():
@@ -67,3 +68,16 @@ def test_control_features_match_builder_schema():
     from polyflip.crypto.feature_builder import CRYPTO_FEATURE_COLUMNS
 
     assert set(CONTROL_FEATURES).issubset(set(CRYPTO_FEATURE_COLUMNS))
+
+
+def test_feature_importance_audit_is_fold_stable_and_descriptive():
+    audit = summarize_fold_importance(
+        [[10.0, 0.0, 1.0], [8.0, 2.0, 0.0]],
+        ("strong", "intermittent", "weak"),
+    )
+    assert audit["strong"]["fold_presence"] == 1.0
+    assert audit["intermittent"]["fold_presence"] == 0.5
+    summary = feature_audit_summary(audit)
+    assert summary["version"] == "feature-audit-v1"
+    assert "strong" in summary["stable_features"]
+    assert summary["zero_gain_features"] == []

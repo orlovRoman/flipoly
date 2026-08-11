@@ -230,6 +230,8 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
                 "oot_samples": (m.training_params or {}).get("oot_samples"),
                 "oot_markets": (m.training_params or {}).get("oot_markets"),
                 "log_loss": (m.training_params or {}).get("log_loss"),
+                "feature_audit": (m.training_params or {}).get("feature_audit", {}),
+                "feature_audit_summary": (m.training_params or {}).get("feature_audit_summary", {}),
                 "target_source": (m.training_params or {}).get("target_source"),
                 "is_loadable": (m.training_params or {}).get("target_source") == "POLYMARKET_FINAL_OUTCOME",
                 "loadability_reason": (None if (m.training_params or {}).get("target_source") == "POLYMARKET_FINAL_OUTCOME" else "NON_CANONICAL_TARGET"),

@@ -21,6 +21,7 @@ def _model(**overrides):
             "model_config": {"C": 0.1, "penalty": "l2"},
             "log_loss": 0.66,
             "oot_markets": 42,
+            "feature_audit_summary": {"version": "feature-audit-v1", "stable_features": ["ret_1"]},
         },
         "quality_gate_reasons": {"backtest": {}},
         "training_window_start": datetime(2025, 1, 1, tzinfo=timezone.utc),
@@ -45,6 +46,7 @@ def test_model_payload_exposes_persisted_oot_experiment_metadata():
     assert payload["oot_markets"] == 42
     assert payload["backtest_pnl"] == 12.5
     assert payload["log_loss"] == 0.66
+    assert payload["feature_audit_summary"]["stable_features"] == ["ret_1"]
 
 
 def test_comparison_key_changes_when_oot_window_changes():

@@ -12,7 +12,7 @@ import hashlib
 import json
 import pickle
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import numpy as np
@@ -31,6 +31,11 @@ from polyflip.constants import (
 from polyflip.services.settings_service import get_float, get_int
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.feature_builder import build_features, CRYPTO_FEATURE_COLUMNS
+from polyflip.crypto.feature_audit import (
+    feature_audit_summary,
+    model_gain_importance,
+    summarize_fold_importance,
+)
 from polyflip.crypto.market_outcome_dataset import build_market_outcome_dataset
 from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
 
@@ -207,6 +212,8 @@ class LGBMFitResult:
     brier: float
     oot_samples: int | None = None
     log_loss: float | None = None
+    feature_audit: dict[str, dict[str, float | int]] = field(default_factory=dict)
+    feature_audit_summary: dict[str, object] = field(default_factory=dict)
 
     def _legacy_values(self) -> tuple[object, ...]:
         return (
@@ -265,6 +272,7 @@ def _fit_lgbm_and_serialize(
 
     oof_scores = np.full(len(y), np.nan)
     aucs: list[float] = []
+    fold_gain_importances: list[np.ndarray] = []
 
     for train_idx, val_idx in tscv.split(X):
         X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
@@ -272,6 +280,7 @@ def _fit_lgbm_and_serialize(
 
         fold_lgbm = _make_lgbm(**lgbm_params)
         fold_lgbm.fit(X_train, y_train)
+        fold_gain_importances.append(model_gain_importance(fold_lgbm, X.columns))
 
         # Калибруем на первой половине val, измеряем AUC на второй — без пересечения
         mid = len(val_idx) // 2
@@ -384,6 +393,13 @@ def _fit_lgbm_and_serialize(
             hint="Consider removing these features in next refactor",
         )
     logger.info("crypto_feature_importance", top5=dict(sorted(fi.items(), key=lambda x: -x[1])[:5]))
+    feature_audit = summarize_fold_importance(fold_gain_importances, tuple(X.columns))
+    audit_summary = feature_audit_summary(feature_audit)
+    logger.info(
+        "crypto_feature_importance_stability",
+        stable_features=audit_summary["stable_features"],
+        zero_gain_features=audit_summary["zero_gain_features"],
+    )
 
     y_oof = y[valid_mask].astype(int)
     p_oof = oof_scores[valid_mask]
@@ -412,6 +428,8 @@ def _fit_lgbm_and_serialize(
         brier=brier,
         oot_samples=int(valid_mask.sum()) if return_metrics else None,
         log_loss=oot_log_loss if return_metrics else None,
+        feature_audit=feature_audit,
+        feature_audit_summary=audit_summary,
     )
 
 
@@ -663,6 +681,8 @@ class CryptoModelTrainer:
                     "oot_samples": result.oot_samples,
                     "brier_score": result.brier,
                     "log_loss": result.log_loss,
+                    "feature_audit": result.feature_audit,
+                    "feature_audit_summary": result.feature_audit_summary,
                 }
 
                 logger.info(
@@ -777,6 +797,10 @@ class CryptoModelTrainer:
                         "oot_markets": fit_metrics.get("oot_samples"),
                         "brier_score": fit_metrics.get("brier_score", brier),
                         "log_loss": fit_metrics.get("log_loss"),
+                        "feature_audit_version": fit_metrics.get("feature_audit_summary", {}).get("version"),
+                        "feature_audit": fit_metrics.get("feature_audit", {}),
+                        "feature_audit_summary": fit_metrics.get("feature_audit_summary", {}),
+                        "feature_selection_policy": "diagnostic_only",
                         "model_config": adaptive_params,
                         "vol_p33": vol_p33,
                         "vol_p67": vol_p67,

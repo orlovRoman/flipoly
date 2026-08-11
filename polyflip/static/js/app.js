@@ -921,6 +921,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return `<tr>
           <td>v${m.version}${m.is_active ? " - active" : ""}</td>
           <td>${escapeHtml(m.feature_set_version || "legacy")}</td>
+          <td title="${escapeHtml((m.feature_audit_summary?.zero_gain_features || []).join(", "))}">${escapeHtml((m.feature_audit_summary?.stable_features || []).join(", ") || "-")}</td>
           <td${aucStyle}>${fmt(m.accuracy)}</td>
           <td>${fmt(m.lift)}</td>
           <td>${fmt(m.brier_score)}</td>
