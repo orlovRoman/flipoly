@@ -71,6 +71,8 @@ REGISTRY: list[SettingDef] = [
                description="Мультипликатор тейк-профита от цены входа"),
     SettingDef("TAKE_PROFIT_CHECK_INTERVAL_SEC", "30",
                description="Интервал проверки открытых позиций воркером тейк-профита (сек)"),
+    SettingDef("TAKE_PROFIT_ORDER_MODE", "GTD",
+               description="Take-profit order mode: GTD (resting until market end) | TRIGGERED (wait for bid target)"),
 
     # --- Режим торговли ---
     SettingDef("TRADING_MODE", DEFAULT_TRADING_MODE,

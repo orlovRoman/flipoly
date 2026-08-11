@@ -154,9 +154,19 @@ class PolymarketExecutionGateway:
                 # cancels this resting order after LIVE_GTC_TTL_SECONDS.
                 expiration = None
                 if normalized_order_type == "GTD":
-                    # The SDK requires expiration to be at least three minutes
-                    # in the future. Five minutes also leaves clock-skew buffer.
-                    expiration = int(datetime.now(timezone.utc).timestamp()) + 300
+                    # A TP order supplies the market end as its native GTD
+                    # expiry.  Keep a safe fallback for older callers, and
+                    # fail closed when the exchange's three-minute minimum
+                    # cannot be met rather than placing an order that outlives
+                    # the market.
+                    now_ts = int(datetime.now(timezone.utc).timestamp())
+                    requested_expiration = order.expiration
+                    expiration = requested_expiration or (now_ts + 300)
+                    if expiration <= now_ts + 180:
+                        raise GatewayOrderRejected(
+                            "GTD_EXPIRATION_TOO_SOON: expiration must be at least "
+                            "180 seconds in the future"
+                        )
 
                 resp = await client.place_limit_order(
                     token_id=order.token_id,

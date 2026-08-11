@@ -84,7 +84,7 @@ async def build_market_outcome_dataset(
     # 2. Загрузка закрытых свечей Binance
     res_candles = await db.execute(text(
         """
-        SELECT open_time, close_time, open, high, low, close, volume, taker_buy_volume
+        SELECT open_time, close_time, is_closed, open, high, low, close, volume, taker_buy_volume
         FROM crypto_candles
         WHERE symbol = :symbol
           AND interval = :interval
@@ -99,7 +99,7 @@ async def build_market_outcome_dataset(
         return pd.DataFrame()
 
     df_candles = pd.DataFrame(candle_rows, columns=[
-        "open_time", "close_time", "open", "high", "low", "close", "volume", "taker_buy_volume"
+        "open_time", "close_time", "is_closed", "open", "high", "low", "close", "volume", "taker_buy_volume"
     ])
     df_candles["open_time"] = pd.to_datetime(df_candles["open_time"], utc=True)
     df_candles["close_time"] = pd.to_datetime(df_candles["close_time"], utc=True)

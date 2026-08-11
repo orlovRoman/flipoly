@@ -2,6 +2,7 @@ import pytest
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
+from datetime import datetime, timezone, timedelta
 
 from polyflip.execution.contracts import GatewayOrder
 from polyflip.execution.gateways.polymarket import PolymarketExecutionGateway
@@ -289,6 +290,7 @@ async def test_gateway_routes_gtd_to_limit_order_with_expiration():
     )
     gateway.get_client = AsyncMock(return_value=client)
 
+    gtd_expiration = int(datetime.now(timezone.utc).timestamp()) + 600
     order = GatewayOrder(
         attempt_id=uuid4(),
         market_id="market-gtd",
@@ -298,6 +300,7 @@ async def test_gateway_routes_gtd_to_limit_order_with_expiration():
         side="SELL",
         requested_shares=Decimal("4"),
         limit_price=Decimal("0.4"),
+        expiration=gtd_expiration,
     )
 
     submission = await gateway.submit(order, order_type="GTD")
@@ -309,7 +312,6 @@ async def test_gateway_routes_gtd_to_limit_order_with_expiration():
     assert kwargs["size"] == "4"
     assert kwargs["side"] == "SELL"
     assert kwargs["post_only"] is False
-    assert isinstance(kwargs["expiration"], int)
-    assert kwargs["expiration"] > 0
+    assert kwargs["expiration"] == gtd_expiration
     client.place_market_order.assert_not_awaited()
 

@@ -301,6 +301,7 @@ document.addEventListener("DOMContentLoaded", () => {
     stopLossCheckSec: document.getElementById("STOP_LOSS_CHECK_SEC"),
     takeProfitEnabled: document.getElementById("TAKE_PROFIT_ENABLED"),
     takeProfitMultiplier: document.getElementById("TAKE_PROFIT_MULTIPLIER"),
+    takeProfitOrderMode: document.getElementById("TAKE_PROFIT_ORDER_MODE"),
     takeProfitCheckIntervalSec: document.getElementById("TAKE_PROFIT_CHECK_INTERVAL_SEC"),
     tradingModeRadios: document.querySelectorAll('input[name="trading_mode"]'),
     tradingModeBadge: document.getElementById('trading-mode-badge'),
@@ -526,6 +527,9 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (settingsElements.takeProfitMultiplier && data.TAKE_PROFIT_MULTIPLIER !== undefined) {
         settingsElements.takeProfitMultiplier.value = data.TAKE_PROFIT_MULTIPLIER;
+      }
+      if (settingsElements.takeProfitOrderMode && data.TAKE_PROFIT_ORDER_MODE !== undefined) {
+        settingsElements.takeProfitOrderMode.value = data.TAKE_PROFIT_ORDER_MODE.toUpperCase();
       }
       if (settingsElements.takeProfitCheckIntervalSec && data.TAKE_PROFIT_CHECK_INTERVAL_SEC !== undefined) {
         settingsElements.takeProfitCheckIntervalSec.value = data.TAKE_PROFIT_CHECK_INTERVAL_SEC;
@@ -763,6 +767,14 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
         settingsToSave.TAKE_PROFIT_MULTIPLIER = val.toString();
+      }
+      if (settingsElements.takeProfitOrderMode) {
+        const mode = settingsElements.takeProfitOrderMode.value.toUpperCase();
+        if (!['GTD', 'TRIGGERED'].includes(mode)) {
+          alert("Take-profit order mode must be GTD or TRIGGERED");
+          return;
+        }
+        settingsToSave.TAKE_PROFIT_ORDER_MODE = mode;
       }
       if (settingsElements.takeProfitCheckIntervalSec) {
         const val = parseInt(settingsElements.takeProfitCheckIntervalSec.value);

@@ -79,7 +79,7 @@ async def test_dashboard_backtest_passes_saved_lgbm_settings(monkeypatch):
     )
     monkeypatch.setattr(dashboard.asyncio, "to_thread", fake_to_thread)
 
-    result = await dashboard.crypto_backtest(symbol="BTCUSDT")
+    result = await dashboard.crypto_backtest(symbol="BTCUSDT", feature_set="B")
 
     assert result["symbol"] == "BTCUSDT"
     assert captured["func"] is dashboard.run_backtest
@@ -87,3 +87,5 @@ async def test_dashboard_backtest_passes_saved_lgbm_settings(monkeypatch):
     assert captured["kwargs"]["lgbm_params"]["learning_rate"] == 0.02
     assert captured["kwargs"]["lgbm_params"]["n_estimators"] == 300
     assert captured["kwargs"]["lgbm_params"]["num_leaves"] == 15
+    assert captured["kwargs"]["feature_set"] == "B"
+    assert captured["kwargs"]["closed_candles"] is not None

@@ -210,6 +210,7 @@ async def enqueue_close_request(
         "STOP_LOSS", "TAKE_PROFIT", "MANUAL", "RECOVERY", "STRATEGY"
     ],
     limit_price: float,
+    expires_at: datetime | None = None,
 ) -> EnqueueResult:
 
     trade = (
@@ -246,6 +247,10 @@ async def enqueue_close_request(
 
     request_id = uuid.uuid4()
     now_utc = datetime.now(timezone.utc)
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    request_expires_at = expires_at or (now_utc + timedelta(seconds=60))
+    ttl_seconds = max(1, int((request_expires_at - now_utc).total_seconds()))
 
     # Атомарно фиксируем текущую версию позиции для idempotency_key,
     # а затем увеличиваем её, чтобы следующий CLOSE получил новый ключ.
@@ -274,8 +279,8 @@ async def enqueue_close_request(
             * Decimal(str(limit_price)),
             max_slippage_pct=2.0,
             limit_price=Decimal(str(limit_price)),
-            ttl_seconds=60,
-            expires_at=now_utc + timedelta(seconds=60),
+            ttl_seconds=ttl_seconds,
+            expires_at=request_expires_at,
             state="READY",
             created_at=now_utc,
             updated_at=now_utc,

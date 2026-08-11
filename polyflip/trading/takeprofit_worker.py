@@ -28,6 +28,12 @@ async def takeprofit_worker_cycle(
 
     # Загружаем POLYMARKET_FEE_RATE из RuntimeSettings
     fee_rate = await get_float(db_session, "POLYMARKET_FEE_RATE")
+    order_mode_row = await db_session.scalar(
+        select(RuntimeSettings.value).where(
+            RuntimeSettings.key == "TAKE_PROFIT_ORDER_MODE"
+        )
+    )
+    order_mode = str(order_mode_row or "GTD").strip().upper()
 
     # 2. Загружаем ACTIVE позиции с выставленным take_profit_price
     stmt = select(TradeHistory).where(
@@ -70,6 +76,37 @@ async def takeprofit_worker_cycle(
                                market_id=trade.market_id)
                 await db_session.commit()
                 continue
+
+            # Native GTD is a resting SELL order: post it at the target immediately,
+            # rather than waiting for a matching bid. PAPER and TRIGGERED modes keep
+            # the existing polling behavior below.
+            if order_mode == "GTD" and str(trade.mode).upper() == "LIVE":
+                gtd_market_end = market_end or market.end_time_est
+                if gtd_market_end is not None:
+                    if gtd_market_end.tzinfo is None:
+                        gtd_market_end = gtd_market_end.replace(tzinfo=timezone.utc)
+                    if gtd_market_end > now + timedelta(seconds=180):
+                        from polyflip.execution.outbox import enqueue_close_request
+
+                        res = await enqueue_close_request(
+                            db_session,
+                            trade_id=trade.id,
+                            trigger_reason="TAKE_PROFIT",
+                            limit_price=float(trade.take_profit_price),
+                            expires_at=gtd_market_end,
+                        )
+                        if res.disposition.value == "CREATED":
+                            trade.take_profit_status = "QUEUED"
+                            trade.take_profit_sell_price = trade.take_profit_price
+                            await db_session.commit()
+                            logger.info(
+                                "gtd_take_profit_request_created",
+                                trade_id=trade.id,
+                                request_id=str(res.request_id),
+                                limit_price=trade.take_profit_price,
+                                expires_at=gtd_market_end.isoformat(),
+                            )
+                        continue
 
             token_id = market.yes_token_id if trade.outcome_bought == "YES" else market.no_token_id
 

@@ -27,19 +27,23 @@ async def test_real_call_build_market_outcome_dataset_mocked_db():
     mock_res_candles = MagicMock()
     start_ts = pd.to_datetime("2026-08-08T00:00:00Z", utc=True)
     candle_rows = []
-    for i in range(110):
+    for i in range(150):
         t_open = start_ts + pd.Timedelta(minutes=15 * i)
         t_close = t_open + pd.Timedelta(minutes=15)
         candle_rows.append((
-            t_open.isoformat(), t_close.isoformat(),
+            t_open.isoformat(), t_close.isoformat(), True,
             100.0 + i, 105.0 + i, 95.0 + i, 102.0 + i, 50.0, 25.0
         ))
     mock_res_candles.fetchall.return_value = candle_rows
 
     db.execute.side_effect = [mock_res_markets, mock_res_candles]
 
-    df = await build_market_outcome_dataset(db, symbol="BTCUSDT", interval="15m")
-    assert df is not None
+    df = await build_market_outcome_dataset(
+        db, symbol="BTCUSDT", interval="15m", feature_set="B"
+    )
+    assert not df.empty
+    assert {"direction_lag_1", "consecutive_up", "alternation_rate_6"}.issubset(df.columns)
+    assert df["direction_lag_1"].notna().all()
 
 
 def test_one_market_id_one_row_multiple_snapshots():

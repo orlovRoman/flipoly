@@ -29,7 +29,7 @@ from polyflip.execution.gateways.exceptions import (
     GatewayOrderRejected,
     GatewaySubmissionUnknown,
 )
-from polyflip.execution.outbox import finalize_request
+from polyflip.execution.outbox import enqueue_close_request, finalize_request
 from polyflip.execution.states import (
     RECONCILABLE_REQUEST_STATES,
 )
@@ -70,9 +70,81 @@ def _resolve_requested_shares(
         return spend / price
     return Decimal("0")
 
-
-
 # Через сколько секунд неопределённого состояния переходим в MANUAL_REVIEW_REQUIRED
+async def _enqueue_gtd_take_profit_after_fill(session, req) -> None:
+    """Place a native GTD TP order after a LIVE BUY is fully filled.
+
+    The close request is created in the same transaction as the BUY
+    accounting update.  This prevents a scheduler race from creating a
+    second TP request before the position becomes visible as EXIT_REQUESTED.
+    """
+    if req.intent != "OPEN" or req.state != "FILLED":
+        return
+    if str(req.requested_mode).upper() != "LIVE":
+        return
+
+    mode_row = await session.scalar(
+        select(RuntimeSettings.value).where(
+            RuntimeSettings.key == "TAKE_PROFIT_ORDER_MODE"
+        )
+    )
+    if str(mode_row or "GTD").strip().upper() != "GTD":
+        return
+
+    trade = await session.get(
+        TradeHistory, req.trade_history_id, with_for_update=True
+    )
+    if not trade or not trade.take_profit_enabled:
+        return
+    if trade.position_status == "CLOSED" or not trade.take_profit_price:
+        return
+    remaining = Decimal(str(trade.remaining_shares or 0))
+    if remaining <= 0:
+        return
+
+    market_end = trade.market_end_time
+    if market_end is None:
+        market_end = await session.scalar(
+            select(LiveMarket.end_time_est).where(
+                LiveMarket.market_id == trade.market_id
+            )
+        )
+    if market_end is None:
+        logger.warning("gtd_take_profit_missing_market_end", trade_id=trade.id)
+        return
+    if market_end.tzinfo is None:
+        market_end = market_end.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if market_end <= now + timedelta(seconds=180):
+        # Polymarket rejects GTD expirations inside its three-minute window.
+        # Leave the position ACTIVE so the legacy trigger worker can use a
+        # marketable close when the target is actually reached.
+        logger.info(
+            "gtd_take_profit_too_close_to_expiry",
+            trade_id=trade.id,
+            market_end=market_end.isoformat(),
+        )
+        return
+
+    result = await enqueue_close_request(
+        session,
+        trade_id=trade.id,
+        trigger_reason="TAKE_PROFIT",
+        limit_price=float(trade.take_profit_price),
+        expires_at=market_end,
+    )
+    if result.disposition.value == "CREATED":
+        trade.take_profit_status = "QUEUED"
+        trade.take_profit_sell_price = trade.take_profit_price
+        logger.info(
+            "gtd_take_profit_request_created",
+            trade_id=trade.id,
+            request_id=str(result.request_id),
+            limit_price=trade.take_profit_price,
+            expires_at=market_end.isoformat(),
+        )
+
+
 MAX_RECONCILIATION_AGE_SEC = 900  # 15 минут
 
 
@@ -458,6 +530,7 @@ async def process_ready_requests():
             ):
                 req.requested_shares = resolved_requested_shares
                 req.updated_at = datetime.now(timezone.utc)
+                await session.flush()
                 logger.info(
                     "requested_shares_derived_from_budget",
                     request_id=str(req.id),
@@ -466,6 +539,9 @@ async def process_ready_requests():
                     requested_shares=str(resolved_requested_shares),
                 )
 
+            request_expiration = req.expires_at
+            if request_expiration is not None and request_expiration.tzinfo is None:
+                request_expiration = request_expiration.replace(tzinfo=timezone.utc)
             order = GatewayOrder(
                 attempt_id=attempt_id,
                 market_id=req.market_id,
@@ -476,11 +552,17 @@ async def process_ready_requests():
                 limit_price=limit_price,
                 requested_shares=resolved_requested_shares,
                 max_spend_usdc=max_spend_usdc,
+                expiration=(
+                    int(request_expiration.timestamp())
+                    if req.trigger_reason == "TAKE_PROFIT" and request_expiration
+                    else None
+                ),
             )
             order_mode = "FAK"
             gtc_ttl_sec = 5.0
             retry_attempts = 3
             retry_delay = 0.75
+            settings_dict = {}
 
             if req.requested_mode == "LIVE":
                 try:
@@ -491,6 +573,7 @@ async def process_ready_requests():
                                 "LIVE_GTC_TTL_SECONDS",
                                 "LIVE_FAK_RETRY_MAX_ATTEMPTS",
                                 "LIVE_FAK_RETRY_DELAY_SEC",
+                                "TAKE_PROFIT_ORDER_MODE",
                             ])
                         )
                     )
@@ -507,8 +590,19 @@ async def process_ready_requests():
                 except Exception as setting_err:
                     logger.warning("order_mode_settings_read_failed", error=str(setting_err))
 
+            is_gtd_take_profit = (
+                req.intent == "CLOSE"
+                and req.trigger_reason == "TAKE_PROFIT"
+                and req.requested_mode == "LIVE"
+                and str(settings_dict.get("TAKE_PROFIT_ORDER_MODE", "GTD")).strip().upper() == "GTD"
+            )
+            if is_gtd_take_profit:
+                order_mode = "GTD"
+
             if order_mode == "GTC_TTL":
                 sub_res = await execute_gtc_ttl(gateway, order, ttl_seconds=gtc_ttl_sec)
+            elif order_mode == "GTD":
+                sub_res = await gateway.submit(order, order_type="GTD")
             elif order_mode == "FAK_RETRY":
                 api_client_retry = api_client if api_client else None
                 sub_res = await execute_fak_retry(
@@ -589,6 +683,7 @@ async def process_ready_requests():
             # Единый commit ниже фиксирует fills + request state + TradeHistory атомарно.
             if req.trade_history_id:
                 await rebuild_trade_accounting(session, req.trade_history_id)
+                await _enqueue_gtd_take_profit_after_fill(session, req)
 
             await session.commit()
 
@@ -876,10 +971,23 @@ async def reconcile_active_requests():
             attempt = (await session.execute(attempt_stmt)).scalar_one_or_none()
 
             time_in_reconciling = (now - updated_at).total_seconds()
+            request_expiry = req.expires_at
+            if request_expiry is not None and request_expiry.tzinfo is None:
+                request_expiry = request_expiry.replace(tzinfo=timezone.utc)
+            is_gtd_take_profit = (
+                req.intent == "CLOSE"
+                and req.trigger_reason == "TAKE_PROFIT"
+                and req.requested_mode == "LIVE"
+                and request_expiry is not None
+                and request_expiry <= now
+            )
 
             # Таймаут: неизвестность != отсутствие сделки.
             # MANUAL_REVIEW_REQUIRED сохраняет резерв.
-            if time_in_reconciling > MAX_RECONCILIATION_AGE_SEC:
+            if (
+                time_in_reconciling > MAX_RECONCILIATION_AGE_SEC
+                and not is_gtd_take_profit
+            ):
                 logger.warning("request_timed_out_in_unknown", request_id=str(req.id))
                 if attempt:
                     attempt.status = "UNKNOWN"
@@ -896,6 +1004,27 @@ async def reconcile_active_requests():
                         f"{MAX_RECONCILIATION_AGE_SEC}s, manual review required"
                     ),
                 )
+                await session.commit()
+                continue
+
+            if is_gtd_take_profit and (
+                not attempt or not attempt.provider_order_id
+            ):
+                if attempt:
+                    attempt.status = "FAILED"
+                    attempt.error_msg = "GTD order expired without provider order id"
+                    attempt.finished_at = now
+                await finalize_request(
+                    session,
+                    req,
+                    state="EXPIRED",
+                    error="GTD take-profit expired without provider order id",
+                )
+                if req.trade_history_id:
+                    await rebuild_trade_accounting(session, req.trade_history_id)
+                    trade = await session.get(TradeHistory, req.trade_history_id)
+                    if trade and trade.position_status != "CLOSED":
+                        trade.take_profit_status = "EXPIRED"
                 await session.commit()
                 continue
 
@@ -987,7 +1116,40 @@ async def reconcile_active_requests():
                             session,
                             req.trade_history_id,
                         )
+                        await _enqueue_gtd_take_profit_after_fill(session, req)
 
+                    await session.commit()
+                    continue
+
+                # A native GTD order is allowed to remain pending until the
+                # market closes. Once its expiry is reached, cancel the
+                # provider order (after the fill lookup above) and release
+                # the position back to the normal accounting state.
+                if is_gtd_take_profit:
+                    if attempt and attempt.provider_order_id:
+                        try:
+                            await gateway.cancel_order(attempt.provider_order_id)
+                        except Exception as cancel_error:
+                            logger.warning(
+                                "gtd_take_profit_cancel_failed",
+                                request_id=str(req.id),
+                                error=str(cancel_error),
+                            )
+                    if attempt:
+                        attempt.status = "FAILED"
+                        attempt.error_msg = "GTD order expired at market end"
+                        attempt.finished_at = now
+                    await finalize_request(
+                        session,
+                        req,
+                        state="EXPIRED",
+                        error="GTD take-profit order expired at market end",
+                    )
+                    if req.trade_history_id:
+                        await rebuild_trade_accounting(session, req.trade_history_id)
+                        trade = await session.get(TradeHistory, req.trade_history_id)
+                        if trade and trade.position_status != "CLOSED":
+                            trade.take_profit_status = "EXPIRED"
                     await session.commit()
                     continue
 

@@ -60,6 +60,9 @@ class GatewayOrder(BaseModel):
     limit_price: Decimal
     requested_shares: Decimal
     max_spend_usdc: Decimal | None = None
+    # Unix timestamp used by native GTD orders.  It is intentionally optional
+    # so existing FAK/GTC callers keep their current contract.
+    expiration: int | None = None
 
 
 class ProviderFill(BaseModel):
