@@ -21,7 +21,6 @@ def _target_consistent_price(phase: str, final_outcome: str, flip_vs_final: bool
     return above if flip_vs_final else below
 
 def _snapshot_time(market_index: int, snapshot_index: int) -> datetime:
-
     return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(
         days=market_index, minutes=snapshot_index
     )
@@ -245,4 +244,3 @@ async def test_trigger_training_status_and_cache_invalidation(
 
     # Проверяем, что кэш моделей был сброшен
     assert len(_models_cache) == 0
-

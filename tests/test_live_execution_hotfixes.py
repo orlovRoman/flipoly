@@ -458,7 +458,20 @@ async def test_minimum_live_order_amount_validation():
     candidate.signal_hash = sig_hash
 
     db_session = AsyncMock()
-    db_session.scalar.side_effect = ["60", "true", 0, 0, 0, 0, 0, 0, 0, 0]
+
+    async def mock_scalar(statement):
+        params = statement.compile().params
+        setting_key = next(
+            (value for value in params.values() if isinstance(value, str)),
+            None,
+        )
+        if setting_key == "LIVE_MAX_SIGNAL_AGE_SEC":
+            return "60"
+        if setting_key == "LIVE_TRADING_ENABLED":
+            return "true"
+        return 0
+
+    db_session.scalar.side_effect = mock_scalar
 
     active_session_mock = MagicMock()
     active_session_mock.max_single_order_usdc = Decimal("10.0")
