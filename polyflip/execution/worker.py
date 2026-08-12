@@ -751,8 +751,18 @@ async def rebuild_trade_accounting(session, trade_id: int):
         )
     ).scalar_one_or_none()
 
+    from polyflip.execution.states import FINAL_POSITION_STATES, ExitReason
+
     if not trade:
         return
+
+    if trade.position_status in FINAL_POSITION_STATES:
+        logger.warning(
+            "rebuild_accounting_on_final_trade",
+            trade_id=trade_id,
+            status=trade.position_status,
+        )
+        return trade
 
     reqs_result = await session.execute(
         select(ExecutionRequest).where(ExecutionRequest.trade_history_id == trade_id)
@@ -877,7 +887,8 @@ async def rebuild_trade_accounting(session, trade_id: int):
     elif remaining_shares > Decimal("0"):
         trade.position_status = "OPEN"
         if close_shares <= Decimal("0"):
-            trade.exit_reason = None
+            if trade.exit_reason != ExitReason.SETTLEMENT:
+                trade.exit_reason = None
 
     # Stop Loss / Take Profit цены из реальной средней цены входа
     if trade.position_status in ("OPEN", "PARTIALLY_CLOSED") and open_shares > Decimal(

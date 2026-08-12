@@ -187,27 +187,20 @@ async def reconcile_live_resolution(db: AsyncSession, trade_id: int) -> TradeHis
 
     await save_market_resolution(db, trade.market_id, resolution)
 
-    if trade.outcome_bought == resolution.final_outcome:
-        payout = Decimal(str(trade.remaining_shares))
+    from polyflip.execution.trade_lifecycle import mark_trade_resolved
 
-        trade.settlement_outcome = resolution.final_outcome
+    is_win = (trade.outcome_bought == resolution.final_outcome)
+    trade.settlement_outcome = resolution.final_outcome
+    mark_trade_resolved(trade, is_win=is_win)
+
+    if is_win:
+        payout = Decimal(str(trade.remaining_shares))
         trade.expected_payout_usdc = payout
         trade.redeemable_shares = trade.remaining_shares
-        trade.position_status = "RESOLVED_REDEEMABLE"
-        trade.exit_reason = "SETTLEMENT"
-        trade.redemption_status = "PENDING"
-
         entry_basis = Decimal(str(trade.entry_cost_usdc or 0))
         trade.realized_pnl_usdc = payout - entry_basis
         trade.pnl = float(trade.realized_pnl_usdc)
     else:
-        trade.settlement_outcome = resolution.final_outcome
-        trade.expected_payout_usdc = Decimal("0")
-        trade.remaining_shares = Decimal("0")
-        trade.position_status = "RESOLVED_LOST"
-        trade.exit_reason = "SETTLEMENT"
-        trade.redemption_status = "NOT_REQUIRED"
-
         entry_basis = Decimal(str(trade.entry_cost_usdc or 0))
         trade.realized_pnl_usdc = -entry_basis
         trade.pnl = float(-entry_basis)

@@ -167,11 +167,13 @@ async def settle_resolved_position(
     prior_realized = Decimal(str(trade.realized_pnl_usdc or 0))
     new_realized = prior_realized + delta_pnl
 
+    from polyflip.execution.states import ExitReason
+
     trade.realized_pnl_usdc = new_realized
     trade.pnl = float(new_realized)  # явное приведение: колонка pnl имеет тип Float
     trade.remaining_shares = Decimal("0")
     trade.position_status = "CLOSED"
-    trade.exit_reason = "SETTLEMENT"
+    trade.exit_reason = ExitReason.SETTLEMENT
     trade.closed_at = datetime.now(timezone.utc)
 
     logger.info(

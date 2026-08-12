@@ -16,7 +16,10 @@ from sqlalchemy import (
     ForeignKey,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, validates
+import structlog
+
+logger = structlog.get_logger()
 
 Base = declarative_base()
 
@@ -311,6 +314,12 @@ class TradeHistory(Base):
     would_live_accept = Column(Boolean, nullable=True)
     p_flip_raw = Column(Float, nullable=True)
     entry_model_ece = Column(Float, nullable=True)
+
+    @validates("position_status")
+    def _validate_position_status(self, key, value):
+        if value in ("RESOLVED_REDEEMABLE", "RESOLVED_LOST") and getattr(self, "exit_reason", None) is None:
+            logger.warning("trade_resolved_without_exit_reason", trade_id=getattr(self, "id", None), status=value)
+        return value
 
     __table_args__ = (
         Index("idx_trade_history_market_id", "market_id"),

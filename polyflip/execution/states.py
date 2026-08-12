@@ -62,3 +62,24 @@ ACTIVE_POSITION_STATES = frozenset(
         "RESOLVED_REDEEMABLE",
     }
 )
+
+FINAL_POSITION_STATES = frozenset(
+    {
+        "CLOSED",
+        "RESOLVED_REDEEMABLE",
+        "RESOLVED_LOST",
+        "RESOLVED_WON",
+        "REDEEMED",
+    }
+)
+
+
+class ExitReason:
+    SETTLEMENT = "SETTLEMENT"
+    STOP_LOSS = "STOP_LOSS"
+    TAKE_PROFIT = "TAKE_PROFIT"
+    MANUAL = "MANUAL"
+    LIQUIDATION = "LIQUIDATION"
+
+    ALL = frozenset({SETTLEMENT, STOP_LOSS, TAKE_PROFIT, MANUAL, LIQUIDATION})
+

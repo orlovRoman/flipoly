@@ -295,12 +295,12 @@ async def resolve_trades_job():
                     logger.error("resolver_skipped_zero_fill_trade", trade_id=t.id)
                     continue
                 if t.position_status not in ("RESOLVED_REDEEMABLE", "RESOLVED_LOST"):
+                    from polyflip.execution.trade_lifecycle import mark_trade_resolved
+
                     is_win = (str(t.outcome_bought).strip().upper() == str(raw_outcome).strip().upper())
+                    mark_trade_resolved(t, is_win=is_win)
                     
                     if is_win:
-                        t.position_status = "RESOLVED_REDEEMABLE"
-                        t.exit_reason = "SETTLEMENT"
-                        t.redemption_status = "PENDING"
                         payout = Decimal(str(t.remaining_shares))
                         entry_basis = Decimal(str(t.entry_cost_usdc or 0))
                         t.realized_pnl_usdc = payout - entry_basis
@@ -308,16 +308,9 @@ async def resolve_trades_job():
                         t.expected_payout_usdc = payout
                         t.redeemable_shares = t.remaining_shares
                     else:
-                        t.position_status = "RESOLVED_LOST"
-                        t.exit_reason = "SETTLEMENT"
-                        t.redemption_status = "NOT_REQUIRED"
                         entry_basis = Decimal(str(t.entry_cost_usdc or 0))
                         t.realized_pnl_usdc = -entry_basis
                         t.pnl = float(t.realized_pnl_usdc)
-                        t.expected_payout_usdc = Decimal("0")
-                        
-                        if t.remaining_shares is None or t.remaining_shares > Decimal("0"):
-                            t.remaining_shares = Decimal("0")
 
                     t.settlement_outcome = raw_outcome
                     logger.info("live_position_resolved", trade_id=t.id, status=t.position_status, winning_outcome=raw_outcome)
