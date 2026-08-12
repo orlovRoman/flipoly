@@ -6,6 +6,24 @@ import pytest
 from polyflip.trading.ml_inference import clear_models_cache
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def override_dependencies(app, overrides: dict):
+    """Safely override FastAPI dependencies and restore previous state."""
+    original = {k: app.dependency_overrides.get(k) for k in overrides}
+    app.dependency_overrides.update(overrides)
+    try:
+        yield
+    finally:
+        for k, v in original.items():
+            if v is None:
+                app.dependency_overrides.pop(k, None)
+            else:
+                app.dependency_overrides[k] = v
+
+
 @pytest.fixture(autouse=True)
 def clean_models_cache_fixture():
     clear_models_cache()

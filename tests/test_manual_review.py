@@ -287,25 +287,25 @@ async def test_mark_no_fill_releases_reservation(db_session):
     db_session.add(res)
     await db_session.commit()
 
-    # Patch dependency to use test session
     from polyflip.db.connection import get_db_session
     from polyflip.api.auth import verify_api_key
+    from tests.conftest import override_dependencies
 
-    app.dependency_overrides[get_db_session] = lambda: db_session
-    app.dependency_overrides[verify_api_key] = lambda: True
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        response = await client.post(
-            f"/api/execution/requests/{req.id}/resolve-review",
-            json={
-                "action": "MARK_FAILED_NO_FILL",
-                "operator": "test",
-                "note": "confirmed",
-            },
-        )
-        assert response.status_code == 200
+    with override_dependencies(
+        app, {get_db_session: lambda: db_session, verify_api_key: lambda: True}
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                f"/api/execution/requests/{req.id}/resolve-review",
+                json={
+                    "action": "MARK_FAILED_NO_FILL",
+                    "operator": "test",
+                    "note": "confirmed",
+                },
+            )
+            assert response.status_code == 200
 
     await db_session.refresh(req)
     await db_session.refresh(trade)
@@ -321,8 +321,6 @@ async def test_mark_no_fill_releases_reservation(db_session):
         select(func.count(ExecutionEvent.id)).where(ExecutionEvent.request_id == req.id)
     )
     assert event_count >= 1
-
-    app.dependency_overrides.clear()
 
 
 @pytest.mark.postgres
@@ -362,13 +360,11 @@ async def test_concurrent_no_fill_resolution_is_idempotent(pg_session_factory):
 
     from polyflip.db.connection import get_db_session
     from polyflip.api.auth import verify_api_key
+    from tests.conftest import override_dependencies
 
     async def _get_test_db():
         async with pg_session_factory() as session:
             yield session
-
-    app.dependency_overrides[get_db_session] = _get_test_db
-    app.dependency_overrides[verify_api_key] = lambda: True
 
     async def make_request():
         async with AsyncClient(
@@ -383,20 +379,24 @@ async def test_concurrent_no_fill_resolution_is_idempotent(pg_session_factory):
                 },
             )
 
-    try:
-        responses = await asyncio.gather(make_request(), make_request(), make_request())
-    finally:
-        app.dependency_overrides.clear()
+    with override_dependencies(
+        app, {get_db_session: _get_test_db, verify_api_key: lambda: True}
+    ):
+        responses = await asyncio.wait_for(
+            asyncio.gather(make_request(), make_request(), make_request()),
+            timeout=10.0,
+        )
 
-    # Some might get 409 because state changed, some get 200
-    statuses = [r.status_code for r in responses]
-    assert 200 in statuses
-    # The others could be 200 (if handled idempotently and we return 200) or 409
+    await asyncio.sleep(0.05)
 
-    async with pg_session_factory() as db_session:
-        req = await db_session.get(ExecutionRequest, req_id)
-        trade = await db_session.get(TradeHistory, trade_id)
-        res = await db_session.get(ExposureReservation, res_id)
+    assert any(
+        r.status_code == 200 for r in responses
+    ), f"Expected at least one 200, got: {[r.status_code for r in responses]}"
+
+    async with pg_session_factory() as verify_session:
+        req = await verify_session.get(ExecutionRequest, req_id)
+        trade = await verify_session.get(TradeHistory, trade_id)
+        res = await verify_session.get(ExposureReservation, res_id)
 
         assert req.state == "MANUAL_REVIEW_FAILED"
         assert trade.position_status == "ENTRY_FAILED"
@@ -405,7 +405,7 @@ async def test_concurrent_no_fill_resolution_is_idempotent(pg_session_factory):
         # Verify only 1 ExecutionEvent was created
         from sqlalchemy import select, func
 
-        event_count = await db_session.scalar(
+        event_count = await verify_session.scalar(
             select(func.count(ExecutionEvent.id))
             .where(ExecutionEvent.request_id == req_id)
             .where(ExecutionEvent.event_type == "MANUAL_REVIEW_MARK_FAILED_NO_FILL")
@@ -465,24 +465,26 @@ async def test_resolve_no_fill_batch_safe_and_unsafe(db_session):
     db_session.add(fill)
     await db_session.commit()
 
-    app.dependency_overrides[get_db_session] = lambda: db_session
-    app.dependency_overrides[verify_api_key] = lambda: True
+    from tests.conftest import override_dependencies
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/execution/requests/resolve-no-fill-batch",
-            json={
-                "request_ids": [str(req1.id), str(req2.id)],
-                "operator": "batch_op",
-                "note": "batch_test",
-            },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert str(req1.id) in data["resolved"]
-        assert any(s["request_id"] == str(req2.id) for s in data["skipped"])
+    with override_dependencies(
+        app, {get_db_session: lambda: db_session, verify_api_key: lambda: True}
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/execution/requests/resolve-no-fill-batch",
+                json={
+                    "request_ids": [str(req1.id), str(req2.id)],
+                    "operator": "batch_op",
+                    "note": "batch_test",
+                },
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert str(req1.id) in data["resolved"]
+            assert any(s["request_id"] == str(req2.id) for s in data["skipped"])
 
     await db_session.refresh(req1)
     assert req1.state == "MANUAL_REVIEW_FAILED"
