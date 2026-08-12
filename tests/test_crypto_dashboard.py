@@ -29,8 +29,11 @@ import numpy as np
 import pytest
 
 
+from polyflip.crypto.feature_sets import CONTROL_FEATURES
+
+
 class _DashboardSmokeModel:
-    n_features_in_ = 22
+    n_features_in_ = len(CONTROL_FEATURES)
 
     def predict_proba(self, rows):
         return np.asarray([[0.4, 0.6]] * len(rows), dtype=float)

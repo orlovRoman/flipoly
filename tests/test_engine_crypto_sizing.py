@@ -61,4 +61,4 @@ def test_crypto_predictor_cache():
 
 def test_crypto_features_count_matches_mock():
     from polyflip.crypto.trainer import CRYPTO_FEATURES
-    assert len(CRYPTO_FEATURES) == 22, f'Ожидалось 22 фичи, фактически: {len(CRYPTO_FEATURES)}'
+    assert len(CRYPTO_FEATURES) == 24, f'Ожидалось 24 фичи, фактически: {len(CRYPTO_FEATURES)}'
