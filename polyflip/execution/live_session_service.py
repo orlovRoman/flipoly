@@ -206,7 +206,9 @@ async def get_session_budget_snapshot(
         .scalar_subquery()
     )
 
-    row = (await db.execute(select(filled_trade_sq, filled_request_sq, reserved_sq))).one()
+    row = (
+        await db.execute(select(filled_trade_sq, filled_request_sq, reserved_sq))
+    ).one()
     filled = Decimal(str(row[0] or 0)) + Decimal(str(row[1] or 0))
     reserved = Decimal(str(row[2] or 0))
     committed = filled + reserved

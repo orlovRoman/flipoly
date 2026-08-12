@@ -7,6 +7,7 @@ import socket
 import ssl
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
+from typing import Optional
 
 from sqlalchemy import select, or_, and_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -70,6 +71,7 @@ def _resolve_requested_shares(
         return spend / price
     return Decimal("0")
 
+
 # Через сколько секунд неопределённого состояния переходим в MANUAL_REVIEW_REQUIRED
 async def _enqueue_gtd_take_profit_after_fill(session, req) -> None:
     """Place a native GTD TP order after a LIVE BUY is fully filled.
@@ -91,9 +93,7 @@ async def _enqueue_gtd_take_profit_after_fill(session, req) -> None:
     if str(mode_row or "GTD").strip().upper() != "GTD":
         return
 
-    trade = await session.get(
-        TradeHistory, req.trade_history_id, with_for_update=True
-    )
+    trade = await session.get(TradeHistory, req.trade_history_id, with_for_update=True)
     if not trade or not trade.take_profit_enabled:
         return
     # Both the fill path and reconciliation can observe the same BUY fill.
@@ -272,7 +272,9 @@ async def _finish_submit_exception(
             is_deterministic_rejection
             or ("invalid token" in err_lower)
             or ("not enough balance" in err_lower)
-            or ("allowance" in err_lower)  # covers: insufficient allowance, allowance exceeded, erc20: insufficient allowance
+            or (
+                "allowance" in err_lower
+            )  # covers: insufficient allowance, allowance exceeded, erc20: insufficient allowance
         )
         terminal_state = (
             "REJECTED"
@@ -426,7 +428,10 @@ async def process_ready_requests():
                     session,
                     req,
                     state="REJECTED",
-                    error=f"MARKET_EXPIRED_AWAITING_RESOLUTION: Market ended at {market.end_time_est}",
+                    error=(
+                        f"MARKET_EXPIRED_AWAITING_RESOLUTION: "
+                        f"Market ended at {market.end_time_est}"
+                    ),
                 )
                 await session.commit()
                 return
@@ -460,8 +465,11 @@ async def process_ready_requests():
                 fresh_quote_unavailable = False
                 try:
                     from polyflip.collector.client import PolymarketClient
+
                     api_client = PolymarketClient()
-                    prices = await asyncio.wait_for(api_client.get_market_prices(token_id), timeout=3.0)
+                    prices = await asyncio.wait_for(
+                        api_client.get_market_prices(token_id), timeout=3.0
+                    )
                     if prices and prices.get("best_ask") is not None:
                         executable_price = float(prices["best_ask"])
                     else:
@@ -469,7 +477,7 @@ async def process_ready_requests():
                 except Exception as e:
                     logger.warning("worker_fetch_price_failed", error=str(e))
                     fresh_quote_unavailable = True
-                    
+
                 if fresh_quote_unavailable:
                     await finalize_request(
                         session,
@@ -480,9 +488,8 @@ async def process_ready_requests():
                     await session.commit()
                     return
 
-            if (
-                req.max_acceptable_price is not None
-                and executable_price > float(req.max_acceptable_price)
+            if req.max_acceptable_price is not None and executable_price > float(
+                req.max_acceptable_price
             ):
                 logger.warning(
                     "max_acceptable_price_exceeded",
@@ -529,9 +536,8 @@ async def process_ready_requests():
                 side=side,
             )
             if (
-                (req.requested_shares is None or req.requested_shares <= 0)
-                and resolved_requested_shares > 0
-            ):
+                req.requested_shares is None or req.requested_shares <= 0
+            ) and resolved_requested_shares > 0:
                 req.requested_shares = resolved_requested_shares
                 req.updated_at = datetime.now(timezone.utc)
                 await session.flush()
@@ -572,33 +578,54 @@ async def process_ready_requests():
                 try:
                     settings_res = await session.execute(
                         select(RuntimeSettings.key, RuntimeSettings.value).where(
-                            RuntimeSettings.key.in_([
-                                "LIVE_ORDER_MODE",
-                                "LIVE_GTC_TTL_SECONDS",
-                                "LIVE_FAK_RETRY_MAX_ATTEMPTS",
-                                "LIVE_FAK_RETRY_DELAY_SEC",
-                                "TAKE_PROFIT_ORDER_MODE",
-                            ])
+                            RuntimeSettings.key.in_(
+                                [
+                                    "LIVE_ORDER_MODE",
+                                    "LIVE_GTC_TTL_SECONDS",
+                                    "LIVE_FAK_RETRY_MAX_ATTEMPTS",
+                                    "LIVE_FAK_RETRY_DELAY_SEC",
+                                    "TAKE_PROFIT_ORDER_MODE",
+                                ]
+                            )
                         )
                     )
                     settings_dict = {row.key: row.value for row in settings_res.all()}
 
-                    if "LIVE_ORDER_MODE" in settings_dict and settings_dict["LIVE_ORDER_MODE"]:
+                    if (
+                        "LIVE_ORDER_MODE" in settings_dict
+                        and settings_dict["LIVE_ORDER_MODE"]
+                    ):
                         order_mode = settings_dict["LIVE_ORDER_MODE"].strip().upper()
-                    if "LIVE_GTC_TTL_SECONDS" in settings_dict and settings_dict["LIVE_GTC_TTL_SECONDS"]:
+                    if (
+                        "LIVE_GTC_TTL_SECONDS" in settings_dict
+                        and settings_dict["LIVE_GTC_TTL_SECONDS"]
+                    ):
                         gtc_ttl_sec = float(settings_dict["LIVE_GTC_TTL_SECONDS"])
-                    if "LIVE_FAK_RETRY_MAX_ATTEMPTS" in settings_dict and settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"]:
-                        retry_attempts = int(settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"])
-                    if "LIVE_FAK_RETRY_DELAY_SEC" in settings_dict and settings_dict["LIVE_FAK_RETRY_DELAY_SEC"]:
+                    if (
+                        "LIVE_FAK_RETRY_MAX_ATTEMPTS" in settings_dict
+                        and settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"]
+                    ):
+                        retry_attempts = int(
+                            settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"]
+                        )
+                    if (
+                        "LIVE_FAK_RETRY_DELAY_SEC" in settings_dict
+                        and settings_dict["LIVE_FAK_RETRY_DELAY_SEC"]
+                    ):
                         retry_delay = float(settings_dict["LIVE_FAK_RETRY_DELAY_SEC"])
                 except Exception as setting_err:
-                    logger.warning("order_mode_settings_read_failed", error=str(setting_err))
+                    logger.warning(
+                        "order_mode_settings_read_failed", error=str(setting_err)
+                    )
 
             is_gtd_take_profit = (
                 req.intent == "CLOSE"
                 and req.trigger_reason == "TAKE_PROFIT"
                 and req.requested_mode == "LIVE"
-                and str(settings_dict.get("TAKE_PROFIT_ORDER_MODE", "GTD")).strip().upper() == "GTD"
+                and str(settings_dict.get("TAKE_PROFIT_ORDER_MODE", "GTD"))
+                .strip()
+                .upper()
+                == "GTD"
             )
             if is_gtd_take_profit:
                 order_mode = "GTD"
@@ -610,7 +637,11 @@ async def process_ready_requests():
             elif order_mode == "FAK_RETRY":
                 api_client_retry = api_client if api_client else None
                 sub_res = await execute_fak_retry(
-                    gateway, order, api_client=api_client_retry, max_attempts=retry_attempts, delay_seconds=retry_delay
+                    gateway,
+                    order,
+                    api_client=api_client_retry,
+                    max_attempts=retry_attempts,
+                    delay_seconds=retry_delay,
                 )
             else:
                 sub_res = await gateway.submit(order)
@@ -642,7 +673,9 @@ async def process_ready_requests():
                     )
                 if len(fills) == 0:
                     attempt.status = "FAILED"
-                    attempt.error_msg = "Order cancelled or expired on exchange without fills"
+                    attempt.error_msg = (
+                        "Order cancelled or expired on exchange without fills"
+                    )
                     await finalize_request(
                         session,
                         req,
@@ -925,8 +958,8 @@ async def rebuild_trade_accounting(session, trade_id: int) -> Optional[TradeHist
                 )
                 raw_target = avg_entry_cost_per_share * multiplier
                 if raw_target > Decimal("0.99"):
-                    # Цель выходит за пределы рынка (>0.99). Отключаем TP, чтобы позиция спокойно
-                    # доходила до разрешения/экспирации и получала полные $1.00 без досрочной обрезки.
+                    # Цель выходит за пределы рынка (>0.99). Отключаем TP, чтобы позиция
+                    # спокойно доходила до разрешения/экспирации и получала полные $1.00.
                     trade.take_profit_status = "SKIPPED"
                     trade.take_profit_price = None
                 else:
@@ -1025,9 +1058,7 @@ async def reconcile_active_requests():
                 await session.commit()
                 continue
 
-            if is_gtd_take_profit and (
-                not attempt or not attempt.provider_order_id
-            ):
+            if is_gtd_take_profit and (not attempt or not attempt.provider_order_id):
                 if attempt:
                     attempt.status = "FAILED"
                     attempt.error_msg = "GTD order expired without provider order id"
@@ -1259,7 +1290,6 @@ async def _auto_resolve_stuck_manual_reviews(execution_mode: str) -> None:
     Перед REJECTED проверяются возможные fills через gateway.
     Использует собственную изолированную сессию БД с троттлингом 60 сек на каждый режим.
     """
-    global _last_auto_resolve_check_by_mode
     now = datetime.now(timezone.utc)
     last_check = _last_auto_resolve_check_by_mode.get(execution_mode)
     if (

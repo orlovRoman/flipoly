@@ -133,7 +133,9 @@ class PolymarketExecutionGateway:
                 error=str(exc),
             )
 
-    async def submit(self, order: GatewayOrder, order_type: str = "FAK") -> SubmissionResult:
+    async def submit(
+        self, order: GatewayOrder, order_type: str = "FAK"
+    ) -> SubmissionResult:
         client = await self.get_client()
         if not client:
             raise GatewayUnavailable("Polymarket client not initialized")
@@ -265,9 +267,14 @@ class PolymarketExecutionGateway:
             )
 
             if any(marker in err_lower for marker in fak_no_liquidity_markers):
-                mode_label = "GTD" if order_type.upper() in ("GTC", "GTD", "GTC_TTL") else order_type.upper()
+                mode_label = (
+                    "GTD"
+                    if order_type.upper() in ("GTC", "GTD", "GTC_TTL")
+                    else order_type.upper()
+                )
                 raise GatewayOrderRejected(
-                    f"NO_LIQUIDITY_{mode_label}: [{mode_label}] Заявка не нашла встречной ликвидности в стакане"
+                    f"NO_LIQUIDITY_{mode_label}: [{mode_label}] "
+                    "Заявка не нашла встречной ликвидности в стакане"
                 ) from e
 
             if any(keyword in err_lower for keyword in rejection_keywords):
@@ -292,11 +299,16 @@ class PolymarketExecutionGateway:
             elif hasattr(client, "cancel"):
                 await client.cancel(order_id=provider_order_id)
             else:
-                logger.error("cancel_order_not_supported_by_client", provider_order_id=provider_order_id)
+                logger.error(
+                    "cancel_order_not_supported_by_client",
+                    provider_order_id=provider_order_id,
+                )
                 return False
             return True
         except Exception as e:
-            logger.warning("cancel_order_failed", provider_order_id=provider_order_id, error=str(e))
+            logger.warning(
+                "cancel_order_failed", provider_order_id=provider_order_id, error=str(e)
+            )
             return False
 
     async def get_order(self, provider_order_id: str) -> SubmissionResult:

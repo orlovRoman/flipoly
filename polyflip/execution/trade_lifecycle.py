@@ -1,6 +1,7 @@
 """
 Trade lifecycle helpers and state transition single sources of truth.
 """
+
 from decimal import Decimal
 from polyflip.execution.states import ExitReason
 

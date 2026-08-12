@@ -196,8 +196,8 @@ async def mirror_batch(session: AsyncSession) -> int:
                 signal_snapshot=snapshot,
                 signal_hash=signal_hash,
                 p_candidate_win=(
-                    paper_trade.p_candidate_win 
-                    if paper_trade.p_candidate_win is not None 
+                    paper_trade.p_candidate_win
+                    if paper_trade.p_candidate_win is not None
                     else paper_trade.p_win_effective
                 ),
                 decision_ask=(

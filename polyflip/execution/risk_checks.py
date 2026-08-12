@@ -65,7 +65,8 @@ async def check_risk_limits(
     if not await _financial_limits_enabled(session, mode):
         return None
 
-    # Для режима LIVE загружаем параметры активной сессии (у них приоритет над глобальными настройками)
+    # Для режима LIVE загружаем параметры активной сессии
+    # (у них приоритет над глобальными настройками)
     active_sess = None
     if requested_mode == "LIVE":
         from polyflip.execution.live_session_service import get_active_session
@@ -74,13 +75,19 @@ async def check_risk_limits(
 
     # --- MAX_SINGLE_ORDER_USDC ---
     single_limit = None
-    if active_sess and active_sess.max_single_order_usdc and active_sess.max_single_order_usdc > 0:
+    if (
+        active_sess
+        and active_sess.max_single_order_usdc
+        and active_sess.max_single_order_usdc > 0
+    ):
         single_limit = Decimal(str(active_sess.max_single_order_usdc))
     else:
         single_limit_stmt = select(RuntimeSettings).where(
             RuntimeSettings.key == "MAX_SINGLE_ORDER_USDC"
         )
-        single_limit_set = (await session.execute(single_limit_stmt)).scalar_one_or_none()
+        single_limit_set = (
+            await session.execute(single_limit_stmt)
+        ).scalar_one_or_none()
         if single_limit_set:
             try:
                 single_limit = Decimal(single_limit_set.value)
@@ -88,13 +95,19 @@ async def check_risk_limits(
                 return f"Invalid MAX_SINGLE_ORDER_USDC configuration: {exc}"
 
     if single_limit is not None and max_spend_usdc > single_limit:
-        return f"Single order size {max_spend_usdc} USDC exceeds limit {single_limit} USDC"
+        return (
+            f"Single order size {max_spend_usdc} USDC exceeds limit {single_limit} USDC"
+        )
 
     # --- MAX_OPEN_POSITIONS ---
     # Считаем все активные позиции в данном режиме (OPEN + PARTIALLY_CLOSED + EXIT_REQUESTED...)
     # Исключаем текущую OPENING-позицию если trade_history_id задан
     max_open = None
-    if active_sess and active_sess.max_open_positions and active_sess.max_open_positions > 0:
+    if (
+        active_sess
+        and active_sess.max_open_positions
+        and active_sess.max_open_positions > 0
+    ):
         max_open = active_sess.max_open_positions
     else:
         max_open_stmt = select(RuntimeSettings).where(
@@ -115,9 +128,7 @@ async def check_risk_limits(
             TradeHistory.mode == requested_mode,
         )
         if trade_history_id is not None:
-            open_count_stmt = open_count_stmt.where(
-                TradeHistory.id != trade_history_id
-            )
+            open_count_stmt = open_count_stmt.where(TradeHistory.id != trade_history_id)
         open_count = (await session.execute(open_count_stmt)).scalar_one()
         if open_count >= max_open:
             return f"Max open positions limit reached ({max_open})"
@@ -127,7 +138,11 @@ async def check_risk_limits(
     # --- MAX_TOTAL_EXPOSURE_USDC ---
     # Для частично закрытых позиций экспозиция = entry_cost * remaining / entry_filled
     max_exp = None
-    if active_sess and active_sess.max_total_exposure_usdc and active_sess.max_total_exposure_usdc > 0:
+    if (
+        active_sess
+        and active_sess.max_total_exposure_usdc
+        and active_sess.max_total_exposure_usdc > 0
+    ):
         max_exp = Decimal(str(active_sess.max_total_exposure_usdc))
     else:
         max_exp_stmt = select(RuntimeSettings).where(

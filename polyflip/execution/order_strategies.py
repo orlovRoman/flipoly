@@ -41,7 +41,11 @@ async def execute_gtc_ttl(
                 fills = await gateway.fetch_order_fills(provider_order_id, token_id)
                 if fills:
                     filled = True
-                    logger.info("gtc_ttl_filled_before_timeout", order_id=provider_order_id, fills_count=len(fills))
+                    logger.info(
+                        "gtc_ttl_filled_before_timeout",
+                        order_id=provider_order_id,
+                        fills_count=len(fills),
+                    )
                     return sub_res
     except Exception as e:
         logger.warning("gtc_ttl_wait_error", order_id=provider_order_id, error=str(e))
@@ -50,9 +54,17 @@ async def execute_gtc_ttl(
             try:
                 if hasattr(gateway, "cancel_order"):
                     await gateway.cancel_order(provider_order_id)
-                    logger.info("gtc_ttl_cancelled_on_timeout", order_id=provider_order_id, ttl=ttl_seconds)
+                    logger.info(
+                        "gtc_ttl_cancelled_on_timeout",
+                        order_id=provider_order_id,
+                        ttl=ttl_seconds,
+                    )
             except Exception as cancel_err:
-                logger.warning("gtc_ttl_cancel_failed", order_id=provider_order_id, error=str(cancel_err))
+                logger.warning(
+                    "gtc_ttl_cancel_failed",
+                    order_id=provider_order_id,
+                    error=str(cancel_err),
+                )
 
     if hasattr(gateway, "fetch_order_fills"):
         try:
@@ -95,13 +107,16 @@ async def execute_fak_retry(
 
         last_result = sub_res
 
-        is_no_liquidity = (
-            sub_res.provider_status == "NO_LIQUIDITY_FAK"
-            or (sub_res.error_message and "NO_LIQUIDITY_FAK" in sub_res.error_message)
+        is_no_liquidity = sub_res.provider_status == "NO_LIQUIDITY_FAK" or (
+            sub_res.error_message and "NO_LIQUIDITY_FAK" in sub_res.error_message
         )
 
         if sub_res.accepted and not is_no_liquidity:
-            logger.info("fak_retry_success", attempt=attempt, order_id=str(current_order.attempt_id))
+            logger.info(
+                "fak_retry_success",
+                attempt=attempt,
+                order_id=str(current_order.attempt_id),
+            )
             return sub_res
 
         if is_no_liquidity or not sub_res.accepted:
@@ -127,9 +142,17 @@ async def execute_fak_retry(
                                 current_order = current_order.model_copy(
                                     update={"limit_price": new_price}
                                 )
-                                logger.info("fak_retry_price_refreshed", attempt=attempt, new_price=float(new_price))
+                                logger.info(
+                                    "fak_retry_price_refreshed",
+                                    attempt=attempt,
+                                    new_price=float(new_price),
+                                )
                     except Exception as refresh_err:
-                        logger.warning("fak_retry_price_refresh_failed", attempt=attempt, error=str(refresh_err))
+                        logger.warning(
+                            "fak_retry_price_refresh_failed",
+                            attempt=attempt,
+                            error=str(refresh_err),
+                        )
                 continue
 
     logger.warning(

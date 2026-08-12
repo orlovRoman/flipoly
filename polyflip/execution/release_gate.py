@@ -40,6 +40,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
+from typing import Optional, Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -183,7 +184,9 @@ async def release_batch(
         return 0
 
     ignore_edge_decay_val = await session.scalar(
-        select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_IGNORE_EDGE_DECAY")
+        select(RuntimeSettings.value).where(
+            RuntimeSettings.key == "LIVE_IGNORE_EDGE_DECAY"
+        )
     )
     ignore_edge_decay = (
         ignore_edge_decay_val is not None
@@ -195,7 +198,11 @@ async def release_batch(
     for candidate_id in candidate_ids:
         try:
             success = await release_candidate_by_id(
-                session, candidate_id, target_mode, api_client, ignore_edge_decay=ignore_edge_decay
+                session,
+                candidate_id,
+                target_mode,
+                api_client,
+                ignore_edge_decay=ignore_edge_decay,
             )
             if success:
                 released += 1
@@ -240,17 +247,20 @@ async def release_candidate_by_id(
     )
     if candidate_snap is None or candidate_snap.state not in ("NEW", "ELIGIBLE"):
         return False
-        
+
     paper_req = await session.scalar(
-        select(ExecutionRequest).where(ExecutionRequest.id == candidate_snap.source_paper_request_id)
+        select(ExecutionRequest).where(
+            ExecutionRequest.id == candidate_snap.source_paper_request_id
+        )
     )
-    
+
     # 2. Получаем котировку вне блокировки
     fresh_prices = None
     if target_mode == "LIVE" and paper_req:
         if api_client is None:
             try:
                 from polyflip.collector.client import PolymarketClient
+
                 api_client = PolymarketClient()
             except Exception as e:
                 logger.error("release_gate_client_init_failed", error=str(e))
@@ -273,6 +283,7 @@ async def release_candidate_by_id(
                 for attempt in range(2):
                     try:
                         import asyncio
+
                         prices = await asyncio.wait_for(
                             api_client.get_market_prices(token_id), timeout=3.0
                         )
@@ -293,12 +304,12 @@ async def release_candidate_by_id(
                         )
                     if attempt == 0:
                         import asyncio
+
                         await asyncio.sleep(1.0)
 
     # Примечание: session.commit() здесь намеренно отсутствует.
     # pg_advisory_xact_lock работает в рамках текущей транзакции.
     # Промежуточный commit() создавал риск фиксации посторонних изменений общей сессии.
-
 
     # 3. Берем блокировки
     conn = await session.connection()
@@ -317,13 +328,18 @@ async def release_candidate_by_id(
 
     if candidate is None or candidate.state not in ("NEW", "ELIGIBLE"):
         return False
-        
+
     if candidate.signal_hash != candidate_snap.signal_hash:
         logger.info(f"Candidate {candidate_id} changed signal_hash during API call")
         return False
 
     return await _release_one_locked(
-        session, candidate, target_mode, api_client, fresh_prices, ignore_edge_decay=ignore_edge_decay
+        session,
+        candidate,
+        target_mode,
+        api_client,
+        fresh_prices,
+        ignore_edge_decay=ignore_edge_decay,
     )
 
 
@@ -381,7 +397,14 @@ async def _release_one_locked(
     # 2. Валидация выпуска
     try:
         release_plan = await validate_live_release(
-            session, candidate, paper_request, paper_trade, target_mode, api_client, fresh_prices, ignore_edge_decay=ignore_edge_decay
+            session,
+            candidate,
+            paper_request,
+            paper_trade,
+            target_mode,
+            api_client,
+            fresh_prices,
+            ignore_edge_decay=ignore_edge_decay,
         )
     except ReleaseDeferred as e:
         logger.info("Deferred release for candidate %s: %s", candidate.id, e)
@@ -520,14 +543,16 @@ async def validate_live_release(
     if _compute_hash(current_snapshot) != candidate.signal_hash:
         raise ReleaseRejected("signal snapshot hash mismatch")
 
-    # 3. Возраст сигнала: не старше LIVE_MAX_SIGNAL_AGE_SEC секунд (дефолт 60s) от updated_at/created_at
+    # 3. Возраст сигнала: не старше LIVE_MAX_SIGNAL_AGE_SEC секунд от updated_at/created_at
     created_or_updated = paper_request.updated_at or paper_request.created_at
     if created_or_updated:
         if created_or_updated.tzinfo is None:
             created_or_updated = created_or_updated.replace(tzinfo=timezone.utc)
         age_sec = (now - created_or_updated).total_seconds()
         max_age_val = await session.scalar(
-            select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_MAX_SIGNAL_AGE_SEC")
+            select(RuntimeSettings.value).where(
+                RuntimeSettings.key == "LIVE_MAX_SIGNAL_AGE_SEC"
+            )
         )
         try:
             max_age_sec = float(max_age_val) if max_age_val is not None else 60.0
@@ -539,7 +564,9 @@ async def validate_live_release(
             )
             max_age_sec = 60.0
         if age_sec > max_age_sec:
-            raise ReleaseRejected(f"Signal is too old ({age_sec:.1f}s > {max_age_sec:.1f}s)")
+            raise ReleaseRejected(
+                f"Signal is too old ({age_sec:.1f}s > {max_age_sec:.1f}s)"
+            )
 
     # 4. Проверка окончания рынка
     if paper_trade.market_end_time:
@@ -561,7 +588,8 @@ async def validate_live_release(
     if "COMBINED" in active_features:
         if paper_trade.entry_model_source != "PHASE":
             raise ReleaseRejected(
-                f"Invalid entry_model_source for COMBINED: {paper_trade.entry_model_source} != PHASE"
+                f"Invalid entry_model_source for COMBINED: "
+                f"{paper_trade.entry_model_source} != PHASE"
             )
 
     # 4.3 Проверка свежего стакана и edge (через Polymarket API)
@@ -574,15 +602,17 @@ async def validate_live_release(
                 market_id=paper_request.market_id,
                 reason="fetched_outside_lock_failed",
             )
-            raise ReleaseDeferred(f"RELEASE_QUOTE_UNAVAILABLE: no prices fetched")
+            raise ReleaseDeferred("RELEASE_QUOTE_UNAVAILABLE: no prices fetched")
 
         release_entry_price = float(fresh_prices["best_ask"])
     release_net_edge = None
-    
+
     if "COMBINED" in active_features:
         # Читаем флаг отключения проверки проскальзывания из RuntimeSettings
         ignore_edge_decay_val = await session.scalar(
-            select(RuntimeSettings.value).where(RuntimeSettings.key == "LIVE_IGNORE_EDGE_DECAY")
+            select(RuntimeSettings.value).where(
+                RuntimeSettings.key == "LIVE_IGNORE_EDGE_DECAY"
+            )
         )
         ignore_edge_decay = (
             ignore_edge_decay_val is not None
@@ -590,30 +620,50 @@ async def validate_live_release(
         )
 
         # Читаем нужные Edge из RuntimeSettings (те же ключи, что обновляет дашборд)
-        min_edge_fav_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "FAVORITE_MIN_EDGE"))
-        min_edge_out_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "OUTS_MIN_EDGE"))
-        cost_buffer_val = await session.scalar(select(RuntimeSettings.value).where(RuntimeSettings.key == "COMBINED_COST_BUFFER"))
-        
+        min_edge_fav_val = await session.scalar(
+            select(RuntimeSettings.value).where(
+                RuntimeSettings.key == "FAVORITE_MIN_EDGE"
+            )
+        )
+        min_edge_out_val = await session.scalar(
+            select(RuntimeSettings.value).where(RuntimeSettings.key == "OUTS_MIN_EDGE")
+        )
+        cost_buffer_val = await session.scalar(
+            select(RuntimeSettings.value).where(
+                RuntimeSettings.key == "COMBINED_COST_BUFFER"
+            )
+        )
+
         cost_buffer = float(cost_buffer_val) if cost_buffer_val is not None else 0.02
-        min_edge_favorite = float(min_edge_fav_val) if min_edge_fav_val is not None else 0.05
-        min_edge_outsider = float(min_edge_out_val) if min_edge_out_val is not None else 0.03
-        
+        min_edge_favorite = (
+            float(min_edge_fav_val) if min_edge_fav_val is not None else 0.05
+        )
+        min_edge_outsider = (
+            float(min_edge_out_val) if min_edge_out_val is not None else 0.03
+        )
+
         # Определяем сторону кандидата (аутсайдер = цена < 0.5)
         is_outsider = release_entry_price < 0.5
         combined_min_net_edge = min_edge_outsider if is_outsider else min_edge_favorite
-        
-        # paper_trade.p_win_effective используется для логики в PAPER-заявке. Но в combined_voting мы считали p_candidate_win.
+
+        # paper_trade.p_win_effective используется для логики в PAPER-заявке.
+        # Но в combined_voting мы считали p_candidate_win.
         # Если поле p_candidate_win есть - берем его, иначе fallback на p_win_effective
-        p_candidate_win = float(paper_trade.p_candidate_win) if paper_trade.p_candidate_win is not None else float(paper_trade.p_win_effective)
-        
+        p_candidate_win = (
+            float(paper_trade.p_candidate_win)
+            if paper_trade.p_candidate_win is not None
+            else float(paper_trade.p_win_effective)
+        )
+
         release_gross_edge = p_candidate_win - release_entry_price
         release_net_edge = release_gross_edge - cost_buffer
-        
+
         # Check if edge decay rejection is disabled globally
         if release_net_edge < combined_min_net_edge:
             if not ignore_edge_decay:
                 raise ReleaseRejected(
-                    f"EDGE_DECAYED_BEFORE_RELEASE: {release_net_edge:.4f} < {combined_min_net_edge:.4f}"
+                    f"EDGE_DECAYED_BEFORE_RELEASE: "
+                    f"{release_net_edge:.4f} < {combined_min_net_edge:.4f}"
                 )
             else:
                 logger.warning(
@@ -771,8 +821,9 @@ def _build_live_trade(
         mode=target_mode,
         edge=paper_trade.edge,
         net_edge=(
-            release_plan.release_net_edge 
-            if isinstance(release_plan, LiveReleasePlan) and release_plan.release_net_edge is not None
+            release_plan.release_net_edge
+            if isinstance(release_plan, LiveReleasePlan)
+            and release_plan.release_net_edge is not None
             else paper_trade.net_edge
         ),
         market_role=paper_trade.market_role,
@@ -870,6 +921,7 @@ async def run_gate(target_mode: str) -> None:
     Session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
     from polyflip.collector.client import PolymarketClient
+
     api_client = PolymarketClient()
 
     while not _shutdown:

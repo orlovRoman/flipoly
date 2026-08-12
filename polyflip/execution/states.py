@@ -78,6 +78,7 @@ try:
 except ImportError:
     # Fallback for Python < 3.11
     from enum import Enum
+
     class StrEnum(str, Enum):
         pass
 
@@ -92,5 +93,3 @@ class ExitReason(StrEnum):
     @classmethod
     def values(cls) -> set[str]:
         return {item.value for item in cls}
-
-
