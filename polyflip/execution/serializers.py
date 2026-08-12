@@ -82,13 +82,19 @@ async def serialize_execution_requests(
                 evidence_by_req[r_id]["has_tx_hash"] = True
 
     source_requests = {}
-    source_ids = [r.source_paper_request_id for r in requests if r.source_paper_request_id]
+    source_ids = [
+        r.source_paper_request_id for r in requests if r.source_paper_request_id
+    ]
     if source_ids:
         source_rows = (
-            await db.execute(
-                select(ExecutionRequest).where(ExecutionRequest.id.in_(source_ids))
+            (
+                await db.execute(
+                    select(ExecutionRequest).where(ExecutionRequest.id.in_(source_ids))
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         source_requests = {row.id: row for row in source_rows}
     results = []
     for req in requests:
@@ -135,17 +141,18 @@ async def serialize_execution_requests(
                 "paper_price": (
                     float(source_requests[req.source_paper_request_id].limit_price)
                     if req.source_paper_request_id in source_requests
-                    and source_requests[req.source_paper_request_id].limit_price is not None
+                    and source_requests[req.source_paper_request_id].limit_price
+                    is not None
                     else None
                 ),
                 "release_quote_price": req.release_quote_price,
                 "release_quote_at": (
-                    req.release_quote_at.isoformat()
-                    if req.release_quote_at
-                    else None
+                    req.release_quote_at.isoformat() if req.release_quote_at else None
                 ),
                 "submit_quote_price": req.submit_quote_price,
-                "submit_quote_at": req.submit_quote_at.isoformat() if req.submit_quote_at else None,
+                "submit_quote_at": (
+                    req.submit_quote_at.isoformat() if req.submit_quote_at else None
+                ),
                 "submitted_limit_price": req.submitted_limit_price,
                 "paper_to_live_delay_sec": (
                     (
@@ -157,7 +164,9 @@ async def serialize_execution_requests(
                     and source_requests[req.source_paper_request_id].created_at
                     else None
                 ),
-                "cancel_due_at": req.cancel_due_at.isoformat() if req.cancel_due_at else None,
+                "cancel_due_at": (
+                    req.cancel_due_at.isoformat() if req.cancel_due_at else None
+                ),
                 "terminal_code": req.terminal_code,
                 "network_retry_count": req.network_retry_count,
                 "ttl_seconds": req.ttl_seconds,

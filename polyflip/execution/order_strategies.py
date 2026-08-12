@@ -43,7 +43,8 @@ async def execute_gtc_ttl(
             await asyncio.sleep(retry_delay_seconds)
             continue
         status_text = " ".join(
-            str(value or "") for value in (sub_res.provider_status, sub_res.error_message)
+            str(value or "")
+            for value in (sub_res.provider_status, sub_res.error_message)
         ).lower()
         transient = any(
             marker in status_text
@@ -63,7 +64,9 @@ async def execute_gtc_ttl(
         await asyncio.sleep(retry_delay_seconds)
 
     if sub_res is None or not sub_res.accepted or not sub_res.provider_order_id:
-        return sub_res or SubmissionResult(accepted=False, provider_status="NETWORK_ERROR")
+        return sub_res or SubmissionResult(
+            accepted=False, provider_status="NETWORK_ERROR"
+        )
 
     provider_order_id = sub_res.provider_order_id
     token_id = maker_order.token_id
@@ -152,7 +155,8 @@ async def execute_fak_retry(
         last_result = sub_res
 
         status_text = " ".join(
-            str(value or "") for value in (sub_res.provider_status, sub_res.error_message)
+            str(value or "")
+            for value in (sub_res.provider_status, sub_res.error_message)
         ).lower()
         is_no_liquidity = sub_res.provider_status == "NO_LIQUIDITY_FAK" or (
             sub_res.error_message and "NO_LIQUIDITY_FAK" in sub_res.error_message
@@ -160,8 +164,15 @@ async def execute_fak_retry(
         is_transient = any(
             marker in status_text
             for marker in (
-                "cloudflare", "502", "503", "504", "429", "timeout",
-                "network", "temporarily unavailable", "connection reset",
+                "cloudflare",
+                "502",
+                "503",
+                "504",
+                "429",
+                "timeout",
+                "network",
+                "temporarily unavailable",
+                "connection reset",
             )
         )
 
