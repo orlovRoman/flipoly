@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
-from polyflip.crypto.oof_artifact import serialize_oof_artifact
+from polyflip.crypto.oof_artifact import OOF_ARTIFACT_SCHEMA_VERSION, serialize_oof_artifact
 from polyflip.db.models import ModelRegistry, ModelRegistryOOFArtifact
 
 
@@ -36,6 +36,7 @@ async def test_saved_candidate_backtest_uses_persisted_artifact(db_session):
     await db_session.flush()
     db_session.add(ModelRegistryOOFArtifact(
         model_registry_id=model.id,
+        schema_version=OOF_ARTIFACT_SCHEMA_VERSION,
         row_count=2,
         artifact_blob=serialize_oof_artifact(frame, [0.2, 0.8], quotes, feature_set="B"),
         created_at=datetime.now(timezone.utc),

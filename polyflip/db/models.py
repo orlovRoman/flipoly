@@ -118,7 +118,7 @@ class ModelRegistryOOFArtifact(Base):
         nullable=False,
         unique=True,
     )
-    schema_version = Column(Integer, nullable=False, server_default="1")
+    schema_version = Column(Integer, nullable=False, server_default="2")
     row_count = Column(Integer, nullable=False)
     artifact_blob = Column(LargeBinary, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False)

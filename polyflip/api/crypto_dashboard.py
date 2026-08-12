@@ -37,7 +37,7 @@ from polyflip.crypto.feature_sets import CONTROL_FEATURES, get_feature_set, norm
 from polyflip.db.connection import async_session, get_db_session
 from polyflip.db.models import ModelRegistry, ModelRegistryOOFArtifact, TradeHistory, RuntimeSettings
 from polyflip.crypto.predictor import CryptoPredictor
-from polyflip.crypto.oof_artifact import deserialize_oof_artifact
+from polyflip.crypto.oof_artifact import OOF_ARTIFACT_SCHEMA_VERSION, deserialize_oof_artifact
 from polyflip.settings_registry import registry_defaults
 
 logger = structlog.get_logger(__name__)
@@ -478,7 +478,8 @@ async def _stored_lgbm_polymarket_backtest(
     artifact_rows = (
         await db.execute(
             select(ModelRegistryOOFArtifact).where(
-                ModelRegistryOOFArtifact.model_registry_id.in_(artifact_ids)
+                ModelRegistryOOFArtifact.model_registry_id.in_(artifact_ids),
+                ModelRegistryOOFArtifact.schema_version == OOF_ARTIFACT_SCHEMA_VERSION,
             )
         )
     ).scalars().all() if artifact_ids else []
@@ -593,7 +594,8 @@ async def lgbm_experiment_groups(db: AsyncSession = Depends(get_db_session)) -> 
     model_ids = [row.id for row in rows]
     artifact_ids = set((await db.execute(
         select(ModelRegistryOOFArtifact.model_registry_id).where(
-            ModelRegistryOOFArtifact.model_registry_id.in_(model_ids)
+            ModelRegistryOOFArtifact.model_registry_id.in_(model_ids),
+            ModelRegistryOOFArtifact.schema_version == OOF_ARTIFACT_SCHEMA_VERSION,
         ) if model_ids else select(ModelRegistryOOFArtifact.model_registry_id).where(False)
     )).scalars().all())
     groups: dict[str, list[dict]] = {}
@@ -668,7 +670,10 @@ async def _saved_lgbm_model_polymarket_backtest(
     if model is None:
         raise HTTPException(status_code=404, detail=f"LightGBM model {model_id} not found")
     artifact = (await db.execute(
-        select(ModelRegistryOOFArtifact).where(ModelRegistryOOFArtifact.model_registry_id == model.id)
+        select(ModelRegistryOOFArtifact).where(
+            ModelRegistryOOFArtifact.model_registry_id == model.id,
+            ModelRegistryOOFArtifact.schema_version == OOF_ARTIFACT_SCHEMA_VERSION,
+        )
     )).scalar_one_or_none()
     if artifact is None:
         raise HTTPException(status_code=409, detail={

@@ -19,7 +19,7 @@ def upgrade() -> None:
             nullable=False,
             unique=True,
         ),
-        sa.Column("schema_version", sa.Integer(), nullable=False, server_default="1"),
+        sa.Column("schema_version", sa.Integer(), nullable=False, server_default="2"),
         sa.Column("row_count", sa.Integer(), nullable=False),
         sa.Column("artifact_blob", sa.LargeBinary(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
