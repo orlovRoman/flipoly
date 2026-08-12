@@ -876,6 +876,8 @@ async def rebuild_trade_accounting(session, trade_id: int):
         trade.position_status = "PARTIALLY_CLOSED"
     elif remaining_shares > Decimal("0"):
         trade.position_status = "OPEN"
+        if close_shares <= Decimal("0"):
+            trade.exit_reason = None
 
     # Stop Loss / Take Profit цены из реальной средней цены входа
     if trade.position_status in ("OPEN", "PARTIALLY_CLOSED") and open_shares > Decimal(

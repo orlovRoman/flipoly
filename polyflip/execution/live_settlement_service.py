@@ -194,6 +194,7 @@ async def reconcile_live_resolution(db: AsyncSession, trade_id: int) -> TradeHis
         trade.expected_payout_usdc = payout
         trade.redeemable_shares = trade.remaining_shares
         trade.position_status = "RESOLVED_REDEEMABLE"
+        trade.exit_reason = "SETTLEMENT"
         trade.redemption_status = "PENDING"
 
         entry_basis = Decimal(str(trade.entry_cost_usdc or 0))
@@ -204,6 +205,7 @@ async def reconcile_live_resolution(db: AsyncSession, trade_id: int) -> TradeHis
         trade.expected_payout_usdc = Decimal("0")
         trade.remaining_shares = Decimal("0")
         trade.position_status = "RESOLVED_LOST"
+        trade.exit_reason = "SETTLEMENT"
         trade.redemption_status = "NOT_REQUIRED"
 
         entry_basis = Decimal(str(trade.entry_cost_usdc or 0))

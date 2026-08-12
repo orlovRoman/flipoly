@@ -171,6 +171,7 @@ async def settle_resolved_position(
     trade.pnl = float(new_realized)  # явное приведение: колонка pnl имеет тип Float
     trade.remaining_shares = Decimal("0")
     trade.position_status = "CLOSED"
+    trade.exit_reason = "SETTLEMENT"
     trade.closed_at = datetime.now(timezone.utc)
 
     logger.info(

@@ -299,6 +299,7 @@ async def resolve_trades_job():
                     
                     if is_win:
                         t.position_status = "RESOLVED_REDEEMABLE"
+                        t.exit_reason = "SETTLEMENT"
                         t.redemption_status = "PENDING"
                         payout = Decimal(str(t.remaining_shares))
                         entry_basis = Decimal(str(t.entry_cost_usdc or 0))
@@ -308,6 +309,7 @@ async def resolve_trades_job():
                         t.redeemable_shares = t.remaining_shares
                     else:
                         t.position_status = "RESOLVED_LOST"
+                        t.exit_reason = "SETTLEMENT"
                         t.redemption_status = "NOT_REQUIRED"
                         entry_basis = Decimal(str(t.entry_cost_usdc or 0))
                         t.realized_pnl_usdc = -entry_basis
