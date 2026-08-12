@@ -689,6 +689,7 @@ async def _stored_lgbm_polymarket_backtest(
         "avg_edge": summary["avg_edge"],
         "avg_net_edge": summary["avg_net_edge"],
         "coverage_pct": summary["coverage_pct"],
+        "coverage_reasons": summary["coverage_reasons"],
         "is_profitable": summary["net_profit"] > 0,
         "slices": summary["slices"],
         "regimes": regime_payload,
@@ -698,6 +699,7 @@ async def _stored_lgbm_polymarket_backtest(
             "quotes": summary["n_quotes"],
             "trades": summary["n_trades"],
             "coverage_pct": summary["coverage_pct"],
+            "coverage_reasons": summary["coverage_reasons"],
             "strategy_branch": branch,
         },
     }

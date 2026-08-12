@@ -402,6 +402,7 @@
                             <canvas id="pnl-chart"></canvas>
                         </div>
                     </div>
+                    <div id="bt-coverage" style="margin-top: 1.5rem;"></div>
                     <div id="bt-slices" style="margin-top: 1.5rem;"></div>
                 </div>
             </div>
@@ -1828,6 +1829,20 @@
 
                 // Рендерим график PnL
                 renderPnLChart(d.pnl_curve);
+                const coverageEl = document.getElementById('bt-coverage');
+                if (coverageEl) {
+                    const reasons = d.coverage_reasons || {};
+                    const labels = {
+                        missing_oof: 'Нет OOF-прогноза', missing_quote: 'Нет котировки',
+                        invalid_oof: 'Некорректный OOF', invalid_quote: 'Некорректная котировка',
+                        price_out_of_bounds: 'Цена вне диапазона', insufficient_edge: 'Недостаточный edge',
+                    };
+                    const rows = Object.entries(reasons)
+                        .filter(([, count]) => Number(count) > 0)
+                        .map(([key, count]) => `<span style="margin-right:1rem;">${labels[key] || key}: <b>${count}</b></span>`)
+                        .join('');
+                    coverageEl.innerHTML = `<div style="padding:0.8rem 1rem; border:1px solid var(--border-color); border-radius:8px; color:var(--text-muted);">Покрытие котировками: <b style="color:white;">${d.n_quotes || 0}/${d.n_markets || 0}</b> · ${rows || 'исключений нет'}</div>`;
+                }
                 const slices = Array.isArray(d.slices) ? d.slices : [];
                 const slicesEl = document.getElementById('bt-slices');
                 slicesEl.innerHTML = slices.length ? `

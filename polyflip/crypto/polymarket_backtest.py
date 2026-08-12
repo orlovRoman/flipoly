@@ -8,6 +8,7 @@ resolution.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -188,12 +189,22 @@ def compute_oof_polymarket_backtest(
 
     trades: list[dict[str, Any]] = []
     eligible_rows = 0
+    coverage_reasons = Counter()
+    coverage_reasons["missing_oof"] = int(np.isnan(scores).sum())
+    coverage_reasons["missing_quote"] = max(int(len(base) - len(merged)), 0)
     for _, row in merged.iterrows():
-        p_yes = _as_float(row.get("_p_yes"))
-        if p_yes is None or not 0.0 <= p_yes <= 1.0:
+        raw_p_yes = row.get("_p_yes")
+        p_yes = _as_float(raw_p_yes)
+        if p_yes is None:
+            if raw_p_yes is not None and not pd.isna(raw_p_yes):
+                coverage_reasons["invalid_oof"] += 1
+            continue
+        if not 0.0 <= p_yes <= 1.0:
+            coverage_reasons["invalid_oof"] += 1
             continue
         yes_ask, no_ask = _quote_prices(row)
         if yes_ask is None or no_ask is None:
+            coverage_reasons["invalid_quote"] += 1
             continue
         candidate = _select_candidate(
             p_yes,
@@ -205,9 +216,11 @@ def compute_oof_polymarket_backtest(
         branch = strategy_branch.strip().upper()
         price_cap = outsider_max_price if branch in {"OUTSIDER", "OUTSIDER_ONLY"} else max_price
         if not min_price <= candidate.price <= min(max_price, price_cap):
+            coverage_reasons["price_out_of_bounds"] += 1
             continue
         eligible_rows += 1
         if candidate.net_edge < min_edge:
+            coverage_reasons["insufficient_edge"] += 1
             continue
 
         executed_price = min(candidate.price * (1.0 + slippage_pct), 0.99)
@@ -262,6 +275,7 @@ def compute_oof_polymarket_backtest(
             "sharpe_ratio": None,
             "profit_factor": 0.0,
             "coverage_pct": round(len(merged) / len(base) * 100, 2) if len(base) else 0.0,
+            "coverage_reasons": dict(coverage_reasons),
             "slices": [],
             "equity_curve": [],
             "trades": [],
@@ -334,6 +348,7 @@ def compute_oof_polymarket_backtest(
         "sharpe_ratio": sharpe,
         "profit_factor": gross_profit / gross_loss if gross_loss > 0 else None,
         "coverage_pct": round(len(merged) / len(base) * 100, 2) if len(base) else 0.0,
+        "coverage_reasons": dict(coverage_reasons),
         "slices": slices,
         "equity_curve": equity_curve,
         "trades": trades,
@@ -360,6 +375,7 @@ def aggregate_stored_polymarket_backtests(
     wins = 0.0
     weighted_stake = 0.0
     weighted_stake_count = 0
+    coverage_reasons = Counter()
     for result in results:
         n_markets += int(result.get("n_markets") or 0)
         n_quotes += int(result.get("n_quotes") or 0)
@@ -377,6 +393,11 @@ def aggregate_stored_polymarket_backtests(
         net_edge_sum += float(result.get("avg_net_edge") or 0.0) * count
         price_sum += float(result.get("avg_entry_price") or 0.0) * count
         wins += float(result.get("win_rate") or 0.0) * count
+        for reason, reason_count in (result.get("coverage_reasons") or {}).items():
+            try:
+                coverage_reasons[str(reason)] += int(reason_count)
+            except (TypeError, ValueError):
+                continue
         slices.extend(result.get("slices") or [])
         curve_items.extend(result.get("equity_curve") or [])
 
@@ -427,6 +448,7 @@ def aggregate_stored_polymarket_backtests(
         "sharpe_ratio": sharpe,
         "profit_factor": gross_profit / gross_loss if gross_loss else None,
         "coverage_pct": coverage,
+        "coverage_reasons": dict(coverage_reasons),
         "slices": slices,
         "equity_curve": equity_curve,
         "trades": [],

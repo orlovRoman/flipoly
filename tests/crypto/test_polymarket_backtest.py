@@ -84,6 +84,35 @@ def test_strategy_branches_are_explicit_and_missing_quotes_are_not_losses():
     assert partial["n_quotes"] == 1
     assert partial["coverage_pct"] == pytest.approx(50.0)
     assert partial["n_trades"] == 1
+    assert partial["coverage_reasons"]["missing_quote"] == 1
+
+
+def test_coverage_reasons_explain_price_and_edge_exclusions():
+    frame, quotes = _fixtures()
+    result = compute_oof_polymarket_backtest(
+        frame,
+        [0.51, 0.51],
+        quotes,
+        strategy_branch="OUTSIDER_ONLY",
+        min_edge=0.5,
+        cost_buffer=0.02,
+        min_price=0.8,
+        max_price=0.9,
+        outsider_max_price=0.45,
+    )
+
+    assert result["n_trades"] == 0
+    assert result["coverage_reasons"]["price_out_of_bounds"] == 2
+
+    edge_result = compute_oof_polymarket_backtest(
+        frame,
+        [0.51, 0.51],
+        quotes,
+        strategy_branch="COMBINED",
+        min_edge=0.5,
+        cost_buffer=0.02,
+    )
+    assert edge_result["coverage_reasons"]["insufficient_edge"] == 2
 
 
 def test_aggregate_replays_trade_pnl_in_time_order():
