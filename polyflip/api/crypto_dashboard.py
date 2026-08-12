@@ -29,14 +29,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.api.auth import verify_api_key
 import polyflip.constants as C
 from polyflip.crypto.backtester import run_backtest
-from polyflip.crypto.polymarket_backtest import aggregate_stored_polymarket_backtests
+from polyflip.crypto.polymarket_backtest import aggregate_stored_polymarket_backtests, compute_oof_polymarket_backtest
 from polyflip.crypto.feature_builder import build_features
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.crypto.feature_sets import CONTROL_FEATURES, get_feature_set, normalize_feature_set, parse_feature_names, validate_feature_schema
 from polyflip.db.connection import async_session, get_db_session
-from polyflip.db.models import ModelRegistry, TradeHistory, RuntimeSettings
+from polyflip.db.models import ModelRegistry, ModelRegistryOOFArtifact, TradeHistory, RuntimeSettings
 from polyflip.crypto.predictor import CryptoPredictor
+from polyflip.crypto.oof_artifact import deserialize_oof_artifact
 from polyflip.settings_registry import registry_defaults
 
 logger = structlog.get_logger(__name__)
@@ -472,10 +473,35 @@ async def _stored_lgbm_polymarket_backtest(
 
     regime_results: list[dict] = []
     regime_payload: dict[str, dict] = {}
+    artifact_ids = [row.id for row in latest.values()]
+    artifact_rows = (
+        await db.execute(
+            select(ModelRegistryOOFArtifact).where(
+                ModelRegistryOOFArtifact.model_registry_id.in_(artifact_ids)
+            )
+        )
+    ).scalars().all() if artifact_ids else []
+    artifacts = {artifact.model_registry_id: artifact for artifact in artifact_rows}
     for asset, row in latest.items():
         params = row.training_params or {}
         variants = params.get("backtest_variants") or {}
-        variant = variants.get(branch)
+        variant = None
+        artifact = artifacts.get(row.id)
+        if artifact is not None:
+            try:
+                payload = deserialize_oof_artifact(artifact.artifact_blob)
+                computed = compute_oof_polymarket_backtest(
+                    payload["frame"], payload["oof_scores"], payload["quotes"],
+                    strategy_branch=branch,
+                )
+                variant = {key: value for key, value in computed.items() if key != "trades"}
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"error": "OOF_ARTIFACT_INVALID", "model_id": row.id, "message": str(exc)},
+                ) from exc
+        if variant is None:
+            variant = variants.get(branch)
         if variant is None and branch == "OUTSIDER_ONLY":
             variant = params.get("backtest")
         if not isinstance(variant, dict) or not variant:
@@ -485,6 +511,8 @@ async def _stored_lgbm_polymarket_backtest(
             **variant,
             "version": row.version,
             "feature_set": feature_set,
+            "model_id": row.id,
+            "artifact_available": artifact is not None,
         }
 
     if not regime_results:
@@ -540,6 +568,116 @@ async def _stored_lgbm_polymarket_backtest(
         },
     }
 
+@router.get("/api/experiments", dependencies=[Depends(verify_api_key)])
+async def lgbm_experiment_groups(db: AsyncSession = Depends(get_db_session)) -> dict:
+    """Return comparable LightGBM A/B/C candidates and saved OOT summaries."""
+    rows = (await db.execute(
+        select(ModelRegistry)
+        .where(ModelRegistry.model_type == "lgbm")
+        .order_by(ModelRegistry.asset, ModelRegistry.trained_at.desc(), ModelRegistry.version.desc())
+    )).scalars().all()
+    artifact_ids = set((await db.execute(
+        select(ModelRegistryOOFArtifact.model_registry_id)
+    )).scalars().all())
+    groups: dict[str, list[dict]] = {}
+    for model in rows:
+        params = model.training_params or {}
+        key = params.get("comparison_key")
+        if not key or params.get("target_source") != "POLYMARKET_FINAL_OUTCOME":
+            continue
+        variants = params.get("backtest_variants") or {}
+        best_branch = None
+        best_pnl = None
+        for branch, variant in variants.items():
+            if not isinstance(variant, dict) or variant.get("net_profit") is None:
+                continue
+            pnl = float(variant["net_profit"])
+            if best_pnl is None or pnl > best_pnl:
+                best_branch, best_pnl = branch, pnl
+        candidate = {
+            "model_id": model.id,
+            "asset": model.asset,
+            "regime": model.asset.rsplit("_", 1)[-1],
+            "version": model.version,
+            "feature_set": params.get("feature_set", "A"),
+            "feature_set_version": params.get("feature_set_version", "legacy"),
+            "auc": model.accuracy,
+            "ece": model.ece,
+            "brier": model.brier_score if model.brier_score is not None else params.get("brier_score"),
+            "log_loss": params.get("log_loss"),
+            "oot_markets": params.get("oot_markets"),
+            "backtest_variants": variants,
+            "backtest_pnl": model.backtest_pnl,
+            "backtest_trades": model.backtest_trades,
+            "is_active": bool(model.is_active),
+            "trained_at": model.trained_at.isoformat() if model.trained_at else None,
+            "artifact_available": model.id in artifact_ids,
+            "feature_audit_summary": params.get("feature_audit_summary", {}),
+            "model_config": params.get("model_config", {}),
+            "best_branch": best_branch,
+            "best_branch_pnl": best_pnl,
+        }
+        groups.setdefault(key, []).append(candidate)
+    payload = []
+    for key, candidates in groups.items():
+        candidates.sort(key=lambda item: (item["feature_set"], item["regime"], item["version"]))
+        sample = candidates[0]
+        payload.append({
+            "comparison_key": key,
+            "asset": sample["asset"].rsplit("_", 1)[0],
+            "regime": sample["regime"],
+            "variants": candidates,
+            "variant_count": len(candidates),
+            "comparable": len({item["feature_set"] for item in candidates}) >= 2,
+        })
+    payload.sort(key=lambda item: item["comparison_key"])
+    return {"groups": payload, "count": len(payload)}
+
+
+async def _saved_lgbm_model_polymarket_backtest(
+    db: AsyncSession,
+    *,
+    model_id: int,
+    strategy_branch: str,
+) -> dict:
+    """Re-run Polymarket OOT PnL for one persisted ModelRegistry candidate."""
+    branch = strategy_branch.strip().upper()
+    if branch not in {"OUTSIDER_ONLY", "FAVORITE_ONLY", "COMBINED"}:
+        raise HTTPException(status_code=422, detail="strategy_branch must be OUTSIDER_ONLY, FAVORITE_ONLY or COMBINED")
+    model = (await db.execute(
+        select(ModelRegistry).where(ModelRegistry.id == model_id, ModelRegistry.model_type == "lgbm")
+    )).scalar_one_or_none()
+    if model is None:
+        raise HTTPException(status_code=404, detail=f"LightGBM model {model_id} not found")
+    artifact = (await db.execute(
+        select(ModelRegistryOOFArtifact).where(ModelRegistryOOFArtifact.model_registry_id == model.id)
+    )).scalar_one_or_none()
+    if artifact is None:
+        raise HTTPException(status_code=409, detail={
+            "error": "OOF_ARTIFACT_MISSING",
+            "model_id": model_id,
+            "message": "Retrain this candidate to persist reproducible OOF rows and quotes.",
+        })
+    try:
+        payload = deserialize_oof_artifact(artifact.artifact_blob)
+        result = compute_oof_polymarket_backtest(
+            payload["frame"], payload["oof_scores"], payload["quotes"],
+            strategy_branch=branch,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"error": "OOF_ARTIFACT_INVALID", "message": str(exc)}) from exc
+    return {
+        **{key: value for key, value in result.items() if key != "trades"},
+        "model_id": model.id,
+        "model_asset": model.asset,
+        "model_version": model.version,
+        "feature_set": (model.training_params or {}).get("feature_set", "A"),
+        "pnl_mode": "POLYMARKET_OOF_SAVED_CANDIDATE",
+        "artifact_rows": artifact.row_count,
+        "artifact_schema_version": artifact.schema_version,
+    }
+
+
 @router.get("/api/backtest", dependencies=[Depends(verify_api_key)])
 async def crypto_backtest(
     symbol: str = "BTCUSDT",
@@ -549,6 +687,7 @@ async def crypto_backtest(
     feature_set: str = "A",
     pnl_mode: Literal["BINANCE", "POLYMARKET"] = "BINANCE",
     strategy_branch: str = "OUTSIDER_ONLY",
+    model_id: int | None = Query(None),
     db: AsyncSession = Depends(get_db_session),
 ):
     """
@@ -559,6 +698,12 @@ async def crypto_backtest(
         normalized_feature_set = normalize_feature_set(feature_set)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if model_id is not None:
+        if pnl_mode != "POLYMARKET":
+            raise HTTPException(status_code=422, detail="model_id requires pnl_mode=POLYMARKET")
+        return await _saved_lgbm_model_polymarket_backtest(
+            db, model_id=model_id, strategy_branch=strategy_branch
+        )
     if pnl_mode == "POLYMARKET":
         return await _stored_lgbm_polymarket_backtest(
             db,

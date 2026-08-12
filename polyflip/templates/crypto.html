@@ -210,6 +210,20 @@
                         </style>
                     </div>
                 </div>
+                <div id="lgbm-experiment-panel" class="panel" style="margin-bottom: 1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
+                        <div>
+                            <h2 style="margin:0;">LightGBM A/B/C experiment comparison</h2>
+                            <div style="color:var(--text-muted); font-size:0.85rem;">Saved OOT candidates; the check button never retrains a model.</div>
+                        </div>
+                        <select id="lgbm-experiment-group" style="min-width:260px;">
+                            <option value="">No comparable groups yet</option>
+                        </select>
+                    </div>
+                    <div id="lgbm-experiment-table" style="overflow-x:auto; margin-top:0.8rem;">
+                        <div style="color:var(--text-muted);">Loading experiment groups...</div>
+                    </div>
+                </div>
                 <div id="models-status">Загрузка...</div>
             </div>
 
@@ -661,6 +675,7 @@
         });
 
         let statusData = null;
+        let lgbmExperimentData = [];
         let currentPage = 1;
         let currentSortField = 'pnl';
         let currentSortOrder = 'desc';
@@ -754,6 +769,63 @@
             }
         }
 
+        function renderLgbmExperiments() {
+            const select = document.getElementById('lgbm-experiment-group');
+            const table = document.getElementById('lgbm-experiment-table');
+            if (!select || !table) return;
+            if (!select.dataset.bound) {
+                select.addEventListener('change', renderLgbmExperiments);
+                select.dataset.bound = '1';
+            }
+            if (!lgbmExperimentData.length) {
+                select.innerHTML = '<option value="">No comparable groups yet</option>';
+                table.innerHTML = '<div style="color:var(--text-muted);">No saved A/B/C candidates.</div>';
+                return;
+            }
+            const current = select.value || lgbmExperimentData[0].comparison_key;
+            select.innerHTML = lgbmExperimentData.map(group =>
+                `<option value="${group.comparison_key}">${group.asset} / ${group.regime} (${group.variant_count} variants)</option>`
+            ).join('');
+            select.value = lgbmExperimentData.some(group => group.comparison_key === current) ? current : lgbmExperimentData[0].comparison_key;
+            const group = lgbmExperimentData.find(item => item.comparison_key === select.value) || lgbmExperimentData[0];
+            const rows = group.variants || [];
+            table.innerHTML = `<table class="styled-table" style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+                <thead><tr><th>Variant</th><th>Version</th><th>AUC</th><th>ECE</th><th>Brier</th><th>OOT PnL</th><th>Trades</th><th>Artifact</th><th></th></tr></thead>
+                <tbody>${rows.map(row => `<tr>
+                    <td>${row.feature_set || '-'}</td><td>v${row.version ?? '-'}</td>
+                    <td>${row.auc == null ? '-' : Number(row.auc).toFixed(4)}</td>
+                    <td>${row.ece == null ? '-' : Number(row.ece).toFixed(4)}</td>
+                    <td>${row.brier == null ? '-' : Number(row.brier).toFixed(4)}</td>
+                    <td>${row.best_branch_pnl == null ? (row.backtest_pnl == null ? '-' : Number(row.backtest_pnl).toFixed(2)) : Number(row.best_branch_pnl).toFixed(2)}</td>
+                    <td>${row.backtest_trades ?? '-'}</td><td>${row.artifact_available ? 'saved' : 'legacy'}</td>
+                    <td>${row.artifact_available ? `<button class="btn" onclick="runSavedLgbmBacktest(${row.model_id}, '${row.best_branch || 'COMBINED'}')">Check</button>` : '<span style="color:var(--text-muted)">retrain</span>'}</td>
+                </tr>`).join('')}</tbody></table>`;
+        }
+
+        async function loadLgbmExperiments() {
+            try {
+                const response = await fetch('/lightgbm/api/experiments', { headers: H });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const payload = await response.json();
+                lgbmExperimentData = payload.groups || [];
+                renderLgbmExperiments();
+            } catch (error) {
+                const table = document.getElementById('lgbm-experiment-table');
+                if (table) table.innerHTML = `<div style="color:#ff8a8a;">Experiment comparison unavailable: ${error.message}</div>`;
+            }
+        }
+
+        async function runSavedLgbmBacktest(modelId, branch) {
+            try {
+                const response = await fetch(`/lightgbm/api/backtest?model_id=${modelId}&pnl_mode=POLYMARKET&strategy_branch=${encodeURIComponent(branch)}`, { headers: H });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload?.detail?.message || payload?.detail?.error || payload?.detail || `HTTP ${response.status}`);
+                alert(`Saved candidate v${payload.model_version}: ${Number(payload.net_profit || 0).toFixed(2)} USDC, ${payload.n_trades || 0} trades, ${Number(payload.roi_pct || 0).toFixed(2)}% ROI`);
+            } catch (error) {
+                alert(`Saved candidate backtest failed: ${error.message}`);
+            }
+        }
+
         async function loadStatus() {
             try {
                 // Параллельно запускаем запросы
@@ -782,6 +854,7 @@
 
                 const d = await statusRes.json();
                 statusData = d;
+                loadLgbmExperiments();
                 
                 if (d.active_settings && d.active_settings.enable_ece_correction !== undefined) {
                     const chk = document.getElementById('p-enable-ece-correction');

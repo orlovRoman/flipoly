@@ -37,8 +37,9 @@ from polyflip.crypto.feature_audit import (
     summarize_fold_importance,
 )
 from polyflip.crypto.market_outcome_dataset import build_market_outcome_dataset
-from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
+from polyflip.db.models import CryptoCandle, ModelRegistry, ModelRegistryOOFArtifact, RuntimeSettings
 from polyflip.crypto.polymarket_backtest import compute_oof_polymarket_backtest, load_market_entry_quotes
+from polyflip.crypto.oof_artifact import serialize_oof_artifact, OOF_ARTIFACT_SCHEMA_VERSION
 
 # Импортируем общий семафор из LogReg-трейнера.
 # NOTE: Семафор инициализируется один раз при первом вызове и кэшируется до перезапуска сервиса.
@@ -832,7 +833,7 @@ class CryptoModelTrainer:
                         ))
 
                 # Сохраняем модель
-                self.db.add(ModelRegistry(
+                model_row = ModelRegistry(
                     asset=regime_asset,
                     version=next_version,
                     model_type="lgbm",
@@ -931,8 +932,25 @@ class CryptoModelTrainer:
                     quality_override=False,
                     activated_at=now if should_activate else None,
                     activated_by="trainer" if should_activate else None,
-                ))
+                )
+                self.db.add(model_row)
                 await self.db.flush()
+                if result.oof_scores is not None:
+                    artifact_blob = serialize_oof_artifact(
+                        df_regime.reset_index(drop=True),
+                        result.oof_scores,
+                        entry_quotes,
+                        feature_set=feature_spec.key,
+                        feature_schema_hash=feature_schema_hash(available),
+                    )
+                    self.db.add(ModelRegistryOOFArtifact(
+                        model_registry_id=model_row.id,
+                        schema_version=OOF_ARTIFACT_SCHEMA_VERSION,
+                        row_count=len(df_regime),
+                        artifact_blob=artifact_blob,
+                        created_at=now,
+                    ))
+                    await self.db.flush()
                 trained_any = True
                 logger.info("crypto_model_saved", asset=regime_asset, version=next_version)
             except Exception as e:

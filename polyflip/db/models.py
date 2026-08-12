@@ -106,6 +106,26 @@ class ModelRegistry(Base):
 
 
 
+class ModelRegistryOOFArtifact(Base):
+    """Immutable OOF rows and Polymarket quotes for one saved LGBM candidate."""
+
+    __tablename__ = "model_registry_oof_artifacts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    model_registry_id = Column(
+        Integer,
+        ForeignKey("model_registry.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    schema_version = Column(Integer, nullable=False, server_default="1")
+    row_count = Column(Integer, nullable=False)
+    artifact_blob = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("idx_model_registry_oof_model", "model_registry_id"),)
+
+
 
 class CollectorStatus(Base):
     __tablename__ = "collector_status"
