@@ -92,6 +92,9 @@ async def crypto_page(request: Request, db: AsyncSession = Depends(get_db_sessio
                 ),
                 "reg_alpha": float(defs.get("CRYPTO_LGBM_REG_ALPHA", "0.1")),
                 "reg_lambda": float(defs.get("CRYPTO_LGBM_REG_LAMBDA", "1.0")),
+                "n_jobs": int(defs.get("CRYPTO_LGBM_N_JOBS", "2")),
+                "early_stopping_rounds": int(defs.get("CRYPTO_LGBM_EARLY_STOPPING_ROUNDS", "30")),
+                "search_trials": int(defs.get("CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS", "1")),
                 "min_edge": float(defs.get("BACKTEST_MIN_EDGE", "0.04")),
                 "enable_ece_correction": enable_ece,
             },
@@ -177,6 +180,9 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "CRYPTO_LGBM_COLSAMPLE_BYTREE",
         "CRYPTO_LGBM_REG_ALPHA",
         "CRYPTO_LGBM_REG_LAMBDA",
+        "CRYPTO_LGBM_N_JOBS",
+        "CRYPTO_LGBM_EARLY_STOPPING_ROUNDS",
+        "CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS",
         "BACKTEST_MIN_EDGE",
         "LGBM_EPSILON_QUANTILE",
         "ENABLE_ECE_CORRECTION",
@@ -218,6 +224,9 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "min_edge": _safe_float("BACKTEST_MIN_EDGE", "0.04"),
         "epsilon_quantile": _safe_float("LGBM_EPSILON_QUANTILE", "0.6"),
         "enable_ece_correction": db_settings.get("ENABLE_ECE_CORRECTION", "true").lower() in ("true", "1", "yes"),
+        "n_jobs": _safe_int("CRYPTO_LGBM_N_JOBS", "2"),
+        "early_stopping_rounds": _safe_int("CRYPTO_LGBM_EARLY_STOPPING_ROUNDS", "30"),
+        "search_trials": _safe_int("CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS", "1"),
     }
 
     models_info = {}
@@ -376,6 +385,9 @@ async def save_crypto_settings(
         "min_edge": "BACKTEST_MIN_EDGE",
         "epsilon_quantile": "LGBM_EPSILON_QUANTILE",
         "enable_ece_correction": "ENABLE_ECE_CORRECTION",
+        "n_jobs": "CRYPTO_LGBM_N_JOBS",
+        "early_stopping_rounds": "CRYPTO_LGBM_EARLY_STOPPING_ROUNDS",
+        "search_trials": "CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS",
     }
 
     for key, db_key in keys_map.items():
@@ -760,6 +772,12 @@ def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -
             return None
         return value if np.isfinite(value) else None
 
+    def oot_metric(backtest: dict[str, Any], name: str, fallback: str) -> float | None:
+        windows = [item for item in (backtest.get("oot_windows") or []) if isinstance(item, dict)]
+        values = [metric(item, name) for item in windows]
+        values = [value for value in values if value is not None]
+        return float(np.median(values)) if values else metric(backtest, fallback)
+
     def branch_result(row: dict[str, Any]) -> dict[str, Any]:
         variants = row.get("backtest_variants") or {}
         result = variants.get(branch) or {}
@@ -768,9 +786,11 @@ def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -
     report_rows: list[dict[str, Any]] = []
     for row in candidates:
         backtest = branch_result(row)
-        trades = int(backtest.get("n_trades") or 0)
-        pnl = metric(backtest, "net_profit")
-        control_pnl = metric(branch_result(control), "net_profit") if control else None
+        trades_value = oot_metric(backtest, "n_trades", "n_trades")
+        trades = int(round(trades_value or 0.0))
+        pnl = oot_metric(backtest, "net_profit", "net_profit")
+        drawdown = oot_metric(backtest, "max_drawdown_pct", "max_drawdown_pct")
+        control_pnl = oot_metric(branch_result(control), "net_profit", "net_profit") if control else None
         report_rows.append({
             "model_id": row.get("model_id"),
             "feature_set": row.get("feature_set"),
@@ -780,6 +800,9 @@ def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -
             "brier": metric(row, "brier"),
             "pnl": pnl,
             "trades": trades,
+            "median_oot_pnl": pnl,
+            "median_oot_trades": trades,
+            "median_oot_drawdown_pct": drawdown,
             "roi_pct": metric(backtest, "roi_pct"),
             "coverage_pct": metric(backtest, "coverage_pct"),
             "delta_vs_control": {
@@ -787,20 +810,20 @@ def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -
                 "ece": (metric(row, "ece") - metric(control, "ece")) if metric(row, "ece") is not None and metric(control, "ece") is not None else None,
                 "brier": (metric(row, "brier") - metric(control, "brier")) if metric(row, "brier") is not None and metric(control, "brier") is not None else None,
                 "pnl": (pnl - control_pnl) if pnl is not None and control_pnl is not None else None,
-                "trades": trades - int(branch_result(control).get("n_trades") or 0) if control else None,
+                "trades": trades - int(round(oot_metric(branch_result(control), "n_trades", "n_trades") or 0.0)) if control else None,
             },
             "feature_audit_summary": row.get("feature_audit_summary") or {},
         })
 
-    pnl_candidates = [row for row in report_rows if row["pnl"] is not None and row["trades"] >= 3]
+    pnl_candidates = [row for row in report_rows if row["median_oot_pnl"] is not None and row["median_oot_trades"] >= 3]
     if pnl_candidates:
-        winner = max(pnl_candidates, key=lambda row: (row["pnl"], row["roi_pct"] or float("-inf"), row["auc"] or float("-inf")))
+        winner = max(pnl_candidates, key=lambda row: (row["median_oot_pnl"], -(row["median_oot_drawdown_pct"] or 0.0), row["median_oot_trades"], row["auc"] or float("-inf")))
         recommendation_status = "READY_FOR_SHADOW" if winner["trades"] >= 10 else "PROVISIONAL_LOW_SAMPLE"
-        reason = f"Highest {branch} net PnL among candidates with at least 3 trades; validate in SHADOW before activation."
+        reason = f"Highest median {branch} OOT net PnL with median drawdown considered; validate in SHADOW before activation."
     elif report_rows:
         winner = max(report_rows, key=lambda row: (row["auc"] if row["auc"] is not None else float("-inf"), -(row["ece"] if row["ece"] is not None else float("inf"))))
         recommendation_status = "NO_PNL_SAMPLE"
-        reason = "No candidate has at least 3 saved Polymarket trades; ranking falls back to AUC/ECE and is not an activation decision."
+        reason = "No candidate has at least 3 median OOT trades; ranking falls back to AUC/ECE and is not an activation decision."
     else:
         winner = None
         recommendation_status = "NO_CANDIDATES"

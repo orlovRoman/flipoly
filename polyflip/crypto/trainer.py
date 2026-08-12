@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 import structlog
-from lightgbm import LGBMClassifier
+from lightgbm import LGBMClassifier, early_stopping
 from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator, calibration_curve
 from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, brier_score_loss, precision_recall_curve, log_loss
 from sklearn.model_selection import TimeSeriesSplit
@@ -214,6 +214,8 @@ class LGBMFitResult:
     feature_audit_summary: dict[str, object] = field(default_factory=dict)
     # OOF probabilities are retained for the canonical Polymarket PnL audit.
     oof_scores: np.ndarray | None = None
+    # Effective LightGBM parameters, including the selected controlled-search trial.
+    effective_params: dict[str, object] = field(default_factory=dict)
 
     def _legacy_values(self) -> tuple[object, ...]:
         return (
@@ -246,12 +248,42 @@ def _make_lgbm(**params) -> LGBMClassifier:
         "reg_alpha":         0.1,
         "reg_lambda":        1.0,
         "random_state":      CV_RANDOM_STATE,
-        "n_jobs":            1,
+        "n_jobs":            2,
         "verbose":          -1,
     }
     defaults.update(params)
     return LGBMClassifier(**defaults)
 
+
+def _fit_with_early_stopping(
+    model: LGBMClassifier,
+    X: pd.DataFrame,
+    y: pd.Series,
+    early_stopping_rounds: int,
+) -> LGBMClassifier:
+    """Fit a model with a chronological validation tail when it is safe."""
+    rounds = max(0, int(early_stopping_rounds))
+    if rounds == 0 or len(X) < 100 or y.nunique(dropna=False) < 2:
+        model.fit(X, y)
+        return model
+
+    validation_size = max(20, int(len(X) * 0.15))
+    if validation_size >= len(X) - 20:
+        model.fit(X, y)
+        return model
+    fit_end = len(X) - validation_size
+    X_fit, X_eval = X.iloc[:fit_end], X.iloc[fit_end:]
+    y_fit, y_eval = y.iloc[:fit_end], y.iloc[fit_end:]
+    if y_fit.nunique(dropna=False) < 2 or y_eval.nunique(dropna=False) < 2:
+        model.fit(X, y)
+        return model
+    model.fit(
+        X_fit,
+        y_fit,
+        eval_set=[(X_eval, y_eval)],
+        callbacks=[early_stopping(rounds, verbose=False)],
+    )
+    return model
 
 def _fit_lgbm_and_serialize(
     X: pd.DataFrame,
@@ -262,6 +294,7 @@ def _fit_lgbm_and_serialize(
     max_valid_thr: float = 0.75,
     thr_fallback: float = 0.55,
     return_metrics: bool = False,
+    early_stopping_rounds: int = 30,
     compute_feature_audit: bool = False,
     **lgbm_params,
 ) -> LGBMFitResult:
@@ -280,7 +313,7 @@ def _fit_lgbm_and_serialize(
         y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
         fold_lgbm = _make_lgbm(**lgbm_params)
-        fold_lgbm.fit(X_train, y_train)
+        _fit_with_early_stopping(fold_lgbm, X_train, y_train, early_stopping_rounds)
         if compute_feature_audit:
             fold_gain_importances.append(model_gain_importance(fold_lgbm, X.columns))
 
@@ -333,7 +366,7 @@ def _fit_lgbm_and_serialize(
     y_fit, y_cal_final = y.iloc[:-n_cal], y.iloc[-n_cal:]
 
     final_lgbm = _make_lgbm(**lgbm_params)
-    final_lgbm.fit(X_fit, y_fit)
+    _fit_with_early_stopping(final_lgbm, X_fit, y_fit, early_stopping_rounds)
     final_calibration_method = "sigmoid" if n_cal < 200 else "isotonic"
     final_cal = CalibratedClassifierCV(
         estimator=FrozenEstimator(final_lgbm), method=final_calibration_method, cv=None
@@ -437,9 +470,98 @@ def _fit_lgbm_and_serialize(
         feature_audit=feature_audit,
         feature_audit_summary=audit_summary,
         oof_scores=oof_scores.copy() if return_metrics else None,
+        effective_params=dict(lgbm_params),
     )
 
+def _controlled_lgbm_candidates(base_params: dict, trials: int) -> list[dict]:
+    """Return a small deterministic search space, never an unbounded sweep."""
+    base = dict(base_params)
+    candidates = [base]
+    variants = (
+        {"learning_rate": float(base.get("learning_rate", 0.05)) * 0.7,
+         "num_leaves": max(7, int(base.get("num_leaves", 15) * 0.75))},
+        {"learning_rate": float(base.get("learning_rate", 0.05)) * 1.3,
+         "num_leaves": min(128, int(base.get("num_leaves", 15) * 1.25)),
+         "min_child_samples": max(10, int(base.get("min_child_samples", 50) * 0.8))},
+        {"reg_lambda": float(base.get("reg_lambda", 1.0)) * 2.0,
+         "min_child_samples": max(10, int(base.get("min_child_samples", 50) * 1.25))},
+    )
+    for changes in variants[: max(0, min(int(trials), 4) - 1)]:
+        candidate = dict(base)
+        candidate.update(changes)
+        candidates.append(candidate)
+    return candidates
 
+
+def _fit_controlled_lgbm(
+    X: pd.DataFrame,
+    y: pd.Series,
+    *,
+    search_trials: int,
+    early_stopping_rounds: int,
+    n_splits: int,
+    min_precision: float,
+    min_valid_thr: float,
+    max_valid_thr: float,
+    thr_fallback: float,
+    base_params: dict,
+) -> LGBMFitResult:
+    candidates = _controlled_lgbm_candidates(base_params, search_trials)
+    if len(candidates) == 1:
+        return _fit_lgbm_and_serialize(
+            X,
+            y,
+            n_splits=n_splits,
+            early_stopping_rounds=early_stopping_rounds,
+            min_precision=min_precision,
+            min_valid_thr=min_valid_thr,
+            max_valid_thr=max_valid_thr,
+            thr_fallback=thr_fallback,
+            return_metrics=True,
+            compute_feature_audit=True,
+            **candidates[0],
+        )
+    trial_results = []
+    for params in candidates:
+        trial_results.append(_fit_lgbm_and_serialize(
+            X,
+            y,
+            n_splits=n_splits,
+            early_stopping_rounds=early_stopping_rounds,
+            min_precision=min_precision,
+            min_valid_thr=min_valid_thr,
+            max_valid_thr=max_valid_thr,
+            thr_fallback=thr_fallback,
+            return_metrics=True,
+            compute_feature_audit=False,
+            **params,
+        ))
+
+    def score(result: LGBMFitResult) -> float:
+        brier = result.brier if np.isfinite(result.brier) else 1.0
+        return float(result.val_auc - brier)
+
+    best_index = max(range(len(trial_results)), key=lambda index: score(trial_results[index]))
+    best_params = candidates[best_index]
+    logger.info(
+        "lgbm_hyperparameter_search_selected",
+        trials=len(candidates),
+        selected_trial=best_index + 1,
+        scores=[round(score(result), 6) for result in trial_results],
+    )
+    return _fit_lgbm_and_serialize(
+        X,
+        y,
+        n_splits=n_splits,
+        early_stopping_rounds=early_stopping_rounds,
+        min_precision=min_precision,
+        min_valid_thr=min_valid_thr,
+        max_valid_thr=max_valid_thr,
+        thr_fallback=thr_fallback,
+        return_metrics=True,
+        compute_feature_audit=True,
+        **best_params,
+    )
 async def _get_float_setting(db: AsyncSession, key: str, default: float = 0.0) -> float:
     try:
         return await get_float(db, key)
@@ -476,6 +598,10 @@ class CryptoModelTrainer:
             feature_set = normalized_config["feature_set"]
         feature_spec = get_feature_set(feature_set)
         available = list(feature_spec.features)
+        n_jobs = await _get_int_setting(self.db, "CRYPTO_LGBM_N_JOBS", 2)
+        early_stopping_rounds = await _get_int_setting(self.db, "CRYPTO_LGBM_EARLY_STOPPING_ROUNDS", 30)
+        search_trials = await _get_int_setting(self.db, "CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS", 1)
+
         logger.info(
             "crypto_training_start",
             symbol=symbol,
@@ -486,13 +612,6 @@ class CryptoModelTrainer:
         )
 
         # Загружаем все свечи для символа
-        candles = await get_recent_candles(
-            self.db, symbol, interval, limit=10_000
-        )
-        if len(candles) < 500:
-            logger.warning("not_enough_candles", symbol=symbol, count=len(candles))
-            return False
-
         # Считываем динамические гиперпараметры из RuntimeSettings
         n_estimators = await _get_int_setting(self.db, "CRYPTO_LGBM_N_ESTIMATORS", 300)
         learning_rate = await _get_float_setting(self.db, "CRYPTO_LGBM_LEARNING_RATE", 0.05)
@@ -513,6 +632,7 @@ class CryptoModelTrainer:
             "colsample_bytree": colsample_bytree,
             "reg_alpha": reg_alpha,
             "reg_lambda": reg_lambda,
+            "n_jobs": max(1, min(n_jobs, 32)),
         }
         if normalized_config:
             lgbm_params.update(normalized_config["model"])
@@ -528,27 +648,6 @@ class CryptoModelTrainer:
         thr_fallback = await get_float(self.db, "LGBM_THRESHOLD_FALLBACK")
         cv_n_splits = await get_int(self.db, "LGBM_CV_N_SPLITS")
         epsilon_quantile = await get_float(self.db, "LGBM_EPSILON_QUANTILE")
-
-        # Читаем актуальные funding rates из БД
-        fr_key = f"FUNDING_RATE_{symbol}"
-        fr_ma3_key = f"FUNDING_RATE_MA3_{symbol}"
-        fr_row = (await self.db.execute(
-            select(RuntimeSettings).where(RuntimeSettings.key == fr_key)
-        )).scalar_one_or_none()
-        fr_ma3_row = (await self.db.execute(
-            select(RuntimeSettings).where(RuntimeSettings.key == fr_ma3_key)
-        )).scalar_one_or_none()
-
-        funding_rate = float(fr_row.value) if fr_row else 0.0
-        funding_rate_ma3 = float(fr_ma3_row.value) if fr_ma3_row else 0.0
-
-        logger.info(
-            "funding_rate_loaded_for_training",
-            symbol=symbol,
-            funding_rate=funding_rate,
-            ma3=funding_rate_ma3,
-        )
-
         # 3. Загружаем выравненный торговый датасет на канонических исходах Polymarket (MARKET_WINDOW_V1)
         df_filtered = await build_market_outcome_dataset(
             self.db, symbol=symbol, interval=interval, feature_set=feature_spec.key
@@ -696,15 +795,17 @@ class CryptoModelTrainer:
                     async with sem:
                         result = await asyncio.wait_for(
                             asyncio.to_thread(
-                                _fit_lgbm_and_serialize,
-                                X_r, y_r, cv_n_splits,
-                                min_precision,
-                                min_valid_thr,
-                                max_valid_thr,
-                                thr_fallback,
-                                return_metrics=True,
-                                compute_feature_audit=True,
-                                **adaptive_params
+                                _fit_controlled_lgbm,
+                                X_r,
+                                y_r,
+                                search_trials=search_trials,
+                                early_stopping_rounds=early_stopping_rounds,
+                                n_splits=cv_n_splits,
+                                min_precision=min_precision,
+                                min_valid_thr=min_valid_thr,
+                                max_valid_thr=max_valid_thr,
+                                thr_fallback=thr_fallback,
+                                base_params=adaptive_params,
                             ),
                             timeout=1800.0,   # 30 минут — hard limit
                         )
@@ -726,6 +827,7 @@ class CryptoModelTrainer:
                 recall = result.recall
                 f1 = result.f1
                 brier = result.brier
+                effective_params = result.effective_params or adaptive_params
                 fit_metrics = {
                     "oot_samples": result.oot_samples,
                     "brier_score": result.brier,
@@ -869,7 +971,9 @@ class CryptoModelTrainer:
                     decision_threshold=threshold,
                     decision_threshold_down=threshold_down,
                     training_params={
-                        **adaptive_params,
+                        **effective_params,
+                        "early_stopping_rounds": early_stopping_rounds,
+                        "hyperparameter_search_trials": search_trials,
                         "target_source": "POLYMARKET_FINAL_OUTCOME",
                         "feature_set": feature_spec.key,
                         "feature_set_version": feature_spec.version,
@@ -914,7 +1018,7 @@ class CryptoModelTrainer:
                         "feature_audit_version": fit_metrics.get("feature_audit_summary", {}).get("version"),
                         "feature_audit_summary": fit_metrics.get("feature_audit_summary", {}),
                         "feature_selection_policy": "diagnostic_only",
-                        "model_config": adaptive_params,
+                        "model_config": effective_params,
                         "vol_p33": vol_p33,
                         "vol_p67": vol_p67,
                         "backtest_pnl_mode": "POLYMARKET_OOF",

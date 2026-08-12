@@ -140,6 +140,27 @@ def _pnl_for_trade(
     gross_profit = stake_usdc * (1.0 - price) / price
     # Polymarket's fee is charged on the winning profit, not on the stake.
     return gross_profit - max(gross_profit, 0.0) * fee_rate
+def _oot_window_summaries(trades: list[dict[str, Any]], stake_usdc: float) -> list[dict[str, Any]]:
+    """Summarize chronological OOT windows for robust experiment ranking."""
+    if not trades:
+        return []
+    window_count = min(3, len(trades))
+    summaries: list[dict[str, Any]] = []
+    for index, indices in enumerate(np.array_split(np.arange(len(trades)), window_count), start=1):
+        if len(indices) == 0:
+            continue
+        pnl = np.asarray([float(trades[int(i)]["pnl"]) for i in indices], dtype=float)
+        cumulative = np.cumsum(pnl)
+        peak = np.maximum.accumulate(np.maximum(cumulative, 0.0))
+        drawdown = float(np.max(np.maximum(0.0, peak - cumulative)))
+        summaries.append({
+            "window": index,
+            "n_trades": int(len(indices)),
+            "net_profit": float(pnl.sum()),
+            "max_drawdown_pct": drawdown / max(stake_usdc, 1e-9) * 100.0,
+        })
+    return summaries
+
 
 
 def compute_oof_polymarket_backtest(
@@ -279,6 +300,7 @@ def compute_oof_polymarket_backtest(
             "slices": [],
             "equity_curve": [],
             "trades": [],
+            "oot_windows": [],
         }
 
     pnl = np.asarray([float(item["pnl"]) for item in trades], dtype=float)
@@ -352,6 +374,7 @@ def compute_oof_polymarket_backtest(
         "slices": slices,
         "equity_curve": equity_curve,
         "trades": trades,
+        "oot_windows": _oot_window_summaries(trades, stake_usdc),
     }
 
 def aggregate_stored_polymarket_backtests(

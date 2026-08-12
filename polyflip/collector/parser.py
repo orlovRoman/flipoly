@@ -72,6 +72,8 @@ async def run_collector_cycle(db_session: AsyncSession):
                 # На всякий случай обновляем token_id, если добавились
                 live_m.yes_token_id = yes_token_id
                 live_m.no_token_id = m_data["no_token_id"]
+                if getattr(live_m, "underlying_price", None) is None:
+                    live_m.underlying_price = m_data.get("underlying_price")
             else:
                 # Создаем новую запись в LiveMarket
                 live_m = LiveMarket(
@@ -86,7 +88,8 @@ async def run_collector_cycle(db_session: AsyncSession):
                     current_spread=spread,
                     volume_5min=volume_5min,
                     price_velocity=0.0,
-                    last_updated=current_time
+                    last_updated=current_time,
+                    underlying_price=m_data.get("underlying_price"),
                 )
                 db_session.add(live_m)
 

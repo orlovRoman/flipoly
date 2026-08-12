@@ -21,7 +21,8 @@ _DATETIME_COLUMNS = {"market_start", "recorded_at"}
 def _frame_columns(frame: pd.DataFrame) -> list[str]:
     preferred = (
         "market_id", "asset", "market_start", "recorded_at",
-        "time_left_min", "vol_regime", "target", "final_outcome",
+        "time_left_min", "vol_regime", "mid_price", "spread",
+        "best_bid", "best_ask", "yes_price", "no_price", "target", "final_outcome",
     )
     return [column for column in preferred if column in frame.columns]
 

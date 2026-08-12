@@ -7,6 +7,30 @@ from polyflip.constants import HTTP_TIMEOUT_SEC, VOLUME_WINDOW_MIN
 
 logger = structlog.get_logger(__name__)
 
+def _canonical_strike(market: Dict[str, Any], event: Dict[str, Any]) -> float | None:
+    """Extract Polymarket's opening/Chainlink strike without Binance fallbacks."""
+    candidates = [
+        market.get("underlying_price"),
+        market.get("underlyingPrice"),
+        market.get("strike"),
+        market.get("strikePrice"),
+        market.get("priceToBeat"),
+        market.get("openingPrice"),
+        event.get("underlying_price"),
+        event.get("underlyingPrice"),
+        event.get("strike"),
+        event.get("strikePrice"),
+        event.get("priceToBeat"),
+    ]
+    for candidate in candidates:
+        try:
+            value = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if value > 0.0 and value == value and value != float("inf"):
+            return value
+    return None
+
 class PolymarketClient:
     GAMMA_API = "https://gamma-api.polymarket.com"
     CLOB_API = "https://clob.polymarket.com"
@@ -102,6 +126,7 @@ class PolymarketClient:
                         "question": market.get("question"),
                         "asset": matched_asset,
                         "end_date_iso": market.get("endDate"),
+                        "underlying_price": _canonical_strike(market, event),
                     })
                         
         except Exception as e:

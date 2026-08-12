@@ -333,6 +333,18 @@
                         <input type="number" id="p-reg-lambda" step="0.01" min="0" value="{{ defaults.reg_lambda }}">
                     </div>
                     <div class="settings-group">
+                        <label for="p-n-jobs">LightGBM threads (n_jobs)</label>
+                        <input type="number" id="p-n-jobs" min="1" max="32" step="1" value="{{ defaults.n_jobs }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-early-stopping">Early stopping rounds</label>
+                        <input type="number" id="p-early-stopping" min="0" max="500" step="1" value="{{ defaults.early_stopping_rounds }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-search-trials">Hyperparameter search trials</label>
+                        <input type="number" id="p-search-trials" min="1" max="8" step="1" value="{{ defaults.search_trials }}">
+                    </div>
+                    <div class="settings-group">
                         <label for="p-min-edge">Порог сигнала (min_edge)</label>
                         <input type="number" id="p-min-edge" step="0.01" value="{{ defaults.min_edge }}">
                     </div>
@@ -882,7 +894,7 @@
                 const rows = (payload.rows || []).map(row => {
                     const delta = row.delta_vs_control || {};
                     const signed = value => value == null ? '-' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(4)}`;
-                    return `<tr><td>${row.feature_set || '-'}</td><td>v${row.version ?? '-'}</td><td>${row.pnl == null ? '-' : Number(row.pnl).toFixed(2)}</td><td>${row.trades}</td><td>${signed(delta.auc)}</td><td>${signed(delta.ece)}</td><td>${signed(delta.brier)}</td><td>${signed(delta.pnl)}</td></tr>`;
+                    return `<tr><td>${row.feature_set || '-'}</td><td>v${row.version ?? '-'}</td><td>${row.pnl == null ? '-' : Number(row.pnl).toFixed(2)}</td><td>${row.trades}</td><td>${row.median_oot_drawdown_pct == null ? '-' : Number(row.median_oot_drawdown_pct).toFixed(2) + '%'}</td><td>${signed(delta.auc)}</td><td>${signed(delta.ece)}</td><td>${signed(delta.brier)}</td><td>${signed(delta.pnl)}</td></tr>`;
                 }).join('');
                 const stable = Object.entries(payload.stable_features_by_variant || {})
                     .map(([variant, features]) => `${variant}: ${(features || []).join(', ') || '-'}`).join(' · ') || '-';
@@ -891,7 +903,7 @@
                     <div style="margin-top:0.45rem; color:var(--text-muted);">${payload.recommendation_reason}</div>
                     <div style="margin-top:0.45rem;">Recommendation: <b>${payload.recommended_variant || '-'}</b> (model ${payload.recommended_model_id || '-'}) · activation: <b>${payload.activation_policy}</b></div>
                     <div style="margin-top:0.45rem; color:var(--text-muted);">Stable features: ${stable}</div>
-                    <div style="overflow-x:auto; margin-top:0.7rem;"><table class="styled-table" style="width:100%; border-collapse:collapse; font-size:0.78rem;"><thead><tr><th>Variant</th><th>Version</th><th>${branch} PnL</th><th>Trades</th><th>Δ AUC</th><th>Δ ECE</th><th>Δ Brier</th><th>Δ PnL</th></tr></thead><tbody>${rows}</tbody></table></div>
+                    <div style="overflow-x:auto; margin-top:0.7rem;"><table class="styled-table" style="width:100%; border-collapse:collapse; font-size:0.78rem;"><thead><tr><th>Variant</th><th>Version</th><th>Median OOT PnL</th><th>Median OOT trades</th><th>Median OOT DD</th><th>Δ AUC</th><th>Δ ECE</th><th>Δ Brier</th><th>Δ PnL</th></tr></thead><tbody>${rows}</tbody></table></div>
                 </div>`;
             } catch (error) {
                 if (error.name === 'AbortError') return;
@@ -995,6 +1007,9 @@
                     document.getElementById('p-colsample-bytree').value = d.settings.colsample_bytree;
                     document.getElementById('p-reg-alpha').value = d.settings.reg_alpha;
                     document.getElementById('p-reg-lambda').value = d.settings.reg_lambda;
+                    document.getElementById('p-n-jobs').value = d.settings.n_jobs;
+                    document.getElementById('p-early-stopping').value = d.settings.early_stopping_rounds;
+                    document.getElementById('p-search-trials').value = d.settings.search_trials;
                     document.getElementById('p-epsilon-quantile').value = d.settings.epsilon_quantile;
                     document.getElementById('p-min-edge').value = d.settings.min_edge;
                 }
@@ -1720,6 +1735,9 @@
                 colsample_bytree: parseFloat(document.getElementById('p-colsample-bytree').value),
                 reg_alpha: parseFloat(document.getElementById('p-reg-alpha').value),
                 reg_lambda: parseFloat(document.getElementById('p-reg-lambda').value),
+                n_jobs: parseInt(document.getElementById('p-n-jobs').value),
+                early_stopping_rounds: parseInt(document.getElementById('p-early-stopping').value),
+                search_trials: parseInt(document.getElementById('p-search-trials').value),
                 epsilon_quantile: parseFloat(document.getElementById('p-epsilon-quantile').value),
                 min_edge: parseFloat(document.getElementById('p-min-edge').value),
                 enable_ece_correction: document.getElementById('p-enable-ece-correction')?.checked ?? true,

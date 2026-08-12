@@ -49,6 +49,9 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "hour_cos",          # cos(2*pi*hour/24)
     "dow_sin",           # sin(2*pi*dow/7)
     "dow_cos",           # cos(2*pi*dow/7)
+    # --- Canonical Polymarket contract context ---
+    "strike_gap_pct",   # (underlying close - canonical strike) / strike
+    "log_moneyness",    # log(underlying close / canonical strike)
 ]
 
 
@@ -63,6 +66,7 @@ class CryptoFeatureVector:
 def build_crypto_features(
     candles: Sequence | pd.DataFrame,
     min_candles: int = 100,
+    underlying_price: float | None = None,
 ) -> CryptoFeatureVector:
     if isinstance(candles, pd.DataFrame):
         df = candles.copy()
@@ -183,6 +187,16 @@ def build_crypto_features(
     hour_cos = float(np.cos(2 * np.pi * last_dt.hour / 24))
     dow_sin  = float(np.sin(2 * np.pi * last_dt.weekday() / 7))
     dow_cos  = float(np.cos(2 * np.pi * last_dt.weekday() / 7))
+    # Canonical Polymarket/Chainlink opening strike. Missing strikes stay at
+    # zero; never substitute a Binance candle open for the contract strike.
+    try:
+        strike = float(underlying_price) if underlying_price is not None else 0.0
+    except (TypeError, ValueError):
+        strike = 0.0
+    if not np.isfinite(strike) or strike <= 0.0:
+        strike = 0.0
+    strike_gap_pct = float((close[-1] - strike) / strike) if strike else 0.0
+    log_moneyness = float(np.log(close[-1] / strike)) if strike else 0.0
 
     # ── 11. Сборка ───────────────────────────────────────────────
     vec = np.array([[
@@ -194,6 +208,7 @@ def build_crypto_features(
         range_1, range_avg,
         consec_balance,
         hour_sin, hour_cos, dow_sin, dow_cos,
+        strike_gap_pct, log_moneyness,
     ]], dtype=np.float64)
 
     vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
@@ -211,6 +226,7 @@ def build_crypto_features(
 
 def build_features(
     candles: Sequence | pd.DataFrame,
+    underlying_price: float | None = None,
 ) -> pd.DataFrame:
     if isinstance(candles, pd.DataFrame):
         df = candles.copy()
@@ -292,19 +308,14 @@ def build_features(
     out["range_avg_24"]  = out["range_1"].rolling(24, min_periods=6).mean()
 
     # ── Consecutive candles ──────────────────────────────────────
-    dirs = (close >= df["open"]).astype(int).values
-    result = []
-    for i in range(len(dirs)):
-        cu = 0
-        for j in range(i - 1, -1, -1):
-            if dirs[j] == 1: cu += 1
-            else: break
-        cd = 0
-        for j in range(i - 1, -1, -1):
-            if dirs[j] == 0: cd += 1
-            else: break
-        result.append(float(cu - cd))
-    out["consec_balance"] = result
+    dirs = (close >= df["open"]).astype("int8")
+    previous = dirs.shift(1)
+    run_groups = previous.ne(previous.shift()).cumsum()
+    run_lengths = previous.groupby(run_groups).cumcount().add(1)
+    out["consec_balance"] = np.where(
+        previous.eq(1), run_lengths,
+        np.where(previous.eq(0), -run_lengths, 0),
+    )
 
     # ── Time (Cyclic) ────────────────────────────────────────────
     dt = pd.to_datetime(df["open_time"])
@@ -313,6 +324,14 @@ def build_features(
     out["dow_sin"]  = np.sin(2 * np.pi * dt.dt.weekday / 7)
     out["dow_cos"]  = np.cos(2 * np.pi * dt.dt.weekday / 7)
 
+    try:
+        strike = float(underlying_price) if underlying_price is not None else 0.0
+    except (TypeError, ValueError):
+        strike = 0.0
+    if not np.isfinite(strike) or strike <= 0.0:
+        strike = 0.0
+    out["strike_gap_pct"] = ((close - strike) / strike) if strike else 0.0
+    out["log_moneyness"] = np.log(close / strike) if strike else 0.0
     # ── NaN → 0 (safety net) ────────────────────────────────────
     out = out.fillna(0.0)
     out = out.replace([np.inf, -np.inf], 0.0)

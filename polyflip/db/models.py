@@ -187,6 +187,7 @@ class LiveMarket(Base):
     volume_5min = Column(Float, nullable=False, default=0.0)
     price_velocity = Column(Float, nullable=False, default=0.0)
     last_updated = Column(DateTime(timezone=True), nullable=False)
+    underlying_price = Column(Float, nullable=True)
 
     # --- Состояние торговли и результат ---
     trading_status = Column(String(24), nullable=False, server_default="UNKNOWN")

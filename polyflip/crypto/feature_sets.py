@@ -36,6 +36,7 @@ CONTROL_FEATURES: tuple[str, ...] = (
     "range_1", "range_avg_24",
     "consec_balance",
     "hour_sin", "hour_cos", "dow_sin", "dow_cos",
+    "strike_gap_pct", "log_moneyness",
 )
 
 FEATURE_SETS: dict[str, CryptoFeatureSet] = {

@@ -100,7 +100,7 @@ def test_predictor_uses_underlying_price_as_strike():
 
     # Вызываем predict с явным underlying_price=65123.45
     with pytest.MonkeyPatch.context() as m:
-        m.setattr("polyflip.crypto.predictor.build_crypto_features", lambda c: MagicMock(valid=True, features=[[0.0]*23]))
+        m.setattr("polyflip.crypto.predictor.build_crypto_features", lambda c, **kwargs: MagicMock(valid=True, features=[[0.0]*25]))
         m.setattr("polyflip.crypto.predictor.CryptoFeaturesValidator", lambda **kw: MagicMock(**{f: 0.0 for f in ["ret_1", "ret_3", "ret_6", "vol_6", "vol_24", "vol_z_1", "taker_buy_ratio", "cvd_1", "cvd_6", "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position", "dist_to_high_24", "dist_to_low_24", "range_1", "range_avg_24", "consec_balance", "hour_sin", "hour_cos", "dow_sin", "dow_cos"]}))
         
         sig = predictor.predict([fake_candle]*100, "BTCUSDT", underlying_price=65123.45)

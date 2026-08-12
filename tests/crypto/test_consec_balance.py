@@ -43,4 +43,4 @@ def test_no_separate_consec_features():
     assert "consec_balance" in CRYPTO_FEATURE_COLUMNS
 
 def test_feature_count_final():
-    assert len(CRYPTO_FEATURE_COLUMNS) == 23, f"Expected 23 features, got {len(CRYPTO_FEATURE_COLUMNS)}"
+    assert len(CRYPTO_FEATURE_COLUMNS) == 25, f"Expected 25 features, got {len(CRYPTO_FEATURE_COLUMNS)}"

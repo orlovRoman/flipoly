@@ -44,5 +44,5 @@ def test_build_features_no_long_horizon_columns():
 def test_feature_count_regression():
     """Счётчик фич — явная фиксация для ловли случайных изменений."""
     from polyflip.crypto.feature_builder import CRYPTO_FEATURE_COLUMNS
-    assert len(CRYPTO_FEATURE_COLUMNS) == 23, \
-        f"Expected 23 features, got {len(CRYPTO_FEATURE_COLUMNS)}"
+    assert len(CRYPTO_FEATURE_COLUMNS) == 25, \
+        f"Expected 25 features, got {len(CRYPTO_FEATURE_COLUMNS)}"

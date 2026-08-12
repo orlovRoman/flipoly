@@ -416,7 +416,7 @@ class CryptoPredictor:
 
         try:
             # 1. Сборка вектора признаков
-            feature_vector = build_crypto_features(candles)
+            feature_vector = build_crypto_features(candles, underlying_price=underlying_price)
 
             if not feature_vector.valid:
                 return CryptoSignal(
