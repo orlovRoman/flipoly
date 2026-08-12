@@ -20,7 +20,7 @@ import numpy as np
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request, Query, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, update, delete, func, cast, Numeric, text
 from collections import defaultdict
@@ -411,9 +411,9 @@ class ExperimentConfigRequest(BaseModel):
     asset: str | None = None
     volatility_regime: str | None = None
     feature_set: str = "A"
-    model: dict[str, Any] = {}
-    calibration: dict[str, Any] = {}
-    backtest: dict[str, Any] = {}
+    model: dict[str, Any] = Field(default_factory=dict)
+    calibration: dict[str, Any] = Field(default_factory=dict)
+    backtest: dict[str, Any] = Field(default_factory=dict)
     parent_id: int | None = None
     created_by: str = "dashboard"
 
@@ -442,16 +442,28 @@ def _experiment_config_response(row: LGBMExperimentConfig) -> dict[str, Any]:
 async def list_experiment_configs(
     asset: str | None = None,
     include_archived: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db_session),
 ):
+    # Direct unit-test calls may pass FastAPI Query objects; normalize them before SQLAlchemy.
+    if not isinstance(limit, int):
+        limit = getattr(limit, "default", 50)
+    if not isinstance(offset, int):
+        offset = getattr(offset, "default", 0)
     stmt = select(LGBMExperimentConfig)
     if asset:
         stmt = stmt.where(LGBMExperimentConfig.asset == asset.strip().upper())
     if not include_archived:
         stmt = stmt.where(LGBMExperimentConfig.is_archived.is_(False))
     stmt = stmt.order_by(LGBMExperimentConfig.created_at.desc(), LGBMExperimentConfig.id.desc())
-    rows = (await db.execute(stmt)).scalars().all()
-    return {"configs": [_experiment_config_response(row) for row in rows]}
+    rows = (await db.execute(stmt.limit(limit).offset(offset))).scalars().all()
+    return {
+        "configs": [_experiment_config_response(row) for row in rows],
+        "limit": limit,
+        "offset": offset,
+        "has_more": len(rows) == limit,
+    }
 
 
 @router.post("/api/experiment-configs", dependencies=[Depends(verify_api_key)])
@@ -498,10 +510,15 @@ async def create_experiment_config(
     return {"status": "created", "config": _experiment_config_response(row)}
 
 
+class CopyExperimentConfigRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    created_by: str = Field(default="dashboard", max_length=128)
+
+
 @router.post("/api/experiment-configs/{config_id}/copy", dependencies=[Depends(verify_api_key)])
 async def copy_experiment_config(
     config_id: int,
-    name: str = Query(..., min_length=1, max_length=128),
+    payload: CopyExperimentConfigRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
     source = await db.get(LGBMExperimentConfig, config_id)
@@ -514,12 +531,13 @@ async def copy_experiment_config(
         "backtest": source.backtest_params,
     })
     row = LGBMExperimentConfig(
-        name=name.strip(), description=source.description, asset=source.asset,
+        name=payload.name.strip(), description=source.description, asset=source.asset,
         volatility_regime=source.volatility_regime,
         feature_set=config["feature_set"], feature_set_version=config["feature_set_version"],
         model_params=config["model"], calibration_params=config["calibration"],
         backtest_params=config["backtest"], config_hash=experiment_config_hash(config),
-        parent_id=source.id, created_at=datetime.now(timezone.utc), created_by="dashboard",
+        parent_id=source.id, created_at=datetime.now(timezone.utc),
+        created_by=payload.created_by.strip() or "dashboard",
     )
     db.add(row)
     await db.commit()
@@ -804,8 +822,8 @@ def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -
         "activation_policy": "MANUAL_SHADOW_REQUIRED",
     }
 
-@router.get("/api/experiments", dependencies=[Depends(verify_api_key)])
-async def lgbm_experiment_groups(db: AsyncSession = Depends(get_db_session)) -> dict:
+
+async def _collect_lgbm_experiment_groups(db: AsyncSession) -> dict:
     """Return comparable LightGBM A/B/C candidates and saved OOT summaries."""
     rows = (await db.execute(
         select(
@@ -881,6 +899,13 @@ async def lgbm_experiment_groups(db: AsyncSession = Depends(get_db_session)) -> 
     payload.sort(key=lambda item: item["comparison_key"])
     return {"groups": payload, "count": len(payload)}
 
+
+@router.get("/api/experiments", dependencies=[Depends(verify_api_key)])
+async def lgbm_experiment_groups(db: AsyncSession = Depends(get_db_session)) -> dict:
+    """Return comparable LightGBM A/B/C candidates and saved OOT summaries."""
+    return await _collect_lgbm_experiment_groups(db)
+
+
 @router.get("/api/experiments/report", dependencies=[Depends(verify_api_key)])
 async def lgbm_experiment_report(
     comparison_key: str,
@@ -888,7 +913,7 @@ async def lgbm_experiment_report(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Return an advisory report for one comparable A/B/C experiment group."""
-    payload = await lgbm_experiment_groups(db)
+    payload = await _collect_lgbm_experiment_groups(db)
     group = next((item for item in payload["groups"] if item["comparison_key"] == comparison_key), None)
     if group is None:
         raise HTTPException(status_code=404, detail="Comparable experiment group not found")
@@ -1089,7 +1114,7 @@ async def crypto_train(
         "symbol": symbol,
         "feature_set": normalized_feature_set,
         "activate_after_train": bool(activate_after_train),
-                    "experiment_config_id": experiment_config_id,
+        "experiment_config_id": experiment_config_id,
     }
     _cache.pop("status", None)
 
@@ -1123,7 +1148,7 @@ async def crypto_train(
                     "symbol": symbol,
                     "feature_set": normalized_feature_set,
                     "activate_after_train": bool(activate_after_train),
-                    "experiment_config_id": experiment_config_id,
+                "experiment_config_id": experiment_config_id,
                 }
         except Exception as exc:
             logger.exception("crypto_retrain_error", symbol=symbol, error=str(exc))

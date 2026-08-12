@@ -19,6 +19,38 @@ from polyflip.trading.funnel_logger import log_funnel
 
 logger = structlog.get_logger(__name__)
 
+
+def _resolve_lgbm_attribution(
+    mode: str,
+    direction_value: Any,
+    model_key: Optional[str],
+    model_version: Optional[int],
+) -> dict[str, Any]:
+    """Normalize LGBM direction telemetry and separate applied vs observed attribution.
+
+    A loaded model is not an applied directional model when it abstains (NONE or an
+    empty value).  Shadow mode still exposes the loaded model for telemetry, while
+    ``direction_model_key`` in active/funnel attribution only identifies a model that
+    selected UP or DOWN.
+    """
+    normalized_value = str(direction_value or "").strip().upper()
+    if normalized_value not in {"UP", "DOWN"}:
+        normalized_value = "NONE"
+    actually_decided = normalized_value in {"UP", "DOWN"}
+    is_active = mode == "ACTIVE"
+    is_shadow = mode == "SHADOW"
+    return {
+        "direction_value": normalized_value,
+        "actually_decided": actually_decided,
+        "applied_model_key": model_key if is_active and actually_decided else None,
+        "applied_model_version": model_version if is_active and actually_decided else None,
+        "shadow_model_key": model_key if is_shadow else None,
+        "shadow_model_version": model_version if is_shadow else None,
+        "funnel_model_key": model_key if (is_active and actually_decided) or is_shadow else None,
+        "funnel_model_version": model_version if (is_active and actually_decided) or is_shadow else None,
+    }
+
+
 @dataclass
 class DecisionResult:
     decision_obj: Optional[TradeDecision]
@@ -434,9 +466,15 @@ async def decide_combined_mode(
     lgbm_mode = getattr(cfg, "lightgbm_decision_mode", "SHADOW")
     lgbm_applied = (lgbm_mode == "ACTIVE")
     lgbm_shadow = (lgbm_mode == "SHADOW")
-
-    applied_direction_key = comb_res.direction_model_key if lgbm_applied else None
-    applied_direction_version = comb_res.direction_model_version if lgbm_applied else None
+    lgbm_attribution = _resolve_lgbm_attribution(
+        lgbm_mode,
+        comb_res.direction_value,
+        comb_res.direction_model_key,
+        comb_res.direction_model_version,
+    )
+    lgbm_direction_value = lgbm_attribution["direction_value"]
+    applied_direction_key = lgbm_attribution["applied_model_key"]
+    applied_direction_version = lgbm_attribution["applied_model_version"]
 
     # 6. Формируем decision_details и TradeDecision
     decision_details = {
@@ -448,15 +486,15 @@ async def decide_combined_mode(
         "direction_status": "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if lgbm_mode == "OFF" else comb_res.direction_status),
         "direction_model_key": applied_direction_key,
         "direction_model_version": applied_direction_version,
-        "shadow_direction_model_key": comb_res.direction_model_key if lgbm_shadow else None,
-        "shadow_direction_model_version": comb_res.direction_model_version if lgbm_shadow else None,
-        "shadow_direction_value": comb_res.direction_value if lgbm_shadow else None,
+        "shadow_direction_model_key": lgbm_attribution["shadow_model_key"],
+        "shadow_direction_model_version": lgbm_attribution["shadow_model_version"],
+        "shadow_direction_value": lgbm_direction_value if lgbm_shadow else None,
         "shadow_direction_probability": comb_res.direction_probability if lgbm_shadow else None,
         "shadow_inference_status": direction_signal.status if direction_signal else None,
         "shadow_features_ok": direction_signal.features_ok if direction_signal else False,
         "direction_regime": comb_res.direction_regime,
         "direction_probability": comb_res.direction_probability,
-        "direction_value": comb_res.direction_value,
+        "direction_value": lgbm_direction_value,
         "entry_requested_key": phase_asset,
         "entry_model_key": comb_res.entry_model_key,
         "entry_model_version": comb_res.entry_model_version,
@@ -498,7 +536,7 @@ async def decide_combined_mode(
         # SHADOW retains model attribution even though it is excluded from trading.
         "lgbm_version": comb_res.direction_model_version,
         "lgbm_model_key": comb_res.direction_model_key,
-        "lgbm_direction": comb_res.direction_value,
+        "lgbm_direction": lgbm_direction_value,
         "lgbm_features_ok": direction_signal.features_ok if direction_signal else False,
         "shadow_inference_status": direction_signal.status if direction_signal else "NONE",
         "lgbm_regime": comb_res.direction_regime,
@@ -526,7 +564,7 @@ async def decide_combined_mode(
             reason=comb_res.reason,
             strategy_type="COMBINED" if lgbm_applied else "LOGREG_ONLY",
             p_flip=comb_res.p_flip,
-            p_up=comb_res.direction_probability if comb_res.direction_value == "UP" else (1.0 - comb_res.direction_probability if comb_res.direction_probability is not None else None),
+            p_up=comb_res.direction_probability if lgbm_direction_value == "UP" else (1.0 - comb_res.direction_probability if comb_res.direction_probability is not None else None),
             strike=comb_res.strike_proxy,
             edge=comb_res.net_edge,
             p_win_effective=comb_res.p_candidate_win,
@@ -541,7 +579,7 @@ async def decide_combined_mode(
             reason=comb_res.reason,
             strategy_type="COMBINED" if lgbm_applied else "LOGREG_ONLY",
             p_flip=comb_res.p_flip,
-            p_up=comb_res.direction_probability if comb_res.direction_value == "UP" else None,
+            p_up=comb_res.direction_probability if lgbm_direction_value == "UP" else None,
             strike=comb_res.strike_proxy,
             edge=comb_res.net_edge or 0.0,
             p_win_effective=comb_res.p_candidate_win,
@@ -570,8 +608,8 @@ async def decide_combined_mode(
     g7_crypto_confirm = g7_net_edge if lgbm_applied else None
     g8_vote = bool(comb_res.action in ("BUY_YES", "BUY_NO") and comb_res.bet_size_usdc > 0)
 
-    confirm_model_key = comb_res.direction_model_key if lgbm_applied else None
-    confirm_model_version = comb_res.direction_model_version if lgbm_applied else None
+    confirm_model_key = applied_direction_key
+    confirm_model_version = applied_direction_version
     confirm_passed = (comb_res.direction_status == "READY") if lgbm_applied else None
     final_dir_status = "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if lgbm_mode == "OFF" else comb_res.direction_status)
 
@@ -604,19 +642,19 @@ async def decide_combined_mode(
         proposed_action=comb_res.action,
         proposed_price=comb_res.candidate_ask,
         proposed_amount_usdc=comb_res.bet_size_usdc if comb_res.action != "SKIP" else 0.0,
-        confirm_direction=comb_res.direction_value,
+        confirm_direction=lgbm_direction_value,
         confirm_passed=confirm_passed,
         
         # Новая телеметрия
         direction_status=final_dir_status,
-        direction_model_key=comb_res.direction_model_key,
-        direction_model_version=comb_res.direction_model_version,
+        direction_model_key=lgbm_attribution["funnel_model_key"],
+        direction_model_version=lgbm_attribution["funnel_model_version"],
         direction_regime=comb_res.direction_regime,
         direction_probability=comb_res.direction_probability,
         direction_p_up=comb_res.direction_p_up,
         direction_p_down=comb_res.direction_p_down,
         required_direction_model_key=f"{asset_upper}_{comb_res.direction_regime}" if comb_res.direction_regime else None,
-        direction_value=comb_res.direction_value,
+        direction_value=lgbm_direction_value,
         entry_requested_key=phase_asset,
         entry_model_key=comb_res.entry_model_key,
         entry_model_version=comb_res.entry_model_version,

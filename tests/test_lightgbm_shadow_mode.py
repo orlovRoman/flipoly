@@ -196,3 +196,25 @@ def test_shadow_mode_attribution_isolation():
 
     shadow_key = comb_res.direction_model_key if lgbm_shadow else None
     assert shadow_key == "BTCUSDT_low_vol"
+
+
+
+def test_active_lgbm_abstention_is_not_recorded_as_applied_model():
+    from polyflip.trading.decision_runners import _resolve_lgbm_attribution
+
+    attribution = _resolve_lgbm_attribution("ACTIVE", "", "ETHUSDT_mid_vol", 12)
+
+    assert attribution["direction_value"] == "NONE"
+    assert attribution["applied_model_key"] is None
+    assert attribution["applied_model_version"] is None
+    assert attribution["funnel_model_key"] is None
+
+
+def test_active_lgbm_direction_is_recorded_as_applied_model():
+    from polyflip.trading.decision_runners import _resolve_lgbm_attribution
+
+    attribution = _resolve_lgbm_attribution("ACTIVE", " down ", "ETHUSDT_mid_vol", 12)
+
+    assert attribution["direction_value"] == "DOWN"
+    assert attribution["applied_model_key"] == "ETHUSDT_mid_vol"
+    assert attribution["funnel_model_key"] == "ETHUSDT_mid_vol"

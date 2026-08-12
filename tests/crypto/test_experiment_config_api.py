@@ -3,6 +3,7 @@ import pytest
 from polyflip.api.crypto_dashboard import (
     ExperimentConfigRequest,
     copy_experiment_config,
+    CopyExperimentConfigRequest,
     create_experiment_config,
     list_experiment_configs,
 )
@@ -25,12 +26,13 @@ async def test_create_list_and_copy_experiment_config(db_session):
     assert row["model"]["num_leaves"] == 19
     assert row["config_hash"]
 
-    listed = await list_experiment_configs(db=db_session)
+    listed = await list_experiment_configs(limit=1, db=db_session)
     assert [item["id"] for item in listed["configs"]] == [row["id"]]
 
-    copied = await copy_experiment_config(row["id"], name="BTC B copy", db=db_session)
+    copied = await copy_experiment_config(row["id"], payload=CopyExperimentConfigRequest(name="BTC B copy", created_by="test"), db=db_session)
     assert copied["config"]["parent_id"] == row["id"]
     assert copied["config"]["config_hash"] == row["config_hash"]
+    assert copied["config"]["created_by"] == "test"
 
 
 @pytest.mark.asyncio

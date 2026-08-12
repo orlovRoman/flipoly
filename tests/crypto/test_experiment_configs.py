@@ -31,3 +31,8 @@ def test_config_rejects_unknown_or_unsafe_parameters():
 def test_config_rejects_unknown_calibration_method():
     with pytest.raises(ValueError, match="calibration.method"):
         normalize_experiment_config({"calibration": {"method": "MAGIC"}})
+
+
+def test_config_rejects_boolean_as_number():
+    with pytest.raises(ValueError, match="must be a number"):
+        normalize_experiment_config({"model": {"n_estimators": True}})

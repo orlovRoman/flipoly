@@ -64,12 +64,12 @@ _BACKTEST_BOUNDS: dict[str, tuple[float, float]] = {
 
 
 def _coerce_value(name: str, value: Any, *, integer: bool) -> int | float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a number, not bool")
     try:
         coerced = int(value) if integer else float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{name} must be a number") from exc
-    if isinstance(coerced, bool):
-        raise ValueError(f"{name} must be a number")
     return coerced
 
 

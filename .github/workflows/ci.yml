@@ -46,6 +46,9 @@ jobs:
 
       - name: Compile check
         run: poetry run python -m compileall -q polyflip
+        # Keep the dashboard module as an explicit startup gate.
+      - name: Compile dashboard module
+        run: poetry run python -m py_compile polyflip/api/crypto_dashboard.py
 
       - name: Check dashboard JavaScript
         run: node --check polyflip/static/js/app.js

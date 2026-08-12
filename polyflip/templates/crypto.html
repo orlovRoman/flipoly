@@ -154,6 +154,8 @@
                         <option value="">Ad-hoc RuntimeSettings</option>
                     </select>
                     <button class="btn" type="button" onclick="saveCurrentExperimentConfig()" title="Сохранить текущие параметры как новую версию эксперимента">Сохранить как эксперимент</button>
+                    <input type="text" id="lgbm-new-config-name" maxlength="128" placeholder="Experiment name" aria-label="Experiment name"
+                           style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.65rem; border-radius: 6px; min-width: 180px;">
                     <span id="lgbm-experiment-config-status" style="font-size:0.78rem; color:var(--text-muted);"></span>
                     {% for sym in symbols %}
                     <button class="btn primary-btn" id="btn-train-{{ sym }}" onclick="retrain('{{ sym }}')">🔄 Обучить {{ sym }}</button>
@@ -321,6 +323,14 @@
                     <div class="settings-group">
                         <label for="p-epsilon-quantile">Квантиль фильтра epsilon</label>
                         <input type="number" id="p-epsilon-quantile" step="0.05" value="{{ defaults.epsilon_quantile }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-reg-alpha">L1 regularization (reg_alpha)</label>
+                        <input type="number" id="p-reg-alpha" step="0.01" min="0" value="{{ defaults.reg_alpha }}">
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-reg-lambda">L2 regularization (reg_lambda)</label>
+                        <input type="number" id="p-reg-lambda" step="0.01" min="0" value="{{ defaults.reg_lambda }}">
                     </div>
                     <div class="settings-group">
                         <label for="p-min-edge">Порог сигнала (min_edge)</label>
@@ -971,6 +981,8 @@
                     document.getElementById('p-min-child-samples').value = d.settings.min_child_samples;
                     document.getElementById('p-subsample').value = d.settings.subsample;
                     document.getElementById('p-colsample-bytree').value = d.settings.colsample_bytree;
+                    document.getElementById('p-reg-alpha').value = d.settings.reg_alpha;
+                    document.getElementById('p-reg-lambda').value = d.settings.reg_lambda;
                     document.getElementById('p-epsilon-quantile').value = d.settings.epsilon_quantile;
                     document.getElementById('p-min-edge').value = d.settings.min_edge;
                 }
@@ -1602,6 +1614,8 @@
                 'p-min-child-samples': set.min_child_samples,
                 'p-subsample': set.subsample,
                 'p-colsample-bytree': set.colsample_bytree,
+                'p-reg-alpha': set.reg_alpha,
+                'p-reg-lambda': set.reg_lambda,
                 'p-min-edge': config.backtest?.min_edge,
             };
             Object.entries(fields).forEach(([field, value]) => {
@@ -1618,7 +1632,7 @@
             const select = document.getElementById('lgbm-experiment-config');
             if (!select) return;
             try {
-                const response = await fetch('/lightgbm/api/experiment-configs', { headers: H });
+                const response = await fetch('/lightgbm/api/experiment-configs?limit=200', { headers: H });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 lgbmExperimentConfigs = data.configs || [];
@@ -1637,11 +1651,17 @@
         }
 
         async function saveCurrentExperimentConfig() {
-            const name = prompt('Название эксперимента:', `LightGBM ${document.getElementById('lgbm-feature-set')?.value || 'A'} ${new Date().toISOString().slice(0, 16)}`);
-            if (!name || !name.trim()) return;
+            const nameInput = document.getElementById('lgbm-new-config-name');
+            const name = nameInput?.value?.trim();
+            if (!name) {
+                nameInput?.focus();
+                const status = document.getElementById('lgbm-experiment-config-status');
+                if (status) status.textContent = 'Enter an experiment name';
+                return;
+            }
             const selectedId = document.getElementById('lgbm-experiment-config')?.value;
             const payload = {
-                name: name.trim(),
+                name,
                 feature_set: document.getElementById('lgbm-feature-set')?.value || 'A',
                 model: _experimentInputValues(),
                 calibration: { method: 'AUTO' },
@@ -1658,9 +1678,13 @@
                 const select = document.getElementById('lgbm-experiment-config');
                 select.value = String(data.config.id);
                 applySelectedExperimentConfig();
-                showNotification(`Эксперимент сохранён: ${data.config.name}`, 'success');
+                const status = document.getElementById('lgbm-experiment-config-status');
+                if (status) status.textContent = `Saved: ${data.config.name}`;
+                if (window.showToast) window.showToast(`Experiment saved: ${data.config.name}`, 'success');
+                nameInput.value = '';
             } catch (error) {
-                alert(`Не удалось сохранить эксперимент: ${error.message}`);
+                const status = document.getElementById('lgbm-experiment-config-status');
+                if (status) status.textContent = `Save failed: ${error.message}`;
             }
         }
         async function saveSettings() {
@@ -1672,6 +1696,8 @@
                 min_child_samples: parseInt(document.getElementById('p-min-child-samples').value),
                 subsample: parseFloat(document.getElementById('p-subsample').value),
                 colsample_bytree: parseFloat(document.getElementById('p-colsample-bytree').value),
+                reg_alpha: parseFloat(document.getElementById('p-reg-alpha').value),
+                reg_lambda: parseFloat(document.getElementById('p-reg-lambda').value),
                 epsilon_quantile: parseFloat(document.getElementById('p-epsilon-quantile').value),
                 min_edge: parseFloat(document.getElementById('p-min-edge').value),
                 enable_ece_correction: document.getElementById('p-enable-ece-correction')?.checked ?? true,

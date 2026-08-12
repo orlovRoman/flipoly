@@ -49,3 +49,10 @@ def test_oof_artifact_rejects_legacy_pickle_payload():
     legacy = gzip.compress(pickle.dumps({"schema_version": 2}, protocol=pickle.HIGHEST_PROTOCOL))
     with pytest.raises(ValueError, match="JSON|schema"):
         deserialize_oof_artifact(legacy)
+
+
+def test_schema_version_matches_registry_column_default():
+    from polyflip.crypto.oof_artifact import OOF_ARTIFACT_SCHEMA_VERSION
+    from polyflip.db.models import ModelRegistryOOFArtifact
+    default = ModelRegistryOOFArtifact.__table__.c.schema_version.server_default
+    assert str(OOF_ARTIFACT_SCHEMA_VERSION) == str(default.arg)
