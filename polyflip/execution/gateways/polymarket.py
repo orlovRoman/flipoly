@@ -175,7 +175,7 @@ class PolymarketExecutionGateway:
                     price=str(order.limit_price),
                     size=str(order.requested_shares),
                     side=side,
-                    post_only=False,
+                    post_only=bool(order.post_only),
                     expiration=expiration,
                 )
             elif normalized_order_type in {"FAK", "FOK"}:

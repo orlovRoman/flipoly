@@ -63,6 +63,8 @@ class GatewayOrder(BaseModel):
     # Unix timestamp used by native GTD orders.  It is intentionally optional
     # so existing FAK/GTC callers keep their current contract.
     expiration: int | None = None
+    # Reject an order that would immediately take resting liquidity.
+    post_only: bool = False
 
 
 class ProviderFill(BaseModel):

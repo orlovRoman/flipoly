@@ -57,6 +57,19 @@ class ExecutionRequest(Base):
     limit_price = Column(Numeric(38, 18), nullable=True)
     max_spend_usdc = Column(Numeric(38, 18), nullable=True)
     max_acceptable_price = Column(Numeric(38, 18), nullable=True)
+    # Execution telemetry. These fields are snapshots of the quote and policy
+    # used for this request, so PAPER/LIVE outcomes can be compared later.
+    execution_order_mode = Column(String(32), nullable=True)
+    post_only = Column(Boolean, nullable=False, default=False, server_default="false")
+    decision_price = Column(Float, nullable=True)
+    release_quote_price = Column(Float, nullable=True)
+    release_quote_at = Column(DateTime(timezone=True), nullable=True)
+    submit_quote_price = Column(Float, nullable=True)
+    submit_quote_at = Column(DateTime(timezone=True), nullable=True)
+    submitted_limit_price = Column(Float, nullable=True)
+    cancel_due_at = Column(DateTime(timezone=True), nullable=True)
+    terminal_code = Column(String(64), nullable=True)
+    network_retry_count = Column(Integer, nullable=False, default=0, server_default="0")
 
     # State tracking
     state = Column(String(32), nullable=False, default="READY")

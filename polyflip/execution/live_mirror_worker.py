@@ -41,7 +41,7 @@ logger = logging.getLogger("live_mirror_worker")
 # ── Настройки ────────────────────────────────────────────────────────────────
 
 DATABASE_URL: str = os.environ.get("DATABASE_URL", "")  # lazy-checked in run_worker()
-POLL_INTERVAL: float = float(os.environ.get("MIRROR_POLL_INTERVAL", "10"))
+POLL_INTERVAL: float = float(os.environ.get("MIRROR_POLL_INTERVAL", "1"))
 BATCH_SIZE: int = int(os.environ.get("MIRROR_BATCH_SIZE", "50"))
 TARGET_MODE: str = os.environ.get("MIRROR_TARGET_MODE", "SHADOW")  # SHADOW до Этапа 10
 

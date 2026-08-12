@@ -84,6 +84,12 @@ REGISTRY: list[SettingDef] = [
 
     # --- Таймеры / опрос ---
     SettingDef("LIVE_POLL_INTERVAL_SECONDS", str(LIVE_POLL_INTERVAL_SECONDS)),
+    SettingDef("LIVE_ORDER_MODE", "MAKER_TTL", description="LIVE order policy: maker-only TTL by default | LIMIT_TTL | FAK | FAK_RETRY"),
+    SettingDef("LIVE_GTC_TTL_SECONDS", "10.0", description="Resting order lifetime in seconds before cancellation"),
+    SettingDef("LIVE_FAK_RETRY_MAX_ATTEMPTS", "3", description="Maximum retries for transient FAK errors"),
+    SettingDef("LIVE_FAK_RETRY_DELAY_SEC", "0.75", description="Delay between transient order retries"),
+    SettingDef("PAPER_EXECUTION_PROFILE", "INSTANT", description="PAPER execution: INSTANT or LIVE_PARITY"),
+    SettingDef("PAPER_LIVE_DELAY_SEC", "2.0", description="Simulated PAPER to LIVE submission delay"),
     SettingDef("FAVOR_MIN_TIME_LEFT_SEC", "60",
                description="Мин. время до конца для фаворита (сек)"),
     SettingDef("FAVOR_MAX_TIME_LEFT_SEC", "600",

@@ -312,23 +312,29 @@ async def toggle_ignore_edge_decay(
 
 
 class SwitchOrderModeRequest(BaseModel):
-    mode: Literal["FAK", "GTC_TTL", "FAK_RETRY"]
+    mode: Literal["MAKER_TTL", "GTC_TTL", "LIMIT_TTL", "FAK", "FAK_RETRY"]
     gtc_ttl_seconds: Optional[float] = Field(None, ge=1.0, le=60.0)
     fak_retry_max_attempts: Optional[int] = Field(None, ge=1, le=10)
     fak_retry_delay_sec: Optional[float] = Field(None, ge=0.1, le=5.0)
+    paper_execution_profile: Literal["INSTANT", "LIVE_PARITY"] | None = None
+    paper_live_delay_sec: Optional[float] = Field(None, ge=0.0, le=30.0)
 
 
 @router.get("/order-mode", summary="ĞŸĞ¾Ğ»ÑƒÑ‡Ğ¸Ñ‚ÑŒ Ñ€ĞµĞ¶Ğ¸Ğ¼ Ğ¸ Ğ¿Ğ°Ñ€Ğ°Ğ¼ĞµÑ‚Ñ€Ñ‹ Ğ¸ÑĞ¿Ğ¾Ğ»Ğ½ĞµĞ½Ğ¸Ñ Ğ¾Ñ€Ğ´ĞµÑ€Ğ¾Ğ²")
 async def get_order_mode(db: AsyncSession = Depends(get_db_session)):
-    mode = await _get_runtime_flag(db, "LIVE_ORDER_MODE", default="FAK")
-    gtc_ttl = await _get_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", default="5.0")
+    mode = await _get_runtime_flag(db, "LIVE_ORDER_MODE", default="MAKER_TTL")
+    gtc_ttl = await _get_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", default="10.0")
     retry_attempts = await _get_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", default="3")
     retry_delay = await _get_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", default="0.75")
+    paper_profile = await _get_runtime_flag(db, "PAPER_EXECUTION_PROFILE", default="INSTANT")
+    paper_delay = await _get_runtime_flag(db, "PAPER_LIVE_DELAY_SEC", default="2.0")
     return {
         "mode": mode.upper(),
         "gtc_ttl_seconds": float(gtc_ttl),
         "fak_retry_max_attempts": int(retry_attempts),
         "fak_retry_delay_sec": float(retry_delay),
+        "paper_execution_profile": paper_profile.upper(),
+        "paper_live_delay_sec": float(paper_delay),
     }
 
 
@@ -348,6 +354,10 @@ async def set_order_mode(
         await _set_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", str(payload.fak_retry_max_attempts))
     if payload.fak_retry_delay_sec is not None:
         await _set_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", str(payload.fak_retry_delay_sec))
+    if payload.paper_execution_profile is not None:
+        await _set_runtime_flag(db, "PAPER_EXECUTION_PROFILE", payload.paper_execution_profile.upper())
+    if payload.paper_live_delay_sec is not None:
+        await _set_runtime_flag(db, "PAPER_LIVE_DELAY_SEC", str(payload.paper_live_delay_sec))
 
     logger.info(
         "order_mode_changed",
@@ -355,1447 +365,11 @@ async def set_order_mode(
         gtc_ttl_seconds=payload.gtc_ttl_seconds,
         fak_retry_max_attempts=payload.fak_retry_max_attempts,
         fak_retry_delay_sec=payload.fak_retry_delay_sec,
-        client_ip=client_ip,
-        api_key_prefix=api_key[:8] if api_key else "unknown",
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    )
-    return {
-        "status": "ok",
-        "mode": payload.mode.upper(),
-        "gtc_ttl_seconds": payload.gtc_ttl_seconds or float(await _get_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", default="5.0")),
-        "fak_retry_max_attempts": payload.fak_retry_max_attempts or int(await _get_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", default="3")),
-        "fak_retry_delay_sec": payload.fak_retry_delay_sec or float(await _get_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", default="0.75")),
-    }
-
-
-@router.get("/candidates", summary="ĞŸÑ€Ğ¾ÑĞ¼Ğ¾Ñ‚Ñ€ LiveMirrorCandidate")
-async def get_mirror_candidates(
-    state: Optional[str] = Query(
-        None, description="NEW | ELIGIBLE | REJECTED | RELEASED"
-    ),
-    limit: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db_session),
-):
-    """
-    Ğ’Ğ¾Ğ·Ğ²Ñ€Ğ°Ñ‰Ğ°ĞµÑ‚ ÑĞ¿Ğ¸ÑĞ¾Ğº mirror-ĞºĞ°Ğ½Ğ´Ğ¸Ğ´Ğ°Ñ‚Ğ¾Ğ² (Ğ´Ğ»Ñ Ğ¾Ğ¿ĞµÑ€Ğ°Ñ‚Ğ¾Ñ€ÑĞºĞ¾Ğ³Ğ¾ Ğ¼Ğ¾Ğ½Ğ¸Ñ‚Ğ¾Ñ€Ğ¸Ğ½Ğ³Ğ°).
-    """
-    q = (
-        select(LiveMirrorCandidate)
-        .order_by(LiveMirrorCandidate.created_at.desc())
-        .limit(limit)
-    )
-    if state:
-        q = q.where(LiveMirrorCandidate.state == state)
-    rows = (await db.execute(q)).scalars().all()
-    return [
-        {
-            "id": str(r.id),
-            "source_paper_request_id": str(r.source_paper_request_id),
-            "source_paper_trade_id": r.source_paper_trade_id,
-            "target_mode": r.target_mode,
-            "state": r.state,
-            "signal_hash": r.signal_hash,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-            "released_at": r.released_at.isoformat() if r.released_at else None,
-            "released_trade_id": r.released_trade_id,
-            "released_request_id": (
-                str(r.released_request_id) if r.released_request_id else None
-            ),
-            "p_candidate_win": r.p_candidate_win,
-            "decision_ask": r.decision_ask,
-            "decision_net_edge": r.decision_net_edge,
-            "cost_buffer": r.cost_buffer,
-            "entry_model_source": r.entry_model_source,
-            "direction_model_key": r.direction_model_key,
-            "max_acceptable_price": r.max_acceptable_price,
-            "rejection_reason": r.rejection_reason,
-        }
-        for r in rows
-    ]
-
-
-@router.post(
-    "/candidates/{candidate_id}/release",
-    summary="ĞĞ¿ĞµÑ€Ğ°Ñ‚Ğ¾Ñ€ÑĞºĞ¸Ğ¹ Ğ²Ñ‹Ğ¿ÑƒÑĞº: ELIGIBLE â†’ release_gate Ğ¿ĞµÑ€ĞµĞ²ĞµĞ´Ñ‘Ñ‚ ĞºĞ°Ğ½Ğ´Ğ¸Ğ´Ğ°Ñ‚Ğ° Ğ² RELEASED",
-)
-async def manual_release_candidate(
-    candidate_id: str,
-    db: AsyncSession = Depends(get_db_session),
-):
-    """
-    ĞŸÑ€Ğ¸ LIVE_RELEASE_MODE=MANUAL Ğ¾Ğ¿ĞµÑ€Ğ°Ñ‚Ğ¾Ñ€ ÑĞ²Ğ½Ğ¾ Ğ¾Ğ´Ğ¾Ğ±Ñ€ÑĞµÑ‚ ĞºĞ°Ğ½Ğ´Ğ¸Ğ´Ğ°Ñ‚Ğ°.
-    release_gate Ğ¿Ñ€Ğ¸ ÑĞ»ĞµĞ´ÑƒÑÑ‰ĞµĞ¼ Ñ†Ğ¸ĞºĞ»Ğµ Ğ·Ğ°Ğ±ĞµÑ€Ñ‘Ñ‚ ĞµĞ³Ğ¾ Ğ¸ ÑĞ¾Ğ·Ğ´Ğ°ÑÑ‚ LIVE-Ğ·Ğ°ÑĞ²ĞºÑƒ.
-    """
-    from uuid import UUID
-
-    try:
-        cid = UUID(candidate_id)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="Invalid UUID")
-
-    candidate = await db.get(LiveMirrorCandidate, cid)
-    if candidate is None:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-    if candidate.state not in ("NEW", "ELIGIBLE"):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Candidate is in state {candidate.state!r}, cannot manually release",
-        )
-
-    candidate.state = "ELIGIBLE"
-    candidate_id_str = str(cid)
-    await db.commit()
-    logger.info("candidate_marked_eligible", candidate_id=candidate_id_str)
-    return {"status": "ok", "candidate_id": candidate_id_str, "new_state": "ELIGIBLE"}
-
-
-
-async def _get_positions_dict(db: AsyncSession, mode: str):
-    stmt = (
-        select(TradeHistory, LiveMarket)
-        .outerjoin(LiveMarket, TradeHistory.market_id == LiveMarket.market_id)
-        .where(TradeHistory.mode == mode)
-        .order_by(TradeHistory.created_at.desc())
-        .limit(200)
-    )
-    res = await db.execute(stmt)
-    rows = res.all()
-
-    result = {
-        "tradable": [],
-        "resolved": [],
-        "archive": []
-    }
-    
-    for trade, market in rows:
-        available_actions = {
-            "close": False,
-            "reconcile_resolution": False,
-            "redeem": False,
-            "reconcile_redemption": False,
-        }
-        
-        if trade.position_status in {"OPEN", "PARTIALLY_CLOSED"} and trade.remaining_shares and trade.remaining_shares > 0:
-            if market and getattr(market, 'resolution_status', 'PENDING') == "PENDING" and getattr(market, 'trading_status', 'UNKNOWN') == "TRADABLE" and getattr(market, 'accepting_orders', False):
-                available_actions["close"] = True
-
-        if trade.position_status in {"OPEN", "PARTIALLY_CLOSED"}:
-            available_actions["reconcile_resolution"] = True
-            
-        if trade.position_status in {"RESOLVED_REDEEMABLE", "REDEEMING", "REDEMPTION_UNKNOWN"}:
-            available_actions["reconcile_resolution"] = True
-
-        # ĞŸĞ¾ĞºĞ° Ñ€ĞµĞ°Ğ»ÑŒĞ½Ğ°Ñ on-chain Ğ¾Ñ‚Ğ¿Ñ€Ğ°Ğ²ĞºĞ° Ğ½Ğµ Ñ€ĞµĞ°Ğ»Ğ¸Ğ·Ğ¾Ğ²Ğ°Ğ½Ğ°
-        available_actions["redeem"] = False
-        available_actions["reconcile_redemption"] = False
-
-        item = {
-            "id": trade.id,
-            "market_id": trade.market_id,
-            "asset": trade.asset,
-            "outcome_bought": trade.outcome_bought,
-            "mode": trade.mode,
-            "entry_filled_shares": float(trade.entry_filled_shares or 0),
-            "entry_cost_usdc": float(trade.entry_cost_usdc or 0),
-            "remaining_shares": float(trade.remaining_shares or 0),
-            "realized_pnl_usdc": float(trade.realized_pnl_usdc or 0),
-            "position_status": trade.position_status,
-            "redemption_status": getattr(trade, 'redemption_status', 'NOT_REQUIRED'),
-            "stop_loss_status": trade.stop_loss_status,
-            "take_profit_status": trade.take_profit_status,
-            "created_at": trade.created_at.isoformat() if trade.created_at else None,
-            "market": {
-                "trading_status": getattr(market, 'trading_status', 'UNKNOWN') if market else "UNKNOWN",
-                "resolution_status": getattr(market, 'resolution_status', 'PENDING') if market else "PENDING",
-                "final_outcome": getattr(market, 'final_outcome', None) if market else None,
-            },
-            "available_actions": available_actions,
-        }
-        
-        if trade.position_status in {"OPEN", "PARTIALLY_CLOSED"}:
-            result["tradable"].append(item)
-        elif trade.position_status in {"RESOLVED_REDEEMABLE", "REDEEMING", "REDEMPTION_UNKNOWN"}:
-            result["resolved"].append(item)
-        else:
-            result["archive"].append(item)
-
-    return {"positions": result}
-
-@router.get("/positions")
-async def get_live_trading_positions(
-    mode: Optional[str] = Query(
-        None, description="Ğ¤Ğ¸Ğ»ÑŒÑ‚Ñ€ Ğ¿Ğ¾ Ñ€ĞµĞ¶Ğ¸Ğ¼Ñƒ: PAPER, SHADOW, LIVE"
-    ),
-    db: AsyncSession = Depends(get_db_session),
-):
-    settings = ExecutionSettings()
-    effective_mode = mode or settings.execution_mode.value
-    return await _get_positions_dict(db, effective_mode)
-
-
-
-
-@router.get("/requests")
-async def get_live_trading_requests(
-    limit: int = Query(50, ge=1, le=200),
-    mode: Optional[str] = Query(
-        None, description="Ğ¤Ğ¸Ğ»ÑŒÑ‚Ñ€ Ğ¿Ğ¾ Ñ€ĞµĞ¶Ğ¸Ğ¼Ñƒ: PAPER, SHADOW, LIVE"
-    ),
-    db: AsyncSession = Depends(get_db_session),
-):
-    settings = ExecutionSettings()
-    effective_mode = mode or settings.execution_mode.value
-
-    stmt = (
-        select(ExecutionRequest)
-        .where(ExecutionRequest.requested_mode == effective_mode)
-        .order_by(ExecutionRequest.created_at.desc())
-        .limit(limit)
-    )
-    res = await db.execute(stmt)
-    requests = res.scalars().all()
-
-    from polyflip.execution.serializers import serialize_execution_requests
-
-    request_dtos = await serialize_execution_requests(db, requests)
-
-    return request_dtos
-
-
-# ---------------------------------------------------------------------------
-# Manual review endpoint
-# ---------------------------------------------------------------------------
-
-
-class ResolveReviewRequest(BaseModel):
-    action: Literal["REQUEUE_AFTER_ALLOWANCE", "MARK_FAILED_NO_FILL"]
-    operator: str
-    note: str = ""
-
-
-@router.post("/requests/{request_id}/resolve-review")
-async def resolve_manual_review(
-    request_id: str,
-    body: ResolveReviewRequest,
-    db: AsyncSession = Depends(get_db_session),
-):
-    """
-    ĞŸĞµÑ€ĞµĞ²Ğ¾Ğ´Ğ¸Ñ‚ Ğ·Ğ°ÑĞ²ĞºÑƒ Ğ¸Ğ· MANUAL_REVIEW_REQUIRED Ğ² Ğ½Ğ¾Ğ²Ğ¾Ğµ ÑĞ¾ÑÑ‚Ğ¾ÑĞ½Ğ¸Ğµ.
-
-    REQUEUE_AFTER_ALLOWANCE â€” Ğ¾Ğ¿ĞµÑ€Ğ°Ñ‚Ğ¾Ñ€ ÑƒĞ±ĞµĞ´Ğ¸Ğ»ÑÑ, Ñ‡Ñ‚Ğ¾ allowance Ğ²Ñ‹ÑÑ‚Ğ°Ğ²Ğ»ĞµĞ½;
-        Ğ·Ğ°ÑĞ²ĞºĞ° Ğ²Ğ¾Ğ·Ğ²Ñ€Ğ°Ñ‰Ğ°ĞµÑ‚ÑÑ Ğ² READY Ğ´Ğ»Ñ Ğ¿Ğ¾Ğ²Ñ‚Ğ¾Ñ€Ğ½Ğ¾Ğ¹ Ğ¿Ğ¾Ğ¿Ñ‹Ñ‚ĞºĞ¸.
-        âš  Ğ•ÑĞ»Ğ¸ Ñƒ Ğ¿Ğ¾Ğ¿Ñ‹Ñ‚ĞºĞ¸ ÑƒĞ¶Ğµ ĞµÑÑ‚ÑŒ provider_order_id â€” Ğ²Ñ‹Ğ·Ğ¾Ğ² Ğ·Ğ°Ğ¿Ñ€ĞµÑ‰Ñ‘Ğ½
-        (Ñ‚Ñ€ĞµĞ±ÑƒĞµÑ‚ÑÑ ÑĞ²ĞµÑ€ĞºĞ° fills).
-
-    MARK_FAILED_NO_FILL â€” fill Ğ½Ğµ Ğ¿Ñ€Ğ¾Ğ¸Ğ·Ğ¾ÑˆÑ‘Ğ», allowance Ğ½ĞµĞ´Ğ¾ÑÑ‚Ğ°Ñ‚Ğ¾Ñ‡ĞµĞ½;
-        Ğ·Ğ°ÑĞ²ĞºĞ° Ğ¿ĞµÑ€ĞµÑ…Ğ¾Ğ´Ğ¸Ñ‚ Ğ² FAILED.
-    """
-    now = datetime.now(timezone.utc)
-
-    try:
-        req_uuid = uuid.UUID(request_id) if isinstance(request_id, str) else request_id
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid request UUID format")
-
-    req = (
-        await db.execute(
-            select(ExecutionRequest)
-            .where(ExecutionRequest.id == req_uuid)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-
-    if req is None:
-        raise HTTPException(status_code=404, detail="Request not found")
-
-    if req.state == "MANUAL_REVIEW_FAILED":
-        return {
-            "request_id": str(req.id),
-            "new_state": req.state,
-            "already_resolved": True,
-        }
-
-    if req.state != "MANUAL_REVIEW_REQUIRED":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Request is in state {req.state!r}, not MANUAL_REVIEW_REQUIRED",
-        )
-
-    old_state = req.state
-
-    if body.action == "REQUEUE_AFTER_ALLOWANCE":
-        # ĞŸÑ€Ğ¾Ğ²ĞµÑ€ÑĞµĞ¼: ĞµÑĞ»Ğ¸ Ñƒ Ğ¿Ğ¾Ğ¿Ñ‹Ñ‚ĞºĞ¸ ÑƒĞ¶Ğµ ĞµÑÑ‚ÑŒ provider_order_id â€” Ğ·Ğ°Ğ¿Ñ€ĞµÑ‰Ğ°ĞµĞ¼
-        from polyflip.db.execution_models import ExecutionAttempt
-
-        last_attempt = (
-            await db.execute(
-                select(ExecutionAttempt)
-                .where(ExecutionAttempt.request_id == req.id)
-                .order_by(ExecutionAttempt.started_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-
-        if last_attempt and last_attempt.provider_order_id:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Cannot requeue: last attempt has a provider_order_id "
-                    f"({last_attempt.provider_order_id!r}). "
-                    "Reconcile provider fills first."
-                ),
-            )
-
-        req.state = "READY"
-        req.error_reason = None
-        req.updated_at = now
-
-    elif body.action == "MARK_FAILED_NO_FILL":
-        from polyflip.execution.manual_review_service import (
-            evaluate_no_fill_eligibility,
-        )
-        from polyflip.execution.outbox import finalize_request
-
-        eligibility = await evaluate_no_fill_eligibility(db, req)
-
-        if not eligibility.allowed:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "Ğ—Ğ°ÑĞ²ĞºÑƒ Ğ½ĞµĞ»ÑŒĞ·Ñ Ğ·Ğ°Ğ²ĞµÑ€ÑˆĞ¸Ñ‚ÑŒ Ğ±ĞµĞ· Ğ¸ÑĞ¿Ğ¾Ğ»Ğ½ĞµĞ½Ğ¸Ñ",
-                    "blockers": list(eligibility.blockers),
-                },
-            )
-
-        await finalize_request(
-            db,
-            req,
-            state="MANUAL_REVIEW_FAILED",
-            error=(
-                f"Confirmed no fill by {body.operator}: "
-                f"{body.note or 'provider evidence absent'}"
-            ),
-        )
-
-    db.add(
-        ExecutionEvent(
-            level="INFO",
-            event_type=f"MANUAL_REVIEW_{body.action}",
-            message=(
-                f"Operator {body.operator!r} resolved MANUAL_REVIEW_REQUIRED â†’ "
-                f"{req.state!r}. Note: {body.note or 'â€”'}"
-            ),
-            source="execution_api",
-            request_id=req.id,
-            trade_history_id=req.trade_history_id,
-            created_at=now,
-            payload={
-                "operator": body.operator,
-                "action": body.action,
-                "old_state": old_state,
-                "new_state": req.state,
-                "note": body.note,
-            },
-        )
-    )
-
-    await db.commit()
-
-    return {
-        "request_id": str(req.id),
-        "old_state": old_state,
-        "new_state": req.state,
-        "action": body.action,
-        "operator": body.operator,
-    }
-
-
-class BatchNoFillRequest(BaseModel):
-    request_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
-    operator: str
-    note: str = ""
-
-
-@router.post("/requests/resolve-no-fill-batch")
-async def resolve_no_fill_batch(
-    payload: BatchNoFillRequest, db: AsyncSession = Depends(get_db_session)
-):
-    from polyflip.execution.manual_review_service import (
-        evaluate_no_fill_eligibility_batch,
-    )
-    from polyflip.execution.outbox import finalize_request
-    from polyflip.db.execution_models import ExecutionEvent
-    from datetime import datetime, timezone
-
-    resolved = []
-    skipped = []
-    now = datetime.now(timezone.utc)
-
-    requests = (
-        (
-            await db.execute(
-                select(ExecutionRequest)
-                .where(ExecutionRequest.id.in_(payload.request_ids))
-                .with_for_update()
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    eligibility_map = await evaluate_no_fill_eligibility_batch(db, requests)
-
-    for req in requests:
-        eligibility = eligibility_map.get(req.id)
-
-        if not eligibility or not eligibility.allowed:
-            skipped.append(
-                {
-                    "request_id": str(req.id),
-                    "blockers": (
-                        list(eligibility.blockers) if eligibility else ["Unknown"]
-                    ),
-                }
-            )
-            continue
-
-        await finalize_request(
-            db,
-            req,
-            state="MANUAL_REVIEW_FAILED",
-            error=f"Batch no-fill confirmation by {payload.operator}",
-        )
-
-        db.add(
-            ExecutionEvent(
-                level="INFO",
-                event_type="MANUAL_REVIEW_BATCH_NO_FILL",
-                message=f"Operator {payload.operator!r} resolved MANUAL_REVIEW_REQUIRED via batch. Note: {payload.note or 'â€”'}",
-                source="execution_api",
-                request_id=req.id,
-                trade_history_id=req.trade_history_id,
-                created_at=now,
-                payload={
-                    "operator": payload.operator,
-                    "action": "MARK_FAILED_NO_FILL",
-                    "batch": True,
-                    "note": payload.note,
-                },
-            )
-        )
-
-        resolved.append(str(req.id))
-
-    await db.commit()
-
-    return {
-        "resolved": resolved,
-        "skipped": skipped,
-    }
-
-
-# â”€â”€ LIVE Sessions, Readiness & Control Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-from decimal import Decimal
-from pydantic import model_validator
-from polyflip.db.execution_models import LiveTradingSession
-from polyflip.execution.outbox import enqueue_close_request, EnqueueDisposition
-from polyflip.execution.live_session_service import (
-    get_active_session_for_update,
-    count_session_positions,
-    get_session_budget_snapshot,
-    evaluate_live_readiness, get_latest_live_worker_status,
-    serialize_live_session_dto,
-)
-
-
-class CreateLiveSessionRequest(BaseModel):
-    budget_usdc: Decimal
-    order_amount_usdc: Optional[Decimal] = None
-    max_single_order_usdc: Decimal
-    max_open_positions: int
-    max_total_exposure_usdc: Decimal
-
-    @model_validator(mode="after")
-    def validate_limits(self):
-        from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
-
-        if self.budget_usdc <= 0:
-            raise ValueError("Ğ‘ÑĞ´Ğ¶ĞµÑ‚ Ğ´Ğ¾Ğ»Ğ¶ĞµĞ½ Ğ±Ñ‹Ñ‚ÑŒ Ğ±Ğ¾Ğ»ÑŒÑˆĞµ Ğ½ÑƒĞ»Ñ")
-
-        if self.max_single_order_usdc < LIVE_MIN_GROSS_BUY_USDC:
-            raise ValueError(
-                "ĞœĞ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ°Ñ LIVE-ÑÑ‚Ğ°Ğ²ĞºĞ° Ğ´Ğ¾Ğ»Ğ¶Ğ½Ğ° Ğ±Ñ‹Ñ‚ÑŒ " "Ğ½Ğµ Ğ¼ĞµĞ½ÑŒÑˆĞµ 1.10 USDC"
-            )
-
-        if self.max_single_order_usdc > self.budget_usdc:
-            raise ValueError("ĞœĞ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ°Ñ ÑÑ‚Ğ°Ğ²ĞºĞ° Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞ°Ñ‚ÑŒ Ğ±ÑĞ´Ğ¶ĞµÑ‚ ÑĞµÑÑĞ¸Ğ¸")
-
-        if self.max_total_exposure_usdc > self.budget_usdc:
-            raise ValueError("ĞœĞ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ°Ñ ÑĞºÑĞ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ñ Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞ°Ñ‚ÑŒ Ğ±ÑĞ´Ğ¶ĞµÑ‚")
-
-        if not 1 <= self.max_open_positions <= 100:
-            raise ValueError("ĞĞµĞºĞ¾Ñ€Ñ€ĞµĞºÑ‚Ğ½Ñ‹Ğ¹ Ğ»Ğ¸Ğ¼Ğ¸Ñ‚ Ğ¾Ñ‚ĞºÑ€Ñ‹Ñ‚Ñ‹Ñ… Ğ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ğ¹")
-
-        if self.order_amount_usdc is not None:
-            if self.order_amount_usdc < LIVE_MIN_GROSS_BUY_USDC:
-                raise ValueError("Ğ Ğ°Ğ·Ğ¼ĞµÑ€ LIVE-Ğ·Ğ°ÑĞ²ĞºĞ¸ Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ±Ñ‹Ñ‚ÑŒ Ğ¼ĞµĞ½ÑŒÑˆĞµ 1.10 USDC")
-            if self.order_amount_usdc > self.max_single_order_usdc:
-                raise ValueError(
-                    "Ğ Ğ°Ğ·Ğ¼ĞµÑ€ LIVE-Ğ·Ğ°ÑĞ²ĞºĞ¸ Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞ°Ñ‚ÑŒ Ğ»Ğ¸Ğ¼Ğ¸Ñ‚ Ğ¼Ğ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ¾Ğ¹ ÑÑ‚Ğ°Ğ²ĞºĞ¸"
-                )
-            if self.order_amount_usdc > self.max_total_exposure_usdc:
-                raise ValueError(
-                    "Ğ Ğ°Ğ·Ğ¼ĞµÑ€ LIVE-Ğ·Ğ°ÑĞ²ĞºĞ¸ Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞ°Ñ‚ÑŒ Ğ»Ğ¸Ğ¼Ğ¸Ñ‚ ÑĞºÑĞ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ğ¸"
-                )
-            if self.order_amount_usdc > self.budget_usdc:
-                raise ValueError("Ğ Ğ°Ğ·Ğ¼ĞµÑ€ LIVE-Ğ·Ğ°ÑĞ²ĞºĞ¸ Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞ°Ñ‚ÑŒ Ğ±ÑĞ´Ğ¶ĞµÑ‚")
-
-        return self
-
-
-@router.post("/live/sessions")
-async def create_live_session(
-    payload: CreateLiveSessionRequest,
-    db: AsyncSession = Depends(get_db_session),
-):
-    active_or_draft = await get_active_session_for_update(db)
-
-    if active_or_draft:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Ğ£Ğ¿Ñ€Ğ°Ğ²Ğ»ÑĞµĞ¼Ğ°Ñ LIVE-ÑĞµÑÑĞ¸Ñ ÑƒĞ¶Ğµ ÑÑƒÑ‰ĞµÑÑ‚Ğ²ÑƒĞµÑ‚ Ğ² ÑÑ‚Ğ°Ñ‚ÑƒÑĞµ {active_or_draft.status}",
-        )
-
-    session = LiveTradingSession(
-        status="DRAFT",
-        budget_usdc=payload.budget_usdc,
-        order_amount_usdc=payload.order_amount_usdc,
-        reserved_usdc=Decimal("0"),
-        filled_usdc=Decimal("0"),
-        max_single_order_usdc=payload.max_single_order_usdc,
-        max_open_positions=payload.max_open_positions,
-        max_total_exposure_usdc=payload.max_total_exposure_usdc,
-    )
-    db.add(session)
-    await db.commit()
-    await db.refresh(session)
-    budget_snap = await get_session_budget_snapshot(db, session)
-    return serialize_live_session_dto(session, budget_snap)
-
-
-class UpdateLiveSessionLimitsRequest(BaseModel):
-    order_amount_usdc: Optional[Decimal] = None
-    max_single_order_usdc: Optional[Decimal] = None
-    max_total_exposure_usdc: Optional[Decimal] = None
-    max_open_positions: Optional[int] = None
-    budget_usdc: Optional[Decimal] = None
-
-
-@router.patch("/live/sessions/{session_id}/limits")
-async def update_live_session_limits(
-    session_id: str,
-    payload: UpdateLiveSessionLimitsRequest,
-    db: AsyncSession = Depends(get_db_session),
-):
-    """
-    ĞĞ±Ğ½Ğ¾Ğ²Ğ»ÑĞµÑ‚ Ğ»Ğ¸Ğ¼Ğ¸Ñ‚Ñ‹ Ğ¸ Ğ¿Ğ°Ñ€Ğ°Ğ¼ĞµÑ‚Ñ€Ñ‹ ÑĞµÑÑĞ¸Ğ¸, ĞºĞ¾Ğ³Ğ´Ğ° Ğ¾Ğ½Ğ° Ğ½Ğ°Ñ…Ğ¾Ğ´Ğ¸Ñ‚ÑÑ Ğ² ÑĞ¾ÑÑ‚Ğ¾ÑĞ½Ğ¸Ğ¸ DRAFT, READY Ğ¸Ğ»Ğ¸ STOPPED.
-    ĞĞ±Ğ½Ğ¾Ğ²Ğ»ĞµĞ½Ğ¸Ğµ Ñ€Ğ°Ğ·Ğ¼ĞµÑ€Ğ° Ğ·Ğ°ÑĞ²Ğ¾Ğº Ğ¸ Ğ±ÑĞ´Ğ¶ĞµÑ‚Ğ° Ğ·Ğ°Ğ¿Ñ€ĞµÑ‰ĞµĞ½Ğ¾ Ğ´Ğ»Ñ ACTIVE Ğ¸Ğ»Ğ¸ BUDGET_EXHAUSTED.
-    """
-    try:
-        sess_uuid = uuid.UUID(session_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
-
-    session_obj = (
-        await db.execute(
-            select(LiveTradingSession)
-            .where(LiveTradingSession.id == sess_uuid)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-
-    if not session_obj:
-        raise HTTPException(status_code=404, detail="LiveTradingSession not found")
-
-    if session_obj.status not in {"DRAFT", "READY", "STOPPED"}:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Ğ›Ğ¸Ğ¼Ğ¸Ñ‚Ñ‹ Ğ½ĞµĞ»ÑŒĞ·Ñ Ğ¾Ğ±Ğ½Ğ¾Ğ²Ğ»ÑÑ‚ÑŒ Ğ² ÑĞ¾ÑÑ‚Ğ¾ÑĞ½Ğ¸Ğ¸ {session_obj.status}",
-        )
-
-    new_budget = (
-        payload.budget_usdc
-        if payload.budget_usdc is not None
-        else session_obj.budget_usdc
-    )
-    new_order_amount = (
-        payload.order_amount_usdc
-        if "order_amount_usdc" in payload.model_fields_set
-        else session_obj.order_amount_usdc
-    )
-    new_max_order = (
-        payload.max_single_order_usdc
-        if payload.max_single_order_usdc is not None
-        else session_obj.max_single_order_usdc
-    )
-    new_max_total_exposure = (
-        payload.max_total_exposure_usdc
-        if payload.max_total_exposure_usdc is not None
-        else session_obj.max_total_exposure_usdc
-    )
-    new_max_open_positions = (
-        payload.max_open_positions
-        if payload.max_open_positions is not None
-        else session_obj.max_open_positions
-    )
-
-    # Ğ’Ğ°Ğ»Ğ¸Ğ´Ğ¸Ñ€ÑƒĞµĞ¼ ĞºĞ¾Ğ½ÑĞ¸ÑÑ‚ĞµĞ½Ñ‚Ğ½Ğ¾ÑÑ‚ÑŒ Ğ¾Ğ±Ğ½Ğ¾Ğ²Ğ»Ñ‘Ğ½Ğ½Ñ‹Ñ… Ğ»Ğ¸Ğ¼Ğ¸Ñ‚Ğ¾Ğ²
-    if new_budget <= 0:
-        raise HTTPException(422, detail="Ğ‘ÑĞ´Ğ¶ĞµÑ‚ Ğ´Ğ¾Ğ»Ğ¶ĞµĞ½ Ğ±Ñ‹Ñ‚ÑŒ Ğ±Ğ¾Ğ»ÑŒÑˆĞµ Ğ½ÑƒĞ»Ñ")
-
-    if new_max_total_exposure <= 0:
-        raise HTTPException(
-            422, detail="ĞœĞ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ°Ñ ÑĞºÑĞ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ñ Ğ´Ğ¾Ğ»Ğ¶Ğ½Ğ° Ğ±Ñ‹Ñ‚ÑŒ Ğ±Ğ¾Ğ»ÑŒÑˆĞµ Ğ½ÑƒĞ»Ñ"
-        )
-
-    if new_max_order <= 0:
-        raise HTTPException(422, detail="ĞœĞ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ°Ñ ÑÑ‚Ğ°Ğ²ĞºĞ° Ğ´Ğ¾Ğ»Ğ¶Ğ½Ğ° Ğ±Ñ‹Ñ‚ÑŒ Ğ±Ğ¾Ğ»ÑŒÑˆĞµ Ğ½ÑƒĞ»Ñ")
-
-    from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
-
-    if new_max_order < LIVE_MIN_GROSS_BUY_USDC:
-        raise HTTPException(
-            status_code=422,
-            detail="ĞœĞ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ°Ñ ÑÑ‚Ğ°Ğ²ĞºĞ° Ğ´Ğ¾Ğ»Ğ¶Ğ½Ğ° Ğ±Ñ‹Ñ‚ÑŒ Ğ½Ğµ Ğ¼ĞµĞ½ÑŒÑˆĞµ 1.10 USDC",
-        )
-
-    if new_max_order > new_budget:
-        raise HTTPException(
-            status_code=422,
-            detail="ĞœĞ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ°Ñ ÑÑ‚Ğ°Ğ²ĞºĞ° Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞ°Ñ‚ÑŒ Ğ±ÑĞ´Ğ¶ĞµÑ‚ ÑĞµÑÑĞ¸Ğ¸",
-        )
-
-    if new_max_total_exposure > new_budget:
-        raise HTTPException(
-            status_code=422, detail="ĞœĞ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ°Ñ ÑĞºÑĞ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ñ Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞ°Ñ‚ÑŒ Ğ±ÑĞ´Ğ¶ĞµÑ‚"
-        )
-
-    if not 1 <= new_max_open_positions <= 100:
-        raise HTTPException(
-            status_code=422, detail="ĞĞµĞºĞ¾Ñ€Ñ€ĞµĞºÑ‚Ğ½Ñ‹Ğ¹ Ğ»Ğ¸Ğ¼Ğ¸Ñ‚ Ğ¾Ñ‚ĞºÑ€Ñ‹Ñ‚Ñ‹Ñ… Ğ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ğ¹"
-        )
-
-    if new_order_amount is not None:
-        if new_order_amount < LIVE_MIN_GROSS_BUY_USDC:
-            raise HTTPException(
-                status_code=422,
-                detail="Ğ Ğ°Ğ·Ğ¼ĞµÑ€ LIVE-Ğ·Ğ°ÑĞ²ĞºĞ¸ Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ±Ñ‹Ñ‚ÑŒ Ğ¼ĞµĞ½ÑŒÑˆĞµ 1.10 USDC",
-            )
-        if new_order_amount > new_max_order:
-            raise HTTPException(
-                status_code=422,
-                detail="Ğ Ğ°Ğ·Ğ¼ĞµÑ€ LIVE-Ğ·Ğ°ÑĞ²ĞºĞ¸ Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞ°Ñ‚ÑŒ Ğ»Ğ¸Ğ¼Ğ¸Ñ‚ Ğ¼Ğ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ¾Ğ¹ ÑÑ‚Ğ°Ğ²ĞºĞ¸",
-            )
-        if new_order_amount > new_max_total_exposure:
-            raise HTTPException(
-                status_code=422,
-                detail="Ğ Ğ°Ğ·Ğ¼ĞµÑ€ LIVE-Ğ·Ğ°ÑĞ²ĞºĞ¸ Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞ°Ñ‚ÑŒ Ğ»Ğ¸Ğ¼Ğ¸Ñ‚ ÑĞºÑĞ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ğ¸",
-            )
-        if new_order_amount > new_budget:
-            raise HTTPException(
-                status_code=422, detail="Ğ Ğ°Ğ·Ğ¼ĞµÑ€ LIVE-Ğ·Ğ°ÑĞ²ĞºĞ¸ Ğ½Ğµ Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞ°Ñ‚ÑŒ Ğ±ÑĞ´Ğ¶ĞµÑ‚"
-            )
-
-    budget_snapshot = await get_session_budget_snapshot(db, session_obj)
-    if new_budget < budget_snapshot.committed_usdc:
-        raise HTTPException(
-            status_code=422,
-            detail="Ğ‘ÑĞ´Ğ¶ĞµÑ‚ Ğ½ĞµĞ»ÑŒĞ·Ñ ÑƒÑÑ‚Ğ°Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒ Ğ½Ğ¸Ğ¶Ğµ ÑƒĞ¶Ğµ Ğ¸ÑĞ¿Ğ¾Ğ»ÑŒĞ·Ğ¾Ğ²Ğ°Ğ½Ğ½Ğ¾Ğ¹ Ğ¸ Ğ·Ğ°Ñ€ĞµĞ·ĞµÑ€Ğ²Ğ¸Ñ€Ğ¾Ğ²Ğ°Ğ½Ğ½Ğ¾Ğ¹ ÑÑƒĞ¼Ğ¼Ñ‹",
-        )
-
-    # ĞŸÑ€Ğ¸ÑĞ²Ğ°Ğ¸Ğ²Ğ°ĞµĞ¼ Ğ·Ğ½Ğ°Ñ‡ĞµĞ½Ğ¸Ñ
-    session_obj.budget_usdc = new_budget
-    session_obj.order_amount_usdc = new_order_amount
-    session_obj.max_single_order_usdc = new_max_order
-    session_obj.max_total_exposure_usdc = new_max_total_exposure
-    session_obj.max_open_positions = new_max_open_positions
-
-    if session_obj.status in {"READY", "STOPPED"}:
-        session_obj.status = "DRAFT"
-
-    await db.commit()
-    await db.refresh(session_obj)
-
-    budget_snap = await get_session_budget_snapshot(db, session_obj)
-    return serialize_live_session_dto(session_obj, budget_snap)
-
-
-@router.post("/live/sessions/{session_id}/readiness")
-async def check_live_session_readiness(
-    session_id: str,
-    db: AsyncSession = Depends(get_db_session),
-):
-    try:
-        sess_uuid = uuid.UUID(session_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
-
-    session_obj = (
-        await db.execute(
-            select(LiveTradingSession).where(LiveTradingSession.id == sess_uuid)
-        )
-    ).scalar_one_or_none()
-
-    if not session_obj:
-        raise HTTPException(status_code=404, detail="LiveTradingSession not found")
-
-    readiness = await evaluate_live_readiness(db, session_obj)
-
-    if session_obj.status in {"DRAFT", "STOPPED"}:
-        session_obj.status = "READY" if readiness.ready else "DRAFT"
-        await db.commit()
-        await db.refresh(session_obj)
-
-    budget_snap = await get_session_budget_snapshot(db, session_obj)
-
-    return {
-        "ready": readiness.ready,
-        "session": serialize_live_session_dto(session_obj, budget_snap),
-        "checks": readiness.checks,
-        "errors": readiness.errors,
-        "warnings": readiness.warnings,
-    }
-
-
-@router.post("/live/sessions/{session_id}/activate")
-async def activate_live_session(
-    session_id: str,
-    db: AsyncSession = Depends(get_db_session),
-):
-    try:
-        sess_uuid = uuid.UUID(session_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
-
-    session_obj = (
-        await db.execute(
-            select(LiveTradingSession)
-            .where(LiveTradingSession.id == sess_uuid)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-
-    if not session_obj:
-        raise HTTPException(status_code=404, detail="LiveTradingSession not found")
-
-    if session_obj.status not in {"DRAFT", "READY", "STOPPED"}:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "ĞĞºÑ‚Ğ¸Ğ²Ğ°Ñ†Ğ¸Ñ Ñ€Ğ°Ğ·Ñ€ĞµÑˆĞµĞ½Ğ° Ñ‚Ğ¾Ğ»ÑŒĞºĞ¾ Ğ´Ğ»Ñ ÑĞµÑÑĞ¸Ğ¸ "
-                f"DRAFT/READY/STOPPED, Ñ‚ĞµĞºÑƒÑ‰Ğ¸Ğ¹ ÑÑ‚Ğ°Ñ‚ÑƒÑ: {session_obj.status}"
-            ),
-        )
-
-    # ĞŸĞ¾Ğ²Ñ‚Ğ¾Ñ€Ğ½Ñ‹Ğ¹ Ğ¿Ñ€Ğ¾Ğ³Ğ¾Ğ½ Ğ³Ğ¾Ñ‚Ğ¾Ğ²Ğ½Ğ¾ÑÑ‚Ğ¸ Ğ½ĞµĞ¿Ğ¾ÑÑ€ĞµĞ´ÑÑ‚Ğ²ĞµĞ½Ğ½Ğ¾ Ğ¿ĞµÑ€ĞµĞ´ Ğ°ĞºÑ‚Ğ¸Ğ²Ğ°Ñ†Ğ¸ĞµĞ¹
-    readiness = await evaluate_live_readiness(db, session_obj)
-    if not readiness.ready:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "Ğ¡ĞµÑÑĞ¸Ñ Ğ½Ğµ Ğ¿Ñ€Ğ¾ÑˆĞ»Ğ° Ğ¿Ñ€Ğ¾Ğ²ĞµÑ€ĞºÑƒ Ğ³Ğ¾Ñ‚Ğ¾Ğ²Ğ½Ğ¾ÑÑ‚Ğ¸",
-                "errors": readiness.errors,
-            },
-        )
-
-    # ĞĞ²Ñ‚Ğ¾Ğ¼Ğ°Ñ‚Ğ¸Ñ‡ĞµÑĞºĞ¸ Ğ°Ñ‚Ğ¾Ğ¼Ğ°Ñ€Ğ½Ğ¾ Ğ²ĞºĞ»ÑÑ‡Ğ°ĞµĞ¼ Ğ²ÑĞµ Ñ‚ÑƒĞ¼Ğ±Ğ»ĞµÑ€Ğ° Ğ¸ Ğ¼ĞµÑ‚ĞºÑƒ ÑÑ‚Ğ°Ñ€Ñ‚Ğ° Ğ² Ğ‘Ğ”
-    now = datetime.now(timezone.utc)
-    for key, val in [
-        ("LIVE_MIRROR_ENABLED", "true"),
-        ("LIVE_RELEASE_MODE", "AUTO"),
-        ("LIVE_TRADING_ENABLED", "true"),
-        ("LIVE_MIRROR_STARTED_AT", now.isoformat()),
-    ]:
-        row = (
-            await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))
-        ).scalar_one_or_none()
-        if row:
-            row.value = val
-            row.updated_at = now
-            row.updated_by = "session_activate"
-        else:
-            db.add(
-                RuntimeSettings(
-                    key=key, value=val, updated_at=now, updated_by="session_activate"
-                )
-            )
-
-    # Ğ”ĞµĞ°ĞºÑ‚Ğ¸Ğ²Ğ¸Ñ€ÑƒĞµĞ¼ Ğ»ÑĞ±Ñ‹Ğµ Ğ¿Ñ€ĞµĞ´ÑˆĞµÑÑ‚Ğ²ÑƒÑÑ‰Ğ¸Ğµ Ğ°ĞºÑ‚Ğ¸Ğ²Ğ½Ñ‹Ğµ ÑĞµÑÑĞ¸Ğ¸
-    other_active_sessions = (
-        await db.scalars(
-            select(LiveTradingSession).where(
-                LiveTradingSession.status == "ACTIVE",
-                LiveTradingSession.id != session_obj.id,
-            )
-        )
-    ).all()
-    for other_s in other_active_sessions:
-        other_s.status = "STOPPED"
-        other_s.stopped_at = now
-        other_s.stop_reason = "superseded_by_new_activation"
-
-    session_obj.status = "ACTIVE"
-    if session_obj.started_at is None:
-        session_obj.started_at = now
-    await db.commit()
-    await db.refresh(session_obj)
-
-    budget_snap = await get_session_budget_snapshot(db, session_obj)
-    return serialize_live_session_dto(session_obj, budget_snap)
-
-
-@router.post("/live/sessions/{session_id}/stop")
-async def stop_live_session(
-    session_id: str,
-    db: AsyncSession = Depends(get_db_session),
-):
-    try:
-        sess_uuid = uuid.UUID(session_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
-
-    session_obj = (
-        await db.execute(
-            select(LiveTradingSession)
-            .where(LiveTradingSession.id == sess_uuid)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-
-    if not session_obj:
-        raise HTTPException(status_code=404, detail="LiveTradingSession not found")
-
-    now = datetime.now(timezone.utc)
-
-    # Ğ’Ñ‹ĞºĞ»ÑÑ‡Ğ°ĞµĞ¼ Ğ¿ĞµÑ€ĞµĞºĞ»ÑÑ‡Ğ°Ñ‚ĞµĞ»Ğ¸ Ğ¸ ÑĞ±Ñ€Ğ°ÑÑ‹Ğ²Ğ°ĞµĞ¼ Ğ¼ĞµÑ‚ĞºÑƒ Ğ² Ğ‘Ğ”
-    for key, val in [
-        ("LIVE_MIRROR_ENABLED", "false"),
-        ("LIVE_RELEASE_MODE", "DISABLED"),
-        ("LIVE_TRADING_ENABLED", "false"),
-        ("LIVE_MIRROR_STARTED_AT", ""),
-    ]:
-        row = (
-            await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))
-        ).scalar_one_or_none()
-        if row:
-            row.value = val
-            row.updated_at = now
-            row.updated_by = "user_stop"
-        else:
-            db.add(
-                RuntimeSettings(
-                    key=key, value=val, updated_at=now, updated_by="user_stop"
-                )
-            )
-
-    session_obj.status = "STOPPED"
-    session_obj.stopped_at = now
-    session_obj.stop_reason = "USER_STOP"
-    await db.commit()
-    await db.refresh(session_obj)
-
-    budget_snap = await get_session_budget_snapshot(db, session_obj)
-    return serialize_live_session_dto(session_obj, budget_snap)
-
-
-@router.post("/live/sessions/{session_id}/finish")
-async def finish_live_session(
-    session_id: str,
-    db: AsyncSession = Depends(get_db_session),
-):
-    try:
-        sess_uuid = uuid.UUID(session_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
-
-    session_obj = (
-        await db.execute(
-            select(LiveTradingSession)
-            .where(LiveTradingSession.id == sess_uuid)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-
-    if not session_obj:
-        raise HTTPException(status_code=404, detail="LiveTradingSession not found")
-
-    open_pos = await count_session_positions(db, session_obj.id)
-    if open_pos > 0:
-        raise HTTPException(
-            status_code=409,
-            detail=f"ĞĞµĞ»ÑŒĞ·Ñ Ğ·Ğ°Ğ²ĞµÑ€ÑˆĞ¸Ñ‚ÑŒ ÑĞµÑÑĞ¸Ñ: Ğ¾ÑÑ‚Ğ°Ğ»Ğ¾ÑÑŒ {open_pos} Ğ¾Ñ‚ĞºÑ€Ñ‹Ñ‚Ñ‹Ñ…/Ğ·Ğ°ĞºÑ€Ñ‹Ğ²Ğ°ÑÑ‰Ğ¸Ñ…ÑÑ Ğ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ğ¹",
-        )
-
-    active_cnt = (
-        await db.scalar(
-            select(func.count(ExecutionRequest.id)).where(
-                ExecutionRequest.live_session_id == session_obj.id,
-                ExecutionRequest.requested_mode == "LIVE",
-                ExecutionRequest.state.in_(
-                    [
-                        "AWAITING_APPROVAL",
-                        "READY",
-                        "CLAIMED",
-                        "SUBMITTING",
-                        "ACCEPTED",
-                        "UNKNOWN",
-                        "PARTIALLY_FILLED",
-                        "RECONCILING",
-                        "MANUAL_REVIEW_REQUIRED",
-                    ]
-                ),
-            )
-        )
-    ) or 0
-
-    if active_cnt > 0:
-        raise HTTPException(
-            status_code=409,
-            detail=f"ĞĞµĞ»ÑŒĞ·Ñ Ğ·Ğ°Ğ²ĞµÑ€ÑˆĞ¸Ñ‚ÑŒ ÑĞµÑÑĞ¸Ñ: {active_cnt} Ğ°ĞºÑ‚Ğ¸Ğ²Ğ½Ñ‹Ñ… Ğ·Ğ°ÑĞ²Ğ¾Ğº Ğ² Ğ¾Ğ±Ñ€Ğ°Ğ±Ğ¾Ñ‚ĞºĞµ",
-        )
-
-    session_obj.status = "STOPPED"
-    session_obj.stopped_at = datetime.now(timezone.utc)
-    session_obj.stop_reason = "COMPLETED"
-    await db.commit()
-    await db.refresh(session_obj)
-
-    budget_snap = await get_session_budget_snapshot(db, session_obj)
-    return serialize_live_session_dto(session_obj, budget_snap)
-
-
-@router.post("/positions/{trade_id}/close")
-async def close_live_position(
-    trade_id: int,
-    db: AsyncSession = Depends(get_db_session),
-):
-    trade = (
-        await db.execute(
-            select(TradeHistory).where(TradeHistory.id == trade_id).with_for_update()
-        )
-    ).scalar_one_or_none()
-
-    if not trade or trade.mode != "LIVE":
-        raise HTTPException(status_code=404, detail="LIVE-Ğ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ñ Ğ½Ğµ Ğ½Ğ°Ğ¹Ğ´ĞµĞ½Ğ°")
-
-    if trade.position_status not in {"OPEN", "PARTIALLY_CLOSED"}:
-        raise HTTPException(
-            status_code=409, detail="ĞŸĞ¾Ğ·Ğ¸Ñ†Ğ¸Ñ Ğ½Ğµ ÑĞ²Ğ»ÑĞµÑ‚ÑÑ Ñ‚Ğ¾Ñ€Ğ³ÑƒĞµĞ¼Ğ¾Ğ¹"
-        )
-
-    market = await db.scalar(select(LiveMarket).where(LiveMarket.market_id == trade.market_id))
-    if not market:
-        raise HTTPException(status_code=404, detail="Ğ Ñ‹Ğ½Ğ¾Ğº Ğ½Ğµ Ğ½Ğ°Ğ¹Ğ´ĞµĞ½")
-
-    if market.resolution_status != "PENDING":
-        raise HTTPException(
-            status_code=409,
-            detail="Ğ Ñ‹Ğ½Ğ¾Ğº ÑƒĞ¶Ğµ Ğ·Ğ°Ğ²ĞµÑ€ÑˆÑ‘Ğ½. ĞŸÑ€Ğ¾Ğ´Ğ°Ğ¶Ğ° Ñ‚Ğ¾ĞºĞµĞ½Ğ¾Ğ² Ğ½ĞµĞ²Ğ¾Ğ·Ğ¼Ğ¾Ğ¶Ğ½Ğ°.",
-        )
-
-    if market.trading_status != "TRADABLE" or not market.accepting_orders:
-        raise HTTPException(
-            status_code=409,
-            detail="Ğ Ñ‹Ğ½Ğ¾Ğº Ğ±Ğ¾Ğ»ÑŒÑˆĞµ Ğ½Ğµ Ğ¿Ñ€Ğ¸Ğ½Ğ¸Ğ¼Ğ°ĞµÑ‚ Ñ‚Ğ¾Ñ€Ğ³Ğ¾Ğ²Ñ‹Ğµ Ğ·Ğ°ÑĞ²ĞºĞ¸",
-        )
-
-    if not trade.remaining_shares or trade.remaining_shares <= 0:
-        raise HTTPException(
-            status_code=409, detail="ĞĞµÑ‚ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿Ğ½Ñ‹Ñ… Ğ´Ğ¾Ğ»ĞµĞ¹ Ğ´Ğ»Ñ Ğ·Ğ°ĞºÑ€Ñ‹Ñ‚Ğ¸Ñ"
-        )
-
-    limit_price = float(trade.executed_price or 0.5)
-
-    result = await enqueue_close_request(
-        db,
-        trade_id=trade.id,
-        trigger_reason="MANUAL",
-        limit_price=limit_price,
-    )
-
-    if result.disposition == EnqueueDisposition.CREATED:
-        await db.commit()
-        return {
-            "status": "queued",
-            "disposition": "CREATED",
-            "request_id": str(result.request_id),
-        }
-
-    if result.disposition == EnqueueDisposition.DUPLICATE:
-        return {
-            "status": "already_queued",
-            "disposition": "DUPLICATE",
-            "request_id": str(result.request_id),
-        }
-
-    raise HTTPException(
-        status_code=409, detail=f"ĞĞµĞ»ÑŒĞ·Ñ ÑĞ¾Ğ·Ğ´Ğ°Ñ‚ÑŒ Ğ·Ğ°ÑĞ²ĞºÑƒ Ğ·Ğ°ĞºÑ€Ñ‹Ñ‚Ğ¸Ñ: {result.reason}"
-    )
-
-
-@router.post("/live/sessions/{session_id}/close-all")
-async def close_all_session_positions(
-    session_id: str,
-    db: AsyncSession = Depends(get_db_session),
-):
-    try:
-        sess_uuid = uuid.UUID(session_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid session_id UUID format")
-
-    open_trades = (
-        (
-            await db.execute(
-                select(TradeHistory, LiveMarket)
-                .outerjoin(LiveMarket, TradeHistory.market_id == LiveMarket.market_id)
-                .where(
-                    TradeHistory.mode == "LIVE",
-                    TradeHistory.position_status.in_(["OPEN", "PARTIALLY_CLOSED"]),
-                    TradeHistory.live_session_id == sess_uuid,
-                )
-            )
-        )
-        .all()
-    )
-
-    results = []
-    for trade, market in open_trades:
-        # Skip trades for resolved or inactive markets
-        if not market or market.resolution_status != "PENDING" or market.trading_status != "TRADABLE" or not market.accepting_orders:
-            results.append({
-                "trade_id": trade.id,
-                "status": "skipped",
-                "reason": "Ğ Ñ‹Ğ½Ğ¾Ğº Ğ·Ğ°Ğ²ĞµÑ€ÑˆĞµĞ½ Ğ¸Ğ»Ğ¸ Ğ½Ğµ Ñ‚Ğ¾Ñ€Ğ³ÑƒĞµÑ‚ÑÑ",
-            })
-            continue
-
-        limit_price = float(trade.executed_price or 0.5)
-        res = await enqueue_close_request(
-            db,
-            trade_id=trade.id,
-            trigger_reason="MANUAL",
-            limit_price=limit_price,
-        )
-        results.append(
-            {
-                "trade_id": trade.id,
-                "disposition": str(res.disposition),
-                "request_id": str(res.request_id) if res.request_id else None,
-                "reason": res.reason,
-            }
-        )
-
-    await db.commit()
-    return {
-        "status": "completed",
-        "total_positions": len(open_trades),
-        "results": results,
-    }
-
-
-_pnl_expr = func.coalesce(
-    TradeHistory.realized_pnl_usdc,
-    0.0,
-)
-
-
-async def _get_asset_analytics(
-    db: AsyncSession,
-    mode: str = "LIVE",
-    period_hours: int | None = None,
-) -> list[dict]:
-    """Ğ’Ğ¾Ğ·Ğ²Ñ€Ğ°Ñ‰Ğ°ĞµÑ‚ Ğ°Ğ½Ğ°Ğ»Ğ¸Ñ‚Ğ¸ĞºÑƒ Ğ¿Ğ¾ Ğ°ĞºÑ‚Ğ¸Ğ²Ğ°Ğ¼: Ñ‡Ğ¸ÑĞ»Ğ¾ ÑĞ´ĞµĞ»Ğ¾Ğº, winrate, PNL."""
-    from polyflip.db.models import TradeHistory
-    from sqlalchemy import case
-
-    conds = [
-        TradeHistory.mode == mode,
-        TradeHistory.position_status.in_(["CLOSED", "RESOLVED_WON", "RESOLVED_LOST", "REDEEMED", "RESOLVED_REDEEMABLE"]),
-    ]
-    if period_hours is not None:
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=period_hours)
-        date_col = func.coalesce(TradeHistory.closed_at, TradeHistory.created_at)
-        conds.append(date_col >= cutoff)
-
-    stmt = (
-        select(
-            TradeHistory.asset,
-            func.count(TradeHistory.id).label("total_trades"),
-            func.sum(
-                case((_pnl_expr > 0, 1), else_=0)
-            ).label("winning_trades"),
-            func.sum(_pnl_expr).label("total_pnl"),
-        )
-        .where(*conds)
-        .group_by(TradeHistory.asset)
-        .order_by(func.sum(_pnl_expr).desc())
-    )
-
-    rows = (await db.execute(stmt)).all()
-
-    return [
-        {
-            "asset": r.asset,
-            "total_trades": int(r.total_trades or 0),
-            "winrate": round(r.winning_trades / r.total_trades * 100, 1)
-            if r.total_trades and r.total_trades > 0
-            else 0.0,
-            "pnl_usdc": round(float(r.total_pnl or 0), 2),
-        }
-        for r in rows
-    ]
-
-
-async def _get_strategy_analytics(
-    db: AsyncSession,
-    mode: str = "LIVE",
-    period_hours: int | None = 24,
-) -> list[dict]:
-    """Ğ’Ğ¾Ğ·Ğ²Ñ€Ğ°Ñ‰Ğ°ĞµÑ‚ Ğ°Ğ½Ğ°Ğ»Ğ¸Ñ‚Ğ¸ĞºÑƒ PnL Ğ¿Ğ¾ ÑÑ‚Ñ€Ğ°Ñ‚ĞµĞ³Ğ¸ÑĞ¼."""
-    from polyflip.db.models import TradeHistory
-    from sqlalchemy import case
-
-    strategy_col = func.coalesce(
-        TradeHistory.strategy_type,
-        TradeHistory.direction_model_key,
-        "COMBINED",
-    ).label("strategy")
-
-    conds = [
-        TradeHistory.mode == mode,
-        TradeHistory.position_status.in_(["CLOSED", "RESOLVED_WON", "RESOLVED_LOST", "REDEEMED", "RESOLVED_REDEEMABLE"]),
-    ]
-    if period_hours is not None:
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=period_hours)
-        date_col = func.coalesce(TradeHistory.closed_at, TradeHistory.created_at)
-        conds.append(date_col >= cutoff)
-
-    stmt = (
-        select(
-            TradeHistory.asset,
-            strategy_col,
-            func.count(TradeHistory.id).label("total_trades"),
-            func.sum(
-                case((_pnl_expr > 0, 1), else_=0)
-            ).label("winning_trades"),
-            func.sum(_pnl_expr).label("total_pnl"),
-        )
-        .where(*conds)
-        .group_by(TradeHistory.asset, strategy_col)
-        .order_by(func.sum(_pnl_expr).desc())
-    )
-
-    rows = (await db.execute(stmt)).all()
-
-    return [
-        {
-            "asset": r.asset,
-            "strategy": r.strategy or "COMBINED",
-            "total_trades": int(r.total_trades or 0),
-            "winrate": round(r.winning_trades / r.total_trades * 100, 1)
-            if r.total_trades and r.total_trades > 0
-            else 0.0,
-            "pnl_usdc": round(float(r.total_pnl or 0), 2),
-        }
-        for r in rows
-    ]
-
-
-@router.get("/live/analytics", summary="ĞĞ½Ğ°Ğ»Ğ¸Ñ‚Ğ¸ĞºĞ° LIVE-Ñ‚Ğ¾Ñ€Ğ³Ğ¾Ğ²Ğ»Ğ¸ Ğ¿Ğ¾ Ğ°ĞºÑ‚Ğ¸Ğ²Ğ°Ğ¼ Ğ¸ ÑÑ‚Ñ€Ğ°Ñ‚ĞµĞ³Ğ¸ÑĞ¼")
-async def get_live_analytics(
-    period: Optional[str] = Query("all", description="24h | 7d | 30d | all"),
-    db: AsyncSession = Depends(get_db_session),
-):
-    period_map = {"24h": 24, "7d": 168, "30d": 720, "all": None}
-    hours = period_map.get(period, None)
-
-    return {
-        "period": period,
-        "asset_analytics": await _get_asset_analytics(db, "LIVE", hours),
-        "strategy_analytics": await _get_strategy_analytics(db, "LIVE", hours),
-    }
-
-
-@router.get("/live/dashboard")
-async def get_live_dashboard(
-    analytics_period: Optional[int] = Query(None, description="ĞŸĞµÑ€Ğ¸Ğ¾Ğ´ Ğ°Ğ½Ğ°Ğ»Ğ¸Ñ‚Ğ¸ĞºĞ¸ Ğ² Ñ‡Ğ°ÑĞ°Ñ…, None = Ğ²ÑÑ‘ Ğ²Ñ€ĞµĞ¼Ñ"),
-    db: AsyncSession = Depends(get_db_session),
-):
-    active_session = (
-        await db.execute(
-            select(LiveTradingSession)
-            .where(
-                LiveTradingSession.status.in_(["DRAFT", "READY", "ACTIVE"])
-            )
-            .order_by(LiveTradingSession.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    
-    last_stopped_session_dto = None
-    if not active_session:
-        last_stopped = (
-            await db.execute(
-                select(LiveTradingSession)
-                .where(LiveTradingSession.status == "STOPPED")
-                .order_by(LiveTradingSession.created_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if last_stopped:
-            budget_snap = await get_session_budget_snapshot(db, last_stopped)
-            last_stopped_session_dto = serialize_live_session_dto(last_stopped, budget_snap)
-            last_stopped_session_dto["is_stopped"] = True
-
-
-
-    requests = (
-        (
-            await db.execute(
-                select(ExecutionRequest)
-                .where(ExecutionRequest.requested_mode == "LIVE")
-                .order_by(ExecutionRequest.created_at.desc())
-                .limit(50)
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    budget_snap = None
-    if active_session:
-        budget_snap = await get_session_budget_snapshot(db, active_session)
-
-    from polyflip.execution.serializers import serialize_execution_requests
-
-    request_dtos = await serialize_execution_requests(db, requests)
-
-    worker_status = await get_latest_live_worker_status(db)
-    readiness = None
-    if active_session:
-        readiness = await evaluate_live_readiness(db, active_session, worker_status=worker_status)
-
-    status = active_session.status if active_session else None
-    
-    positions_payload = await _get_positions_dict(db, "LIVE")
-    positions = positions_payload.get("positions", {"tradable": [], "resolved": [], "archive": []})
-    
-    active_pos_count = sum(
-        1 for position in positions.get("tradable", []) if position.get("remaining_shares", 0) > 0
-    )
-
-    readiness_ready = bool(readiness and readiness.ready)
-
-    if status:
-        available_actions = {
-            "check_readiness": status in {"DRAFT", "READY", "STOPPED"},
-            "activate": (readiness_ready and status in {"DRAFT", "READY", "STOPPED"}),
-            "stop": status == "ACTIVE",
-            "close_all": active_pos_count > 0,
-            "finish": status in {"DRAFT", "READY", "STOPPED"},
-        }
-        action_reasons = {
-            "activate": (
-                None
-                if available_actions["activate"]
-                else (
-                    "; ".join(readiness.errors or [])
-                    if readiness
-                    else "Ğ¡Ğ½Ğ°Ñ‡Ğ°Ğ»Ğ° Ğ²Ñ‹Ğ¿Ğ¾Ğ»Ğ½Ğ¸Ñ‚Ğµ Ğ¿Ñ€Ğ¾Ğ²ĞµÑ€ĞºÑƒ Ğ³Ğ¾Ñ‚Ğ¾Ğ²Ğ½Ğ¾ÑÑ‚Ğ¸"
-                )
-            ),
-            "stop": None if status == "ACTIVE" else "Ğ¡ĞµÑÑĞ¸Ñ Ğ½Ğµ Ğ°ĞºÑ‚Ğ¸Ğ²Ğ½Ğ°",
-            "close_all": (None if active_pos_count > 0 else "ĞĞµÑ‚ Ğ¾Ñ‚ĞºÑ€Ñ‹Ñ‚Ñ‹Ñ… Ğ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ğ¹"),
-            "finish": None,
-            "check_readiness": None,
-        }
-    else:
-        available_actions = {
-            "check_readiness": False,
-            "activate": False,
-            "stop": False,
-            "close_all": False,
-            "finish": False,
-        }
-        action_reasons = {}
-
-    return {
-        "available_actions": available_actions,
-        "action_reasons": action_reasons,
-        "readiness": (
-            {
-                "ready": readiness.ready,
-                "checks": readiness.checks,
-                "errors": readiness.errors,
-                "warnings": readiness.warnings,
-            }
-            if readiness
-            else None
-        ),
-        "ignore_edge_decay": (await _get_runtime_flag(db, "LIVE_IGNORE_EDGE_DECAY")).lower() == "true",
-        "order_mode_config": {
-            "mode": (await _get_runtime_flag(db, "LIVE_ORDER_MODE", default="FAK")).upper(),
-            "gtc_ttl_seconds": float(await _get_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", default="5.0")),
-            "fak_retry_max_attempts": int(await _get_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", default="3")),
-            "fak_retry_delay_sec": float(await _get_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", default="0.75")),
-        },
-        "session": (
-            serialize_live_session_dto(active_session, budget_snap)
-            if active_session
-            else last_stopped_session_dto
-        ),
-        "worker": {
-            "worker_id": worker_status.worker_id if worker_status else None,
-            "heartbeat_at": (
-                worker_status.heartbeat_at.isoformat()
-                if worker_status and worker_status.heartbeat_at
-                else None
-            ),
-            "gateway_ready": worker_status.gateway_ready if worker_status else False,
-            "credentials_loaded": (
-                worker_status.credentials_loaded if worker_status else False
-            ),
-            "wallet_address": (worker_status.wallet_address if worker_status else None),
-            "balance_usdc": (
-                float(worker_status.balance_usdc)
-                if worker_status and worker_status.balance_usdc is not None
-                else 0.0
-            ),
-            "collateral_allowance_ready": (
-                worker_status.collateral_allowance_ready if worker_status else False
-            ),
-            "conditional_allowance_ready": (
-                worker_status.conditional_allowance_ready if worker_status else False
-            ),
-        },
-        "candidates": [],
-        "positions": positions,
-        "requests": request_dtos,
-        "asset_analytics": await _get_asset_analytics(db, mode="LIVE", period_hours=analytics_period),
-        "strategy_analytics": await _get_strategy_analytics(db, mode="LIVE", period_hours=24),
-    }
-
-
-@router.post("/requests/{request_id}/reconcile")
-async def reconcile_request(
-    request_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db_session),
-):
-    req = await db.scalar(
-        select(ExecutionRequest)
-        .where(ExecutionRequest.id == request_id)
-        .with_for_update()
-    )
-
-    if req is None:
-        raise HTTPException(404, "Ğ—Ğ°ÑĞ²ĞºĞ° Ğ½Ğµ Ğ½Ğ°Ğ¹Ğ´ĞµĞ½Ğ°")
-
-    if req.requested_mode != "LIVE":
-        raise HTTPException(409, "Ğ¡Ğ²ĞµÑ€ĞºĞ° Ñ€Ğ°Ğ·Ñ€ĞµÑˆĞµĞ½Ğ° Ñ‚Ğ¾Ğ»ÑŒĞºĞ¾ Ğ´Ğ»Ñ LIVE-Ğ·Ğ°ÑĞ²Ğ¾Ğº")
-
-    if req.state == "RECONCILING":
-        return {
-            "request_id": str(req.id),
-            "state": "RECONCILING",
-            "idempotent": True,
-        }
-
-    allowed_states = {
-        "SUBMITTING",
-        "ACCEPTED",
-        "UNKNOWN",
-        "PARTIALLY_FILLED",
-        "RECONCILING",
-        "MANUAL_REVIEW_REQUIRED",
-    }
-
-    if req.state not in allowed_states:
-        raise HTTPException(
-            409,
-            f"Ğ—Ğ°ÑĞ²ĞºÑƒ Ğ² ÑÑ‚Ğ°Ñ‚ÑƒÑĞµ {req.state} Ğ½ĞµĞ»ÑŒĞ·Ñ Ğ¿ĞµÑ€ĞµĞ²Ğ¾Ğ´Ğ¸Ñ‚ÑŒ Ğ² RECONCILING",
-        )
-
-    provider_evidence = await db.scalar(
-        select(func.count(ExecutionAttempt.id)).where(
-            ExecutionAttempt.request_id == request_id,
-            ExecutionAttempt.provider_order_id.is_not(None),
-        )
-    )
-
-    if not provider_evidence:
-        raise HTTPException(
-            422,
-            "ĞĞµÑ‚ provider_order_id â€” ÑĞ²ĞµÑ€ĞºĞ° Ñ Polymarket Ğ½ĞµĞ²Ğ¾Ğ·Ğ¼Ğ¾Ğ¶Ğ½Ğ°",
-        )
-
-    req.state = "RECONCILING"
-    req.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-
-    return {"request_id": str(req.id), "state": "RECONCILING"}
-
-
-# ---------------------------------------------------------------------------
-# Settlement & Redemption endpoints
-# ---------------------------------------------------------------------------
-
-@router.post("/live/positions/{trade_id}/reconcile-resolution")
-async def reconcile_resolution_endpoint(
-    trade_id: int,
-    db: AsyncSession = Depends(get_db_session),
-):
-    from polyflip.execution.live_settlement_service import reconcile_live_resolution, LivePositionNotFound, MarketNotResolved, GammaApiError
-    try:
-        trade = await reconcile_live_resolution(db, trade_id)
-        await db.commit()
-        return {"status": "ok", "position_status": trade.position_status}
-    except LivePositionNotFound:
-        raise HTTPException(404, "LIVE-Ğ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ñ Ğ½Ğµ Ğ½Ğ°Ğ¹Ğ´ĞµĞ½Ğ°")
-    except MarketNotResolved:
-        await db.commit()
-        raise HTTPException(409, "Ğ Ñ‹Ğ½Ğ¾Ğº ĞµÑ‰Ğµ Ğ½Ğµ Ğ·Ğ°Ğ²ĞµÑ€ÑˆĞµĞ½")
-    except GammaApiError as e:
-        raise HTTPException(503, f"ĞÑˆĞ¸Ğ±ĞºĞ° Gamma API: {str(e)}")
-    except Exception as e:
-        logger.exception("reconcile_resolution_error")
-        raise HTTPException(500, f"ĞÑˆĞ¸Ğ±ĞºĞ° ÑĞ²ĞµÑ€ĞºĞ¸: {str(e)}")
-
-@router.post("/live/positions/{trade_id}/redeem")
-async def redeem_position_endpoint(
-    trade_id: int,
-    db: AsyncSession = Depends(get_db_session),
-):
-    raise HTTPException(
-        status_code=501,
-        detail="ĞŸĞ¾Ğ³Ğ°ÑˆĞµĞ½Ğ¸Ğµ Ñ‡ĞµÑ€ĞµĞ· Ğ´Ğ°ÑˆĞ±Ğ¾Ñ€Ğ´ Ğ¿Ğ¾ĞºĞ° Ğ½Ğµ Ñ€ĞµĞ°Ğ»Ğ¸Ğ·Ğ¾Ğ²Ğ°Ğ½Ğ¾",
-    )
-
-@router.post("/live/positions/{trade_id}/reconcile-redemption")
-async def reconcile_redemption_endpoint(
-    trade_id: int,
-    db: AsyncSession = Depends(get_db_session),
-):
-    trade = await db.scalar(
-        select(TradeHistory)
-        .where(TradeHistory.id == trade_id)
-        .with_for_update()
-    )
-    if not trade or trade.mode != "LIVE":
-        raise HTTPException(404, "LIVE-Ğ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ñ Ğ½Ğµ Ğ½Ğ°Ğ¹Ğ´ĞµĞ½Ğ°")
-        
-    if trade.position_status not in {"REDEEMING", "REDEMPTION_UNKNOWN", "RESOLVED_REDEEMABLE"}:
-        raise HTTPException(409, "ĞĞµĞ´Ğ¾Ğ¿ÑƒÑÑ‚Ğ¸Ğ¼Ñ‹Ğ¹ ÑÑ‚Ğ°Ñ‚ÑƒÑ Ğ´Ğ»Ñ Ğ¿Ñ€Ğ¾Ğ²ĞµÑ€ĞºĞ¸ Ğ¿Ğ¾Ğ³Ğ°ÑˆĞµĞ½Ğ¸Ñ")
-
-    # ĞŸĞ¾ Ğ¢Ğ— Ğ½Ğµ ÑÑ‚Ğ°Ğ²Ğ¸Ğ¼ REDEEMED Ğ±ĞµĞ· evidence.
-    raise HTTPException(422, "On-chain ÑĞ²ĞµÑ€ĞºĞ° ĞµÑ‰Ğµ Ğ½Ğµ Ñ€ĞµĞ°Ğ»Ğ¸Ğ·Ğ¾Ğ²Ğ°Ğ½Ğ°")
+        paper_execution_profile=payload.paper_execution_profile,
+        paper_live_delay_sec=payload.paper_live_delay_sec,
+        c×}·êÚ$z{-®éÜj×7F÷'’æ–B’æÆ&VÂ‚'F÷FÅ÷G&FW2"’ÀĞ¢gVæ2ç7VÒ€Ğ¢66R‚…÷æÅöW‡"âÂ’ÂVÇ6UóÓĞ¢’æÆ&VÂ‚'v–ææ–æu÷G&FW2"’ÀĞ¢gVæ2ç7VÒ…÷æÅöW‡"’æÆ&VÂ‚'F÷FÅ÷æÂ"’ÀĞ¢Ğ¢çv†W&R‚¦6öæG2Ğ¢æw&÷Wö'’…G&FT†—7F÷'’æ76WBĞ¢æ÷&FW%ö'’†gVæ2ç7VÒ…÷æÅöW‡"’æFW62‚’Ğ¢Ğ Ğ¢&÷w2Ò†v—BF"æW†V7WFR‡7F×B’’æÆÂ‚Ğ Ğ¢&WGW&â°Ğ¢°Ğ¢&76WB#¢"æ76WBÀĞ¢'F÷FÅ÷G&FW2#¢–çB‡"çF÷FÅ÷G&FW2÷"’ÀĞ¢'v–ç&FR#¢&÷VæB‡"çv–ææ–æu÷G&FW2ò"çF÷FÅ÷G&FW2¢ÂĞ¢–b"çF÷FÅ÷G&FW2æB"çF÷FÅ÷G&FW2â Ğ¢VÇ6RãÀĞ¢'æÅ÷W6F2#¢&÷VæB†fÆöB‡"çF÷FÅ÷æÂ÷"’Â"’ÀĞ¢ĞĞ¢f÷""–â&÷w0Ğ¢ĞĞ Ğ Ğ¦7–æ2FVbövWE÷7G&FVw•öæÇ—F–72€Ğ¢F#¢7–æ56W76–öâÀĞ¢ÖöFS¢7G"Ò$Ä•dR"ÀĞ¢W&–öEö†÷W'3¢–çBÂæöæRÒ#BÀĞ¢’ÓâÆ—7E¶F–7EÓ Ğ¢""-	-í}-]"İ½-­2äÂıâ--]=ıÂâ"" Ğ¢g&öÒöÇ–fÆ—æF"æÖöFVÇ2–×÷'BG&FT†—7F÷'Ğ¢g&öÒ7ÆÆ6†V×’–×÷'B66PĞ Ğ¢7G&FVw•ö6öÂÒgVæ2æ6öÆW66R€Ğ¢G&FT†—7F÷'’ç7G&FVw•÷G—RÀĞ¢G&FT†—7F÷'’æF—&V7F–öåöÖöFVÅö¶W’ÀĞ¢$4ôÔ$”äTB"ÀĞ¢’æÆ&VÂ‚'7G&FVw’"Ğ Ğ¢6öæG2Ò°Ğ¢G&FT†—7F÷'’æÖöFRÓÒÖöFRÀĞ¢G&FT†—7F÷'’ç÷6—F–öå÷7FGW2æ–åò…²$4Äõ4TB"Â%$U4ôÅdTEõtôâ"Â%$U4ôÅdTEôÄõ5B"Â%$TDTTÔTB"Â%$U4ôÅdTEõ$TDTTÔ$ÄR%Ò’ÀĞ¢ĞĞ¢–bW&–öEö†÷W'2—2æ÷BæöæS Ğ¢7WFöfbÒFFWF–ÖRææ÷r‡F–ÖW¦öæRçWF2’ÒF–ÖVFVÇF††÷W'3×W&–öEö†÷W'2Ğ¢FFUö6öÂÒgVæ2æ6öÆW66R…G&FT†—7F÷'’æ6Æ÷6VEöBÂG&FT†—7F÷'’æ7&VFVEöBĞ¢6öæG2æVæB†FFUö6öÂãÒ7WFöfbĞ Ğ¢7F×BÒ€Ğ¢6VÆV7B€Ğ¢G&FT†—7F÷'’æ76WBÀĞ¢7G&FVw•ö6öÂÀĞ¢gVæ2æ6÷VçB…G&FT†—7F÷'’æ–B’æÆ&VÂ‚'F÷FÅ÷G&FW2"’ÀĞ¢gVæ2ç7VÒ€Ğ¢66R‚…÷æÅöW‡"âÂ’ÂVÇ6UóÓĞ¢’æÆ&VÂ‚'v–ææ–æu÷G&FW2"’ÀĞ¢gVæ2ç7VÒ…÷æÅöW‡"’æÆ&VÂ‚'F÷FÅ÷æÂ"’ÀĞ¢Ğ¢çv†W&R‚¦6öæG2Ğ¢æw&÷Wö'’…G&FT†—7F÷'’æ76WBÂ7G&FVw•ö6öÂĞ¢æ÷&FW%ö'’†gVæ2ç7VÒ…÷æÅöW‡"’æFW62‚’Ğ¢Ğ Ğ¢&÷w2Ò†v—BF"æW†V7WFR‡7F×B’’æÆÂ‚Ğ Ğ¢&WGW&â°Ğ¢°Ğ¢&76WB#¢"æ76WBÀĞ¢'7G&FVw’#¢"ç7G&FVw’÷"$4ôÔ$”äTB"ÀĞ¢'F÷FÅ÷G&FW2#¢–çB‡"çF÷FÅ÷G&FW2÷"’ÀĞ¢'v–ç&FR#¢&÷VæB‡"çv–ææ–æu÷G&FW2ò"çF÷FÅ÷G&FW2¢ÂĞ¢–b"çF÷FÅ÷G&FW2æB"çF÷FÅ÷G&FW2â Ğ¢VÇ6RãÀĞ¢'æÅ÷W6F2#¢&÷VæB†fÆöB‡"çF÷FÅ÷æÂ÷"’Â"’ÀĞ¢ĞĞ¢f÷""–â&÷w0Ğ¢ĞĞ Ğ Ğ¤&÷WFW"ævWB‚"öÆ—fRöæÇ—F–72"Â7VÖÖ'“Ò-	İ½-­Ä•dRİ-í=í-½‚ıâ­--Â‚--]=ıÂ"Ğ¦7–æ2FVbvWEöÆ—fUöæÇ—F–72€Ğ¢W&–öC¢÷F–öæÅ·7G%ÒÒVW'’‚&ÆÂ"ÂFW67&—F–öãÒ##F‚ÂvBÂ3BÂÆÂ"’ÀĞ¢F#¢7–æ56W76–öâÒFWVæG2†vWEöF%÷6W76–öâ’ÀĞ¢“ Ğ¢W&–öEöÖÒ²##F‚#¢#BÂ#vB#¢c‚Â#3B#¢s#Â&ÆÂ#¢æöæWĞĞ¢†÷W'2ÒW&–öEöÖævWB‡W&–öBÂæöæRĞ Ğ¢&WGW&â°Ğ¢'W&–öB#¢W&–öBÀĞ¢&76WEöæÇ—F–72#¢v—BövWEö76WEöæÇ—F–72†F"Â$Ä•dR"Â†÷W'2’ÀĞ¢'7G&FVw•öæÇ—F–72#¢v—BövWE÷7G&FVw•öæÇ—F–72†F"Â$Ä•dR"Â†÷W'2’ÀĞ¢ĞĞ Ğ Ğ¤&÷WFW"ævWB‚"öÆ—fRöF6†&ö&B"Ğ¦7–æ2FVbvWEöÆ—fUöF6†&ö&B€Ğ¢æÇ—F–75÷W&–öC¢÷F–öæÅ¶–çEÒÒVW'’„æöæRÂFW67&—F–öãÒ-	ı]íBİ½-­‚"}RÂæöæRÒ--]Íò"’ÀĞ¢F#¢7–æ56W76–öâÒFWVæG2†vWEöF%÷6W76–öâ’ÀĞ¢“ Ğ¢7F—fU÷6W76–öâÒ€Ğ¢v—BF"æW†V7WFR€Ğ¢6VÆV7B„Æ—fUG&F–æu6W76–öâĞ¢çv†W&R€Ğ¢Æ—fUG&F–æu6W76–öâç7FGW2æ–åò…²$E$eB"Â%$TE’"Â$5D•dR%ÒĞ¢Ğ¢æ÷&FW%ö'’„Æ—fUG&F–æu6W76–öâæ7&VFVEöBæFW62‚’Ğ¢æÆ–Ö—BƒĞ¢Ğ¢’ç66Æ%ööæUö÷%öæöæR‚Ğ¢ Ğ¢Æ7E÷7F÷VE÷6W76–öåöGFòÒæöæPĞ¢–bæ÷B7F—fU÷6W76–öã Ğ¢Æ7E÷7F÷VBÒ€Ğ¢v—BF"æW†V7WFR€Ğ¢6VÆV7B„Æ—fUG&F–æu6W76–öâĞ¢çv†W&R„Æ—fUG&F–æu6W76–öâç7FGW2ÓÒ%5DõTB"Ğ¢æ÷&FW%ö'’„Æ—fUG&F–æu6W76–öâæ7&VFVEöBæFW62‚’Ğ¢æÆ–Ö—BƒĞ¢Ğ¢’ç66Æ%ööæUö÷%öæöæR‚Ğ¢–bÆ7E÷7F÷VC Ğ¢'VFvWE÷6æÒv—BvWE÷6W76–öåö'VFvWE÷6æ6†÷B†F"ÂÆ7E÷7F÷VBĞ¢Æ7E÷7F÷VE÷6W76–öåöGFòÒ6W&–Æ—¦UöÆ—fU÷6W76–öåöGFò†Æ7E÷7F÷VBÂ'VFvWE÷6æĞ¢Æ7E÷7F÷VE÷6W76–öåöGFõ²&—5÷7F÷VB%ÒÒG'VPĞ Ğ Ğ Ğ¢&WVW7G2Ò€Ğ¢€Ğ¢v—BF"æW†V7WFR€Ğ¢6VÆV7B„W†V7WF–öå&WVW7BĞ¢çv†W&R„W†V7WF–öå&WVW7Bç&WVW7FVEöÖöFRÓÒ$Ä•dR"Ğ¢æ÷&FW%ö'’„W†V7WF–öå&WVW7Bæ7&VFVEöBæFW62‚’Ğ¢æÆ–Ö—BƒSĞ¢Ğ¢Ğ¢ç66Æ'2‚Ğ¢æÆÂ‚Ğ¢Ğ Ğ¢'VFvWE÷6æÒæöæPĞ¢–b7F—fU÷6W76–öã Ğ¢'VFvWE÷6æÒv—BvWE÷6W76–öåö'VFvWE÷6æ6†÷B†F"Â7F—fU÷6W76–öâĞ Ğ¢g&öÒöÇ–fÆ—æW†V7WF–öâç6W&–Æ—¦W'2–×÷'B6W&–Æ—¦UöW†V7WF–öå÷&WVW7G0Ğ Ğ¢&WVW7EöGF÷2Òv—B6W&–Æ—¦UöW†V7WF–öå÷&WVW7G2†F"Â&WVW7G2¢gVææVÅ÷7F×BÒ€¢6VÆV7B„W†V7WF–öå&WVW7BçFW&Ö–æÅö6öFRÂW†V7WF–öå&WVW7Bç7FFRÂgVæ2æ6÷VçB‚’¢çv†W&R„W†V7WF–öå&WVW7Bç&WVW7FVEöÖöFRÓÒ$Ä•dR"¢æw&÷Wö'’„W†V7WF–öå&WVW7BçFW&Ö–æÅö6öFRÂW†V7WF–öå&WVW7Bç7FFR¢¢–bæÇ—F–75÷W&–öB—2æ÷BæöæS ¢gVææVÅ÷7F×BÒgVææVÅ÷7F×Bçv†W&R€¢W†V7WF–öå&WVW7Bæ7&VFVEöBãÒFFWF–ÖRææ÷r‡F–ÖW¦öæRçWF2’ÒF–ÖVFVÇF††÷W'3ÖæÇ—F–75÷W&–öB¢¢gVææVÅ÷&÷w2Ò†v—BF"æW†V7WFR†gVææVÅ÷7F×B’’æÆÂ‚¢gVææVÅö6÷VçG2Ò·Ğ¢f÷"FW&Ö–æÅö6öFRÂ&WVW7E÷7FFRÂ6÷VçB–âgVææVÅ÷&÷w3 ¢¶W’ÒFW&Ö–æÅö6öFR÷"&WVW7E÷7FFR÷"%Tä´äõtâ ¢gVææVÅö6÷VçG5¶¶W•ÒÒgVææVÅö6÷VçG2ævWB†¶W’Â’²–çB†6÷VçB¢Ö—'&÷%÷7F×BÒ6VÆV7B†gVæ2æ6÷VçB‚’’ç6VÆV7Eög&öÒ„Æ—fTÖ—'&÷$6æF–FFR’çv†W&R€¢Æ—fTÖ—'&÷$6æF–FFRçF&vWEöÖöFRÓÒ$Ä•dR ¢¢–bæÇ—F–75÷W&–öB—2æ÷BæöæS ¢Ö—'&÷%÷7F×BÒÖ—'&÷%÷7F×Bçv†W&R€¢Æ—fTÖ—'&÷$6æF–FFRæ7&VFVEöBãÒFFWF–ÖRææ÷r‡F–ÖW¦öæRçWF2’ÒF–ÖVFVÇF††÷W'3ÖæÇ—F–75÷W&–öB¢¢Ö—'&÷%ö6÷VçBÒ–çB‚†v—BF"æW†V7WFR†Ö—'&÷%÷7F×B’’ç66Æ"‚’÷"Ğ Ğ¢v÷&¶W%÷7FGW2Òv—BvWEöÆFW7EöÆ—fU÷v÷&¶W%÷7FGW2†F"Ğ¢&VF–æW72ÒæöæPĞ¢–b7F—fU÷6W76–öã Ğ¢&VF–æW72Òv—BWfÇVFUöÆ—fU÷&VF–æW72†F"Â7F—fU÷6W76–öâÂv÷&¶W%÷7FGW3×v÷&¶W%÷7FGW2Ğ Ğ¢7FGW2Ò7F—fU÷6W76–öâç7FGW2–b7F—fU÷6W76–öâVÇ6RæöæPĞ¢ Ğ¢÷6—F–öç5÷–ÆöBÒv—BövWE÷÷6—F–öç5öF–7B†F"Â$Ä•dR"Ğ¢÷6—F–öç2Ò÷6—F–öç5÷–ÆöBævWB‚'÷6—F–öç2"Â²'G&F&ÆR#¢µÒÂ'&W6öÇfVB#¢µÒÂ&&6†—fR#¢µ×ÒĞ¢ Ğ¢7F—fU÷÷5ö6÷VçBÒ7VÒ€Ğ¢f÷"÷6—F–öâ–â÷6—F–öç2ævWB‚'G&F&ÆR"ÂµÒ’–b÷6—F–öâævWB‚'&VÖ–æ–æu÷6†&W2"Â’â Ğ¢Ğ Ğ¢&VF–æW75÷&VG’Ò&ööÂ‡&VF–æW72æB&VF–æW72ç&VG’Ğ Ğ¢–b7FGW3 Ğ¢f–Æ&ÆUö7F–öç2Ò°Ğ¢&6†V6µ÷&VF–æW72#¢7FGW2–â²$E$eB"Â%$TE’"Â%5DõTB'ÒÀĞ¢&7F—fFR#¢‡&VF–æW75÷&VG’æB7FGW2–â²$E$eB"Â%$TE’"Â%5DõTB'Ò’ÀĞ¢'7F÷#¢7FGW2ÓÒ$5D•dR"ÀĞ¢&6Æ÷6UöÆÂ#¢7F—fU÷÷5ö6÷VçBâÀĞ¢&f–æ—6‚#¢7FGW2–â²$E$eB"Â%$TE’"Â%5DõTB'ÒÀĞ¢ĞĞ¢7F–öå÷&V6öç2Ò°Ğ¢&7F—fFR#¢€Ğ¢æöæPĞ¢–bf–Æ&ÆUö7F–öç5²&7F—fFR%ĞĞ¢VÇ6R€Ğ¢#²"æ¦ö–â‡&VF–æW72æW'&÷'2÷"µÒĞ¢–b&VF–æW70Ğ¢VÇ6R-
+İ}½-½ıí½İ-Rıí-]­2=í-í-İí-‚ Ğ¢Ğ¢’ÀĞ¢'7F÷#¢æöæR–b7FGW2ÓÒ$5D•dR"VÇ6R-
+]òİR­--İ"ÀĞ¢&6Æ÷6UöÆÂ#¢„æöæR–b7F—fU÷÷5ö6÷VçBâVÇ6R-	İ]"í-­½-½Rıí}m’"’ÀĞ¢&f–æ—6‚#¢æöæRÀĞ¢&6†V6µ÷&VF–æW72#¢æöæRÀĞ¢ĞĞ¢VÇ6S Ğ¢f–Æ&ÆUö7F–öç2Ò°Ğ¢&6†V6µ÷&VF–æW72#¢fÇ6RÀĞ¢&7F—fFR#¢fÇ6RÀĞ¢'7F÷#¢fÇ6RÀĞ¢&6Æ÷6UöÆÂ#¢fÇ6RÀĞ¢&f–æ—6‚#¢fÇ6RÀĞ¢ĞĞ¢7F–öå÷&V6öç2Ò·ĞĞ Ğ¢&WGW&â°Ğ¢&f–Æ&ÆUö7F–öç2#¢f–Æ&ÆUö7F–öç2ÀĞ¢&7F–öå÷&V6öç2#¢7F–öå÷&V6öç2ÀĞ¢'&VF–æW72#¢€Ğ¢°Ğ¢'&VG’#¢&VF–æW72ç&VG’ÀĞ¢&6†V6·2#¢&VF–æW72æ6†V6·2ÀĞ¢&W'&÷'2#¢&VF–æW72æW'&÷'2ÀĞ¢'v&æ–æw2#¢&VF–æW72çv&æ–æw2ÀĞ¢ĞĞ¢–b&VF–æW70Ğ¢VÇ6RæöæPĞ¢’ÀĞ¢&–væ÷&UöVFvUöFV6’#¢†v—BövWE÷'VçF–ÖUöfÆr†F"Â$Ä•dUô”täõ$UôTDtUôDT4’"’’æÆ÷vW"‚’ÓÒ'G'VR"ÀĞ¢&÷&FW%öÖöFUö6öæf–r#¢°Ğ¢&ÖöFR#¢†v—BövWE÷'VçF–ÖUöfÆr†F"Â$Ä•dUôõ$DU%ôÔôDR"ÂFVfVÇCÒ$Ô´U%õEDÂ"’’çWW"‚’ÀĞ¢&wF5÷GFÅ÷6V6öæG2#¢fÆöB†v—BövWE÷'VçF–ÖUöfÆr†F"Â$Ä•dUôuD5õEDÅõ4T4ôäE2"ÂFVfVÇCÒ#ã"’’ÀĞ¢&fµ÷&WG'•öÖ…öGFV×G2#¢–çB†v—BövWE÷'VçF–ÖUöfÆr†F"Â$Ä•dUôdµõ$UE%•ôÔ…ôEDTÕE2"ÂFVfVÇCÒ#2"’’ÀĞ¢&fµ÷&WG'•öFVÆ•÷6V2#¢fÆöB†v—BövWE÷'VçF–ÖUöfÆr†F"Â$Ä•dUôdµõ$UE%•ôDTÄ•õ4T2"ÂFVfVÇCÒ#ãsR"’’ÀĞ¢'W%öW†V7WF–öå÷&öf–ÆR#¢†v—BövWE÷'VçF–ÖUöfÆr†F"Â%U%ôU„T5UD”ôåõ$ôd”ÄR"ÂFVfVÇCÒ$”å5DåB"’’çWW"‚’ÀĞ¢'W%öÆ—fUöFVÆ•÷6V2#¢fÆöB†v—BövWE÷'VçF–ÖUöfÆr†F"Â%U%ôÄ•dUôDTÄ•õ4T2"ÂFVfVÇCÒ#"ã"’’ÀĞ¢ÒÀĞ¢'6W76–öâ#¢€Ğ¢6W&–Æ—¦UöÆ—fU÷6W76–öåöGFò†7F—fU÷6W76–öâÂ'VFvWE÷6æĞ¢–b7F—fU÷6W76–öàĞ¢VÇ6RÆ7E÷7F÷VE÷6W76–öåöGFğĞ¢’ÀĞ¢'v÷&¶W"#¢°Ğ¢'v÷&¶W%ö–B#¢v÷&¶W%÷7FGW2çv÷&¶W%ö–B–bv÷&¶W%÷7FGW2VÇ6RæöæRÀĞ¢&†V'F&VEöB#¢€Ğ¢v÷&¶W%÷7FGW2æ†V'F&VEöBæ—6öf÷&ÖB‚Ğ¢–bv÷&¶W%÷7FGW2æBv÷&¶W%÷7FGW2æ†V'F&VEö@Ğ¢VÇ6RæöæPĞ¢’ÀĞ¢&vFWv•÷&VG’#¢v÷&¶W%÷7FGW2ævFWv•÷&VG’–bv÷&¶W%÷7FGW2VÇ6RfÇ6RÀĞ¢&7&VFVçF–Ç5öÆöFVB#¢€Ğ¢v÷&¶W%÷7FGW2æ7&VFVçF–Ç5öÆöFVB–bv÷&¶W%÷7FGW2VÇ6RfÇ6PĞ¢’ÀĞ¢'vÆÆWEöFG&W72#¢‡v÷&¶W%÷7FGW2çvÆÆWEöFG&W72–bv÷&¶W%÷7FGW2VÇ6RæöæR’ÀĞ¢&&Ææ6U÷W6F2#¢€Ğ¢fÆöB‡v÷&¶W%÷7FGW2æ&Ææ6U÷W6F2Ğ¢–bv÷&¶W%÷7FGW2æBv÷&¶W%÷7FGW2æ&Ææ6U÷W6F2—2æ÷BæöæPĞ¢VÇ6Rã Ğ¢’ÀĞ¢&6öÆÆFW&ÅöÆÆ÷væ6U÷&VG’#¢€Ğ¢v÷&¶W%÷7FGW2æ6öÆÆFW&ÅöÆÆ÷væ6U÷&VG’–bv÷&¶W%÷7FGW2VÇ6RfÇ6PĞ¢’ÀĞ¢&6öæF—F–öæÅöÆÆ÷væ6U÷&VG’#¢€Ğ¢v÷&¶W%÷7FGW2æ6öæF—F–öæÅöÆÆ÷væ6U÷&VG’–bv÷&¶W%÷7FGW2VÇ6RfÇ6PĞ¢’ÀĞ¢ÒÀĞ¢&6æF–FFW2#¢µÒÀĞ¢'÷6—F–öç2#¢÷6—F–öç2ÀĞ¢'&WVW7G2#¢&WVW7EöGF÷2À¢&W†V7WF–öåögVææVÂ#¢²&Ö—'&÷%ö6æF–FFW2#¢Ö—'&÷%ö6÷VçBÂ'FW&Ö–æÅö6÷VçG2#¢gVææVÅö6÷VçG7ÒÀĞ¢&76WEöæÇ—F–72#¢v—BövWEö76WEöæÇ—F–72†F"ÂÖöFSÒ$Ä•dR"ÂW&–öEö†÷W'3ÖæÇ—F–75÷W&–öB’ÀĞ¢'7G&FVw•öæÇ—F–72#¢v—BövWE÷7G&FVw•öæÇ—F–72†F"ÂÖöFSÒ$Ä•dR"ÂW&–öEö†÷W'3Ó#B’ÀĞ¢ĞĞ Ğ Ğ¤&÷WFW"ç÷7B‚"÷&WVW7G2÷·&WVW7Eö–GÒ÷&V6öæ6–ÆR"Ğ¦7–æ2FVb&V6öæ6–ÆU÷&WVW7B€Ğ¢&WVW7Eö–C¢WV–BåUT”BÀĞ¢F#¢7–æ56W76–öâÒFWVæG2†vWEöF%÷6W76–öâ’ÀĞ¢“ Ğ¢&WÒv—BF"ç66Æ"€Ğ¢6VÆV7B„W†V7WF–öå&WVW7BĞ¢çv†W&R„W†V7WF–öå&WVW7Bæ–BÓÒ&WVW7Eö–BĞ¢çv—F…öf÷%÷WFFR‚Ğ¢Ğ Ğ¢–b&W—2æöæS Ğ¢&—6R…EEW†6WF–öâƒCBÂ-	}ı-­İRİM]İ"Ğ Ğ¢–b&Wç&WVW7FVEöÖöFRÒ$Ä•dR# Ğ¢&—6R…EEW†6WF–öâƒC’Â-
+-]­}]]İ-í½Í­âM½òÄ•dRİ}ı-í¢"Ğ Ğ¢–b&Wç7FFRÓÒ%$T4ôä4”Ä”är# Ğ¢&WGW&â°Ğ¢'&WVW7Eö–B#¢7G"‡&Wæ–B’ÀĞ¢'7FFR#¢%$T4ôä4”Ä”är"ÀĞ¢&–FV×÷FVçB#¢G'VRÀĞ¢ĞĞ Ğ¢ÆÆ÷vVE÷7FFW2Ò°Ğ¢%5T$Ô•ED”är"ÀĞ¢$44UDTB"ÀĞ¢%Tä´äõtâ"ÀĞ¢%%D”ÄÅ•ôd”ÄÄTB"ÀĞ¢%$T4ôä4”Ä”är"ÀĞ¢$ÔåTÅõ$Ud”Uuõ$UT•$TB"ÀĞ¢ĞĞ Ğ¢–b&Wç7FFRæ÷B–âÆÆ÷vVE÷7FFW3 Ğ¢&—6R…EEW†6WF–öâ€Ğ¢C’ÀĞ¢b-	}ı-­2"--=R·&Wç7FFWÒİ]½Í}òı]]-íM-Â"$T4ôä4”Ä”är"ÀĞ¢Ğ Ğ¢&÷f–FW%öWf–FVæ6RÒv—BF"ç66Æ"€Ğ¢6VÆV7B†gVæ2æ6÷VçB„W†V7WF–öäGFV×Bæ–B’’çv†W&R€Ğ¢W†V7WF–öäGFV×Bç&WVW7Eö–BÓÒ&WVW7Eö–BÀĞ¢W†V7WF–öäGFV×Bç&÷f–FW%ö÷&FW%ö–Bæ—5öæ÷B„æöæR’ÀĞ¢Ğ¢Ğ Ğ¢–bæ÷B&÷f–FW%öWf–FVæ6S Ğ¢&—6R…EEW†6WF–öâ€Ğ¢C#"ÀĞ¢-	İ]"&÷f–FW%ö÷&FW%ö–B(	B-]­öÇ–Ö&¶WBİ]-í}Íímİ"ÀĞ¢Ğ Ğ¢&Wç7FFRÒ%$T4ôä4”Ä”är Ğ¢&WçWFFVEöBÒFFWF–ÖRææ÷r‡F–ÖW¦öæRçWF2Ğ¢v—BF"æ6öÖÖ—B‚Ğ Ğ¢&WGW&â²'&WVW7Eö–B#¢7G"‡&Wæ–B’Â'7FFR#¢%$T4ôä4”Ä”är'ĞĞ Ğ Ğ¢2ÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒĞĞ¢26WGFÆVÖVçBb&VFV×F–öâVæGö–çG0Ğ¢2ÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒĞĞ Ğ¤&÷WFW"ç÷7B‚"öÆ—fR÷÷6—F–öç2÷·G&FUö–GÒ÷&V6öæ6–ÆR×&W6öÇWF–öâ"Ğ¦7–æ2FVb&V6öæ6–ÆU÷&W6öÇWF–öåöVæGö–çB€Ğ¢G&FUö–C¢–çBÀĞ¢F#¢7–æ56W76–öâÒFWVæG2†vWEöF%÷6W76–öâ’ÀĞ¢“ Ğ¢g&öÒöÇ–fÆ—æW†V7WF–öâæÆ—fU÷6WGFÆVÖVçE÷6W'f–6R–×÷'B&V6öæ6–ÆUöÆ—fU÷&W6öÇWF–öâÂÆ—fU÷6—F–öäæ÷Df÷VæBÂÖ&¶WDæ÷E&W6öÇfVBÂvÖÖ”W'&÷ Ğ¢G'“ Ğ¢G&FRÒv—B&V6öæ6–ÆUöÆ—fU÷&W6öÇWF–öâ†F"ÂG&FUö–BĞ¢v—BF"æ6öÖÖ—B‚Ğ¢&WGW&â²'7FGW2#¢&ö²"Â'÷6—F–öå÷7FGW2#¢G&FRç÷6—F–öå÷7FGW7ĞĞ¢W†6WBÆ—fU÷6—F–öäæ÷Df÷VæC Ğ¢&—6R…EEW†6WF–öâƒCBÂ$Ä•dRİıí}mòİRİM]İ"Ğ¢W†6WBÖ&¶WDæ÷E&W6öÇfVC Ğ¢v—BF"æ6öÖÖ—B‚Ğ¢&—6R…EEW†6WF–öâƒC’Â-
+½İí¢]RİR}-]]Ò"Ğ¢W†6WBvÖÖ”W'&÷"2S Ğ¢&—6R…EEW†6WF–öâƒS2Âb-	í­vÖÖ“¢·7G"†R—Ò"Ğ¢W†6WBW†6WF–öâ2S Ğ¢ÆövvW"æW†6WF–öâ‚'&V6öæ6–ÆU÷&W6öÇWF–öåöW'&÷""Ğ¢&—6R…EEW†6WF–öâƒSÂb-	í­-]­ƒ¢·7G"†R—Ò"Ğ Ğ¤&÷WFW"ç÷7B‚"öÆ—fR÷÷6—F–öç2÷·G&FUö–GÒ÷&VFVVÒ"Ğ¦7–æ2FVb&VFVVÕ÷÷6—F–öåöVæGö–çB€Ğ¢G&FUö–C¢–çBÀĞ¢F#¢7–æ56W76–öâÒFWVæG2†vWEöF%÷6W76–öâ’ÀĞ¢“ Ğ¢&—6R…EEW†6WF–öâ€Ğ¢7FGW5ö6öFSÓSÀĞ¢FWF–ÃÒ-	ıí=]İR}]]rMíBıí­İR]½}í-İâ"ÀĞ¢Ğ Ğ¤&÷WFW"ç÷7B‚"öÆ—fR÷÷6—F–öç2÷·G&FUö–GÒ÷&V6öæ6–ÆR×&VFV×F–öâ"Ğ¦7–æ2FVb&V6öæ6–ÆU÷&VFV×F–öåöVæGö–çB€Ğ¢G&FUö–C¢–çBÀĞ¢F#¢7–æ56W76–öâÒFWVæG2†vWEöF%÷6W76–öâ’ÀĞ¢“ Ğ¢G&FRÒv—BF"ç66Æ"€Ğ¢6VÆV7B…G&FT†—7F÷'’Ğ¢çv†W&R…G&FT†—7F÷'’æ–BÓÒG&FUö–BĞ¢çv—F…öf÷%÷WFFR‚Ğ¢Ğ¢–bæ÷BG&FR÷"G&FRæÖöFRÒ$Ä•dR# Ğ¢&—6R…EEW†6WF–öâƒCBÂ$Ä•dRİıí}mòİRİM]İ"Ğ¢ Ğ¢–bG&FRç÷6—F–öå÷7FGW2æ÷B–â²%$TDTTÔ”är"Â%$TDTÕD”ôåõTä´äõtâ"Â%$U4ôÅdTEõ$TDTTÔ$ÄR'Ó Ğ¢&—6R…EEW†6WF–öâƒC’Â-	İ]Míı=-Í½’--=M½òıí-]­‚ıí=]İò"Ğ Ğ¢2	ıâ
+-	rİR--Â$TDTTÔTB]rWf–FVæ6RàĞ¢&—6R…EEW†6WF–öâƒC#"Â$öâÖ6†–â-]­]RİR]½}í-İ"Ğ 

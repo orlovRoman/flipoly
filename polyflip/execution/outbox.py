@@ -324,6 +324,16 @@ async def enqueue_close_request(
     )
 
 
+def _terminal_code(state: str, error: str | None) -> str | None:
+    """Normalize terminal outcomes for funnel analytics."""
+    if error and "MAX_ACCEPTABLE_PRICE_EXCEEDED" in error:
+        return "PRICE_MOVED"
+    if error and "TTL" in error.upper():
+        return "TTL_EXPIRED"
+    if error and any(marker in error.lower() for marker in ("cloudflare", "502", "timeout", "network")):
+        return "NETWORK_ERROR"
+    return {"FILLED": "FILLED", "PARTIALLY_FILLED_FINAL": "PARTIAL_FILL", "REJECTED": "REJECTED", "EXPIRED": "TTL_EXPIRED", "MANUAL_REVIEW_FAILED": "NETWORK_ERROR"}.get(state)
+
 async def finalize_request(
     session: AsyncSession,
     req: ExecutionRequest,
@@ -334,6 +344,7 @@ async def finalize_request(
     now = datetime.now(timezone.utc)
     req.state = state
     req.error_reason = error
+    req.terminal_code = _terminal_code(state, error)
     req.updated_at = now
 
     if req.intent == "OPEN" and state in TERMINAL_REQUEST_STATES:

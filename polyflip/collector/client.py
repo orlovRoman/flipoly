@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 from typing import List, Dict, Any
 from datetime import datetime, timezone
@@ -139,14 +140,40 @@ class PolymarketClient:
         Получает стакан (orderbook) из CLOB API для вычисления mid_price и spread.
         """
         try:
-            response = await self.client.get(f"{self.CLOB_API}/book", params={"token_id": yes_token_id})
+            response = None
+            for attempt in range(3):
+                try:
+                    response = await self.client.get(
+                        f"{self.CLOB_API}/book", params={"token_id": yes_token_id}
+                    )
+                except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                    if attempt == 2:
+                        raise
+                    delay = 0.25 * (2 ** attempt)
+                    logger.warning(
+                        "clob_book_retry", token_id=yes_token_id,
+                        attempt=attempt + 1, delay_sec=delay, error=str(exc),
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                if response.status_code in {408, 429, 500, 502, 503, 504} and attempt < 2:
+                    delay = 0.25 * (2 ** attempt)
+                    logger.warning(
+                        "clob_book_retry", token_id=yes_token_id,
+                        attempt=attempt + 1, delay_sec=delay,
+                        status=response.status_code,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                break
+            if response is None:
+                return {"error": "API book request returned no response"}
             if response.status_code != 200:
                 if response.status_code == 404:
                     logger.debug("clob_api_404_market_likely_closed", token_id=yes_token_id)
                 else:
                     logger.warning("clob_api_error", token_id=yes_token_id, status=response.status_code)
                 return {"error": f"API HTTP Error {response.status_code}"}
-                
             book = response.json()
             
             # Парсим bids (покупка YES) и asks (продажа YES)
@@ -175,12 +202,16 @@ class PolymarketClient:
             mid_price = (best_bid + best_ask) / 2.0
             spread = best_ask - best_bid
             
+            tick_size = book.get("tick_size") or book.get("minimum_tick_size")
+            min_order_size = book.get("min_order_size") or book.get("minimum_order_size")
             return {
                 "current_yes_price": mid_price,
                 "current_no_price": 1.0 - mid_price,
                 "current_spread": spread,
                 "best_bid": best_bid,
-                "best_ask": best_ask
+                "best_ask": best_ask,
+                "tick_size": float(tick_size) if tick_size is not None else None,
+                "min_order_size": float(min_order_size) if min_order_size is not None else None,
             }
         except httpx.TimeoutException:
             logger.error("error_fetching_clob_book_timeout", token_id=yes_token_id)
