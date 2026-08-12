@@ -6,14 +6,15 @@ from sqlalchemy import text
 
 @pytest.mark.postgres
 @pytest.mark.asyncio
-async def test_execution_fill_idempotency_constraint_exists_in_postgres():
+async def test_execution_fill_idempotency_constraint_exists_in_postgres(
+    pg_session_factory,
+):
     if os.getenv("POSTGRES_INTEGRATION_TESTS") != "1":
         pytest.skip("PostgreSQL integration checks are disabled")
 
-    from polyflip.db.connection import engine
-
-    assert engine.dialect.name == "postgresql"
-    async with engine.connect() as connection:
+    async with pg_session_factory() as session:
+        connection = await session.connection()
+        assert connection.dialect.name == "postgresql"
         definition = (await connection.execute(text("""
                     SELECT pg_get_constraintdef(constraint_row.oid)
                     FROM pg_constraint AS constraint_row
