@@ -733,7 +733,7 @@ async def process_ready_requests():
             )
 
 
-async def rebuild_trade_accounting(session, trade_id: int):
+async def rebuild_trade_accounting(session, trade_id: int) -> Optional[TradeHistory]:
     """
     Пересчитывает бухгалтерию позиции по всем fills.
 
@@ -754,7 +754,7 @@ async def rebuild_trade_accounting(session, trade_id: int):
     from polyflip.execution.states import FINAL_POSITION_STATES, ExitReason
 
     if not trade:
-        return
+        return None
 
     if trade.position_status in FINAL_POSITION_STATES:
         logger.warning(
@@ -951,6 +951,7 @@ async def rebuild_trade_accounting(session, trade_id: int):
     # НЕ делаем session.commit() здесь — вызывающая функция владеет транзакцией.
     # Это гарантирует атомарность: fills + request state + TradeHistory
     # фиксируются в одном commit, а не в двух независимых.
+    return trade
 
 
 async def reconcile_active_requests():

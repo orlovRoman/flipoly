@@ -17,9 +17,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, validates
-import structlog
-
-logger = structlog.get_logger()
 
 Base = declarative_base()
 
@@ -315,10 +312,23 @@ class TradeHistory(Base):
     p_flip_raw = Column(Float, nullable=True)
     entry_model_ece = Column(Float, nullable=True)
 
+    @validates("exit_reason")
+    def _validate_exit_reason(self, key, value):
+        if value is not None:
+            from polyflip.execution.states import ExitReason
+            if value not in ExitReason.values():
+                raise ValueError(f"Invalid exit_reason: {value!r}")
+        return value
+
     @validates("position_status")
     def _validate_position_status(self, key, value):
         if value in ("RESOLVED_REDEEMABLE", "RESOLVED_LOST") and getattr(self, "exit_reason", None) is None:
-            logger.warning("trade_resolved_without_exit_reason", trade_id=getattr(self, "id", None), status=value)
+            import structlog
+            structlog.get_logger(__name__).warning(
+                "trade_resolved_without_exit_reason",
+                trade_id=getattr(self, "id", None),
+                status=value,
+            )
         return value
 
     __table_args__ = (

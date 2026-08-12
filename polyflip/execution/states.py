@@ -68,18 +68,29 @@ FINAL_POSITION_STATES = frozenset(
         "CLOSED",
         "RESOLVED_REDEEMABLE",
         "RESOLVED_LOST",
-        "RESOLVED_WON",
         "REDEEMED",
     }
 )
 
 
-class ExitReason:
+try:
+    from enum import StrEnum
+except ImportError:
+    # Fallback for Python < 3.11
+    from enum import Enum
+    class StrEnum(str, Enum):
+        pass
+
+
+class ExitReason(StrEnum):
     SETTLEMENT = "SETTLEMENT"
     STOP_LOSS = "STOP_LOSS"
     TAKE_PROFIT = "TAKE_PROFIT"
     MANUAL = "MANUAL"
     LIQUIDATION = "LIQUIDATION"
 
-    ALL = frozenset({SETTLEMENT, STOP_LOSS, TAKE_PROFIT, MANUAL, LIQUIDATION})
+    @classmethod
+    def values(cls) -> set[str]:
+        return {item.value for item in cls}
+
 

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from polyflip.db.models import TradeHistory, LiveMarket
 from polyflip.constants import HTTP_TIMEOUT_SEC
+from polyflip.execution.trade_lifecycle import mark_trade_resolved
 
 logger = structlog.get_logger(__name__)
 
@@ -184,10 +185,6 @@ async def reconcile_live_resolution(db: AsyncSession, trade_id: int) -> TradeHis
 
     if resolution is None:
         raise MarketNotResolved("Рынок ещё не закрыт или результат неизвестен")
-
-    await save_market_resolution(db, trade.market_id, resolution)
-
-    from polyflip.execution.trade_lifecycle import mark_trade_resolved
 
     is_win = (trade.outcome_bought == resolution.final_outcome)
     trade.settlement_outcome = resolution.final_outcome

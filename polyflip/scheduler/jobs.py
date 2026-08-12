@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 from pathlib import Path
 
 from polyflip.db.models import RuntimeSettings, TradeHistory, MarketSnapshot, CollectorStatus
+from polyflip.execution.trade_lifecycle import mark_trade_resolved
 from polyflip.models.trainer import ModelTrainer
 from polyflip.crypto.candle_collector import collect_new_candles, refresh_funding_rates
 from polyflip.crypto.candle_pruner import prune_old_candles
@@ -295,8 +296,6 @@ async def resolve_trades_job():
                     logger.error("resolver_skipped_zero_fill_trade", trade_id=t.id)
                     continue
                 if t.position_status not in ("RESOLVED_REDEEMABLE", "RESOLVED_LOST"):
-                    from polyflip.execution.trade_lifecycle import mark_trade_resolved
-
                     is_win = (str(t.outcome_bought).strip().upper() == str(raw_outcome).strip().upper())
                     mark_trade_resolved(t, is_win=is_win)
                     
