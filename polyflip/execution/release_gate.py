@@ -101,7 +101,7 @@ def calculate_live_order_amount(
 # â”€â”€ ĞĞ°ÑÑ‚Ñ€Ğ¾Ğ¹ĞºĞ¸ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 DATABASE_URL: str = os.environ.get("DATABASE_URL", "")
-POLL_INTERVAL: float = float(os.environ.get("RELEASE_GATE_POLL_INTERVAL", "1"))
+POLL_INTERVAL: float = float(os.environ.get("RELEASE_GATE_POLL_INTERVAL", "5"))
 
 _shutdown = False
 
@@ -416,4 +416,553 @@ async def _release_one_locked(
         await session.commit()
         return False
 
-    # 3. Ğ”Ğ¾ÑÑ‚Ğ°ĞµĞÛ~x¶‰ËkºwµçBûBËBëBà€¡™É•Í¡}ÁÉ¥•Ì€ô9½¹”¤°(€€€€ŒƒBûFBëBïBÃBÓF/BËBÃB×BğƒBßBÃF?BËBëF°ƒFFBûBÇF,ƒB÷BÔƒBÓB×BïBÃFF0ƒBÓBûBïBÏBãFƒBÇBïBûBëBãFFF;F'BãFƒBßBÃBÿFBûFBûBÈ¸(€€€¥˜Ñ…É•Ñ}µ½‘”€ôô€‰1%Yˆè(€€€€€€€¥˜¹½Ğ™É•Í¡}ÁÉ¥•Ì½È™É•Í¡}ÁÉ¥•Ì¹•Ğ ‰‰•ÍÑ}…Í¬ˆ¤¥Ì9½¹”è(€€€€€€€€€€€±½•È¹İ…É¹¥¹œ (€€€€€€€€€€€€€€€€‰Á½±åµ…É­•Ñ}ÅÕ½Ñ•}Õ¹…Ù…¥±…‰±”ˆ°(€€€€€€€€€€€€€€€µ…É­•Ñ}¥õÁ…Á•É}É•ÅÕ•ÍĞ¹µ…É­•Ñ}¥°(€€€€€€€€€€€€€€€É•…Í½¸ô‰™•Ñ¡•‘}½ÕÑÍ¥‘•}±½­}™…¥±•ˆ°(€€€€€€€€€€€€¤(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• ‰I1M}EU=Q}U9Y%1	1è¹¼ÁÉ¥•Ì™•Ñ¡•ˆ¤((€€€€€€€É•±•…Í•}•¹ÑÉå}ÁÉ¥”€ô™±½…Ğ¡™É•Í¡}ÁÉ¥•Íl‰‰•ÍÑ}…Í¬‰t¤(€€€É•±•…Í•}¹•Ñ}•‘”€ô9½¹”((€€€¥˜€‰=5	%9ˆ¥¸…Ñ¥Ù•}™•…ÑÕÉ•Ìè(€€€€€€€€ŒƒBŸBãFBÃB×BğƒFBïBÃBÌƒBûFBëBïF;FB×B÷BãF<ƒBÿFBûBËB×FBëBàƒBÿFBûFBëBÃBïF3BßF/BËBÃB÷BãF<ƒBãBÜIÕ¹Ñ¥µ•M•ÑÑ¥¹Ì(€€€€€€€¥¹½É•}•‘•}‘•…å}Ù…°€ô…İ…¥ĞÍ•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€Í•±•Ğ¡IÕ¹Ñ¥µ•M•ÑÑ¥¹Ì¹Ù…±Õ”¤¹İ¡•É” (€€€€€€€€€€€€€€€IÕ¹Ñ¥µ•M•ÑÑ¥¹Ì¹­•ä€ôô€‰1%Y}%9=I}}dˆ(€€€€€€€€€€€€¤(€€€€€€€€¤(€€€€€€€¥¹½É•}•‘•}‘•…ä€ô€ (€€€€€€€€€€€¥¹½É•}•‘•}‘•…å}Ù…°¥Ì¹½Ğ9½¹”(€€€€€€€€€€€…¹¥¹½É•}•‘•}‘•…å}Ù…°¹ÍÑÉ¥À ¤¹±½İ•È ¤€ôô€‰ÑÉÕ”ˆ(€€€€€€€€¤((€€€€€€€€ŒƒBŸBãFBÃB×BğƒB÷FBÛB÷F/BÔ‘”ƒBãBÜIÕ¹Ñ¥µ•M•ÑÑ¥¹Ì€£FBÔƒBÛBÔƒBëBïF;FBà°ƒFFBøƒBûBÇB÷BûBËBïF?B×FƒBÓBÃF#BÇBûFBĞ¤(€€€€€€€µ¥¹}•‘•}™…Ù}Ù…°€ô…İ…¥ĞÍ•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€Í•±•Ğ¡IÕ¹Ñ¥µ•M•ÑÑ¥¹Ì¹Ù…±Õ”¤¹İ¡•É” (€€€€€€€€€€€€€€€IÕ¹Ñ¥µ•M•ÑÑ¥¹Ì¹­•ä€ôô€‰Y=I%Q}5%9}ˆ(€€€€€€€€€€€€¤(€€€€€€€€¤(€€€€€€€µ¥¹}•‘•}½ÕÑ}Ù…°€ô…İ…¥ĞÍ•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€Í•±•Ğ¡IÕ¹Ñ¥µ•M•ÑÑ¥¹Ì¹Ù…±Õ”¤¹İ¡•É”¡IÕ¹Ñ¥µ•M•ÑÑ¥¹Ì¹­•ä€ôô€‰=UQM}5%9}ˆ¤(€€€€€€€€¤(€€€€€€€½ÍÑ}‰Õ™™•É}Ù…°€ô…İ…¥ĞÍ•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€Í•±•Ğ¡IÕ¹Ñ¥µ•M•ÑÑ¥¹Ì¹Ù…±Õ”¤¹İ¡•É” (€€€€€€€€€€€€€€€IÕ¹Ñ¥µ•M•ÑÑ¥¹Ì¹­•ä€ôô€‰=5	%9}=MQ}	UHˆ(€€€€€€€€€€€€¤(€€€€€€€€¤((€€€€€€€½ÍÑ}‰Õ™™•È€ô™±½…Ğ¡½ÍÑ}‰Õ™™•É}Ù…°¤¥˜½ÍÑ}‰Õ™™•É}Ù…°¥Ì¹½Ğ9½¹”•±Í”€À¸ÀÈ(€€€€€€€µ¥¹}•‘•}™…Ù½É¥Ñ”€ô€ (€€€€€€€€€€€™±½…Ğ¡µ¥¹}•‘•}™…Ù}Ù…°¤¥˜µ¥¹}•‘•}™…Ù}Ù…°¥Ì¹½Ğ9½¹”•±Í”€À¸ÀÔ(€€€€€€€€¤(€€€€€€€µ¥¹}•‘•}½ÕÑÍ¥‘•È€ô€ (€€€€€€€€€€€™±½…Ğ¡µ¥¹}•‘•}½ÕÑ}Ù…°¤¥˜µ¥¹}•‘•}½ÕÑ}Ù…°¥Ì¹½Ğ9½¹”•±Í”€À¸ÀÌ(€€€€€€€€¤((€€€€€€€€ŒƒB{BÿFB×BÓB×BïF?B×BğƒFFBûFBûB÷FƒBëBÃB÷BÓBãBÓBÃFBÀ€£BÃFFFBÃBçBÓB×F €ôƒFB×B÷BÀ€ğ€À¸Ô¤(€€€€€€€¥Í}½ÕÑÍ¥‘•È€ôÉ•±•…Í•}•¹ÑÉå}ÁÉ¥”€ğ€À¸Ô(€€€€€€€½µ‰¥¹•‘}µ¥¹}¹•Ñ}•‘”€ôµ¥¹}•‘•}½ÕÑÍ¥‘•È¥˜¥Í}½ÕÑÍ¥‘•È•±Í”µ¥¹}•‘•}™…Ù½É¥Ñ”((€€€€€€€€ŒÁ…Á•É}ÑÉ…‘”¹Á}İ¥¹}•™™•Ñ¥Ù”ƒBãFBÿBûBïF3BßFB×FFF<ƒBÓBïF<ƒBïBûBÏBãBëBàƒBÈAAH·BßBÃF?BËBëBÔ¸(€€€€€€€€ŒƒBwBøƒBÈ½µ‰¥¹•‘}Ù½Ñ¥¹œƒBóF,ƒFFBãFBÃBïBàÁ}…¹‘¥‘…Ñ•}İ¥¸¸(€€€€€€€€ŒƒBWFBïBàƒBÿBûBïBÔÁ}…¹‘¥‘…Ñ•}İ¥¸ƒB×FFF0€´ƒBÇB×FB×BğƒB×BÏBø°ƒBãB÷BÃFBÔ™…±±‰…¬ƒB÷BÀÁ}İ¥¹}•™™•Ñ¥Ù”(€€€€€€€Á}…¹‘¥‘…Ñ•}İ¥¸€ô€ (€€€€€€€€€€€™±½…Ğ¡Á…Á•É}ÑÉ…‘”¹Á}…¹‘¥‘…Ñ•}İ¥¸¤(€€€€€€€€€€€¥˜Á…Á•É}ÑÉ…‘”¹Á}…¹‘¥‘…Ñ•}İ¥¸¥Ì¹½Ğ9½¹”(€€€€€€€€€€€•±Í”™±½…Ğ¡Á…Á•É}ÑÉ…‘”¹Á}İ¥¹}•™™•Ñ¥Ù”¤(€€€€€€€€¤((€€€€€€€É•±•…Í•}É½ÍÍ}•‘”€ôÁ}…¹‘¥‘…Ñ•}İ¥¸€´É•±•…Í•}•¹ÑÉå}ÁÉ¥”(€€€€€€€É•±•…Í•}¹•Ñ}•‘”€ôÉ•±•…Í•}É½ÍÍ}•‘”€´½ÍÑ}‰Õ™™•È((€€€€€€€€Œ¡•¬¥˜•‘”‘•…äÉ•©•Ñ¥½¸¥Ì‘¥Í…‰±•±½‰…±±ä(€€€€€€€¥˜É•±•…Í•}¹•Ñ}•‘”€ğ½µ‰¥¹•‘}µ¥¹}¹•Ñ}•‘”è(€€€€€€€€€€€¥˜¹½Ğ¥¹½É•}•‘•}‘•…äè(€€€€€€€€€€€€€€€É…¥Í”I•±•…Í•I•©•Ñ• (€€€€€€€€€€€€€€€€€€€˜‰}e}	=I}I1Mè€ˆ(€€€€€€€€€€€€€€€€€€€˜‰íÉ•±•…Í•}¹•Ñ}•‘”è¸Ñ™ô€ğí½µ‰¥¹•‘}µ¥¹}¹•Ñ}•‘”è¸Ñ™ôˆ(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€•±Í”è(€€€€€€€€€€€€€€€±½•È¹İ…É¹¥¹œ (€€€€€€€€€€€€€€€€€€€€‰}e}	=I}I1M}¥¹½É•ˆ°(€€€€€€€€€€€€€€€€€€€É•±•…Í•}¹•Ñ}•‘”õÉ½Õ¹¡É•±•…Í•}¹•Ñ}•‘”°€Ğ¤°(€€€€€€€€€€€€€€€€€€€½µ‰¥¹•‘}µ¥¹}¹•Ñ}•‘”õÉ½Õ¹¡½µ‰¥¹•‘}µ¥¹}¹•Ñ}•‘”°€Ğ¤°(€€€€€€€€€€€€€€€€¤((€€€€Œ€Ô¸ƒBFBûBËB×FBëBàƒBÓBïF<1%YƒFB×BÛBãBóBÀ€¡­¥±°µÍİ¥Ñ °İ½É­•È°…Ñ•İ…ä°…±±½İ…¹”°‰…±…¹”°Í•ÍÍ¥½¸¤(€€€¥˜Ñ…É•Ñ}µ½‘”€ôô€‰1%Yˆè(€€€€€€€±¥Ù•}•¹…‰±•€ô…İ…¥ĞÍ•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€Í•±•Ğ¡IÕ¹Ñ¥µ•M•ÑÑ¥¹Ì¹Ù…±Õ”¤¹İ¡•É” (€€€€€€€€€€€€€€€IÕ¹Ñ¥µ•M•ÑÑ¥¹Ì¹­•ä€ôô€‰1%Y}QI%9}9	1ˆ(€€€€€€€€€€€€¤(€€€€€€€€¤(€€€€€€€¥˜±¥Ù•}•¹…‰±•¥Ì9½¹”½È±¥Ù•}•¹…‰±•¹ÍÑÉ¥À ¤¹±½İ•È ¤€„ô€‰ÑÉÕ”ˆè(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• ‰1%Y­¥±°Íİ¥Ñ ¥Ì½™˜ˆ¤((€€€€€€€€Œ€Ô¸ÄƒBFBûBËB×FBëBÀƒBÃBëFBãBËB÷BûBä1%Y·FB×FFBãBàƒBàƒBïBãBóBãFBûBÈƒFB×FFBãBà(€€€€€€€™É½´Á½±å™±¥À¹‘ˆ¹•á•ÕÑ¥½¹}µ½‘•±Ì¥µÁ½ÉĞ1¥Ù•QÉ…‘¥¹M•ÍÍ¥½¸(€€€€€€€™É½´Á½±å™±¥À¹•á•ÕÑ¥½¸¹±¥Ù•}Í•ÍÍ¥½¹}Í•ÉÙ¥”¥µÁ½ÉĞ€ (€€€€€€€€€€€½Õ¹Ñ}Í•ÍÍ¥½¹}Á½Í¥Ñ¥½¹Ì°(€€€€€€€€€€€•Ñ}Í•ÍÍ¥½¹}•áÁ½ÍÕÉ”°(€€€€€€€€¤((€€€€€€€…Ñ¥Ù•}Í•ÍÍ¥½¸€ô€ (€€€€€€€€€€€…İ…¥ĞÍ•ÍÍ¥½¸¹•á•ÕÑ” (€€€€€€€€€€€€€€€Í•±•Ğ¡1¥Ù•QÉ…‘¥¹M•ÍÍ¥½¸¤(€€€€€€€€€€€€€€€€¹İ¡•É”¡1¥Ù•QÉ…‘¥¹M•ÍÍ¥½¸¹ÍÑ…ÑÕÌ€ôô€‰Q%Yˆ¤(€€€€€€€€€€€€€€€€¹½É‘•É}‰ä¡1¥Ù•QÉ…‘¥¹M•ÍÍ¥½¸¹ÍÑ…ÉÑ•‘}…Ğ¹‘•ÍŒ ¤¹¹Õ±±Í}±…ÍĞ ¤¤(€€€€€€€€€€€€€€€€¹±¥µ¥Ğ Ä¤(€€€€€€€€€€€€€€€€¹İ¥Ñ¡}™½É}ÕÁ‘…Ñ” ¤(€€€€€€€€€€€€¤(€€€€€€€€¤¹Í…±…É}½¹•}½É}¹½¹” ¤((€€€€€€€¥˜…Ñ¥Ù•}Í•ÍÍ¥½¸¥Ì9½¹”è(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• ‰9¼…Ñ¥Ù”1%YÑÉ…‘¥¹œÍ•ÍÍ¥½¸ˆ¤((€€€€€€€€Œ€Ô¸ÈƒBFBûBËB×FBëBÀƒFFBûBãBóBûFFBàƒBûFBÓB×FBÀµ…à¡Ñ…É•Ñ}…µ½Õ¹Ñ}ÕÍ‘Œ°µ…á}ÍÁ•¹‘}ÕÍ‘Œ¤(€€€€€€€±¥Ù•}…µ½Õ¹Ğ€ô…±Õ±…Ñ•}±¥Ù•}½É‘•É}…µ½Õ¹Ğ¡Á…Á•É}É•ÅÕ•ÍĞ°…Ñ¥Ù•}Í•ÍÍ¥½¸¤(€€€€€€€½É‘•É}…µ½Õ¹Ğ€ô±¥Ù•}…µ½Õ¹Ğ((€€€€€€€€ŒƒBoBãBóBãFƒBÇF;BÓBÛB×FBÀƒFB×FFBãBàƒFB×FB×BÜM•ÍÍ¥½¹	Õ‘•ÑM¹…ÁÍ¡½Ğ(€€€€€€€™É½´Á½±å™±¥À¹•á•ÕÑ¥½¸¹±¥Ù•}Í•ÍÍ¥½¹}Í•ÉÙ¥”¥µÁ½ÉĞ•Ñ}Í•ÍÍ¥½¹}‰Õ‘•Ñ}Í¹…ÁÍ¡½Ğ((€€€€€€€‰Õ‘•Ñ}Í¹…À€ô…İ…¥Ğ•Ñ}Í•ÍÍ¥½¹}‰Õ‘•Ñ}Í¹…ÁÍ¡½Ğ¡Í•ÍÍ¥½¸°…Ñ¥Ù•}Í•ÍÍ¥½¸¤(€€€€€€€¥˜½É‘•É}…µ½Õ¹Ğ€ø‰Õ‘•Ñ}Í¹…À¹É•µ…¥¹¥¹}ÕÍ‘Œè(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• (€€€€€€€€€€€€€€€€‰1%YÍ•ÍÍ¥½¸‰Õ‘•Ğ•á¡…ÕÍÑ•€ˆ(€€€€€€€€€€€€€€€˜ˆ¡É•µ…¥¹¥¹œí‰Õ‘•Ñ}Í¹…À¹É•µ…¥¹¥¹}ÕÍ‘ôUM€ˆ(€€€€€€€€€€€€€€€˜ˆğí½É‘•É}…µ½Õ¹ÑôUM¤ˆ(€€€€€€€€€€€€¤((€€€€€€€€ŒƒBoBãBóBãFƒBëBûBïBãFB×FFBËBÀƒBÿBûBßBãFBãBäƒFB×FFBãBà(€€€€€€€½Á•¹}Á½Í¥Ñ¥½¹Ì€ô…İ…¥Ğ½Õ¹Ñ}Í•ÍÍ¥½¹}Á½Í¥Ñ¥½¹Ì¡Í•ÍÍ¥½¸°…Ñ¥Ù•}Í•ÍÍ¥½¸¹¥¤(€€€€€€€¥˜½Á•¹}Á½Í¥Ñ¥½¹Ì€øô…Ñ¥Ù•}Í•ÍÍ¥½¸¹µ…á}½Á•¹}Á½Í¥Ñ¥½¹Ìè(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• (€€€€€€€€€€€€€€€€‰M•ÍÍ¥½¸½Á•¸µÁ½Í¥Ñ¥½¸±¥µ¥ĞÉ•…¡•€ˆ(€€€€€€€€€€€€€€€˜ˆ¡í½Á•¹}Á½Í¥Ñ¥½¹Íô€øô€ˆ(€€€€€€€€€€€€€€€˜‰í…Ñ¥Ù•}Í•ÍÍ¥½¸¹µ…á}½Á•¹}Á½Í¥Ñ¥½¹Íô¤ˆ(€€€€€€€€€€€€¤((€€€€€€€€ŒƒBoBãBóBãFƒF7BëFBÿBûBßBãFBãBàƒFB×FFBãBà(€€€€€€€ÕÉÉ•¹Ñ}•áÁ½ÍÕÉ”€ô…İ…¥Ğ•Ñ}Í•ÍÍ¥½¹}•áÁ½ÍÕÉ”¡Í•ÍÍ¥½¸°…Ñ¥Ù•}Í•ÍÍ¥½¸¹¥¤(€€€€€€€µ…á}•áÁ½ÍÕÉ”€ô•¥µ…°¡ÍÑÈ¡…Ñ¥Ù•}Í•ÍÍ¥½¸¹µ…á}Ñ½Ñ…±}•áÁ½ÍÕÉ•}ÕÍ‘Œ¤¤(€€€€€€€¥˜ÕÉÉ•¹Ñ}•áÁ½ÍÕÉ”€¬½É‘•É}…µ½Õ¹Ğ€øµ…á}•áÁ½ÍÕÉ”è(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• (€€€€€€€€€€€€€€€€‰M•ÍÍ¥½¸•áÁ½ÍÕÉ”±¥µ¥ĞÉ•…¡•€ˆ(€€€€€€€€€€€€€€€˜ˆ¡íÕÉÉ•¹Ñ}•áÁ½ÍÕÉ•ô€¬í½É‘•É}…µ½Õ¹Ñô€ˆ(€€€€€€€€€€€€€€€˜ˆøíµ…á}•áÁ½ÍÕÉ•ô¤ˆ(€€€€€€€€€€€€¤((€€€€€€€İÌ€ô€ (€€€€€€€€€€€…İ…¥ĞÍ•ÍÍ¥½¸¹•á•ÕÑ” (€€€€€€€€€€€€€€€Í•±•Ğ¡á•ÕÑ¥½¹]½É­•ÉMÑ…ÑÕÌ¤(€€€€€€€€€€€€€€€€¹İ¡•É”¡á•ÕÑ¥½¹]½É­•ÉMÑ…ÑÕÌ¹•á•ÕÑ¥½¹}µ½‘”€ôô€‰1%Yˆ¤(€€€€€€€€€€€€€€€€¹½É‘•É}‰ä¡á•ÕÑ¥½¹]½É­•ÉMÑ…ÑÕÌ¹¡•…ÉÑ‰•…Ñ}…Ğ¹‘•ÍŒ ¤¤(€€€€€€€€€€€€€€€€¹±¥µ¥Ğ Ä¤(€€€€€€€€€€€€¤(€€€€€€€€¤¹Í…±…É}½¹•}½É}¹½¹” ¤((€€€€€€€¥˜İÌ¥Ì9½¹”è(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• ‰9¼1%Yİ½É­•ÈÍÑ…ÑÕÌ™½Õ¹ˆ¤((€€€€€€€¡‰}…Ğ€ôİÌ¹¡•…ÉÑ‰•…Ñ}…Ğ(€€€€€€€¥˜¡‰}…Ğ…¹¡‰}…Ğ¹Ñé¥¹™¼¥Ì9½¹”è(€€€€€€€€€€€¡‰}…Ğ€ô¡‰}…Ğ¹É•Á±…”¡Ñé¥¹™¼õÑ¥µ•é½¹”¹ÕÑŒ¤(€€€€€€€¥˜¹½Ğ¡‰}…Ğ½È€¡¹½Ü€´¡‰}…Ğ¤¹Ñ½Ñ…±}Í•½¹‘Ì ¤€ø€ØÀè(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• ‰1%Yİ½É­•È¡•…ÉÑ‰•…Ğ¥ÌÍÑ…±”€ øØÁÌ¤ˆ¤((€€€€€€€¥˜¹½ĞİÌ¹…Ñ•İ…å}É•…‘äè(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• (€€€€€€€€€€€€€€€˜‰1%Yİ½É­•È…Ñ•İ…ä¹½ĞÉ•…‘äèíİÌ¹±…ÍÑ}•ÉÉ½É}µ•ÍÍ…•ôˆ(€€€€€€€€€€€€¤((€€€€€€€¥˜¹½ĞİÌ¹½±±…Ñ•É…±}…±±½İ…¹•}É•…‘äè(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• ‰1%Yİ½É­•È½±±…Ñ•É…°…±±½İ…¹”¹½ĞÉ•…‘äˆ¤((€€€€€€€¥˜¹½ĞİÌ¹½¹‘¥Ñ¥½¹…±}…±±½İ…¹•}É•…‘äè(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• ‰1%Yİ½É­•È½¹‘¥Ñ¥½¹…°Ñ½­•¸…±±½İ…¹”¹½ĞÉ•…‘äˆ¤((€€€€€€€É•ÅÕ¥É•‘}‰…±…¹”€ôµ¥¸ (€€€€€€€€€€€•¥µ…°¡ÍÑÈ¡…Ñ¥Ù•}Í•ÍÍ¥½¸¹‰Õ‘•Ñ}ÕÍ‘Œ¤¤°(€€€€€€€€€€€•¥µ…°¡ÍÑÈ¡…Ñ¥Ù•}Í•ÍÍ¥½¸¹µ…á}Ñ½Ñ…±}•áÁ½ÍÕÉ•}ÕÍ‘Œ¤¤°(€€€€€€€€¤(€€€€€€€¥˜•¥µ…°¡ÍÑÈ¡İÌ¹‰…±…¹•}ÕÍ‘Œ½È€À¤¤€ğÉ•ÅÕ¥É•‘}‰…±…¹”è(€€€€€€€€€€€É…¥Í”I•±•…Í••™•ÉÉ• (€€€€€€€€€€€€€€€˜‰1%Yİ½É­•È‰…±…¹”UM€¡íİÌ¹‰…±…¹•}ÕÍ‘ô¤€ˆ(€€€€€€€€€€€€€€€˜‰¥Ì±•ÍÌÑ¡…¸É•ÅÕ¥É•€¡íÉ•ÅÕ¥É•‘}‰…±…¹•ô¤ˆ(€€€€€€€€€€€€¤((€€€€Œ€Ø¸ƒBƒBãFBè·BïBãBóBãFF,(€€€É¥Í­}•ÉÉ½È€ô…İ…¥Ğ¡•­}É¥Í­}±¥µ¥ÑÌ (€€€€€€€Í•ÍÍ¥½¸°(€€€€€€€¥¹Ñ•¹Ğô‰=A8ˆ°(€€€€€€€µ…á}ÍÁ•¹‘}ÕÍ‘Œõ½É‘•É}…µ½Õ¹Ğ°(€€€€€€€É•ÅÕ•ÍÑ•‘}µ½‘”õÑ…É•Ñ}µ½‘”°(€€€€¤(€€€¥˜É¥Í­}•ÉÉ½Èè(€€€€€€€É…¥Í”I•±•…Í•I•©•Ñ•¡˜‰I¥Í¬¡•¬™…¥±•èíÉ¥Í­}•ÉÉ½Éôˆ¤((€€€¥˜Ñ…É•Ñ}µ½‘”€ôô€‰1%Yˆè(€€€€€€€É•ÑÕÉ¸1¥Ù•I•±•…Í•A±…¸ (€€€€€€€€€€€½É‘•É}…µ½Õ¹Ñ}ÕÍ‘Œõ½É‘•É}…µ½Õ¹Ğ°(€€€€€€€€€€€µ…á}ÍÁ•¹‘}ÕÍ‘Œõ½É‘•É}…µ½Õ¹Ğ°(€€€€€€€€€€€Í•ÍÍ¥½¸õ…Ñ¥Ù•}Í•ÍÍ¥½¸°(€€€€€€€€€€€É•±•…Í•}•¹ÑÉå}ÁÉ¥”õÉ•±•…Í•}•¹ÑÉå}ÁÉ¥”°(€€€€€€€€€€€É•±•…Í•}¹•Ñ}•‘”õÉ•±•…Í•}¹•Ñ}•‘”°(€€€€€€€€¤((€€€É•ÑÕÉ¸½É‘•É}…µ½Õ¹Ğ(()‘•˜}‰Õ¥±‘}±¥Ù•}ÑÉ…‘” (€€€…¹‘¥‘…Ñ”è1¥Ù•5¥ÉÉ½É…¹‘¥‘…Ñ”°(€€€Á…Á•É}ÑÉ…‘”èQÉ…‘•!¥ÍÑ½Éä°(€€€¹½Üè‘…Ñ•Ñ¥µ”°(€€€Ñ…É•Ñ}µ½‘”èÍÑÈ°(€€€½É‘•É}…µ½Õ¹Ñ}ÕÍ‘Œè•¥µ…°°(€€€É•±•…Í•}Á±…¸è1¥Ù•I•±•…Í•A±…¸ğ•¥µ…°ğ9½¹”€ô9½¹”°(¤€´øQÉ…‘•!¥ÍÑ½Éäè(€€€€ˆˆˆ(€€€ƒB‡BûBßBÓBÃFGFƒB÷BûBËF/BäQÉ…‘•!¥ÍÑ½Éä¡µ½‘”õÑ…É•Ñ}µ½‘”¤ƒB÷BÀƒBûFB÷BûBËBÔAAH·FB÷BãBóBëBÀ¸(€€€€ˆˆˆ(€€€É•ÑÕÉ¸QÉ…‘•!¥ÍÑ½Éä (€€€€€€€µ…É­•Ñ}¥õÁ…Á•É}ÑÉ…‘”¹µ…É­•Ñ}¥°(€€€€€€€…ÍÍ•ĞõÁ…Á•É}ÑÉ…‘”¹…ÍÍ•Ğ°(€€€€€€€½ÕÑ½µ•}‰½Õ¡ĞõÁ…Á•É}ÑÉ…‘”¹½ÕÑ½µ•}‰½Õ¡Ğ°(€€€€€€€…µ½Õ¹Ñ}ÕÍ‘Œõ½É‘•É}…µ½Õ¹Ñ}ÕÍ‘Œ°(€€€€€€€•á•ÕÑ•‘}ÁÉ¥”ôÀ¸À°€€ŒƒBßBÃBÿBûBïB÷F?B×FFF<ƒFFB×BÓB÷B×BäƒFB×B÷BûBäƒBÿBûFBïBÔ™¥±°(€€€€€€€ÁÉ•‘¥Ñ•‘}™±¥Á}ÁÉ½ˆõÁ…Á•É}ÑÉ…‘”¹ÁÉ•‘¥Ñ•‘}™±¥Á}ÁÉ½ˆ°(€€€€€€€…Ñ¥Ù•}™•…ÑÕÉ•ÌõÁ…Á•É}ÑÉ…‘”¹…Ñ¥Ù•}™•…ÑÕÉ•Ì°(€€€€€€€µ½‘•±}Ù•ÉÍ¥½¸õÁ…Á•É}ÑÉ…‘”¹µ½‘•±}Ù•ÉÍ¥½¸°(€€€€€€€ÍÑ…ÑÕÌô‰A9%9ˆ°(€€€€€€€µ½‘”õÑ…É•Ñ}µ½‘”°(€€€€€€€•‘”õÁ…Á•É}ÑÉ…‘”¹•‘”°(€€€€€€€¹•Ñ}•‘”ô (€€€€€€€€€€€É•±•…Í•}Á±…¸¹É•±•…Í•}¹•Ñ}•‘”(€€€€€€€€€€€¥˜¥Í¥¹ÍÑ…¹”¡É•±•…Í•}Á±…¸°1¥Ù•I•±•…Í•A±…¸¤(€€€€€€€€€€€…¹É•±•…Í•}Á±…¸¹É•±•…Í•}¹•Ñ}•‘”¥Ì¹½Ğ9½¹”(€€€€€€€€€€€•±Í”Á…Á•É}ÑÉ…‘”¹¹•Ñ}•‘”(€€€€€€€€¤°(€€€€€€€µ…É­•Ñ}É½±”õÁ…Á•É}ÑÉ…‘”¹µ…É­•Ñ}É½±”°(€€€€€€€ÍÑÉ…Ñ•å}ÑåÁ”õÁ…Á•É}ÑÉ…‘”¹ÍÑÉ…Ñ•å}ÑåÁ”°(€€€€€€€Á}™±¥Á}•™™•Ñ¥Ù”õÁ…Á•É}ÑÉ…‘”¹Á}™±¥Á}•™™•Ñ¥Ù”°(€€€€€€€Á}İ¥¹}•™™•Ñ¥Ù”õÁ…Á•É}ÑÉ…‘”¹Á}İ¥¹}•™™•Ñ¥Ù”°(€€€€€€€ÍÑ½Á}±½ÍÍ}ÁĞõÁ…Á•É}ÑÉ…‘”¹ÍÑ½Á}±½ÍÍ}ÁĞ°(€€€€€€€ÍÑ½Á}±½ÍÍ}ÁÉ¥”õÁ…Á•É}ÑÉ…‘”¹ÍÑ½Á}±½ÍÍ}ÁÉ¥”°(€€€€€€€Ñ…­•}ÁÉ½™¥Ñ}•¹…‰±•õÁ…Á•É}ÑÉ…‘”¹Ñ…­•}ÁÉ½™¥Ñ}•¹…‰±•°(€€€€€€€Ñ…­•}ÁÉ½™¥Ñ}µÕ±Ñ¥Á±¥•ÈõÁ…Á•É}ÑÉ…‘”¹Ñ…­•}ÁÉ½™¥Ñ}µÕ±Ñ¥Á±¥•È°(€€€€€€€Ñ…­•}ÁÉ½™¥Ñ}ÁÉ¥”õÁ…Á•É}ÑÉ…‘”¹Ñ…­•}ÁÉ½™¥Ñ}ÁÉ¥”°(€€€€€€€Á½Í¥Ñ¥½¹}ÍÑ…ÑÕÌô‰=A9%9ˆ°(€€€€€€€•¹ÑÉå}™¥±±•‘}Í¡…É•Ìõ•¥µ…° ˆÀˆ¤°(€€€€€€€•¹ÑÉå}½ÍÑ}ÕÍ‘Œõ•¥µ…° ˆÀˆ¤°(€€€€€€€É•µ…¥¹¥¹}Í¡…É•Ìõ•¥µ…° ˆÀˆ¤°(€€€€€€€Á½Í¥Ñ¥½¹}…½Õ¹Ñ¥¹}Ù•ÉÍ¥½¸ôÀ°€€ŒƒBãB÷BãFBãBÃBïBãBßBãFFB×FFF<ƒBÿBûFBïBÔ%11(€€€€€€€µ½‘•±}­•äõÁ…Á•É}ÑÉ…‘”¹µ½‘•±}­•ä°(€€€€€€€½¹™¥Éµ}µ½‘•±}­•äõÁ…Á•É}ÑÉ…‘”¹½¹™¥Éµ}µ½‘•±}­•ä°(€€€€€€€½¹™¥Éµ}µ½‘•±}Ù•ÉÍ¥½¸õÁ…Á•É}ÑÉ…‘”¹½¹™¥Éµ}µ½‘•±}Ù•ÉÍ¥½¸°(€€€€€€€µ½‘•±}…ÑÑÉ¥‰ÕÑ¥½¹}Í½ÕÉ”õÁ…Á•É}ÑÉ…‘”¹µ½‘•±}…ÑÑÉ¥‰ÕÑ¥½¹}Í½ÕÉ”°(€€€€€€€‘¥É•Ñ¥½¹}µ½‘•±}­•äõÁ…Á•É}ÑÉ…‘”¹‘¥É•Ñ¥½¹}µ½‘•±}­•ä°(€€€€€€€‘¥É•Ñ¥½¹}µ½‘•±}Ù•ÉÍ¥½¸õÁ…Á•É}ÑÉ…‘”¹‘¥É•Ñ¥½¹}µ½‘•±}Ù•ÉÍ¥½¸°(€€€€€€€•¹ÑÉå}µ½‘•±}­•äõÁ…Á•É}ÑÉ…‘”¹•¹ÑÉå}µ½‘•±}­•ä°(€€€€€€€•¹ÑÉå}µ½‘•±}Ù•ÉÍ¥½¸õÁ…Á•É}ÑÉ…‘”¹•¹ÑÉå}µ½‘•±}Ù•ÉÍ¥½¸°(€€€€€€€•¹ÑÉå}µ½‘•±}Í½ÕÉ”õÁ…Á•É}ÑÉ…‘”¹•¹ÑÉå}µ½‘•±}Í½ÕÉ”°(€€€€€€€Á}…¹‘¥‘…Ñ•}İ¥¸õÁ…Á•É}ÑÉ…‘”¹Á}…¹‘¥‘…Ñ•}İ¥¸°(€€€€€€€É½ÍÍ}•‘”õÁ…Á•É}ÑÉ…‘”¹É½ÍÍ}•‘”°(€€€€€€€½ÍÑ}‰Õ™™•ÈõÁ…Á•É}ÑÉ…‘”¹½ÍÑ}‰Õ™™•È°(€€€€€€€‘•¥Í¥½¹}ÉÕ¹}¥õÁ…Á•É}ÑÉ…‘”¹‘•¥Í¥½¹}ÉÕ¹}¥°(€€€€€€€½¹™¥}Í¹…ÁÍ¡½ĞõÁ…Á•É}ÑÉ…‘”¹½¹™¥}Í¹…ÁÍ¡½Ğ°(€€€€€€€µ…É­•Ñ}•¹‘}Ñ¥µ”õÁ…Á•É}ÑÉ…‘”¹µ…É­•Ñ}•¹‘}Ñ¥µ”°(€€€€€€€Í½ÕÉ•}Á…Á•É}ÑÉ…‘•}¥õÁ…Á•É}ÑÉ…‘”¹¥°(€€€€€€€É•…Ñ•‘}…Ğõ¹½Ü°(€€€€€€€ÕÁ‘…Ñ•‘}…Ğõ¹½Ü°(€€€€¤(()‘•˜}‰Õ¥±‘}±¥Ù•}É•ÅÕ•ÍĞ (€€€…¹‘¥‘…Ñ”è1¥Ù•5¥ÉÉ½É…¹‘¥‘…Ñ”°(€€€Á…Á•É}É•ÅÕ•ÍĞèá•ÕÑ¥½¹I•ÅÕ•ÍĞ°(€€€±¥Ù•}ÑÉ…‘”èQÉ…‘•!¥ÍÑ½Éä°(€€€¹½Üè‘…Ñ•Ñ¥µ”°(€€€Ñ…É•Ñ}µ½‘”èÍÑÈ°(€€€½É‘•É}…µ½Õ¹Ñ}ÕÍ‘Œè•¥µ…°°(€€€µ…á}ÍÁ•¹‘}ÕÍ‘Œè•¥µ…°°4(€€€É•±•…Í•}•¹ÑÉå}ÁÉ¥”è™±½…Ğğ9½¹”€ô9½¹”°4(¤€´øá•ÕÑ¥½¹I•ÅÕ•ÍĞè(€€€€ˆˆˆ(€€€ƒB‡BûBßBÓBÃFGFƒB÷BûBËF/Bäá•ÕÑ¥½¹I•ÅÕ•ÍĞ¡É•ÅÕ•ÍÑ•‘}µ½‘”õÑ…É•Ñ}µ½‘”°ÍÑ…Ñ”ôIdœ¤¸(€€€ƒB_BÃBÿBûBïB÷F?B×FÑÑ±}Í•½¹‘Ì€£BóBÃBëF€ÌÃF¤ƒBà•áÁ¥É•Í}…Ğ¸(€€€€ˆˆˆ(€€€ÑÑ±}Í•½¹‘Ì€ôµ¥¸¡Á…Á•É}É•ÅÕ•ÍĞ¹ÑÑ±}Í•½¹‘Ì½È€ÌÀ°€ÌÀ¤(€€€•áÁ¥É•Í}…Ğ€ô¹½Ü€¬Ñ¥µ•‘•±Ñ„¡Í•½¹‘ÌõÑÑ±}Í•½¹‘Ì¤((€€€É•ÑÕÉ¸á•ÕÑ¥½¹I•ÅÕ•ÍĞ (€€€€€€€¥õÕÕ¥¹ÕÕ¥Ğ ¤°(€€€€€€€¥‘•µÁ½Ñ•¹å}­•äõ˜‰íÑ…É•Ñ}µ½‘•ôµ=A8µµ¥ÉÉ½Èµí…¹‘¥‘…Ñ”¹¥‘ôˆ°(€€€€€€€É•ÅÕ•ÍÑ•‘}µ½‘”õÑ…É•Ñ}µ½‘”°(€€€€€€€ÑÉ…‘•}¡¥ÍÑ½Éå}¥õ±¥Ù•}ÑÉ…‘”¹¥°(€€€€€€€¥¹Ñ•¹Ğô‰=A8ˆ°(€€€€€€€ÑÉ¥•É}É•…Í½¸ô‰5%II=Hˆ°(€€€€€€€µ…É­•Ñ}¥õÁ…Á•É}É•ÅÕ•ÍĞ¹µ…É­•Ñ}¥°(€€€€€€€…ÍÍ•ĞõÁ…Á•É}É•ÅÕ•ÍĞ¹…ÍÍ•Ğ°(€€€€€€€½ÕÑ½µ•}Ñ½}‰ÕäõÁ…Á•É}É•ÅÕ•ÍĞ¹½ÕÑ½µ•}Ñ½}‰Õä°(€€€€€€€Ñ…É•Ñ}…µ½Õ¹Ñ}ÕÍ‘Œõ½É‘•É}…µ½Õ¹Ñ}ÕÍ‘Œ°(€€€€€€€É•ÅÕ•ÍÑ•‘}Í¡…É•Ìõ9½¹”°(€€€€€€€±¥µ¥Ñ}ÁÉ¥”õÁ…Á•É}É•ÅÕ•ÍĞ¹±¥µ¥Ñ}ÁÉ¥”°(€€€€€€€µ…á}Í±¥ÁÁ…•}ÁĞõÁ…Á•É}É•ÅÕ•ÍĞ¹µ…á}Í±¥ÁÁ…•}ÁĞ°(€€€€€€€µ…á}ÍÁ•¹‘}ÕÍ‘Œõµ…á}ÍÁ•¹‘}ÕÍ‘Œ°(€€€€€€€µ…á}…•ÁÑ…‰±•}ÁÉ¥”õÁ…Á•É}É•ÅÕ•ÍĞ¹µ…á}…•ÁÑ…‰±•}ÁÉ¥”°(€€€€€€€‘•¥Í¥½¹}ÁÉ¥”ô¡™±½…Ğ¡Á…Á•É}É•ÅÕ•ÍĞ¹±¥µ¥Ñ}ÁÉ¥”¤¥˜Á…Á•É}É•ÅÕ•ÍĞ¹±¥µ¥Ñ}ÁÉ¥”¥Ì¹½Ğ9½¹”•±Í”9½¹”¤°(€€€€€€€É•±•…Í•}ÅÕ½Ñ•}ÁÉ¥”ô¡™±½…Ğ¡É•±•…Í•}•¹ÑÉå}ÁÉ¥”¤¥˜É•±•…Í•}•¹ÑÉå}ÁÉ¥”¥Ì¹½Ğ9½¹”•±Í”9½¹”¤°(€€€€€€€É•±•…Í•}ÅÕ½Ñ•}…Ğõ¹½Ü¥˜É•±•…Í•}•¹ÑÉå}ÁÉ¥”¥Ì¹½Ğ9½¹”•±Í”9½¹”°(€€€€€€€ÑÑ±}Í•½¹‘ÌõÑÑ±}Í•½¹‘Ì°(€€€€€€€•áÁ¥É•Í}…Ğõ•áÁ¥É•Í}…Ğ°(€€€€€€€ÍÑ…Ñ”ô‰Idˆ°(€€€€€€€Í½ÕÉ•}Á…Á•É}É•ÅÕ•ÍÑ}¥õÁ…Á•É}É•ÅÕ•ÍĞ¹¥°(€€€€€€€É•…Ñ•‘}…Ğõ¹½Ü°(€€€€€€€ÕÁ‘…Ñ•‘}…Ğõ¹½Ü°(€€€€¤(((ŒƒŠRŠR ƒBOBïBÃBËB÷F/BäƒFBãBëBìƒŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠRŠR (()…Íå¹Œ‘•˜ÉÕ¹}…Ñ”¡Ñ…É•Ñ}µ½‘”èÍÑÈ¤€´ø9½¹”è(€€€€ˆˆ‹BOBïBÃBËB÷F/BäƒFBãBëBìÉ•±•…Í•}…Ñ”¸ˆˆˆ((€€€¥˜¹½ĞQ	M}UI0è(€€€€€€€É…¥Í”IÕ¹Ñ¥µ•ÉÉ½È ‰Q	M}UI0•¹Ù¥É½¹µ•¹ĞÙ…É¥…‰±”¥Ì¹½ĞÍ•Ğˆ¤((€€€±½•È¹¥¹™¼ (€€€€€€€€‰É•±•…Í•}…Ñ”ƒBßBÃBÿFF'B×Bô¸Ñ…É•Ñ}µ½‘”ô•ÌA=11}%9QIY0ô•ÍÌˆ°(€€€€€€€Ñ…É•Ñ}µ½‘”°(€€€€€€€A=11}%9QIY0°(€€€€¤((€€€•¹¥¹”€ôÉ•…Ñ•}…Íå¹}•¹¥¹”¡Q	M}UI0°Á½½±}ÁÉ•}Á¥¹œõQÉÕ”¤(€€€M•ÍÍ¥½¸€ô…Íå¹}Í•ÍÍ¥½¹µ…­•È¡•¹¥¹”°•áÁ¥É•}½¹}½µµ¥Ğõ…±Í”°±…ÍÍ|õÍå¹M•ÍÍ¥½¸¤((€€€™É½´Á½±å™±¥À¹½±±•Ñ½È¹±¥•¹Ğ¥µÁ½ÉĞA½±åµ…É­•Ñ±¥•¹Ğ((€€€…Á¥}±¥•¹Ğ€ôA½±åµ…É­•Ñ±¥•¹Ğ ¤((€€€İ¡¥±”¹½Ğ}Í¡ÕÑ‘½İ¸è(€€€€€€€ÑÉäè(€€€€€€€€€€€…Íå¹Œİ¥Ñ M•ÍÍ¥½¸ ¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€€€€€…İ…¥ĞÉ•±•…Í•}‰…Ñ ¡Í•ÍÍ¥½¸°Ñ…É•Ñ}µ½‘”°…Á¥}±¥•¹Ğ¤(€€€€€€€•á•ÁĞá•ÁÑ¥½¸è(€€€€€€€€€€€±½•È¹•á•ÁÑ¥½¸ (€€€€€€€€€€€€€€€€‹B{F#BãBÇBëBÀƒBÈÉ•±•…Í•}‰…Ñ °ƒBÿFBûBÓBûBïBÛBÃB×BğƒFB×FB×BÜ€•ÍÌˆ°A=11}%9QIY0(€€€€€€€€€€€€¤(€€€€€€€…İ…¥Ğ…Íå¹¥¼¹Í±••À¡A=11}%9QIY0¤((€€€±½•È¹¥¹™¼ ‰É•±•…Í•}…Ñ”ƒBûFFBÃB÷BûBËBïB×Bô¸ˆ¤(€€€…İ…¥Ğ•¹¥¹”¹‘¥ÍÁ½Í” ¤(()‘•˜µ…¥¸ ¤€´ø9½¹”è(€€€±½¥¹œ¹‰…Í¥½¹™¥œ (€€€€€€€±•Ù•°õ±½¥¹œ¹%9<°(€€€€€€€™½Éµ…Ğôˆ”¡…ÍÑ¥µ”¥Ì€”¡±•Ù•±¹…µ”¥Ìl”¡¹…µ”¥Ít€”¡µ•ÍÍ…”¥Ìˆ°(€€€€¤((€€€Á…ÉÍ•È€ô…ÉÁ…ÉÍ”¹ÉÕµ•¹ÑA…ÉÍ•È (€€€€€€€‘•ÍÉ¥ÁÑ¥½¸ô‰I•±•…Í”…Ñ”è1¥Ù•5¥ÉÉ½É…¹‘¥‘…Ñ”ƒŠH1%Yá•ÕÑ¥½¹I•ÅÕ•ÍĞˆ(€€€€¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ (€€€€€€€€ˆ´µµ½‘”ˆ°(€€€€€€€¡½¥•Ìõl‰M!=\ˆ°€‰1%Y‰t°(€€€€€€€‘•™…Õ±Ğô‰M!=\ˆ°(€€€€€€€¡•±Àô‹B›B×BïB×BËBûBäƒFB×BÛBãBğƒBÓBïF<1%Y·BßBÃF?BËBûBè€¡M!=\ƒBãBïBà1%Y¤ˆ°(€€€€¤(€€€…ÉÌ€ôÁ…ÉÍ•È¹Á…ÉÍ•}…ÉÌ ¤((€€€Í¥¹…°¹Í¥¹…°¡Í¥¹…°¹M%QI4°}¡…¹‘±•}Í¥Ñ•É´¤(€€€Í¥¹…°¹Í¥¹…°¡Í¥¹…°¹M%%9P°}¡…¹‘±•}Í¥Ñ•É´¤((€€€ÑÉäè(€€€€€€€…Íå¹¥¼¹ÉÕ¸¡ÉÕ¹}…Ñ”¡…ÉÌ¹µ½‘”¤¤(€€€•á•ÁĞ-•å‰½…É‘%¹Ñ•ÉÉÕÁĞè(€€€€€€€Á…ÍÌ(()¥˜}}¹…µ•}|€ôô€‰}}µ…¥¹}|ˆè(€€€µ…¥¸ ¤
+    # 3. Ğ”Ğ¾ÑÑ‚Ğ°ĞµĞ¼ Ğ°ĞºÑ‚Ğ¸Ğ²Ğ½ÑƒÑ LIVE-ÑĞµÑÑĞ¸Ñ Ğ´Ğ»Ñ ÑĞ²ÑĞ·ĞºĞ¸ (ĞµÑĞ»Ğ¸ target_mode == LIVE)
+    active_session = (
+        release_plan.session if isinstance(release_plan, LiveReleasePlan) else None
+    )
+
+    # 4. Ğ¡Ğ¾Ğ·Ğ´Ğ°Ñ‘Ğ¼ LIVE-ÑÑ‚Ñ€Ğ¾ĞºĞ¸
+    live_trade = _build_live_trade(
+        candidate,
+        paper_trade,
+        now,
+        target_mode,
+        order_amount_usdc=(
+            release_plan.order_amount_usdc
+            if isinstance(release_plan, LiveReleasePlan)
+            else release_plan
+        ),
+        release_plan=release_plan,
+    )
+    if active_session:
+        live_trade.live_session_id = active_session.id
+    session.add(live_trade)
+    await session.flush()
+
+    live_request = _build_live_request(
+        candidate,
+        paper_request,
+        live_trade,
+        now,
+        target_mode,
+        order_amount_usdc=(
+            release_plan.order_amount_usdc
+            if isinstance(release_plan, LiveReleasePlan)
+            else release_plan
+        ),
+        max_spend_usdc=(
+            release_plan.max_spend_usdc
+            if isinstance(release_plan, LiveReleasePlan)
+            else release_plan
+        ),
+    )
+    if active_session:
+        live_request.live_session_id = active_session.id
+    session.add(live_request)
+    await session.flush()
+
+    # 5. Ğ ĞµĞ·ĞµÑ€Ğ²Ğ¸Ñ€ÑƒĞµĞ¼ ÑĞºÑĞ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ñ (ExposureReservation) Ğ¸ Ğ±ÑĞ´Ğ¶ĞµÑ‚ ÑĞµÑÑĞ¸Ğ¸
+    exposure_amount = (
+        release_plan.max_spend_usdc
+        if isinstance(release_plan, LiveReleasePlan)
+        else release_plan
+    )
+    exposure_res = ExposureReservation(
+        id=uuid.uuid4(),
+        request_id=live_request.id,
+        trade_history_id=live_trade.id,
+        market_id=live_request.market_id,
+        amount_usdc=exposure_amount,
+        expires_at=live_request.expires_at or (now + timedelta(seconds=30)),
+        created_at=now,
+    )
+    session.add(exposure_res)
+
+    # ĞŸÑ€Ğ¸Ğ¼ĞµÑ‡Ğ°Ğ½Ğ¸Ğµ: session.reserved_usdc Ğ½Ğµ Ğ½Ğ°ĞºĞ°Ğ¿Ğ»Ğ¸Ğ²Ğ°ĞµÑ‚ÑÑ Ğ½Ğ°ĞºĞ¾Ğ¿Ğ¸Ñ‚ĞµĞ»ÑŒĞ½Ğ¾.
+    # Ğ˜ÑÑ‚Ğ¾Ñ‡Ğ½Ğ¸Ğº Ğ¸ÑÑ‚Ğ¸Ğ½Ñ‹ â€” Ğ´Ğ¸Ğ½Ğ°Ğ¼Ğ¸Ñ‡ĞµÑĞºĞ¸Ğ¹ get_session_budget_snapshot().
+
+    # 6. ĞĞ±Ğ½Ğ¾Ğ²Ğ»ÑĞµĞ¼ ĞºĞ°Ğ½Ğ´Ğ¸Ğ´Ğ°Ñ‚Ğ°
+    candidate.state = "RELEASED"
+    candidate.released_at = now
+    candidate.released_trade_id = live_trade.id
+    candidate.released_request_id = live_request.id
+
+    await session.commit()
+
+    logger.info(
+        "release_gate: candidate=%s â†’ live_trade=%d live_request=%s exposure_res=%s",
+        candidate.id,
+        live_trade.id,
+        live_request.id,
+        exposure_res.id,
+    )
+    return True
+
+
+async def validate_live_release(
+    session: AsyncSession,
+    candidate: LiveMirrorCandidate,
+    paper_request: ExecutionRequest,
+    paper_trade: TradeHistory,
+    target_mode: str,
+    api_client: Any = None,
+    fresh_prices: dict | None = None,
+    ignore_edge_decay: bool = False,
+) -> LiveReleasePlan | Decimal:
+    """
+    ĞŸÑ€Ğ¾Ğ²ĞµÑ€ÑĞµÑ‚, Ğ¼Ğ¾Ğ¶Ğ½Ğ¾ Ğ»Ğ¸ ÑĞµĞ¹Ñ‡Ğ°Ñ Ğ²Ñ‹Ğ¿ÑƒÑÑ‚Ğ¸Ñ‚ÑŒ ĞºĞ°Ğ½Ğ´Ğ¸Ğ´Ğ°Ñ‚Ğ° Ğ² LIVE-Ğ¸ÑĞ¿Ğ¾Ğ»Ğ½ĞµĞ½Ğ¸Ğµ (Ğ¸Ğ»Ğ¸ SHADOW).
+    Ğ’Ğ¾Ğ·Ğ²Ñ€Ğ°Ñ‰Ğ°ĞµÑ‚ live_amount (Decimal), ĞºĞ¾Ñ‚Ğ¾Ñ€Ñ‹Ğ¹ Ğ½ÑƒĞ¶Ğ½Ğ¾ Ğ¸ÑĞ¿Ğ¾Ğ»ÑŒĞ·Ğ¾Ğ²Ğ°Ñ‚ÑŒ Ğ´Ğ»Ñ ÑĞ¾Ğ·Ğ´Ğ°Ğ½Ğ¸Ñ Ğ·Ğ°ÑĞ²Ğ¾Ğº.
+    ĞŸÑ€Ğ¸ Ğ½ĞµĞ²Ğ¾ÑÑÑ‚Ğ°Ğ½Ğ¾Ğ²Ğ¸Ğ¼Ğ¾Ğ¹ Ğ¾ÑˆĞ¸Ğ±ĞºĞµ Ğ±Ñ€Ğ¾ÑĞ°ĞµÑ‚ ReleaseRejected (ĞºĞ°Ğ½Ğ´Ğ¸Ğ´Ğ°Ñ‚ Ğ¾Ñ‚ĞºĞ»Ğ¾Ğ½ÑĞµÑ‚ÑÑ).
+    ĞŸÑ€Ğ¸ Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ğ¾Ğ¹ Ğ½ĞµĞ³Ğ¾Ñ‚Ğ¾Ğ²Ğ½Ğ¾ÑÑ‚Ğ¸ ÑĞ¸ÑÑ‚ĞµĞ¼Ñ‹ Ğ±Ñ€Ğ¾ÑĞ°ĞµÑ‚ ReleaseDeferred (Ğ¾Ñ‚ĞºĞ»Ğ°Ğ´Ñ‹Ğ²Ğ°ĞµÑ‚ÑÑ).
+    """
+    now = datetime.now(timezone.utc)
+
+    # 1. ĞŸÑ€Ğ¾Ğ²ĞµÑ€ĞºĞ° Ğ¸ÑÑ‚Ğ¾Ñ‡Ğ½Ğ¸ĞºĞ°
+    if candidate.target_mode != target_mode:
+        raise ReleaseRejected("candidate target_mode mismatch")
+
+    if paper_request.requested_mode != "PAPER":
+        raise ReleaseRejected("source request is not PAPER")
+
+    if paper_request.intent != "OPEN":
+        raise ReleaseRejected("source request is not OPEN")
+
+    if paper_request.state not in PAPER_MIRRORABLE_STATES:
+        raise ReleaseRejected(
+            f"source request state is {paper_request.state!r}, not finally filled"
+        )
+
+    if paper_trade.mode != "PAPER":
+        raise ReleaseRejected("source trade is not PAPER")
+
+    if paper_request.trade_history_id != paper_trade.id:
+        raise ReleaseRejected("source linkage mismatch")
+
+    # 2. Ğ¡Ğ¾Ğ²Ğ¿Ğ°Ğ´ĞµĞ½Ğ¸Ğµ snapshot signal_hash
+    current_snapshot = _build_signal_snapshot(paper_request, paper_trade)
+    if _compute_hash(current_snapshot) != candidate.signal_hash:
+        raise ReleaseRejected("signal snapshot hash mismatch")
+
+    # 3. Ğ’Ğ¾Ğ·Ñ€Ğ°ÑÑ‚ ÑĞ¸Ğ³Ğ½Ğ°Ğ»Ğ°: Ğ½Ğµ ÑÑ‚Ğ°Ñ€ÑˆĞµ LIVE_MAX_SIGNAL_AGE_SEC ÑĞµĞºÑƒĞ½Ğ´ Ğ¾Ñ‚ updated_at/created_at
+    created_or_updated = paper_request.updated_at or paper_request.created_at
+    if created_or_updated:
+        if created_or_updated.tzinfo is None:
+            created_or_updated = created_or_updated.replace(tzinfo=timezone.utc)
+        age_sec = (now - created_or_updated).total_seconds()
+        max_age_val = await session.scalar(
+            select(RuntimeSettings.value).where(
+                RuntimeSettings.key == "LIVE_MAX_SIGNAL_AGE_SEC"
+            )
+        )
+        try:
+            max_age_sec = float(max_age_val) if max_age_val is not None else 60.0
+        except (TypeError, ValueError):
+            logger.warning(
+                "invalid_live_signal_age_setting",
+                value=str(max_age_val),
+                fallback_seconds=60.0,
+            )
+            max_age_sec = 60.0
+        if age_sec > max_age_sec:
+            raise ReleaseRejected(
+                f"Signal is too old ({age_sec:.1f}s > {max_age_sec:.1f}s)"
+            )
+
+    # 4. ĞŸÑ€Ğ¾Ğ²ĞµÑ€ĞºĞ° Ğ¾ĞºĞ¾Ğ½Ñ‡Ğ°Ğ½Ğ¸Ñ Ñ€Ñ‹Ğ½ĞºĞ°
+    if paper_trade.market_end_time:
+        end_time = paper_trade.market_end_time
+        if end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=timezone.utc)
+        if end_time <= now:
+            raise ReleaseRejected("Market is already closed")
+
+    # 4.1 ĞŸÑ€Ğ¾Ğ²ĞµÑ€ĞºĞ° Ğ¼Ğ¸Ğ½Ğ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ¾Ğ³Ğ¾ Ñ€Ğ°Ğ·Ğ¼ĞµÑ€Ğ° Ğ¾Ñ€Ğ´ĞµÑ€Ğ°
+    order_amount = Decimal(str(paper_request.target_amount_usdc or 0))
+    if order_amount < Decimal("1.00"):
+        raise ReleaseRejected(
+            f"Ğ¡ÑƒĞ¼Ğ¼Ğ° Ğ¾Ñ€Ğ´ĞµÑ€Ğ° {order_amount} USDC Ğ½Ğ¸Ğ¶Ğµ Ğ¼Ğ¸Ğ½Ğ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ğ¾Ğ¹ ÑÑƒĞ¼Ğ¼Ñ‹ Polymarket 1.00 USDC"
+        )
+
+    # 4.2 ĞŸÑ€Ğ¾Ğ²ĞµÑ€ĞºĞ° Ğ¸ÑÑ‚Ğ¾Ñ‡Ğ½Ğ¸ĞºĞ° Ğ¼Ğ¾Ğ´ĞµĞ»Ğ¸ (Ñ‚Ğ¾Ğ»ÑŒĞºĞ¾ PHASE Ğ´Ğ»Ñ COMBINED)
+    active_features = str(paper_trade.active_features or "").upper()
+    if "COMBINED" in active_features:
+        if paper_trade.entry_model_source != "PHASE":
+            raise ReleaseRejected(
+                f"Invalid entry_model_source for COMBINED: "
+                f"{paper_trade.entry_model_source} != PHASE"
+            )
+
+    # 4.3 ĞŸÑ€Ğ¾Ğ²ĞµÑ€ĞºĞ° ÑĞ²ĞµĞ¶ĞµĞ³Ğ¾ ÑÑ‚Ğ°ĞºĞ°Ğ½Ğ° Ğ¸ edge (Ñ‡ĞµÑ€ĞµĞ· Polymarket API)
+    # Ğ•ÑĞ»Ğ¸ Ñ†ĞµĞ½Ñ‹ Ğ½Ğµ Ğ±Ñ‹Ğ»Ğ¸ Ğ¿Ñ€ĞµĞ´Ğ·Ğ°Ğ³Ñ€ÑƒĞ¶ĞµĞ½Ñ‹ Ğ²Ğ½Ğµ Ğ±Ğ»Ğ¾ĞºĞ¸Ñ€Ğ¾Ğ²ĞºĞ¸ (fresh_prices = None),
+    # Ğ¾Ñ‚ĞºĞ»Ğ°Ğ´Ñ‹Ğ²Ğ°ĞµĞ¼ Ğ·Ğ°ÑĞ²ĞºÑƒ, Ñ‡Ñ‚Ğ¾Ğ±Ñ‹ Ğ½Ğµ Ğ´ĞµĞ»Ğ°Ñ‚ÑŒ Ğ´Ğ¾Ğ»Ğ³Ğ¸Ñ… Ğ±Ğ»Ğ¾ĞºĞ¸Ñ€ÑƒÑÑ‰Ğ¸Ñ… Ğ·Ğ°Ğ¿Ñ€Ğ¾ÑĞ¾Ğ².
+    if target_mode == "LIVE":
+        if not fresh_prices or fresh_prices.get("best_ask") is None:
+            logger.warning(
+                "polymarket_quote_unavailable",
+                market_id=paper_request.market_id,
+                reason="fetched_outside_lock_failed",
+            )
+            raise ReleaseDeferred("RELEASE_QUOTE_UNAVAILABLE: no prices fetched")
+
+        release_entry_price = float(fresh_prices["best_ask"])
+    release_net_edge = None
+
+    if "COMBINED" in active_features:
+        # Ğ§Ğ¸Ñ‚Ğ°ĞµĞ¼ Ñ„Ğ»Ğ°Ğ³ Ğ¾Ñ‚ĞºĞ»ÑÑ‡ĞµĞ½Ğ¸Ñ Ğ¿Ñ€Ğ¾Ğ²ĞµÑ€ĞºĞ¸ Ğ¿Ñ€Ğ¾ÑĞºĞ°Ğ»ÑŒĞ·Ñ‹Ğ²Ğ°Ğ½Ğ¸Ñ Ğ¸Ğ· RuntimeSettings
+        ignore_edge_decay_val = await session.scalar(
+            select(RuntimeSettings.value).where(
+                RuntimeSettings.key == "LIVE_IGNORE_EDGE_DECAY"
+            )
+        )
+        ignore_edge_decay = (
+            ignore_edge_decay_val is not None
+            and ignore_edge_decay_val.strip().lower() == "true"
+        )
+
+        # Ğ§Ğ¸Ñ‚Ğ°ĞµĞ¼ Ğ½ÑƒĞ¶Ğ½Ñ‹Ğµ Edge Ğ¸Ğ· RuntimeSettings (Ñ‚Ğµ Ğ¶Ğµ ĞºĞ»ÑÑ‡Ğ¸, Ñ‡Ñ‚Ğ¾ Ğ¾Ğ±Ğ½Ğ¾Ğ²Ğ»ÑĞµÑ‚ Ğ´Ğ°ÑˆĞ±Ğ¾Ñ€Ğ´)
+        min_edge_fav_val = await session.scalar(
+            select(RuntimeSettings.value).where(
+                RuntimeSettings.key == "FAVORITE_MIN_EDGE"
+            )
+        )
+        min_edge_out_val = await session.scalar(
+            select(RuntimeSettings.value).where(RuntimeSettings.key == "OUTS_MIN_EDGE")
+        )
+        cost_buffer_val = await session.scalar(
+            select(RuntimeSettings.value).where(
+                RuntimeSettings.key == "COMBINED_COST_BUFFER"
+            )
+        )
+
+        cost_buffer = float(cost_buffer_val) if cost_buffer_val is not None else 0.02
+        min_edge_favorite = (
+            float(min_edge_fav_val) if min_edge_fav_val is not None else 0.05
+        )
+        min_edge_outsider = (
+            float(min_edge_out_val) if min_edge_out_val is not None else 0.03
+        )
+
+        # ĞĞ¿Ñ€ĞµĞ´ĞµĞ»ÑĞµĞ¼ ÑÑ‚Ğ¾Ñ€Ğ¾Ğ½Ñƒ ĞºĞ°Ğ½Ğ´Ğ¸Ğ´Ğ°Ñ‚Ğ° (Ğ°ÑƒÑ‚ÑĞ°Ğ¹Ğ´ĞµÑ€ = Ñ†ĞµĞ½Ğ° < 0.5)
+        is_outsider = release_entry_price < 0.5
+        combined_min_net_edge = min_edge_outsider if is_outsider else min_edge_favorite
+
+        # paper_trade.p_win_effective Ğ¸ÑĞ¿Ğ¾Ğ»ÑŒĞ·ÑƒĞµÑ‚ÑÑ Ğ´Ğ»Ñ Ğ»Ğ¾Ğ³Ğ¸ĞºĞ¸ Ğ² PAPER-Ğ·Ğ°ÑĞ²ĞºĞµ.
+        # ĞĞ¾ Ğ² combined_voting Ğ¼Ñ‹ ÑÑ‡Ğ¸Ñ‚Ğ°Ğ»Ğ¸ p_candidate_win.
+        # Ğ•ÑĞ»Ğ¸ Ğ¿Ğ¾Ğ»Ğµ p_candidate_win ĞµÑÑ‚ÑŒ - Ğ±ĞµÑ€ĞµĞ¼ ĞµĞ³Ğ¾, Ğ¸Ğ½Ğ°Ñ‡Ğµ fallback Ğ½Ğ° p_win_effective
+        p_candidate_win = (
+            float(paper_trade.p_candidate_win)
+            if paper_trade.p_candidate_win is not None
+            else float(paper_trade.p_win_effective)
+        )
+
+        release_gross_edge = p_candidate_win - release_entry_price
+        release_net_edge = release_gross_edge - cost_buffer
+
+        # Check if edge decay rejection is disabled globally
+        if release_net_edge < combined_min_net_edge:
+            if not ignore_edge_decay:
+                raise ReleaseRejected(
+                    f"EDGE_DECAYED_BEFORE_RELEASE: "
+                    f"{release_net_edge:.4f} < {combined_min_net_edge:.4f}"
+                )
+            else:
+                logger.warning(
+                    "EDGE_DECAYED_BEFORE_RELEASE_ignored",
+                    release_net_edge=round(release_net_edge, 4),
+                    combined_min_net_edge=round(combined_min_net_edge, 4),
+                )
+
+    # 5. ĞŸÑ€Ğ¾Ğ²ĞµÑ€ĞºĞ¸ Ğ´Ğ»Ñ LIVE Ñ€ĞµĞ¶Ğ¸Ğ¼Ğ° (kill-switch, worker, gateway, allowance, balance, session)
+    if target_mode == "LIVE":
+        live_enabled = await session.scalar(
+            select(RuntimeSettings.value).where(
+                RuntimeSettings.key == "LIVE_TRADING_ENABLED"
+            )
+        )
+        if live_enabled is None or live_enabled.strip().lower() != "true":
+            raise ReleaseDeferred("LIVE kill switch is off")
+
+        # 5.1 ĞŸÑ€Ğ¾Ğ²ĞµÑ€ĞºĞ° Ğ°ĞºÑ‚Ğ¸Ğ²Ğ½Ğ¾Ğ¹ LIVE-ÑĞµÑÑĞ¸Ğ¸ Ğ¸ Ğ»Ğ¸Ğ¼Ğ¸Ñ‚Ğ¾Ğ² ÑĞµÑÑĞ¸Ğ¸
+        from polyflip.db.execution_models import LiveTradingSession
+        from polyflip.execution.live_session_service import (
+            count_session_positions,
+            get_session_exposure,
+        )
+
+        active_session = (
+            await session.execute(
+                select(LiveTradingSession)
+                .where(LiveTradingSession.status == "ACTIVE")
+                .order_by(LiveTradingSession.started_at.desc().nulls_last())
+                .limit(1)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+        if active_session is None:
+            raise ReleaseDeferred("No active LIVE trading session")
+
+        # 5.2 ĞŸÑ€Ğ¾Ğ²ĞµÑ€ĞºĞ° ÑÑ‚Ğ¾Ğ¸Ğ¼Ğ¾ÑÑ‚Ğ¸ Ğ¾Ñ€Ğ´ĞµÑ€Ğ° max(target_amount_usdc, max_spend_usdc)
+        live_amount = calculate_live_order_amount(paper_request, active_session)
+        order_amount = live_amount
+
+        # Ğ›Ğ¸Ğ¼Ğ¸Ñ‚ Ğ±ÑĞ´Ğ¶ĞµÑ‚Ğ° ÑĞµÑÑĞ¸Ğ¸ Ñ‡ĞµÑ€ĞµĞ· SessionBudgetSnapshot
+        from polyflip.execution.live_session_service import get_session_budget_snapshot
+
+        budget_snap = await get_session_budget_snapshot(session, active_session)
+        if order_amount > budget_snap.remaining_usdc:
+            raise ReleaseDeferred(
+                "LIVE session budget exhausted "
+                f"(remaining {budget_snap.remaining_usdc} USDC "
+                f"< {order_amount} USDC)"
+            )
+
+        # Ğ›Ğ¸Ğ¼Ğ¸Ñ‚ ĞºĞ¾Ğ»Ğ¸Ñ‡ĞµÑÑ‚Ğ²Ğ° Ğ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ğ¹ ÑĞµÑÑĞ¸Ğ¸
+        open_positions = await count_session_positions(session, active_session.id)
+        if open_positions >= active_session.max_open_positions:
+            raise ReleaseDeferred(
+                "Session open-position limit reached "
+                f"({open_positions} >= "
+                f"{active_session.max_open_positions})"
+            )
+
+        # Ğ›Ğ¸Ğ¼Ğ¸Ñ‚ ÑĞºÑĞ¿Ğ¾Ğ·Ğ¸Ñ†Ğ¸Ğ¸ ÑĞµÑÑĞ¸Ğ¸
+        current_exposure = await get_session_exposure(session, active_session.id)
+        max_exposure = Decimal(str(active_session.max_total_exposure_usdc))
+        if current_exposure + order_amount > max_exposure:
+            raise ReleaseDeferred(
+                "Session exposure limit reached "
+                f"({current_exposure} + {order_amount} "
+                f"> {max_exposure})"
+            )
+
+        ws = (
+            await session.execute(
+                select(ExecutionWorkerStatus)
+                .where(ExecutionWorkerStatus.execution_mode == "LIVE")
+                .order_by(ExecutionWorkerStatus.heartbeat_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if ws is None:
+            raise ReleaseDeferred("No LIVE worker status found")
+
+        hb_at = ws.heartbeat_at
+        if hb_at and hb_at.tzinfo is None:
+            hb_at = hb_at.replace(tzinfo=timezone.utc)
+        if not hb_at or (now - hb_at).total_seconds() > 60:
+            raise ReleaseDeferred("LIVE worker heartbeat is stale (>60s)")
+
+        if not ws.gateway_ready:
+            raise ReleaseDeferred(
+                f"LIVE worker gateway not ready: {ws.last_error_message}"
+            )
+
+        if not ws.collateral_allowance_ready:
+            raise ReleaseDeferred("LIVE worker collateral allowance not ready")
+
+        if not ws.conditional_allowance_ready:
+            raise ReleaseDeferred("LIVE worker conditional token allowance not ready")
+
+        required_balance = min(
+            Decimal(str(active_session.budget_usdc)),
+            Decimal(str(active_session.max_total_exposure_usdc)),
+        )
+        if Decimal(str(ws.balance_usdc or 0)) < required_balance:
+            raise ReleaseDeferred(
+                f"LIVE worker balance USDC ({ws.balance_usdc}) "
+                f"is less than required ({required_balance})"
+            )
+
+    # 6. Ğ Ğ¸ÑĞº-Ğ»Ğ¸Ğ¼Ğ¸Ñ‚Ñ‹
+    risk_error = await check_risk_limits(
+        session,
+        intent="OPEN",
+        max_spend_usdc=order_amount,
+        requested_mode=target_mode,
+    )
+    if risk_error:
+        raise ReleaseRejected(f"Risk check failed: {risk_error}")
+
+    if target_mode == "LIVE":
+        return LiveReleasePlan(
+            order_amount_usdc=order_amount,
+            max_spend_usdc=order_amount,
+            session=active_session,
+            release_entry_price=release_entry_price,
+            release_net_edge=release_net_edge,
+        )
+
+    return order_amount
+
+
+def _build_live_trade(
+    candidate: LiveMirrorCandidate,
+    paper_trade: TradeHistory,
+    now: datetime,
+    target_mode: str,
+    order_amount_usdc: Decimal,
+    release_plan: LiveReleasePlan | Decimal | None = None,
+) -> TradeHistory:
+    """
+    Ğ¡Ğ¾Ğ·Ğ´Ğ°Ñ‘Ñ‚ Ğ½Ğ¾Ğ²Ñ‹Ğ¹ TradeHistory(mode=target_mode) Ğ½Ğ° Ğ¾ÑĞ½Ğ¾Ğ²Ğµ PAPER-ÑĞ½Ğ¸Ğ¼ĞºĞ°.
+    """
+    return TradeHistory(
+        market_id=paper_trade.market_id,
+        asset=paper_trade.asset,
+        outcome_bought=paper_trade.outcome_bought,
+        amount_usdc=order_amount_usdc,
+        executed_price=0.0,  # Ğ·Ğ°Ğ¿Ğ¾Ğ»Ğ½ÑĞµÑ‚ÑÑ ÑÑ€ĞµĞ´Ğ½ĞµĞ¹ Ñ†ĞµĞ½Ğ¾Ğ¹ Ğ¿Ğ¾ÑĞ»Ğµ fill
+        predicted_flip_prob=paper_trade.predicted_flip_prob,
+        active_features=paper_trade.active_features,
+        model_version=paper_trade.model_version,
+        status="PENDING",
+        mode=target_mode,
+        edge=paper_trade.edge,
+        net_edge=(
+            release_plan.release_net_edge
+            if isinstance(release_plan, LiveReleasePlan)
+            and release_plan.release_net_edge is not None
+            else paper_trade.net_edge
+        ),
+        market_role=paper_trade.market_role,
+        strategy_type=paper_trade.strategy_type,
+        p_flip_effective=paper_trade.p_flip_effective,
+        p_win_effective=paper_trade.p_win_effective,
+        stop_loss_pct=paper_trade.stop_loss_pct,
+        stop_loss_price=paper_trade.stop_loss_price,
+        take_profit_enabled=paper_trade.take_profit_enabled,
+        take_profit_multiplier=paper_trade.take_profit_multiplier,
+        take_profit_price=paper_trade.take_profit_price,
+        position_status="OPENING",
+        entry_filled_shares=Decimal("0"),
+        entry_cost_usdc=Decimal("0"),
+        remaining_shares=Decimal("0"),
+        position_accounting_version=0,  # Ğ¸Ğ½Ğ¸Ñ†Ğ¸Ğ°Ğ»Ğ¸Ğ·Ğ¸Ñ€ÑƒĞµÑ‚ÑÑ Ğ¿Ğ¾ÑĞ»Ğµ FILLED
+        model_key=paper_trade.model_key,
+        confirm_model_key=paper_trade.confirm_model_key,
+        confirm_model_version=paper_trade.confirm_model_version,
+        model_attribution_source=paper_trade.model_attribution_source,
+        direction_model_key=paper_trade.direction_model_key,
+        direction_model_version=paper_trade.direction_model_version,
+        entry_model_key=paper_trade.entry_model_key,
+        entry_model_version=paper_trade.entry_model_version,
+        entry_model_source=paper_trade.entry_model_source,
+        p_candidate_win=paper_trade.p_candidate_win,
+        gross_edge=paper_trade.gross_edge,
+        cost_buffer=paper_trade.cost_buffer,
+        decision_run_id=paper_trade.decision_run_id,
+        config_snapshot=paper_trade.config_snapshot,
+        market_end_time=paper_trade.market_end_time,
+        source_paper_trade_id=paper_trade.id,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _build_live_request(
+    candidate: LiveMirrorCandidate,
+    paper_request: ExecutionRequest,
+    live_trade: TradeHistory,
+    now: datetime,
+    target_mode: str,
+    order_amount_usdc: Decimal,
+    max_spend_usdc: Decimal,
+) -> ExecutionRequest:
+    """
+    Ğ¡Ğ¾Ğ·Ğ´Ğ°Ñ‘Ñ‚ Ğ½Ğ¾Ğ²Ñ‹Ğ¹ ExecutionRequest(requested_mode=target_mode, state='READY').
+    Ğ—Ğ°Ğ¿Ğ¾Ğ»Ğ½ÑĞµÑ‚ ttl_seconds (Ğ¼Ğ°ĞºÑ 30Ñ) Ğ¸ expires_at.
+    """
+    ttl_seconds = min(paper_request.ttl_seconds or 30, 30)
+    expires_at = now + timedelta(seconds=ttl_seconds)
+
+    return ExecutionRequest(
+        id=uuid.uuid4(),
+        idempotency_key=f"{target_mode}-OPEN-mirror-{candidate.id}",
+        requested_mode=target_mode,
+        trade_history_id=live_trade.id,
+        intent="OPEN",
+        trigger_reason="MIRROR",
+        market_id=paper_request.market_id,
+        asset=paper_request.asset,
+        outcome_to_buy=paper_request.outcome_to_buy,
+        target_amount_usdc=order_amount_usdc,
+        requested_shares=None,
+        limit_price=paper_request.limit_price,
+        max_slippage_pct=paper_request.max_slippage_pct,
+        max_spend_usdc=max_spend_usdc,
+        max_acceptable_price=paper_request.max_acceptable_price,
+        ttl_seconds=ttl_seconds,
+        expires_at=expires_at,
+        state="READY",
+        source_paper_request_id=paper_request.id,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+# â”€â”€ Ğ“Ğ»Ğ°Ğ²Ğ½Ñ‹Ğ¹ Ñ†Ğ¸ĞºĞ» â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+
+async def run_gate(target_mode: str) -> None:
+    """Ğ“Ğ»Ğ°Ğ²Ğ½Ñ‹Ğ¹ Ñ†Ğ¸ĞºĞ» release_gate."""
+
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL environment variable is not set")
+
+    logger.info(
+        "release_gate Ğ·Ğ°Ğ¿ÑƒÑ‰ĞµĞ½. target_mode=%s POLL_INTERVAL=%ss",
+        target_mode,
+        POLL_INTERVAL,
+    )
+
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    Session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    from polyflip.collector.client import PolymarketClient
+
+    api_client = PolymarketClient()
+
+    while not _shutdown:
+        try:
+            async with Session() as session:
+                await release_batch(session, target_mode, api_client)
+        except Exception:
+            logger.exception(
+                "ĞÑˆĞ¸Ğ±ĞºĞ° Ğ² release_batch, Ğ¿Ñ€Ğ¾Ğ´Ğ¾Ğ»Ğ¶Ğ°ĞµĞ¼ Ñ‡ĞµÑ€ĞµĞ· %ss", POLL_INTERVAL
+            )
+        await asyncio.sleep(POLL_INTERVAL)
+
+    logger.info("release_gate Ğ¾ÑÑ‚Ğ°Ğ½Ğ¾Ğ²Ğ»ĞµĞ½.")
+    await engine.dispose()
+
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+
+    parser = argparse.ArgumentParser(
+        description="Release gate: LiveMirrorCandidate â†’ LIVE ExecutionRequest"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["SHADOW", "LIVE"],
+        default="SHADOW",
+        help="Ğ¦ĞµĞ»ĞµĞ²Ğ¾Ğ¹ Ñ€ĞµĞ¶Ğ¸Ğ¼ Ğ´Ğ»Ñ LIVE-Ğ·Ğ°ÑĞ²Ğ¾Ğº (SHADOW Ğ¸Ğ»Ğ¸ LIVE)",
+    )
+    args = parser.parse_args()
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+    signal.signal(signal.SIGINT, _handle_sigterm)
+
+    try:
+        asyncio.run(run_gate(args.mode))
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

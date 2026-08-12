@@ -405,5 +405,1210 @@ async def process_ready_requests():
             await finalize_request(
                 session, req, state="REJECTED", error=f"Risk check failed: {risk_err}"
             )
- ◊n=Í⁄$z{-ÆÈ‹j◊ùTB ¢GFV◊BÊW'&˜%ˆ◊6r“$uDB˜&FW"Wáó&VBB÷&∂WBVÊB ¢GFV◊BÊfñÊó6ÜVEˆB“Ê˜p¢vóBfñÊ∆ó¶U˜&WVW7BÄ¢6W76ñˆ‚¿¢&W¿¢7FFS“$UÖï$TB"¿¢W'&˜#“$uDBF∂R◊&ˆfóB˜&FW"Wáó&VBB÷&∂WBVÊB"¿¢ê¢ñb&WÁG&FUˆÜó7F˜'ïˆñC†¢vóB&V'Vñ∆E˜G&FUˆ66˜VÁFñÊrá6W76ñˆ‚¬&WÁG&FUˆÜó7F˜'ïˆñBê¢G&FR“vóB6W76ñˆ‚ÊvWBÖG&FTÜó7F˜'í¬&WÁG&FUˆÜó7F˜'ïˆñBê¢ñbG&FRÊBG&FRÁ˜6óFñˆÂ˜7FGW2“$4ƒı4TB#†¢G&FRÁF∂U˜&ˆfóE˜7FGW2“$UÖï$TB ¢vóB6W76ñˆ‚Ê6ˆ÷÷óBÇê¢6ˆÁFñÁVP†¢7V%˜&W2“vóBvFWvíÊvWEˆ˜&FW"ÜGFV◊BÁ&˜fñFW%ˆ˜&FW%ˆñBê¢GFV◊BÁ&˜fñFW%˜7FGW2“7V%˜&W2Á&˜fñFW%˜7FGW0¢ñb7V%˜&W2Á6WGF∆V÷VÁE˜7FFS†¢GFV◊BÁ6WGF∆V÷VÁE˜7FFR“7V%˜&W2Á6WGF∆V÷VÁE˜7FFP†¢T‰Dî‰uÙı$DU%ı5DEU4U2“g&˜¶VÁ6WBÄ¢≤$44UDTB"¬%T‰¥‰ıt‚"¬%T‰Dî‰r"¬$ƒïdR"¬$DTƒîTB'–¢ê†¢ñb7V%˜&W2Á&˜fñFW%˜7FGW2ÁWW"Çí”“$‘D4ÑTB#†¢GFV◊BÁ7FGW2“%T‰¥‰ıt‚ ¢GFV◊BÁ&˜fñFW%˜7FGW2“$‘D4ÑTB ¢&WÁ7FFR“%$T4Ù‰4îƒî‰r ¢vóB6W76ñˆ‚Ê6ˆ÷÷óBÇê¢6ˆÁFñÁVP†¢ñbÄ¢7V%˜&W2Á&˜fñFW%˜7FGW2ÁWW"Çíñ‚T‰Dî‰uÙı$DU%ı5DEU4U0¢˜"7V%˜&W2Á6WGF∆V÷VÁE˜7FFRñ‚Ç%T‰Dî‰r"¬%T‰¥‰ıt‚"¬""ê¢ì†¢∆ˆvvW"ÊñÊfÚÄ¢'&V6ˆÊ6ñ∆U˜7Fñ∆≈˜VÊFñÊr"¿¢&WVW7EˆñC◊7G"á&WÊñBí¿¢&˜fñFW%˜7FGW3◊7V%˜&W2Á&˜fñFW%˜7FGW2¿¢ê¢&WÁ7FFR“%$T4Ù‰4îƒî‰r ¢vóB6W76ñˆ‚Ê6ˆ÷÷óBÇê¢6ˆÁFñÁVP†¢ñb7V%˜&W2Á6WGF∆V÷VÁE˜7FFR”“$4Ù‰dï$‘TB#†¢∆ˆvvW"ÊñÊfÚÄ¢'&V6ˆÊ6ñ∆Uˆ6ˆÊfó&÷VEˆÊıˆfñ∆«5˜vóFñÊr"¿¢&WVW7EˆñC◊7G"á&WÊñBí¿¢ê¢&WÁ7FFR“%$T4Ù‰4îƒî‰r ¢&WÁWFFVEˆB“Ê˜p¢vóB6W76ñˆ‚Ê6ˆ÷÷óBÇê¢6ˆÁFñÁVP†¢V∆ñb7V%˜&W2Á6WGF∆V÷VÁE˜7FFRñ‚Ä¢$dîƒTB"¿¢%$T§T5DTB"¿¢$UÖï$TB"¿¢$4‰4TƒTB"¿¢í˜"7V%˜&W2Á&˜fñFW%˜7FGW2ÁWW"Çíñ‚Ä¢%$T§T5DTB"¿¢$dîƒTB"¿¢$UÖï$TB"¿¢$4‰4TƒTB"¿¢%T‰‘D4ÑTB"¿¢ì†¢GFV◊BÁ7FGW2“$dîƒTB ¢vóBfñÊ∆ó¶U˜&WVW7BÄ¢6W76ñˆ‚¿¢&W¿¢7FFS“%$T§T5DTB"¿¢W'&˜#÷b$vFWví&WGW&ÊVBFW&÷ñÊ¬7FGW3¢ ¢b'∑7V%˜&W2Á6WGF∆V÷VÁE˜7FFR˜"7V%˜&W2Á&˜fñFW%˜7FGW7“"¿¢ê¢vóB6W76ñˆ‚Ê6ˆ÷÷óBÇê¢V«6S†¢∆ˆvvW"ÊñÊfÚÄ¢'&V6ˆÊ6ñ∆U˜VÊ∂Ê˜vÂ˜7FGW2"¿¢&WVW7EˆñC◊7G"á&WÊñBí¿¢vFWvï˜7FGW3◊7V%˜&W2Á&˜fñFW%˜7FGW2¿¢ê¢&WÁ7FFR“%$T4Ù‰4îƒî‰r ¢&WÁWFFVEˆB“Ê˜p¢vóB6W76ñˆ‚Ê6ˆ÷÷óBÇê†¢WÜ6WBvFWvïVÊfñ∆&∆R2S†¢∆ˆvvW"Áv&ÊñÊrÇ&vFWvï˜VÊfñ∆&∆U˜&V6ˆÊ6ñ∆R"¬W'&˜#◊7G"ÜRíê¢WÜ6WBWÜ6WFñˆ‚2S†¢∆ˆvvW"ÊWÜ6WFñˆ‚Ä¢'&V6ˆÊ6ñ∆Uˆfñ∆VB"¬&WVW7EˆñC◊7G"á&WÊñBí¬W'&˜#◊7G"ÜRê¢ê††•ˆ∆7EˆWFı˜&W6ˆ«fUˆ6ÜV6µˆ'ïˆ÷ˆFS¢Fñ7E∑7G"¬FFWFñ÷U““∑–§UDıı$U4Ù≈dUÙ4ÑT4µÙîÂDU%d≈ı4T2“c ††¶7ñÊ2FVbˆWFı˜&W6ˆ«fU˜7GV6µˆ÷ÁV≈˜&WfñWw2ÜWÜV7WFñˆÂˆ÷ˆFS¢7G"í”‚ÊˆÊS†¢"" ¢	--ÌÕ-ç}]≠Ç}≠Ω-]"}-çççR‘ÂT≈ı$UdîUuı$UTï$TB4ƒı4R›}˝-≠Ç-çRRÕç›="‡¢	˝]]B$T§T5DTB˝Ì-]˝Ì-Ú-Ì}ÕÌm›ΩRfñ∆«2}]]rvFWví‡¢	ç˝ÌΩÕ}=]"Ì--]››=‚ç}ÌΩçÌ-››=‚]ç‚		B-Ì--Ωç›=Ì¬c]¢›≠mMΩí]mç¬‡¢"" ¢Ê˜r“FFWFñ÷RÊÊ˜ráFñ÷W¶ˆÊRÁWF2ê¢∆7Eˆ6ÜV6≤“ˆ∆7EˆWFı˜&W6ˆ«fUˆ6ÜV6µˆ'ïˆ÷ˆFRÊvWBÜWÜV7WFñˆÂˆ÷ˆFRê¢ñbÄ¢∆7Eˆ6ÜV6∞¢ÊBÜÊ˜r“∆7Eˆ6ÜV6≤íÁF˜F≈˜6V6ˆÊG2Çí¬UDıı$U4Ù≈dUÙ4ÑT4µÙîÂDU%d≈ı4T0¢ì†¢&WGW&‡¢ˆ∆7EˆWFı˜&W6ˆ«fUˆ6ÜV6µˆ'ïˆ÷ˆFU∂WÜV7WFñˆÂˆ÷ˆFU““Ê˜p†¢6WGFñÊw2“WÜV7WFñˆÂ6WGFñÊw2Çê¢7ñÊ2vóFÇ7ñÊ5˜6W76ñˆ‚Çí26W76ñˆ„†¢÷ÁV≈ˆ7WFˆfb“Ê˜r“Fñ÷VFV«FÜ÷ñÁWFW3”Rê¢7F◊Eˆ÷ÁV¬“6V∆V7BÑWÜV7WFñˆÂ&WVW7BíÁvÜW&RÄ¢WÜV7WFñˆÂ&WVW7BÁ7FFR”“$‘ÂT≈ı$UdîUuı$UTï$TB"¿¢WÜV7WFñˆÂ&WVW7BÁ&WVW7FVEˆ÷ˆFR”“WÜV7WFñˆÂˆ÷ˆFR¿¢WÜV7WFñˆÂ&WVW7BÊñÁFVÁB”“$4ƒı4R"¿¢WÜV7WFñˆÂ&WVW7BÁWFFVEˆB√“÷ÁV≈ˆ7WFˆfb¿¢ê¢7GV6µˆ÷ÁV≈˜&W2“ÜvóB6W76ñˆ‚ÊWÜV7WFRá7F◊Eˆ÷ÁV¬ííÁ66∆'2ÇíÊ∆¬Çê¢ñbÊ˜B7GV6µˆ÷ÁV≈˜&W3†¢&WGW&‡†¢vFWví“'Vñ∆EˆWÜV7WFñˆÂˆvFWvíá6WGFñÊw2ê¢f˜"&Wñ‚7GV6µˆ÷ÁV≈˜&W3†¢∆ˆvvW"ÊñÊfÚÄ¢&WFı˜&W6ˆ«fñÊu˜7GV6µˆ÷ÁV≈˜&WfñWuˆ6∆˜6U˜&WVW7B"¿¢&WVW7EˆñC◊7G"á&WÊñBí¿¢G&FUˆÜó7F˜'ïˆñC◊&WÁG&FUˆÜó7F˜'ïˆñB¿¢ê¢GFV◊E˜7F◊B“Ä¢6V∆V7BÑWÜV7WFñˆ‰GFV◊Bê¢ÁvÜW&RÑWÜV7WFñˆ‰GFV◊BÁ&WVW7EˆñB”“&WÊñBê¢Ê˜&FW%ˆ'íÑWÜV7WFñˆ‰GFV◊BÊGFV◊EˆÊÚÊFW62Çíê¢Ê∆ñ÷óBÉê¢ê¢GFV◊B“ÜvóB6W76ñˆ‚ÊWÜV7WFRÜGFV◊E˜7F◊BííÁ66∆%ˆˆÊUˆ˜%ˆÊˆÊRÇê†¢fñ∆«2“µ–¢ñbGFV◊BÊBGFV◊BÁ&˜fñFW%ˆ˜&FW%ˆñC†¢G'ì†¢÷&∂WB“vóB6W76ñˆ‚Á66∆"Ä¢6V∆V7BÑ∆ófT÷&∂WBíÁvÜW&RÑ∆ófT÷&∂WBÊ÷&∂WEˆñB”“&WÊ÷&∂WEˆñBê¢ê¢Fˆ∂VÂˆñB“Ä¢÷&∂WBÁñW5˜Fˆ∂VÂˆñ@¢ñb÷&∂WBÊB&WÊ˜WF6ˆ÷U˜Fıˆ'Wí”“%îU2 ¢V«6RÜ÷&∂WBÊÊı˜Fˆ∂VÂˆñBñb÷&∂WBV«6R""ê¢ê¢ñbFˆ∂VÂˆñC†¢fñ∆«2“vóBvFWvíÊfWF6Öˆ˜&FW%ˆfñ∆«2Ä¢GFV◊BÁ&˜fñFW%ˆ˜&FW%ˆñB¬Fˆ∂VÂˆñ@¢ê¢WÜ6WBWÜ6WFñˆ‚2S†¢∆ˆvvW"Áv&ÊñÊrÄ¢&WFı˜&W6ˆ«fUˆfñ∆«5ˆfWF6Öˆfñ∆VB"¿¢&WVW7EˆñC◊7G"á&WÊñBí¿¢W'&˜#◊7G"ÜRí¿¢ê†¢ñbfñ∆«2ÊBGFV◊C†¢vóB˜W'6ó7Eˆfñ∆«2á6W76ñˆ‚¬GFV◊B¬fñ∆«2ê¢vóBfñÊ∆ó¶U˜&WVW7Bá6W76ñˆ‚¬&W¬7FFS“$dîƒƒTB"ê¢V«6S†¢vóBfñÊ∆ó¶U˜&WVW7BÄ¢6W76ñˆ‚¿¢&W¿¢7FFS“%$T§T5DTB"¿¢W'&˜#“$WFÚ◊&W6ˆ«fVC¢ÊÚfñ∆«26ˆÊfó&÷VBgFW"‘ÂT≈ı$UdîUrFñ÷V˜WB"¿¢ê†¢ñb&WÁG&FUˆÜó7F˜'ïˆñC†¢vóB&V'Vñ∆E˜G&FUˆ66˜VÁFñÊrá6W76ñˆ‚¬&WÁG&FUˆÜó7F˜'ïˆñBê¢vóB6W76ñˆ‚Ê6ˆ÷÷óBÇê††¶FVb6∆76ñgï˜&VFñÊW75ˆW'&˜"ÜWÜ3¢WÜ6WFñˆ‚í”‚7G#†¢÷W76vR“7G"ÜWÜ2íÊ∆˜vW"Çê†¢ñbó6ñÁ7FÊ6RÜWÜ2¬7ñÊ6ñÚÂFñ÷V˜WDW'&˜"ì†¢&WGW&‚%$TDî‰U55ıDî‘TıUB †¢ñbó6ñÁ7FÊ6RÜWÜ2¬76¬Â54ƒW'&˜"ì†¢&WGW&‚%D≈5ıE$Â5ı%EÙU%$ı" †¢ñb'76¬"ñ‚÷W76vR˜"&&B&V6˜&B÷2"ñ‚÷W76vS†¢&WGW&‚%D≈5ıE$Â5ı%EÙU%$ı" †¢ñb&6ˆÊÊV7Fñˆ‚"ñ‚÷W76vR˜"'G&Á7˜'B"ñ‚÷W76vS†¢&WGW&‚$‰UEtı$µıE$Â5ı%EÙU%$ı" †¢&WGW&‚%$TDî‰U55ıT‰¥‰ıtÂÙU%$ı" ††¶7ñÊ2FVbV&∆ó6Öˆ∆ófVÊW75ˆˆÊ6RÄ¢6W76ñˆ„¢7ñÊ56W76ñˆ‚¿¢v˜&∂W%ˆñC¢7G"¿¢WÜV7WFñˆÂˆ÷ˆFS¢7G"¿¢ì†¢Ê˜r“FFWFñ÷RÊÊ˜ráFñ÷W¶ˆÊRÁWF2ê¢Fñ∆V7EˆÊ÷R“vóBˆvWEˆFñ∆V7Bá6W76ñˆ‚ê¢ñÁ6W'EˆgVÊ2“7∆óFUˆñÁ6W'BñbFñ∆V7EˆÊ÷R”“'7∆óFR"V«6RuˆñÁ6W'@†¢7F◊B“Ä¢ñÁ6W'EˆgVÊ2ÑWÜV7WFñˆÂv˜&∂W%7FGW2ê¢Áf«VW2Ä¢v˜&∂W%ˆñC◊v˜&∂W%ˆñB¿¢WÜV7WFñˆÂˆ÷ˆFS÷WÜV7WFñˆÂˆ÷ˆFR¿¢ÜV'F&VEˆC÷Ê˜r¿¢vFWvï˜&VGì‘f«6R¿¢ê¢ÊˆÂˆ6ˆÊf∆ñ7EˆFı˜WFFRÄ¢ñÊFWÖˆV∆V÷VÁG3’≤'v˜&∂W%ˆñB%“¿¢6WEÛ◊∞¢&ÜV'F&VEˆB#¢Ê˜r¿¢&WÜV7WFñˆÂˆ÷ˆFR#¢WÜV7WFñˆÂˆ÷ˆFR¿¢“¿¢ê¢ê†¢vóB6W76ñˆ‚ÊWÜV7WFRá7F◊Bê¢vóB6W76ñˆ‚Ê6ˆ÷÷óBÇê††¶7ñÊ2FVbV&∆ó6Öˆ∆ófVÊW72áv˜&∂W%ˆñC¢7G"¬WÜV7WFñˆÂˆ÷ˆFS¢7G"ì†¢vÜñ∆RG'VS†¢G'ì†¢7ñÊ2vóFÇ7ñÊ5˜6W76ñˆ‚Çí26W76ñˆ„†¢vóBV&∆ó6Öˆ∆ófVÊW75ˆˆÊ6RÄ¢6W76ñˆ‚¿¢v˜&∂W%ˆñB¿¢WÜV7WFñˆÂˆ÷ˆFR¿¢ê¢WÜ6WB7ñÊ6ñÚ‰6Ê6V∆∆VDW'&˜#†¢&ó6P¢WÜ6WBWÜ6WFñˆ„†¢∆ˆvvW"ÊWÜ6WFñˆ‚Ç&ÜV'F&VEˆfñ∆VB"ê†¢vóB7ñÊ6ñÚÁ6∆VWÉê††¶7ñÊ2FVb&Vg&W6ÖˆvFWvï˜&VFñÊW75ˆˆÊ6RÄ¢6W76ñˆ„¢7ñÊ56W76ñˆ‚¿¢v˜&∂W%ˆñC¢7G"¿¢WÜV7WFñˆÂˆ÷ˆFS¢7G"¿¢vFWví¿¢ì†¢Ê˜r“FFWFñ÷RÊÊ˜ráFñ÷W¶ˆÊRÁWF2ê†¢w2“vóB6W76ñˆ‚ÊvWBÑWÜV7WFñˆÂv˜&∂W%7FGW2¬v˜&∂W%ˆñBê¢ñbÊ˜Bw3†¢&WGW&‡†¢&ˆ&U˜Fˆ∂VÂˆñB“vóB6W76ñˆ‚Á66∆"Ä¢6V∆V7BÑ∆ófT÷&∂WBÁñW5˜Fˆ∂VÂˆñBê¢ÁvÜW&RÄ¢∆ófT÷&∂WBÊVÊE˜Fñ÷UˆW7B‚Ê˜r¿¢∆ófT÷&∂WBÁñW5˜Fˆ∂VÂˆñBÊó5ˆÊ˜BÑÊˆÊRí¿¢ê¢Ê˜&FW%ˆ'íÑ∆ófT÷&∂WBÊ∆7E˜WFFVBÊFW62Çíê¢Ê∆ñ÷óBÉê¢ê†¢ñbÊ˜B&ˆ&U˜Fˆ∂VÂˆñC†¢w2ÊvFWvï˜&VGí“f«6P¢w2Ê6ˆÊFóFñˆÊ≈ˆ∆∆˜vÊ6U˜&VGí“ÊˆÊP¢w2Ê∆7EˆW'&˜%ˆ6ˆFR“$‰ıÙ$ıd≈ı$Ù$UıDÙ¥T‚ ¢w2Ê∆7EˆW'&˜%ˆ÷W76vR“Ä¢-	›]"≠-ç-›Ì=‚Ω›≠MΩÚ˝Ì-]≠Ç6ˆÊFóFñˆÊ¬Fˆ∂V‚&˜f¬ ¢ê¢w2Á&VFñÊW75ˆ6ÜV6∂VEˆB“Ê˜p¢vóB6W76ñˆ‚Ê6ˆ÷÷óBÇê¢&WGW&‡†¢6ˆÊFóFñˆÊ≈˜Fˆ∂VÂˆñG2“á&ˆ&U˜Fˆ∂VÂˆñB¬ê¢$TDî‰U55ıDî‘TıUEı4T4Ù‰E2“P†¢G'ì†¢&VFñÊW72“vóB7ñÊ6ñÚÁvóEˆf˜"Ä¢vFWvíÊvWE˜&VFñÊW72Ä¢6ˆÊFóFñˆÊ≈˜Fˆ∂VÂˆñG3÷6ˆÊFóFñˆÊ≈˜Fˆ∂VÂˆñG2¿¢í¿¢Fñ÷V˜WC’$TDî‰U55ıDî‘TıUEı4T4Ù‰E2¿¢ê†¢ñbvWFGG"á&VFñÊW72¬&W'&˜%ˆ÷W76vR"¬ÊˆÊRì†¢W'&˜%ˆ6ˆFR“vWFGG"Ä¢&VFñÊW72¬&W'&˜%ˆ6ˆFR"¬ÊˆÊP¢í˜"6∆76ñgï˜&VFñÊW75ˆW'&˜"ÑWÜ6WFñˆ‚á&VFñÊW72ÊW'&˜%ˆ÷W76vRíê†¢ñbW'&˜%ˆ6ˆFRñ‚∞¢%D≈5ıE$Â5ı%EÙU%$ı""¿¢$‰UEtı$µıE$Â5ı%EÙU%$ı""¿¢%$TDî‰U55ıDî‘TıUB"¿¢”†¢G'ì†¢vóBvFWvíÊñÁf∆ñFFUˆ6∆ñVÁBÇê¢WÜ6WBWÜ6WFñˆ‚2WÜ3†¢∆ˆvvW"Áv&ÊñÊrÄ¢&vFWvïˆ6∆ñVÁEˆñÁf∆ñFFñˆÂˆfñ∆VB"¿¢W'&˜#◊7G"ÜWÜ2í¿¢ê†¢w2ÊvFWvï˜&VGí“f«6P¢w2Á&VFñÊW75ˆ6ÜV6∂VEˆB“Ê˜p¢w2Ê∆7EˆW'&˜%ˆ6ˆFR“W'&˜%ˆ6ˆFP¢w2Ê∆7EˆW'&˜%ˆ÷W76vR“&VFñÊW72ÊW'&˜%ˆ÷W76vP¢V«6S†¢w2ÊvFWvï˜&VGí“&VFñÊW72Á&VGê¢w2Á&VFñÊW75ˆ6ÜV6∂VEˆB“Ê˜p¢w2Á&VFñÊW75˜7V66W75ˆB“Ê˜p¢w2Ê∆7EˆW'&˜%ˆ6ˆFR“ÊˆÊP¢w2Ê∆7EˆW'&˜%ˆ÷W76vR“ÊˆÊP†¢ñb&VFñÊW72Ê&∆Ê6S†¢w2Ê&∆Ê6U˜W6F2“FV6ñ÷¬á7G"á&VFñÊW72Ê&∆Ê6RÊ&∆Ê6U˜W6F2íê¢ñb&VFñÊW72Ê6ˆ∆∆FW&≈ˆ∆∆˜vÊ6U˜&VGíó2Ê˜BÊˆÊS†¢w2Ê6ˆ∆∆FW&≈ˆ∆∆˜vÊ6U˜&VGí“&VFñÊW72Ê6ˆ∆∆FW&≈ˆ∆∆˜vÊ6U˜&VGê¢ñb&VFñÊW72Ê6ˆÊFóFñˆÊ≈ˆ∆∆˜vÊ6U˜&VGíó2Ê˜BÊˆÊS†¢w2Ê6ˆÊFóFñˆÊ≈ˆ∆∆˜vÊ6U˜&VGí“&VFñÊW72Ê6ˆÊFóFñˆÊ≈ˆ∆∆˜vÊ6U˜&VGê†¢w2Ê7&VFVÁFñ«5ˆ∆ˆFVB“&VFñÊW72Ê7&VFVÁFñ«5ˆ∆ˆFV@¢w2Áv∆∆WEˆFG&W72“&VFñÊW72Áv∆∆WEˆFG&W70¢w2ÊÊWGv˜&µˆ6ÜñÂˆñB“&VFñÊW72ÊÊWGv˜&µˆ6ÜñÂˆñ@†¢WÜ6WBWÜ6WFñˆ‚2WÜ3†¢ñbó6ñÁ7FÊ6RÜWÜ2¬7ñÊ6ñÚ‰6Ê6V∆∆VDW'&˜"ì†¢&ó6P†¢W'&˜%ˆ6ˆFR“6∆76ñgï˜&VFñÊW75ˆW'&˜"ÜWÜ2ê†¢2
-Ìç-¬≠Ωç]›"˝Ç]-]-Ìíı54¬Ìçç≠P¢ñbW'&˜%ˆ6ˆFRñ‚∞¢%D≈5ıE$Â5ı%EÙU%$ı""¿¢$‰UEtı$µıE$Â5ı%EÙU%$ı""¿¢%$TDî‰U55ıDî‘TıUB"¿¢”†¢G'ì†¢vóBvFWvíÊñÁf∆ñFFUˆ6∆ñVÁBÇê¢WÜ6WBWÜ6WFñˆ‚2WÜ3†¢∆ˆvvW"Áv&ÊñÊrÄ¢&vFWvïˆ6∆ñVÁEˆñÁf∆ñFFñˆÂˆfñ∆VB"¿¢W'&˜#◊7G"ÜWÜ2í¿¢ê†¢w2ÊvFWvï˜&VGí“f«6P¢w2Á&VFñÊW75ˆ6ÜV6∂VEˆB“Ê˜p¢w2Ê∆7EˆW'&˜%ˆ6ˆFR“W'&˜%ˆ6ˆFP¢w2Ê∆7EˆW'&˜%ˆ÷W76vR“7G"ÜWÜ2ê†¢vóB6W76ñˆ‚Ê6ˆ÷÷óBÇê††¶7ñÊ2FVb&Vg&W6ÖˆvFWvï˜&VFñÊW72Ä¢v˜&∂W%ˆñC¢7G"¿¢WÜV7WFñˆÂˆ÷ˆFS¢7G"¿¢vFWví¿¢ì†¢vÜñ∆RG'VS†¢G'ì†¢7ñÊ2vóFÇ7ñÊ5˜6W76ñˆ‚Çí26W76ñˆ„†¢vóB&Vg&W6ÖˆvFWvï˜&VFñÊW75ˆˆÊ6RÄ¢6W76ñˆ‚¿¢v˜&∂W%ˆñB¿¢WÜV7WFñˆÂˆ÷ˆFR¿¢vFWví¿¢ê¢WÜ6WB7ñÊ6ñÚ‰6Ê6V∆∆VDW'&˜#†¢&ó6P¢WÜ6WBWÜ6WFñˆ„†¢∆ˆvvW"ÊWÜ6WFñˆ‚Ç&vFWvï˜&VFñÊW75˜&Vg&W6Öˆfñ∆VB"ê†¢vóB7ñÊ6ñÚÁ6∆VWÉ3ê††¶7ñÊ2FVbWÜV7WFñˆÂ˜v˜&∂W%ˆ∆ˆ˜Çì†¢∆ˆvvW"ÊñÊfÚÇ&WÜV7WFñˆÂ˜v˜&∂W%˜7F'FVB"ê¢6WGFñÊw2“WÜV7WFñˆÂ6WGFñÊw2Çê¢vFWví“'Vñ∆EˆWÜV7WFñˆÂˆvFWvíá6WGFñÊw2ê¢WÜV7WFñˆÂˆ÷ˆFR“6WGFñÊw2ÊWÜV7WFñˆÂˆ÷ˆFRÁf«VP¢v˜&∂W%ˆñB“b'∂WÜV7WFñˆÂˆ÷ˆFW”ß∑6ˆ6∂WBÊvWFÜ˜7FÊ÷RÇó”ß∂˜2ÊvWGñBÇó“ †¢ÜV'F&VE˜F6≤“7ñÊ6ñÚÊ7&VFU˜F6≤áV&∆ó6Öˆ∆ófVÊW72áv˜&∂W%ˆñB¬WÜV7WFñˆÂˆ÷ˆFRíê¢&VFñÊW75˜F6≤“7ñÊ6ñÚÊ7&VFU˜F6≤Ä¢&Vg&W6ÖˆvFWvï˜&VFñÊW72áv˜&∂W%ˆñB¬WÜV7WFñˆÂˆ÷ˆFR¬vFWvíê¢ê†¢G'ì†¢vÜñ∆RG'VS†¢G'ì†¢vóB&ˆ6W75˜&VGï˜&WVW7G2Çê¢vóB&V6ˆÊ6ñ∆Uˆ7FófU˜&WVW7G2Çê¢vóBˆWFı˜&W6ˆ«fU˜7GV6µˆ÷ÁV≈˜&WfñWw2ÜWÜV7WFñˆÂˆ÷ˆFRê¢WÜ6WB7ñÊ6ñÚ‰6Ê6V∆∆VDW'&˜#†¢&ó6P¢WÜ6WBWÜ6WFñˆ‚2WÜ3†¢∆ˆvvW"ÊWÜ6WFñˆ‚Ç&WÜV7WFñˆÂ˜v˜&∂W%ˆW'&˜""¬W'&˜#◊7G"ÜWÜ2íê†¢vóB7ñÊ6ñÚÁ6∆VWÉê¢fñÊ∆«ì†¢ÜV'F&VE˜F6≤Ê6Ê6V¬Çê¢&VFñÊW75˜F6≤Ê6Ê6V¬Çê¢vóB7ñÊ6ñÚÊvFÜW"ÜÜV'F&VE˜F6≤¬&VFñÊW75˜F6≤¬&WGW&ÂˆWÜ6WFñˆÁ3’G'VRê††¶ñbıˆÊ÷UıÚ”“%ıˆ÷ñÂıÚ#†¢'6W"“&w'6R‰&wV÷VÁE'6W"Çê¢'6W"ÊFEˆ&wV÷VÁBÄ¢"“÷G'í◊'V‚"¬7Fñˆ„“'7F˜&U˜G'VR"¬ÜV«“%'V‚ñ‚G'í◊'V‚÷ˆFRÊBWÜóB ¢ê¢&w2“'6W"Á'6Uˆ&w2Çê†¢ñb&w2ÊG'ï˜'V„†¢&ñÁBÇ$G'í'V‚7V66W76gV¬‚"ê¢7ó2ÊWÜóBÉê†¢7G'V7F∆ˆrÊ6ˆÊfñwW&RÄ¢&ˆ6W76˜'3’∞¢7G'V7F∆ˆrÁ&ˆ6W76˜'2ÂFñ÷U7F◊W"Üf◊C“&ó6Ú"í¿¢7G'V7F∆ˆrÁ&ˆ6W76˜'2‰•4ÙÂ&VÊFW&W"Çí¿¢–¢ê¢7ñÊ6ñÚÁ'V‚ÜWÜV7WFñˆÂ˜v˜&∂W%ˆ∆ˆ˜Çíê
+            await session.commit()
+            return
+
+        attempt_count_stmt = select(ExecutionAttempt).where(
+            ExecutionAttempt.request_id == req.id
+        )
+        attempt_count = len((await session.execute(attempt_count_stmt)).scalars().all())
+        attempt_no = attempt_count + 1
+
+        # --- CLOSE: –ø—Ä–æ–≤–µ—Ä–∫–∞ —ç–∫—Å–ø–∏—Ä–∞—Ü–∏–∏ –∏ allowance ---
+        if req.intent == "CLOSE":
+            now_utc = datetime.now(timezone.utc)
+            if market and market.end_time_est and now_utc >= market.end_time_est:
+                logger.info(
+                    "market_expired_skipping_close_submit",
+                    request_id=str(req.id),
+                    market_id=req.market_id,
+                    end_time_est=str(market.end_time_est),
+                )
+                await finalize_request(
+                    session,
+                    req,
+                    state="REJECTED",
+                    error=(
+                        f"MARKET_EXPIRED_AWAITING_RESOLUTION: "
+                        f"Market ended at {market.end_time_est}"
+                    ),
+                )
+                await session.commit()
+                return
+
+            try:
+                allowance = await gateway.get_token_allowance(token_id)
+                if allowance < (req.requested_shares or Decimal("0")):
+                    await finalize_request(
+                        session,
+                        req,
+                        state="MANUAL_REVIEW_REQUIRED",
+                        error="CONDITIONAL_ALLOWANCE_NOT_READY: run setup_approvals.py",
+                    )
+                    await session.commit()
+                    return
+            except GatewayUnavailable as e:
+                await finalize_request(
+                    session,
+                    req,
+                    state="MANUAL_REVIEW_REQUIRED",
+                    error=f"Cannot verify allowance: {e}",
+                )
+                await session.commit()
+                return
+
+        # --- –ü—Ä–æ–≤–µ—Ä–∫–∞ —Ü–µ–Ω—ã –ø–µ—Ä–µ–¥ –ø–æ–ø—ã—Ç–∫–æ–π –∏—Å–ø–æ–ª–Ω–µ–Ω–∏—è ---
+        api_client = None
+        executable_price = float(limit_price)
+        if req.intent == "OPEN":
+            if req.requested_mode == "LIVE":
+                fresh_quote_unavailable = False
+                try:
+                    from polyflip.collector.client import PolymarketClient
+
+                    api_client = PolymarketClient()
+                    prices = await asyncio.wait_for(
+                        api_client.get_market_prices(token_id), timeout=3.0
+                    )
+                    if prices and prices.get("best_ask") is not None:
+                        executable_price = float(prices["best_ask"])
+                    else:
+                        fresh_quote_unavailable = True
+                except Exception as e:
+                    logger.warning("worker_fetch_price_failed", error=str(e))
+                    fresh_quote_unavailable = True
+
+                if fresh_quote_unavailable:
+                    await finalize_request(
+                        session,
+                        req,
+                        state="READY",
+                        error="EXECUTION_QUOTE_UNAVAILABLE",
+                    )
+                    await session.commit()
+                    return
+
+            if req.max_acceptable_price is not None and executable_price > float(
+                req.max_acceptable_price
+            ):
+                logger.warning(
+                    "max_acceptable_price_exceeded",
+                    request_id=str(req.id),
+                    limit_price=float(limit_price),
+                    executable_price=executable_price,
+                    max_price=float(req.max_acceptable_price),
+                )
+                await finalize_request(
+                    session,
+                    req,
+                    state="REJECTED",
+                    error="MAX_ACCEPTABLE_PRICE_EXCEEDED",
+                )
+                await session.commit()
+                return
+
+        submission_key = f"{req.idempotency_key}:{attempt_no}"
+
+        attempt = ExecutionAttempt(
+            request_id=req.id,
+            gateway=gateway.name,
+            attempt_no=attempt_no,
+            submission_key=submission_key,
+            started_at=datetime.now(timezone.utc),
+        )
+        session.add(attempt)
+
+        req.state = "SUBMITTING"
+        req.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+
+        request_id = req.id
+        attempt_id = attempt.id
+        requested_mode = req.requested_mode
+
+        try:
+            # –ö–æ–Ω—Å—Ç—Ä—É–∏—Ä–æ–≤–∞–Ω–∏–µ –∑–∞–∫–∞–∑–∞ —Ç–æ–∂–µ –¥–æ–ª–∂–Ω–æ –Ω–∞—Ö–æ–¥–∏—Ç—å—Å—è –≤–Ω—É—Ç—Ä–∏ try.
+            # –ò–Ω–∞—á–µ Pydantic ValidationError –æ—Å—Ç–∞–≤–ª—è–µ—Ç –∑–∞—è–≤–∫—É –≤ SUBMITTING.
+            resolved_requested_shares = _resolve_requested_shares(
+                requested_shares=req.requested_shares,
+                max_spend_usdc=max_spend_usdc,
+                limit_price=limit_price,
+                side=side,
+            )
+            if (
+                req.requested_shares is None or req.requested_shares <= 0
+            ) and resolved_requested_shares > 0:
+                req.requested_shares = resolved_requested_shares
+                req.updated_at = datetime.now(timezone.utc)
+                await session.flush()
+                logger.info(
+                    "requested_shares_derived_from_budget",
+                    request_id=str(req.id),
+                    max_spend_usdc=str(max_spend_usdc),
+                    limit_price=str(limit_price),
+                    requested_shares=str(resolved_requested_shares),
+                )
+
+            request_expiration = req.expires_at
+            if request_expiration is not None and request_expiration.tzinfo is None:
+                request_expiration = request_expiration.replace(tzinfo=timezone.utc)
+            order = GatewayOrder(
+                attempt_id=attempt_id,
+                market_id=req.market_id,
+                asset=req.asset,
+                outcome_to_buy=req.outcome_to_buy,
+                token_id=token_id,
+                side=side,
+                limit_price=limit_price,
+                requested_shares=resolved_requested_shares,
+                max_spend_usdc=max_spend_usdc,
+                expiration=(
+                    int(request_expiration.timestamp())
+                    if req.trigger_reason == "TAKE_PROFIT" and request_expiration
+                    else None
+                ),
+            )
+            order_mode = "FAK"
+            gtc_ttl_sec = 5.0
+            retry_attempts = 3
+            retry_delay = 0.75
+            settings_dict = {}
+
+            if req.requested_mode == "LIVE":
+                try:
+                    settings_res = await session.execute(
+                        select(RuntimeSettings.key, RuntimeSettings.value).where(
+                            RuntimeSettings.key.in_(
+                                [
+                                    "LIVE_ORDER_MODE",
+                                    "LIVE_GTC_TTL_SECONDS",
+                                    "LIVE_FAK_RETRY_MAX_ATTEMPTS",
+                                    "LIVE_FAK_RETRY_DELAY_SEC",
+                                    "TAKE_PROFIT_ORDER_MODE",
+                                ]
+                            )
+                        )
+                    )
+                    settings_dict = {row.key: row.value for row in settings_res.all()}
+
+                    if (
+                        "LIVE_ORDER_MODE" in settings_dict
+                        and settings_dict["LIVE_ORDER_MODE"]
+                    ):
+                        order_mode = settings_dict["LIVE_ORDER_MODE"].strip().upper()
+                    if (
+                        "LIVE_GTC_TTL_SECONDS" in settings_dict
+                        and settings_dict["LIVE_GTC_TTL_SECONDS"]
+                    ):
+                        gtc_ttl_sec = float(settings_dict["LIVE_GTC_TTL_SECONDS"])
+                    if (
+                        "LIVE_FAK_RETRY_MAX_ATTEMPTS" in settings_dict
+                        and settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"]
+                    ):
+                        retry_attempts = int(
+                            settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"]
+                        )
+                    if (
+                        "LIVE_FAK_RETRY_DELAY_SEC" in settings_dict
+                        and settings_dict["LIVE_FAK_RETRY_DELAY_SEC"]
+                    ):
+                        retry_delay = float(settings_dict["LIVE_FAK_RETRY_DELAY_SEC"])
+                except Exception as setting_err:
+                    logger.warning(
+                        "order_mode_settings_read_failed", error=str(setting_err)
+                    )
+
+            is_gtd_take_profit = (
+                req.intent == "CLOSE"
+                and req.trigger_reason == "TAKE_PROFIT"
+                and req.requested_mode == "LIVE"
+                and str(settings_dict.get("TAKE_PROFIT_ORDER_MODE", "GTD"))
+                .strip()
+                .upper()
+                == "GTD"
+            )
+            if is_gtd_take_profit:
+                order_mode = "GTD"
+
+            if order_mode == "GTC_TTL":
+                sub_res = await execute_gtc_ttl(gateway, order, ttl_seconds=gtc_ttl_sec)
+            elif order_mode == "GTD":
+                sub_res = await gateway.submit(order, order_type="GTD")
+            elif order_mode == "FAK_RETRY":
+                api_client_retry = api_client if api_client else None
+                sub_res = await execute_fak_retry(
+                    gateway,
+                    order,
+                    api_client=api_client_retry,
+                    max_attempts=retry_attempts,
+                    delay_seconds=retry_delay,
+                )
+            else:
+                sub_res = await gateway.submit(order)
+
+            attempt.finished_at = datetime.now(timezone.utc)
+            attempt.provider_order_id = sub_res.provider_order_id
+            attempt.provider_status = sub_res.provider_status
+            attempt.provider_trade_ids = list(sub_res.provider_trade_ids)
+            attempt.transaction_hashes = list(sub_res.transaction_hashes)
+            attempt.settlement_state = sub_res.settlement_state
+
+            if not sub_res.accepted or sub_res.provider_status in ("REJECTED", "ERROR"):
+                attempt.status = "FAILED"
+                attempt.error_msg = sub_res.provider_status
+                await finalize_request(
+                    session,
+                    req,
+                    state="REJECTED",
+                    error=sub_res.error_message or sub_res.provider_status,
+                )
+            elif sub_res.settlement_state == "CONFIRMED":
+                # –®–ª—é–∑—ã SHADOW/FAKE –≤–æ–∑–≤—Ä–∞—â–∞—é—Ç fills —Å–∏–Ω—Ö—Ä–æ–Ω–Ω–æ –≤ sub_res.fills.
+                # LIVE: –¥–µ–ª–∞–µ–º fetch_order_fills –∫–∞–∫ –æ–±—ã—á–Ω–æ.
+                if sub_res.fills:
+                    fills = sub_res.fills
+                else:
+                    fills = await gateway.fetch_order_fills(
+                        attempt.provider_order_id, token_id
+                    )
+                if len(fills) == 0:
+                    attempt.status = "FAILED"
+                    attempt.error_msg = (
+                        "Order cancelled or expired on exchange without fills"
+                    )
+                    await finalize_request(
+                        session,
+                        req,
+                        state="REJECTED",
+                        error="NO_FILLS_UNFILLED: 0 shares matched on exchange",
+                    )
+                else:
+                    attempt.status = "SUCCESS"
+                    await _persist_fills(session, attempt, fills)
+                    filled_shares = sum((fill.shares for fill in fills), Decimal("0"))
+                    filled_quote = sum(
+                        (fill.gross_quote_usdc for fill in fills), Decimal("0")
+                    )
+
+                    req.filled_shares = filled_shares
+                    req.filled_cost_usdc = filled_quote
+
+                    if filled_shares < (req.requested_shares or Decimal("0")):
+                        await finalize_request(
+                            session, req, state="PARTIALLY_FILLED_FINAL"
+                        )
+                    else:
+                        await finalize_request(session, req, state="FILLED")
+
+            elif sub_res.settlement_state == "FAILED":
+                attempt.status = "FAILED"
+                attempt.error_msg = "Settlement failed on chain"
+                await finalize_request(
+                    session,
+                    req,
+                    state="REJECTED",
+                    error="Settlement failed on chain",
+                )
+            else:
+                # PENDING –∏–ª–∏ UNKNOWN ‚Äî –æ—Ç–ø—Ä–∞–≤–ª—è–µ–º –≤ RECONCILING
+                attempt.status = "UNKNOWN"
+                req.state = "RECONCILING"
+
+            req.updated_at = datetime.now(timezone.utc)
+
+            # rebuild_trade_accounting –ù–ï –¥–µ–ª–∞–µ—Ç commit —Å–∞–º.
+            # –ï–¥–∏–Ω—ã–π commit –Ω–∏–∂–µ —Ñ–∏–∫—Å–∏—Ä—É–µ—Ç fills + request state + TradeHistory –∞—Ç–æ–º–∞—Ä–Ω–æ.
+            if req.trade_history_id:
+                await rebuild_trade_accounting(session, req.trade_history_id)
+                await _enqueue_gtd_take_profit_after_fill(session, req)
+
+            await session.commit()
+
+        except GatewayOrderRejected as e:
+            logger.warning(
+                "gateway_order_rejected", error=str(e), attempt_id=str(attempt_id)
+            )
+            attempt.status = "FAILED"
+            attempt.error_msg = str(e)
+            attempt.finished_at = datetime.now(timezone.utc)
+            await finalize_request(session, req, state="REJECTED", error=str(e))
+            req.updated_at = datetime.now(timezone.utc)
+            if req.trade_history_id:
+                await rebuild_trade_accounting(session, req.trade_history_id)
+            await session.commit()
+
+        except (GatewaySubmissionUnknown, GatewayUnavailable) as e:
+            logger.warning(
+                "gateway_submission_unknown", error=str(e), attempt_id=str(attempt_id)
+            )
+            await _finish_submit_exception(
+                session,
+                request_id=request_id,
+                attempt_id=attempt_id,
+                attempt_no=attempt_no,
+                requested_mode=requested_mode,
+                error=f"Submission unknown: {e}",
+                is_deterministic_rejection=False,
+            )
+
+        except Exception as e:
+            logger.exception(
+                "gateway_submit_failed", error=str(e), attempt_id=str(attempt_id)
+            )
+            await _finish_submit_exception(
+                session,
+                request_id=request_id,
+                attempt_id=attempt_id,
+                attempt_no=attempt_no,
+                requested_mode=requested_mode,
+                error=str(e),
+                is_deterministic_rejection=False,
+            )
+
+
+async def rebuild_trade_accounting(session, trade_id: int) -> Optional[TradeHistory]:
+    """
+    –ü–µ—Ä–µ—Å—á–∏—Ç—ã–≤–∞–µ—Ç –±—É—Ö–≥–∞–ª—Ç–µ—Ä–∏—é –ø–æ–∑–∏—Ü–∏–∏ –ø–æ –≤—Å–µ–º fills.
+
+    –ü—Ä–∞–≤–∏–ª–∞:
+    - PnL —Å—á–∏—Ç–∞–µ—Ç—Å—è per-fill, –±–µ–∑ –≤—ã—á–∏—Ç–∞–Ω–∏—è –í–°–ï–• entry-–∫–æ–º–∏—Å—Å–∏–π –ø—Ä–∏ –ø–µ—Ä–≤–æ–º
+      —á–∞—Å—Ç–∏—á–Ω–æ–º –≤—ã—Ö–æ–¥–µ.
+    - realized_pnl = Œ£(close_proceeds) - Œ£(allocated_entry_basis) - Œ£(close_fees)
+    - allocated_entry_basis = avg_entry_cost_per_share * close_shares
+    - remaining_shares –Ω–µ –º–æ–∂–µ—Ç –±—ã—Ç—å –æ—Ç—Ä–∏—Ü–∞—Ç–µ–ª—å–Ω—ã–º.
+    - take_profit_price –≤—ã—á–∏—Å–ª—è–µ—Ç—Å—è –∏–∑ —Ä–µ–∞–ª—å–Ω–æ–π —Å—Ä–µ–¥–Ω–µ–π —Ü–µ–Ω—ã –≤—Ö–æ–¥–∞.
+    """
+    trade = (
+        await session.execute(
+            select(TradeHistory).where(TradeHistory.id == trade_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    from polyflip.execution.states import FINAL_POSITION_STATES, ExitReason
+
+    if not trade:
+        return None
+
+    if trade.position_status in FINAL_POSITION_STATES:
+        logger.warning(
+            "rebuild_accounting_on_final_trade",
+            trade_id=trade_id,
+            status=trade.position_status,
+        )
+        return trade
+
+    reqs_result = await session.execute(
+        select(ExecutionRequest).where(ExecutionRequest.trade_history_id == trade_id)
+    )
+    reqs = reqs_result.scalars().all()
+
+    if not reqs and trade.position_status in ("OPEN", "CLOSED", "PARTIALLY_CLOSED"):
+        return
+
+    # --- –°–æ–±–∏—Ä–∞–µ–º –≤—Å–µ fills, —Ä–∞–∑–¥–µ–ª—è—è entry –∏ exit ---
+    open_shares = Decimal("0")
+    open_gross = Decimal("0")
+    open_fees = Decimal("0")
+    close_shares = Decimal("0")
+    close_gross = Decimal("0")
+    close_fees = Decimal("0")
+    latest_close_time = None
+
+    for req in reqs:
+        attempts = (
+            (
+                await session.execute(
+                    select(ExecutionAttempt).where(
+                        ExecutionAttempt.request_id == req.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        for attempt in attempts:
+            fills = (
+                (
+                    await session.execute(
+                        select(ExecutionFill).where(
+                            ExecutionFill.attempt_id == attempt.id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+            for fill in fills:
+                gross = fill.gross_quote_usdc or (fill.shares * fill.price)
+                fee = fill.fee_usdc or Decimal("0")
+                if req.intent == "OPEN":
+                    open_shares += fill.shares
+                    open_gross += gross
+                    open_fees += fee
+                elif req.intent == "CLOSE":
+                    close_shares += fill.shares
+                    close_gross += gross
+                    close_fees += fee
+                    if latest_close_time is None or fill.timestamp > latest_close_time:
+                        latest_close_time = fill.timestamp
+
+    # Fallback: –µ—Å–ª–∏ fills –ø–æ OPEN –Ω–µ—Ç, –±–µ—Ä—ë–º –¥–∞–Ω–Ω—ã–µ —Å–∞–º–æ–π —Å–¥–µ–ª–∫–∏
+    if (
+        open_shares == Decimal("0")
+        and trade.entry_filled_shares
+        and trade.entry_filled_shares > 0
+    ):
+        open_shares = Decimal(str(trade.entry_filled_shares))
+        open_gross = Decimal(str(trade.entry_cost_usdc or trade.amount_usdc or "0"))
+
+    # Invariant: –Ω–µ–ª—å–∑—è –ø—Ä–æ–¥–∞—Ç—å –±–æ–ª—å—à–µ, —á–µ–º –∫—É–ø–ª–µ–Ω–æ
+    if close_shares > open_shares + Decimal("0.000001") and open_shares > Decimal("0"):
+        logger.error(
+            "accounting_invariant_violated",
+            trade_id=trade_id,
+            open_shares=str(open_shares),
+            close_shares=str(close_shares),
+        )
+        # –ù–µ –∑–∞–∂–∏–º–∞–µ–º ‚Äî –ø–µ—Ä–µ–≤–æ–¥–∏–º –≤ MANUAL_REVIEW_REQUIRED –∏ –ø—Ä–µ—Ä—ã–≤–∞–µ–º
+        trade.position_status = "MANUAL_REVIEW_REQUIRED"
+        trade.last_exit_error = (
+            f"over-close: close_shares={close_shares} > open_shares={open_shares}"
+        )
+        await session.commit()
+        return
+
+    # --- PnL –ø–æ —Ñ–æ—Ä–º—É–ª–µ —á–∞—Å—Ç–∏—á–Ω–æ–≥–æ –∑–∞–∫—Ä—ã—Ç–∏—è ---
+    # entry_basis –≤–∫–ª—é—á–∞–µ—Ç gross + fees (–ø–æ–ª–Ω–∞—è —Å—Ç–æ–∏–º–æ—Å—Ç—å –≤—Ö–æ–¥–∞)
+    entry_basis = open_gross + open_fees
+    avg_entry_cost_per_share = (
+        entry_basis / open_shares if open_shares > Decimal("0") else Decimal("0")
+    )
+    allocated_basis = avg_entry_cost_per_share * close_shares
+    realized_pnl = close_gross - close_fees - allocated_basis
+
+    remaining_shares = open_shares - close_shares
+
+    trade.entry_filled_shares = open_shares
+    # entry_cost_usdc = gross + entry fees (–ø–æ–ª–Ω–∞—è —Å–µ–±–µ—Å—Ç–æ–∏–º–æ—Å—Ç—å –≤—Ö–æ–¥–∞)
+    trade.entry_cost_usdc = open_gross + open_fees
+    trade.amount_usdc = open_gross  # legacy: —Ç–æ–ª—å–∫–æ gross
+    if open_shares > Decimal("0"):
+        trade.executed_price = float(open_gross / open_shares)
+    else:
+        trade.executed_price = 0.0
+    trade.remaining_shares = max(Decimal("0"), remaining_shares)
+    trade.realized_pnl_usdc = realized_pnl
+    trade.pnl = float(realized_pnl)  # —è–≤–Ω–æ–µ –ø—Ä–∏–≤–µ–¥–µ–Ω–∏–µ: –∫–æ–ª–æ–Ω–∫–∞ pnl –∏–º–µ–µ—Ç —Ç–∏–ø Float
+
+    if close_shares > Decimal("0"):
+        avg_close_price = close_gross / close_shares
+        trade.close_price = avg_close_price
+
+    # –°—Ç–∞—Ç—É—Å –ø–æ–∑–∏—Ü–∏–∏
+    if open_shares > Decimal("0") and remaining_shares <= Decimal("0"):
+        trade.position_status = "CLOSED"
+        if latest_close_time:
+            trade.closed_at = latest_close_time
+        if trade.exit_reason == "TAKE_PROFIT":
+            trade.take_profit_status = "TRIGGERED"
+        elif trade.exit_reason == "STOP_LOSS":
+            trade.stop_loss_status = "TRIGGERED"
+    elif remaining_shares > Decimal("0") and remaining_shares < open_shares:
+        trade.position_status = "PARTIALLY_CLOSED"
+    elif remaining_shares > Decimal("0"):
+        trade.position_status = "OPEN"
+        if close_shares <= Decimal("0"):
+            if trade.exit_reason != ExitReason.SETTLEMENT:
+                trade.exit_reason = None
+
+    # Stop Loss / Take Profit —Ü–µ–Ω—ã –∏–∑ —Ä–µ–∞–ª—å–Ω–æ–π —Å—Ä–µ–¥–Ω–µ–π —Ü–µ–Ω—ã –≤—Ö–æ–¥–∞
+    if trade.position_status in ("OPEN", "PARTIALLY_CLOSED") and open_shares > Decimal(
+        "0"
+    ):
+        close_reqs = [r for r in reqs if r.intent == "CLOSE"]
+        all_close_failed = len(close_reqs) > 0 and all(
+            r.state in ("REJECTED", "FAILED") for r in close_reqs
+        )
+
+        if trade.stop_loss_pct is not None:
+            if trade.stop_loss_status not in ("TRIGGERED", "ACTIVE") or (
+                trade.stop_loss_status == "TRIGGERED" and all_close_failed
+            ):
+                trade.stop_loss_status = "ACTIVE"
+        if trade.take_profit_enabled:
+            if trade.take_profit_status not in ("TRIGGERED", "ACTIVE") or (
+                trade.take_profit_status == "TRIGGERED" and all_close_failed
+            ):
+                trade.take_profit_status = "ACTIVE"
+
+        if avg_entry_cost_per_share > Decimal("0"):
+            if trade.stop_loss_pct is not None and trade.stop_loss_price is None:
+                trade.stop_loss_price = float(
+                    avg_entry_cost_per_share
+                    * (
+                        Decimal("1")
+                        - Decimal(str(trade.stop_loss_pct)) / Decimal("100")
+                    )
+                )
+            if trade.take_profit_enabled and trade.take_profit_price is None:
+                multiplier = Decimal(
+                    str(getattr(trade, "take_profit_multiplier", 1.5) or 1.5)
+                )
+                raw_target = avg_entry_cost_per_share * multiplier
+                if raw_target > Decimal("0.99"):
+                    # –¶–µ–ª—å –≤—ã—Ö–æ–¥–∏—Ç –∑–∞ –ø—Ä–µ–¥–µ–ª—ã —Ä—ã–Ω–∫–∞ (>0.99). –û—Ç–∫–ª—é—á–∞–µ–º TP, —á—Ç–æ–±—ã –ø–æ–∑–∏—Ü–∏—è
+                    # —Å–ø–æ–∫–æ–π–Ω–æ –¥–æ—Ö–æ–¥–∏–ª–∞ –¥–æ —Ä–∞–∑—Ä–µ—à–µ–Ω–∏—è/—ç–∫—Å–ø–∏—Ä–∞—Ü–∏–∏ –∏ –ø–æ–ª—É—á–∞–ª–∞ –ø–æ–ª–Ω—ã–µ $1.00.
+                    trade.take_profit_status = "SKIPPED"
+                    trade.take_profit_price = None
+                else:
+                    trade.take_profit_price = float(raw_target)
+
+    # –û–±—â–∏–π —Å—Ç–∞—Ç—É—Å
+    if open_shares > Decimal("0"):
+        trade.status = "SUCCESS"
+        if remaining_shares > Decimal("0") and trade.position_status not in (
+            "PARTIALLY_CLOSED",
+            "CLOSED",
+        ):
+            trade.position_status = "OPEN"
+    else:
+        # –ó–∞—â–∏—Ç–∞ –æ—Ç —É—Å—Ç–∞–Ω–æ–≤–∫–∏ OPEN/SUCCESS –ø—Ä–∏ zero-fills.
+        # –£—á–∏—Ç—ã–≤–∞–µ–º, —á—Ç–æ finalize_request –º–æ–∂–µ—Ç –ø–µ—Ä–µ–≤–µ—Å—Ç–∏ –ø–æ–∑–∏—Ü–∏—é –≤ FAILED / ENTRY_FAILED
+        if trade.status != "FAILED" and trade.position_status != "ENTRY_FAILED":
+            trade.status = "PENDING"
+            trade.position_status = "OPENING"
+
+    trade.position_accounting_version = (trade.position_accounting_version or 0) + 1
+    # –ù–ï –¥–µ–ª–∞–µ–º session.commit() –∑–¥–µ—Å—å ‚Äî –≤—ã–∑—ã–≤–∞—é—â–∞—è —Ñ—É–Ω–∫—Ü–∏—è –≤–ª–∞–¥–µ–µ—Ç —Ç—Ä–∞–Ω–∑–∞–∫—Ü–∏–µ–π.
+    # –≠—Ç–æ –≥–∞—Ä–∞–Ω—Ç–∏—Ä—É–µ—Ç –∞—Ç–æ–º–∞—Ä–Ω–æ—Å—Ç—å: fills + request state + TradeHistory
+    # —Ñ–∏–∫—Å–∏—Ä—É—é—Ç—Å—è –≤ –æ–¥–Ω–æ–º commit, –∞ –Ω–µ –≤ –¥–≤—É—Ö –Ω–µ–∑–∞–≤–∏—Å–∏–º—ã—Ö.
+    return trade
+
+
+async def reconcile_active_requests():
+    """
+    –û–ø—Ä–∞—à–∏–≤–∞–µ—Ç gateway –¥–ª—è –∑–∞—è–≤–æ–∫ –≤ RECONCILABLE_REQUEST_STATES.
+    –ü—Ä–∏ —Ç–∞–π–º–∞—É—Ç–µ –ø–µ—Ä–µ—Ö–æ–¥–∏—Ç –≤ MANUAL_REVIEW_REQUIRED (–Ω–µ REJECTED),
+    —á—Ç–æ–±—ã –Ω–µ —Å–Ω—è—Ç—å —Ä–µ–∑–µ—Ä–≤ —Ä–∞–Ω—å—à–µ –≤—Ä–µ–º–µ–Ω–∏.
+    """
+    settings = ExecutionSettings()
+    async with async_session() as session:
+        now = datetime.now(timezone.utc)
+        # –í—ã–±–∏—Ä–∞–µ–º –≤—Å–µ reconcilable –∑–∞—è–≤–∫–∏ —Å–≤–æ–µ–≥–æ —Ä–µ–∂–∏–º–∞
+        stmt = select(ExecutionRequest).where(
+            ExecutionRequest.state.in_(RECONCILABLE_REQUEST_STATES),
+            ExecutionRequest.requested_mode == settings.execution_mode.value,
+        )
+        result = await session.execute(stmt)
+        reqs = result.scalars().all()
+
+        for req in reqs:
+            updated_at = req.updated_at
+            if updated_at is not None and updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if not updated_at or (now - updated_at).total_seconds() < 60:
+                continue
+
+            logger.info("reconciling_request", request_id=str(req.id), state=req.state)
+
+            attempt_stmt = (
+                select(ExecutionAttempt)
+                .where(ExecutionAttempt.request_id == req.id)
+                .order_by(ExecutionAttempt.attempt_no.desc())
+                .limit(1)
+            )
+            attempt = (await session.execute(attempt_stmt)).scalar_one_or_none()
+
+            time_in_reconciling = (now - updated_at).total_seconds()
+            request_expiry = req.expires_at
+            if request_expiry is not None and request_expiry.tzinfo is None:
+                request_expiry = request_expiry.replace(tzinfo=timezone.utc)
+            is_gtd_take_profit = (
+                req.intent == "CLOSE"
+                and req.trigger_reason == "TAKE_PROFIT"
+                and req.requested_mode == "LIVE"
+                and request_expiry is not None
+                and request_expiry <= now
+            )
+
+            # –¢–∞–π–º–∞—É—Ç: –Ω–µ–∏–∑–≤–µ—Å—Ç–Ω–æ—Å—Ç—å != –æ—Ç—Å—É—Ç—Å—Ç–≤–∏–µ —Å–¥–µ–ª–∫–∏.
+            # MANUAL_REVIEW_REQUIRED —Å–æ—Ö—Ä–∞–Ω—è–µ—Ç —Ä–µ–∑–µ—Ä–≤.
+            if (
+                time_in_reconciling > MAX_RECONCILIATION_AGE_SEC
+                and not is_gtd_take_profit
+            ):
+                logger.warning("request_timed_out_in_unknown", request_id=str(req.id))
+                if attempt:
+                    attempt.status = "UNKNOWN"
+                    attempt.error_msg = (
+                        "Automatic reconciliation timed out; "
+                        "provider evidence remains unresolved"
+                    )
+                await finalize_request(
+                    session,
+                    req,
+                    state="MANUAL_REVIEW_REQUIRED",
+                    error=(
+                        "Settlement status still unknown after "
+                        f"{MAX_RECONCILIATION_AGE_SEC}s, manual review required"
+                    ),
+                )
+                await session.commit()
+                continue
+
+            if is_gtd_take_profit and (not attempt or not attempt.provider_order_id):
+                if attempt:
+                    attempt.status = "FAILED"
+                    attempt.error_msg = "GTD order expired without provider order id"
+                    attempt.finished_at = now
+                await finalize_request(
+                    session,
+                    req,
+                    state="EXPIRED",
+                    error="GTD take-profit expired without provider order id",
+                )
+                if req.trade_history_id:
+                    await rebuild_trade_accounting(session, req.trade_history_id)
+                    trade = await session.get(TradeHistory, req.trade_history_id)
+                    if trade and trade.position_status != "CLOSED":
+                        trade.take_profit_status = "EXPIRED"
+                await session.commit()
+                continue
+
+            if not attempt or not attempt.provider_order_id:
+                if settings.execution_mode.value == "PAPER":
+                    # –£ PAPER –Ω–µ—Ç –≤–Ω–µ—à–Ω–µ–≥–æ –æ—Ä–¥–µ—Ä–∞, –ø–æ—ç—Ç–æ–º—É SUBMITTING –±–µ–∑
+                    # provider_order_id –º–æ–∂–Ω–æ –±–µ–∑–æ–ø–∞—Å–Ω–æ –≤–µ—Ä–Ω—É—Ç—å –≤ READY.
+                    if attempt:
+                        attempt.status = "FAILED"
+                        attempt.finished_at = now
+                        attempt.error_msg = (
+                            "Recovered stale PAPER attempt without provider_order_id"
+                        )
+                    req.state = "READY"
+                    req.claimed_by = None
+                    req.claimed_at = None
+                    req.lease_expires_at = None
+                    req.expires_at = now + timedelta(
+                        seconds=max(req.ttl_seconds or 60, 60)
+                    )
+                    req.error_reason = (
+                        "Recovered stale PAPER request without provider_order_id"
+                    )
+                    req.updated_at = now
+                    await session.commit()
+                    logger.warning(
+                        "paper_request_requeued_without_provider_id",
+                        request_id=str(req.id),
+                    )
+                    continue
+                logger.warning(
+                    "cannot_reconcile_no_provider_id", request_id=str(req.id)
+                )
+                continue
+
+            gateway = build_execution_gateway(settings)
+
+            try:
+                market = await session.scalar(
+                    select(LiveMarket).where(LiveMarket.market_id == req.market_id)
+                )
+                token_id = (
+                    market.yes_token_id
+                    if market and req.outcome_to_buy == "YES"
+                    else market.no_token_id if market else ""
+                )
+
+                fills = await gateway.fetch_order_fills(
+                    attempt.provider_order_id,
+                    token_id,
+                )
+                if fills:
+                    await _persist_fills(session, attempt, fills)
+
+                    filled_shares = sum(
+                        (fill.shares for fill in fills),
+                        Decimal("0"),
+                    )
+                    filled_cost = sum(
+                        (fill.gross_quote_usdc for fill in fills),
+                        Decimal("0"),
+                    )
+                    req.filled_shares = filled_shares
+                    req.filled_cost_usdc = filled_cost
+                    attempt.status = "SUCCESS"
+                    attempt.provider_status = "MATCHED"
+                    attempt.provider_trade_ids = [
+                        fill.provider_trade_id for fill in fills
+                    ]
+                    attempt.transaction_hashes = list(
+                        {
+                            fill.transaction_hash
+                            for fill in fills
+                            if fill.transaction_hash
+                        }
+                    )
+                    attempt.settlement_state = "CONFIRMED"
+                    attempt.finished_at = now
+
+                    if filled_shares < (req.requested_shares or Decimal("0")):
+                        await finalize_request(
+                            session, req, state="PARTIALLY_FILLED_FINAL"
+                        )
+                    else:
+                        await finalize_request(session, req, state="FILLED")
+
+                    if req.trade_history_id:
+                        await rebuild_trade_accounting(
+                            session,
+                            req.trade_history_id,
+                        )
+                        await _enqueue_gtd_take_profit_after_fill(session, req)
+
+                    await session.commit()
+                    continue
+
+                # A native GTD order is allowed to remain pending until the
+                # market closes. Once its expiry is reached, cancel the
+                # provider order (after the fill lookup above) and release
+                # the position back to the normal accounting state.
+                if is_gtd_take_profit:
+                    if attempt and attempt.provider_order_id:
+                        try:
+                            await gateway.cancel_order(attempt.provider_order_id)
+                        except Exception as cancel_error:
+                            logger.warning(
+                                "gtd_take_profit_cancel_failed",
+                                request_id=str(req.id),
+                                error=str(cancel_error),
+                            )
+                    if attempt:
+                        attempt.status = "FAILED"
+                        attempt.error_msg = "GTD order expired at market end"
+                        attempt.finished_at = now
+                    await finalize_request(
+                        session,
+                        req,
+                        state="EXPIRED",
+                        error="GTD take-profit order expired at market end",
+                    )
+                    if req.trade_history_id:
+                        await rebuild_trade_accounting(session, req.trade_history_id)
+                        trade = await session.get(TradeHistory, req.trade_history_id)
+                        if trade and trade.position_status != "CLOSED":
+                            trade.take_profit_status = "EXPIRED"
+                    await session.commit()
+                    continue
+
+                sub_res = await gateway.get_order(attempt.provider_order_id)
+                attempt.provider_status = sub_res.provider_status
+                if sub_res.settlement_state:
+                    attempt.settlement_state = sub_res.settlement_state
+
+                PENDING_ORDER_STATUSES = frozenset(
+                    {"ACCEPTED", "UNKNOWN", "PENDING", "LIVE", "DELAYED"}
+                )
+
+                if sub_res.provider_status.upper() == "MATCHED":
+                    attempt.status = "UNKNOWN"
+                    attempt.provider_status = "MATCHED"
+                    req.state = "RECONCILING"
+                    await session.commit()
+                    continue
+
+                if (
+                    sub_res.provider_status.upper() in PENDING_ORDER_STATUSES
+                    or sub_res.settlement_state in ("PENDING", "UNKNOWN", "")
+                ):
+                    logger.info(
+                        "reconcile_still_pending",
+                        request_id=str(req.id),
+                        provider_status=sub_res.provider_status,
+                    )
+                    req.state = "RECONCILING"
+                    await session.commit()
+                    continue
+
+                if sub_res.settlement_state == "CONFIRMED":
+                    logger.info(
+                        "reconcile_confirmed_no_fills_waiting",
+                        request_id=str(req.id),
+                    )
+                    req.state = "RECONCILING"
+                    req.updated_at = now
+                    await session.commit()
+                    continue
+
+                elif sub_res.settlement_state in (
+                    "FAILED",
+                    "REJECTED",
+                    "EXPIRED",
+                    "CANCELED",
+                ) or sub_res.provider_status.upper() in (
+                    "REJECTED",
+                    "FAILED",
+                    "EXPIRED",
+                    "CANCELED",
+                    "UNMATCHED",
+                ):
+                    attempt.status = "FAILED"
+                    await finalize_request(
+                        session,
+                        req,
+                        state="REJECTED",
+                        error=f"Gateway returned terminal status: "
+                        f"{sub_res.settlement_state or sub_res.provider_status}",
+                    )
+                    await session.commit()
+                else:
+                    logger.info(
+                        "reconcile_unknown_status",
+                        request_id=str(req.id),
+                        gateway_status=sub_res.provider_status,
+                    )
+                    req.state = "RECONCILING"
+                    req.updated_at = now
+                    await session.commit()
+
+            except GatewayUnavailable as e:
+                logger.warning("gateway_unavailable_reconcile", error=str(e))
+            except Exception as e:
+                logger.exception(
+                    "reconcile_failed", request_id=str(req.id), error=str(e)
+                )
+
+
+_last_auto_resolve_check_by_mode: dict[str, datetime] = {}
+AUTO_RESOLVE_CHECK_INTERVAL_SEC = 60
+
+
+async def _auto_resolve_stuck_manual_reviews(execution_mode: str) -> None:
+    """
+    –ê–≤—Ç–æ–º–∞—Ç–∏—á–µ—Å–∫–∏ –∑–∞–∫—Ä—ã–≤–∞–µ—Ç –∑–∞–≤–∏—Å—à–∏–µ MANUAL_REVIEW_REQUIRED CLOSE-–∑–∞—è–≤–∫–∏ —Å—Ç–∞—Ä—à–µ 15 –º–∏–Ω—É—Ç.
+    –ü–µ—Ä–µ–¥ REJECTED –ø—Ä–æ–≤–µ—Ä—è—é—Ç—Å—è –≤–æ–∑–º–æ–∂–Ω—ã–µ fills —á–µ—Ä–µ–∑ gateway.
+    –ò—Å–ø–æ–ª—å–∑—É–µ—Ç —Å–æ–±—Å—Ç–≤–µ–Ω–Ω—É—é –∏–∑–æ–ª–∏—Ä–æ–≤–∞–Ω–Ω—É—é —Å–µ—Å—Å–∏—é –ë–î —Å —Ç—Ä–æ—Ç—Ç–ª–∏–Ω–≥–æ–º 60 —Å–µ–∫ –Ω–∞ –∫–∞–∂–¥—ã–π —Ä–µ–∂–∏–º.
+    """
+    now = datetime.now(timezone.utc)
+    last_check = _last_auto_resolve_check_by_mode.get(execution_mode)
+    if (
+        last_check
+        and (now - last_check).total_seconds() < AUTO_RESOLVE_CHECK_INTERVAL_SEC
+    ):
+        return
+    _last_auto_resolve_check_by_mode[execution_mode] = now
+
+    settings = ExecutionSettings()
+    async with async_session() as session:
+        manual_cutoff = now - timedelta(minutes=15)
+        stmt_manual = select(ExecutionRequest).where(
+            ExecutionRequest.state == "MANUAL_REVIEW_REQUIRED",
+            ExecutionRequest.requested_mode == execution_mode,
+            ExecutionRequest.intent == "CLOSE",
+            ExecutionRequest.updated_at <= manual_cutoff,
+        )
+        stuck_manual_reqs = (await session.execute(stmt_manual)).scalars().all()
+        if not stuck_manual_reqs:
+            return
+
+        gateway = build_execution_gateway(settings)
+        for req in stuck_manual_reqs:
+            logger.info(
+                "auto_resolving_stuck_manual_review_close_request",
+                request_id=str(req.id),
+                trade_history_id=req.trade_history_id,
+            )
+            attempt_stmt = (
+                select(ExecutionAttempt)
+                .where(ExecutionAttempt.request_id == req.id)
+                .order_by(ExecutionAttempt.attempt_no.desc())
+                .limit(1)
+            )
+            attempt = (await session.execute(attempt_stmt)).scalar_one_or_none()
+
+            fills = []
+            if attempt and attempt.provider_order_id:
+                try:
+                    market = await session.scalar(
+                        select(LiveMarket).where(LiveMarket.market_id == req.market_id)
+                    )
+                    token_id = (
+                        market.yes_token_id
+                        if market and req.outcome_to_buy == "YES"
+                        else (market.no_token_id if market else "")
+                    )
+                    if token_id:
+                        fills = await gateway.fetch_order_fills(
+                            attempt.provider_order_id, token_id
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "auto_resolve_fills_fetch_failed",
+                        request_id=str(req.id),
+                        error=str(e),
+                    )
+
+            if fills and attempt:
+                await _persist_fills(session, attempt, fills)
+                await finalize_request(session, req, state="FILLED")
+            else:
+                await finalize_request(
+                    session,
+                    req,
+                    state="REJECTED",
+                    error="Auto-resolved: no fills confirmed after MANUAL_REVIEW timeout",
+                )
+
+            if req.trade_history_id:
+                await rebuild_trade_accounting(session, req.trade_history_id)
+            await session.commit()
+
+
+def classify_readiness_error(exc: Exception) -> str:
+    message = str(exc).lower()
+
+    if isinstance(exc, asyncio.TimeoutError):
+        return "READINESS_TIMEOUT"
+
+    if isinstance(exc, ssl.SSLError):
+        return "TLS_TRANSPORT_ERROR"
+
+    if "ssl" in message or "bad record mac" in message:
+        return "TLS_TRANSPORT_ERROR"
+
+    if "connection" in message or "transport" in message:
+        return "NETWORK_TRANSPORT_ERROR"
+
+    return "READINESS_UNKNOWN_ERROR"
+
+
+async def publish_liveness_once(
+    session: AsyncSession,
+    worker_id: str,
+    execution_mode: str,
+):
+    now = datetime.now(timezone.utc)
+    dialect_name = await _get_dialect(session)
+    insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
+
+    stmt = (
+        insert_func(ExecutionWorkerStatus)
+        .values(
+            worker_id=worker_id,
+            execution_mode=execution_mode,
+            heartbeat_at=now,
+            gateway_ready=False,
+        )
+        .on_conflict_do_update(
+            index_elements=["worker_id"],
+            set_={
+                "heartbeat_at": now,
+                "execution_mode": execution_mode,
+            },
+        )
+    )
+
+    await session.execute(stmt)
+    await session.commit()
+
+
+async def publish_liveness(worker_id: str, execution_mode: str):
+    while True:
+        try:
+            async with async_session() as session:
+                await publish_liveness_once(
+                    session,
+                    worker_id,
+                    execution_mode,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("heartbeat_failed")
+
+        await asyncio.sleep(10)
+
+
+async def refresh_gateway_readiness_once(
+    session: AsyncSession,
+    worker_id: str,
+    execution_mode: str,
+    gateway,
+):
+    now = datetime.now(timezone.utc)
+
+    ws = await session.get(ExecutionWorkerStatus, worker_id)
+    if not ws:
+        return
+
+    probe_token_id = await session.scalar(
+        select(LiveMarket.yes_token_id)
+        .where(
+            LiveMarket.end_time_est > now,
+            LiveMarket.yes_token_id.is_not(None),
+        )
+        .order_by(LiveMarket.last_updated.desc())
+        .limit(1)
+    )
+
+    if not probe_token_id:
+        ws.gateway_ready = False
+        ws.conditional_allowance_ready = None
+        ws.last_error_code = "NO_APPROVAL_PROBE_TOKEN"
+        ws.last_error_message = (
+            "–ù–µ—Ç –∞–∫—Ç–∏–≤–Ω–æ–≥–æ —Ä—ã–Ω–∫–∞ –¥–ª—è –ø—Ä–æ–≤–µ—Ä–∫–∏ Conditional Token Approval"
+        )
+        ws.readiness_checked_at = now
+        await session.commit()
+        return
+
+    conditional_token_ids = (probe_token_id,)
+    READINESS_TIMEOUT_SECONDS = 15
+
+    try:
+        readiness = await asyncio.wait_for(
+            gateway.get_readiness(
+                conditional_token_ids=conditional_token_ids,
+            ),
+            timeout=READINESS_TIMEOUT_SECONDS,
+        )
+
+        if getattr(readiness, "error_message", None):
+            error_code = getattr(
+                readiness, "error_code", None
+            ) or classify_readiness_error(Exception(readiness.error_message))
+
+            if error_code in {
+                "TLS_TRANSPORT_ERROR",
+                "NETWORK_TRANSPORT_ERROR",
+                "READINESS_TIMEOUT",
+            }:
+                try:
+                    await gateway.invalidate_client()
+                except Exception as exc:
+                    logger.warning(
+                        "gateway_client_invalidation_failed",
+                        error=str(exc),
+                    )
+
+            ws.gateway_ready = False
+            ws.readiness_checked_at = now
+            ws.last_error_code = error_code
+            ws.last_error_message = readiness.error_message
+        else:
+            ws.gateway_ready = readiness.ready
+            ws.readiness_checked_at = now
+            ws.readiness_success_at = now
+            ws.last_error_code = None
+            ws.last_error_message = None
+
+            if readiness.balance:
+                ws.balance_usdc = Decimal(str(readiness.balance.balance_usdc))
+            if readiness.collateral_allowance_ready is not None:
+                ws.collateral_allowance_ready = readiness.collateral_allowance_ready
+            if readiness.conditional_allowance_ready is not None:
+                ws.conditional_allowance_ready = readiness.conditional_allowance_ready
+
+            ws.credentials_loaded = readiness.credentials_loaded
+            ws.wallet_address = readiness.wallet_address
+            ws.network_chain_id = readiness.network_chain_id
+
+    except Exception as exc:
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+
+        error_code = classify_readiness_error(exc)
+
+        # –°–±—Ä–æ—Å–∏—Ç—å –∫–ª–∏–µ–Ω—Ç –ø—Ä–∏ —Å–µ—Ç–µ–≤–æ–π/SSL –æ—à–∏–±–∫–µ
+        if error_code in {
+            "TLS_TRANSPORT_ERROR",
+            "NETWORK_TRANSPORT_ERROR",
+            "READINESS_TIMEOUT",
+        }:
+            try:
+                await gateway.invalidate_client()
+            except Exception as exc:
+                logger.warning(
+                    "gateway_client_invalidation_failed",
+                    error=str(exc),
+                )
+
+        ws.gateway_ready = False
+        ws.readiness_checked_at = now
+        ws.last_error_code = error_code
+        ws.last_error_message = str(exc)
+
+    await session.commit()
+
+
+async def refresh_gateway_readiness(
+    worker_id: str,
+    execution_mode: str,
+    gateway,
+):
+    while True:
+        try:
+            async with async_session() as session:
+                await refresh_gateway_readiness_once(
+                    session,
+                    worker_id,
+                    execution_mode,
+                    gateway,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("gateway_readiness_refresh_failed")
+
+        await asyncio.sleep(30)
+
+
+async def execution_worker_loop():
+    logger.info("execution_worker_started")
+    settings = ExecutionSettings()
+    gateway = build_execution_gateway(settings)
+    execution_mode = settings.execution_mode.value
+    worker_id = f"{execution_mode}:{socket.gethostname()}:{os.getpid()}"
+
+    heartbeat_task = asyncio.create_task(publish_liveness(worker_id, execution_mode))
+    readiness_task = asyncio.create_task(
+        refresh_gateway_readiness(worker_id, execution_mode, gateway)
+    )
+
+    try:
+        while True:
+            try:
+                await process_ready_requests()
+                await reconcile_active_requests()
+                await _auto_resolve_stuck_manual_reviews(execution_mode)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception("execution_worker_error", error=str(exc))
+
+            await asyncio.sleep(1)
+    finally:
+        heartbeat_task.cancel()
+        readiness_task.cancel()
+        await asyncio.gather(heartbeat_task, readiness_task, return_exceptions=True)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Run in dry-run mode and exit 0"
+    )
+    args = parser.parse_args()
+
+    if args.dry_run:
+        print("Dry run successful.")
+        sys.exit(0)
+
+    structlog.configure(
+        processors=[
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.JSONRenderer(),
+        ]
+    )
+    asyncio.run(execution_worker_loop())
