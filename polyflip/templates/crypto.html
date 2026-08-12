@@ -108,6 +108,9 @@
             from { opacity: 1; transform: translateY(0); }
             to   { opacity: 0; transform: translateY(8px); }
         }
+        .lgbm-help { display:inline-flex; align-items:center; justify-content:center; width:1.05rem; height:1.05rem; border:1px solid #6d7da0; border-radius:50%; color:#b7c4e5; font-size:0.7rem; font-weight:700; cursor:help; }
+        .lgbm-help:hover, .lgbm-help:focus { color:#fff; border-color:#52a8ff; background:rgba(82,168,255,.18); outline:none; }
+        .lgbm-save-status { display:inline-flex; align-items:center; padding:0.35rem 0.6rem; border-radius:6px; color:#8ff0ba; background:rgba(46,204,113,.12); border:1px solid rgba(46,204,113,.3); font-size:0.78rem; }
     </style>
     <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ static_version }}"></script>
     <script>
@@ -137,8 +140,9 @@
             <header class="tab-header">
                 <h1>🪙 Управление Crypto LightGBM (15m)</h1>
                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;" id="train-buttons-container">
-                    <label for="lgbm-feature-set" style="font-size: 0.85rem; color: var(--text-muted);">Feature set:</label>
-                    <select id="lgbm-feature-set" title="A - control, B - direction sequence, C - candle structure"
+                    <label for="lgbm-feature-set" style="font-size: 0.85rem; color: var(--text-muted);">Набор признаков:</label>
+                    <span class="lgbm-help" tabindex="0" title="A — контрольный набор; B — направления и серии свечей; C — тело и структура свечей.">?</span>
+                    <select id="lgbm-feature-set" title="A — контрольный набор; B — направления и серии свечей; C — тело и структура свечей."
                             style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.65rem; border-radius: 6px;">
                         <option value="A">A - control</option>
                         <option value="B">B - directions and runs</option>
@@ -146,15 +150,16 @@
                     </select>
                     <label for="lgbm-activate-after-train" style="font-size: 0.85rem; color: var(--text-muted); display:flex; align-items:center; gap:0.35rem;" title="Automatically activate the new model after training">
                         <input type="checkbox" id="lgbm-activate-after-train">
-                        Activate after training
+                        Активировать после обучения
                     </label>
-                    <label for="lgbm-experiment-config" style="font-size: 0.85rem; color: var(--text-muted);">Experiment:</label>
+                    <label for="lgbm-experiment-config" style="font-size: 0.85rem; color: var(--text-muted);">Конфигурация эксперимента:</label>
+                    <span class="lgbm-help" tabindex="0" title="Выберите сохранённую конфигурацию A, B или C перед обучением. Это не список результатов бэктеста.">?</span>
                     <select id="lgbm-experiment-config" onchange="applySelectedExperimentConfig()"
                             style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.65rem; border-radius: 6px; min-width: 220px;">
                         <option value="">Ad-hoc RuntimeSettings</option>
                     </select>
                     <button class="btn" type="button" onclick="saveCurrentExperimentConfig()" title="Сохранить текущие параметры как новую версию эксперимента">Сохранить как эксперимент</button>
-                    <input type="text" id="lgbm-new-config-name" maxlength="128" placeholder="Experiment name" aria-label="Experiment name"
+                    <input type="text" id="lgbm-new-config-name" maxlength="128" placeholder="Название эксперимента" aria-label="Название эксперимента"
                            style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.65rem; border-radius: 6px; min-width: 180px;">
                     <span id="lgbm-experiment-config-status" style="font-size:0.78rem; color:var(--text-muted);"></span>
                     {% for sym in symbols %}
@@ -223,13 +228,18 @@
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
                         <div>
                             <h2 style="margin:0;">LightGBM A/B/C experiment comparison</h2>
-                            <div style="color:var(--text-muted); font-size:0.85rem;">Saved OOT candidates; the check button never retrains a model.</div>
+                            <div style="color:var(--text-muted); font-size:0.85rem;">Сохранённые OOT-кандидаты; кнопка проверки не переобучает модель.</div>
+                            <div class="lgbm-save-status" title="SAVED означает, что модель и её OOF-данные записаны в ModelRegistry.">✅ SAVED = модель сохранена в ModelRegistry</div>
                         </div>
                         <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
-                            <select id="lgbm-experiment-group" style="min-width:260px;">
+                            <label for="lgbm-experiment-group" style="font-size:0.82rem; color:var(--text-muted);">Группа сравнения:</label>
+                            <span class="lgbm-help" tabindex="0" title="Выберите актив и режим волатильности с сохранёнными кандидатами A/B/C, например BTCUSDT_high_vol.">?</span>
+                            <select id="lgbm-experiment-group" title="Группа сравнения: актив и режим волатильности для сопоставления кандидатов A/B/C." style="min-width:260px;">
                                 <option value="">No comparable groups yet</option>
                             </select>
-                            <select id="lgbm-experiment-branch">
+                            <label for="lgbm-experiment-branch" style="font-size:0.82rem; color:var(--text-muted);">Ветка бэктеста:</label>
+                            <span class="lgbm-help" tabindex="0" title="COMBINED — смешанная стратегия; OUTSIDER_ONLY — только аутсайдеры; FAVORITE_ONLY — только фавориты.">?</span>
+                            <select id="lgbm-experiment-branch" title="Выберите ветку, по которой сравнивать PnL и сделки.">
                                 <option value="COMBINED">COMBINED</option>
                                 <option value="OUTSIDER_ONLY">OUTSIDER_ONLY</option>
                                 <option value="FAVORITE_ONLY">FAVORITE_ONLY</option>
@@ -1864,6 +1874,11 @@
                             const msg = msgLines.join('\n');
 
                             showNotification(`✅ Обучение ${symbol} завершено`, msg);
+                            const saveStatus = document.getElementById("lgbm-experiment-config-status");
+                            if (saveStatus) {
+                                saveStatus.textContent = "✅ " + symbol + ": кандидаты сохранены в ModelRegistry. Обновите страницу для проверки.";
+                                saveStatus.style.color = "#8ff0ba";
+                            }
                             alert(msg);
                         } else if (pollCount >= MAX_POLLS) {
                             clearInterval(intervalId);
