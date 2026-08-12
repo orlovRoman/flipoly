@@ -237,6 +237,7 @@
                     <div id="lgbm-experiment-table" style="overflow-x:auto; margin-top:0.8rem;">
                         <div style="color:var(--text-muted);">Loading experiment groups...</div>
                     </div>
+                    <div id="lgbm-experiment-report" style="margin-top:0.8rem;"></div>
                     <div id="saved-candidate-result" style="margin-top:0.6rem; color:var(--text-muted);"></div>
                 </div>
                 <div id="models-status">Загрузка...</div>
@@ -790,7 +791,12 @@
             const table = document.getElementById('lgbm-experiment-table');
             if (!select || !table) return;
             if (!select.dataset.bound) {
-                select.addEventListener('change', renderLgbmExperiments);
+                select.addEventListener('change', () => {
+                    renderLgbmExperiments();
+                    loadLgbmExperimentReport();
+                });
+                const branchSelect = document.getElementById('lgbm-experiment-branch');
+                branchSelect?.addEventListener('change', loadLgbmExperimentReport);
                 select.dataset.bound = '1';
             }
             if (!lgbmExperimentData.length) {
@@ -825,12 +831,51 @@
                 const payload = await response.json();
                 lgbmExperimentData = payload.groups || [];
                 renderLgbmExperiments();
+                loadLgbmExperimentReport();
             } catch (error) {
                 const table = document.getElementById('lgbm-experiment-table');
                 if (table) table.innerHTML = `<div style="color:#ff8a8a;">Experiment comparison unavailable: ${error.message}</div>`;
             }
         }
 
+        async function loadLgbmExperimentReport() {
+            const reportEl = document.getElementById('lgbm-experiment-report');
+            const groupSelect = document.getElementById('lgbm-experiment-group');
+            if (!reportEl || !groupSelect?.value) {
+                if (reportEl) reportEl.innerHTML = '';
+                return;
+            }
+            const branch = document.getElementById('lgbm-experiment-branch')?.value || 'COMBINED';
+            reportEl.innerHTML = '<div style="color:var(--text-muted);">Building experiment report...</div>';
+            try {
+                const url = `/lightgbm/api/experiments/report?comparison_key=${encodeURIComponent(groupSelect.value)}&strategy_branch=${encodeURIComponent(branch)}`;
+                const response = await fetch(url, { headers: H });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload?.detail || `HTTP ${response.status}`);
+                const statusLabel = {
+                    READY_FOR_SHADOW: 'Recommended for SHADOW',
+                    PROVISIONAL_LOW_SAMPLE: 'Provisional: few trades',
+                    NO_PNL_SAMPLE: 'No PnL sample',
+                    NO_CANDIDATES: 'No candidates',
+                }[payload.recommendation_status] || payload.recommendation_status;
+                const rows = (payload.rows || []).map(row => {
+                    const delta = row.delta_vs_control || {};
+                    const signed = value => value == null ? '-' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(4)}`;
+                    return `<tr><td>${row.feature_set || '-'}</td><td>v${row.version ?? '-'}</td><td>${row.pnl == null ? '-' : Number(row.pnl).toFixed(2)}</td><td>${row.trades}</td><td>${signed(delta.auc)}</td><td>${signed(delta.ece)}</td><td>${signed(delta.brier)}</td><td>${signed(delta.pnl)}</td></tr>`;
+                }).join('');
+                const stable = Object.entries(payload.stable_features_by_variant || {})
+                    .map(([variant, features]) => `${variant}: ${(features || []).join(', ') || '-'}`).join(' · ') || '-';
+                reportEl.innerHTML = `<div style="padding:0.9rem 1rem; border:1px solid rgba(0,180,255,0.3); border-radius:8px; background:rgba(0,120,180,0.06);">
+                    <div style="display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap;"><b>Automatic comparison report (${branch})</b><span style="color:#ffc107;">${statusLabel}</span></div>
+                    <div style="margin-top:0.45rem; color:var(--text-muted);">${payload.recommendation_reason}</div>
+                    <div style="margin-top:0.45rem;">Recommendation: <b>${payload.recommended_variant || '-'}</b> (model ${payload.recommended_model_id || '-'}) · activation: <b>${payload.activation_policy}</b></div>
+                    <div style="margin-top:0.45rem; color:var(--text-muted);">Stable features: ${stable}</div>
+                    <div style="overflow-x:auto; margin-top:0.7rem;"><table class="styled-table" style="width:100%; border-collapse:collapse; font-size:0.78rem;"><thead><tr><th>Variant</th><th>Version</th><th>${branch} PnL</th><th>Trades</th><th>Δ AUC</th><th>Δ ECE</th><th>Δ Brier</th><th>Δ PnL</th></tr></thead><tbody>${rows}</tbody></table></div>
+                </div>`;
+            } catch (error) {
+                reportEl.innerHTML = `<div style="color:#ff8a8a;">Experiment report unavailable: ${error.message}</div>`;
+            }
+        }
         async function runSavedLgbmBacktest(modelId) {
             const branch = document.getElementById('lgbm-experiment-branch')?.value || 'COMBINED';
             const result = document.getElementById('saved-candidate-result');
