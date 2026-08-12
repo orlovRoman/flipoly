@@ -148,6 +148,13 @@
                         <input type="checkbox" id="lgbm-activate-after-train">
                         Activate after training
                     </label>
+                    <label for="lgbm-experiment-config" style="font-size: 0.85rem; color: var(--text-muted);">Experiment:</label>
+                    <select id="lgbm-experiment-config" onchange="applySelectedExperimentConfig()"
+                            style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.65rem; border-radius: 6px; min-width: 220px;">
+                        <option value="">Ad-hoc RuntimeSettings</option>
+                    </select>
+                    <button class="btn" type="button" onclick="saveCurrentExperimentConfig()" title="Сохранить текущие параметры как новую версию эксперимента">Сохранить как эксперимент</button>
+                    <span id="lgbm-experiment-config-status" style="font-size:0.78rem; color:var(--text-muted);"></span>
                     {% for sym in symbols %}
                     <button class="btn primary-btn" id="btn-train-{{ sym }}" onclick="retrain('{{ sym }}')">🔄 Обучить {{ sym }}</button>
                     {% endfor %}
@@ -1520,6 +1527,96 @@
             }
         }
 
+        let lgbmExperimentConfigs = [];
+
+        function _experimentInputValues() {
+            return {
+                n_estimators: parseInt(document.getElementById('p-n-estimators').value, 10),
+                learning_rate: parseFloat(document.getElementById('p-learning-rate').value),
+                num_leaves: parseInt(document.getElementById('p-num-leaves').value, 10),
+                max_depth: parseInt(document.getElementById('p-max-depth').value, 10),
+                min_child_samples: parseInt(document.getElementById('p-min-child-samples').value, 10),
+                subsample: parseFloat(document.getElementById('p-subsample').value),
+                colsample_bytree: parseFloat(document.getElementById('p-colsample-bytree').value),
+                reg_alpha: parseFloat(document.getElementById('p-reg-alpha')?.value || 0.1),
+                reg_lambda: parseFloat(document.getElementById('p-reg-lambda')?.value || 1.0),
+            };
+        }
+
+        function applySelectedExperimentConfig() {
+            const id = document.getElementById('lgbm-experiment-config')?.value;
+            const config = lgbmExperimentConfigs.find(item => String(item.id) === String(id));
+            if (!config) return;
+            const set = config.model || {};
+            const fields = {
+                'p-n-estimators': set.n_estimators,
+                'p-learning-rate': set.learning_rate,
+                'p-num-leaves': set.num_leaves,
+                'p-max-depth': set.max_depth,
+                'p-min-child-samples': set.min_child_samples,
+                'p-subsample': set.subsample,
+                'p-colsample-bytree': set.colsample_bytree,
+                'p-min-edge': config.backtest?.min_edge,
+            };
+            Object.entries(fields).forEach(([field, value]) => {
+                const el = document.getElementById(field);
+                if (el && value != null) el.value = value;
+            });
+            const feature = document.getElementById('lgbm-feature-set');
+            if (feature && config.feature_set) feature.value = config.feature_set;
+            const status = document.getElementById('lgbm-experiment-config-status');
+            if (status) status.textContent = `Выбрана ${config.name} · ${config.config_hash.slice(0, 8)}`;
+        }
+
+        async function loadExperimentConfigs() {
+            const select = document.getElementById('lgbm-experiment-config');
+            if (!select) return;
+            try {
+                const response = await fetch('/lightgbm/api/experiment-configs', { headers: H });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                lgbmExperimentConfigs = data.configs || [];
+                const current = select.value;
+                select.innerHTML = '<option value="">Ad-hoc RuntimeSettings</option>' +
+                    lgbmExperimentConfigs.map(item =>
+                        `<option value="${item.id}">${item.name} · ${item.feature_set} · ${item.config_hash.slice(0, 8)}</option>`
+                    ).join('');
+                if (lgbmExperimentConfigs.some(item => String(item.id) === String(current))) {
+                    select.value = current;
+                }
+            } catch (error) {
+                const status = document.getElementById('lgbm-experiment-config-status');
+                if (status) status.textContent = `Конфигурации недоступны: ${error.message}`;
+            }
+        }
+
+        async function saveCurrentExperimentConfig() {
+            const name = prompt('Название эксперимента:', `LightGBM ${document.getElementById('lgbm-feature-set')?.value || 'A'} ${new Date().toISOString().slice(0, 16)}`);
+            if (!name || !name.trim()) return;
+            const selectedId = document.getElementById('lgbm-experiment-config')?.value;
+            const payload = {
+                name: name.trim(),
+                feature_set: document.getElementById('lgbm-feature-set')?.value || 'A',
+                model: _experimentInputValues(),
+                calibration: { method: 'AUTO' },
+                backtest: { min_edge: parseFloat(document.getElementById('p-min-edge').value) },
+                parent_id: selectedId ? Number(selectedId) : null,
+            };
+            try {
+                const response = await fetch('/lightgbm/api/experiment-configs', {
+                    method: 'POST', headers: H, body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+                await loadExperimentConfigs();
+                const select = document.getElementById('lgbm-experiment-config');
+                select.value = String(data.config.id);
+                applySelectedExperimentConfig();
+                showNotification(`Эксперимент сохранён: ${data.config.name}`, 'success');
+            } catch (error) {
+                alert(`Не удалось сохранить эксперимент: ${error.message}`);
+            }
+        }
         async function saveSettings() {
             const settings = {
                 n_estimators: parseInt(document.getElementById('p-n-estimators').value),
@@ -1562,7 +1659,9 @@
             try {
                 const featureSet = document.getElementById('lgbm-feature-set')?.value || 'A';
                 const activate = document.getElementById('lgbm-activate-after-train')?.checked ? 'true' : 'false';
-                const r = await fetch(`/lightgbm/api/train?symbol=${symbol}&feature_set=${encodeURIComponent(featureSet)}&activate_after_train=${activate}`, { method: 'POST', headers: H });
+                const experimentConfigId = document.getElementById('lgbm-experiment-config')?.value || '';
+                const configQuery = experimentConfigId ? `&experiment_config_id=${encodeURIComponent(experimentConfigId)}` : '';
+                const r = await fetch(`/lightgbm/api/train?symbol=${symbol}&feature_set=${encodeURIComponent(featureSet)}&activate_after_train=${activate}${configQuery}`, { method: 'POST', headers: H });
                 const d = await r.json();
                 if (!r.ok || d.status === "already_running") {
                     if (d.status === "already_running") {
@@ -1778,6 +1877,7 @@
             });
         }
 
+        loadExperimentConfigs();
         loadStatus();
     </script>
 </body>
