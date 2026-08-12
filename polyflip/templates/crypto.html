@@ -216,13 +216,21 @@
                             <h2 style="margin:0;">LightGBM A/B/C experiment comparison</h2>
                             <div style="color:var(--text-muted); font-size:0.85rem;">Saved OOT candidates; the check button never retrains a model.</div>
                         </div>
-                        <select id="lgbm-experiment-group" style="min-width:260px;">
-                            <option value="">No comparable groups yet</option>
-                        </select>
+                        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                            <select id="lgbm-experiment-group" style="min-width:260px;">
+                                <option value="">No comparable groups yet</option>
+                            </select>
+                            <select id="lgbm-experiment-branch">
+                                <option value="COMBINED">COMBINED</option>
+                                <option value="OUTSIDER_ONLY">OUTSIDER_ONLY</option>
+                                <option value="FAVORITE_ONLY">FAVORITE_ONLY</option>
+                            </select>
+                        </div>
                     </div>
                     <div id="lgbm-experiment-table" style="overflow-x:auto; margin-top:0.8rem;">
                         <div style="color:var(--text-muted);">Loading experiment groups...</div>
                     </div>
+                    <div id="saved-candidate-result" style="margin-top:0.6rem; color:var(--text-muted);"></div>
                 </div>
                 <div id="models-status">Загрузка...</div>
             </div>
@@ -798,7 +806,7 @@
                     <td>${row.brier == null ? '-' : Number(row.brier).toFixed(4)}</td>
                     <td>${row.best_branch_pnl == null ? (row.backtest_pnl == null ? '-' : Number(row.backtest_pnl).toFixed(2)) : Number(row.best_branch_pnl).toFixed(2)}</td>
                     <td>${row.backtest_trades ?? '-'}</td><td>${row.artifact_available ? 'saved' : 'legacy'}</td>
-                    <td>${row.artifact_available ? `<button class="btn" onclick="runSavedLgbmBacktest(${row.model_id}, '${row.best_branch || 'COMBINED'}')">Check</button>` : '<span style="color:var(--text-muted)">retrain</span>'}</td>
+                    <td>${row.artifact_available ? `<button class="btn" onclick="runSavedLgbmBacktest(${row.model_id})">Check</button>` : '<span style="color:var(--text-muted)">retrain</span>'}</td>
                 </tr>`).join('')}</tbody></table>`;
         }
 
@@ -815,14 +823,20 @@
             }
         }
 
-        async function runSavedLgbmBacktest(modelId, branch) {
+        async function runSavedLgbmBacktest(modelId) {
+            const branch = document.getElementById('lgbm-experiment-branch')?.value || 'COMBINED';
+            const result = document.getElementById('saved-candidate-result');
+            if (result) result.textContent = 'Running saved-candidate OOT check...';
             try {
                 const response = await fetch(`/lightgbm/api/backtest?model_id=${modelId}&pnl_mode=POLYMARKET&strategy_branch=${encodeURIComponent(branch)}`, { headers: H });
                 const payload = await response.json();
                 if (!response.ok) throw new Error(payload?.detail?.message || payload?.detail?.error || payload?.detail || `HTTP ${response.status}`);
-                alert(`Saved candidate v${payload.model_version}: ${Number(payload.net_profit || 0).toFixed(2)} USDC, ${payload.n_trades || 0} trades, ${Number(payload.roi_pct || 0).toFixed(2)}% ROI`);
+                if (result) {
+                    result.textContent = `Saved v${payload.model_version} (${branch}): ${Number(payload.net_profit || 0).toFixed(2)} USDC, ${payload.n_trades || 0} trades, ${Number(payload.roi_pct || 0).toFixed(2)}% ROI`;
+                    result.style.color = Number(payload.net_profit || 0) >= 0 ? '#39d98a' : '#ff8a8a';
+                }
             } catch (error) {
-                alert(`Saved candidate backtest failed: ${error.message}`);
+                if (result) { result.textContent = `Saved candidate backtest failed: ${error.message}`; result.style.color = '#ff8a8a'; }
             }
         }
 

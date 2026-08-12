@@ -52,6 +52,7 @@ CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "XRPUSDT", "SOLUSDT"]
 _cache: dict = {}
 _CACHE_TTL = 10  # снизим до 10 секунд для лучшей отзывчивости настроек
 _active_trainings: dict[str, dict] = {}
+_OOF_BACKTEST_CACHE_TTL = 300
 
 
 @router.get("")
@@ -488,18 +489,24 @@ async def _stored_lgbm_polymarket_backtest(
         variant = None
         artifact = artifacts.get(row.id)
         if artifact is not None:
-            try:
-                payload = deserialize_oof_artifact(artifact.artifact_blob)
-                computed = compute_oof_polymarket_backtest(
-                    payload["frame"], payload["oof_scores"], payload["quotes"],
-                    strategy_branch=branch,
-                )
-                variant = {key: value for key, value in computed.items() if key != "trades"}
-            except ValueError as exc:
-                raise HTTPException(
-                    status_code=422,
-                    detail={"error": "OOF_ARTIFACT_INVALID", "model_id": row.id, "message": str(exc)},
-                ) from exc
+            cache_key = f"lgbm_oof_{row.id}_{branch}"
+            cached = _cache.get(cache_key)
+            if cached and time.time() - cached["ts"] < _OOF_BACKTEST_CACHE_TTL:
+                variant = cached["data"]
+            else:
+                try:
+                    payload = deserialize_oof_artifact(artifact.artifact_blob)
+                    computed = compute_oof_polymarket_backtest(
+                        payload["frame"], payload["oof_scores"], payload["quotes"],
+                        strategy_branch=branch,
+                    )
+                    variant = {key: value for key, value in computed.items() if key != "trades"}
+                    _cache[cache_key] = {"data": variant, "ts": time.time()}
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"error": "OOF_ARTIFACT_INVALID", "model_id": row.id, "message": str(exc)},
+                    ) from exc
         if variant is None:
             variant = variants.get(branch)
         if variant is None and branch == "OUTSIDER_ONLY":
@@ -572,12 +579,22 @@ async def _stored_lgbm_polymarket_backtest(
 async def lgbm_experiment_groups(db: AsyncSession = Depends(get_db_session)) -> dict:
     """Return comparable LightGBM A/B/C candidates and saved OOT summaries."""
     rows = (await db.execute(
-        select(ModelRegistry)
+        select(
+            ModelRegistry.id, ModelRegistry.asset, ModelRegistry.version,
+            ModelRegistry.accuracy, ModelRegistry.ece, ModelRegistry.brier_score,
+            ModelRegistry.is_active, ModelRegistry.trained_at,
+            ModelRegistry.training_params, ModelRegistry.backtest_pnl,
+            ModelRegistry.backtest_trades,
+        )
         .where(ModelRegistry.model_type == "lgbm")
         .order_by(ModelRegistry.asset, ModelRegistry.trained_at.desc(), ModelRegistry.version.desc())
-    )).scalars().all()
+        .limit(500)
+    )).all()
+    model_ids = [row.id for row in rows]
     artifact_ids = set((await db.execute(
-        select(ModelRegistryOOFArtifact.model_registry_id)
+        select(ModelRegistryOOFArtifact.model_registry_id).where(
+            ModelRegistryOOFArtifact.model_registry_id.in_(model_ids)
+        ) if model_ids else select(ModelRegistryOOFArtifact.model_registry_id).where(False)
     )).scalars().all())
     groups: dict[str, list[dict]] = {}
     for model in rows:
@@ -616,6 +633,7 @@ async def lgbm_experiment_groups(db: AsyncSession = Depends(get_db_session)) -> 
             "model_config": params.get("model_config", {}),
             "best_branch": best_branch,
             "best_branch_pnl": best_pnl,
+            "best_branch_source": "training_summary",
         }
         groups.setdefault(key, []).append(candidate)
     payload = []
