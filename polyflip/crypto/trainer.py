@@ -38,6 +38,7 @@ from polyflip.crypto.feature_audit import (
 )
 from polyflip.crypto.market_outcome_dataset import build_market_outcome_dataset
 from polyflip.db.models import CryptoCandle, ModelRegistry, RuntimeSettings
+from polyflip.crypto.polymarket_backtest import compute_oof_polymarket_backtest, load_market_entry_quotes
 
 # Импортируем общий семафор из LogReg-трейнера.
 # NOTE: Семафор инициализируется один раз при первом вызове и кэшируется до перезапуска сервиса.
@@ -214,6 +215,8 @@ class LGBMFitResult:
     log_loss: float | None = None
     feature_audit: dict[str, dict[str, float | int]] = field(default_factory=dict)
     feature_audit_summary: dict[str, object] = field(default_factory=dict)
+    # OOF probabilities are retained for the canonical Polymarket PnL audit.
+    oof_scores: np.ndarray | None = None
 
     def _legacy_values(self) -> tuple[object, ...]:
         return (
@@ -436,6 +439,7 @@ def _fit_lgbm_and_serialize(
         log_loss=oot_log_loss if return_metrics else None,
         feature_audit=feature_audit,
         feature_audit_summary=audit_summary,
+        oof_scores=oof_scores.copy() if return_metrics else None,
     )
 
 
@@ -563,6 +567,23 @@ class CryptoModelTrainer:
         assert df_filtered[available].isna().sum().sum() == 0, "features must not contain NaN"
         assert len(df_filtered["target"].unique()) == 2, "both target classes (0 and 1) must be present"
 
+        # The registry PnL fields are populated from the same canonical
+        # Polymarket data, using only OOF probabilities and executable entry
+        # quotes. This keeps A/B/C comparable and prevents live-trade absence
+        # from being mistaken for a zero-quality backtest.
+        backtest_min_edge = await _get_float_setting(self.db, "BACKTEST_MIN_EDGE", 0.04)
+        backtest_cost_buffer = await _get_float_setting(self.db, "COMBINED_COST_BUFFER", 0.02)
+        backtest_fee_rate = await _get_float_setting(self.db, "POLYMARKET_FEE_RATE", 0.002)
+        backtest_min_price = await _get_float_setting(self.db, "TRADE_MIN_PRICE", 0.05)
+        backtest_max_price = await _get_float_setting(self.db, "TRADE_MAX_PRICE", 0.95)
+        backtest_outsider_max = await _get_float_setting(self.db, "OUTSIDER_MAX_PRICE", 0.45)
+        try:
+            entry_quotes = await load_market_entry_quotes(
+                self.db, df_filtered[["market_id", "market_start"]]
+            )
+        except Exception:
+            logger.exception("lgbm_backtest_quote_load_failed", symbol=symbol)
+            entry_quotes = pd.DataFrame()
         logger.info(
             "training_dataset_validated",
             total_resolved_markets=len(df_filtered),
@@ -692,6 +713,55 @@ class CryptoModelTrainer:
                     "feature_audit_summary": result.feature_audit_summary,
                 }
 
+                # Evaluate all three trading branches on the same OOF scores,
+                # quotes and resolved markets.  This mirrors LogReg A/B/C
+                # comparison while keeping strategy choice separate from model
+                # quality.
+                backtest_variants = {}
+                for branch in ("OUTSIDER_ONLY", "FAVORITE_ONLY", "COMBINED"):
+                    branch_result = compute_oof_polymarket_backtest(
+                        df_regime.reset_index(drop=True),
+                        result.oof_scores if result.oof_scores is not None else np.full(len(df_regime), np.nan),
+                        entry_quotes,
+                        strategy_branch=branch,
+                        min_edge=backtest_min_edge,
+                        cost_buffer=backtest_cost_buffer,
+                        fee_rate=backtest_fee_rate,
+                        min_price=backtest_min_price,
+                        max_price=backtest_max_price,
+                        outsider_max_price=backtest_outsider_max,
+                    )
+                    backtest_variants[branch] = {
+                        key: value for key, value in branch_result.items()
+                        if key != "trades"
+                    }
+                    logger.info(
+                        "crypto_lgbm_polymarket_backtest",
+                        symbol=symbol,
+                        regime=regime,
+                        feature_set=feature_spec.key,
+                        strategy_branch=branch,
+                        trades=branch_result["n_trades"],
+                        pnl=round(branch_result["net_profit"], 6),
+                        coverage=branch_result["coverage_pct"],
+                    )
+
+                # Registry scalar fields stay backward compatible and point to
+                # the default outsider branch; all branch summaries are stored
+                # under training_params["backtest_variants"].
+                backtest_result = backtest_variants["OUTSIDER_ONLY"]
+                backtest_metadata = backtest_variants["OUTSIDER_ONLY"]
+                fit_metrics["backtest"] = backtest_metadata
+                logger.info(
+                    "crypto_lgbm_polymarket_backtest",
+                    symbol=symbol,
+                    regime=regime,
+                    feature_set=feature_spec.key,
+                    trades=backtest_result["n_trades"],
+                    pnl=round(backtest_result["net_profit"], 6),
+                    coverage=backtest_result["coverage_pct"],
+                )
+
                 logger.info(
                     "crypto_regime_model_trained",
                     symbol=symbol,
@@ -810,6 +880,9 @@ class CryptoModelTrainer:
                         "model_config": adaptive_params,
                         "vol_p33": vol_p33,
                         "vol_p67": vol_p67,
+                        "backtest_pnl_mode": "POLYMARKET_OOF",
+                        "backtest": backtest_metadata,
+                        "backtest_variants": backtest_variants,
                     },
                     features=",".join(available),
                     feature_importance=fi,
@@ -820,6 +893,9 @@ class CryptoModelTrainer:
                     training_window_end=training_window_end.to_pydatetime(),
                     dataset_fingerprint=dataset_fingerprint,
                     ece=ece,
+                    backtest_pnl=float(backtest_result["net_profit"]),
+                    backtest_trades=int(backtest_result["n_trades"]),
+                    backtest_wr=float(backtest_result["win_rate"]),
                     is_active=should_activate,
                     interval=interval,
                     trained_at=now,

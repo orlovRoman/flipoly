@@ -304,7 +304,7 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 15px;">
                     <div>
                         <h2> Walk-Forward Backtester</h2>
-                        <p class="panel-desc" style="margin: 0;">Обучение модели на 70% данных, тестирование на остальных 30% с расчетом комиссий.</p>
+                        <p class="panel-desc" style="margin: 0;">OOF по рынкам Polymarket: реальные цены YES/NO, официальный исход и срезы по направлению, цене и режиму волатильности.</p>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                         <select id="bt-symbol" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 130px;">
@@ -314,6 +314,11 @@
                             <option value="A">A - control</option>
                             <option value="B">B - directions and runs</option>
                             <option value="C">C - candle structure</option>
+                        </select>
+                        <select id="bt-strategy-branch" title="Polymarket strategy branch" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 180px;">
+                            <option value="OUTSIDER_ONLY">Outsider only</option>
+                            <option value="FAVORITE_ONLY">Favorite only</option>
+                            <option value="COMBINED">Combined</option>
                         </select>
                         <button class="btn primary-btn" onclick="runBacktester()">▶ Запустить бэктест</button>
                     </div>
@@ -363,11 +368,12 @@
 
                     <!-- График кумулятивного PnL -->
                     <div style="margin-top: 2rem;">
-                        <h3>Кривая доходности бэктеста (Кумулятивный Net PnL, %)</h3>
+                        <h3>Кривая доходности бэктеста (кумулятивный Net PnL)</h3>
                         <div style="position: relative; height: 350px; width: 100%; margin-top: 1rem;">
                             <canvas id="pnl-chart"></canvas>
                         </div>
                     </div>
+                    <div id="bt-slices" style="margin-top: 1.5rem;"></div>
                 </div>
             </div>
 
@@ -939,10 +945,12 @@
                 const pnlKey = `${m.asset}_v${m.version}`;
                 const pnlInfo = (pnlData && typeof pnlData === 'object') ? (pnlData[pnlKey] || { 
                     pnl: 0, win_rate: null, total_trades: 0,
-                    direction_pnl: 0, direction_win_rate: null, direction_trades: 0 
+                    direction_pnl: 0, direction_win_rate: null, direction_trades: 0,
+                    backtest_pnl: null, backtest_wr: null, backtest_trades: 0
                 }) : {
                     pnl: 0, win_rate: null, total_trades: 0,
-                    direction_pnl: 0, direction_win_rate: null, direction_trades: 0 
+                    direction_pnl: 0, direction_win_rate: null, direction_trades: 0,
+                    backtest_pnl: null, backtest_wr: null, backtest_trades: 0
                 };
                 return { ...m, pnlInfo };
             });
@@ -953,8 +961,8 @@
 
                 switch (currentSortField) {
                     case 'pnl':
-                        valA = a.pnlInfo.direction_pnl ?? 0;
-                        valB = b.pnlInfo.direction_pnl ?? 0;
+                        valA = a.pnlInfo.backtest_trades > 0 ? (a.pnlInfo.backtest_pnl ?? 0) : (a.pnlInfo.direction_pnl ?? 0);
+                        valB = b.pnlInfo.backtest_trades > 0 ? (b.pnlInfo.backtest_pnl ?? 0) : (b.pnlInfo.direction_pnl ?? 0);
                         break;
                     case 'win_rate':
                         valA = a.pnlInfo.direction_win_rate ?? -1;
@@ -1057,6 +1065,21 @@
                 } else if (pnlData === "ERROR") {
                     dirPnlHtml = `<span style="color:#ff3366; font-size:0.85rem;">Ошибка аналитики</span>`;
                     dirStatsHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">—</span>`;
+                } else if ((pnl.backtest_trades || 0) > 0) {
+                    const btTrades = pnl.backtest_trades;
+                    const btPnl = pnl.backtest_pnl || 0;
+                    const btColor = btPnl > 0 ? 'var(--poly-green)' : btPnl < 0 ? '#ff3366' : 'var(--text-muted)';
+                    const btSign = btPnl > 0 ? '+' : '';
+                    dirPnlHtml = `
+                        <div style="font-weight:700; color:${btColor}; font-size:1.05rem;">
+                            ${btSign}${btPnl.toFixed(2)} USDC
+                        </div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">OOF Polymarket</div>
+                    `;
+                    dirStatsHtml = `
+                        <div style="color:white; font-size:0.95rem;">${pnl.backtest_wr != null ? (pnl.backtest_wr * 100).toFixed(1) + '%' : '—'}</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">${btTrades} OOF сделок</div>
+                    `;
                 } else {
                     const dirTrades = pnl.direction_trades || 0;
                     if (dirTrades === 0) {
@@ -1570,7 +1593,8 @@
             document.getElementById('backtest-container').style.display = 'none';
 
             try {
-                const r = await fetch(`/lightgbm/api/backtest?symbol=${sym}&min_edge=${minEdge}&feature_set=${encodeURIComponent(featureSet)}`, { headers: H });
+                const strategyBranch = document.getElementById('bt-strategy-branch')?.value || 'OUTSIDER_ONLY';
+                const r = await fetch(`/lightgbm/api/backtest?symbol=${sym}&min_edge=${minEdge}&feature_set=${encodeURIComponent(featureSet)}&pnl_mode=POLYMARKET&strategy_branch=${strategyBranch}`, { headers: H });
                 const d = await r.json();
                 
                 document.getElementById('backtest-loading').style.display = 'none';
@@ -1591,16 +1615,32 @@
                     okEl.className = 'stat-value';
                 }
 
-                document.getElementById('bt-trades').innerText = d.n_trades;
-                document.getElementById('bt-win-rate').innerText = `${(d.win_rate * 100).toFixed(1)}%`;
-                document.getElementById('bt-return').innerText = `${(d.total_return_net * 100).toFixed(2)}%`;
-                document.getElementById('bt-sharpe').innerText = d.sharpe_ratio.toFixed(2);
-                document.getElementById('bt-max-dd').innerText = `${(d.max_drawdown * 100).toFixed(2)}%`;
-                document.getElementById('bt-edge-rate').innerText = `${(d.edge_rate * 100).toFixed(1)}%`;
-                document.getElementById('bt-auc').innerText = d.train_auc.toFixed(3);
+                document.getElementById('bt-trades').innerText = d.n_trades ?? 0;
+                document.getElementById('bt-win-rate').innerText = `${((d.win_rate || 0) * 100).toFixed(1)}%`;
+                if (d.pnl_mode === 'POLYMARKET_OOF') {
+                    document.getElementById('bt-return').innerText = `${(d.net_profit || 0).toFixed(2)} USDC (${(d.roi_pct || 0).toFixed(2)}%)`;
+                    document.getElementById('bt-sharpe').innerText = d.sharpe_ratio == null ? '—' : d.sharpe_ratio.toFixed(2);
+                    document.getElementById('bt-max-dd').innerText = `${(d.max_drawdown_pct || 0).toFixed(2)}%`;
+                    document.getElementById('bt-edge-rate').innerText = `${((d.avg_net_edge || 0) * 100).toFixed(1)}%`;
+                    document.getElementById('bt-auc').innerText = 'OOF';
+                } else {
+                    document.getElementById('bt-return').innerText = `${((d.total_return_net || 0) * 100).toFixed(2)}%`;
+                    document.getElementById('bt-sharpe').innerText = d.sharpe_ratio == null ? '—' : d.sharpe_ratio.toFixed(2);
+                    document.getElementById('bt-max-dd').innerText = `${((d.max_drawdown || 0) * 100).toFixed(2)}%`;
+                    document.getElementById('bt-edge-rate').innerText = `${((d.edge_rate || 0) * 100).toFixed(1)}%`;
+                    document.getElementById('bt-auc').innerText = d.train_auc == null ? '—' : d.train_auc.toFixed(3);
+                }
 
                 // Рендерим график PnL
                 renderPnLChart(d.pnl_curve);
+                const slices = Array.isArray(d.slices) ? d.slices : [];
+                const slicesEl = document.getElementById('bt-slices');
+                slicesEl.innerHTML = slices.length ? `
+                    <h3>Срезы OOF PnL</h3>
+                    <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+                        <thead><tr><th>Dimension</th><th>Bucket</th><th>Trades</th><th>Net PnL</th><th>Win rate</th><th>Avg price</th></tr></thead>
+                        <tbody>${slices.map(x => `<tr><td>${x.dimension || '—'}</td><td>${x.bucket || '—'}</td><td>${x.trades || 0}</td><td>${Number(x.net_pnl || 0).toFixed(3)}</td><td>${Number(x.win_rate_pct || 0).toFixed(1)}%</td><td>${x.avg_entry_price == null ? '—' : Number(x.avg_entry_price).toFixed(3)}</td></tr>`).join('')}</tbody>
+                    </table></div>` : '<span style="color:var(--text-muted);">Нет сделок для срезов.</span>';
             } catch (err) {
                 document.getElementById('backtest-loading').style.display = 'none';
                 alert('Не удалось рассчитать бэктест. Проверьте логи.');
@@ -1620,9 +1660,9 @@
             pnlChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: curve.map(x => x.time.slice(0, 16).replace('T', ' ')),
+                    labels: curve.map(x => (x.time || x.entry_time || '').toString().slice(0, 16).replace('T', ' ')),
                     datasets: [{
-                        label: 'Net PnL (%)',
+                        label: 'Net PnL',
                         data: curve.map(x => x.pnl),
                         borderColor: '#ffc107',
                         borderWidth: 2,

@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.api.auth import verify_api_key
 import polyflip.constants as C
 from polyflip.crypto.backtester import run_backtest
+from polyflip.crypto.polymarket_backtest import aggregate_stored_polymarket_backtests
 from polyflip.crypto.feature_builder import build_features
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.trainer import CryptoModelTrainer
@@ -127,6 +128,9 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
             ModelRegistry.quality_gate_reasons,
             ModelRegistry.activation_source,
             ModelRegistry.quality_override,
+            ModelRegistry.backtest_pnl,
+            ModelRegistry.backtest_trades,
+            ModelRegistry.backtest_wr,
             ModelRegistry.activated_at,
             ModelRegistry.activation_reason,
             ModelRegistry.training_params,
@@ -253,6 +257,10 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
                 "recall": round_optional(m.recall_at_threshold) if getattr(m, "recall_at_threshold", None) is not None else None,
                 "f1": round_optional(m.f1_at_threshold) if getattr(m, "f1_at_threshold", None) is not None else None,
                 "brier_score": round_optional(m.brier_score) if getattr(m, "brier_score", None) is not None else None,
+                "backtest_pnl": round_optional(getattr(m, "backtest_pnl", None), 6),
+                "backtest_trades": int(m.backtest_trades) if getattr(m, "backtest_trades", None) is not None else 0,
+                "backtest_wr": round_optional(getattr(m, "backtest_wr", None), 6),
+                "backtest_pnl_mode": (m.training_params or {}).get("backtest_pnl_mode"),
             }
         except Exception as e:
             logger.error("crypto_status_model_parse_error", key=key, error=str(e))
@@ -428,6 +436,105 @@ async def set_ece_correction_status(
     return {"status": "success", "enabled": payload.enabled}
 
 
+async def _stored_lgbm_polymarket_backtest(
+    db: AsyncSession,
+    *,
+    symbol: str,
+    feature_set: str,
+    strategy_branch: str,
+) -> dict:
+    """Return the OOF Polymarket PnL persisted by the latest A/B/C run."""
+    branch = strategy_branch.strip().upper()
+    if branch not in {"OUTSIDER_ONLY", "FAVORITE_ONLY", "COMBINED"}:
+        raise HTTPException(
+            status_code=422,
+            detail="strategy_branch must be OUTSIDER_ONLY, FAVORITE_ONLY or COMBINED",
+        )
+    assets = [f"{symbol}_{regime}" for regime in ("low_vol", "mid_vol", "high_vol")]
+    rows = (
+        await db.execute(
+            select(ModelRegistry)
+            .where(
+                ModelRegistry.asset.in_(assets),
+                ModelRegistry.model_type == "lgbm",
+            )
+            .order_by(ModelRegistry.asset, ModelRegistry.version.desc())
+        )
+    ).scalars().all()
+    latest: dict[str, ModelRegistry] = {}
+    for row in rows:
+        params = row.training_params or {}
+        if params.get("target_source") != "POLYMARKET_FINAL_OUTCOME":
+            continue
+        if params.get("feature_set", "A") != feature_set:
+            continue
+        latest.setdefault(row.asset, row)
+
+    regime_results: list[dict] = []
+    regime_payload: dict[str, dict] = {}
+    for asset, row in latest.items():
+        params = row.training_params or {}
+        variants = params.get("backtest_variants") or {}
+        variant = variants.get(branch)
+        if variant is None and branch == "OUTSIDER_ONLY":
+            variant = params.get("backtest")
+        if not isinstance(variant, dict):
+            continue
+        regime_results.append(variant)
+        regime_payload[asset] = {
+            **variant,
+            "version": row.version,
+            "feature_set": feature_set,
+        }
+
+    if not regime_results:
+        return {
+            "error": (
+                f"Нет сохранённого OOF Polymarket-бэктеста для {symbol}, "
+                f"feature_set={feature_set}. Обучите вариант A/B/C заново."
+            ),
+            "symbol": symbol,
+            "feature_set": feature_set,
+            "strategy_branch": branch,
+        }
+
+    summary = aggregate_stored_polymarket_backtests(
+        regime_results, strategy_branch=branch
+    )
+    return {
+        "symbol": symbol,
+        "interval": "15m",
+        "pnl_mode": "POLYMARKET_OOF",
+        "feature_set": feature_set,
+        "strategy_branch": branch,
+        "n_markets": summary["n_markets"],
+        "n_quotes": summary["n_quotes"],
+        "n_oof": summary["n_oof"],
+        "n_eligible": summary["n_eligible"],
+        "n_trades": summary["n_trades"],
+        "win_rate": summary["win_rate"],
+        "net_profit": summary["net_profit"],
+        "total_return_net": summary["net_profit"],
+        "roi_pct": summary["roi_pct"],
+        "sharpe_ratio": summary["sharpe_ratio"],
+        "max_drawdown_pct": summary["max_drawdown_pct"],
+        "edge_rate": summary["avg_net_edge"],
+        "avg_edge": summary["avg_edge"],
+        "avg_net_edge": summary["avg_net_edge"],
+        "coverage_pct": summary["coverage_pct"],
+        "is_profitable": summary["net_profit"] > 0,
+        "slices": summary["slices"],
+        "regimes": regime_payload,
+        "pnl_curve": summary["equity_curve"],
+        "summary": {
+            "markets": summary["n_markets"],
+            "quotes": summary["n_quotes"],
+            "trades": summary["n_trades"],
+            "coverage_pct": summary["coverage_pct"],
+            "strategy_branch": branch,
+        },
+    }
+
 @router.get("/api/backtest", dependencies=[Depends(verify_api_key)])
 async def crypto_backtest(
     symbol: str = "BTCUSDT",
@@ -435,6 +542,9 @@ async def crypto_backtest(
     min_edge: float | None = Query(None),
     commission: float | None = Query(None),
     feature_set: str = "A",
+    pnl_mode: Literal["BINANCE", "POLYMARKET"] = "BINANCE",
+    strategy_branch: str = "OUTSIDER_ONLY",
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Запускает walk-forward backtest и возвращает детальные метрики и PnL-кривую.
@@ -444,7 +554,15 @@ async def crypto_backtest(
         normalized_feature_set = normalize_feature_set(feature_set)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    cache_key = f"backtest_{symbol}_{interval}_{min_edge}_{commission}_{normalized_feature_set}"
+    if pnl_mode == "POLYMARKET":
+        return await _stored_lgbm_polymarket_backtest(
+            db,
+            symbol=symbol,
+            feature_set=normalized_feature_set,
+            strategy_branch=strategy_branch,
+        )
+
+    cache_key = f"backtest_{pnl_mode}_{symbol}_{interval}_{min_edge}_{commission}_{normalized_feature_set}"
     now = time.time()
     if cache_key in _cache and now - _cache[cache_key]["ts"] < 300:
         return _cache[cache_key]["data"]
@@ -725,6 +843,9 @@ async def crypto_models_analytics(
             ModelRegistry.features,
             ModelRegistry.quality_gate_passed,
             ModelRegistry.quality_override,
+            ModelRegistry.backtest_pnl,
+            ModelRegistry.backtest_trades,
+            ModelRegistry.backtest_wr,
         )
         .where(ModelRegistry.asset.in_(allowed_assets))
         .order_by(ModelRegistry.asset, ModelRegistry.version.desc())
@@ -966,6 +1087,10 @@ async def crypto_models_analytics(
             "recall": round(m.recall_at_threshold, 4) if getattr(m, "recall_at_threshold", None) is not None else None,
             "f1": round(m.f1_at_threshold, 4) if getattr(m, "f1_at_threshold", None) is not None else None,
             "brier_score": round(m.brier_score, 4) if getattr(m, "brier_score", None) is not None else None,
+            "backtest_pnl": round(float(m.backtest_pnl), 6) if getattr(m, "backtest_pnl", None) is not None else None,
+            "backtest_trades": int(m.backtest_trades) if getattr(m, "backtest_trades", None) is not None else 0,
+            "backtest_wr": round(float(m.backtest_wr), 6) if getattr(m, "backtest_wr", None) is not None else None,
+            "backtest_pnl_mode": (m.training_params or {}).get("backtest_pnl_mode"),
 
             # Аудит активации
             "activation_source": m.activation_source,
