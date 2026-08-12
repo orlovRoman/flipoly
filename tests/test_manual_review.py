@@ -281,7 +281,8 @@ async def test_mark_no_fill_releases_reservation(db_session):
         trade_history_id=trade.id,
         market_id="test_market",
         amount_usdc=Decimal("10.0"),
-        created_at=datetime.now(timezone.utc), expires_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc),
     )
     db_session.add(res)
     await db_session.commit()
@@ -289,10 +290,13 @@ async def test_mark_no_fill_releases_reservation(db_session):
     # Patch dependency to use test session
     from polyflip.db.connection import get_db_session
     from polyflip.api.auth import verify_api_key
+
     app.dependency_overrides[get_db_session] = lambda: db_session
     app.dependency_overrides[verify_api_key] = lambda: True
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
         response = await client.post(
             f"/api/execution/requests/{req.id}/resolve-review",
             json={
@@ -312,7 +316,10 @@ async def test_mark_no_fill_releases_reservation(db_session):
     assert res.released_at is not None
 
     from sqlalchemy import select, func
-    event_count = await db_session.scalar(select(func.count(ExecutionEvent.id)).where(ExecutionEvent.request_id == req.id))
+
+    event_count = await db_session.scalar(
+        select(func.count(ExecutionEvent.id)).where(ExecutionEvent.request_id == req.id)
+    )
     assert event_count >= 1
 
     app.dependency_overrides.clear()
@@ -343,7 +350,8 @@ async def test_concurrent_no_fill_resolution_is_idempotent(pg_session_factory):
             trade_history_id=trade.id,
             market_id="test_market",
             amount_usdc=Decimal("10.0"),
-            created_at=datetime.now(timezone.utc), expires_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc),
         )
         db_session.add(res)
         await db_session.commit()
@@ -352,29 +360,33 @@ async def test_concurrent_no_fill_resolution_is_idempotent(pg_session_factory):
         trade_id = trade.id
         res_id = res.id
 
-    # Need multiple clients hitting the DB directly
-    async def make_request():
-        # use a fresh session override per request for concurrency simulation
-        from polyflip.db.connection import get_db_session
-        from polyflip.api.auth import verify_api_key
-        async with pg_session_factory() as temp_db:
-            app.dependency_overrides[get_db_session] = lambda: temp_db
-            app.dependency_overrides[verify_api_key] = lambda: True
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post(
-                    f"/api/execution/requests/{req_id}/resolve-review",
-                    json={
-                        "action": "MARK_FAILED_NO_FILL",
-                        "operator": "test",
-                        "note": "confirmed",
-                    },
-                )
-            app.dependency_overrides.clear()
-            return resp
+    from polyflip.db.connection import get_db_session
+    from polyflip.api.auth import verify_api_key
 
-    responses = await asyncio.gather(
-        make_request(), make_request(), make_request()
-    )
+    async def _get_test_db():
+        async with pg_session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db_session] = _get_test_db
+    app.dependency_overrides[verify_api_key] = lambda: True
+
+    async def make_request():
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.post(
+                f"/api/execution/requests/{req_id}/resolve-review",
+                json={
+                    "action": "MARK_FAILED_NO_FILL",
+                    "operator": "test",
+                    "note": "confirmed",
+                },
+            )
+
+    try:
+        responses = await asyncio.gather(make_request(), make_request(), make_request())
+    finally:
+        app.dependency_overrides.clear()
 
     # Some might get 409 because state changed, some get 200
     statuses = [r.status_code for r in responses]
@@ -390,9 +402,9 @@ async def test_concurrent_no_fill_resolution_is_idempotent(pg_session_factory):
         assert trade.position_status == "ENTRY_FAILED"
         assert res.released_at is not None
 
-
         # Verify only 1 ExecutionEvent was created
         from sqlalchemy import select, func
+
         event_count = await db_session.scalar(
             select(func.count(ExecutionEvent.id))
             .where(ExecutionEvent.request_id == req_id)
@@ -422,7 +434,8 @@ async def test_resolve_no_fill_batch_safe_and_unsafe(db_session):
         trade_history_id=trade1.id,
         market_id="test_market",
         amount_usdc=Decimal("10.0"),
-        created_at=datetime.now(timezone.utc), expires_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc),
     )
     db_session.add(res1)
     await db_session.flush()
@@ -455,14 +468,16 @@ async def test_resolve_no_fill_batch_safe_and_unsafe(db_session):
     app.dependency_overrides[get_db_session] = lambda: db_session
     app.dependency_overrides[verify_api_key] = lambda: True
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
         response = await client.post(
             "/api/execution/requests/resolve-no-fill-batch",
             json={
                 "request_ids": [str(req1.id), str(req2.id)],
                 "operator": "batch_op",
-                "note": "batch_test"
-            }
+                "note": "batch_test",
+            },
         )
         assert response.status_code == 200
         data = response.json()
@@ -476,6 +491,7 @@ async def test_resolve_no_fill_batch_safe_and_unsafe(db_session):
     assert req2.state == "MANUAL_REVIEW_REQUIRED"
 
     from sqlalchemy import select, func
+
     event_count = await db_session.scalar(
         select(func.count(ExecutionEvent.id))
         .where(ExecutionEvent.request_id == req1.id)
