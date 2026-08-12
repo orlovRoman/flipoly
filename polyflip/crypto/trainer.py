@@ -285,6 +285,7 @@ def _fit_with_early_stopping(
     )
     return model
 
+
 def _fit_lgbm_and_serialize(
     X: pd.DataFrame,
     y: pd.Series,
@@ -472,6 +473,7 @@ def _fit_lgbm_and_serialize(
         oof_scores=oof_scores.copy() if return_metrics else None,
         effective_params=dict(lgbm_params),
     )
+
 
 def _controlled_lgbm_candidates(base_params: dict, trials: int) -> list[dict]:
     """Return a small deterministic search space, never an unbounded sweep."""

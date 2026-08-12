@@ -4,4 +4,5 @@ repos:
     hooks:
       - id: mixed-line-ending
         args: [--fix=lf]
+      - id: check-byte-order-marker
       - id: end-of-file-fixer

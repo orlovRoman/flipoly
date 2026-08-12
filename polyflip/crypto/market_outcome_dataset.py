@@ -1,9 +1,9 @@
 """
 polyflip/crypto/market_outcome_dataset.py
 
-РџРѕСЃС‚СЂРѕРёС‚РµР»СЊ С‚РѕСЂРіРѕРІРѕРіРѕ РґР°С‚Р°СЃРµС‚Р° РґР»СЏ LightGBM РЅР° РєР°РЅРѕРЅРёС‡РµСЃРєРёС… РёСЃС…РѕРґР°С… Polymarket (Chainlink resolution).
-РљР°Р¶РґР°СЏ СЃС‚СЂРѕРєР° СЃРѕРѕС‚РІРµС‚СЃС‚РІСѓРµС‚ СЂРѕРІРЅРѕ РѕРґРЅРѕРјСѓ СЂС‹РЅРєСѓ (market_id) СЃ С„РёС‡Р°РјРё Binance-СЃРІРµС‡РµР№,
-Р·Р°РєСЂС‹С‚С‹С… Р”Рћ РЅР°С‡Р°Р»Р° СЌС‚РѕРіРѕ СЂС‹РЅРєР° (feature_candle_close <= market_start, feature_available_at <= market_start).
+Построитель торгового датасета для LightGBM на канонических исходах Polymarket (Chainlink resolution).
+Каждая строка соответствует ровно одному рынку (market_id) с фичами Binance-свечей,
+закрытых ДО начала этого рынка (feature_candle_close <= market_start, feature_available_at <= market_start).
 """
 from __future__ import annotations
 import hashlib
@@ -22,6 +22,12 @@ from polyflip.models.sequence_features import attach_closed_candle_features, seq
 
 _DATASET_CACHE_MAX = 12
 _DATASET_CACHE: OrderedDict[str, pd.DataFrame] = OrderedDict()
+
+# Strike features depend on the market row, so they are materialized after the as-of join.
+DATASET_FEATURE_COLUMNS = tuple(
+    column for column in CRYPTO_FEATURE_COLUMNS
+    if column not in {"strike_gap_pct", "log_moneyness"}
+)
 
 
 def clear_market_outcome_dataset_cache() -> None:
@@ -64,11 +70,11 @@ async def build_market_outcome_dataset(
     feature_set: str = "A",
 ) -> pd.DataFrame:
     """
-    РЎРѕР·РґР°РµС‚ С‚РѕСЂРіРѕРІС‹Р№ РґР°С‚Р°СЃРµС‚ РґР»СЏ РІС‹СЂР°РІРЅРёРІР°РЅРёСЏ MARKET_WINDOW_V1:
-      - 1 СЃС‚СЂРѕРєР° РЅР° РѕРґРёРЅ market_id (РѕРґРЅРѕР·РЅР°С‡РЅС‹Р№ target: YES=1, NO=0).
-      - Р”РµС‚РµСЂРјРёРЅРёСЂРѕРІР°РЅРЅС‹Р№ SQL-РІС‹Р±РѕСЂ С‡РµСЂРµР· LEFT JOIN LATERAL (РїРѕСЃР»РµРґРЅСЏСЏ С„РёРЅР°Р»РёР·РёСЂРѕРІР°РЅРЅР°СЏ Р·Р°РїРёСЃСЊ).
-      - РўРѕС‡РЅРѕРµ РІСЂРµРјРµРЅРЅРѕРµ РІС‹СЂР°РІРЅРёРІР°РЅРёРµ: market_start = end_time_est - 15m.
-      - Р¤РёС‡Рё Р·Р°РєСЂС‹С‚С‹С… СЃРІРµС‡РµР№: feature_candle_close <= market_start Рё feature_available_at <= market_start.
+    Создает торговый датасет для выравнивания MARKET_WINDOW_V1:
+      - 1 строка на один market_id (однозначный target: YES=1, NO=0).
+      - Детерминированный SQL-выбор через LEFT JOIN LATERAL (последняя финализированная запись).
+      - Точное временное выравнивание: market_start = end_time_est - 15m.
+      - Фичи закрытых свечей: feature_candle_close <= market_start и feature_available_at <= market_start.
     """
     feature_spec = get_feature_set(feature_set)
     asset = symbol.removesuffix("USDT")
@@ -81,7 +87,7 @@ async def build_market_outcome_dataset(
         feature_set_version=feature_spec.version,
     )
 
-    # 4. Р”РµС‚РµСЂРјРёРЅРёСЂРѕРІР°РЅРЅС‹Р№ РІС‹Р±РѕСЂ РёСЃС…РѕРґР° СЂС‹РЅРєР° С‡РµСЂРµР· LEFT JOIN LATERAL
+    # 4. Детерминированный выбор исхода рынка через LEFT JOIN LATERAL
     res_markets = await db.execute(text(
         """
         SELECT
@@ -113,6 +119,10 @@ async def build_market_outcome_dataset(
     if market_rows and len(market_rows[0]) == 4:
         # Compatibility with lightweight test/fallback adapters that predate
         # the nullable canonical strike column.
+        logger.warning(
+            "market_outcome_dataset_legacy_schema",
+            reason="underlying_price column missing; strike features default to zero",
+        )
         markets = pd.DataFrame(
             market_rows, columns=["market_id", "asset", "end_time_est", "final_outcome"]
         )
@@ -124,12 +134,12 @@ async def build_market_outcome_dataset(
         )
     assert markets["market_id"].is_unique, "SQL must guarantee 1 row per market_id"
 
-    # РўРѕС‡РЅРѕРµ РІСЂРµРјРµРЅРЅРѕРµ РІС‹СЂР°РІРЅРёРІР°РЅРёРµ
+    # Точное временное выравнивание
     markets["end_time_est"] = pd.to_datetime(markets["end_time_est"], utc=True)
     markets["market_start"] = markets["end_time_est"] - pd.Timedelta(minutes=15)
     markets["target"] = markets["final_outcome"].map({"YES": 1, "NO": 0}).astype(int)
 
-    # 2. Р—Р°РіСЂСѓР·РєР° Р·Р°РєСЂС‹С‚С‹С… СЃРІРµС‡РµР№ Binance
+    # 2. Загрузка закрытых свечей Binance
     res_candles = await db.execute(text(
         """
         SELECT open_time, close_time, is_closed, open, high, low, close, volume, taker_buy_volume
@@ -167,7 +177,7 @@ async def build_market_outcome_dataset(
         return cached_dataset
 
 
-    # 3. Р“РµРЅРµСЂР°С†РёСЏ РІРµРєС‚РѕСЂРѕРІ С„РёС‡РµР№ РїРѕ СЃРєРѕР»СЊР·СЏС‰РµРјСѓ РѕРєРЅСѓ (100 СЃРІРµС‡РµР№)
+    # 3. Генерация векторов фичей по скользящему окну (100 свечей)
     # Vectorized rolling features: calculate every column once instead of
     # rebuilding a 100-candle window for every market row.
     min_window = 100
@@ -177,7 +187,7 @@ async def build_market_outcome_dataset(
         candle = df_candles.iloc[idx]
         row_dict = {
             column: all_features.iloc[idx][column]
-            for column in CRYPTO_FEATURE_COLUMNS
+            for column in DATASET_FEATURE_COLUMNS
         }
         row_dict["feature_candle_close"] = candle["close_time"]
         row_dict["feature_available_at"] = candle["open_time"] + pd.Timedelta(minutes=15)
@@ -205,7 +215,7 @@ async def build_market_outcome_dataset(
         tolerance=pd.Timedelta(seconds=2),
     )
 
-    # РћС‡РёСЃС‚РєР° СЃС‚СЂРѕРє Р±РµР· РїСЂРёР·РЅР°РєРѕРІ
+    # Очистка строк без признаков
     dataset = dataset.dropna(subset=["feature_available_at", "target"]).reset_index(drop=True)
 
     if "feature_close" in dataset.columns:
@@ -220,7 +230,18 @@ async def build_market_outcome_dataset(
         )
         dataset = dataset.drop(columns=["feature_close"])
 
-    # 5. РРЅРІР°СЂРёР°РЅС‚: РїСЂРѕРІРµСЂСЏРµРј feature_candle_close <= market_start Рё feature_available_at <= market_start
+    if not dataset.empty:
+        assert {"strike_gap_pct", "log_moneyness"}.issubset(dataset.columns), (
+            "Strike features must be materialized after the market join"
+        )
+        if not pd.to_numeric(dataset["underlying_price"], errors="coerce").gt(0).any():
+            logger.warning(
+                "market_outcome_dataset_missing_canonical_strike",
+                symbol=symbol,
+                rows=len(dataset),
+            )
+
+    # 5. Инвариант: проверяем feature_candle_close <= market_start и feature_available_at <= market_start
     if not dataset.empty:
         assert (dataset["feature_available_at"] <= dataset["market_start"]).all(), (
             "Invariant violation: feature_available_at must be <= market_start"
@@ -258,7 +279,6 @@ async def build_market_outcome_dataset(
 
                 reason="SEQUENCE_COVERAGE_INSUFFICIENT",
             )
-
     _cache_put(cache_key, dataset)
 
     logger.info(
