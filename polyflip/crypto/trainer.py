@@ -45,15 +45,10 @@ from polyflip.crypto.oof_artifact import serialize_oof_artifact, OOF_ARTIFACT_SC
 # NOTE: Семафор инициализируется один раз при первом вызове и кэшируется до перезапуска сервиса.
 # Изменение TRAIN_MAX_PARALLEL_JOBS в RuntimeSettings вступит в силу только после рестарта.
 from polyflip.models.trainer import _get_training_semaphore
+from polyflip.crypto.feature_sets import CONTROL_FEATURES, feature_schema_hash, get_feature_set
+from polyflip.crypto.experiment_configs import normalize_experiment_config, experiment_config_hash
 
 logger = structlog.get_logger(__name__)
-
-from polyflip.crypto.feature_sets import (
-    CONTROL_FEATURES,
-    feature_schema_hash,
-    get_feature_set,
-)
-from polyflip.crypto.experiment_configs import normalize_experiment_config, experiment_config_hash
 
 CRYPTO_FEATURES = list(CONTROL_FEATURES)
 

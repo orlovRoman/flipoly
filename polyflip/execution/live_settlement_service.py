@@ -186,6 +186,9 @@ async def reconcile_live_resolution(db: AsyncSession, trade_id: int) -> TradeHis
     if resolution is None:
         raise MarketNotResolved("Рынок ещё не закрыт или результат неизвестен")
 
+    if market:
+        await save_market_resolution(db, trade.market_id, resolution)
+
     is_win = (trade.outcome_bought == resolution.final_outcome)
     trade.settlement_outcome = resolution.final_outcome
     mark_trade_resolved(trade, is_win=is_win)
