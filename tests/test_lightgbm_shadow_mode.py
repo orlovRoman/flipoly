@@ -218,3 +218,14 @@ def test_active_lgbm_direction_is_recorded_as_applied_model():
     assert attribution["direction_value"] == "DOWN"
     assert attribution["applied_model_key"] == "ETHUSDT_mid_vol"
     assert attribution["funnel_model_key"] == "ETHUSDT_mid_vol"
+
+
+
+def test_off_mode_returns_none_attribution():
+    from polyflip.trading.decision_runners import _resolve_lgbm_attribution
+
+    attribution = _resolve_lgbm_attribution("OFF", "UP", "BTCUSDT_low_vol", 5)
+
+    assert attribution["direction_value"] == "NONE"
+    assert attribution["funnel_model_key"] is None
+    assert attribution["applied_model_key"] is None

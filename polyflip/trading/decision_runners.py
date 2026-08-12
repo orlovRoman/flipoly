@@ -33,6 +33,17 @@ def _resolve_lgbm_attribution(
     ``direction_model_key`` in active/funnel attribution only identifies a model that
     selected UP or DOWN.
     """
+    if mode == "OFF":
+        return {
+            "direction_value": "NONE",
+            "actually_decided": False,
+            "applied_model_key": None,
+            "applied_model_version": None,
+            "shadow_model_key": None,
+            "shadow_model_version": None,
+            "funnel_model_key": None,
+            "funnel_model_version": None,
+        }
     normalized_value = str(direction_value or "").strip().upper()
     if normalized_value not in {"UP", "DOWN"}:
         normalized_value = "NONE"

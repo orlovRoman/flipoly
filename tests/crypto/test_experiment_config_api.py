@@ -5,7 +5,7 @@ from polyflip.api.crypto_dashboard import (
     copy_experiment_config,
     CopyExperimentConfigRequest,
     create_experiment_config,
-    list_experiment_configs,
+    _list_experiment_configs,
 )
 
 
@@ -26,7 +26,7 @@ async def test_create_list_and_copy_experiment_config(db_session):
     assert row["model"]["num_leaves"] == 19
     assert row["config_hash"]
 
-    listed = await list_experiment_configs(limit=1, db=db_session)
+    listed = await _list_experiment_configs(db=db_session, limit=1)
     assert [item["id"] for item in listed["configs"]] == [row["id"]]
 
     copied = await copy_experiment_config(row["id"], payload=CopyExperimentConfigRequest(name="BTC B copy", created_by="test"), db=db_session)

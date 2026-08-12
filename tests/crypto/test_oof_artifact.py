@@ -55,4 +55,8 @@ def test_schema_version_matches_registry_column_default():
     from polyflip.crypto.oof_artifact import OOF_ARTIFACT_SCHEMA_VERSION
     from polyflip.db.models import ModelRegistryOOFArtifact
     default = ModelRegistryOOFArtifact.__table__.c.schema_version.server_default
-    assert str(OOF_ARTIFACT_SCHEMA_VERSION) == str(default.arg)
+    server_default_value = int(str(default.arg).strip().strip("'\""))
+    assert OOF_ARTIFACT_SCHEMA_VERSION == server_default_value, (
+        f"OOF_ARTIFACT_SCHEMA_VERSION ({OOF_ARTIFACT_SCHEMA_VERSION}) "
+        f"!= DB server_default ({server_default_value})"
+    )

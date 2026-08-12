@@ -796,6 +796,14 @@
             }
         }
 
+        let _lgbmReportAbortController = null;
+        let _lgbmReportTimer = null;
+
+        function scheduleLgbmExperimentReport() {
+            clearTimeout(_lgbmReportTimer);
+            _lgbmReportTimer = setTimeout(() => { void loadLgbmExperimentReport(); }, 250);
+        }
+
         function renderLgbmExperiments() {
             const select = document.getElementById('lgbm-experiment-group');
             const table = document.getElementById('lgbm-experiment-table');
@@ -803,10 +811,10 @@
             if (!select.dataset.bound) {
                 select.addEventListener('change', () => {
                     renderLgbmExperiments();
-                    loadLgbmExperimentReport();
+                    scheduleLgbmExperimentReport();
                 });
                 const branchSelect = document.getElementById('lgbm-experiment-branch');
-                branchSelect?.addEventListener('change', loadLgbmExperimentReport);
+                branchSelect?.addEventListener('change', scheduleLgbmExperimentReport);
                 select.dataset.bound = '1';
             }
             if (!lgbmExperimentData.length) {
@@ -841,7 +849,7 @@
                 const payload = await response.json();
                 lgbmExperimentData = payload.groups || [];
                 renderLgbmExperiments();
-                loadLgbmExperimentReport();
+                scheduleLgbmExperimentReport();
             } catch (error) {
                 const table = document.getElementById('lgbm-experiment-table');
                 if (table) table.innerHTML = `<div style="color:#ff8a8a;">Experiment comparison unavailable: ${error.message}</div>`;
@@ -849,6 +857,9 @@
         }
 
         async function loadLgbmExperimentReport() {
+            _lgbmReportAbortController?.abort();
+            _lgbmReportAbortController = new AbortController();
+            const requestController = _lgbmReportAbortController;
             const reportEl = document.getElementById('lgbm-experiment-report');
             const groupSelect = document.getElementById('lgbm-experiment-group');
             if (!reportEl || !groupSelect?.value) {
@@ -859,7 +870,7 @@
             reportEl.innerHTML = '<div style="color:var(--text-muted);">Building experiment report...</div>';
             try {
                 const url = `/lightgbm/api/experiments/report?comparison_key=${encodeURIComponent(groupSelect.value)}&strategy_branch=${encodeURIComponent(branch)}`;
-                const response = await fetch(url, { headers: H });
+                const response = await fetch(url, { headers: H, signal: requestController.signal });
                 const payload = await response.json();
                 if (!response.ok) throw new Error(payload?.detail || `HTTP ${response.status}`);
                 const statusLabel = {
@@ -883,6 +894,7 @@
                     <div style="overflow-x:auto; margin-top:0.7rem;"><table class="styled-table" style="width:100%; border-collapse:collapse; font-size:0.78rem;"><thead><tr><th>Variant</th><th>Version</th><th>${branch} PnL</th><th>Trades</th><th>Δ AUC</th><th>Δ ECE</th><th>Δ Brier</th><th>Δ PnL</th></tr></thead><tbody>${rows}</tbody></table></div>
                 </div>`;
             } catch (error) {
+                if (error.name === 'AbortError') return;
                 reportEl.innerHTML = `<div style="color:#ff8a8a;">Experiment report unavailable: ${error.message}</div>`;
             }
         }
@@ -1596,8 +1608,14 @@
                 min_child_samples: parseInt(document.getElementById('p-min-child-samples').value, 10),
                 subsample: parseFloat(document.getElementById('p-subsample').value),
                 colsample_bytree: parseFloat(document.getElementById('p-colsample-bytree').value),
-                reg_alpha: parseFloat(document.getElementById('p-reg-alpha')?.value || 0.1),
-                reg_lambda: parseFloat(document.getElementById('p-reg-lambda')?.value || 1.0),
+                reg_alpha: (() => {
+                    const value = parseFloat(document.getElementById('p-reg-alpha')?.value);
+                    return Number.isFinite(value) ? value : 0.1;
+                })(),
+                reg_lambda: (() => {
+                    const value = parseFloat(document.getElementById('p-reg-lambda')?.value);
+                    return Number.isFinite(value) ? value : 1.0;
+                })(),
             };
         }
 
@@ -1685,6 +1703,10 @@
             } catch (error) {
                 const status = document.getElementById('lgbm-experiment-config-status');
                 if (status) status.textContent = `Save failed: ${error.message}`;
+                if (nameInput) {
+                    nameInput.style.borderColor = '#ff8a8a';
+                    nameInput.addEventListener('input', () => { nameInput.style.borderColor = ''; }, { once: true });
+                }
             }
         }
         async function saveSettings() {

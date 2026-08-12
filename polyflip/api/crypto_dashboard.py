@@ -438,19 +438,13 @@ def _experiment_config_response(row: LGBMExperimentConfig) -> dict[str, Any]:
     }
 
 
-@router.get("/api/experiment-configs", dependencies=[Depends(verify_api_key)])
-async def list_experiment_configs(
+async def _list_experiment_configs(
+    db: AsyncSession,
     asset: str | None = None,
     include_archived: bool = False,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db_session),
-):
-    # Direct unit-test calls may pass FastAPI Query objects; normalize them before SQLAlchemy.
-    if not isinstance(limit, int):
-        limit = getattr(limit, "default", 50)
-    if not isinstance(offset, int):
-        offset = getattr(offset, "default", 0)
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
     stmt = select(LGBMExperimentConfig)
     if asset:
         stmt = stmt.where(LGBMExperimentConfig.asset == asset.strip().upper())
@@ -464,6 +458,17 @@ async def list_experiment_configs(
         "offset": offset,
         "has_more": len(rows) == limit,
     }
+
+
+@router.get("/api/experiment-configs", dependencies=[Depends(verify_api_key)])
+async def list_experiment_configs(
+    asset: str | None = None,
+    include_archived: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await _list_experiment_configs(db, asset, include_archived, limit, offset)
 
 
 @router.post("/api/experiment-configs", dependencies=[Depends(verify_api_key)])
@@ -823,9 +828,12 @@ def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -
     }
 
 
-async def _collect_lgbm_experiment_groups(db: AsyncSession) -> dict:
+async def _collect_lgbm_experiment_groups(
+    db: AsyncSession,
+    comparison_key_filter: str | None = None,
+) -> dict:
     """Return comparable LightGBM A/B/C candidates and saved OOT summaries."""
-    rows = (await db.execute(
+    stmt = (
         select(
             ModelRegistry.id, ModelRegistry.asset, ModelRegistry.version,
             ModelRegistry.accuracy, ModelRegistry.ece, ModelRegistry.brier_score,
@@ -836,7 +844,11 @@ async def _collect_lgbm_experiment_groups(db: AsyncSession) -> dict:
         .where(ModelRegistry.model_type == "lgbm")
         .order_by(ModelRegistry.asset, ModelRegistry.trained_at.desc(), ModelRegistry.version.desc())
         .limit(500)
-    )).all()
+    )
+    if comparison_key_filter:
+        # JSON filtering keeps report requests bounded to the selected experiment.
+        stmt = stmt.where(ModelRegistry.training_params["comparison_key"].as_string() == comparison_key_filter)
+    rows = (await db.execute(stmt)).all()
     model_ids = [row.id for row in rows]
     artifact_ids = set((await db.execute(
         select(ModelRegistryOOFArtifact.model_registry_id).where(
@@ -913,7 +925,7 @@ async def lgbm_experiment_report(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Return an advisory report for one comparable A/B/C experiment group."""
-    payload = await _collect_lgbm_experiment_groups(db)
+    payload = await _collect_lgbm_experiment_groups(db, comparison_key_filter=comparison_key)
     group = next((item for item in payload["groups"] if item["comparison_key"] == comparison_key), None)
     if group is None:
         raise HTTPException(status_code=404, detail="Comparable experiment group not found")
@@ -1148,7 +1160,7 @@ async def crypto_train(
                     "symbol": symbol,
                     "feature_set": normalized_feature_set,
                     "activate_after_train": bool(activate_after_train),
-                "experiment_config_id": experiment_config_id,
+                    "experiment_config_id": experiment_config_id,
                 }
         except Exception as exc:
             logger.exception("crypto_retrain_error", symbol=symbol, error=str(exc))
