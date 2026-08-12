@@ -722,6 +722,88 @@ async def _stored_lgbm_polymarket_backtest(
         },
     }
 
+def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -> dict[str, Any]:
+    """Build a comparable, advisory report without activating any model."""
+    branch = strategy_branch.strip().upper()
+    candidates = list(group.get("variants") or [])
+    control = next((row for row in candidates if row.get("feature_set") == "A"), None)
+
+    def metric(row: dict[str, Any] | None, name: str) -> float | None:
+        if not row or row.get(name) is None:
+            return None
+        try:
+            value = float(row[name])
+        except (TypeError, ValueError):
+            return None
+        return value if np.isfinite(value) else None
+
+    def branch_result(row: dict[str, Any]) -> dict[str, Any]:
+        variants = row.get("backtest_variants") or {}
+        result = variants.get(branch) or {}
+        return result if isinstance(result, dict) else {}
+
+    report_rows: list[dict[str, Any]] = []
+    for row in candidates:
+        backtest = branch_result(row)
+        trades = int(backtest.get("n_trades") or 0)
+        pnl = metric(backtest, "net_profit")
+        control_pnl = metric(branch_result(control), "net_profit") if control else None
+        report_rows.append({
+            "model_id": row.get("model_id"),
+            "feature_set": row.get("feature_set"),
+            "version": row.get("version"),
+            "auc": metric(row, "auc"),
+            "ece": metric(row, "ece"),
+            "brier": metric(row, "brier"),
+            "pnl": pnl,
+            "trades": trades,
+            "roi_pct": metric(backtest, "roi_pct"),
+            "coverage_pct": metric(backtest, "coverage_pct"),
+            "delta_vs_control": {
+                "auc": (metric(row, "auc") - metric(control, "auc")) if metric(row, "auc") is not None and metric(control, "auc") is not None else None,
+                "ece": (metric(row, "ece") - metric(control, "ece")) if metric(row, "ece") is not None and metric(control, "ece") is not None else None,
+                "brier": (metric(row, "brier") - metric(control, "brier")) if metric(row, "brier") is not None and metric(control, "brier") is not None else None,
+                "pnl": (pnl - control_pnl) if pnl is not None and control_pnl is not None else None,
+                "trades": trades - int(branch_result(control).get("n_trades") or 0) if control else None,
+            },
+            "feature_audit_summary": row.get("feature_audit_summary") or {},
+        })
+
+    pnl_candidates = [row for row in report_rows if row["pnl"] is not None and row["trades"] >= 3]
+    if pnl_candidates:
+        winner = max(pnl_candidates, key=lambda row: (row["pnl"], row["roi_pct"] or float("-inf"), row["auc"] or float("-inf")))
+        recommendation_status = "READY_FOR_SHADOW" if winner["trades"] >= 10 else "PROVISIONAL_LOW_SAMPLE"
+        reason = f"Highest {branch} net PnL among candidates with at least 3 trades; validate in SHADOW before activation."
+    elif report_rows:
+        winner = max(report_rows, key=lambda row: (row["auc"] if row["auc"] is not None else float("-inf"), -(row["ece"] if row["ece"] is not None else float("inf"))))
+        recommendation_status = "NO_PNL_SAMPLE"
+        reason = "No candidate has at least 3 saved Polymarket trades; ranking falls back to AUC/ECE and is not an activation decision."
+    else:
+        winner = None
+        recommendation_status = "NO_CANDIDATES"
+        reason = "No comparable candidates were saved for this group."
+
+    stable_by_variant = {
+        row["feature_set"]: (row.get("feature_audit_summary") or {}).get("stable_features", [])
+        for row in report_rows
+    }
+    stable_sets = [set(values) for values in stable_by_variant.values() if values]
+    common_stable = sorted(set.intersection(*stable_sets)) if stable_sets else []
+    return {
+        "comparison_key": group.get("comparison_key"),
+        "asset": group.get("asset"),
+        "regime": group.get("regime"),
+        "strategy_branch": branch,
+        "rows": report_rows,
+        "recommended_model_id": winner["model_id"] if winner else None,
+        "recommended_variant": winner["feature_set"] if winner else None,
+        "recommendation_status": recommendation_status,
+        "recommendation_reason": reason,
+        "stable_features_by_variant": stable_by_variant,
+        "common_stable_features": common_stable,
+        "activation_policy": "MANUAL_SHADOW_REQUIRED",
+    }
+
 @router.get("/api/experiments", dependencies=[Depends(verify_api_key)])
 async def lgbm_experiment_groups(db: AsyncSession = Depends(get_db_session)) -> dict:
     """Return comparable LightGBM A/B/C candidates and saved OOT summaries."""
@@ -799,6 +881,18 @@ async def lgbm_experiment_groups(db: AsyncSession = Depends(get_db_session)) -> 
     payload.sort(key=lambda item: item["comparison_key"])
     return {"groups": payload, "count": len(payload)}
 
+@router.get("/api/experiments/report", dependencies=[Depends(verify_api_key)])
+async def lgbm_experiment_report(
+    comparison_key: str,
+    strategy_branch: Literal["OUTSIDER_ONLY", "FAVORITE_ONLY", "COMBINED"] = "COMBINED",
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Return an advisory report for one comparable A/B/C experiment group."""
+    payload = await lgbm_experiment_groups(db)
+    group = next((item for item in payload["groups"] if item["comparison_key"] == comparison_key), None)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Comparable experiment group not found")
+    return _build_lgbm_experiment_report(group, strategy_branch)
 
 async def _saved_lgbm_model_polymarket_backtest(
     db: AsyncSession,

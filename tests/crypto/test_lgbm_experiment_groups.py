@@ -32,3 +32,13 @@ async def test_lgbm_experiment_groups_include_a_b_candidates(db_session):
     group = response["groups"][0]
     assert group["comparable"] is True
     assert {candidate["feature_set"] for candidate in group["variants"]} == {"A", "B"}
+
+    from polyflip.api.crypto_dashboard import lgbm_experiment_report
+    report = await lgbm_experiment_report(
+        comparison_key="BTCUSDT_low_vol|same-window",
+        strategy_branch="COMBINED",
+        db=db_session,
+    )
+    assert report["recommended_variant"] == "B"
+    assert report["recommendation_status"] == "PROVISIONAL_LOW_SAMPLE"
+    assert report["activation_policy"] == "MANUAL_SHADOW_REQUIRED"
