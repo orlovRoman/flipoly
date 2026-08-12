@@ -478,7 +478,7 @@ async def _stored_lgbm_polymarket_backtest(
         variant = variants.get(branch)
         if variant is None and branch == "OUTSIDER_ONLY":
             variant = params.get("backtest")
-        if not isinstance(variant, dict):
+        if not isinstance(variant, dict) or not variant:
             continue
         regime_results.append(variant)
         regime_payload[asset] = {
@@ -488,15 +488,19 @@ async def _stored_lgbm_polymarket_backtest(
         }
 
     if not regime_results:
-        return {
-            "error": (
-                f"Нет сохранённого OOF Polymarket-бэктеста для {symbol}, "
-                f"feature_set={feature_set}. Обучите вариант A/B/C заново."
-            ),
-            "symbol": symbol,
-            "feature_set": feature_set,
-            "strategy_branch": branch,
-        }
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": (
+                    f"No saved OOF Polymarket backtest for {symbol}, "
+                    f"feature_set={feature_set}, branch={branch}. "
+                    "Retrain the model with OOF metrics enabled."
+                ),
+                "symbol": symbol,
+                "feature_set": feature_set,
+                "strategy_branch": branch,
+            },
+        )
 
     summary = aggregate_stored_polymarket_backtests(
         regime_results, strategy_branch=branch
@@ -512,6 +516,7 @@ async def _stored_lgbm_polymarket_backtest(
         "n_oof": summary["n_oof"],
         "n_eligible": summary["n_eligible"],
         "n_trades": summary["n_trades"],
+        "stake_usdc": summary["stake_usdc"],
         "win_rate": summary["win_rate"],
         "net_profit": summary["net_profit"],
         "total_return_net": summary["net_profit"],

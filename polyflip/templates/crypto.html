@@ -1598,6 +1598,15 @@
                 const d = await r.json();
                 
                 document.getElementById('backtest-loading').style.display = 'none';
+
+                if (!r.ok) {
+                    const detail = d?.detail;
+                    const message = (detail && typeof detail === 'object' ? detail.error : detail)
+                        || d?.error
+                        || `HTTP ${r.status}`;
+                    alert(`Ошибка бэктеста: ${message}`);
+                    return;
+                }
                 
                 if (d.error) {
                     alert(`❌ Ошибка бэктеста: ${d.error}`);

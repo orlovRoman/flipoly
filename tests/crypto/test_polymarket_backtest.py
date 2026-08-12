@@ -116,3 +116,27 @@ def test_aggregate_replays_trade_pnl_in_time_order():
     assert result["n_trades"] == 2
     assert result["net_profit"] == pytest.approx(-0.5)
     assert [item["pnl"] for item in result["equity_curve"]] == [0.5, -0.5]
+
+
+def test_aggregate_drawdown_uses_persisted_stake():
+    frame, quotes = _fixtures()
+    frame.loc[1, "final_outcome"] = "NO"
+    quotes.loc[1, "best_ask"] = 0.85
+    quotes.loc[1, "best_bid"] = 0.81
+    computed = compute_oof_polymarket_backtest(
+        frame,
+        [0.90, 0.90],
+        quotes,
+        strategy_branch="COMBINED",
+        min_edge=0.01,
+        cost_buffer=0.0,
+        fee_rate=0.0,
+        stake_usdc=2.0,
+    )
+    assert computed["n_trades"] == 2
+    persisted = {key: value for key, value in computed.items() if key != "trades"}
+    aggregated = aggregate_stored_polymarket_backtests(
+        [persisted], strategy_branch="COMBINED"
+    )
+    assert aggregated["stake_usdc"] == pytest.approx(2.0)
+    assert aggregated["max_drawdown_pct"] == pytest.approx(computed["max_drawdown_pct"])

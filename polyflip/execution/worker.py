@@ -96,6 +96,10 @@ async def _enqueue_gtd_take_profit_after_fill(session, req) -> None:
     )
     if not trade or not trade.take_profit_enabled:
         return
+    # Both the fill path and reconciliation can observe the same BUY fill.
+    # Once a TP request is queued or terminal, this helper must be idempotent.
+    if trade.take_profit_status in {"QUEUED", "FILLED", "EXPIRED"}:
+        return
     if trade.position_status == "CLOSED" or not trade.take_profit_price:
         return
     remaining = Decimal(str(trade.remaining_shares or 0))

@@ -252,6 +252,7 @@ def compute_oof_polymarket_backtest(
             "n_trades": 0,
             "win_rate": 0.0,
             "total_invested": 0.0,
+            "stake_usdc": float(stake_usdc),
             "net_profit": 0.0,
             "roi_pct": 0.0,
             "avg_edge": 0.0,
@@ -323,6 +324,7 @@ def compute_oof_polymarket_backtest(
         "n_trades": len(trades),
         "win_rate": float(np.mean([item["won"] for item in trades])),
         "total_invested": float(invested),
+        "stake_usdc": float(stake_usdc),
         "net_profit": float(pnl.sum()),
         "roi_pct": float(pnl.sum() / invested * 100.0),
         "avg_edge": float(np.mean([item["gross_edge"] for item in trades])),
@@ -356,6 +358,8 @@ def aggregate_stored_polymarket_backtests(
     n_markets = n_quotes = n_oof = n_eligible = n_trades = 0
     net_profit = total_invested = edge_sum = net_edge_sum = price_sum = 0.0
     wins = 0.0
+    weighted_stake = 0.0
+    weighted_stake_count = 0
     for result in results:
         n_markets += int(result.get("n_markets") or 0)
         n_quotes += int(result.get("n_quotes") or 0)
@@ -365,6 +369,10 @@ def aggregate_stored_polymarket_backtests(
         n_trades += count
         net_profit += float(result.get("net_profit") or 0.0)
         total_invested += float(result.get("total_invested") or 0.0)
+        persisted_stake = result.get("stake_usdc")
+        if persisted_stake is not None and count > 0:
+            weighted_stake += float(persisted_stake) * count
+            weighted_stake_count += count
         edge_sum += float(result.get("avg_edge") or 0.0) * count
         net_edge_sum += float(result.get("avg_net_edge") or 0.0) * count
         price_sum += float(result.get("avg_entry_price") or 0.0) * count
@@ -395,6 +403,11 @@ def aggregate_stored_polymarket_backtests(
     gross_profit = float(pnl_values[pnl_values > 0].sum()) if len(pnl_values) else 0.0
     gross_loss = float(abs(pnl_values[pnl_values < 0].sum())) if len(pnl_values) else 0.0
     coverage = round(n_quotes / n_markets * 100.0, 2) if n_markets else 0.0
+    stake_per_trade = (
+        weighted_stake / weighted_stake_count
+        if weighted_stake_count
+        else (total_invested / n_trades if n_trades else 1.0)
+    )
     return {
         "strategy_branch": branch,
         "n_markets": n_markets,
@@ -404,12 +417,13 @@ def aggregate_stored_polymarket_backtests(
         "n_trades": n_trades,
         "win_rate": wins / n_trades if n_trades else 0.0,
         "total_invested": total_invested,
+        "stake_usdc": stake_per_trade,
         "net_profit": net_profit,
         "roi_pct": net_profit / total_invested * 100.0 if total_invested else 0.0,
         "avg_edge": edge_sum / n_trades if n_trades else 0.0,
         "avg_net_edge": net_edge_sum / n_trades if n_trades else 0.0,
         "avg_entry_price": price_sum / n_trades if n_trades else None,
-        "max_drawdown_pct": max_dd / max(total_invested / max(n_trades, 1), 1e-9) * 100.0 if n_trades else 0.0,
+        "max_drawdown_pct": max_dd / max(stake_per_trade, 1e-9) * 100.0 if n_trades else 0.0,
         "sharpe_ratio": sharpe,
         "profit_factor": gross_profit / gross_loss if gross_loss else None,
         "coverage_pct": coverage,
@@ -452,7 +466,6 @@ async def load_market_entry_quotes(
             )
             .where(
                 MarketSnapshot.market_id.in_(chunk),
-                MarketSnapshot.final_outcome.in_(("YES", "NO")),
             )
             .order_by(MarketSnapshot.market_id, MarketSnapshot.recorded_at)
         )

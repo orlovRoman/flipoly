@@ -713,54 +713,51 @@ class CryptoModelTrainer:
                     "feature_audit_summary": result.feature_audit_summary,
                 }
 
-                # Evaluate all three trading branches on the same OOF scores,
-                # quotes and resolved markets.  This mirrors LogReg A/B/C
-                # comparison while keeping strategy choice separate from model
-                # quality.
-                backtest_variants = {}
-                for branch in ("OUTSIDER_ONLY", "FAVORITE_ONLY", "COMBINED"):
-                    branch_result = compute_oof_polymarket_backtest(
-                        df_regime.reset_index(drop=True),
-                        result.oof_scores if result.oof_scores is not None else np.full(len(df_regime), np.nan),
-                        entry_quotes,
-                        strategy_branch=branch,
-                        min_edge=backtest_min_edge,
-                        cost_buffer=backtest_cost_buffer,
-                        fee_rate=backtest_fee_rate,
-                        min_price=backtest_min_price,
-                        max_price=backtest_max_price,
-                        outsider_max_price=backtest_outsider_max,
-                    )
-                    backtest_variants[branch] = {
-                        key: value for key, value in branch_result.items()
-                        if key != "trades"
-                    }
-                    logger.info(
-                        "crypto_lgbm_polymarket_backtest",
+                # Evaluate all three trading branches only when OOF scores are
+                # available. A metrics-disabled fit must not be represented as
+                # a real zero-PnL backtest in the registry/dashboard.
+                branches = ("OUTSIDER_ONLY", "FAVORITE_ONLY", "COMBINED")
+                if result.oof_scores is None:
+                    logger.warning(
+                        "lgbm_backtest_skipped_no_oof_scores",
                         symbol=symbol,
                         regime=regime,
-                        feature_set=feature_spec.key,
-                        strategy_branch=branch,
-                        trades=branch_result["n_trades"],
-                        pnl=round(branch_result["net_profit"], 6),
-                        coverage=branch_result["coverage_pct"],
                     )
-
-                # Registry scalar fields stay backward compatible and point to
-                # the default outsider branch; all branch summaries are stored
-                # under training_params["backtest_variants"].
-                backtest_result = backtest_variants["OUTSIDER_ONLY"]
-                backtest_metadata = backtest_variants["OUTSIDER_ONLY"]
-                fit_metrics["backtest"] = backtest_metadata
-                logger.info(
-                    "crypto_lgbm_polymarket_backtest",
-                    symbol=symbol,
-                    regime=regime,
-                    feature_set=feature_spec.key,
-                    trades=backtest_result["n_trades"],
-                    pnl=round(backtest_result["net_profit"], 6),
-                    coverage=backtest_result["coverage_pct"],
-                )
+                    backtest_variants = {branch: {} for branch in branches}
+                    backtest_outsider = {}
+                else:
+                    backtest_variants = {}
+                    for branch in branches:
+                        branch_result = compute_oof_polymarket_backtest(
+                            df_regime.reset_index(drop=True),
+                            result.oof_scores,
+                            entry_quotes,
+                            strategy_branch=branch,
+                            min_edge=backtest_min_edge,
+                            cost_buffer=backtest_cost_buffer,
+                            fee_rate=backtest_fee_rate,
+                            min_price=backtest_min_price,
+                            max_price=backtest_max_price,
+                            outsider_max_price=backtest_outsider_max,
+                        )
+                        backtest_variants[branch] = {
+                            key: value for key, value in branch_result.items()
+                            if key != "trades"
+                        }
+                        logger.info(
+                            "crypto_lgbm_polymarket_backtest",
+                            symbol=symbol,
+                            regime=regime,
+                            feature_set=feature_spec.key,
+                            strategy_branch=branch,
+                            trades=branch_result["n_trades"],
+                            pnl=round(branch_result["net_profit"], 6),
+                            coverage=branch_result["coverage_pct"],
+                        )
+                    # Registry scalar fields stay backward compatible and point
+                    # to the default outsider branch.
+                    backtest_outsider = backtest_variants["OUTSIDER_ONLY"]
+                fit_metrics["backtest"] = backtest_outsider
 
                 logger.info(
                     "crypto_regime_model_trained",
@@ -881,7 +878,7 @@ class CryptoModelTrainer:
                         "vol_p33": vol_p33,
                         "vol_p67": vol_p67,
                         "backtest_pnl_mode": "POLYMARKET_OOF",
-                        "backtest": backtest_metadata,
+                        "backtest": backtest_outsider,
                         "backtest_variants": backtest_variants,
                     },
                     features=",".join(available),
@@ -893,9 +890,18 @@ class CryptoModelTrainer:
                     training_window_end=training_window_end.to_pydatetime(),
                     dataset_fingerprint=dataset_fingerprint,
                     ece=ece,
-                    backtest_pnl=float(backtest_result["net_profit"]),
-                    backtest_trades=int(backtest_result["n_trades"]),
-                    backtest_wr=float(backtest_result["win_rate"]),
+                    backtest_pnl=(
+                        float(backtest_outsider["net_profit"])
+                        if backtest_outsider else None
+                    ),
+                    backtest_trades=(
+                        int(backtest_outsider["n_trades"])
+                        if backtest_outsider else None
+                    ),
+                    backtest_wr=(
+                        float(backtest_outsider["win_rate"])
+                        if backtest_outsider else None
+                    ),
                     is_active=should_activate,
                     interval=interval,
                     trained_at=now,

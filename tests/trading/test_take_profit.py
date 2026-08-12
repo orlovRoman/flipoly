@@ -153,6 +153,13 @@ async def test_live_tp_posts_gtd_request_immediately(db_session):
     assert req_expiry > now + timedelta(minutes=4)
     api_mock.get_market_prices.assert_not_called()
 
+    # A second polling cycle must not enqueue a second close request.
+    await takeprofit_worker_cycle(db_session, api_mock)
+    requests = (await db_session.execute(
+        select(ExecutionRequest).where(ExecutionRequest.trade_history_id == saved_trade.id)
+    )).scalars().all()
+    assert len(requests) == 1
+
 
 @pytest.mark.asyncio
 async def test_tp_worker_does_not_trigger_below_target(db_session):
