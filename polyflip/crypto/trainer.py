@@ -53,6 +53,7 @@ from polyflip.crypto.feature_sets import (
     feature_schema_hash,
     get_feature_set,
 )
+from polyflip.crypto.experiment_configs import normalize_experiment_config, experiment_config_hash
 
 CRYPTO_FEATURES = list(CONTROL_FEATURES)
 
@@ -472,7 +473,12 @@ class CryptoModelTrainer:
         *,
         feature_set: str = "A",
         activate_after_train: bool = False,
+        experiment_config: dict | None = None,
+        experiment_config_id: int | None = None,
     ) -> bool:
+        normalized_config = normalize_experiment_config(experiment_config) if experiment_config else None
+        if normalized_config:
+            feature_set = normalized_config["feature_set"]
         feature_spec = get_feature_set(feature_set)
         available = list(feature_spec.features)
         logger.info(
@@ -513,6 +519,13 @@ class CryptoModelTrainer:
             "reg_alpha": reg_alpha,
             "reg_lambda": reg_lambda,
         }
+        if normalized_config:
+            lgbm_params.update(normalized_config["model"])
+            logger.info(
+                "lgbm_experiment_config_applied",
+                experiment_config_id=experiment_config_id,
+                config_hash=experiment_config_hash(normalized_config),
+            )
 
         min_precision = await get_float(self.db, "LGBM_MIN_PRECISION_FOR_THRESHOLD")
         min_valid_thr = await get_float(self.db, "LGBM_MIN_VALID_THRESHOLD")
@@ -578,6 +591,18 @@ class CryptoModelTrainer:
         backtest_min_price = await _get_float_setting(self.db, "TRADE_MIN_PRICE", 0.05)
         backtest_max_price = await _get_float_setting(self.db, "TRADE_MAX_PRICE", 0.95)
         backtest_outsider_max = await _get_float_setting(self.db, "OUTSIDER_MAX_PRICE", 0.45)
+        backtest_stake_usdc = 1.0
+        backtest_slippage_pct = 0.0
+        if normalized_config:
+            backtest_params = normalized_config["backtest"]
+            backtest_min_edge = float(backtest_params["min_edge"])
+            backtest_cost_buffer = float(backtest_params["cost_buffer"])
+            backtest_fee_rate = float(backtest_params["fee_rate"])
+            backtest_min_price = float(backtest_params["min_price"])
+            backtest_max_price = float(backtest_params["max_price"])
+            backtest_outsider_max = float(backtest_params["outsider_max_price"])
+            backtest_stake_usdc = float(backtest_params["stake_usdc"])
+            backtest_slippage_pct = float(backtest_params["slippage_pct"])
         try:
             entry_quotes = await load_market_entry_quotes(
                 self.db, df_filtered[["market_id", "market_start"]]
@@ -740,6 +765,8 @@ class CryptoModelTrainer:
                             min_price=backtest_min_price,
                             max_price=backtest_max_price,
                             outsider_max_price=backtest_outsider_max,
+                            stake_usdc=backtest_stake_usdc,
+                            slippage_pct=backtest_slippage_pct,
                         )
                         backtest_variants[branch] = {
                             key: value for key, value in branch_result.items()
@@ -858,6 +885,12 @@ class CryptoModelTrainer:
                         "backtest_strategy_branch": "LIGHTGBM_TIME_SERIES_SPLIT",
                         "comparison_key": comparison_key,
                         "activate_after_train": activate_after_train,
+                        "experiment_config_id": experiment_config_id,
+                        "experiment_config_hash": (
+                            experiment_config_hash(normalized_config)
+                            if normalized_config else None
+                        ),
+                        "experiment_config": normalized_config,
                         "resolution_source": "CHAINLINK",
                         "alignment_version": "MARKET_WINDOW_V1",
                         "feature_schema_version": "CRYPTO_FEATURES_V2",

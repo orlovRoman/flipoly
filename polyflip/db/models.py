@@ -126,6 +126,32 @@ class ModelRegistryOOFArtifact(Base):
     __table_args__ = (Index("idx_model_registry_oof_model", "model_registry_id"),)
 
 
+class LGBMExperimentConfig(Base):
+    """Immutable, versioned configuration used by a LightGBM experiment."""
+
+    __tablename__ = "lgbm_experiment_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    asset = Column(String(32), nullable=True)
+    volatility_regime = Column(String(32), nullable=True)
+    feature_set = Column(String(8), nullable=False)
+    feature_set_version = Column(String(64), nullable=False)
+    model_params = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    calibration_params = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    backtest_params = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    config_hash = Column(String(64), nullable=False)
+    parent_id = Column(Integer, ForeignKey("lgbm_experiment_configs.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_by = Column(String(128), nullable=False, default="dashboard")
+    is_archived = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    __table_args__ = (
+        Index("idx_lgbm_experiment_configs_scope", "asset", "volatility_regime"),
+        Index("idx_lgbm_experiment_configs_created_at", "created_at"),
+        Index("idx_lgbm_experiment_configs_hash", "config_hash"),
+    )
 
 class CollectorStatus(Base):
     __tablename__ = "collector_status"

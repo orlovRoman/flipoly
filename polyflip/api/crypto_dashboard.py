@@ -14,7 +14,7 @@ import os
 STATIC_VERSION = os.getenv("POLYFLIP_BUILD_SHA", "dev")
 import json
 import time
-from typing import Literal
+from typing import Literal, Any
 from datetime import datetime, timezone
 import numpy as np
 
@@ -35,10 +35,15 @@ from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.crypto.feature_sets import CONTROL_FEATURES, get_feature_set, normalize_feature_set, parse_feature_names, validate_feature_schema
 from polyflip.db.connection import async_session, get_db_session
-from polyflip.db.models import ModelRegistry, ModelRegistryOOFArtifact, TradeHistory, RuntimeSettings
+from polyflip.db.models import (
+    ModelRegistry, ModelRegistryOOFArtifact, TradeHistory, RuntimeSettings, LGBMExperimentConfig
+)
 from polyflip.crypto.predictor import CryptoPredictor
 from polyflip.crypto.oof_artifact import OOF_ARTIFACT_SCHEMA_VERSION, deserialize_oof_artifact
 from polyflip.settings_registry import registry_defaults
+from polyflip.crypto.experiment_configs import (
+    normalize_experiment_config, experiment_config_hash,
+)
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/lightgbm", tags=["LightGBM"])
@@ -400,6 +405,127 @@ async def save_crypto_settings(
     return {"status": "success", "message": "Настройки успешно сохранены!"}
 
 
+class ExperimentConfigRequest(BaseModel):
+    name: str
+    description: str | None = None
+    asset: str | None = None
+    volatility_regime: str | None = None
+    feature_set: str = "A"
+    model: dict[str, Any] = {}
+    calibration: dict[str, Any] = {}
+    backtest: dict[str, Any] = {}
+    parent_id: int | None = None
+    created_by: str = "dashboard"
+
+
+def _experiment_config_response(row: LGBMExperimentConfig) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "description": row.description,
+        "asset": row.asset,
+        "volatility_regime": row.volatility_regime,
+        "feature_set": row.feature_set,
+        "feature_set_version": row.feature_set_version,
+        "model": row.model_params,
+        "calibration": row.calibration_params,
+        "backtest": row.backtest_params,
+        "config_hash": row.config_hash,
+        "parent_id": row.parent_id,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_by": row.created_by,
+        "is_archived": bool(row.is_archived),
+    }
+
+
+@router.get("/api/experiment-configs", dependencies=[Depends(verify_api_key)])
+async def list_experiment_configs(
+    asset: str | None = None,
+    include_archived: bool = False,
+    db: AsyncSession = Depends(get_db_session),
+):
+    stmt = select(LGBMExperimentConfig)
+    if asset:
+        stmt = stmt.where(LGBMExperimentConfig.asset == asset.strip().upper())
+    if not include_archived:
+        stmt = stmt.where(LGBMExperimentConfig.is_archived.is_(False))
+    stmt = stmt.order_by(LGBMExperimentConfig.created_at.desc(), LGBMExperimentConfig.id.desc())
+    rows = (await db.execute(stmt)).scalars().all()
+    return {"configs": [_experiment_config_response(row) for row in rows]}
+
+
+@router.post("/api/experiment-configs", dependencies=[Depends(verify_api_key)])
+async def create_experiment_config(
+    payload: ExperimentConfigRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    if not payload.name.strip():
+        raise HTTPException(status_code=422, detail="name must not be empty")
+    if payload.asset and payload.asset.strip().upper() not in CRYPTO_SYMBOLS:
+        raise HTTPException(status_code=422, detail="asset must be a supported crypto symbol")
+    try:
+        config = normalize_experiment_config({
+            "feature_set": payload.feature_set,
+            "model": payload.model,
+            "calibration": payload.calibration,
+            "backtest": payload.backtest,
+        })
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    parent = None
+    if payload.parent_id is not None:
+        parent = await db.get(LGBMExperimentConfig, payload.parent_id)
+        if parent is None:
+            raise HTTPException(status_code=404, detail="parent experiment config not found")
+    row = LGBMExperimentConfig(
+        name=payload.name.strip()[:128],
+        description=payload.description,
+        asset=payload.asset.strip().upper() if payload.asset else None,
+        volatility_regime=payload.volatility_regime.strip().lower() if payload.volatility_regime else None,
+        feature_set=config["feature_set"],
+        feature_set_version=config["feature_set_version"],
+        model_params=config["model"],
+        calibration_params=config["calibration"],
+        backtest_params=config["backtest"],
+        config_hash=experiment_config_hash(config),
+        parent_id=payload.parent_id,
+        created_at=datetime.now(timezone.utc),
+        created_by=payload.created_by.strip()[:128] or "dashboard",
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {"status": "created", "config": _experiment_config_response(row)}
+
+
+@router.post("/api/experiment-configs/{config_id}/copy", dependencies=[Depends(verify_api_key)])
+async def copy_experiment_config(
+    config_id: int,
+    name: str = Query(..., min_length=1, max_length=128),
+    db: AsyncSession = Depends(get_db_session),
+):
+    source = await db.get(LGBMExperimentConfig, config_id)
+    if source is None or source.is_archived:
+        raise HTTPException(status_code=404, detail="experiment config not found")
+    config = normalize_experiment_config({
+        "feature_set": source.feature_set,
+        "model": source.model_params,
+        "calibration": source.calibration_params,
+        "backtest": source.backtest_params,
+    })
+    row = LGBMExperimentConfig(
+        name=name.strip(), description=source.description, asset=source.asset,
+        volatility_regime=source.volatility_regime,
+        feature_set=config["feature_set"], feature_set_version=config["feature_set_version"],
+        model_params=config["model"], calibration_params=config["calibration"],
+        backtest_params=config["backtest"], config_hash=experiment_config_hash(config),
+        parent_id=source.id, created_at=datetime.now(timezone.utc), created_by="dashboard",
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {"status": "created", "config": _experiment_config_response(row)}
+
 class SetEceCorrectionRequest(BaseModel):
     enabled: bool
 
@@ -717,6 +843,10 @@ async def crypto_backtest(
     Запускает walk-forward backtest и возвращает детальные метрики и PnL-кривую.
     Результат кэшируется на 5 минут для предотвращения перегрузки CPU.
     """
+    # Direct unit-test calls do not pass through FastAPI's dependency parser;
+    # normalize Query(None) to the actual default before checking model_id.
+    if not isinstance(model_id, int):
+        model_id = getattr(model_id, "default", None)
     try:
         normalized_feature_set = normalize_feature_set(feature_set)
     except ValueError as exc:
@@ -818,6 +948,7 @@ async def crypto_train(
     interval: str = "15m",
     feature_set: str = "A",
     activate_after_train: bool = False,
+    experiment_config_id: int | None = None,
 ):
     """
     Запускает переобучение LightGBM-модели в фоне.
@@ -842,6 +973,7 @@ async def crypto_train(
         "symbol": symbol,
         "feature_set": normalized_feature_set,
         "activate_after_train": bool(activate_after_train),
+                    "experiment_config_id": experiment_config_id,
     }
     _cache.pop("status", None)
 
@@ -849,11 +981,24 @@ async def crypto_train(
         try:
             async with async_session() as session:
                 trainer = CryptoModelTrainer(session)
+                saved_config = None
+                if experiment_config_id is not None:
+                    config_row = await session.get(LGBMExperimentConfig, experiment_config_id)
+                    if config_row is None or config_row.is_archived:
+                        raise ValueError("experiment config not found or archived")
+                    saved_config = {
+                        "feature_set": config_row.feature_set,
+                        "model": config_row.model_params,
+                        "calibration": config_row.calibration_params,
+                        "backtest": config_row.backtest_params,
+                    }
                 ok = await trainer.train(
                     symbol,
                     interval,
-                    feature_set=normalized_feature_set,
+                    feature_set=(saved_config or {}).get("feature_set", normalized_feature_set),
                     activate_after_train=activate_after_train,
+                    experiment_config=saved_config,
+                    experiment_config_id=experiment_config_id,
                 )
                 logger.info("crypto_retrain_done", symbol=symbol, success=ok)
                 _active_trainings[symbol] = {
@@ -862,6 +1007,7 @@ async def crypto_train(
                     "symbol": symbol,
                     "feature_set": normalized_feature_set,
                     "activate_after_train": bool(activate_after_train),
+                    "experiment_config_id": experiment_config_id,
                 }
         except Exception as exc:
             logger.exception("crypto_retrain_error", symbol=symbol, error=str(exc))
@@ -871,6 +1017,7 @@ async def crypto_train(
                 "symbol": symbol,
                 "feature_set": normalized_feature_set,
                 "activate_after_train": bool(activate_after_train),
+                    "experiment_config_id": experiment_config_id,
                 "error": str(exc),
             }
         finally:
@@ -884,6 +1031,7 @@ async def crypto_train(
     return {
         "status": "started",
         "symbol": symbol,
+        "experiment_config_id": experiment_config_id,
         "message": f"Переобучение {symbol} запущено в фоне.",
     }
 
