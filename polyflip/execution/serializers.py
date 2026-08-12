@@ -9,6 +9,16 @@ def _parse_error(error_reason: str | None) -> dict:
         return {"error_code": None, "error_message_ru": None}
 
     normalized = error_reason.lower()
+    if "post_only_rejected" in normalized or "post only" in normalized:
+        return {
+            "error_code": "POST_ONLY_REJECTED",
+            "error_message_ru": "Maker order rejected because it would take resting liquidity",
+        }
+    if "manual_rejected" in normalized:
+        return {
+            "error_code": "MANUAL_REJECTED",
+            "error_message_ru": "Execution rejected during manual review",
+        }
     if "insufficient funds" in normalized:
         return {
             "error_code": "INSUFFICIENT_FUNDS",
@@ -154,7 +164,7 @@ async def serialize_execution_requests(
                     req.submit_quote_at.isoformat() if req.submit_quote_at else None
                 ),
                 "submitted_limit_price": req.submitted_limit_price,
-                "paper_to_live_delay_sec": (
+                "paper_to_live_release_delay_sec": (
                     (
                         req.created_at
                         - source_requests[req.source_paper_request_id].created_at
@@ -163,6 +173,37 @@ async def serialize_execution_requests(
                     and req.created_at
                     and source_requests[req.source_paper_request_id].created_at
                     else None
+                ),
+                "paper_to_live_submit_delay_sec": (
+                    (
+                        req.submit_quote_at
+                        - source_requests[req.source_paper_request_id].created_at
+                    ).total_seconds()
+                    if req.source_paper_request_id in source_requests
+                    and req.submit_quote_at
+                    and source_requests[req.source_paper_request_id].created_at
+                    else None
+                ),
+                # Preserve the legacy field while making it reflect the
+                # actual submission delay when quote telemetry is available.
+                "paper_to_live_delay_sec": (
+                    (
+                        req.submit_quote_at
+                        - source_requests[req.source_paper_request_id].created_at
+                    ).total_seconds()
+                    if req.source_paper_request_id in source_requests
+                    and req.submit_quote_at
+                    and source_requests[req.source_paper_request_id].created_at
+                    else (
+                        (
+                            req.created_at
+                            - source_requests[req.source_paper_request_id].created_at
+                        ).total_seconds()
+                        if req.source_paper_request_id in source_requests
+                        and req.created_at
+                        and source_requests[req.source_paper_request_id].created_at
+                        else None
+                    )
                 ),
                 "cancel_due_at": (
                     req.cancel_due_at.isoformat() if req.cancel_due_at else None

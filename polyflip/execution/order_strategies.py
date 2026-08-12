@@ -10,6 +10,13 @@ DEFAULT_GTC_TTL_SECONDS = 10.0
 DEFAULT_FAK_RETRY_MAX_ATTEMPTS = 3
 DEFAULT_FAK_RETRY_DELAY_SEC = 0.75
 
+POST_ONLY_REJECT_MARKERS = (
+    "post_only",
+    "post only",
+    "would_take",
+    "maker only",
+)
+
 
 async def execute_gtc_ttl(
     gateway: Any,
@@ -46,6 +53,21 @@ async def execute_gtc_ttl(
             str(value or "")
             for value in (sub_res.provider_status, sub_res.error_message)
         ).lower()
+        if post_only and any(marker in status_text for marker in POST_ONLY_REJECT_MARKERS):
+            logger.info(
+                "gtc_ttl_post_only_rejected",
+                token_id=maker_order.token_id,
+                attempt=submit_attempt,
+            )
+            return SubmissionResult(
+                accepted=False,
+                provider_order_id=sub_res.provider_order_id,
+                provider_status="POST_ONLY_REJECTED",
+                rejection_code="POST_ONLY_REJECTED",
+                error_message=(
+                    "POST_ONLY_REJECTED: order would immediately take resting liquidity"
+                ),
+            )
         transient = any(
             marker in status_text
             for marker in (

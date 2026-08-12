@@ -41,7 +41,11 @@ logger = logging.getLogger("live_mirror_worker")
 # ── Настройки ────────────────────────────────────────────────────────────────
 
 DATABASE_URL: str = os.environ.get("DATABASE_URL", "")  # lazy-checked in run_worker()
-POLL_INTERVAL: float = float(os.environ.get("MIRROR_POLL_INTERVAL", "1"))
+POLL_INTERVAL: float = max(0.1, float(os.environ.get("MIRROR_POLL_INTERVAL", "5")))
+MAX_BACKOFF_SECONDS: float = max(
+    POLL_INTERVAL,
+    float(os.environ.get("MIRROR_MAX_BACKOFF_SECONDS", "30")),
+)
 BATCH_SIZE: int = int(os.environ.get("MIRROR_BATCH_SIZE", "50"))
 TARGET_MODE: str = os.environ.get("MIRROR_TARGET_MODE", "SHADOW")  # SHADOW до Этапа 10
 
@@ -310,15 +314,18 @@ async def run_worker() -> None:
         raise RuntimeError("DATABASE_URL environment variable is not set")
 
     logger.info(
-        "live_mirror_worker запущен. TARGET_MODE=%s POLL_INTERVAL=%ss",
+        "live_mirror_worker запущен. TARGET_MODE=%s POLL_INTERVAL=%ss MAX_BACKOFF=%ss",
         TARGET_MODE,
         POLL_INTERVAL,
+        MAX_BACKOFF_SECONDS,
     )
 
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
     Session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
+    consecutive_errors = 0
     while not _shutdown:
+        sleep_for = POLL_INTERVAL
         try:
             async with Session() as session:
                 if not await runtime_bool(session, "LIVE_MIRROR_ENABLED"):
@@ -329,12 +336,18 @@ async def run_worker() -> None:
                     created = await mirror_batch(session)
                     if created:
                         logger.info("Батч завершён: создано %d кандидатов", created)
+            consecutive_errors = 0
         except Exception:
+            consecutive_errors += 1
+            sleep_for = min(
+                POLL_INTERVAL * (2 ** min(consecutive_errors, 8)),
+                MAX_BACKOFF_SECONDS,
+            )
             logger.exception(
-                "Ошибка в mirror_batch, продолжаем через %ss", POLL_INTERVAL
+                "Ошибка в mirror_batch, продолжаем через %ss", sleep_for
             )
 
-        await asyncio.sleep(POLL_INTERVAL)
+        await asyncio.sleep(sleep_for)
 
     logger.info("live_mirror_worker остановлен.")
     await engine.dispose()

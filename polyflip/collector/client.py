@@ -1,12 +1,23 @@
 import asyncio
 import httpx
-from typing import List, Dict, Any
+from typing import List, Dict, Any, TypedDict
 from datetime import datetime, timezone
 import structlog
 import json
 from polyflip.constants import HTTP_TIMEOUT_SEC, VOLUME_WINDOW_MIN
 
 logger = structlog.get_logger(__name__)
+
+
+class MarketPricesResult(TypedDict, total=False):
+    current_yes_price: float
+    current_no_price: float
+    current_spread: float
+    best_bid: float
+    best_ask: float
+    tick_size: float | None
+    min_order_size: float | None
+    error: str
 
 def _canonical_strike(market: Dict[str, Any], event: Dict[str, Any]) -> float | None:
     """Extract Polymarket's opening/Chainlink strike without Binance fallbacks."""
@@ -135,7 +146,7 @@ class PolymarketClient:
             
         return markets
 
-    async def get_market_prices(self, yes_token_id: str) -> Dict[str, Any]:
+    async def get_market_prices(self, yes_token_id: str) -> MarketPricesResult:
         """
         Получает стакан (orderbook) из CLOB API для вычисления mid_price и spread.
         """

@@ -326,6 +326,8 @@ async def enqueue_close_request(
 
 def _terminal_code(state: str, error: str | None) -> str | None:
     """Normalize terminal outcomes for funnel analytics."""
+    if error and "POST_ONLY_REJECTED" in error.upper():
+        return "POST_ONLY_REJECTED"
     if error and "MAX_ACCEPTABLE_PRICE_EXCEEDED" in error:
         return "PRICE_MOVED"
     if error and "TTL" in error.upper():
@@ -340,7 +342,7 @@ def _terminal_code(state: str, error: str | None) -> str | None:
         "PARTIALLY_FILLED_FINAL": "PARTIAL_FILL",
         "REJECTED": "REJECTED",
         "EXPIRED": "TTL_EXPIRED",
-        "MANUAL_REVIEW_FAILED": "NETWORK_ERROR",
+        "MANUAL_REVIEW_FAILED": "MANUAL_REJECTED",
     }
     return mapping.get(state)
 

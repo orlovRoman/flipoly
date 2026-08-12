@@ -90,6 +90,8 @@ REGISTRY: list[SettingDef] = [
     SettingDef("LIVE_FAK_RETRY_DELAY_SEC", "0.75", description="Delay between transient order retries"),
     SettingDef("PAPER_EXECUTION_PROFILE", "INSTANT", description="PAPER execution: INSTANT or LIVE_PARITY"),
     SettingDef("PAPER_LIVE_DELAY_SEC", "2.0", description="Simulated PAPER to LIVE submission delay"),
+    SettingDef("MIRROR_MAX_BACKOFF_SECONDS", "30", description="Maximum retry backoff for the PAPER to LIVE mirror worker"),
+
     SettingDef("FAVOR_MIN_TIME_LEFT_SEC", "60",
                description="Мин. время до конца для фаворита (сек)"),
     SettingDef("FAVOR_MAX_TIME_LEFT_SEC", "600",
