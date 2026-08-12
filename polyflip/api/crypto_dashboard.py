@@ -564,6 +564,21 @@ async def set_ece_correction_status(
     return {"status": "success", "enabled": payload.enabled}
 
 
+def _backtest_options_for_model(params: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the immutable backtest options persisted with a model."""
+    params = params or {}
+    raw = params.get("backtest_config")
+    if raw is None:
+        experiment = params.get("experiment_config")
+        raw = experiment.get("backtest") if isinstance(experiment, dict) else None
+    if raw is None:
+        return {}
+    try:
+        return normalize_experiment_config({"backtest": raw})["backtest"]
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"error": "INVALID_BACKTEST_CONFIG", "message": str(exc)}) from exc
+
+
 async def _stored_lgbm_polymarket_backtest(
     db: AsyncSession,
     *,
@@ -616,7 +631,9 @@ async def _stored_lgbm_polymarket_backtest(
         variant = None
         artifact = artifacts.get(row.id)
         if artifact is not None:
-            cache_key = f"lgbm_oof_{row.id}_{branch}"
+            config_options = _backtest_options_for_model(params)
+            config_hash = experiment_config_hash({"backtest": config_options})[:12] if config_options else "runtime"
+            cache_key = f"lgbm_oof_{row.id}_{branch}_{config_hash}"
             cached = _cache.get(cache_key)
             if cached and time.time() - cached["ts"] < _OOF_BACKTEST_CACHE_TTL:
                 variant = cached["data"]
@@ -626,6 +643,7 @@ async def _stored_lgbm_polymarket_backtest(
                     computed = compute_oof_polymarket_backtest(
                         payload["frame"], payload["oof_scores"], payload["quotes"],
                         strategy_branch=branch,
+                        **config_options,
                     )
                     variant = {key: value for key, value in computed.items() if key != "trades"}
                     _cache[cache_key] = {"data": variant, "ts": time.time()}
@@ -811,9 +829,11 @@ async def _saved_lgbm_model_polymarket_backtest(
         })
     try:
         payload = deserialize_oof_artifact(artifact.artifact_blob)
+        backtest_options = _backtest_options_for_model(model.training_params or {})
         result = compute_oof_polymarket_backtest(
             payload["frame"], payload["oof_scores"], payload["quotes"],
             strategy_branch=branch,
+            **backtest_options,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"error": "OOF_ARTIFACT_INVALID", "message": str(exc)}) from exc

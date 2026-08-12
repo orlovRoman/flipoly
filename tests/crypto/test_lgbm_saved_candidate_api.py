@@ -51,6 +51,19 @@ async def test_saved_candidate_backtest_uses_persisted_artifact(db_session):
     assert result["n_trades"] == 2
     assert result["net_profit"] > 0
 
+    # A saved candidate must replay its persisted execution assumptions, not runtime defaults.
+    model.training_params = {
+        "target_source": "POLYMARKET_FINAL_OUTCOME",
+        "feature_set": "B",
+        "backtest_config": {"min_edge": 0.6},
+    }
+    await db_session.commit()
+    replayed = await _saved_lgbm_model_polymarket_backtest(
+        db_session, model_id=model.id, strategy_branch="OUTSIDER_ONLY"
+    )
+    assert replayed["n_trades"] == 0
+    assert replayed["coverage_reasons"]["insufficient_edge"] == 2
+
 
 @pytest.mark.asyncio
 async def test_saved_candidate_without_artifact_is_explicit_error(db_session):

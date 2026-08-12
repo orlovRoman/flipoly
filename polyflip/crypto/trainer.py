@@ -891,6 +891,17 @@ class CryptoModelTrainer:
                             if normalized_config else None
                         ),
                         "experiment_config": normalized_config,
+                        # Persist the effective values even for legacy/ad-hoc runs so a saved candidate can be replayed exactly.
+                        "backtest_config": {
+                            "min_edge": backtest_min_edge,
+                            "cost_buffer": backtest_cost_buffer,
+                            "fee_rate": backtest_fee_rate,
+                            "min_price": backtest_min_price,
+                            "max_price": backtest_max_price,
+                            "outsider_max_price": backtest_outsider_max,
+                            "stake_usdc": backtest_stake_usdc,
+                            "slippage_pct": backtest_slippage_pct,
+                        },
                         "resolution_source": "CHAINLINK",
                         "alignment_version": "MARKET_WINDOW_V1",
                         "feature_schema_version": "CRYPTO_FEATURES_V2",
