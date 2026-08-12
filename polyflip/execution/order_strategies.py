@@ -47,7 +47,16 @@ async def execute_gtc_ttl(
         ).lower()
         transient = any(
             marker in status_text
-            for marker in ("cloudflare", "502", "503", "504", "429", "timeout", "network", "connection reset")
+            for marker in (
+                "cloudflare",
+                "502",
+                "503",
+                "504",
+                "429",
+                "timeout",
+                "network",
+                "connection reset",
+            )
         )
         if sub_res.accepted or not transient or submit_attempt >= max_attempts:
             break

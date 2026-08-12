@@ -139,14 +139,22 @@ async def serialize_execution_requests(
                     else None
                 ),
                 "release_quote_price": req.release_quote_price,
-                "release_quote_at": req.release_quote_at.isoformat() if req.release_quote_at else None,
+                "release_quote_at": (
+                    req.release_quote_at.isoformat()
+                    if req.release_quote_at
+                    else None
+                ),
                 "submit_quote_price": req.submit_quote_price,
                 "submit_quote_at": req.submit_quote_at.isoformat() if req.submit_quote_at else None,
                 "submitted_limit_price": req.submitted_limit_price,
                 "paper_to_live_delay_sec": (
-                    (req.created_at - source_requests[req.source_paper_request_id].created_at).total_seconds()
+                    (
+                        req.created_at
+                        - source_requests[req.source_paper_request_id].created_at
+                    ).total_seconds()
                     if req.source_paper_request_id in source_requests
-                    and req.created_at and source_requests[req.source_paper_request_id].created_at
+                    and req.created_at
+                    and source_requests[req.source_paper_request_id].created_at
                     else None
                 ),
                 "cancel_due_at": req.cancel_due_at.isoformat() if req.cancel_due_at else None,

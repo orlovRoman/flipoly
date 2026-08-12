@@ -330,9 +330,20 @@ def _terminal_code(state: str, error: str | None) -> str | None:
         return "PRICE_MOVED"
     if error and "TTL" in error.upper():
         return "TTL_EXPIRED"
-    if error and any(marker in error.lower() for marker in ("cloudflare", "502", "timeout", "network")):
+    if error and any(
+        marker in error.lower()
+        for marker in ("cloudflare", "502", "timeout", "network")
+    ):
         return "NETWORK_ERROR"
-    return {"FILLED": "FILLED", "PARTIALLY_FILLED_FINAL": "PARTIAL_FILL", "REJECTED": "REJECTED", "EXPIRED": "TTL_EXPIRED", "MANUAL_REVIEW_FAILED": "NETWORK_ERROR"}.get(state)
+    mapping = {
+        "FILLED": "FILLED",
+        "PARTIALLY_FILLED_FINAL": "PARTIAL_FILL",
+        "REJECTED": "REJECTED",
+        "EXPIRED": "TTL_EXPIRED",
+        "MANUAL_REVIEW_FAILED": "NETWORK_ERROR",
+    }
+    return mapping.get(state)
+
 
 async def finalize_request(
     session: AsyncSession,
