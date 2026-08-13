@@ -27,9 +27,12 @@ def _normalize(value: Any) -> Any:
     if isinstance(value, datetime):
         if value.tzinfo is None:
             raise ManifestError("naive datetimes are not allowed in manifests")
-        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        return {
+            "__type": "datetime",
+            "value": value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
     if isinstance(value, date):
-        return value.isoformat()
+        return {"__type": "date", "value": value.isoformat()}
     if isinstance(value, Decimal):
         return format(value, "f")
     if isinstance(value, float):
@@ -71,7 +74,7 @@ def _build_manifest(
         raise ManifestError(f"{kind} manifest is missing required fields: {missing}")
     result = dict(payload)
     result["manifest_kind"] = kind
-    result.setdefault("schema_version", "1")
+    result.setdefault("schema_version", "2")
     result["manifest_hash"] = compute_manifest_hash(
         {key: value for key, value in result.items() if key != "manifest_hash"}
     )
