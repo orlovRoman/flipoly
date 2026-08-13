@@ -420,11 +420,23 @@ def aggregate_stored_polymarket_backtests(
         net_profit += float(result.get("net_profit") or 0.0)
         invested_val = float(result.get("total_invested") or 0.0)
         persisted_stake = result.get("stake_usdc")
-        if persisted_stake is not None and count > 0:
-            weighted_stake += float(persisted_stake) * count
+        try:
+            parsed_stake = float(persisted_stake) if persisted_stake is not None else None
+        except (TypeError, ValueError):
+            parsed_stake = None
+        if parsed_stake is not None and (
+            not np.isfinite(parsed_stake) or parsed_stake <= 0.0
+        ):
+            parsed_stake = None
+        if parsed_stake is not None and count > 0:
+            weighted_stake += parsed_stake * count
             weighted_stake_count += count
-            if invested_val <= 0.0:
-                invested_val = float(persisted_stake) * count
+        # Older persisted summaries may omit stake_usdc and/or have a zero
+        # total_invested even though trades were recorded.  Their historical
+        # contract used the one-USDC default stake, so keep ROI finite instead
+        # of silently reporting zero invested capital.
+        if count > 0 and invested_val <= 0.0:
+            invested_val = (parsed_stake or DEFAULT_STAKE_USDC) * count
         total_invested += invested_val
         edge_sum += float(result.get("avg_edge") or 0.0) * count
         net_edge_sum += float(result.get("avg_net_edge") or 0.0) * count
