@@ -150,7 +150,13 @@ class AdapterRegistry:
     def __init__(self) -> None:
         self._adapters: dict[str, AdapterCallable] = {}
 
-    def register(self, action: str, adapter: AdapterCallable) -> "AdapterRegistry":
+    def register(
+        self,
+        action: str,
+        adapter: AdapterCallable,
+        *,
+        replace: bool = False,
+    ) -> "AdapterRegistry":
         normalized = action.strip().upper()
         if normalized in FORBIDDEN_ACTIONS or normalized not in OFFLINE_ACTIONS:
             raise AILabError(
@@ -158,8 +164,20 @@ class AdapterRegistry:
             )
         if not callable(adapter):
             raise TypeError("adapter must be callable")
+        if normalized in self._adapters and not replace:
+            raise AILabError(
+                f"adapter for {normalized} is already registered; "
+                "unregister it or pass replace=True explicitly"
+            )
         self._adapters[normalized] = adapter
         return self
+
+    def unregister(self, action: str) -> AdapterCallable:
+        normalized = action.strip().upper()
+        try:
+            return self._adapters.pop(normalized)
+        except KeyError as exc:
+            raise AILabError(f"no adapter is registered for {normalized}") from exc
 
     def get(self, action: str | None) -> AdapterCallable | None:
         if not action:
