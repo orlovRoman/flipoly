@@ -411,9 +411,9 @@ async def record_result(
             "result_status": status,
             "evaluation_kind": kind,
         }
-        step.summary = summary or step.summary
-        step.error_code = error_code
-        step.error_message = error_message
+        step.summary = (summary[:4000] if summary else step.summary)
+        step.error_code = error_code[:64] if error_code else None
+        step.error_message = error_message[:4000] if error_message else None
         await session.flush()
     return result
 
