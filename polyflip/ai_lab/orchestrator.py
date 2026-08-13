@@ -44,6 +44,9 @@ RESULT_ACTIONS = {
 }
 
 TERMINAL_STEP_STATUSES = {"SUCCEEDED", "FAILED", "SKIPPED"}
+# Result status INSUFFICIENT_DATA is persisted on ExperimentResult, but the
+# corresponding queue step must still be closed as SKIPPED rather than orphaned.
+RESULT_CLOSING_STATUSES = {"SUCCEEDED", "FAILED", "INSUFFICIENT_DATA"}
 
 
 def _value(item: Any, name: str, default: Any = None) -> Any:
@@ -397,7 +400,7 @@ async def record_result(
     )
     session.add(result)
     await session.flush()
-    if step is not None and status in TERMINAL_STEP_STATUSES:
+    if step is not None and status in RESULT_CLOSING_STATUSES:
         step.status = status if status in {"SUCCEEDED", "FAILED"} else "SKIPPED"
         step.finished_at = utc_now()
         step.output_payload = {
