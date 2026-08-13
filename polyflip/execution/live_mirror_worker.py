@@ -343,9 +343,7 @@ async def run_worker() -> None:
                 POLL_INTERVAL * (2 ** min(consecutive_errors, 8)),
                 MAX_BACKOFF_SECONDS,
             )
-            logger.exception(
-                "Ошибка в mirror_batch, продолжаем через %ss", sleep_for
-            )
+            logger.exception("Ошибка в mirror_batch, продолжаем через %ss", sleep_for)
 
         await asyncio.sleep(sleep_for)
 
