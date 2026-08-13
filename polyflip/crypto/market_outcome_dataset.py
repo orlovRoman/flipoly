@@ -151,6 +151,8 @@ async def build_market_outcome_dataset(
                 s.market_id,
                 s.mid_price AS pm_mid_price,
                 s.spread AS pm_spread,
+                s.best_bid AS pm_best_bid,
+                s.best_ask AS pm_best_ask,
                 s.volume_5min AS pm_volume_5m,
                 s.price_velocity AS pm_momentum_5m
             FROM market_snapshots s
@@ -164,7 +166,11 @@ async def build_market_outcome_dataset(
         if context_rows:
             context = pd.DataFrame(
                 context_rows,
-                columns=["market_id", "pm_mid_price", "pm_spread", "pm_volume_5m", "pm_momentum_5m"],
+                columns=[
+                    "market_id", "pm_mid_price", "pm_spread",
+                    "pm_best_bid", "pm_best_ask",
+                    "pm_volume_5m", "pm_momentum_5m",
+                ],
             )
     except Exception as exc:
         logger.warning("market_context_snapshot_join_failed", symbol=symbol, error=str(exc))
@@ -178,6 +184,8 @@ async def build_market_outcome_dataset(
         markets = markets.merge(context, on="market_id", how="left")
         markets["pm_mid_price"] = pd.to_numeric(markets["pm_mid_price"], errors="coerce")
         markets["pm_spread"] = pd.to_numeric(markets["pm_spread"], errors="coerce")
+        markets["pm_best_bid"] = pd.to_numeric(markets["pm_best_bid"], errors="coerce").fillna(0.0)
+        markets["pm_best_ask"] = pd.to_numeric(markets["pm_best_ask"], errors="coerce").fillna(0.0)
         markets["pm_volume_5m"] = pd.to_numeric(markets["pm_volume_5m"], errors="coerce").fillna(0.0)
         markets["pm_momentum_5m"] = pd.to_numeric(markets["pm_momentum_5m"], errors="coerce").fillna(0.0)
         markets["pm_spread_pct"] = (
