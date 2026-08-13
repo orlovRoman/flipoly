@@ -140,6 +140,9 @@ class ResultCreateRequest(BaseModel):
     train_window_end: datetime | None = None
     oot_window_start: datetime | None = None
     oot_window_end: datetime | None = None
+    summary: str | None = Field(default=None, max_length=4000)
+    error_code: str | None = Field(default=None, max_length=64)
+    error_message: str | None = Field(default=None, max_length=4000)
 
 
 class ShadowPromoteRequest(BaseModel):
@@ -443,6 +446,9 @@ async def record_ai_result(
             train_window_end=payload.train_window_end,
             oot_window_start=payload.oot_window_start,
             oot_window_end=payload.oot_window_end,
+            summary=payload.summary,
+            error_code=payload.error_code,
+            error_message=payload.error_message,
         )
         await db.commit()
         await db.refresh(result)
@@ -459,6 +465,8 @@ async def record_ai_result(
         "artifact_id": result.artifact_id,
         "evaluation_kind": result.evaluation_kind,
         "status": result.status,
+        "summary": payload.summary,
+        "error_code": payload.error_code,
     }
 
 
