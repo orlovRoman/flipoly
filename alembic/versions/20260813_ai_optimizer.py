@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column("created_by", sa.String(length=128), nullable=False, server_default="system"),
         sa.Column("summary", sa.Text(), nullable=True),
         sa.Column("error", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint(
@@ -69,7 +69,7 @@ def upgrade() -> None:
         sa.Column("error_code", sa.String(length=64), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("retry_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.UniqueConstraint("run_id", "step_index", name="uix_ai_run_step_index"),
@@ -105,7 +105,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("created_by", sa.String(length=128), nullable=False, server_default="system"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
     op.create_index(
         "idx_ai_experiment_configs_scope",
@@ -133,7 +133,7 @@ def upgrade() -> None:
         sa.Column("feature_pipeline_version", sa.String(length=64), nullable=False),
         sa.Column("metadata", sa.JSON(), nullable=False),
         sa.Column("loadability_status", sa.String(length=16), nullable=False, server_default="UNVERIFIED"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.CheckConstraint(
             "loadability_status IN ('UNVERIFIED', 'VALID', 'INVALID')",
             name="ck_ai_artifacts_loadability_status",
@@ -179,7 +179,7 @@ def upgrade() -> None:
         sa.Column("trade_count", sa.Integer(), nullable=True),
         sa.Column("net_pnl", sa.Float(), nullable=True),
         sa.Column("max_drawdown", sa.Float(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.CheckConstraint(
             "evaluation_kind IN ('TRAIN', 'OOT', 'POLYMARKET_OOT', 'SHADOW', 'LIVE')",
             name="ck_ai_results_evaluation_kind",
@@ -214,7 +214,7 @@ def upgrade() -> None:
         sa.Column("manifest_hash", sa.String(length=64), nullable=False, unique=True),
         sa.Column("status", sa.String(length=24), nullable=False, server_default="DRAFT"),
         sa.Column("created_by", sa.String(length=128), nullable=False, server_default="system"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("activated_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("rolled_back_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint(
@@ -243,7 +243,7 @@ def upgrade() -> None:
         sa.Column("payload", sa.JSON(), nullable=True),
         sa.Column("previous_hash", sa.String(length=64), nullable=True),
         sa.Column("event_hash", sa.String(length=64), nullable=False, unique=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.CheckConstraint(
             "event_type IN ('CREATED', 'SHADOW_ASSIGNED', 'APPROVED', 'ACTIVATED', 'REJECTED', 'ROLLED_BACK')",
             name="ck_deployment_events_type",
@@ -258,6 +258,12 @@ def upgrade() -> None:
     op.create_table(
         "ai_shadow_assignments",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column(
+            "run_id",
+            sa.Integer(),
+            sa.ForeignKey("ai_optimization_runs.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column(
             "candidate_artifact_id",
             sa.Integer(),
@@ -276,11 +282,16 @@ def upgrade() -> None:
         sa.Column("metrics", sa.JSON(), nullable=True),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("ended_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.CheckConstraint(
             "status IN ('PENDING', 'RUNNING', 'COMPLETED', 'STOPPED', 'FAILED')",
             name="ck_ai_shadow_status",
         ),
+    )
+    op.create_index(
+        "idx_ai_shadow_run_id",
+        "ai_shadow_assignments",
+        ["run_id"],
     )
     op.create_index(
         "idx_ai_shadow_scope_status",
@@ -291,14 +302,22 @@ def upgrade() -> None:
     op.create_table(
         "ai_permissions",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("profile_name", sa.String(length=64), nullable=False, unique=True),
+        sa.Column("profile_name", sa.String(length=64), nullable=False),
+        sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
+        sa.Column("is_current", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("allowed_actions", sa.JSON(), nullable=False),
         sa.Column("scope", sa.JSON(), nullable=False),
         sa.Column("limits", sa.JSON(), nullable=False),
         sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("updated_by", sa.String(length=128), nullable=False, server_default="system"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.UniqueConstraint("profile_name", "version", name="uix_ai_permissions_profile_version"),
+    )
+    op.create_index(
+        "idx_ai_permissions_current",
+        "ai_permissions",
+        ["profile_name", "is_current"],
     )
 
     op.create_table(
@@ -315,7 +334,7 @@ def upgrade() -> None:
         sa.Column("requested_action", sa.String(length=32), nullable=False),
         sa.Column("diff", sa.JSON(), nullable=False),
         sa.Column("status", sa.String(length=16), nullable=False, server_default="PENDING"),
-        sa.Column("requested_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("requested_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("decided_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("decided_by", sa.String(length=128), nullable=True),
         sa.Column("decision_reason", sa.Text(), nullable=True),
@@ -330,12 +349,30 @@ def upgrade() -> None:
         ["status", "requested_at"],
     )
 
+    # Link each optimizer run to the immutable permission profile version used.
+    op.add_column(
+        "ai_optimization_runs",
+        sa.Column("permission_id", sa.Integer(), nullable=True),
+    )
+    op.create_foreign_key(
+        "fk_ai_runs_permission",
+        "ai_optimization_runs",
+        "ai_permissions",
+        ["permission_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
+
 
 def downgrade() -> None:
     op.drop_index("idx_ai_approval_status_requested", table_name="ai_approval_requests")
     op.drop_table("ai_approval_requests")
+    op.drop_constraint("fk_ai_runs_permission", "ai_optimization_runs", type_="foreignkey")
+    op.drop_column("ai_optimization_runs", "permission_id")
+    op.drop_index("idx_ai_permissions_current", table_name="ai_permissions")
     op.drop_table("ai_permissions")
     op.drop_index("idx_ai_shadow_scope_status", table_name="ai_shadow_assignments")
+    op.drop_index("idx_ai_shadow_run_id", table_name="ai_shadow_assignments")
     op.drop_table("ai_shadow_assignments")
     op.drop_index("idx_deployment_events_revision_created", table_name="deployment_events")
     op.drop_table("deployment_events")
