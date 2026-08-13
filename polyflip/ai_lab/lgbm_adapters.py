@@ -295,10 +295,13 @@ async def train_lgbm(context: StepContext, session: AsyncSession) -> AdapterResu
             error_code="TRAINING_NO_CANDIDATE",
         )
 
+    # CryptoModelTrainer currently produces all three volatility regimes in
+    # one call. Bundle every newly created row so a regime-scoped config does
+    # not leave two freshly trained inactive rows orphaned in ModelRegistry.
     rows_stmt = select(ModelRegistry).where(
         ModelRegistry.model_type == "lgbm",
         ModelRegistry.asset.in_(
-            [f"{symbol}_{regime}" for regime in _selected_regimes(context)]
+            [f"{symbol}_{regime}" for regime in REGIMES]
         ),
     )
     if before_ids:
