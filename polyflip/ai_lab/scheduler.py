@@ -22,7 +22,7 @@ from polyflip.ai_lab.lgbm_worker import (
     MAX_LGBM_WORKER_STEPS,
     execute_lgbm_steps,
 )
-from polyflip.ai_lab.executor import ExecutionOutcome
+from polyflip.ai_lab.executor import ExecutionBatchError, ExecutionOutcome
 from polyflip.ai_lab.service import utc_now
 from polyflip.db.models import AIOptimizationRun, AIWorkerLease
 
@@ -223,6 +223,10 @@ async def run_lgbm_scheduler(
                 break
             if interval_seconds and iteration + 1 < max_iterations:
                 await asyncio.sleep(interval_seconds)
+    except ExecutionBatchError as exc:
+        outcomes.extend(exc.completed)
+        status = "PARTIAL_FAILURE"
+        stop_reason = "batch_failure"
     except Exception:
         status = "FAILED"
         stop_reason = "scheduler_exception"
