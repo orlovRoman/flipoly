@@ -8,7 +8,9 @@ from polyflip.ai_lab.service import (
     AIPermissionError,
     AIRunTransitionError,
     LAB_ACTIONS,
+    authorize_run_action,
     create_run,
+    request_approval,
     transition_action_for_target,
     transition_run,
     validate_permission,
@@ -72,13 +74,17 @@ def test_public_transition_actions_are_allow_listed():
     assert transition_action_for_target("PLANNING") == "CREATE_EXPERIMENT"
     assert transition_action_for_target("SHADOW") == "PROMOTE_TO_SHADOW"
     assert transition_action_for_target("ACTIVE") is None
+    assert transition_action_for_target("FAILED") is None
+    assert transition_action_for_target("CANCELLED") is None
+    assert transition_action_for_target("REJECTED") is None
+    assert transition_action_for_target("ROLLED_BACK") is None
 
 
 @pytest.mark.asyncio
 async def test_active_transition_is_blocked_without_human_approval():
     run = SimpleNamespace(status="PENDING_APPROVAL")
     session = SimpleNamespace(flush=AsyncMock())
-    with pytest.raises(AIRunTransitionError, match="human approval"):
+    with pytest.raises(AIRunTransitionError, match="invalid AI Lab run transition"):
         await transition_run(session, run, "ACTIVE")
     session.flush.assert_not_awaited()
 
@@ -88,8 +94,6 @@ async def test_activation_approval_requires_shadow_or_pending_state():
     session = SimpleNamespace(
         get=AsyncMock(return_value=SimpleNamespace(status="RUNNING"))
     )
-    from polyflip.ai_lab.service import request_approval
-
     with pytest.raises(AILabError, match="activation approval"):
         await request_approval(
             session,
@@ -99,3 +103,19 @@ async def test_activation_approval_requires_shadow_or_pending_state():
             requested_action="ACTIVATE",
             diff={},
         )
+
+
+@pytest.mark.asyncio
+async def test_permission_snapshot_is_valid_after_profile_rotation():
+    run = SimpleNamespace(permission_id=7)
+    permission = SimpleNamespace(
+        profile_name="experiment-only",
+        version=1,
+        enabled=True,
+        is_current=False,
+        allowed_actions=["RUN_OOT_BACKTEST"],
+    )
+    session = SimpleNamespace(
+        get=AsyncMock(side_effect=[run, permission])
+    )
+    assert await authorize_run_action(session, 5, "RUN_OOT_BACKTEST") is run
