@@ -493,6 +493,7 @@ async def promote_to_shadow(
                 == (regime.strip().lower() if regime else None),
                 AIShadowAssignment.status.in_({"PENDING", "RUNNING"}),
             )
+            .limit(1)
         )
     ).scalar_one_or_none()
     if existing is not None:
