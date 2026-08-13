@@ -58,6 +58,8 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     "pm_volume_5m",
     "pm_spread_pct",
     "pm_quote_pressure",
+    "pm_best_bid",
+    "pm_best_ask",
 ]
 
 
@@ -223,6 +225,10 @@ def build_crypto_features(
     pm_spread = max(0.0, _context_float("spread", "current_spread"))
     pm_spread_pct = pm_spread / max(abs(pm_mid), 1e-9) if pm_mid else 0.0
     pm_quote_pressure = pm_mid - 0.5 if pm_mid else 0.0
+    # Best bid/ask are persisted with the snapshot. Do not infer depth
+    # imbalance when the collector did not persist bid/ask sizes.
+    pm_best_bid = max(0.0, _context_float("best_bid", "pm_best_bid"))
+    pm_best_ask = max(0.0, _context_float("best_ask", "pm_best_ask"))
 
     # ── 11. Сборка ───────────────────────────────────────────────
     vec = np.array([[
@@ -236,6 +242,7 @@ def build_crypto_features(
         hour_sin, hour_cos, dow_sin, dow_cos,
         strike_gap_pct, log_moneyness,
         pm_momentum_5m, pm_volume_5m, pm_spread_pct, pm_quote_pressure,
+        pm_best_bid, pm_best_ask,
     ]], dtype=np.float64)
 
     vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
@@ -365,6 +372,8 @@ def build_features(
     out["pm_volume_5m"] = 0.0
     out["pm_spread_pct"] = 0.0
     out["pm_quote_pressure"] = 0.0
+    out["pm_best_bid"] = 0.0
+    out["pm_best_ask"] = 0.0
     # ── NaN → 0 (safety net) ────────────────────────────────────
     out = out.fillna(0.0)
     out = out.replace([np.inf, -np.inf], 0.0)
