@@ -134,3 +134,33 @@ def test_adapter_runs_after_claim_commit_and_persists_result(monkeypatch):
     assert recorded["net_pnl"] == 2.5
     assert recorded["summary"] == "real-price OOT completed"
     assert session.commits == 2
+
+
+def test_unknown_claimed_action_is_closed_without_key_error(monkeypatch):
+    step = SimpleNamespace(
+        id=43,
+        action="PLACE_ORDER",
+        input_payload={"config_id": 9},
+        status="RUNNING",
+        finished_at=None,
+        summary=None,
+        error_code=None,
+        error_message=None,
+    )
+    run = SimpleNamespace(objective="offline only", scope={})
+    config = SimpleNamespace(config_hash="hash-9")
+    session = _FakeSession(run, config)
+
+    async def claim(_session, _run_id):
+        return step
+
+    monkeypatch.setattr(executor, "claim_next_step", claim)
+
+    outcome = asyncio.run(
+        executor.execute_next_step(session, 5, executor.AdapterRegistry())
+    )
+
+    assert outcome is not None
+    assert outcome.status == "FAILED"
+    assert outcome.error_code == "INVALID_STEP_INPUT"
+    assert step.error_code == "INVALID_STEP_INPUT"
