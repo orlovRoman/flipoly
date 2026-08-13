@@ -111,7 +111,7 @@ def build_experiment_report(
     )
     for result in results:
         kind = str(_value(result, "evaluation_kind", "")).upper()
-        if kind in grouped[0]:
+        if kind in {"OOT", "POLYMARKET_OOT"}:
             config_id = _value(result, "config_id")
             if config_id is not None:
                 grouped[int(config_id)][kind].append(result)
