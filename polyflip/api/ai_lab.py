@@ -19,7 +19,9 @@ from polyflip.ai_lab.service import (
     AIRunTransitionError,
     append_step,
     create_experiment_config,
+    create_permission,
     create_run,
+    authorize_run_action,
     get_run_detail,
     request_approval,
     transition_run,
@@ -83,6 +85,21 @@ class ConfigCreateRequest(BaseModel):
     parent_id: int | None = None
 
 
+
+
+class PermissionCreateRequest(BaseModel):
+    profile_name: str = Field(min_length=1, max_length=64)
+    allowed_actions: list[str] = Field(default_factory=list)
+    scope: dict[str, Any] = Field(default_factory=dict)
+    limits: dict[str, Any] = Field(default_factory=dict)
+    updated_by: str = Field(default="api", max_length=128)
+    enabled: bool = True
+
+
+class ActionCheckRequest(BaseModel):
+    action: str = Field(min_length=1, max_length=64)
+
+
 class ApprovalRequest(BaseModel):
     target_type: str = Field(min_length=1, max_length=32)
     target_id: str = Field(min_length=1, max_length=64)
@@ -128,6 +145,78 @@ def _step_payload(step: AIRunStep) -> dict[str, Any]:
         "started_at": step.started_at,
         "finished_at": step.finished_at,
     }
+
+
+
+
+@router.post("/permissions", status_code=201)
+async def create_ai_permission(
+    payload: PermissionCreateRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        row = await create_permission(
+            db,
+            profile_name=payload.profile_name,
+            allowed_actions=payload.allowed_actions,
+            scope=payload.scope,
+            limits=payload.limits,
+            updated_by=payload.updated_by,
+            enabled=payload.enabled,
+        )
+        await db.commit()
+        await db.refresh(row)
+    except (AILabError, AIPermissionError) as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "id": row.id,
+        "profile_name": row.profile_name,
+        "version": row.version,
+        "is_current": row.is_current,
+        "allowed_actions": row.allowed_actions,
+        "scope": row.scope,
+        "limits": row.limits,
+        "enabled": row.enabled,
+    }
+
+
+@router.get("/permissions")
+async def list_ai_permissions(db: AsyncSession = Depends(get_db_session)):
+    rows = (
+        await db.execute(
+            select(AIPermission)
+            .order_by(AIPermission.profile_name, AIPermission.version.desc())
+        )
+    ).scalars().all()
+    return {
+        "permissions": [
+            {
+                "id": row.id,
+                "profile_name": row.profile_name,
+                "version": row.version,
+                "is_current": row.is_current,
+                "allowed_actions": row.allowed_actions,
+                "scope": row.scope,
+                "limits": row.limits,
+                "enabled": row.enabled,
+            }
+            for row in rows
+        ]
+    }
+
+
+@router.post("/runs/{run_id}/actions/check")
+async def check_ai_action(
+    run_id: int,
+    payload: ActionCheckRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        run = await authorize_run_action(db, run_id, payload.action)
+    except AILabError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return {"run_id": run.id, "action": payload.action.upper(), "allowed": True}
 
 
 @router.post("/runs", status_code=201)
