@@ -26,7 +26,7 @@ _DATASET_CACHE: OrderedDict[str, pd.DataFrame] = OrderedDict()
 # Strike features depend on the market row, so they are materialized after the as-of join.
 DATASET_FEATURE_COLUMNS = tuple(
     column for column in CRYPTO_FEATURE_COLUMNS
-    if column not in {"strike_gap_pct", "log_moneyness"}
+    if column not in {"strike_gap_pct", "log_moneyness", *MARKET_CONTEXT_FEATURES}
 )
 
 
@@ -212,7 +212,15 @@ async def build_market_outcome_dataset(
     df_candles["open_time"] = pd.to_datetime(df_candles["open_time"], utc=True)
     df_candles["close_time"] = pd.to_datetime(df_candles["close_time"], utc=True)
     dataset_fingerprint = _frame_fingerprint(
-        markets[["market_id", "end_time_est", "underlying_price", "final_outcome"]],
+        markets[
+            [
+                "market_id",
+                "end_time_est",
+                "underlying_price",
+                "final_outcome",
+                *MARKET_CONTEXT_FEATURES,
+            ]
+        ],
         df_candles,
     )
     cache_key = f"{symbol}|{interval}|{dataset_fingerprint}|{feature_spec.key}"
