@@ -324,6 +324,12 @@ async def record_result(
     max_drawdown: float | None = None,
     artifact_id: int | None = None,
     step_id: int | None = None,
+    code_sha: str | None = None,
+    dataset_fingerprint: str | None = None,
+    train_window_start: Any | None = None,
+    train_window_end: Any | None = None,
+    oot_window_start: Any | None = None,
+    oot_window_end: Any | None = None,
 ) -> ExperimentResult:
     kind = evaluation_kind.strip().upper()
     if kind not in RESULT_ACTIONS:
@@ -372,6 +378,12 @@ async def record_result(
         trade_count=trade_count,
         net_pnl=net_pnl,
         max_drawdown=max_drawdown,
+        code_sha=code_sha,
+        dataset_fingerprint=dataset_fingerprint,
+        train_window_start=train_window_start,
+        train_window_end=train_window_end,
+        oot_window_start=oot_window_start,
+        oot_window_end=oot_window_end,
         created_at=utc_now(),
     )
     session.add(result)
