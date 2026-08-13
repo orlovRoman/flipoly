@@ -302,7 +302,7 @@ async def execute_next_step(
         run_id=run_id,
         step_id=step.id,
         action=action,
-        evaluation_kind=result.evaluation_kind,
+        evaluation_kind=result.evaluation_kind.strip().upper(),
         status=result.status.strip().upper(),
         result_id=persisted.id,
         error_code=result.error_code,
