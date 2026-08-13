@@ -141,7 +141,11 @@ def _pnl_for_trade(
     # Polymarket's fee is charged on the winning profit, not on the stake.
     return gross_profit - max(gross_profit, 0.0) * fee_rate
 def _oot_window_summaries(trades: list[dict[str, Any]], stake_usdc: float) -> list[dict[str, Any]]:
-    """Summarize chronological OOT windows for robust experiment ranking."""
+    """Summarize chronological OOT windows for robust experiment ranking.
+
+    Drawdown percentages are normalized by capital deployed in the window,
+    not by a single trade stake.
+    """
     if not trades:
         return []
     window_count = min(3, len(trades))
@@ -153,11 +157,13 @@ def _oot_window_summaries(trades: list[dict[str, Any]], stake_usdc: float) -> li
         cumulative = np.cumsum(pnl)
         peak = np.maximum.accumulate(np.maximum(cumulative, 0.0))
         drawdown = float(np.max(np.maximum(0.0, peak - cumulative)))
+        window_invested = stake_usdc * len(indices)
         summaries.append({
             "window": index,
             "n_trades": int(len(indices)),
             "net_profit": float(pnl.sum()),
-            "max_drawdown_pct": drawdown / max(stake_usdc, 1e-9) * 100.0,
+            "max_drawdown_usdc": drawdown,
+            "max_drawdown_pct": drawdown / max(window_invested, 1e-9) * 100.0,
         })
     return summaries
 
@@ -292,6 +298,7 @@ def compute_oof_polymarket_backtest(
             "avg_edge": 0.0,
             "avg_net_edge": 0.0,
             "avg_entry_price": None,
+            "max_drawdown_usdc": 0.0,
             "max_drawdown_pct": 0.0,
             "sharpe_ratio": None,
             "profit_factor": 0.0,
@@ -308,7 +315,10 @@ def compute_oof_polymarket_backtest(
     cumulative = np.cumsum(pnl)
     running_peak = np.maximum.accumulate(np.maximum(cumulative, 0.0))
     drawdowns = np.maximum(0.0, running_peak - cumulative)
-    max_dd_pct = float(drawdowns.max() / max(stake_usdc, 1e-9) * 100.0)
+    max_dd_usdc = float(drawdowns.max())
+    # A drawdown percentage is relative to capital deployed by this backtest,
+    # not to the stake of a single trade.
+    max_dd_pct = float(max_dd_usdc / max(invested, 1e-9) * 100.0)
     std = float(np.std(pnl, ddof=1)) if len(pnl) > 1 else 0.0
     sharpe = float(np.mean(pnl) / std * np.sqrt(len(pnl))) if std > 0 else None
     gross_profit = float(pnl[pnl > 0].sum())
@@ -366,6 +376,7 @@ def compute_oof_polymarket_backtest(
         "avg_edge": float(np.mean([item["gross_edge"] for item in trades])),
         "avg_net_edge": float(np.mean([item["net_edge"] for item in trades])),
         "avg_entry_price": float(np.mean([item["price"] for item in trades])),
+        "max_drawdown_usdc": max_dd_usdc,
         "max_drawdown_pct": max_dd_pct,
         "sharpe_ratio": sharpe,
         "profit_factor": gross_profit / gross_loss if gross_loss > 0 else None,
@@ -467,7 +478,10 @@ def aggregate_stored_polymarket_backtests(
         "avg_edge": edge_sum / n_trades if n_trades else 0.0,
         "avg_net_edge": net_edge_sum / n_trades if n_trades else 0.0,
         "avg_entry_price": price_sum / n_trades if n_trades else None,
-        "max_drawdown_pct": max_dd / max(stake_per_trade, 1e-9) * 100.0 if n_trades else 0.0,
+        "max_drawdown_usdc": max_dd,
+        # Normalize by the total capital deployed across all persisted trades,
+        # not by one representative trade stake.
+        "max_drawdown_pct": max_dd / max(total_invested, 1e-9) * 100.0 if n_trades else 0.0,
         "sharpe_ratio": sharpe,
         "profit_factor": gross_profit / gross_loss if gross_loss else None,
         "coverage_pct": coverage,
