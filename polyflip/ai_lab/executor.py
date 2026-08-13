@@ -23,7 +23,12 @@ from polyflip.ai_lab.orchestrator import (
     record_result,
 )
 from polyflip.ai_lab.service import AILabError, utc_now
-from polyflip.db.models import AIExperimentConfig, AIOptimizationRun, AIRunStep
+from polyflip.db.models import (
+    AIExperimentConfig,
+    AIOptimizationRun,
+    AIRunStep,
+    AIStepAuditLog,
+)
 
 ACTION_TO_EVALUATION_KIND: dict[str, str] = {
     "TRAIN_MODEL": "TRAIN",
@@ -116,6 +121,7 @@ class ExecutionOutcome:
     status: str
     result_id: int | None
     error_code: str | None = None
+    config_id: int | None = None
 
 
 class AdapterRegistry:
@@ -200,12 +206,18 @@ async def execute_next_step(
     payload = step.input_payload if isinstance(step.input_payload, Mapping) else {}
     raw_config_id = payload.get("config_id")
     try:
-        config_id = int(raw_config_id)
+        config_id = int(raw_config_id) if raw_config_id is not None else None
     except (TypeError, ValueError):
-        config_id = 0
+        config_id = None
+    if config_id is not None and config_id <= 0:
+        config_id = None
 
     run = await session.get(AIOptimizationRun, run_id)
-    config = await session.get(AIExperimentConfig, config_id) if config_id else None
+    config = (
+        await session.get(AIExperimentConfig, config_id)
+        if config_id is not None
+        else None
+    )
     if (
         run is None
         or config is None
@@ -220,6 +232,18 @@ async def execute_next_step(
             error_code=error_code,
             error_message=message,
         )
+        session.add(
+            AIStepAuditLog(
+                run_id=run_id,
+                step_id=step.id,
+                config_id=config_id,
+                action=action or None,
+                error_code=error_code,
+                error_message=message,
+                payload={"raw_config_id": str(raw_config_id)},
+                created_at=utc_now(),
+            )
+        )
         await session.commit()
         return ExecutionOutcome(
             run_id=run_id,
@@ -229,6 +253,7 @@ async def execute_next_step(
             status="FAILED",
             result_id=None,
             error_code=error_code,
+            config_id=config_id,
         )
 
     context = StepContext(
@@ -306,6 +331,7 @@ async def execute_next_step(
         status=result.status.strip().upper(),
         result_id=persisted.id,
         error_code=result.error_code,
+        config_id=config_id,
     )
 
 
