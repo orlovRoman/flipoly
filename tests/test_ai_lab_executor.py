@@ -1,5 +1,6 @@
 import asyncio
 from types import SimpleNamespace
+
 import pytest
 
 from polyflip.ai_lab import executor
