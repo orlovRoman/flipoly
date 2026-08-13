@@ -227,6 +227,13 @@ async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(ge
         if payload.permission_id is not None
         else None
     )
+    if payload.permission_id is not None and permission is None:
+        raise HTTPException(status_code=404, detail="permission profile not found")
+    if payload.permission_id is None and payload.autonomy_level.upper() != "OBSERVE":
+        raise HTTPException(
+            status_code=422,
+            detail="permission_id is required for non-OBSERVE AI Lab runs",
+        )
     try:
         run = await create_run(
             db,
@@ -298,7 +305,7 @@ async def transition_ai_run(
     run = await db.get(AIOptimizationRun, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
-    target = payload.target.upper()
+    target = payload.target.strip().upper()
     if target == "ACTIVE":
         raise HTTPException(
             status_code=403,
