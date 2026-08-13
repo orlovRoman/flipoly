@@ -20,6 +20,7 @@ from polyflip.db.models import (
     AIOptimizationRun,
     AIPermission,
     AIRunStep,
+    AIStepAuditLog,
     ExperimentResult,
 )
 
@@ -318,10 +319,18 @@ async def get_run_detail(session: AsyncSession, run_id: int) -> dict[str, Any] |
             .order_by(ExperimentResult.created_at, ExperimentResult.id)
         )
     ).scalars().all()
+    audits = (
+        await session.execute(
+            select(AIStepAuditLog)
+            .where(AIStepAuditLog.run_id == run_id)
+            .order_by(AIStepAuditLog.created_at, AIStepAuditLog.id)
+        )
+    ).scalars().all()
     return {
         "run": run,
         "steps": list(steps),
         "results": list(results),
+        "audits": list(audits),
     }
 
 
