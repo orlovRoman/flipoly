@@ -58,6 +58,10 @@ MARKET_CONTEXT_FEATURES: tuple[str, ...] = (
     "pm_volume_5m",
     "pm_spread_pct",
     "pm_quote_pressure",
+    # Top-of-book prices persisted by MarketSnapshot. These are execution
+    # context features, not fabricated depth imbalance.
+    "pm_best_bid",
+    "pm_best_ask",
 )
 
 FEATURE_SETS: dict[str, CryptoFeatureSet] = {
