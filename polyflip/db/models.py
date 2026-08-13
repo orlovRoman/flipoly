@@ -14,6 +14,7 @@ from sqlalchemy import (
     Numeric,
     SmallInteger,
     ForeignKey,
+    func,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, validates
@@ -631,9 +632,14 @@ class AIOptimizationRun(Base):
     budget_experiments = Column(Integer, nullable=False, server_default="0")
     budget_seconds = Column(Integer, nullable=False, server_default="0")
     created_by = Column(String(128), nullable=False, server_default="system")
+    permission_id = Column(
+        Integer,
+        ForeignKey("ai_permissions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     summary = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -674,7 +680,7 @@ class AIRunStep(Base):
     error_code = Column(String(64), nullable=True)
     error_message = Column(Text, nullable=True)
     retry_count = Column(Integer, nullable=False, server_default="0")
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -707,7 +713,7 @@ class AIExperimentConfig(Base):
     config_hash = Column(String(64), nullable=False, unique=True)
     parent_id = Column(Integer, ForeignKey("experiment_configs.id"), nullable=True)
     created_by = Column(String(128), nullable=False, server_default="system")
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
         Index("idx_ai_experiment_configs_scope", "asset", "regime", "model_family"),
@@ -732,7 +738,7 @@ class AIModelArtifact(Base):
     feature_pipeline_version = Column(String(64), nullable=False)
     artifact_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=False)
     loadability_status = Column(String(16), nullable=False, server_default="UNVERIFIED")
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
         Index("idx_ai_artifacts_registry", "model_registry_id"),
@@ -777,7 +783,7 @@ class ExperimentResult(Base):
     trade_count = Column(Integer, nullable=True)
     net_pnl = Column(Float, nullable=True)
     max_drawdown = Column(Float, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
         Index("idx_ai_results_run_status", "run_id", "status"),
@@ -805,7 +811,7 @@ class DeploymentRevision(Base):
     manifest_hash = Column(String(64), nullable=False, unique=True)
     status = Column(String(24), nullable=False, server_default="DRAFT")
     created_by = Column(String(128), nullable=False, server_default="system")
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     activated_at = Column(DateTime(timezone=True), nullable=True)
     rolled_back_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -835,7 +841,7 @@ class DeploymentEvent(Base):
     payload = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     previous_hash = Column(String(64), nullable=True)
     event_hash = Column(String(64), nullable=False, unique=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
         Index("idx_deployment_events_revision_created", "revision_id", "created_at"),
@@ -853,6 +859,11 @@ class AIShadowAssignment(Base):
     __tablename__ = "ai_shadow_assignments"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("ai_optimization_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     candidate_artifact_id = Column(
         Integer,
         ForeignKey("ai_model_artifacts.id", ondelete="RESTRICT"),
@@ -869,9 +880,10 @@ class AIShadowAssignment(Base):
     metrics = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=True)
     ended_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
+        Index("idx_ai_shadow_run_id", "run_id"),
         Index("idx_ai_shadow_scope_status", "asset", "regime", "status"),
         CheckConstraint(
             "status IN ('PENDING', 'RUNNING', 'COMPLETED', 'STOPPED', 'FAILED')",
@@ -886,14 +898,21 @@ class AIPermission(Base):
     __tablename__ = "ai_permissions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    profile_name = Column(String(64), nullable=False, unique=True)
+    profile_name = Column(String(64), nullable=False)
+    version = Column(Integer, nullable=False, server_default="1")
+    is_current = Column(Boolean, nullable=False, server_default="true")
     allowed_actions = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     scope = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     limits = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     enabled = Column(Boolean, nullable=False, server_default="true")
     updated_by = Column(String(128), nullable=False, server_default="system")
-    created_at = Column(DateTime(timezone=True), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("profile_name", "version", name="uix_ai_permissions_profile_version"),
+        Index("idx_ai_permissions_current", "profile_name", "is_current"),
+    )
 
 
 class AIApprovalRequest(Base):
@@ -912,7 +931,7 @@ class AIApprovalRequest(Base):
     requested_action = Column(String(32), nullable=False)
     diff = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     status = Column(String(16), nullable=False, server_default="PENDING")
-    requested_at = Column(DateTime(timezone=True), nullable=False)
+    requested_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     decided_at = Column(DateTime(timezone=True), nullable=True)
     decided_by = Column(String(128), nullable=True)
     decision_reason = Column(Text, nullable=True)
