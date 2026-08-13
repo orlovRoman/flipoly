@@ -168,6 +168,7 @@ class _TrainingSession:
     def __init__(self, rows):
         self.rows = rows
         self.calls = 0
+        self.rollback_count = 0
 
     async def execute(self, _statement):
         self.calls += 1
@@ -178,6 +179,9 @@ class _TrainingSession:
 
     async def flush(self):
         return None
+
+    async def rollback(self):
+        self.rollback_count += 1
 
 
 def test_training_adapter_disables_activation_and_runtime_writes(monkeypatch):
@@ -226,3 +230,42 @@ def test_training_adapter_disables_activation_and_runtime_writes(monkeypatch):
     assert calls["kwargs"]["save_settings"] is False
     assert calls["kwargs"]["activate_after_train"] is False
     assert calls["kwargs"]["experiment_config_id"] is None
+
+
+def test_training_adapter_rolls_back_active_candidate_safety_violation(monkeypatch):
+    row = SimpleNamespace(
+        id=56,
+        asset="BTCUSDT_low_vol",
+        version=1,
+        model_blob=b"active-model",
+        is_active=True,
+        dataset_fingerprint="fp-active",
+        training_window_start=None,
+        training_window_end=None,
+        accuracy=0.71,
+        ece=0.03,
+        brier_score=0.24,
+        train_samples=80,
+        validation_samples=20,
+        training_params={"feature_set": "B"},
+    )
+    session = _TrainingSession([row])
+
+    class FakeTrainer:
+        def __init__(self, _db):
+            pass
+
+        async def train(self, *_args, **_kwargs):
+            return True
+
+    monkeypatch.setattr(lgbm_adapters, "CryptoModelTrainer", FakeTrainer)
+
+    with pytest.raises(RuntimeError, match="active LightGBM"):
+        asyncio.run(
+            lgbm_adapters.train_lgbm(
+                _context(action="TRAIN_MODEL", regime="low_vol"),
+                session,
+            )
+        )
+
+    assert session.rollback_count == 1
