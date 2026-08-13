@@ -152,6 +152,8 @@ def test_aggregate_replays_trade_pnl_in_time_order():
 
 def test_aggregate_drawdown_uses_persisted_stake():
     frame, quotes = _fixtures()
+    frame.loc[0, "final_outcome"] = "YES"
+    quotes.loc[0, "best_ask"] = 0.50
     frame.loc[1, "final_outcome"] = "NO"
     quotes.loc[1, "best_ask"] = 0.85
     quotes.loc[1, "best_bid"] = 0.81

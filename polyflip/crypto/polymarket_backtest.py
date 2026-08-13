@@ -418,11 +418,14 @@ def aggregate_stored_polymarket_backtests(
         count = int(result.get("n_trades") or 0)
         n_trades += count
         net_profit += float(result.get("net_profit") or 0.0)
-        total_invested += float(result.get("total_invested") or 0.0)
+        invested_val = float(result.get("total_invested") or 0.0)
         persisted_stake = result.get("stake_usdc")
         if persisted_stake is not None and count > 0:
             weighted_stake += float(persisted_stake) * count
             weighted_stake_count += count
+            if invested_val <= 0.0:
+                invested_val = float(persisted_stake) * count
+        total_invested += invested_val
         edge_sum += float(result.get("avg_edge") or 0.0) * count
         net_edge_sum += float(result.get("avg_net_edge") or 0.0) * count
         price_sum += float(result.get("avg_entry_price") or 0.0) * count

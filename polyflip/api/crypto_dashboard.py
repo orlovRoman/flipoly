@@ -1154,6 +1154,7 @@ async def crypto_backtest(
 
 @router.post("/api/train", dependencies=[Depends(verify_api_key)])
 async def crypto_train(
+    background_tasks: Any = None,
     symbol: str = "BTCUSDT",
     interval: str = "15m",
     feature_set: str = "A",
@@ -1173,6 +1174,13 @@ async def crypto_train(
         normalized_feature_set = normalize_feature_set(feature_set)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if _active_trainings.get(symbol, {}).get("status") == "training":
+        return {
+            "status": "already_running",
+            "symbol": symbol,
+            "message": f"Training for {symbol} is already running.",
+        }
 
     if db is None:
         _active_trainings[symbol] = {
