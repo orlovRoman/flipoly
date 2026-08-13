@@ -14,7 +14,10 @@ def test_lgbm_def_feature_sets_have_expected_contracts():
     assert stable.features
     assert "strike_gap_pct" not in stable.features
     assert {"strike_gap_pct", "log_moneyness"} <= set(strike.features)
-    assert {"pm_momentum_5m", "pm_volume_5m", "pm_spread_pct", "pm_quote_pressure"} <= set(context.features)
+    assert {
+        "pm_momentum_5m", "pm_volume_5m", "pm_spread_pct",
+        "pm_quote_pressure", "pm_best_bid", "pm_best_ask",
+    } <= set(context.features)
     assert validate_feature_schema(context.features) == context.features
 
 
