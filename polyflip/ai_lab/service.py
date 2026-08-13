@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.manifests import compute_manifest_hash
@@ -43,7 +44,9 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
         {"SHADOW", "PENDING_APPROVAL", "INSUFFICIENT_DATA", "FAILED"}
     ),
     "SHADOW": frozenset({"PENDING_APPROVAL", "REJECTED", "ROLLED_BACK"}),
-    "PENDING_APPROVAL": frozenset({"ACTIVE", "REJECTED"}),
+    # ACTIVE is intentionally absent: activation requires a future
+    # explicit human approval handler, never an autonomous transition.
+    "PENDING_APPROVAL": frozenset({"REJECTED"}),
     "ACTIVE": frozenset({"ROLLED_BACK"}),
     "INSUFFICIENT_DATA": frozenset(),
     "FAILED": frozenset(),
@@ -74,10 +77,8 @@ TRANSITION_ACTIONS: dict[str, str] = {
     "SHADOW": "PROMOTE_TO_SHADOW",
     "PENDING_APPROVAL": "REQUEST_ACTIVATION",
     "INSUFFICIENT_DATA": "RUN_OOT_BACKTEST",
-    "FAILED": "STOP_EXPERIMENT",
-    "CANCELLED": "STOP_EXPERIMENT",
-    "REJECTED": "STOP_EXPERIMENT",
-    "ROLLED_BACK": "REQUEST_ROLLBACK",
+    # Terminal states are system outcomes, not agent actions.
+    # FAILED, CANCELLED, REJECTED and ROLLED_BACK intentionally have no mapping.
 }
 
 
@@ -156,12 +157,9 @@ async def transition_run(
     reason: str | None = None,
 ) -> AIOptimizationRun:
     target = str(target).upper()
+    # validate_run_transition is the single source of truth. ACTIVE is not
+    # in RUN_TRANSITIONS and therefore cannot be reached autonomously.
     validate_run_transition(run.status, target)
-    if target == "ACTIVE":
-        raise AIRunTransitionError(
-            "ACTIVE transition requires explicit human approval and is unavailable "
-            "in the autonomous AI Lab API"
-        )
     now = utc_now()
     if target == "RUNNING":
         run.started_at = now
@@ -346,34 +344,46 @@ async def create_permission(
         raise AIPermissionError(f"unknown permission actions: {sorted(unknown)}")
     if any(action in {"ACTIVATE_LIVE", "CHANGE_LIVE_POLICY"} for action in actions):
         raise AIPermissionError("live activation and live policy changes are not autonomous actions")
-    current_rows = (
-        await session.execute(
-            select(AIPermission)
-            .where(
-                AIPermission.profile_name == profile_name.strip(),
-                AIPermission.is_current.is_(True),
+    # Existing current rows are locked. The retry handles the first-version
+    # race where two transactions both observe an empty profile.
+    for attempt in range(2):
+        current_rows = (
+            await session.execute(
+                select(AIPermission)
+                .where(
+                    AIPermission.profile_name == profile_name.strip(),
+                    AIPermission.is_current.is_(True),
+                )
+                .with_for_update()
             )
-            .with_for_update()
+        ).scalars().all()
+        next_version = max((row.version for row in current_rows), default=0) + 1
+        for current in current_rows:
+            current.is_current = False
+        row = AIPermission(
+            profile_name=profile_name.strip(),
+            version=next_version,
+            is_current=True,
+            allowed_actions=sorted(actions),
+            scope=dict(scope),
+            limits=dict(limits),
+            enabled=enabled,
+            updated_by=updated_by,
+            created_at=utc_now(),
+            updated_at=utc_now(),
         )
-    ).scalars().all()
-    next_version = max((row.version for row in current_rows), default=0) + 1
-    for row in current_rows:
-        row.is_current = False
-    row = AIPermission(
-        profile_name=profile_name.strip(),
-        version=next_version,
-        is_current=True,
-        allowed_actions=sorted(actions),
-        scope=dict(scope),
-        limits=dict(limits),
-        enabled=enabled,
-        updated_by=updated_by,
-        created_at=utc_now(),
-        updated_at=utc_now(),
-    )
-    session.add(row)
-    await session.flush()
-    return row
+        session.add(row)
+        try:
+            await session.flush()
+            return row
+        except IntegrityError as exc:
+            await session.rollback()
+            if attempt:
+                raise AILabError(
+                    f"concurrent permission creation for profile "
+                    f"{profile_name!r}; retry the request"
+                ) from exc
+    raise AILabError(f"permission creation failed for profile {profile_name!r}")
 
 
 async def authorize_run_action(
@@ -386,6 +396,9 @@ async def authorize_run_action(
         raise AILabError(f"AI Lab run {run_id} not found")
     if run.permission_id is None:
         raise AIPermissionError("run has no permission snapshot")
+    # permission_id is an immutable snapshot reference to a concrete version.
+    # is_current may be false after a profile update by design; disabling the
+    # snapshot (enabled=False) is the explicit emergency revoke mechanism.
     permission = await session.get(AIPermission, run.permission_id)
     validate_permission(permission, action)
     return run
