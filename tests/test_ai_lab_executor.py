@@ -19,6 +19,11 @@ def test_registry_accepts_only_offline_actions():
         registry.register("ACTIVATE_MODEL", adapter)
     with pytest.raises(AILabError):
         registry.register("UNKNOWN_ACTION", adapter)
+    with pytest.raises(AILabError):
+        registry.register("TRAIN_MODEL", adapter)
+    assert registry.unregister("TRAIN_MODEL") is adapter
+    with pytest.raises(AILabError):
+        registry.unregister("TRAIN_MODEL")
 
 
 def test_adapter_result_rejects_wrong_evaluation_kind():
@@ -199,3 +204,30 @@ def test_malformed_config_id_is_audited_without_zero_sentinel(monkeypatch):
     assert outcome.status == "FAILED"
     assert outcome.config_id is None
     assert session.added[0].config_id is None
+
+
+def test_execute_steps_preserves_completed_outcomes_on_error(monkeypatch):
+    completed = SimpleNamespace(status="SUCCEEDED")
+    calls = 0
+
+    async def run_one(_session, _run_id, _registry):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return completed
+        raise RuntimeError("persist failed")
+
+    monkeypatch.setattr(executor, "execute_next_step", run_one)
+
+    with pytest.raises(executor.ExecutionBatchError) as raised:
+        asyncio.run(
+            executor.execute_steps(
+                object(),
+                1,
+                executor.AdapterRegistry(),
+                max_steps=2,
+            )
+        )
+
+    assert raised.value.completed == (completed,)
+    assert isinstance(raised.value.cause, RuntimeError)
