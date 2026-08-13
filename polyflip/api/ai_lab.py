@@ -363,6 +363,12 @@ async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
                 "trade_count": result.trade_count,
                 "net_pnl": result.net_pnl,
                 "max_drawdown": result.max_drawdown,
+                "code_sha": result.code_sha,
+                "dataset_fingerprint": result.dataset_fingerprint,
+                "train_window_start": result.train_window_start,
+                "train_window_end": result.train_window_end,
+                "oot_window_start": result.oot_window_start,
+                "oot_window_end": result.oot_window_end,
                 "created_at": result.created_at,
             }
             for result in detail["results"]
