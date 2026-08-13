@@ -139,6 +139,7 @@ async def create_run(
         objective=objective.strip(),
         scope=dict(scope),
         autonomy_level=autonomy_level,
+        status="DRAFT",
         budget_experiments=budget_experiments,
         budget_seconds=budget_seconds,
         created_by=created_by,

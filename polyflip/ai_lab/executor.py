@@ -67,6 +67,17 @@ class StepContext:
     objective: str
     scope: Mapping[str, Any]
     input_payload: Mapping[str, Any]
+    # Immutable snapshot of the experiment config.  Defaults keep the
+    # executor backwards-compatible with lightweight test contexts.
+    model_family: str = ""
+    feature_set: str = "A"
+    asset: str | None = None
+    regime: str | None = None
+    interval: str = "15m"
+    model_params: Mapping[str, Any] = field(default_factory=dict)
+    calibration_params: Mapping[str, Any] = field(default_factory=dict)
+    strategy_params: Mapping[str, Any] = field(default_factory=dict)
+    backtest_params: Mapping[str, Any] = field(default_factory=dict)
 
 
 class ExecutionBatchError(RuntimeError):
@@ -299,6 +310,19 @@ async def execute_next_step(
         objective=str(run.objective),
         scope=dict(run.scope or {}),
         input_payload=dict(payload),
+        model_family=str(getattr(config, "model_family", "") or ""),
+        feature_set=str(getattr(config, "feature_set", "A") or "A"),
+        asset=getattr(config, "asset", None),
+        regime=getattr(config, "regime", None),
+        interval=str(payload.get("interval") or "15m"),
+        model_params=dict(getattr(config, "model_params", None) or {}),
+        calibration_params=dict(
+            getattr(config, "calibration_params", None)
+            or payload.get("calibration", {})
+            or {}
+        ),
+        strategy_params=dict(getattr(config, "strategy_params", None) or {}),
+        backtest_params=dict(getattr(config, "backtest_params", None) or {}),
     )
     # Do not hold the claim row lock during model training/backtesting.
     await session.commit()
