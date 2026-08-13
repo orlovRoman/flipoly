@@ -1174,15 +1174,6 @@ async def crypto_train(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    existing_training = _active_trainings.get(symbol)
-    if existing_training and existing_training.get("status") == "training":
-        return {
-            "status": "already_running",
-            "symbol": symbol,
-            "job_id": existing_training.get("job_id"),
-            "message": f"Training for {symbol} is already running.",
-        }
-
     if db is None:
         _active_trainings[symbol] = {
             "status": "training",
@@ -1238,15 +1229,8 @@ async def crypto_train(
     db.add(job)
     await db.commit()
     await db.refresh(job)
-    _active_trainings[symbol] = {
-        "status": "training",
-        "job_id": job.id,
-        "started_at": job.created_at.isoformat(),
-        "symbol": symbol,
-        "feature_set": normalized_feature_set,
-        "activate_after_train": bool(activate_after_train),
-        "experiment_config_id": experiment_config_id,
-    }
+    # The durable DB row is the source of truth. Do not keep a second
+    # in-process lock: the worker runs in another container and cannot clear it.
     _cache.pop("status", None)
     return {
         "status": "started",
