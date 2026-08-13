@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, update, delete, func, cast, Numeric, text
 from collections import defaultdict
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from polyflip.api.auth import verify_api_key
 import polyflip.constants as C
@@ -1237,7 +1238,32 @@ async def crypto_train(
         created_at=datetime.now(timezone.utc),
     )
     db.add(job)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # The partial unique index is the cross-process lock for QUEUED/RUNNING
+        # jobs. Another request may have won the race after our pre-check.
+        await db.rollback()
+        running = (
+            await db.execute(
+                select(LGBMTrainingJob)
+                .where(
+                    LGBMTrainingJob.symbol == symbol,
+                    LGBMTrainingJob.status.in_({"QUEUED", "RUNNING"}),
+                )
+                .order_by(LGBMTrainingJob.created_at.desc(), LGBMTrainingJob.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if running is not None:
+            return {
+                "status": "already_running",
+                "symbol": symbol,
+                "job_id": running.id,
+                "queue_status": running.status,
+                "message": f"Training for {symbol} is already queued.",
+            }
+        raise
     await db.refresh(job)
     # The durable DB row is the source of truth. Do not keep a second
     # in-process lock: the worker runs in another container and cannot clear it.
