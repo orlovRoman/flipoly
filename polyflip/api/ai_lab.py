@@ -6,6 +6,7 @@ activate models or mutate live execution settings.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -133,6 +134,12 @@ class ResultCreateRequest(BaseModel):
     max_drawdown: float | None = None
     artifact_id: int | None = Field(default=None, gt=0)
     step_id: int | None = Field(default=None, gt=0)
+    code_sha: str | None = Field(default=None, max_length=64)
+    dataset_fingerprint: str | None = Field(default=None, max_length=128)
+    train_window_start: datetime | None = None
+    train_window_end: datetime | None = None
+    oot_window_start: datetime | None = None
+    oot_window_end: datetime | None = None
 
 
 class ShadowPromoteRequest(BaseModel):
@@ -424,6 +431,12 @@ async def record_ai_result(
             max_drawdown=payload.max_drawdown,
             artifact_id=payload.artifact_id,
             step_id=payload.step_id,
+            code_sha=payload.code_sha,
+            dataset_fingerprint=payload.dataset_fingerprint,
+            train_window_start=payload.train_window_start,
+            train_window_end=payload.train_window_end,
+            oot_window_start=payload.oot_window_start,
+            oot_window_end=payload.oot_window_end,
         )
         await db.commit()
         await db.refresh(result)
