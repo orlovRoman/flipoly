@@ -206,7 +206,12 @@ async def execute_next_step(
 
     run = await session.get(AIOptimizationRun, run_id)
     config = await session.get(AIExperimentConfig, config_id) if config_id else None
-    if run is None or config is None or not action:
+    if (
+        run is None
+        or config is None
+        or not action
+        or action not in ACTION_TO_EVALUATION_KIND
+    ):
         error_code = "INVALID_STEP_INPUT"
         message = "claimed step has no valid run, config_id or offline action"
         _close_step(
@@ -298,7 +303,7 @@ async def execute_next_step(
         step_id=step.id,
         action=action,
         evaluation_kind=result.evaluation_kind,
-        status=result.status,
+        status=result.status.strip().upper(),
         result_id=persisted.id,
         error_code=result.error_code,
     )
