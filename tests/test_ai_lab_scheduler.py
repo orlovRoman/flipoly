@@ -119,3 +119,27 @@ def test_scheduler_reports_active_lease_without_running_steps(monkeypatch):
     assert result.status == "ALREADY_RUNNING"
     assert result.iterations == 0
     assert result.outcomes == ()
+
+
+def test_scheduler_preserves_completed_outcomes_on_batch_error(monkeypatch):
+    async def acquire(*_args, **_kwargs):
+        return True
+
+    async def execute(*_args, **_kwargs):
+        raise scheduler.ExecutionBatchError(
+            RuntimeError("write failed"),
+            [_outcome()],
+        )
+
+    async def release(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(scheduler, "acquire_worker_lease", acquire)
+    monkeypatch.setattr(scheduler, "execute_lgbm_steps", execute)
+    monkeypatch.setattr(scheduler, "release_worker_lease", release)
+
+    result = asyncio.run(scheduler.run_lgbm_scheduler(_Session(), 1))
+
+    assert result.status == "PARTIAL_FAILURE"
+    assert result.stop_reason == "batch_failure"
+    assert len(result.outcomes) == 1
