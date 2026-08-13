@@ -1152,13 +1152,13 @@ async def crypto_backtest(
 
 @router.post("/api/train", dependencies=[Depends(verify_api_key)])
 async def crypto_train(
-    background_tasks: BackgroundTasks | None = None,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     symbol: str = "BTCUSDT",
     interval: str = "15m",
     feature_set: str = "A",
     activate_after_train: bool = False,
     experiment_config_id: int | None = None,
-    db: AsyncSession | None = Depends(get_db_session),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Queue training in the durable database-backed worker."""
     if not isinstance(db, AsyncSession):

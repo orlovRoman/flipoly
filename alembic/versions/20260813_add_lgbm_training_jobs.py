@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 
 revision = "20260813_lgbm_training_jobs"
-down_revision = "merge_all_heads"
+down_revision = "20260813_execution_telemetry"
 branch_labels = None
 depends_on = None
 
