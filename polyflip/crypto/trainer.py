@@ -561,7 +561,11 @@ def _fit_controlled_lgbm(
         # Prefer robust Polymarket economics when quotes are available.  A
         # candidate with fewer than 50 OOT trades is retained for diagnostics
         # but cannot outrank a candidate that meets the coverage floor.
-        if backtest_frame is not None and backtest_quotes is not None:
+        if (
+            backtest_frame is not None
+            and backtest_quotes is not None
+            and not backtest_quotes.empty
+        ):
             options = dict(backtest_options or {})
             branch_result = compute_oof_polymarket_backtest(
                 backtest_frame,
@@ -601,7 +605,11 @@ def _fit_controlled_lgbm(
         trials=len(candidates),
         selected_trial=best_index + 1,
         scores=[round(score(result), 6) for result in trial_results],
-        objective="median_oot_polymarket_pnl_minus_drawdown" if backtest_frame is not None else "auc_minus_brier",
+        objective=(
+            "median_oot_polymarket_pnl_minus_drawdown"
+            if backtest_frame is not None and backtest_quotes is not None and not backtest_quotes.empty
+            else "auc_minus_brier"
+        ),
         min_oot_trades=50,
     )
     return _fit_lgbm_and_serialize(
