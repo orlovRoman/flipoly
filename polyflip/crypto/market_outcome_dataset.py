@@ -17,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.crypto.feature_builder import build_features, CRYPTO_FEATURE_COLUMNS
-from polyflip.crypto.feature_sets import get_feature_set
+from polyflip.crypto.feature_sets import get_feature_set, MARKET_CONTEXT_FEATURES
 from polyflip.models.sequence_features import attach_closed_candle_features, sequence_history_ready
 
 _DATASET_CACHE_MAX = 12
@@ -139,6 +139,56 @@ async def build_market_outcome_dataset(
     markets["market_start"] = markets["end_time_est"] - pd.Timedelta(minutes=15)
     markets["target"] = markets["final_outcome"].map({"YES": 1, "NO": 0}).astype(int)
 
+    # F-context is taken from the latest persisted snapshot at or before the
+    # market opening boundary.  This is deliberately separate from the
+    # executable quote join used by PnL, so no post-opening information leaks
+    # into the feature matrix.
+    context = pd.DataFrame()
+    try:
+        context_result = await db.execute(text(
+            """
+            SELECT DISTINCT ON (s.market_id)
+                s.market_id,
+                s.mid_price AS pm_mid_price,
+                s.spread AS pm_spread,
+                s.volume_5min AS pm_volume_5m,
+                s.price_velocity AS pm_momentum_5m
+            FROM market_snapshots s
+            JOIN live_markets m ON m.market_id = s.market_id
+            WHERE m.asset = :asset
+              AND s.recorded_at <= m.end_time_est - interval '15 minutes'
+            ORDER BY s.market_id, s.recorded_at DESC
+            """
+        ), {"asset": asset})
+        context_rows = context_result.fetchall()
+        if context_rows:
+            context = pd.DataFrame(
+                context_rows,
+                columns=["market_id", "pm_mid_price", "pm_spread", "pm_volume_5m", "pm_momentum_5m"],
+            )
+    except Exception as exc:
+        logger.warning("market_context_snapshot_join_failed", symbol=symbol, error=str(exc))
+
+    if context.empty:
+        for column in MARKET_CONTEXT_FEATURES:
+            markets[column] = 0.0
+    else:
+        context["market_id"] = context["market_id"].astype(str)
+        markets["market_id"] = markets["market_id"].astype(str)
+        markets = markets.merge(context, on="market_id", how="left")
+        markets["pm_mid_price"] = pd.to_numeric(markets["pm_mid_price"], errors="coerce")
+        markets["pm_spread"] = pd.to_numeric(markets["pm_spread"], errors="coerce")
+        markets["pm_volume_5m"] = pd.to_numeric(markets["pm_volume_5m"], errors="coerce").fillna(0.0)
+        markets["pm_momentum_5m"] = pd.to_numeric(markets["pm_momentum_5m"], errors="coerce").fillna(0.0)
+        markets["pm_spread_pct"] = (
+            markets["pm_spread"].fillna(0.0)
+            / markets["pm_mid_price"].abs().replace(0.0, np.nan)
+        ).fillna(0.0)
+        markets["pm_quote_pressure"] = (markets["pm_mid_price"] - 0.5).fillna(0.0)
+        markets = markets.drop(columns=["pm_mid_price", "pm_spread"], errors="ignore")
+        for column in MARKET_CONTEXT_FEATURES:
+            markets[column] = pd.to_numeric(markets[column], errors="coerce").fillna(0.0)
+
     # 2. Загрузка закрытых свечей Binance
     res_candles = await db.execute(text(
         """
@@ -166,6 +216,8 @@ async def build_market_outcome_dataset(
         df_candles,
     )
     cache_key = f"{symbol}|{interval}|{dataset_fingerprint}|{feature_spec.key}"
+    # Include the context schema in the cache key so F never reuses an A/E frame.
+    cache_key = f"{cache_key}|context-v1"
     cached_dataset = _cache_get(cache_key)
     if cached_dataset is not None:
         logger.info(
@@ -291,6 +343,7 @@ async def build_market_outcome_dataset(
         no_count=int((dataset["target"] == 0).sum()) if not dataset.empty else 0,
         feature_set=feature_spec.key,
         feature_set_version=feature_spec.version,
+        context_features=list(MARKET_CONTEXT_FEATURES),
     )
 
     return dataset
