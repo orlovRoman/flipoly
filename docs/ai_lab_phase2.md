@@ -17,9 +17,10 @@ All endpoints require the normal API key.
   audit steps and stored results.
 - `POST /api/ai-lab/runs/{id}/steps` appends a human-readable and structured
   step record.
-- `POST /api/ai-lab/runs/{id}/transition` enforces the lifecycle:
-  `DRAFT -> PLANNING -> RUNNING -> EVALUATING -> SHADOW ->
-  PENDING_APPROVAL`.
+- `POST /api/ai-lab/runs/{id}/transition` enforces the lifecycle and checks
+  the permission action required for each transition. The public API cannot
+  transition a run to `ACTIVE`; that state requires a future explicit human
+  approval handler.
 - `POST /api/ai-lab/runs/{id}/actions/check` checks an action against the
   permission snapshot without executing it.
 - `POST /api/ai-lab/configs` stores an immutable, content-hashed experiment
@@ -37,8 +38,10 @@ models, live budgets, execution modes, or open positions.
 ## Example
 
 1. Create a permission profile with `CREATE_EXPERIMENT`,
-   `TRAIN_MODEL`, `RUN_OOT_BACKTEST` and `PROMOTE_TO_SHADOW`.
-2. Create a run with that profile and an explicit experiment budget.
+   `TRAIN_MODEL`, `RUN_OOT_BACKTEST`, `PROMOTE_TO_SHADOW`,
+   `REQUEST_ACTIVATION` and `STOP_EXPERIMENT`.
+2. Create a run with that profile and an explicit experiment budget; the
+   run stores the exact permission version as its immutable snapshot.
 3. Append each hypothesis, training attempt and backtest result as a step.
 4. Transition the run to `SHADOW` only after the recorded evaluation.
 5. Create an approval request; activation remains a separate human-controlled
