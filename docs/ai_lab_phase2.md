@@ -14,10 +14,14 @@ All endpoints require the normal API key.
 - `GET /api/ai-lab/permissions` lists all permission versions.
 - `POST /api/ai-lab/runs` creates a run in `DRAFT`.
 - `GET /api/ai-lab/runs` and `GET /api/ai-lab/runs/{id}` expose the run,
-  audit steps and stored results.
+  audit steps and stored results. The list endpoint supports
+  `status`, `created_by`, `limit` and cursor `before_id`; it returns
+  `next_before_id` for the next page.
 - `POST /api/ai-lab/runs/{id}/steps` appends a human-readable and structured
   step record.
-- `POST /api/ai-lab/runs/{id}/transition` enforces the lifecycle and checks
+- `POST /api/ai-lab/runs/{id}/transition` enforces the lifecycle; terminal
+  outcomes (`FAILED`, `CANCELLED`, `REJECTED`, `ROLLED_BACK`) are system
+  outcomes and do not require an agent permission. It also checks
   the permission action required for each transition. The public API cannot
   transition a run to `ACTIVE`; that state requires a future explicit human
   approval handler.
