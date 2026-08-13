@@ -119,13 +119,22 @@ def build_experiment_report(
     rows: list[dict[str, Any]] = []
     for config_id, by_kind in sorted(grouped.items()):
         all_results = by_kind["OOT"] + by_kind["POLYMARKET_OOT"]
-        polymarket_results = by_kind["POLYMARKET_OOT"]
+        successful_results = [
+            result
+            for result in all_results
+            if str(_value(result, "status", "SUCCEEDED")).upper() == "SUCCEEDED"
+        ]
+        polymarket_results = [
+            result
+            for result in by_kind["POLYMARKET_OOT"]
+            if str(_value(result, "status", "SUCCEEDED")).upper() == "SUCCEEDED"
+        ]
         metric_values: dict[str, list[Any]] = defaultdict(list)
         pnl_values: list[Any] = []
         trade_values: list[Any] = []
         drawdown_values: list[Any] = []
         artifact_ids: set[int] = set()
-        for result in all_results:
+        for result in successful_results:
             metrics = _value(result, "metrics", {}) or {}
             for metric_name in ("auc", "ece", "brier", "log_loss", "win_rate"):
                 metric_values[metric_name].append(metrics.get(metric_name))
