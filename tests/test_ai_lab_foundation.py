@@ -38,7 +38,7 @@ def test_canonical_json_is_stable_for_mapping_order_and_utc_times():
         "created_at": "2026-08-13T12:00:00Z",
         "z": 2,
     }
-    assert canonical_json(first) != canonical_json(second)
+    assert canonical_json(first) == canonical_json(second)
     assert canonical_json(first) == canonical_json(
         {
             "z": 2,
