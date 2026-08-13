@@ -15,6 +15,7 @@ from sqlalchemy import (
     SmallInteger,
     ForeignKey,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, validates
@@ -180,6 +181,13 @@ class LGBMTrainingJob(Base):
     __table_args__ = (
         Index("idx_lgbm_training_jobs_status_created", "status", "created_at"),
         Index("idx_lgbm_training_jobs_symbol_created", "symbol", "created_at"),
+        Index(
+            "uq_lgbm_training_jobs_symbol_active",
+            "symbol",
+            unique=True,
+            postgresql_where=text("status IN ('QUEUED', 'RUNNING')"),
+            sqlite_where=text("status IN ('QUEUED', 'RUNNING')"),
+        ),
         CheckConstraint(
             "status IN ('QUEUED', 'RUNNING', 'SUCCESS', 'FAILED')",
             name="ck_lgbm_training_jobs_status",
