@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request, Query, HTTPException
+from fastapi import APIRouter, Body, Depends, Request, Query, HTTPException
 from pydantic import BaseModel, Field
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, update, delete, func, cast, Numeric, text
@@ -136,6 +136,8 @@ async def _persisted_training_states(db: AsyncSession) -> dict[str, dict]:
         }
         if row.error:
             state["error"] = row.error
+        if getattr(row, "error_traceback", None):
+            state["error_traceback"] = row.error_traceback
         states[row.symbol] = state
     return states
 
@@ -1152,7 +1154,6 @@ async def crypto_backtest(
 
 @router.post("/api/train", dependencies=[Depends(verify_api_key)])
 async def crypto_train(
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     symbol: str = "BTCUSDT",
     interval: str = "15m",
     feature_set: str = "A",
@@ -1276,6 +1277,7 @@ async def crypto_train_job(job_id: int, db: AsyncSession = Depends(get_db_sessio
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
         "result": job.result,
         "error": job.error,
+        "error_traceback": getattr(job, "error_traceback", None),
     }
 
 
