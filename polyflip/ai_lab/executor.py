@@ -69,6 +69,22 @@ class StepContext:
     input_payload: Mapping[str, Any]
 
 
+class ExecutionBatchError(RuntimeError):
+    """Raised after a bounded batch fails while preserving completed outcomes."""
+
+    def __init__(
+        self,
+        cause: Exception,
+        completed: list["ExecutionOutcome"],
+    ) -> None:
+        self.cause = cause
+        self.completed = tuple(completed)
+        super().__init__(
+            f"AI Lab executor batch stopped after {len(self.completed)} "
+            f"completed step(s): {cause}"
+        )
+
+
 @dataclass(frozen=True)
 class AdapterResult:
     """Structured output accepted from a registered adapter."""
@@ -348,7 +364,13 @@ async def execute_steps(
         raise ValueError("max_steps must be positive")
     outcomes: list[ExecutionOutcome] = []
     for _ in range(max_steps):
-        outcome = await execute_next_step(session, run_id, registry)
+        try:
+            outcome = await execute_next_step(session, run_id, registry)
+        except Exception as exc:
+            # execute_next_step already rolls back its failed result write.
+            # Preserve earlier committed outcomes for the worker/agent instead
+            # of losing them behind a bare exception.
+            raise ExecutionBatchError(exc, outcomes) from exc
         if outcome is None:
             break
         outcomes.append(outcome)
