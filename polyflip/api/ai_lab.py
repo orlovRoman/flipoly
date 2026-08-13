@@ -192,6 +192,20 @@ def _step_payload(step: AIRunStep) -> dict[str, Any]:
     }
 
 
+def _audit_payload(audit: Any) -> dict[str, Any]:
+    return {
+        "id": audit.id,
+        "run_id": audit.run_id,
+        "step_id": audit.step_id,
+        "config_id": audit.config_id,
+        "action": audit.action,
+        "error_code": audit.error_code,
+        "error_message": audit.error_message,
+        "payload": audit.payload,
+        "created_at": audit.created_at,
+    }
+
+
 def _assignment_payload(assignment: Any) -> dict[str, Any]:
     return {
         "id": assignment.id,
@@ -376,6 +390,7 @@ async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
             }
             for result in detail["results"]
         ],
+        "audits": [_audit_payload(audit) for audit in detail.get("audits", [])],
     }
 
 
