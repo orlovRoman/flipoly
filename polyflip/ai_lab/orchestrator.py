@@ -342,6 +342,9 @@ async def record_result(
     train_window_end: Any | None = None,
     oot_window_start: Any | None = None,
     oot_window_end: Any | None = None,
+    summary: str | None = None,
+    error_code: str | None = None,
+    error_message: str | None = None,
 ) -> ExperimentResult:
     kind = evaluation_kind.strip().upper()
     if kind not in RESULT_ACTIONS:
@@ -408,6 +411,9 @@ async def record_result(
             "result_status": status,
             "evaluation_kind": kind,
         }
+        step.summary = summary or step.summary
+        step.error_code = error_code
+        step.error_message = error_message
         await session.flush()
     return result
 
