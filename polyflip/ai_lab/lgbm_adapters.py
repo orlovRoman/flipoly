@@ -125,6 +125,20 @@ def _row_metrics(row: ModelRegistry) -> dict[str, Any]:
     }
 
 
+def _deduplicate_rows(
+    rows: Sequence[ModelRegistry],
+    *,
+    assets: Sequence[str] | None = None,
+) -> list[ModelRegistry]:
+    """Keep the newest row per asset while preserving requested asset order."""
+    latest: dict[str, ModelRegistry] = {}
+    for row in rows:
+        latest.setdefault(str(row.asset), row)
+    if assets is None:
+        return list(latest.values())
+    return [latest[asset] for asset in assets if asset in latest]
+
+
 def _selected_regimes(context: StepContext) -> tuple[str, ...]:
     regime = str(context.regime or "").strip().lower()
     if not regime:
@@ -156,10 +170,7 @@ async def _registry_rows(
     if ids:
         by_id = {int(row.id): row for row in rows}
         return [by_id[item] for item in ids if item in by_id]
-    latest: dict[str, ModelRegistry] = {}
-    for row in rows:
-        latest.setdefault(str(row.asset), row)
-    return [latest[asset] for asset in assets if asset in latest]
+    return _deduplicate_rows(rows, assets=assets)
 
 
 async def _training_rows(
@@ -321,14 +332,14 @@ async def train_lgbm(context: StepContext, session: AsyncSession) -> AdapterResu
             error_code="TRAINING_NO_REGISTRY_ROWS",
         )
     if any(bool(row.is_active) for row in rows):
+        # The trainer must not leave an active candidate in the surrounding
+        # transaction. Roll back before propagating the safety violation so
+        # the executor cannot commit the accidental activation later.
+        await session.rollback()
         raise RuntimeError(
             "safety violation: AI Lab training produced an active LightGBM model"
         )
-    # Keep exactly one newest row per asset if a backend returned duplicates.
-    latest: dict[str, ModelRegistry] = {}
-    for row in rows:
-        latest.setdefault(str(row.asset), row)
-    rows = [latest[asset] for asset in sorted(latest)]
+    rows = _deduplicate_rows(rows, assets=sorted({str(row.asset) for row in rows}))
     artifact = await _create_bundle_artifact(session, context, rows, config)
     aucs = [float(row.accuracy) for row in rows if row.accuracy is not None]
     eces = [float(row.ece) for row in rows if row.ece is not None]
