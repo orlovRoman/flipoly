@@ -18,7 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.crypto.feature_builder import build_features, CRYPTO_FEATURE_COLUMNS
 from polyflip.crypto.feature_sets import get_feature_set, MARKET_CONTEXT_FEATURES
-from polyflip.models.sequence_features import attach_closed_candle_features, sequence_history_ready
+from polyflip.models.sequence_features import (
+    SEQUENCE_CANDLE_FEATURES,
+    attach_closed_candle_features,
+    sequence_history_ready,
+)
 
 _DATASET_CACHE_MAX = 12
 _DATASET_CACHE: OrderedDict[str, pd.DataFrame] = OrderedDict()
@@ -321,7 +325,7 @@ async def build_market_outcome_dataset(
     # B/C use only fully closed candles available at market_start.  The
     # backward as-of join keeps the timestamp contract explicit and prevents
     # future candle data from entering the training matrix.
-    if feature_spec.key != "A":
+    if set(feature_spec.features).intersection(SEQUENCE_CANDLE_FEATURES):
         dataset = attach_closed_candle_features(
             dataset,
             df_candles.to_dict(orient="records"),
