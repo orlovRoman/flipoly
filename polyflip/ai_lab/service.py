@@ -271,13 +271,28 @@ async def request_approval(
     requested_action: str,
     diff: Mapping[str, Any],
 ) -> AIApprovalRequest:
-    if requested_action.upper() not in {"ACTIVATE", "ROLLBACK", "CHANGE_LIVE_POLICY"}:
+    requested_action = requested_action.upper()
+    if requested_action not in {"ACTIVATE", "ROLLBACK", "CHANGE_LIVE_POLICY"}:
         raise AILabError(f"unsupported approval action: {requested_action}")
+    if run_id is not None:
+        run = await session.get(AIOptimizationRun, run_id)
+        if run is None:
+            raise AILabError(f"AI Lab run {run_id} not found")
+        if requested_action == "ACTIVATE" and run.status not in {"SHADOW", "PENDING_APPROVAL"}:
+            raise AILabError(
+                f"activation approval requires SHADOW or PENDING_APPROVAL, got {run.status}"
+            )
+        if requested_action == "ROLLBACK" and run.status not in {
+            "ACTIVE", "SHADOW", "PENDING_APPROVAL"
+        }:
+            raise AILabError(
+                f"rollback approval requires an assigned run, got {run.status}"
+            )
     row = AIApprovalRequest(
         run_id=run_id,
         target_type=target_type,
         target_id=target_id,
-        requested_action=requested_action.upper(),
+        requested_action=requested_action,
         diff=dict(diff),
         status="PENDING",
         requested_at=utc_now(),
