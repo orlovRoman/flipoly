@@ -9,6 +9,8 @@ from polyflip.ai_lab.service import (
     AIRunTransitionError,
     LAB_ACTIONS,
     create_run,
+    transition_action_for_target,
+    transition_run,
     validate_permission,
     validate_run_transition,
 )
@@ -64,3 +66,18 @@ async def test_create_run_persists_permission_snapshot_without_live_side_effects
 
 def test_lab_action_set_does_not_include_live_activation():
     assert "ACTIVATE_LIVE" not in LAB_ACTIONS
+
+
+def test_public_transition_actions_are_allow_listed():
+    assert transition_action_for_target("PLANNING") == "CREATE_EXPERIMENT"
+    assert transition_action_for_target("SHADOW") == "PROMOTE_TO_SHADOW"
+    assert transition_action_for_target("ACTIVE") is None
+
+
+@pytest.mark.asyncio
+async def test_active_transition_is_blocked_without_human_approval():
+    run = SimpleNamespace(status="PENDING_APPROVAL")
+    session = SimpleNamespace(flush=AsyncMock())
+    with pytest.raises(AIRunTransitionError, match="human approval"):
+        await transition_run(session, run, "ACTIVE")
+    session.flush.assert_not_awaited()
