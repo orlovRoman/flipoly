@@ -36,7 +36,11 @@ async def test_real_call_build_market_outcome_dataset_mocked_db():
         ))
     mock_res_candles.fetchall.return_value = candle_rows
 
-    db.execute.side_effect = [mock_res_markets, mock_res_candles]
+    # The builder performs a separate pre-opening snapshot query for F
+    # context. Return no context rows in this legacy fixture.
+    mock_res_context = MagicMock()
+    mock_res_context.fetchall.return_value = []
+    db.execute.side_effect = [mock_res_markets, mock_res_context, mock_res_candles]
 
     df = await build_market_outcome_dataset(
         db, symbol="BTCUSDT", interval="15m", feature_set="B"
