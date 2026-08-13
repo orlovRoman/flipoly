@@ -57,14 +57,17 @@ run. Терминальные состояния нельзя использов
 ## Исполнительные адаптеры
 
 Оркестратор намеренно не импортирует Trainer, BacktestRunner или Polymarket
-gateway. Worker следующей итерации должен:
+gateway. Фаза 4 добавляет `polyflip.ai_lab.executor`: worker может зарегистрировать
+явные offline-адаптеры и вызвать `execute_next_step`. Исполнитель:
 
-- взять `input_payload.config_id` из claim;
-- запустить существующий безопасный train/backtest адаптер без изменения
-  активных моделей;
-- сохранить code SHA, dataset fingerprint, окна, slice-метрики и artifact id
-  вместе с результатом;
-- повторять шаг только через новую попытку с явной записью ошибки.
+- берёт `input_payload.config_id` из claim;
+- коммитит claim до запуска долгого train/backtest;
+- вызывает только TRAIN_MODEL, RUN_OOT_BACKTEST или RUN_POLYMARKET_OOT;
+- сохраняет code SHA, dataset fingerprint, окна, slice-метрики и artifact id;
+- пишет краткий summary и код ошибки в `AIRunStep`;
+- не имеет регистрации для ACTIVE, LIVE, RuntimeSettings или ордеров.
 
-Такой разрыв между планировщиком и исполнителем позволяет подключать Codex или
-другой AI-агент, не давая ему прямого доступа к LIVE-контуру.
+Адаптеры подключаются отдельно и должны иметь свои тесты; отсутствие адаптера
+даёт контролируемый `FAILED/ADAPTER_NOT_REGISTERED`, а не аварийное завершение
+worker. Такой разрыв между планировщиком и исполнителем позволяет подключать
+Codex или другой AI-агент, не давая ему прямого доступа к LIVE-контуру.
