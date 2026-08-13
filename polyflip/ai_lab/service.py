@@ -65,6 +65,26 @@ LAB_ACTIONS = frozenset(
     }
 )
 
+# Each externally requested state transition is mapped to an allow-listed action.
+# ACTIVE is intentionally absent: only a future human-approval flow may activate.
+TRANSITION_ACTIONS: dict[str, str] = {
+    "PLANNING": "CREATE_EXPERIMENT",
+    "RUNNING": "TRAIN_MODEL",
+    "EVALUATING": "RUN_OOT_BACKTEST",
+    "SHADOW": "PROMOTE_TO_SHADOW",
+    "PENDING_APPROVAL": "REQUEST_ACTIVATION",
+    "INSUFFICIENT_DATA": "RUN_OOT_BACKTEST",
+    "FAILED": "STOP_EXPERIMENT",
+    "CANCELLED": "STOP_EXPERIMENT",
+    "REJECTED": "STOP_EXPERIMENT",
+    "ROLLED_BACK": "REQUEST_ROLLBACK",
+}
+
+
+def transition_action_for_target(target: str) -> str | None:
+    """Return the permission action required for a public state transition."""
+    return TRANSITION_ACTIONS.get(str(target).upper())
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -137,6 +157,11 @@ async def transition_run(
 ) -> AIOptimizationRun:
     target = str(target).upper()
     validate_run_transition(run.status, target)
+    if target == "ACTIVE":
+        raise AIRunTransitionError(
+            "ACTIVE transition requires explicit human approval and is unavailable "
+            "in the autonomous AI Lab API"
+        )
     now = utc_now()
     if target == "RUNNING":
         run.started_at = now
