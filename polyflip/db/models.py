@@ -667,6 +667,28 @@ class AIOptimizationRun(Base):
     )
 
 
+class AIWorkerLease(Base):
+    """Short-lived cross-process lease for one autonomous worker run."""
+
+    __tablename__ = "ai_worker_leases"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("ai_optimization_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    owner_token = Column(String(128), nullable=False)
+    acquired_at = Column(DateTime(timezone=True), nullable=False)
+    heartbeat_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_ai_worker_leases_expires", "expires_at"),
+    )
+
+
 class AIRunStep(Base):
     """Append-only human-readable and structured audit record for a run step."""
 
