@@ -184,6 +184,7 @@ def test_training_adapter_disables_activation_and_runtime_writes(monkeypatch):
     row = SimpleNamespace(
         id=55,
         asset="BTCUSDT_low_vol",
+        version=1,
         model_blob=b"model",
         is_active=False,
         dataset_fingerprint="fp",
