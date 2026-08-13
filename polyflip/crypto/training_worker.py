@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import traceback
 from datetime import datetime, timezone
 
 import structlog
@@ -36,6 +37,7 @@ async def _requeue_interrupted_jobs() -> None:
                 started_at=None,
                 worker_pid=None,
                 error="requeued after training worker restart",
+                error_traceback=None,
             )
         )
         await session.commit()
@@ -57,6 +59,7 @@ async def _claim_next_job() -> dict | None:
         job.started_at = _now()
         job.worker_pid = os.getpid()
         job.error = None
+        job.error_traceback = None
         await session.commit()
         return {
             "id": job.id,
@@ -68,7 +71,14 @@ async def _claim_next_job() -> dict | None:
         }
 
 
-async def _finish_job(job_id: int, *, success: bool, result: dict | None = None, error: str | None = None) -> None:
+async def _finish_job(
+    job_id: int,
+    *,
+    success: bool,
+    result: dict | None = None,
+    error: str | None = None,
+    error_traceback: str | None = None,
+) -> None:
     async with async_session() as session:
         await session.execute(
             update(LGBMTrainingJob)
@@ -78,6 +88,7 @@ async def _finish_job(job_id: int, *, success: bool, result: dict | None = None,
                 finished_at=_now(),
                 result=result,
                 error=error,
+                error_traceback=error_traceback,
                 worker_pid=None,
             )
         )
@@ -119,8 +130,14 @@ async def _run_job(payload: dict) -> None:
         )
         logger.info("lgbm_training_job_finished", job_id=job_id, success=bool(ok))
     except Exception as exc:
+        error_traceback = traceback.format_exc()
         logger.exception("lgbm_training_job_failed", job_id=job_id, error=str(exc))
-        await _finish_job(job_id, success=False, error=str(exc))
+        await _finish_job(
+            job_id,
+            success=False,
+            error=str(exc),
+            error_traceback=error_traceback,
+        )
 
 
 async def run_worker() -> None:
