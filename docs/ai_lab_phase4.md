@@ -10,7 +10,12 @@
 - сохраняет `TRAIN`, `OOT` или `POLYMARKET_OOT` через `record_result`;
 - пишет в шаг краткий `summary`, `error_code` и `error_message`;
 - при отсутствии адаптера или исключении создаёт аудируемый `FAILED`, а не падает
-  всем worker-процессом.
+  всем worker-процессом;
+- при некорректном `config_id` или неизвестном action закрывает шаг и пишет
+  отдельный `ai_step_audit_logs`, потому что такой случай нельзя безопасно
+  связать с `ExperimentResult` через внешний ключ;
+- batch executor сохраняет уже завершённые outcomes в `ExecutionBatchError`,
+  если следующий шаг завершился ошибкой.
 
 ## Контракт адаптера
 
@@ -21,7 +26,8 @@
 - `AdapterResult` — статус, метрики, slices, trades, net PnL, drawdown, artifact
   id и provenance (`code_sha`, fingerprint и окна);
 - `AdapterRegistry` — явный allow-list только для:
-  `TRAIN_MODEL`, `RUN_OOT_BACKTEST`, `RUN_POLYMARKET_OOT`;
+  `TRAIN_MODEL`, `RUN_OOT_BACKTEST`, `RUN_POLYMARKET_OOT`; повторная
+  регистрация запрещена без явного `unregister` или `replace=True`;
 - `execute_next_step` и ограниченный `execute_steps`.
 
 Пример регистрации во внешнем worker:
