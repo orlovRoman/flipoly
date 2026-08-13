@@ -244,6 +244,9 @@ def _make_lgbm(**params) -> LGBMClassifier:
         "max_depth":         4,
         "min_child_samples": 50,
         "subsample":         0.8,
+        # LightGBM disables row bagging when subsample_freq=0 (its default).
+        # Keep the UI's subsample setting semantically real.
+        "subsample_freq":    1,
         "colsample_bytree":  1.0,
         "reg_alpha":         0.1,
         "reg_lambda":        1.0,
@@ -366,8 +369,17 @@ def _fit_lgbm_and_serialize(
     X_fit, X_cal_final = X.iloc[:-n_cal], X.iloc[-n_cal:]
     y_fit, y_cal_final = y.iloc[:-n_cal], y.iloc[-n_cal:]
 
-    final_lgbm = _make_lgbm(**lgbm_params)
-    _fit_with_early_stopping(final_lgbm, X_fit, y_fit, early_stopping_rounds)
+    # Probe the chronological tail only to determine the stopping point,
+    # then refit the selected number of trees on all of X_fit.  The previous
+    # implementation kept the probe's 85% sub-fit as the production artifact.
+    probe_lgbm = _make_lgbm(**lgbm_params)
+    _fit_with_early_stopping(probe_lgbm, X_fit, y_fit, early_stopping_rounds)
+    best_iteration = getattr(probe_lgbm, "best_iteration_", None)
+    final_params = dict(lgbm_params)
+    if isinstance(best_iteration, (int, np.integer)) and int(best_iteration) > 0:
+        final_params["n_estimators"] = int(best_iteration)
+    final_lgbm = _make_lgbm(**final_params)
+    final_lgbm.fit(X_fit, y_fit)
     final_calibration_method = "sigmoid" if n_cal < 200 else "isotonic"
     final_cal = CalibratedClassifierCV(
         estimator=FrozenEstimator(final_lgbm), method=final_calibration_method, cv=None
@@ -471,7 +483,10 @@ def _fit_lgbm_and_serialize(
         feature_audit=feature_audit,
         feature_audit_summary=audit_summary,
         oof_scores=oof_scores.copy() if return_metrics else None,
-        effective_params=dict(lgbm_params),
+        effective_params={
+            **final_params,
+            "n_estimators": int(getattr(final_lgbm, "n_estimators_", final_params.get("n_estimators", 0))),
+        },
     )
 
 
@@ -507,6 +522,9 @@ def _fit_controlled_lgbm(
     max_valid_thr: float,
     thr_fallback: float,
     base_params: dict,
+    backtest_frame: pd.DataFrame | None = None,
+    backtest_quotes: pd.DataFrame | None = None,
+    backtest_options: dict | None = None,
 ) -> LGBMFitResult:
     candidates = _controlled_lgbm_candidates(base_params, search_trials)
     if len(candidates) == 1:
@@ -540,6 +558,28 @@ def _fit_controlled_lgbm(
         ))
 
     def score(result: LGBMFitResult) -> float:
+        # Prefer robust Polymarket economics when quotes are available.  A
+        # candidate with fewer than 50 OOT trades is retained for diagnostics
+        # but cannot outrank a candidate that meets the coverage floor.
+        if backtest_frame is not None and backtest_quotes is not None:
+            options = dict(backtest_options or {})
+            branch_result = compute_oof_polymarket_backtest(
+                backtest_frame,
+                result.oof_scores,
+                backtest_quotes,
+                strategy_branch="COMBINED",
+                **options,
+            )
+            trades = int(branch_result.get("n_trades") or 0)
+            windows = branch_result.get("oot_windows") or []
+            median_window_pnl = float(np.median([
+                float(window.get("net_profit") or 0.0) for window in windows
+            ])) if windows else float(branch_result.get("net_profit") or 0.0)
+            max_dd = float(branch_result.get("max_drawdown_usdc") or 0.0)
+            economic_score = median_window_pnl - 0.5 * max_dd
+            if trades < 50:
+                economic_score -= 0.05 * (50 - trades)
+            return economic_score
         brier = result.brier if np.isfinite(result.brier) else 1.0
         return float(result.val_auc - brier)
 
@@ -550,6 +590,8 @@ def _fit_controlled_lgbm(
         trials=len(candidates),
         selected_trial=best_index + 1,
         scores=[round(score(result), 6) for result in trial_results],
+        objective="median_oot_polymarket_pnl_minus_drawdown" if backtest_frame is not None else "auc_minus_brier",
+        min_oot_trades=50,
     )
     return _fit_lgbm_and_serialize(
         X,
@@ -631,6 +673,7 @@ class CryptoModelTrainer:
             "max_depth": max_depth,
             "min_child_samples": min_child_samples,
             "subsample": subsample,
+            "subsample_freq": 1 if subsample < 1.0 else 0,
             "colsample_bytree": colsample_bytree,
             "reg_alpha": reg_alpha,
             "reg_lambda": reg_lambda,
@@ -808,6 +851,18 @@ class CryptoModelTrainer:
                                 max_valid_thr=max_valid_thr,
                                 thr_fallback=thr_fallback,
                                 base_params=adaptive_params,
+                                backtest_frame=df_regime.reset_index(drop=True),
+                                backtest_quotes=entry_quotes,
+                                backtest_options={
+                                    "min_edge": backtest_min_edge,
+                                    "cost_buffer": backtest_cost_buffer,
+                                    "fee_rate": backtest_fee_rate,
+                                    "min_price": backtest_min_price,
+                                    "max_price": backtest_max_price,
+                                    "outsider_max_price": backtest_outsider_max,
+                                    "stake_usdc": backtest_stake_usdc,
+                                    "slippage_pct": backtest_slippage_pct,
+                                },
                             ),
                             timeout=1800.0,   # 30 минут — hard limit
                         )
