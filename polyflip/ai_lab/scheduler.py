@@ -121,7 +121,9 @@ async def renew_worker_lease(
 ) -> bool:
     row = (
         await session.execute(
-            select(AIWorkerLease).where(AIWorkerLease.run_id == run_id)
+            select(AIWorkerLease)
+            .where(AIWorkerLease.run_id == run_id)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if row is None or row.owner_token != owner_token:
@@ -232,7 +234,12 @@ async def run_lgbm_scheduler(
         stop_reason = "scheduler_exception"
         raise
     finally:
-        await release_worker_lease(session, run_id, token)
+        # A failed adapter may leave the session in an invalid transaction
+        # state. Reset it before DELETE+COMMIT in lease release.
+        try:
+            await session.rollback()
+        finally:
+            await release_worker_lease(session, run_id, token)
 
     return SchedulerResult(
         status=status,
