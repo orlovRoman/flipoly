@@ -6,7 +6,7 @@ activate models or mutate live execution settings.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -26,6 +26,13 @@ from polyflip.ai_lab.service import (
     transition_action_for_target,
     request_approval,
     transition_run,
+)
+from polyflip.ai_lab.orchestrator import (
+    claim_next_step,
+    evaluate_run,
+    plan_run,
+    promote_to_shadow,
+    record_result,
 )
 from polyflip.api.auth import verify_api_key
 from polyflip.db.connection import get_db_session
@@ -111,6 +118,30 @@ class ApprovalRequest(BaseModel):
     diff: dict[str, Any] = Field(default_factory=dict)
 
 
+class PlanRequest(BaseModel):
+    config_ids: list[int] = Field(min_length=1, max_length=1000)
+
+
+class ResultCreateRequest(BaseModel):
+    config_id: int = Field(gt=0)
+    evaluation_kind: Literal["TRAIN", "OOT", "POLYMARKET_OOT", "SHADOW"]
+    status: str = Field(default="SUCCEEDED", min_length=1, max_length=24)
+    metrics: dict[str, Any] | None = None
+    slices: dict[str, Any] | None = None
+    trade_count: int | None = Field(default=None, ge=0)
+    net_pnl: float | None = None
+    max_drawdown: float | None = None
+    artifact_id: int | None = Field(default=None, gt=0)
+    step_id: int | None = Field(default=None, gt=0)
+
+
+class ShadowPromoteRequest(BaseModel):
+    candidate_artifact_id: int = Field(gt=0)
+    baseline_artifact_id: int | None = Field(default=None, gt=0)
+    asset: str = Field(min_length=1, max_length=32)
+    regime: str | None = Field(default=None, max_length=32)
+
+
 def _run_payload(run: AIOptimizationRun) -> dict[str, Any]:
     return {
         "id": run.id,
@@ -148,6 +179,22 @@ def _step_payload(step: AIRunStep) -> dict[str, Any]:
         "created_at": step.created_at,
         "started_at": step.started_at,
         "finished_at": step.finished_at,
+    }
+
+
+def _assignment_payload(assignment: Any) -> dict[str, Any]:
+    return {
+        "id": assignment.id,
+        "run_id": assignment.run_id,
+        "candidate_artifact_id": assignment.candidate_artifact_id,
+        "baseline_artifact_id": assignment.baseline_artifact_id,
+        "asset": assignment.asset,
+        "regime": assignment.regime,
+        "status": assignment.status,
+        "metrics": assignment.metrics,
+        "started_at": assignment.started_at,
+        "ended_at": assignment.ended_at,
+        "created_at": assignment.created_at,
     }
 
 
@@ -314,6 +361,131 @@ async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
             for result in detail["results"]
         ],
     }
+
+
+@router.post("/runs/{run_id}/plan")
+async def plan_ai_run(
+    run_id: int,
+    payload: PlanRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        steps = await plan_run(db, run_id, payload.config_ids)
+        await db.commit()
+        for step in steps:
+            await db.refresh(step)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"run_id": run_id, "steps": [_step_payload(step) for step in steps]}
+
+
+@router.post("/runs/{run_id}/steps/claim")
+async def claim_ai_step(
+    run_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        step = await claim_next_step(db, run_id)
+        if step is not None:
+            await db.commit()
+            await db.refresh(step)
+        else:
+            await db.rollback()
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"run_id": run_id, "step": _step_payload(step) if step else None}
+
+
+@router.post("/runs/{run_id}/results", status_code=201)
+async def record_ai_result(
+    run_id: int,
+    payload: ResultCreateRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        result = await record_result(
+            db,
+            run_id=run_id,
+            config_id=payload.config_id,
+            evaluation_kind=payload.evaluation_kind,
+            status=payload.status,
+            metrics=payload.metrics,
+            slices=payload.slices,
+            trade_count=payload.trade_count,
+            net_pnl=payload.net_pnl,
+            max_drawdown=payload.max_drawdown,
+            artifact_id=payload.artifact_id,
+            step_id=payload.step_id,
+        )
+        await db.commit()
+        await db.refresh(result)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "id": result.id,
+        "run_id": result.run_id,
+        "config_id": result.config_id,
+        "artifact_id": result.artifact_id,
+        "evaluation_kind": result.evaluation_kind,
+        "status": result.status,
+    }
+
+
+@router.post("/runs/{run_id}/evaluate")
+async def evaluate_ai_run(
+    run_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        report = await evaluate_run(db, run_id)
+        await db.commit()
+        run = await db.get(AIOptimizationRun, run_id)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"run": _run_payload(run), "report": report}
+
+
+@router.post("/runs/{run_id}/shadow")
+async def promote_ai_shadow(
+    run_id: int,
+    payload: ShadowPromoteRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        assignment = await promote_to_shadow(
+            db,
+            run_id=run_id,
+            candidate_artifact_id=payload.candidate_artifact_id,
+            baseline_artifact_id=payload.baseline_artifact_id,
+            asset=payload.asset,
+            regime=payload.regime,
+        )
+        await db.commit()
+        await db.refresh(assignment)
+        run = await db.get(AIOptimizationRun, run_id)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"run": _run_payload(run), "assignment": _assignment_payload(assignment)}
 
 
 @router.post("/runs/{run_id}/transition")
