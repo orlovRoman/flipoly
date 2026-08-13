@@ -66,3 +66,11 @@ def test_report_does_not_recommend_without_polymarket_pnl_sample():
     assert report["recommendation_status"] == "NO_PNL_SAMPLE"
     assert report["recommended_config_id"] is None
     assert report["rows"][0]["median_oot_pnl"] is None
+
+
+def test_report_ignores_failed_polymarket_evaluations():
+    failed = _result(9, pnl=50.0, trades=100, auc=0.99)
+    failed.status = "FAILED"
+    report = build_experiment_report([failed], min_trades=3)
+    assert report["recommendation_status"] == "NO_PNL_SAMPLE"
+    assert report["recommended_config_id"] is None
