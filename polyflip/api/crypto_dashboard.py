@@ -1175,14 +1175,16 @@ async def crypto_train(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    if _active_trainings.get(symbol, {}).get("status") == "training":
-        return {
-            "status": "already_running",
-            "symbol": symbol,
-            "message": f"Training for {symbol} is already running.",
-        }
-
     if db is None:
+        # This branch has no await between the check and the assignment.
+        # Keep the slot acquisition together so a future async operation cannot
+        # reintroduce a check-then-act race in the in-memory fallback.
+        if _active_trainings.get(symbol, {}).get("status") == "training":
+            return {
+                "status": "already_running",
+                "symbol": symbol,
+                "message": f"Training for {symbol} is already running.",
+            }
         _active_trainings[symbol] = {
             "status": "training",
             "started_at": datetime.now(timezone.utc).isoformat(),
