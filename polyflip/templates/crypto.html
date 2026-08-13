@@ -1826,13 +1826,16 @@
         async function retrain(symbol) {
             requestNotificationPermission();
 
-            const trainStatus = document.getElementById("lgbm-train-status");
+            const trainStatus = document.getElementById('lgbm-train-status');
             if (trainStatus) {
-                trainStatus.textContent = "";
-                trainStatus.className = "";
+                trainStatus.textContent = '';
+                trainStatus.className = '';
             }
 
-            // Мгновенное обновление кнопки и баннера на фронтенде
+            const clearLocalTraining = () => {
+                delete localActiveTrainings[symbol];
+                updateTrainButtonsAndBanner(localActiveTrainings);
+            };
             localActiveTrainings[symbol] = { status: 'training' };
             updateTrainButtonsAndBanner(localActiveTrainings);
 
@@ -1841,118 +1844,93 @@
                 const activate = document.getElementById('lgbm-activate-after-train')?.checked ? 'true' : 'false';
                 const experimentConfigId = document.getElementById('lgbm-experiment-config')?.value || '';
                 const configQuery = experimentConfigId ? `&experiment_config_id=${encodeURIComponent(experimentConfigId)}` : '';
-                const r = await fetch(`/lightgbm/api/train?symbol=${symbol}&feature_set=${encodeURIComponent(featureSet)}&activate_after_train=${activate}${configQuery}`, { method: 'POST', headers: H });
-                const d = await r.json();
-                if (!r.ok || d.status === "already_running") {
-                    if (d.status === "already_running") {
-                        showNotification(`ℹ️ Обучение ${symbol}`, d.message);
-                    } else {
-                        delete localActiveTrainings[symbol];
-                        updateTrainButtonsAndBanner(localActiveTrainings);
-                        alert(`❌ Ошибка запуска обучения: ${d.detail || d.message || 'Неизвестная ошибка'}`);
+                const response = await fetch(`/lightgbm/api/train?symbol=${encodeURIComponent(symbol)}&feature_set=${encodeURIComponent(featureSet)}&activate_after_train=${activate}${configQuery}`, { method: 'POST', headers: H });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.detail || payload.message || `HTTP ${response.status}`);
+                const jobId = payload.job_id;
+                if (!jobId) {
+                    clearLocalTraining();
+                    if (payload.status === 'already_running') {
+                        showNotification(`ℹ️ Обучение ${symbol}`, payload.message || 'Задание уже выполняется.');
+                        return;
                     }
-                    return;
+                    throw new Error('Сервер не вернул job_id: обучение не поставлено в очередь.');
                 }
 
+                if (!statusData || !statusData.models) await loadStatus();
                 const getLatest = (models, asset) => {
                     if (!models) return null;
                     return Object.values(models).filter(m => m.asset === asset && m.is_active).sort((a,b) => b.version - a.version)[0] || null;
                 };
-
                 const makeSnapshot = (m) => m ? { version: m.version, auc: m.auc, threshold: m.threshold } : null;
+                const oldModels = {
+                    low: makeSnapshot(getLatest(statusData?.models, `${symbol}_low_vol`)),
+                    mid: makeSnapshot(getLatest(statusData?.models, `${symbol}_mid_vol`)),
+                    high: makeSnapshot(getLatest(statusData?.models, `${symbol}_high_vol`)),
+                };
 
-                if (!statusData || !statusData.models) {
-                    await loadStatus();
-                }
-
-                const oldLowM = makeSnapshot(getLatest(statusData?.models, `${symbol}_low_vol`));
-                const oldMidM = makeSnapshot(getLatest(statusData?.models, `${symbol}_mid_vol`));
-                const oldHighM = makeSnapshot(getLatest(statusData?.models, `${symbol}_high_vol`));
-                const oldLow = oldLowM ? oldLowM.version : 0;
-                const oldMid = oldMidM ? oldMidM.version : 0;
-                const oldHigh = oldHighM ? oldHighM.version : 0;
-                
-                // Запускаем опрос статуса каждые 2 секунды
-                const MAX_POLLS = 300; // 10 минут макс
+                const MAX_POLLS = 300;
                 let pollCount = 0;
-                let isPolling = false;
-                
-                const intervalId = setInterval(async () => {
-                    if (isPolling) return;
-                    isPolling = true;
-                    pollCount++;
+                const pollJob = async () => {
+                    pollCount += 1;
                     try {
+                        const jobResponse = await fetch(`/lightgbm/api/train-jobs/${encodeURIComponent(jobId)}`, { headers: H });
+                        const job = await jobResponse.json();
+                        if (!jobResponse.ok) throw new Error(job.detail || `HTTP ${jobResponse.status}`);
                         await loadStatus();
-                        
-                        const isStillTraining = !!localActiveTrainings[symbol];
-                        const newLowM = getLatest(statusData?.models, `${symbol}_low_vol`);
-                        const newMidM = getLatest(statusData?.models, `${symbol}_mid_vol`);
-                        const newHighM = getLatest(statusData?.models, `${symbol}_high_vol`);
-                        const newLow = newLowM ? newLowM.version : 0;
-                        const newMid = newMidM ? newMidM.version : 0;
-                        const newHigh = newHighM ? newHighM.version : 0;
-                    
-                        if (!isStillTraining || newLow > oldLow || newHigh > oldHigh || newMid > oldMid) {
-                            clearInterval(intervalId);
-                            delete localActiveTrainings[symbol];
-                            updateTrainButtonsAndBanner(localActiveTrainings);
-                            
-                            const formatMetricDiff = (newObj, oldObj) => {
-                                if (!newObj) return '';
-                                let versionStr = `v${newObj.version}`;
-                                if (oldObj && oldObj.version !== newObj.version) {
-                                    versionStr += ` (было v${oldObj.version})`;
-                                }
-                                
-                                let aucStr = `AUC: ${newObj.auc ?? '?'}`;
-                                if (newObj?.auc != null && oldObj?.auc != null) {
-                                    const diff = Number((newObj.auc - oldObj.auc).toFixed(4));
-                                    if (diff > 0.0001) {
-                                        aucStr += ` (+${diff.toFixed(4)} 📈 🟢 лучше)`;
-                                    } else if (diff < -0.0001) {
-                                        aucStr += ` (${diff.toFixed(4)} 📉 🔴 хуже)`;
-                                    } else {
-                                        aucStr += ` (= ⚖️ без изм.)`;
-                                    }
-                                } else if (!oldObj) {
-                                    aucStr += ` (✨ новая)`;
-                                }
-                                
-                                let thrStr = `Thr: ${newObj.threshold ?? '?'}`;
-                                if (newObj?.threshold != null && oldObj?.threshold != null && newObj.threshold !== oldObj.threshold) {
-                                    thrStr += ` (было ${oldObj.threshold})`;
-                                }
-                                return `${versionStr} | ${aucStr} | ${thrStr}`;
+
+                        if (job.status === 'success') {
+                            const newModels = {
+                                low: makeSnapshot(getLatest(statusData?.models, `${symbol}_low_vol`)),
+                                mid: makeSnapshot(getLatest(statusData?.models, `${symbol}_mid_vol`)),
+                                high: makeSnapshot(getLatest(statusData?.models, `${symbol}_high_vol`)),
                             };
-
-                            let msgLines = [`Модель для ${symbol} успешно обновлена!`];
-                            if (newLowM) msgLines.push(`Low: ${formatMetricDiff(newLowM, oldLowM)}`);
-                            if (newMidM) msgLines.push(`Mid: ${formatMetricDiff(newMidM, oldMidM)}`);
-                            if (newHighM) msgLines.push(`High: ${formatMetricDiff(newHighM, oldHighM)}`);
-                            const msg = msgLines.join('\n');
-
-                            showNotification(`✅ Обучение ${symbol} завершено`, msg);
-                            requestAnimationFrame(() => {
-                                const trainStatus = document.getElementById("lgbm-train-status");
-                                if (trainStatus) {
-                                    trainStatus.textContent = "✅ " + symbol + ": кандидаты сохранены в ModelRegistry. Обновите страницу для проверки.";
-                                    trainStatus.className = "lgbm-save-status";
-                                }
-                            });
-                        } else if (pollCount >= MAX_POLLS) {
-                            clearInterval(intervalId);
-                            delete localActiveTrainings[symbol];
-                            updateTrainButtonsAndBanner(localActiveTrainings);
-                            alert(`⚠️ Таймаут ожидания обучения ${symbol}. Проверьте статус вручную.`);
+                            const describe = (label, item) => item ? `${label}: v${item.version}${oldModels[label.toLowerCase()]?.version !== item.version ? ' (новая)' : ''}` : '';
+                            const message = [describe('Low', newModels.low), describe('Mid', newModels.mid), describe('High', newModels.high)].filter(Boolean).join('\n');
+                            clearLocalTraining();
+                            showNotification(`✅ Обучение ${symbol} завершено`, message || 'Задание завершено; проверьте кандидатов в ModelRegistry.');
+                            if (trainStatus) {
+                                trainStatus.textContent = `✅ ${symbol}: job #${jobId} завершён, кандидаты сохранены в ModelRegistry.`;
+                                trainStatus.className = 'lgbm-save-status';
+                            }
+                            return;
                         }
-                    } finally {
-                        isPolling = false;
+                        if (job.status === 'failed') {
+                            clearLocalTraining();
+                            console.error('[LightGBM training traceback]', job.error_traceback || job.error);
+                            const message = job.error || 'Задание завершилось с ошибкой';
+                            if (trainStatus) {
+                                trainStatus.textContent = `❌ ${symbol}: job #${jobId} не выполнен — ${message}`;
+                                trainStatus.className = 'lgbm-save-status';
+                                trainStatus.style.color = '#ff8a8a';
+                            }
+                            showNotification(`❌ Обучение ${symbol} завершилось ошибкой`, message);
+                            return;
+                        }
+                        if (pollCount >= MAX_POLLS) {
+                            clearLocalTraining();
+                            alert(`⚠️ Таймаут ожидания job #${jobId}. Статус можно проверить вручную.`);
+                            return;
+                        }
+                    } catch (error) {
+                        console.warn('[LightGBM job poll]', error);
+                        if (pollCount >= MAX_POLLS) {
+                            clearLocalTraining();
+                            alert(`⚠️ Не удалось получить статус job #${jobId}. Проверьте его через API.`);
+                            return;
+                        }
                     }
-                }, 2000);
-            } catch (err) {
-                delete localActiveTrainings[symbol];
-                updateTrainButtonsAndBanner(localActiveTrainings);
-                alert('Не удалось связаться с сервером для запуска обучения.');
+                    setTimeout(pollJob, 2000);
+                };
+                void pollJob();
+            } catch (error) {
+                clearLocalTraining();
+                if (trainStatus) {
+                    trainStatus.textContent = `❌ Ошибка постановки обучения: ${error.message}`;
+                    trainStatus.className = 'lgbm-save-status';
+                    trainStatus.style.color = '#ff8a8a';
+                }
+                alert(`❌ Ошибка запуска обучения: ${error.message}`);
             }
         }
 
