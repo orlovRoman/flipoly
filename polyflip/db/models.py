@@ -616,4 +616,312 @@ class MarketDirectionSignal(Base):
         Index("idx_direction_signal_asset_created", "asset", "created_at"),
     )
 
+class AIOptimizationRun(Base):
+    """Durable lifecycle record for one autonomous optimization run."""
+
+    __tablename__ = "ai_optimization_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    objective = Column(Text, nullable=False)
+    scope = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    autonomy_level = Column(String(24), nullable=False, server_default="EXPERIMENT")
+    status = Column(String(24), nullable=False, server_default="DRAFT")
+    agent_type = Column(String(32), nullable=False, server_default="CODEX")
+    agent_thread_id = Column(String(128), nullable=True)
+    budget_experiments = Column(Integer, nullable=False, server_default="0")
+    budget_seconds = Column(Integer, nullable=False, server_default="0")
+    created_by = Column(String(128), nullable=False, server_default="system")
+    summary = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_ai_runs_status_created", "status", "created_at"),
+        CheckConstraint(
+            "autonomy_level IN ('OBSERVE', 'EXPERIMENT', 'SHADOW', 'LIVE_PROPOSE')",
+            name="ck_ai_runs_autonomy_level",
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT', 'PLANNING', 'RUNNING', 'EVALUATING', 'SHADOW', "
+            "'PENDING_APPROVAL', 'ACTIVE', 'INSUFFICIENT_DATA', 'FAILED', "
+            "'REJECTED', 'CANCELLED', 'ROLLED_BACK')",
+            name="ck_ai_runs_status",
+        ),
+    )
+
+
+class AIRunStep(Base):
+    """Append-only human-readable and structured audit record for a run step."""
+
+    __tablename__ = "ai_run_steps"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("ai_optimization_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    step_index = Column(Integer, nullable=False)
+    step_type = Column(String(32), nullable=False)
+    status = Column(String(16), nullable=False, server_default="PENDING")
+    hypothesis = Column(Text, nullable=True)
+    action = Column(String(64), nullable=True)
+    input_payload = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    output_payload = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    summary = Column(Text, nullable=True)
+    error_code = Column(String(64), nullable=True)
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "step_index", name="uix_ai_run_step_index"),
+        Index("idx_ai_run_steps_run_status", "run_id", "status"),
+        CheckConstraint(
+            "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SKIPPED')",
+            name="ck_ai_run_steps_status",
+        ),
+    )
+
+
+class AIExperimentConfig(Base):
+    """Immutable configuration snapshot shared by model families and strategies."""
+
+    __tablename__ = "experiment_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    asset = Column(String(32), nullable=True)
+    regime = Column(String(32), nullable=True)
+    model_family = Column(String(32), nullable=False)
+    feature_set = Column(String(32), nullable=False)
+    feature_pipeline_version = Column(String(64), nullable=False)
+    model_params = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    strategy_params = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    backtest_params = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    config_hash = Column(String(64), nullable=False, unique=True)
+    parent_id = Column(Integer, ForeignKey("experiment_configs.id"), nullable=True)
+    created_by = Column(String(128), nullable=False, server_default="system")
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_ai_experiment_configs_scope", "asset", "regime", "model_family"),
+        Index("idx_ai_experiment_configs_created_at", "created_at"),
+    )
+
+
+class AIModelArtifact(Base):
+    """Content-addressed model artifact metadata; the model bytes stay immutable."""
+
+    __tablename__ = "ai_model_artifacts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    model_registry_id = Column(
+        Integer,
+        ForeignKey("model_registry.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    artifact_uri = Column(String(512), nullable=False)
+    sha256 = Column(String(64), nullable=False, unique=True)
+    schema_version = Column(String(32), nullable=False)
+    feature_pipeline_version = Column(String(64), nullable=False)
+    metadata = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    loadability_status = Column(String(16), nullable=False, server_default="UNVERIFIED")
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_ai_artifacts_registry", "model_registry_id"),
+        CheckConstraint(
+            "loadability_status IN ('UNVERIFIED', 'VALID', 'INVALID')",
+            name="ck_ai_artifacts_loadability_status",
+        ),
+    )
+
+
+class ExperimentResult(Base):
+    """Metrics for one immutable experiment/configuration evaluation."""
+
+    __tablename__ = "experiment_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("ai_optimization_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    config_id = Column(
+        Integer,
+        ForeignKey("experiment_configs.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    artifact_id = Column(
+        Integer,
+        ForeignKey("ai_model_artifacts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    evaluation_kind = Column(String(24), nullable=False)
+    status = Column(String(24), nullable=False, server_default="PENDING")
+    code_sha = Column(String(64), nullable=True)
+    dataset_fingerprint = Column(String(128), nullable=True)
+    train_window_start = Column(DateTime(timezone=True), nullable=True)
+    train_window_end = Column(DateTime(timezone=True), nullable=True)
+    oot_window_start = Column(DateTime(timezone=True), nullable=True)
+    oot_window_end = Column(DateTime(timezone=True), nullable=True)
+    metrics = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    slices = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    trade_count = Column(Integer, nullable=True)
+    net_pnl = Column(Float, nullable=True)
+    max_drawdown = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_ai_results_run_status", "run_id", "status"),
+        Index("idx_ai_results_config_kind", "config_id", "evaluation_kind"),
+        CheckConstraint(
+            "evaluation_kind IN ('TRAIN', 'OOT', 'POLYMARKET_OOT', 'SHADOW', 'LIVE')",
+            name="ck_ai_results_evaluation_kind",
+        ),
+        CheckConstraint(
+            "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'INSUFFICIENT_DATA')",
+            name="ck_ai_results_status",
+        ),
+    )
+
+
+class DeploymentRevision(Base):
+    """Immutable deployment bundle; rollback changes only the active pointer."""
+
+    __tablename__ = "deployment_revisions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    revision_key = Column(String(64), nullable=False, unique=True)
+    parent_id = Column(Integer, ForeignKey("deployment_revisions.id"), nullable=True)
+    manifest = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    manifest_hash = Column(String(64), nullable=False, unique=True)
+    status = Column(String(24), nullable=False, server_default="DRAFT")
+    created_by = Column(String(128), nullable=False, server_default="system")
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    rolled_back_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_deployment_revisions_status_created", "status", "created_at"),
+        CheckConstraint(
+            "status IN ('DRAFT', 'SHADOW', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED', 'ROLLED_BACK')",
+            name="ck_deployment_revisions_status",
+        ),
+    )
+
+
+class DeploymentEvent(Base):
+    """Append-only activation, approval and rollback audit event."""
+
+    __tablename__ = "deployment_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    revision_id = Column(
+        Integer,
+        ForeignKey("deployment_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    event_type = Column(String(32), nullable=False)
+    actor = Column(String(128), nullable=False)
+    reason = Column(Text, nullable=True)
+    payload = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    previous_hash = Column(String(64), nullable=True)
+    event_hash = Column(String(64), nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_deployment_events_revision_created", "revision_id", "created_at"),
+        CheckConstraint(
+            "event_type IN ('CREATED', 'SHADOW_ASSIGNED', 'APPROVED', 'ACTIVATED', "
+            "'REJECTED', 'ROLLED_BACK')",
+            name="ck_deployment_events_type",
+        ),
+    )
+
+
+class AIShadowAssignment(Base):
+    """Candidate/baseline assignment for passive production observation."""
+
+    __tablename__ = "ai_shadow_assignments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    candidate_artifact_id = Column(
+        Integer,
+        ForeignKey("ai_model_artifacts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    baseline_artifact_id = Column(
+        Integer,
+        ForeignKey("ai_model_artifacts.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    asset = Column(String(32), nullable=False)
+    regime = Column(String(32), nullable=True)
+    status = Column(String(16), nullable=False, server_default="PENDING")
+    metrics = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_ai_shadow_scope_status", "asset", "regime", "status"),
+        CheckConstraint(
+            "status IN ('PENDING', 'RUNNING', 'COMPLETED', 'STOPPED', 'FAILED')",
+            name="ck_ai_shadow_status",
+        ),
+    )
+
+
+class AIPermission(Base):
+    """Versioned allow-list for autonomous actions and resource limits."""
+
+    __tablename__ = "ai_permissions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    profile_name = Column(String(64), nullable=False, unique=True)
+    allowed_actions = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    scope = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    limits = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    enabled = Column(Boolean, nullable=False, server_default="true")
+    updated_by = Column(String(128), nullable=False, server_default="system")
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class AIApprovalRequest(Base):
+    """Human approval request for actions outside the autonomous profile."""
+
+    __tablename__ = "ai_approval_requests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("ai_optimization_runs.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    target_type = Column(String(32), nullable=False)
+    target_id = Column(String(64), nullable=False)
+    requested_action = Column(String(32), nullable=False)
+    diff = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    status = Column(String(16), nullable=False, server_default="PENDING")
+    requested_at = Column(DateTime(timezone=True), nullable=False)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    decided_by = Column(String(128), nullable=True)
+    decision_reason = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_ai_approval_status_requested", "status", "requested_at"),
+        CheckConstraint(
+            "status IN ('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED')",
+            name="ck_ai_approval_status",
+        ),
+    )
 
