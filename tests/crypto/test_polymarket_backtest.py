@@ -145,10 +145,15 @@ def test_aggregate_replays_trade_pnl_in_time_order():
     assert result["n_trades"] == 2
     assert result["net_profit"] == pytest.approx(-0.5)
     assert [item["pnl"] for item in result["equity_curve"]] == [0.5, -0.5]
+    assert result["max_drawdown_usdc"] == pytest.approx(1.0)
+    # Two $1 trades deploy $2, so the $1 drawdown is 50%, not 100%.
+    assert result["max_drawdown_pct"] == pytest.approx(50.0)
 
 
 def test_aggregate_drawdown_uses_persisted_stake():
     frame, quotes = _fixtures()
+    frame.loc[0, "final_outcome"] = "YES"
+    quotes.loc[0, "best_ask"] = 0.50
     frame.loc[1, "final_outcome"] = "NO"
     quotes.loc[1, "best_ask"] = 0.85
     quotes.loc[1, "best_bid"] = 0.81
@@ -168,4 +173,6 @@ def test_aggregate_drawdown_uses_persisted_stake():
         [persisted], strategy_branch="COMBINED"
     )
     assert aggregated["stake_usdc"] == pytest.approx(2.0)
+    assert aggregated["max_drawdown_usdc"] == pytest.approx(computed["max_drawdown_usdc"])
     assert aggregated["max_drawdown_pct"] == pytest.approx(computed["max_drawdown_pct"])
+    assert aggregated["max_drawdown_pct"] < 100.0

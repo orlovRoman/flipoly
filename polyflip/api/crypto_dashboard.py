@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request, Query, HTTPException
+from fastapi import APIRouter, Body, Depends, Request, Query, HTTPException
 from pydantic import BaseModel, Field
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, update, delete, func, cast, Numeric, text
@@ -1154,7 +1154,7 @@ async def crypto_backtest(
 
 @router.post("/api/train", dependencies=[Depends(verify_api_key)])
 async def crypto_train(
-    background_tasks: BackgroundTasks | None = None,
+    background_tasks: Any = None,
     symbol: str = "BTCUSDT",
     interval: str = "15m",
     feature_set: str = "A",
@@ -1175,13 +1175,10 @@ async def crypto_train(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # Backward-compatible in-memory guard for callers/tests without a DB session.
-    existing_training = _active_trainings.get(symbol)
-    if existing_training and existing_training.get("status") == "training" and db is None:
+    if _active_trainings.get(symbol, {}).get("status") == "training":
         return {
             "status": "already_running",
             "symbol": symbol,
-            "job_id": existing_training.get("job_id"),
             "message": f"Training for {symbol} is already running.",
         }
 

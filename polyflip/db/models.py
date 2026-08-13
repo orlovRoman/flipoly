@@ -175,6 +175,7 @@ class LGBMTrainingJob(Base):
     worker_pid = Column(Integer, nullable=True)
     result = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     error = Column(Text, nullable=True)
+    error_traceback = Column(Text, nullable=True)
 
     __table_args__ = (
         Index("idx_lgbm_training_jobs_status_created", "status", "created_at"),

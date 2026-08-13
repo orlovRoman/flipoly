@@ -1,7 +1,7 @@
 """add durable LightGBM training jobs
 
 Revision ID: 20260813_lgbm_training_jobs
-Revises: merge_all_heads
+Revises: 20260813_execution_telemetry
 """
 
 from alembic import op
