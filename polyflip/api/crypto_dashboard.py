@@ -136,6 +136,8 @@ async def _persisted_training_states(db: AsyncSession) -> dict[str, dict]:
         }
         if row.error:
             state["error"] = row.error
+        if getattr(row, "error_traceback", None):
+            state["error_traceback"] = row.error_traceback
         states[row.symbol] = state
     return states
 
@@ -1152,7 +1154,7 @@ async def crypto_backtest(
 
 @router.post("/api/train", dependencies=[Depends(verify_api_key)])
 async def crypto_train(
-    background_tasks: BackgroundTasks = BackgroundTasks(),
+    background_tasks: BackgroundTasks | None = None,
     symbol: str = "BTCUSDT",
     interval: str = "15m",
     feature_set: str = "A",
@@ -1173,8 +1175,9 @@ async def crypto_train(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # Backward-compatible in-memory guard for callers/tests without a DB session.
     existing_training = _active_trainings.get(symbol)
-    if existing_training and existing_training.get("status") == "training":
+    if existing_training and existing_training.get("status") == "training" and db is None:
         return {
             "status": "already_running",
             "symbol": symbol,
@@ -1237,15 +1240,8 @@ async def crypto_train(
     db.add(job)
     await db.commit()
     await db.refresh(job)
-    _active_trainings[symbol] = {
-        "status": "training",
-        "job_id": job.id,
-        "started_at": job.created_at.isoformat(),
-        "symbol": symbol,
-        "feature_set": normalized_feature_set,
-        "activate_after_train": bool(activate_after_train),
-        "experiment_config_id": experiment_config_id,
-    }
+    # The durable DB row is the source of truth. Do not keep a second
+    # in-process lock: the worker runs in another container and cannot clear it.
     _cache.pop("status", None)
     return {
         "status": "started",
@@ -1276,6 +1272,7 @@ async def crypto_train_job(job_id: int, db: AsyncSession = Depends(get_db_sessio
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
         "result": job.result,
         "error": job.error,
+        "error_traceback": getattr(job, "error_traceback", None),
     }
 
 
