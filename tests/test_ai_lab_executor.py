@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from polyflip.ai_lab import executor
+from polyflip.ai_lab.service import AILabError
 
 
 def test_registry_accepts_only_offline_actions():
@@ -15,15 +16,15 @@ def test_registry_accepts_only_offline_actions():
     assert registry.get("TRAIN_MODEL") is adapter
     assert registry.actions() == ("TRAIN_MODEL",)
 
-    with pytest.raises(Exception):
+    with pytest.raises(AILabError):
         registry.register("ACTIVATE_MODEL", adapter)
-    with pytest.raises(Exception):
+    with pytest.raises(AILabError):
         registry.register("UNKNOWN_ACTION", adapter)
 
 
 def test_adapter_result_rejects_wrong_evaluation_kind():
     result = executor.AdapterResult(evaluation_kind="OOT")
-    with pytest.raises(Exception):
+    with pytest.raises(AILabError):
         result.validate_for("TRAIN_MODEL")
 
 
