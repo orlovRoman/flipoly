@@ -40,5 +40,5 @@ async def test_lgbm_experiment_groups_include_a_b_candidates(db_session):
         db=db_session,
     )
     assert report["recommended_variant"] == "B"
-    assert report["recommendation_status"] == "PROVISIONAL_LOW_SAMPLE"
+    assert report["recommendation_status"] == "NO_PNL_SAMPLE"
     assert report["activation_policy"] == "MANUAL_SHADOW_REQUIRED"
