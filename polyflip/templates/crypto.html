@@ -324,16 +324,16 @@
                 <div id="lgbm-experiment-panel" class="panel" style="margin-bottom: 1.5rem;">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
                         <div>
-                            <h2 style="margin:0;">LightGBM A/B/C experiment comparison</h2>
-                            <div style="color:var(--text-muted); font-size:0.85rem;">Сохранённые OOT-кандидаты; кнопка проверки не переобучает модель.</div>
+                            <h2 style="margin:0;">LightGBM D/E/F experiment comparison</h2>
+                            <div style="color:var(--text-muted); font-size:0.85rem;">Сохранённые OOT-кандидаты D/E/F; кнопка проверки не переобучает модель.</div>
                             <div class="lgbm-save-status" title="Что означает SAVED в таблице кандидатов">ℹ️ Легенда: SAVED = модель записана в ModelRegistry</div>
                         </div>
                         <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
                             <label for="lgbm-experiment-group" style="font-size:0.82rem; color:var(--text-muted);">Группа сравнения:</label>
                             <span class="lgbm-help" tabindex="0" role="img"
-                                  aria-label="Выберите актив и режим волатильности с сохранёнными кандидатами A/B/C, например BTCUSDT_high_vol."
-                                  title="Выберите актив и режим волатильности с сохранёнными кандидатами A/B/C, например BTCUSDT_high_vol.">?</span>
-                            <select id="lgbm-experiment-group" title="Группа сравнения: актив и режим волатильности для сопоставления кандидатов A/B/C." style="min-width:260px;">
+                                  aria-label="Выберите актив и режим волатильности с сохранёнными кандидатами D/E/F, например BTCUSDT_high_vol."
+                                  title="Выберите актив и режим волатильности с сохранёнными кандидатами D/E/F, например BTCUSDT_high_vol.">?</span>
+                            <select id="lgbm-experiment-group" title="Группа сравнения: актив и режим волатильности для сопоставления кандидатов D/E/F." style="min-width:260px;">
                                 <option value="">No comparable groups yet</option>
                             </select>
                             <label for="lgbm-experiment-branch" style="font-size:0.82rem; color:var(--text-muted);">Ветка бэктеста:</label>
@@ -473,7 +473,7 @@
                         <select id="bt-symbol" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 130px;">
                             {% for sym in symbols %}<option>{{ sym }}</option>{% endfor %}
                         </select>
-                        <select id="bt-feature-set" title="Compare A/B/C feature variants" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 180px;">
+                        <select id="bt-feature-set" title="Compare D/E/F feature variants" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 180px;">
                             <option value="A">A - control</option>
                             <option value="B">B - directions and runs</option>
                             <option value="C">C - candle structure</option>
@@ -945,7 +945,7 @@
             }
             if (!lgbmExperimentData.length) {
                 select.innerHTML = '<option value="">No comparable groups yet</option>';
-                table.innerHTML = '<div style="color:var(--text-muted);">No saved A/B/C candidates.</div>';
+                table.innerHTML = '<div style="color:var(--text-muted);">No saved D/E/F candidates.</div>';
                 return;
             }
             const current = select.value || lgbmExperimentData[0].comparison_key;
