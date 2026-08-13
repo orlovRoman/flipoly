@@ -426,6 +426,9 @@ async def evaluate_run(
     elif run.status != "EVALUATING":
         raise AILabError(f"run {run_id} cannot be evaluated from {run.status}")
 
+    # Keep non-success rows in the audit input. build_experiment_report
+    # excludes them from metrics/PnL, while the persisted status still explains
+    # why a candidate has NO_PNL_SAMPLE or an incomplete run.
     results = (
         await session.execute(
             select(ExperimentResult)
