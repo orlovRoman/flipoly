@@ -33,6 +33,10 @@ class _FakeSession:
         self.config = config
         self.commits = 0
         self.rollbacks = 0
+        self.added = []
+
+    def add(self, value):
+        self.added.append(value)
 
     async def get(self, model, identifier):
         if model is executor.AIOptimizationRun:
@@ -81,6 +85,7 @@ def test_missing_adapter_is_recorded_as_failed_result(monkeypatch):
     assert outcome.status == "FAILED"
     assert outcome.result_id == 99
     assert outcome.error_code == "ADAPTER_NOT_REGISTERED"
+    assert outcome.config_id == 7
     assert recorded["evaluation_kind"] == "OOT"
     assert recorded["status"] == "FAILED"
     assert recorded["step_id"] == 41
@@ -163,4 +168,34 @@ def test_unknown_claimed_action_is_closed_without_key_error(monkeypatch):
     assert outcome is not None
     assert outcome.status == "FAILED"
     assert outcome.error_code == "INVALID_STEP_INPUT"
+    assert outcome.config_id == 9
     assert step.error_code == "INVALID_STEP_INPUT"
+    assert session.added[0].error_code == "INVALID_STEP_INPUT"
+
+
+def test_malformed_config_id_is_audited_without_zero_sentinel(monkeypatch):
+    step = SimpleNamespace(
+        id=44,
+        action="TRAIN_MODEL",
+        input_payload={"config_id": "not-an-id"},
+        status="RUNNING",
+        finished_at=None,
+        summary=None,
+        error_code=None,
+        error_message=None,
+    )
+    run = SimpleNamespace(objective="offline only", scope={})
+    session = _FakeSession(run, None)
+
+    async def claim(_session, _run_id):
+        return step
+
+    monkeypatch.setattr(executor, "claim_next_step", claim)
+    outcome = asyncio.run(
+        executor.execute_next_step(session, 6, executor.AdapterRegistry())
+    )
+
+    assert outcome is not None
+    assert outcome.status == "FAILED"
+    assert outcome.config_id is None
+    assert session.added[0].config_id is None
