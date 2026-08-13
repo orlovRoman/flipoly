@@ -576,7 +576,18 @@ def _fit_controlled_lgbm(
                 float(window.get("net_profit") or 0.0) for window in windows
             ])) if windows else float(branch_result.get("net_profit") or 0.0)
             max_dd = float(branch_result.get("max_drawdown_usdc") or 0.0)
-            economic_score = median_window_pnl - 0.5 * max_dd
+            window_pnls = [
+                float(window.get("net_profit") or 0.0)
+                for window in windows
+                if isinstance(window, dict)
+            ]
+            # A median alone can hide a failed time slice. Penalize the
+            # negative tail and require all three chronological OOT windows
+            # before a trial can be considered stable.
+            worst_window_loss = max(0.0, -min(window_pnls)) if window_pnls else 0.0
+            economic_score = median_window_pnl - 0.5 * max_dd - 0.25 * worst_window_loss
+            if len(window_pnls) < 3:
+                economic_score -= 10.0 * (3 - len(window_pnls))
             if trades < 50:
                 economic_score -= 0.05 * (50 - trades)
             return economic_score
