@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 
 from polyflip.ai_lab.orchestrator import (
+    RESULT_CLOSING_STATUSES,
     build_experiment_report,
     default_plan_steps,
 )
@@ -74,3 +75,7 @@ def test_report_ignores_failed_polymarket_evaluations():
     report = build_experiment_report([failed], min_trades=3)
     assert report["recommendation_status"] == "NO_PNL_SAMPLE"
     assert report["recommended_config_id"] is None
+
+
+def test_insufficient_data_closes_queue_step_as_skipped():
+    assert "INSUFFICIENT_DATA" in RESULT_CLOSING_STATUSES
