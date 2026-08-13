@@ -154,6 +154,52 @@
             border: 1px solid rgba(46, 204, 113, 0.3);
             font-size: 0.78rem;
         }
+
+        /* Keep experiment comparison columns aligned across variable-length values. */
+        .lgbm-table-scroll {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .lgbm-experiment-table,
+        .lgbm-report-table {
+            width: 100%;
+            min-width: 920px;
+            table-layout: fixed;
+            border-collapse: collapse;
+        }
+        .lgbm-experiment-table th,
+        .lgbm-experiment-table td,
+        .lgbm-report-table th,
+        .lgbm-report-table td {
+            box-sizing: border-box;
+            padding: 0.42rem 0.5rem;
+            vertical-align: middle;
+            text-align: left;
+        }
+        .lgbm-experiment-table th,
+        .lgbm-report-table th {
+            white-space: normal;
+            line-height: 1.2;
+        }
+        .lgbm-experiment-table td,
+        .lgbm-report-table td {
+            white-space: nowrap;
+        }
+        .lgbm-experiment-table th:nth-child(n+3),
+        .lgbm-experiment-table td:nth-child(n+3),
+        .lgbm-report-table th:nth-child(n+3),
+        .lgbm-report-table td:nth-child(n+3) {
+            text-align: right;
+        }
+        .lgbm-experiment-table th:last-child,
+        .lgbm-experiment-table td:last-child {
+            text-align: center;
+        }
+        .lgbm-experiment-table .btn {
+            min-width: 68px;
+            white-space: nowrap;
+        }
     </style>
     <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ static_version }}"></script>
     <script>
@@ -909,17 +955,24 @@
             select.value = lgbmExperimentData.some(group => group.comparison_key === current) ? current : lgbmExperimentData[0].comparison_key;
             const group = lgbmExperimentData.find(item => item.comparison_key === select.value) || lgbmExperimentData[0];
             const rows = group.variants || [];
-            table.innerHTML = `<table class="styled-table" style="width:100%; border-collapse:collapse; font-size:0.82rem;">
-                <thead><tr><th>Variant</th><th>Version</th><th>AUC</th><th>ECE</th><th>Brier</th><th>OOT PnL</th><th>Trades</th><th>Artifact</th><th></th></tr></thead>
-                <tbody>${rows.map(row => `<tr>
-                    <td>${row.feature_set || '-'}</td><td>v${row.version ?? '-'}</td>
-                    <td>${row.auc == null ? '-' : Number(row.auc).toFixed(4)}</td>
-                    <td>${row.ece == null ? '-' : Number(row.ece).toFixed(4)}</td>
-                    <td>${row.brier == null ? '-' : Number(row.brier).toFixed(4)}</td>
-                    <td>${row.best_branch_pnl == null ? (row.backtest_pnl == null ? '-' : Number(row.backtest_pnl).toFixed(2)) : Number(row.best_branch_pnl).toFixed(2)}</td>
-                    <td>${row.backtest_trades ?? '-'}</td><td>${row.artifact_available ? 'saved' : 'legacy'}</td>
-                    <td>${row.artifact_available ? `<button class="btn" onclick="runSavedLgbmBacktest(${row.model_id})">Check</button>` : '<span style="color:var(--text-muted)">retrain</span>'}</td>
-                </tr>`).join('')}</tbody></table>`;
+            table.innerHTML = `<div class="lgbm-table-scroll">
+                <table class="styled-table lgbm-experiment-table">
+                    <colgroup>
+                        <col style="width:8%"><col style="width:9%"><col style="width:10%"><col style="width:10%">
+                        <col style="width:10%"><col style="width:14%"><col style="width:10%"><col style="width:13%"><col style="width:6%">
+                    </colgroup>
+                    <thead><tr><th>Variant</th><th>Version</th><th>AUC</th><th>ECE</th><th>Brier</th><th>OOT PnL</th><th>Trades</th><th>Artifact</th><th>Check</th></tr></thead>
+                    <tbody>${rows.map(row => `<tr>
+                        <td>${row.feature_set || '-'}</td><td>v${row.version ?? '-'}</td>
+                        <td>${row.auc == null ? '-' : Number(row.auc).toFixed(4)}</td>
+                        <td>${row.ece == null ? '-' : Number(row.ece).toFixed(4)}</td>
+                        <td>${row.brier == null ? '-' : Number(row.brier).toFixed(4)}</td>
+                        <td>${row.best_branch_pnl == null ? (row.backtest_pnl == null ? '-' : Number(row.backtest_pnl).toFixed(2)) : Number(row.best_branch_pnl).toFixed(2)}</td>
+                        <td>${row.backtest_trades ?? '-'}</td><td>${row.artifact_available ? 'saved' : 'legacy'}</td>
+                        <td>${row.artifact_available ? `<button class="btn" onclick="runSavedLgbmBacktest(${row.model_id})">Check</button>` : '<span style="color:var(--text-muted)">retrain</span>'}</td>
+                    </tr>`).join('')}</tbody>
+                </table>
+            </div>`;
         }
 
         async function loadLgbmExperiments() {
@@ -971,7 +1024,7 @@
                     <div style="margin-top:0.45rem; color:var(--text-muted);">${payload.recommendation_reason}</div>
                     <div style="margin-top:0.45rem;">Recommendation: <b>${payload.recommended_variant || '-'}</b> (model ${payload.recommended_model_id || '-'}) · activation: <b>${payload.activation_policy}</b></div>
                     <div style="margin-top:0.45rem; color:var(--text-muted);">Stable features: ${stable}</div>
-                    <div style="overflow-x:auto; margin-top:0.7rem;"><table class="styled-table" style="width:100%; border-collapse:collapse; font-size:0.78rem;"><thead><tr><th>Variant</th><th>Version</th><th>Median OOT PnL</th><th>Median OOT trades</th><th>Median OOT DD</th><th>Δ AUC</th><th>Δ ECE</th><th>Δ Brier</th><th>Δ PnL</th></tr></thead><tbody>${rows}</tbody></table></div>
+                    <div class="lgbm-table-scroll" style="margin-top:0.7rem;"><table class="styled-table lgbm-report-table"><colgroup><col style="width:8%"><col style="width:9%"><col style="width:15%"><col style="width:15%"><col style="width:13%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th>Variant</th><th>Version</th><th>Median OOT PnL</th><th>Median OOT trades</th><th>Median OOT DD</th><th>Δ AUC</th><th>Δ ECE</th><th>Δ Brier</th><th>Δ PnL</th></tr></thead><tbody>${rows}</tbody></table></div>
                 </div>`;
             } catch (error) {
                 if (error.name === 'AbortError') return;
