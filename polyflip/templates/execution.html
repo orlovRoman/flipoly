@@ -483,6 +483,15 @@
 
                     <button id="btn-batch-no-fill" class="btn-action btn-danger" style="display:none;" onclick="resolveBatchNoFill()">Mark No Fill (Selected)</button>
                 </div>
+                <div id="execution-funnel" style="display:flex; gap:12px; flex-wrap:wrap; margin:8px 0 10px; font-size:0.82rem; color:#a0aec0;">
+                    <span>Mirror: <strong id="funnel-mirror">0</strong></span>
+                    <span>Filled: <strong id="funnel-filled">0</strong></span>
+                    <span>Price moved: <strong id="funnel-price-moved">0</strong></span>
+                    <span>TTL: <strong id="funnel-ttl">0</strong></span>
+                    <span>Network: <strong id="funnel-network">0</strong></span>
+                    <span>Manual: <strong id="funnel-manual">0</strong></span>
+                    <span>Post-only: <strong id="funnel-post-only">0</strong></span>
+                </div>
                 <div class="table-wrapper" style="overflow-x: auto;">
                     <table class="data-table" id="requests-table">
                         <thead>
@@ -492,13 +501,17 @@
                                 <th>Рынок</th>
                                 <th>Исход</th>
                                 <th class="sortable" data-col="target_amount_usdc">Сумма</th>
+                                <th>PAPER / max / limit</th>
+                                <th>Fresh ask</th>
+                                <th>PAPER→LIVE</th>
                                 <th class="sortable" data-col="state">Статус</th>
-                                <th>Причина Ошибки</th>
+                                <th>Результат</th>
+                                <th>Причина ошибки</th>
                                 <th>Действия</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr><td colspan="7" style="text-align: center;">Загрузка...</td></tr>
+                            <tr><td colspan="12" style="text-align: center;">Загрузка...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -702,6 +715,7 @@ if (typeof translateError === 'undefined') {
 
                 // Render Positions & Requests
                 renderPositions(data.positions || []);
+                renderExecutionFunnel(data.execution_funnel || {});
                 renderRequests(data.requests || []);
 
                 if (data.asset_analytics && document.getElementById('live-asset-tf-select')?.value === 'all') {
@@ -983,7 +997,10 @@ document.addEventListener('DOMContentLoaded', () => {
         this._updatePagination();
     };
     
-    window.requestsManager = new TableManager({ tableId: 'requests-table', pageSize: 10, colCount: 8 });
+        const formatPrice = (value) => value === null || value === undefined ? '--' : '$' + Number(value).toFixed(3);
+        const formatDelay = (value) => value === null || value === undefined ? '--' : Number(value).toFixed(1) + 's';
+
+    window.requestsManager = new TableManager({ tableId: 'requests-table', pageSize: 10, colCount: 12 });
     requestsManager.render = function() {
         const tbody = document.querySelector('#requests-table tbody');
         const rows = this.getPageData();
@@ -1005,7 +1022,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${escapeHtml(r.asset)}</td>
                 <td>${escapeHtml(r.outcome_to_buy || r.outcome_bought || '--')}</td>
                 <td>$${(r.target_amount_usdc || 0).toFixed(2)}</td>
+                <td style="white-space: nowrap;">${formatPrice(r.paper_price)} / ${formatPrice(r.max_acceptable_price)} / ${formatPrice(r.submitted_limit_price || r.release_quote_price)}</td>
+                <td style="white-space: nowrap;">${formatPrice(r.submit_quote_price || r.release_quote_price)}</td>
+                <td style="white-space: nowrap;">${formatDelay(r.paper_to_live_submit_delay_sec ?? r.paper_to_live_delay_sec)}<br><small style="color:#718096;">rel ${formatDelay(r.paper_to_live_release_delay_sec)}</small></td>
                 <td><span class="status-badge ${r.state === 'FILLED' ? 'status-ready' : 'status-shadow'}">${escapeHtml(r.state)}</span></td>
+                <td>${escapeHtml(r.terminal_code || '--')}</td>
                 <td style="color: #e53e3e; max-width: 200px; word-wrap: break-word;">${r.error_details && r.error_details.error_message_ru ? escapeHtml(r.error_details.error_message_ru) : (r.error_reason ? escapeHtml(r.error_reason) : '--')}</td>
                 <td>
                     ${r.can_mark_no_fill ? `
@@ -1053,6 +1074,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderState.archive = archiveKey;
                 if(window.archiveManager) window.archiveManager.setData(archive);
             }
+        }
+
+        function renderExecutionFunnel(funnel) {
+            const counts = funnel.terminal_counts || {};
+            const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = String(value || 0); };
+            set('funnel-mirror', funnel.mirror_candidates);
+            set('funnel-filled', counts.FILLED);
+            set('funnel-price-moved', counts.PRICE_MOVED);
+            set('funnel-ttl', counts.TTL_EXPIRED);
+            set('funnel-network', counts.NETWORK_ERROR);
+            set('funnel-manual', counts.MANUAL_REJECTED);
+            set('funnel-post-only', counts.POST_ONLY_REJECTED);
         }
 
         function renderRequests(requests) {

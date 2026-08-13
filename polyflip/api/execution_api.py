@@ -559,6 +559,32 @@ async def get_live_trading_requests(
 
     request_dtos = await serialize_execution_requests(db, requests)
 
+    funnel_stmt = (
+        select(ExecutionRequest.terminal_code, ExecutionRequest.state, func.count())
+        .where(ExecutionRequest.requested_mode == "LIVE")
+        .group_by(ExecutionRequest.terminal_code, ExecutionRequest.state)
+    )
+    if analytics_period is not None:
+        funnel_stmt = funnel_stmt.where(
+            ExecutionRequest.created_at
+            >= datetime.now(timezone.utc) - timedelta(hours=analytics_period)
+        )
+    funnel_rows = (await db.execute(funnel_stmt)).all()
+    funnel_counts: dict[str, int] = {}
+    for terminal_code, request_state, count in funnel_rows:
+        key = terminal_code or request_state or "UNKNOWN"
+        funnel_counts[key] = funnel_counts.get(key, 0) + int(count)
+
+    mirror_stmt = select(func.count()).select_from(LiveMirrorCandidate).where(
+        LiveMirrorCandidate.target_mode == "LIVE"
+    )
+    if analytics_period is not None:
+        mirror_stmt = mirror_stmt.where(
+            LiveMirrorCandidate.created_at
+            >= datetime.now(timezone.utc) - timedelta(hours=analytics_period)
+        )
+    mirror_count = int((await db.execute(mirror_stmt)).scalar() or 0)
+
     return request_dtos
 
 
@@ -1682,6 +1708,7 @@ async def get_live_dashboard(
         "candidates": [],
         "positions": positions,
         "requests": request_dtos,
+        "execution_funnel": {"mirror_candidates": mirror_count, "terminal_counts": funnel_counts},
         "asset_analytics": await _get_asset_analytics(db, mode="LIVE", period_hours=analytics_period),
         "strategy_analytics": await _get_strategy_analytics(db, mode="LIVE", period_hours=24),
     }
