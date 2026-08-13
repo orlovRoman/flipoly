@@ -694,6 +694,39 @@ class AIRunStep(Base):
     )
 
 
+class AIStepAuditLog(Base):
+    """Audit record for executor failures that cannot reference ExperimentResult.
+
+    Invalid config IDs or unknown actions cannot satisfy ExperimentResult's
+    foreign-key/evaluation-kind constraints. They still need a durable trail.
+    """
+
+    __tablename__ = "ai_step_audit_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("ai_optimization_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    step_id = Column(
+        Integer,
+        ForeignKey("ai_run_steps.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    config_id = Column(Integer, nullable=True)
+    action = Column(String(64), nullable=True)
+    error_code = Column(String(64), nullable=False)
+    error_message = Column(Text, nullable=False)
+    payload = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_ai_step_audit_run_created", "run_id", "created_at"),
+        Index("idx_ai_step_audit_code", "error_code", "created_at"),
+    )
+
+
 class AIExperimentConfig(Base):
     """Immutable configuration snapshot shared by model families and strategies."""
 
