@@ -42,6 +42,8 @@ def test_market_context_features_are_decision_time_values():
             "volume_5min": 42.0,
             "current_yes_price": 0.62,
             "current_spread": 0.04,
+            "best_bid": 0.60,
+            "best_ask": 0.64,
         },
     )
     values = dict(zip(CRYPTO_FEATURE_COLUMNS, vector.features[0]))
@@ -49,6 +51,8 @@ def test_market_context_features_are_decision_time_values():
     assert values["pm_volume_5m"] == 42.0
     assert values["pm_spread_pct"] > 0.0
     assert values["pm_quote_pressure"] == 0.12
+    assert values["pm_best_bid"] == 0.60
+    assert values["pm_best_ask"] == 0.64
 
 
 def test_lgbm_subsample_frequency_enables_row_bagging():
