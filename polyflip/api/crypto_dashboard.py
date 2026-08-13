@@ -36,7 +36,8 @@ from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.crypto.feature_sets import CONTROL_FEATURES, get_feature_set, normalize_feature_set, parse_feature_names, validate_feature_schema
 from polyflip.db.connection import async_session, get_db_session
 from polyflip.db.models import (
-    ModelRegistry, ModelRegistryOOFArtifact, TradeHistory, RuntimeSettings, LGBMExperimentConfig
+    ModelRegistry, ModelRegistryOOFArtifact, TradeHistory, RuntimeSettings, LGBMExperimentConfig,
+    LGBMTrainingJob,
 )
 from polyflip.crypto.predictor import CryptoPredictor
 from polyflip.crypto.oof_artifact import OOF_ARTIFACT_SCHEMA_VERSION, deserialize_oof_artifact
@@ -108,6 +109,36 @@ def round_optional(value, digits=4):
     except (TypeError, ValueError):
         return None
 
+
+async def _persisted_training_states(db: AsyncSession) -> dict[str, dict]:
+    """Return durable training state so it survives an API restart."""
+    rows = (
+        await db.execute(
+            select(LGBMTrainingJob)
+            .order_by(LGBMTrainingJob.created_at.desc(), LGBMTrainingJob.id.desc())
+            .limit(100)
+        )
+    ).scalars().all()
+    states: dict[str, dict] = {}
+    for row in rows:
+        if row.symbol in states:
+            continue
+        state = {
+            "job_id": row.id,
+            "status": "training" if row.status in {"QUEUED", "RUNNING"} else row.status.lower(),
+            "symbol": row.symbol,
+            "feature_set": row.feature_set,
+            "activate_after_train": bool(row.activate_after_train),
+            "experiment_config_id": row.experiment_config_id,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "started_at": row.started_at.isoformat() if row.started_at else None,
+            "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        }
+        if row.error:
+            state["error"] = row.error
+        states[row.symbol] = state
+    return states
+
 @router.get("/api/status", dependencies=[Depends(verify_api_key)])
 async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     """
@@ -115,9 +146,10 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
     версию, AUC, ECE, порог, список фич, дату обучения, важность фичей и гиперпараметры.
     """
     now = time.time()
+    persisted_trainings = await _persisted_training_states(db)
     if "status" in _cache and now - _cache["status"]["ts"] < _CACHE_TTL:
         res = dict(_cache["status"]["data"])
-        res["active_trainings"] = _active_trainings
+        res["active_trainings"] = persisted_trainings or _active_trainings
         return res
 
     allowed_assets = []
@@ -285,7 +317,7 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "models": models_info,
         "symbols": CRYPTO_SYMBOLS,
         "settings": active_settings,
-        "active_trainings": _active_trainings,
+        "active_trainings": persisted_trainings or _active_trainings,
         "feature_importances": {
             asset: feature_importances.get(asset, {})
             for asset in set(m.asset for m in rows if m.is_active)
@@ -1117,19 +1149,25 @@ async def crypto_backtest(
     return data
 
 
+
 @router.post("/api/train", dependencies=[Depends(verify_api_key)])
 async def crypto_train(
-    background_tasks: BackgroundTasks,
+    background_tasks: BackgroundTasks | None = None,
     symbol: str = "BTCUSDT",
     interval: str = "15m",
     feature_set: str = "A",
     activate_after_train: bool = False,
     experiment_config_id: int | None = None,
+    db: AsyncSession | None = Depends(get_db_session),
 ):
-    """
-    Запускает переобучение LightGBM-модели в фоне.
-    Не блокирует HTTP-ответ — обучение идёт в background task.
-    """
+    """Queue training in the durable database-backed worker."""
+    if not isinstance(db, AsyncSession):
+        db = None
+
+    symbol = str(symbol).upper().strip()
+    interval = str(interval).strip() or "15m"
+    if symbol not in CRYPTO_SYMBOLS and db is not None:
+        raise HTTPException(status_code=422, detail=f"unsupported symbol: {symbol}")
     try:
         normalized_feature_set = normalize_feature_set(feature_set)
     except ValueError as exc:
@@ -1140,77 +1178,105 @@ async def crypto_train(
         return {
             "status": "already_running",
             "symbol": symbol,
-            "message": f"Обучение модели {symbol} уже выполняется.",
+            "job_id": existing_training.get("job_id"),
+            "message": f"Training for {symbol} is already running.",
         }
 
+    if db is None:
+        _active_trainings[symbol] = {
+            "status": "training",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "symbol": symbol,
+            "feature_set": normalized_feature_set,
+            "activate_after_train": bool(activate_after_train),
+            "experiment_config_id": experiment_config_id,
+        }
+        _cache.pop("status", None)
+        return {
+            "status": "started",
+            "symbol": symbol,
+            "experiment_config_id": experiment_config_id,
+            "message": f"Training for {symbol} was queued.",
+        }
+
+    if experiment_config_id is not None:
+        config_row = await db.get(LGBMExperimentConfig, experiment_config_id)
+        if config_row is None or config_row.is_archived:
+            raise HTTPException(status_code=404, detail="experiment config not found or archived")
+        normalized_feature_set = normalize_feature_set(config_row.feature_set)
+
+    running = (
+        await db.execute(
+            select(LGBMTrainingJob)
+            .where(
+                LGBMTrainingJob.symbol == symbol,
+                LGBMTrainingJob.status.in_({"QUEUED", "RUNNING"}),
+            )
+            .order_by(LGBMTrainingJob.created_at.desc(), LGBMTrainingJob.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if running is not None:
+        return {
+            "status": "already_running",
+            "symbol": symbol,
+            "job_id": running.id,
+            "queue_status": running.status,
+            "message": f"Training for {symbol} is already queued.",
+        }
+
+    job = LGBMTrainingJob(
+        symbol=symbol,
+        interval=interval,
+        feature_set=normalized_feature_set,
+        activate_after_train=bool(activate_after_train),
+        experiment_config_id=experiment_config_id,
+        status="QUEUED",
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
     _active_trainings[symbol] = {
         "status": "training",
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "job_id": job.id,
+        "started_at": job.created_at.isoformat(),
         "symbol": symbol,
         "feature_set": normalized_feature_set,
         "activate_after_train": bool(activate_after_train),
         "experiment_config_id": experiment_config_id,
     }
     _cache.pop("status", None)
-
-    async def _train():
-        try:
-            async with async_session() as session:
-                trainer = CryptoModelTrainer(session)
-                saved_config = None
-                if experiment_config_id is not None:
-                    config_row = await session.get(LGBMExperimentConfig, experiment_config_id)
-                    if config_row is None or config_row.is_archived:
-                        raise ValueError("experiment config not found or archived")
-                    saved_config = {
-                        "feature_set": config_row.feature_set,
-                        "model": config_row.model_params,
-                        "calibration": config_row.calibration_params,
-                        "backtest": config_row.backtest_params,
-                    }
-                ok = await trainer.train(
-                    symbol,
-                    interval,
-                    feature_set=(saved_config or {}).get("feature_set", normalized_feature_set),
-                    activate_after_train=activate_after_train,
-                    experiment_config=saved_config,
-                    experiment_config_id=experiment_config_id,
-                )
-                logger.info("crypto_retrain_done", symbol=symbol, success=ok)
-                _active_trainings[symbol] = {
-                    "status": "success" if ok else "failed",
-                    "finished_at": datetime.now(timezone.utc).isoformat(),
-                    "symbol": symbol,
-                    "feature_set": normalized_feature_set,
-                    "activate_after_train": bool(activate_after_train),
-                    "experiment_config_id": experiment_config_id,
-                }
-        except Exception as exc:
-            logger.exception("crypto_retrain_error", symbol=symbol, error=str(exc))
-            _active_trainings[symbol] = {
-                "status": "failed",
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-                "symbol": symbol,
-                "feature_set": normalized_feature_set,
-                "activate_after_train": bool(activate_after_train),
-                    "experiment_config_id": experiment_config_id,
-                "error": str(exc),
-            }
-        finally:
-            _cache.pop("status", None)
-            _cache.pop("crypto_models_coverage", None)
-            for k in list(_cache.keys()):
-                if k.startswith(f"backtest_{symbol}"):
-                    _cache.pop(k, None)
-
-    background_tasks.add_task(_train)
     return {
         "status": "started",
         "symbol": symbol,
+        "job_id": job.id,
+        "queue_status": job.status,
         "experiment_config_id": experiment_config_id,
-        "message": f"Переобучение {symbol} запущено в фоне.",
+        "message": f"Training for {symbol} was queued.",
     }
 
+
+@router.get("/api/train-jobs/{job_id}", dependencies=[Depends(verify_api_key)])
+async def crypto_train_job(job_id: int, db: AsyncSession = Depends(get_db_session)):
+    job = await db.get(LGBMTrainingJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="training job not found")
+    return {
+        "job_id": job.id,
+        "symbol": job.symbol,
+        "interval": job.interval,
+        "feature_set": job.feature_set,
+        "status": "training" if job.status in {"QUEUED", "RUNNING"} else job.status.lower(),
+        "queue_status": job.status,
+        "activate_after_train": bool(job.activate_after_train),
+        "experiment_config_id": job.experiment_config_id,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "result": job.result,
+        "error": job.error,
+    }
 
 
 @router.get("/api/models/coverage", dependencies=[Depends(verify_api_key)])

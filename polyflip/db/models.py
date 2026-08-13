@@ -152,6 +152,38 @@ class LGBMExperimentConfig(Base):
         Index("idx_lgbm_experiment_configs_created_at", "created_at"),
         Index("idx_lgbm_experiment_configs_hash", "config_hash"),
     )
+class LGBMTrainingJob(Base):
+    """Durable queue entry for resource-intensive LightGBM training."""
+
+    __tablename__ = "lgbm_training_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(32), nullable=False)
+    interval = Column(String(8), nullable=False, server_default="15m")
+    feature_set = Column(String(8), nullable=False)
+    activate_after_train = Column(Boolean, nullable=False, default=False, server_default="false")
+    experiment_config_id = Column(
+        Integer,
+        ForeignKey("lgbm_experiment_configs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status = Column(String(16), nullable=False, default="QUEUED", server_default="QUEUED")
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    worker_pid = Column(Integer, nullable=True)
+    result = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    error = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_lgbm_training_jobs_status_created", "status", "created_at"),
+        Index("idx_lgbm_training_jobs_symbol_created", "symbol", "created_at"),
+        CheckConstraint(
+            "status IN ('QUEUED', 'RUNNING', 'SUCCESS', 'FAILED')",
+            name="ck_lgbm_training_jobs_status",
+        ),
+    )
+
 
 class CollectorStatus(Base):
     __tablename__ = "collector_status"

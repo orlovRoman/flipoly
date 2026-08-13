@@ -49,6 +49,36 @@ services:
         limits:
           memory: 512M
 
+
+  lgbm_training_worker:
+    build: .
+    container_name: polyflip_lgbm_training_worker
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
+      - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
+      - API_KEY=${API_KEY:-test-key}
+      - ASSETS=${ASSETS:-BTC,ETH,SOL,XRP,DOGE}
+      - LGBM_TRAINING_POLL_INTERVAL_SEC=${LGBM_TRAINING_POLL_INTERVAL_SEC:-2}
+      - OMP_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - NUMEXPR_NUM_THREADS=1
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./backups:/app/backups
+    command: python -m polyflip.crypto.training_worker
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.0"
+
   scheduler:
     build: .
     container_name: polyflip_scheduler

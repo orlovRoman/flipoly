@@ -543,9 +543,9 @@ document.addEventListener("DOMContentLoaded", () => {
           settingsElements.tradingEnabled.addEventListener("change", async (e) => {
             const val = e.target.checked ? "true" : "false";
             try {
-              const res = await fetch("/api/settings/security/TRADING_ENABLED", {
+              const res = await fetch(window.API_BASE + "/api/settings/security/TRADING_ENABLED", {
                 method: "PUT",
-                headers: { "Content-Type": "application/json", "Authorization": "Bearer " + apiKey },
+                headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
                 body: JSON.stringify({ value: val })
               });
               if (!res.ok) {
