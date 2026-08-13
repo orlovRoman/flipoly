@@ -559,32 +559,6 @@ async def get_live_trading_requests(
 
     request_dtos = await serialize_execution_requests(db, requests)
 
-    funnel_stmt = (
-        select(ExecutionRequest.terminal_code, ExecutionRequest.state, func.count())
-        .where(ExecutionRequest.requested_mode == "LIVE")
-        .group_by(ExecutionRequest.terminal_code, ExecutionRequest.state)
-    )
-    if analytics_period is not None:
-        funnel_stmt = funnel_stmt.where(
-            ExecutionRequest.created_at
-            >= datetime.now(timezone.utc) - timedelta(hours=analytics_period)
-        )
-    funnel_rows = (await db.execute(funnel_stmt)).all()
-    funnel_counts: dict[str, int] = {}
-    for terminal_code, request_state, count in funnel_rows:
-        key = terminal_code or request_state or "UNKNOWN"
-        funnel_counts[key] = funnel_counts.get(key, 0) + int(count)
-
-    mirror_stmt = select(func.count()).select_from(LiveMirrorCandidate).where(
-        LiveMirrorCandidate.target_mode == "LIVE"
-    )
-    if analytics_period is not None:
-        mirror_stmt = mirror_stmt.where(
-            LiveMirrorCandidate.created_at
-            >= datetime.now(timezone.utc) - timedelta(hours=analytics_period)
-        )
-    mirror_count = int((await db.execute(mirror_stmt)).scalar() or 0)
-
     return request_dtos
 
 
@@ -1606,6 +1580,32 @@ async def get_live_dashboard(
     from polyflip.execution.serializers import serialize_execution_requests
 
     request_dtos = await serialize_execution_requests(db, requests)
+
+    funnel_stmt = (
+        select(ExecutionRequest.terminal_code, ExecutionRequest.state, func.count())
+        .where(ExecutionRequest.requested_mode == "LIVE")
+        .group_by(ExecutionRequest.terminal_code, ExecutionRequest.state)
+    )
+    if analytics_period is not None:
+        funnel_stmt = funnel_stmt.where(
+            ExecutionRequest.created_at
+            >= datetime.now(timezone.utc) - timedelta(hours=analytics_period)
+        )
+    funnel_rows = (await db.execute(funnel_stmt)).all()
+    funnel_counts: dict[str, int] = {}
+    for terminal_code, request_state, count in funnel_rows:
+        key = terminal_code or request_state or "UNKNOWN"
+        funnel_counts[key] = funnel_counts.get(key, 0) + int(count)
+
+    mirror_stmt = select(func.count()).select_from(LiveMirrorCandidate).where(
+        LiveMirrorCandidate.target_mode == "LIVE"
+    )
+    if analytics_period is not None:
+        mirror_stmt = mirror_stmt.where(
+            LiveMirrorCandidate.created_at
+            >= datetime.now(timezone.utc) - timedelta(hours=analytics_period)
+        )
+    mirror_count = int((await db.execute(mirror_stmt)).scalar() or 0)
 
     worker_status = await get_latest_live_worker_status(db)
     readiness = None
