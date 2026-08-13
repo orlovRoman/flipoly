@@ -285,3 +285,67 @@ async def get_run_detail(session: AsyncSession, run_id: int) -> dict[str, Any] |
         "steps": list(steps),
         "results": list(results),
     }
+
+
+async def create_permission(
+    session: AsyncSession,
+    *,
+    profile_name: str,
+    allowed_actions: list[str],
+    scope: Mapping[str, Any],
+    limits: Mapping[str, Any],
+    updated_by: str = "system",
+    enabled: bool = True,
+) -> AIPermission:
+    """Create an immutable permission version and make it the current version."""
+    if not profile_name.strip():
+        raise AILabError("permission profile_name must not be empty")
+    actions = {str(item).upper() for item in allowed_actions}
+    unknown = actions.difference(LAB_ACTIONS)
+    if unknown:
+        raise AIPermissionError(f"unknown permission actions: {sorted(unknown)}")
+    if any(action in {"ACTIVATE_LIVE", "CHANGE_LIVE_POLICY"} for action in actions):
+        raise AIPermissionError("live activation and live policy changes are not autonomous actions")
+    current_rows = (
+        await session.execute(
+            select(AIPermission)
+            .where(
+                AIPermission.profile_name == profile_name.strip(),
+                AIPermission.is_current.is_(True),
+            )
+            .with_for_update()
+        )
+    ).scalars().all()
+    next_version = max((row.version for row in current_rows), default=0) + 1
+    for row in current_rows:
+        row.is_current = False
+    row = AIPermission(
+        profile_name=profile_name.strip(),
+        version=next_version,
+        is_current=True,
+        allowed_actions=sorted(actions),
+        scope=dict(scope),
+        limits=dict(limits),
+        enabled=enabled,
+        updated_by=updated_by,
+        created_at=utc_now(),
+        updated_at=utc_now(),
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def authorize_run_action(
+    session: AsyncSession,
+    run_id: int,
+    action: str,
+) -> AIOptimizationRun:
+    run = await session.get(AIOptimizationRun, run_id)
+    if run is None:
+        raise AILabError(f"AI Lab run {run_id} not found")
+    if run.permission_id is None:
+        raise AIPermissionError("run has no permission snapshot")
+    permission = await session.get(AIPermission, run.permission_id)
+    validate_permission(permission, action)
+    return run
