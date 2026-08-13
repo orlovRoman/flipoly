@@ -730,7 +730,7 @@ class AIModelArtifact(Base):
     sha256 = Column(String(64), nullable=False, unique=True)
     schema_version = Column(String(32), nullable=False)
     feature_pipeline_version = Column(String(64), nullable=False)
-    metadata = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    artifact_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=False)
     loadability_status = Column(String(16), nullable=False, server_default="UNVERIFIED")
     created_at = Column(DateTime(timezone=True), nullable=False)
 
