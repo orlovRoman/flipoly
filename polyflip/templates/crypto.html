@@ -1021,7 +1021,7 @@
                 const rows = (payload.rows || []).map(row => {
                     const delta = row.delta_vs_control || {};
                     const signed = value => value == null ? '-' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(4)}`;
-                    return `<tr><td>${row.feature_set || '-'}</td><td>v${row.version ?? '-'}</td><td>${row.pnl == null ? '-' : Number(row.pnl).toFixed(2)}</td><td>${row.trades}</td><td>${row.median_oot_drawdown_pct == null ? '-' : Number(row.median_oot_drawdown_pct).toFixed(2) + '%'}</td><td>${signed(delta.auc)}</td><td>${signed(delta.ece)}</td><td>${signed(delta.brier)}</td><td>${signed(delta.pnl)}</td></tr>`;
+                    return `<tr><td>${row.feature_set || '-'}</td><td>v${row.version ?? '-'}</td><td>${row.pnl == null ? '-' : Number(row.pnl).toFixed(2)}</td><td>${row.total_oot_trades ?? row.trades ?? '-'}</td><td>${row.median_oot_drawdown_pct == null ? '-' : Number(row.median_oot_drawdown_pct).toFixed(2) + '%'}</td><td>${signed(delta.auc)}</td><td>${signed(delta.ece)}</td><td>${signed(delta.brier)}</td><td>${signed(delta.pnl)}</td></tr>`;
                 }).join('');
                 const stable = Object.entries(payload.stable_features_by_variant || {})
                     .map(([variant, features]) => `${variant}: ${(features || []).join(', ') || '-'}`).join(' · ') || '-';
@@ -1030,7 +1030,7 @@
                     <div style="margin-top:0.45rem; color:var(--text-muted);">${payload.recommendation_reason}</div>
                     <div style="margin-top:0.45rem;">Recommendation: <b>${payload.recommended_variant || '-'}</b> (model ${payload.recommended_model_id || '-'}) · activation: <b>${payload.activation_policy}</b></div>
                     <div style="margin-top:0.45rem; color:var(--text-muted);">Stable features: ${stable}</div>
-                    <div class="lgbm-table-scroll" style="margin-top:0.7rem;"><table class="styled-table lgbm-report-table"><colgroup><col style="width:8%"><col style="width:9%"><col style="width:15%"><col style="width:15%"><col style="width:13%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th>Variant</th><th>Version</th><th>Median OOT PnL</th><th>Median OOT trades</th><th>Median OOT DD</th><th>Δ AUC</th><th>Δ ECE</th><th>Δ Brier</th><th>Δ PnL</th></tr></thead><tbody>${rows}</tbody></table></div>
+                    <div class="lgbm-table-scroll" style="margin-top:0.7rem;"><table class="styled-table lgbm-report-table"><colgroup><col style="width:8%"><col style="width:9%"><col style="width:15%"><col style="width:15%"><col style="width:13%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th>Variant</th><th>Version</th><th>Median OOT PnL</th><th>Total OOT trades</th><th>Median OOT DD</th><th>Δ AUC</th><th>Δ ECE</th><th>Δ Brier</th><th>Δ PnL</th></tr></thead><tbody>${rows}</tbody></table></div>
                 </div>`;
             } catch (error) {
                 if (error.name === 'AbortError') return;
