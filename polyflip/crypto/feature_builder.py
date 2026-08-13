@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Sequence
 
 CRYPTO_FEATURE_COLUMNS: list[str] = [
     # --- Returns (log) ---
@@ -52,6 +52,12 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
     # --- Canonical Polymarket contract context ---
     "strike_gap_pct",   # (underlying close - canonical strike) / strike
     "log_moneyness",    # log(underlying close / canonical strike)
+    # Polymarket context available at/around the decision boundary.
+    # These are top-of-book proxies; no depth imbalance is fabricated.
+    "pm_momentum_5m",
+    "pm_volume_5m",
+    "pm_spread_pct",
+    "pm_quote_pressure",
 ]
 
 
@@ -67,6 +73,7 @@ def build_crypto_features(
     candles: Sequence | pd.DataFrame,
     min_candles: int = 100,
     underlying_price: float | None = None,
+    market_context: Any | None = None,
 ) -> CryptoFeatureVector:
     if isinstance(candles, pd.DataFrame):
         df = candles.copy()
@@ -198,6 +205,25 @@ def build_crypto_features(
     strike_gap_pct = float((close[-1] - strike) / strike) if strike else 0.0
     log_moneyness = float(np.log(close[-1] / strike)) if strike else 0.0
 
+    # The collector persists price velocity/volume/spread with each snapshot.
+    # Treat the values as optional and fail closed to zero for legacy callers.
+    context = market_context if isinstance(market_context, dict) else vars(market_context) if market_context is not None else {}
+    def _context_float(*names: str) -> float:
+        for name in names:
+            try:
+                value = float(context.get(name)) if isinstance(context, dict) else float(getattr(context, name))
+                if np.isfinite(value):
+                    return value
+            except (TypeError, ValueError, AttributeError):
+                continue
+        return 0.0
+    pm_momentum_5m = _context_float("price_velocity", "pm_momentum_5m")
+    pm_volume_5m = max(0.0, _context_float("volume_5min", "pm_volume_5m"))
+    pm_mid = _context_float("mid_price", "current_yes_price")
+    pm_spread = max(0.0, _context_float("spread", "current_spread"))
+    pm_spread_pct = pm_spread / max(abs(pm_mid), 1e-9) if pm_mid else 0.0
+    pm_quote_pressure = pm_mid - 0.5 if pm_mid else 0.0
+
     # ── 11. Сборка ───────────────────────────────────────────────
     vec = np.array([[
         ret_1, ret_3, ret_6,
@@ -209,6 +235,7 @@ def build_crypto_features(
         consec_balance,
         hour_sin, hour_cos, dow_sin, dow_cos,
         strike_gap_pct, log_moneyness,
+        pm_momentum_5m, pm_volume_5m, pm_spread_pct, pm_quote_pressure,
     ]], dtype=np.float64)
 
     vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
@@ -332,6 +359,12 @@ def build_features(
         strike = 0.0
     out["strike_gap_pct"] = ((close - strike) / strike) if strike else 0.0
     out["log_moneyness"] = np.log(close / strike) if strike else 0.0
+    # Market-context columns are materialized by the Polymarket dataset join.
+    # Keep deterministic zero defaults for the candle-only backtester.
+    out["pm_momentum_5m"] = 0.0
+    out["pm_volume_5m"] = 0.0
+    out["pm_spread_pct"] = 0.0
+    out["pm_quote_pressure"] = 0.0
     # ── NaN → 0 (safety net) ────────────────────────────────────
     out = out.fillna(0.0)
     out = out.replace([np.inf, -np.inf], 0.0)
