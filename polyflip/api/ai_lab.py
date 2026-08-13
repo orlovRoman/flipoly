@@ -23,6 +23,7 @@ from polyflip.ai_lab.service import (
     create_run,
     authorize_run_action,
     get_run_detail,
+    transition_action_for_target,
     request_approval,
     transition_run,
 )
@@ -297,13 +298,28 @@ async def transition_ai_run(
     run = await db.get(AIOptimizationRun, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
+    target = payload.target.upper()
+    if target == "ACTIVE":
+        raise HTTPException(
+            status_code=403,
+            detail="ACTIVE transition requires explicit human approval",
+        )
     try:
-        await transition_run(db, run, payload.target, reason=payload.reason)
+        action = transition_action_for_target(target)
+        if action:
+            await authorize_run_action(db, run_id, action)
+        await transition_run(db, run, target, reason=payload.reason)
         await db.commit()
         await db.refresh(run)
-    except (AILabError, AIRunTransitionError) as exc:
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AIRunTransitionError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _run_payload(run)
 
 
