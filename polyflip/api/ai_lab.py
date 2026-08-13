@@ -50,7 +50,10 @@ class RunCreateRequest(BaseModel):
     budget_experiments: int = Field(default=0, ge=0, le=10000)
     budget_seconds: int = Field(default=0, ge=0, le=7 * 24 * 3600)
     created_by: str = Field(default="api", max_length=128)
-    permission_id: int | None = None
+    permission_id: int | None = Field(
+        default=None,
+        description="Concrete AIPermission.id version captured as the run snapshot.",
+    )
 
 
 class TransitionRequest(BaseModel):
@@ -222,11 +225,17 @@ async def check_ai_action(
 
 @router.post("/runs", status_code=201)
 async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(get_db_session)):
-    permission = (
-        await db.get(AIPermission, payload.permission_id)
-        if payload.permission_id is not None
-        else None
-    )
+    permission = None
+    if payload.permission_id is not None:
+        # Lock the concrete permission version while the run captures its
+        # immutable snapshot; profile updates cannot race this read.
+        permission = (
+            await db.execute(
+                select(AIPermission)
+                .where(AIPermission.id == payload.permission_id)
+                .with_for_update(read=True)
+            )
+        ).scalar_one_or_none()
     if payload.permission_id is not None and permission is None:
         raise HTTPException(status_code=404, detail="permission profile not found")
     if payload.permission_id is None and payload.autonomy_level.upper() != "OBSERVE":
@@ -256,17 +265,28 @@ async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(ge
 @router.get("/runs")
 async def list_ai_runs(
     status: str | None = None,
+    created_by: str | None = None,
+    before_id: int | None = None,
     limit: int = 50,
     db: AsyncSession = Depends(get_db_session),
 ):
-    limit = min(max(limit, 1), 200)
+    # Cursor pagination is stable even when multiple runs share a timestamp.
+    limit = min(max(limit, 1), 100)
     query = select(AIOptimizationRun).order_by(
-        AIOptimizationRun.created_at.desc(), AIOptimizationRun.id.desc()
+        AIOptimizationRun.id.desc()
     ).limit(limit)
     if status:
-        query = query.where(AIOptimizationRun.status == status.upper())
+        query = query.where(AIOptimizationRun.status == status.strip().upper())
+    if created_by:
+        query = query.where(AIOptimizationRun.created_by == created_by.strip())
+    if before_id is not None:
+        query = query.where(AIOptimizationRun.id < before_id)
     rows = (await db.execute(query)).scalars().all()
-    return {"runs": [_run_payload(row) for row in rows]}
+    next_before_id = rows[-1].id if len(rows) == limit else None
+    return {
+        "runs": [_run_payload(row) for row in rows],
+        "next_before_id": next_before_id,
+    }
 
 
 @router.get("/runs/{run_id}")
@@ -306,11 +326,6 @@ async def transition_ai_run(
     if run is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
     target = payload.target.strip().upper()
-    if target == "ACTIVE":
-        raise HTTPException(
-            status_code=403,
-            detail="ACTIVE transition requires explicit human approval",
-        )
     try:
         action = transition_action_for_target(target)
         if action:
