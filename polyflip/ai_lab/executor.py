@@ -274,7 +274,7 @@ async def execute_next_step(
                 action=action or None,
                 error_code=error_code,
                 error_message=message,
-                payload={"raw_config_id": str(raw_config_id)},
+                payload={"raw_config_id": raw_config_id},
                 created_at=utc_now(),
             )
         )
