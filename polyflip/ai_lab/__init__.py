@@ -1,8 +1,9 @@
 """Autonomous experiment laboratory primitives.
 
-The package is intentionally independent from live execution.  It provides
-immutable manifests and audit-oriented persistence models; orchestration and
-Codex integration are added in later phases.
+The package is intentionally independent from live execution. It provides
+immutable manifests and audit-oriented persistence models. Safe orchestration and
+the explicit offline adapter executor live in the `orchestrator` and `executor`
+submodules; no live adapter is exposed here.
 """
 
 from polyflip.ai_lab.manifests import (
