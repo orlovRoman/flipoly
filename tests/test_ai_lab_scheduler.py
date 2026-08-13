@@ -8,8 +8,14 @@ from polyflip.ai_lab.executor import ExecutionOutcome
 
 
 class _Session:
+    def __init__(self):
+        self.rollback_count = 0
+
     async def get(self, _model, _run_id):
         return SimpleNamespace(status="RUNNING")
+
+    async def rollback(self):
+        self.rollback_count += 1
 
 
 def _outcome(status="SUCCEEDED"):
@@ -143,3 +149,26 @@ def test_scheduler_preserves_completed_outcomes_on_batch_error(monkeypatch):
     assert result.status == "PARTIAL_FAILURE"
     assert result.stop_reason == "batch_failure"
     assert len(result.outcomes) == 1
+
+
+def test_scheduler_rolls_back_before_releasing_lease(monkeypatch):
+    session = _Session()
+    events = []
+
+    async def acquire(*_args, **_kwargs):
+        return True
+
+    async def execute(*_args, **_kwargs):
+        raise RuntimeError("database connection lost")
+
+    async def release(*_args, **_kwargs):
+        events.append(session.rollback_count)
+
+    monkeypatch.setattr(scheduler, "acquire_worker_lease", acquire)
+    monkeypatch.setattr(scheduler, "execute_lgbm_steps", execute)
+    monkeypatch.setattr(scheduler, "release_worker_lease", release)
+
+    with pytest.raises(RuntimeError, match="database connection lost"):
+        asyncio.run(scheduler.run_lgbm_scheduler(session, 1))
+
+    assert events == [1]
