@@ -231,13 +231,16 @@
                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;" id="train-buttons-container">
                     <label for="lgbm-feature-set" style="font-size: 0.85rem; color: var(--text-muted);">Набор признаков:</label>
                     <span class="lgbm-help" tabindex="0" role="img"
-                          aria-label="A — контрольный набор; B — направления и серии свечей; C — тело и структура свечей."
-                          title="A — контрольный набор; B — направления и серии свечей; C — тело и структура свечей.">?</span>
+                          aria-label="A — контрольный набор; B/C — свечные признаки; D — стабильные; E — страйк; F — 5m market context."
+                          title="A — контрольный набор; B/C — свечные признаки; D — стабильные; E — страйк; F — 5m market context.">?</span>
                     <select id="lgbm-feature-set" title="A — контрольный набор; B — направления и серии свечей; C — тело и структура свечей."
                             style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.65rem; border-radius: 6px;">
                         <option value="A">A — контрольный набор</option>
                         <option value="B">B — направления и серии</option>
                         <option value="C">C — структура свечей</option>
+                        <option value="D">D — стабильные признаки</option>
+                        <option value="E">E — D + канонический страйк</option>
+                        <option value="F">F — E + market context 5m</option>
                     </select>
                     <label for="lgbm-activate-after-train" style="font-size: 0.85rem; color: var(--text-muted); display:flex; align-items:center; gap:0.35rem;" title="Automatically activate the new model after training">
                         <input type="checkbox" id="lgbm-activate-after-train">
@@ -474,6 +477,9 @@
                             <option value="A">A - control</option>
                             <option value="B">B - directions and runs</option>
                             <option value="C">C - candle structure</option>
+                            <option value="D">D - stable audit features</option>
+                            <option value="E">E - stable + canonical strike</option>
+                            <option value="F">F - stable + 5m market context</option>
                         </select>
                         <select id="bt-strategy-branch" title="Polymarket strategy branch" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 180px;">
                             <option value="OUTSIDER_ONLY">Outsider only</option>
