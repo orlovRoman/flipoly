@@ -897,8 +897,14 @@
                 return;
             }
             const current = select.value || lgbmExperimentData[0].comparison_key;
+            const groupLabel = group => {
+                const variants = (group.variants || []).map(row =>
+                    `${row.feature_set || '?'} v${row.version ?? '?'} ${row.artifact_available ? 'saved' : 'legacy'}`
+                ).join(' · ');
+                return `${group.asset} / ${group.regime} (${variants || group.variant_count + ' variants'})`;
+            };
             select.innerHTML = lgbmExperimentData.map(group =>
-                `<option value="${group.comparison_key}">${group.asset} / ${group.regime} (${group.variant_count} variants)</option>`
+                `<option value="${group.comparison_key}" title="${groupLabel(group)}">${groupLabel(group)}</option>`
             ).join('');
             select.value = lgbmExperimentData.some(group => group.comparison_key === current) ? current : lgbmExperimentData[0].comparison_key;
             const group = lgbmExperimentData.find(item => item.comparison_key === select.value) || lgbmExperimentData[0];
