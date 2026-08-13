@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Mapping, Protocol
+from typing import Any, Awaitable, Mapping, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
