@@ -81,3 +81,21 @@ async def test_active_transition_is_blocked_without_human_approval():
     with pytest.raises(AIRunTransitionError, match="human approval"):
         await transition_run(session, run, "ACTIVE")
     session.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_activation_approval_requires_shadow_or_pending_state():
+    session = SimpleNamespace(
+        get=AsyncMock(return_value=SimpleNamespace(status="RUNNING"))
+    )
+    from polyflip.ai_lab.service import request_approval
+
+    with pytest.raises(AILabError, match="activation approval"):
+        await request_approval(
+            session,
+            run_id=5,
+            target_type="RUN",
+            target_id="5",
+            requested_action="ACTIVATE",
+            diff={},
+        )
