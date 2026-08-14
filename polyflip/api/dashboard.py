@@ -124,25 +124,26 @@ async def get_dashboard_data(
             .subquery()
         )
 
-        status_query = select(CollectorStatus).join(
-            subq,
-            and_(
-                CollectorStatus.service_name == subq.c.service_name,
-                CollectorStatus.timestamp == subq.c.max_ts,
-            ),
+        statuses_query = (
+            select(CollectorStatus)
+            .join(
+                subq,
+                and_(
+                    CollectorStatus.service_name == subq.c.service_name,
+                    CollectorStatus.timestamp == subq.c.max_ts,
+                ),
+            )
+            .order_by(CollectorStatus.service_name)
         )
-        status_res = await db.execute(status_query)
-        statuses = status_res.scalars().all()
+        statuses_res = await db.execute(statuses_query)
+        statuses = statuses_res.scalars().all()
 
-        # 2. Активные рынки
-        active_markets_query = select(LiveMarket).where(
-            LiveMarket.status == "ACTIVE"
-        )
-        markets_res = await db.execute(active_markets_query)
+        # 2. Активные рынки (live_markets)
+        markets_query = select(LiveMarket).order_by(LiveMarket.asset)
+        markets_res = await db.execute(markets_query)
         markets = markets_res.scalars().all()
 
-        # 3. Количество снапшотов за период (для графика активности)
-        # Группируем по часам
+        # 3. Активность сбора данных по часам за указанный период (hours)
         snapshot_counts_query = (
             select(
                 MarketSnapshot.asset,
@@ -267,29 +268,46 @@ async def get_models_pnl(
 
     start_date = datetime.now(timezone.utc) - timedelta(days=days)
 
-    models_stmt = select(ModelRegistry).order_by(
-        ModelRegistry.asset, ModelRegistry.version
-    )
-    models_res = await db.execute(models_stmt)
-    models_rows = models_res.scalars().all()
-
-    trades_stmt = (
-        select(TradeHistory)
-        .where(
-            TradeHistory.timestamp >= start_date,
-            TradeHistory.pnl.isnot(None),
+    # 1. Получаем все модели
+    models_res = await db.execute(
+        select(ModelRegistry).order_by(
+            ModelRegistry.asset, ModelRegistry.version
         )
-        .order_by(TradeHistory.timestamp.asc())
     )
-    trades_res = await db.execute(trades_stmt)
+    all_models = models_res.scalars().all()
+
+    # 2. Получаем закрытые сделки за период (как по экспирации, так и по SL/TP)
+    trades_query = select(TradeHistory).where(
+        TradeHistory.position_status == "CLOSED",
+        TradeHistory.pnl.is_not(None),
+        TradeHistory.created_at >= start_date,
+    )
+    trades_res = await db.execute(trades_query)
     trades_rows = trades_res.scalars().all()
 
-    trades_by_model = {}
-    exact_trades_count = {}
-    reconstructed_trades_count = {}
-    unattributed_trades = 0
-    unattributed_pnl = 0.0
+    # 3. Инициализируем структуру статистики для каждой модели
+    # Ключ: (asset, version)
+    stats = {}
+    for m in all_models:
+        key = (m.asset, m.version)
+        stats[key] = {
+            "model_id": m.id,
+            "asset": m.asset,
+            "version": m.version,
+            "model_type": m.model_type,
+            "features": m.features,
+            "decision_threshold": m.decision_threshold,
+            "decision_threshold_down": m.decision_threshold_down,
+            "is_active": m.is_active,
+            "total_trades": 0,
+            "winning_trades": 0,
+            "total_pnl": 0.0,
+            "accuracy": m.accuracy,
+            "backtest_pnl": m.backtest_pnl,
+            "backtest_trades": m.backtest_trades,
+        }
 
+    # 4. Агрегируем сделки по моделям
     for trade in trades_rows:
         try:
             pnl_val = float(trade.pnl)
@@ -297,57 +315,60 @@ async def get_models_pnl(
             continue
 
         assigned = False
-
-        if trade.model_registry_id is not None:
-            model = next(
-                (m for m in models_rows if m.id == trade.model_registry_id),
-                None,
-            )
-            if model:
-                key = (model.asset, model.version)
-                trades_by_model.setdefault(key, []).append(pnl_val)
-                exact_trades_count[key] = exact_trades_count.get(key, 0) + 1
+        # Сначала проверяем точное совпадение по direction_model_version
+        if trade.direction_model_version is not None:
+            key = (trade.asset, trade.direction_model_version)
+            if key in stats:
+                stats[key]["total_trades"] += 1
+                stats[key]["total_pnl"] += pnl_val
+                if pnl_val > 0:
+                    stats[key]["winning_trades"] += 1
                 assigned = True
 
-        if not assigned and trade.model_version is not None:
-            key = (trade.asset, trade.model_version)
-            trades_by_model.setdefault(key, []).append(pnl_val)
-            exact_trades_count[key] = exact_trades_count.get(key, 0) + 1
-            assigned = True
+        # Если не назначено, но есть trade.model_type — пробуем сопоставить по типу
+        if not assigned and trade.model_type:
+            for key, s in stats.items():
+                if (
+                    s["asset"] == trade.asset
+                    and s["model_type"] == trade.model_type
+                ):
+                    s["total_trades"] += 1
+                    s["total_pnl"] += pnl_val
+                    if pnl_val > 0:
+                        s["winning_trades"] += 1
+                    break
 
-        if not assigned:
-            unattributed_trades += 1
-            unattributed_pnl += pnl_val
+    # 5. Рассчитываем винрейт и форматируем результат
+    result_data = []
+    for (asset, version), s in stats.items():
+        total = s["total_trades"]
+        wins = s["winning_trades"]
+        win_rate = (wins / total * 100.0) if total > 0 else 0.0
+        result_data.append(
+            {
+                "model_id": s["model_id"],
+                "asset": s["asset"],
+                "version": s["version"],
+                "model_type": s["model_type"],
+                "features": s["features"],
+                "decision_threshold": s["decision_threshold"],
+                "decision_threshold_down": s["decision_threshold_down"],
+                "is_active": s["is_active"],
+                "total_trades": total,
+                "winning_trades": wins,
+                "win_rate": round(win_rate, 1),
+                "total_pnl": round(s["total_pnl"], 4),
+                "accuracy": s["accuracy"],
+                "backtest_pnl": s["backtest_pnl"],
+                "backtest_trades": s["backtest_trades"],
+            }
+        )
 
-    result_map = {}
-    for row in models_rows:
-        asset = row.asset
-        version = row.version
-        key = f"{asset}_v{version}"
+    # Сортируем: сначала активные, затем по активу и версии
+    result_data.sort(
+        key=lambda x: (not x["is_active"], x["asset"], x["version"])
+    )
 
-        valid_trades = trades_by_model.get((asset, version), [])
-        total = len(valid_trades)
-        total_pnl = sum(valid_trades) if total > 0 else 0.0
-        wins = sum(1 for pnl in valid_trades if pnl > 0)
-
-        result_map[key] = {
-            "asset": asset,
-            "version": version,
-            "total_trades": total,
-            "pnl": round(float(total_pnl), 2),
-            "win_rate": round(wins / total * 100, 1) if total > 0 else None,
-            "exact_trades": exact_trades_count.get((asset, version), 0),
-            "reconstructed_trades": reconstructed_trades_count.get(
-                (asset, version), 0
-            ),
-        }
-
-    result_map["_unattributed"] = {
-        "total_trades": unattributed_trades,
-        "pnl": round(float(unattributed_pnl), 2),
-    }
-
-    response_data = {"status": "success", "data": result_map}
-    _model_pnl_cache[cache_key] = {"time": current_time, "data": response_data}
-
-    return response_data
+    response = {"status": "success", "data": result_data}
+    _model_pnl_cache[cache_key] = {"time": current_time, "data": response}
+    return response
