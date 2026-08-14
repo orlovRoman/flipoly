@@ -14,6 +14,12 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # A manifest hash identifies content, but the same content may be
+    # proposed again after rollback with a new revision key/parent.
+    op.execute(
+        "ALTER TABLE deployment_revisions "
+        "DROP CONSTRAINT IF EXISTS deployment_revisions_manifest_hash_key"
+    )
     op.drop_constraint(
         "ck_deployment_revisions_status",
         "deployment_revisions",
@@ -28,6 +34,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.create_unique_constraint(
+        "deployment_revisions_manifest_hash_key",
+        "deployment_revisions",
+        ["manifest_hash"],
+    )
     op.execute(
         "UPDATE deployment_revisions "
         "SET status = 'ROLLED_BACK' WHERE status = 'SUPERSEDED'"
