@@ -42,6 +42,26 @@ _TRAINING_SEMAPHORE: asyncio.Semaphore | None = None
 logger = structlog.get_logger(__name__)
 
 
+def _json_safe(value):
+    """Return JSON-compatible metadata for SQLAlchemy JSON columns."""
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return value.isoformat()
+    if value is pd.NA:
+        return None
+    if isinstance(value, (float, np.floating)):
+        numeric = float(value)
+        return numeric if np.isfinite(numeric) else None
+    if isinstance(value, np.generic):
+        return _json_safe(value.item())
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
 async def _get_training_semaphore(db: AsyncSession) -> asyncio.Semaphore:
     """
     Возвращает синглтон-семафор для лимита параллельных вызовов обучения.
@@ -1130,6 +1150,8 @@ class ModelTrainer:
                         updated_by="train_job"
                     ))
 
+        backtest_json = _json_safe(backtest)
+
         # 7. Сохраняем новую модель
         new_model_record = ModelRegistry(
             asset=asset,
@@ -1145,14 +1167,14 @@ class ModelTrainer:
             quality_gate_passed=passed_quality_gate,
             quality_gate_reasons={
                 "reasons": gate_reasons, "auc": val_acc, "ece": ece,
-                "backtest": backtest,
+                "backtest": backtest_json,
             },
             training_params={
                 "quality_gate_mode": "ADVISORY",
-                "backtest_strategy_branch": backtest["strategy_branch"],
+                "backtest_strategy_branch": backtest_json["strategy_branch"],
                 "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
-                "validation_scheme": backtest["validation_scheme"],
-                "validation_folds": backtest["validation_folds"],
+                "validation_scheme": backtest_json["validation_scheme"],
+                "validation_folds": backtest_json["validation_folds"],
                 "feature_set_version": FEATURE_EXPERIMENT_LABELS.get(
                     experiment_variant,
                     SEQUENCE_FEATURE_SET_VERSION if sequence_enabled else "baseline-v1",
@@ -1160,14 +1182,14 @@ class ModelTrainer:
                 "experiment_variant": experiment_variant,
                 "sequence_coverage": round(sequence_coverage, 6),
                 "sequence_source": "CLOSED_UNDERLYING_15M",
-                "model_config": backtest["model_config"],
-                "brier_score": backtest["brier_score"],
-                "log_loss": backtest["log_loss"],
-                "oot_markets": backtest["oot_markets"],
+                "model_config": backtest_json["model_config"],
+                "brier_score": backtest_json["brier_score"],
+                "log_loss": backtest_json["log_loss"],
+                "oot_markets": backtest_json["oot_markets"],
                 "prediction_semantics": "FLIP_VS_FINAL_OUTCOME",
                 "oof_artifact_schema": OOF_ARTIFACT_SCHEMA_VERSION,
-                "backtest_pnl_mode": backtest.get("backtest_pnl_mode"),
-                "polymarket_backtest_variants": backtest.get("polymarket_variants", {}),
+                "backtest_pnl_mode": backtest_json.get("backtest_pnl_mode"),
+                "polymarket_backtest_variants": backtest_json.get("polymarket_variants", {}),
             },
             activation_source="TRAINER" if should_activate else None,
             quality_override=not passed_quality_gate,
@@ -1345,6 +1367,7 @@ class ModelTrainer:
                 oof_artifact_p,
             ) = fit_res_phase
 
+            backtest_json_p = _json_safe(backtest_p)
             phase_gate_reasons = []
             if val_acc_p < min_auc:
                 phase_gate_reasons.append(f"AUC {val_acc_p:.4f} below {min_auc:.4f}")
@@ -1396,27 +1419,27 @@ class ModelTrainer:
                 quality_gate_passed=not phase_gate_reasons,
                 quality_gate_reasons={
                     "reasons": phase_gate_reasons, "auc": val_acc_p,
-                    "ece": ece_p, "backtest": backtest_p,
+                    "ece": ece_p, "backtest": backtest_json_p,
                 },
                 activation_source="TRAINER" if activate_after_train else None,
                 training_params={
                     "quality_gate_mode": "ADVISORY",
-                    "backtest_strategy_branch": backtest_p["strategy_branch"],
+                    "backtest_strategy_branch": backtest_json_p["strategy_branch"],
                     "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
-                    "validation_scheme": backtest_p["validation_scheme"],
-                    "validation_folds": backtest_p["validation_folds"],
+                    "validation_scheme": backtest_json_p["validation_scheme"],
+                    "validation_folds": backtest_json_p["validation_folds"],
                     "feature_set_version": FEATURE_EXPERIMENT_LABELS.get(
                         experiment_variant,
                         SEQUENCE_FEATURE_SET_VERSION if sequence_enabled else "baseline-v1",
                     ),
                     "experiment_variant": experiment_variant,
                     "sequence_coverage": round(sequence_coverage, 6),
-                    "model_config": backtest_p["model_config"],
-                    "oot_markets": backtest_p["oot_markets"],
+                    "model_config": backtest_json_p["model_config"],
+                    "oot_markets": backtest_json_p["oot_markets"],
                     "prediction_semantics": "FLIP_VS_FINAL_OUTCOME",
                     "oof_artifact_schema": OOF_ARTIFACT_SCHEMA_VERSION,
-                    "backtest_pnl_mode": backtest_p.get("backtest_pnl_mode"),
-                    "polymarket_backtest_variants": backtest_p.get("polymarket_variants", {}),
+                    "backtest_pnl_mode": backtest_json_p.get("backtest_pnl_mode"),
+                    "polymarket_backtest_variants": backtest_json_p.get("polymarket_variants", {}),
                 },
                 quality_override=bool(phase_gate_reasons),
                 activated_at=(
