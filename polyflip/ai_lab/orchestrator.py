@@ -826,15 +826,21 @@ async def finalize_run(
             )
             await session.flush()
     else:
-        # Rejection or report-only mode: record durable summary & audit log
+        # Rejection or report-only mode: retain any prior assignment provenance.
         session_run = await session.get(AIOptimizationRun, run_id)
+        previous_assignment = None
         if session_run is not None:
+            try:
+                previous_summary = json.loads(session_run.summary or "{}")
+            except (TypeError, ValueError):
+                previous_summary = {}
+            previous_assignment = previous_summary.get("shadow_assignment")
             session_run.summary = json.dumps(
                 {
                     "report": report,
                     "status": report.get("recommendation_status"),
                     "rejection_reasons": report.get("rejection_reasons", []),
-                    "shadow_assignment": None,
+                    "shadow_assignment": previous_assignment,
                 },
                 sort_keys=True,
                 separators=(",", ":"),
