@@ -58,23 +58,28 @@ def _first_valid_per_market(
         base["final_outcome"].astype(str).str.upper().isin({"YES", "NO"})
     ]
     base = base[np.isfinite(base["_p_flip"].to_numpy())]
-    base = base.drop_duplicates("market_id", keep="first")
     if base.empty:
         return base.reset_index(drop=True), np.asarray([], dtype=float)
-    p_yes: list[float] = []
-    keep: list[int] = []
+    valid_p_yes: dict[int, float] = {}
     for index, row in base.iterrows():
         try:
-            p_yes.append(
-                flip_probability_to_yes_probability(
-                    row["_p_flip"], row["mid_price"]
-                )
+            valid_p_yes[index] = flip_probability_to_yes_probability(
+                row["_p_flip"], row["mid_price"]
             )
-            keep.append(index)
         except (TypeError, ValueError):
             continue
-    selected = base.loc[keep].reset_index(drop=True)
-    return selected, np.asarray(p_yes, dtype=float)
+    if not valid_p_yes:
+        return base.iloc[0:0].reset_index(drop=True), np.asarray([], dtype=float)
+    # Validate each row before de-duplicating.  An invalid earliest snapshot
+    # (for example midpoint=0.5 with no canonical favourite) must not hide a
+    # later valid entry snapshot for the same market.
+    selected = base.loc[list(valid_p_yes)].drop_duplicates(
+        "market_id", keep="first"
+    )
+    p_yes = np.asarray(
+        [valid_p_yes[int(index)] for index in selected.index], dtype=float
+    )
+    return selected.reset_index(drop=True), p_yes
 
 
 def compute_logreg_polymarket_backtest(
@@ -91,10 +96,13 @@ def compute_logreg_polymarket_backtest(
         return compute_oof_polymarket_backtest(
             selected, p_yes, pd.DataFrame(), strategy_branch=strategy_branch, **kwargs
         )
-    quote_frame = quotes.copy() if quotes is not None else selected.copy()
+    # Missing executable quotes are missing coverage, not a reason to reuse
+    # the OOF/training frame as if it were a market snapshot.
+    quote_frame = quotes.copy() if quotes is not None else pd.DataFrame()
     if quote_frame.empty:
-        quote_frame = selected.copy()
-    quote_frame["market_id"] = quote_frame["market_id"].astype(str)
+        quote_frame = pd.DataFrame(columns=["market_id"])
+    else:
+        quote_frame["market_id"] = quote_frame["market_id"].astype(str)
     if "final_outcome" not in quote_frame.columns:
         quote_frame = quote_frame.merge(
             selected[["market_id", "final_outcome"]],

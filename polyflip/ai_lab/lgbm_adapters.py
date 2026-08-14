@@ -30,6 +30,7 @@ from polyflip.crypto.polymarket_backtest import (
 )
 from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.constants import resolve_binance_symbol
+from polyflip.ai_lab.logreg_adapters import LOGREG_MODEL_FAMILIES
 from polyflip.db.models import (
     AIModelArtifact,
     ExperimentResult,
@@ -533,11 +534,6 @@ async def run_lgbm_polymarket_oot(
         ),
     )
 
-
-
-LOGREG_MODEL_FAMILIES = frozenset({
-    "LOGREG", "LOGISTIC", "LOGISTIC_REGRESSION", "LOGISTICREGRESSION",
-})
 
 
 def _is_logreg_context(context: StepContext) -> bool:

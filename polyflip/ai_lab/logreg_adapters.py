@@ -145,8 +145,11 @@ async def _create_bundle_artifact(
     context: StepContext,
     rows: Sequence[ModelRegistry],
 ) -> AIModelArtifact:
+    for row in rows:
+        if row.model_blob is None:
+            raise ValueError(f"ModelRegistry {row.id} has no model_blob")
     payload = b"".join(
-        hashlib.sha256(bytes(row.model_blob or b"")).digest()
+        hashlib.sha256(bytes(row.model_blob)).digest()
         for row in sorted(rows, key=lambda item: int(item.id))
     )
     digest = hashlib.sha256(payload).hexdigest()
@@ -233,8 +236,18 @@ async def train_logreg(context: StepContext, session: AsyncSession) -> AdapterRe
             error_code="TRAINING_NO_REGISTRY_ROWS",
         )
     if any(bool(row.is_active) for row in rows):
-        await session.rollback()
-        raise RuntimeError("safety violation: AI Lab LogReg training produced an active model")
+        # Do not rollback the executor-owned transaction.  Neutralize only the
+        # newly created rows, then let the executor persist an auditable failure.
+        for row in rows:
+            if bool(row.is_active):
+                row.is_active = False
+                row.activation_source = None
+                row.activated_at = None
+                row.activated_by = None
+        await session.flush()
+        raise RuntimeError(
+            "safety violation: AI Lab LogReg training produced an active model"
+        )
     artifact = await _create_bundle_artifact(session, context, rows)
     metrics = [_row_metrics(row) for row in rows]
     aucs = [item["auc"] for item in metrics if item["auc"] is not None]
@@ -303,10 +316,10 @@ async def run_logreg_polymarket_oot(
             summary="No successful LogReg TRAIN artifact is available.",
             error_code="TRAIN_ARTIFACT_MISSING",
         )
-    payload = _mapping(context.input_payload)
+    input_payload = _mapping(context.input_payload)
     strategy = _mapping(context.strategy_params)
     branch = str(
-        payload.get("strategy_branch")
+        input_payload.get("strategy_branch")
         or strategy.get("strategy_branch")
         or strategy.get("branch")
         or "COMBINED"
@@ -329,11 +342,11 @@ async def run_logreg_polymarket_oot(
         if params.get("prediction_semantics") != "FLIP_VS_FINAL_OUTCOME":
             continue
         try:
-            payload = deserialize_oof_artifact(bytes(artifact.artifact_blob))
+            oof_payload = deserialize_oof_artifact(bytes(artifact.artifact_blob))
             result = compute_logreg_polymarket_backtest(
-                payload["frame"],
-                payload["oof_scores"],
-                payload["quotes"],
+                oof_payload["frame"],
+                oof_payload["oof_scores"],
+                oof_payload["quotes"],
                 strategy_branch=branch,
             )
         except (TypeError, ValueError) as exc:
