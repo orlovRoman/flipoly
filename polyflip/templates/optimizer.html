@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PolyFlip — AI Lab Optimizer</title>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <!-- Main CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ static_version }}">
+
+  <style>
+    :root {
+      --font-mono: 'JetBrains Mono', monospace;
+      --color-pending: #8F9BB3;
+      --color-running: #0072F5;
+      --color-evaluating: #A855F7;
+      --color-shadow: #8B5CF6;
+      --color-approval: #F5A623;
+      --color-active: #00D395;
+      --color-rejected: #FF4D4D;
+      --color-failed: #FF3B30;
+      --color-rolledback: #FF9500;
+    }
+
+    .opt-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      padding: 1.5rem 2rem 3rem 2rem;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    /* Active Model Hero Banner */
+    .hero-banner {
+      background: linear-gradient(135deg, rgba(20, 26, 38, 0.9) 0%, rgba(10, 14, 23, 0.95) 100%);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.25rem 1.75rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      backdrop-filter: var(--glass-blur);
+    }
+
+    .hero-left {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .hero-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: rgba(0, 211, 149, 0.15);
+      border: 1px solid rgba(0, 211, 149, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+    }
+
+    .hero-title {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 0.25rem;
+    }
+
+    .hero-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .hero-meta {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .hero-right {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    /* Navigation Tabs */
+    .opt-tabs {
+      display: flex;
+      gap: 0.5rem;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 0.5rem;
+    }
+
+    .opt-tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 0.75rem 1.25rem;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .opt-tab-btn:hover {
+      background: var(--bg-panel-hover);
+      color: var(--text-main);
+    }
+
+    .opt-tab-btn.active {
+      background: rgba(0, 114, 245, 0.15);
+      color: var(--poly-blue);
+      border: 1px solid rgba(0, 114, 245, 0.3);
+    }
+
+    /* Panels & Cards */
+    .opt-panel {
+      background: var(--bg-panel);
+      backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }
+
+    .panel-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Status Badges */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-family: var(--font-mono);
+    }
+
+    .badge-draft { background: rgba(143, 155, 179, 0.15); color: #8F9BB3; border: 1px solid rgba(143, 155, 179, 0.3); }
+    .badge-planning { background: rgba(0, 114, 245, 0.15); color: #0072F5; border: 1px solid rgba(0, 114, 245, 0.3); }
+    .badge-running { background: rgba(0, 114, 245, 0.2); color: #38BDF8; border: 1px solid rgba(56, 189, 248, 0.4); }
+    .badge-evaluating { background: rgba(168, 85, 247, 0.2); color: #C084FC; border: 1px solid rgba(168, 85, 247, 0.4); }
+    .badge-shadow { background: rgba(139, 92, 246, 0.2); color: #A78BFA; border: 1px solid rgba(139, 92, 246, 0.4); }
+    .badge-pending_approval { background: rgba(245, 166, 35, 0.2); color: #FBBF24; border: 1px solid rgba(245, 166, 35, 0.4); }
+    .badge-active { background: rgba(0, 211, 149, 0.2); color: #34D399; border: 1px solid rgba(0, 211, 149, 0.4); }
+    .badge-rejected { background: rgba(255, 77, 77, 0.2); color: #F87171; border: 1px solid rgba(255, 77, 77, 0.4); }
+    .badge-failed { background: rgba(255, 59, 48, 0.2); color: #EF4444; border: 1px solid rgba(255, 59, 48, 0.4); }
+    .badge-rolled_back { background: rgba(255, 149, 0, 0.2); color: #FB923C; border: 1px solid rgba(255, 149, 0, 0.4); }
+    .badge-superseded { background: rgba(143, 155, 179, 0.15); color: #94A3B8; border: 1px solid rgba(143, 155, 179, 0.25); }
+
+    /* Tables */
+    .opt-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+
+    .opt-table th {
+      padding: 0.75rem 1rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-color);
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.5px;
+    }
+
+    .opt-table td {
+      padding: 0.9rem 1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      vertical-align: middle;
+    }
+
+    .opt-table tr:hover td {
+      background: var(--bg-panel-hover);
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 0.55rem 1.1rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .btn-primary { background: var(--poly-blue); color: #fff; }
+    .btn-primary:hover { background: #0060d0; }
+    .btn-success { background: var(--poly-green); color: #000; font-weight: 700; }
+    .btn-success:hover { background: #00b882; }
+    .btn-danger { background: rgba(255, 77, 77, 0.2); color: #FF4D4D; border-color: rgba(255, 77, 77, 0.4); }
+    .btn-danger:hover { background: rgba(255, 77, 77, 0.35); }
+    .btn-warning { background: rgba(245, 166, 35, 0.2); color: #F5A623; border-color: rgba(245, 166, 35, 0.4); }
+    .btn-warning:hover { background: rgba(245, 166, 35, 0.35); }
+    .btn-outline { background: transparent; color: var(--text-main); border-color: var(--border-color); }
+    .btn-outline:hover { background: var(--bg-panel-hover); }
+
+    /* Timeline Component */
+    .timeline {
+      position: relative;
+      padding-left: 2rem;
+      margin: 1rem 0;
+    }
+
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 11px;
+      top: 10px;
+      bottom: 10px;
+      width: 2px;
+      background: var(--border-color);
+    }
+
+    .timeline-item {
+      position: relative;
+      margin-bottom: 1.5rem;
+    }
+
+    .timeline-dot {
+      position: absolute;
+      left: -2rem;
+      top: 4px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--bg-dark);
+      border: 2px solid var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+    }
+
+    .timeline-dot.succeeded { border-color: var(--poly-green); color: var(--poly-green); }
+    .timeline-dot.running { border-color: var(--poly-blue); color: var(--poly-blue); animation: pulse 1.5s infinite; }
+    .timeline-dot.failed { border-color: var(--color-failed); color: var(--color-failed); }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(0, 114, 245, 0.4); }
+      70% { box-shadow: 0 0 0 8px rgba(0, 114, 245, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(0, 114, 245, 0); }
+    }
+
+    .timeline-content {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+    }
+
+    /* Visual Diff Grid */
+    .diff-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin: 1.5rem 0;
+    }
+
+    .diff-column {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 1.25rem;
+    }
+
+    .diff-column.candidate {
+      border-color: rgba(0, 211, 149, 0.4);
+      background: rgba(0, 211, 149, 0.03);
+    }
+
+    .diff-column.baseline {
+      border-color: rgba(143, 155, 179, 0.3);
+    }
+
+    .diff-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 0.9rem;
+    }
+
+    .diff-label { color: var(--text-muted); }
+    .diff-val { font-family: var(--font-mono); font-weight: 600; }
+
+    /* Modals */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .modal-backdrop.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal-card {
+      background: #101623;
+      border: 1px solid var(--border-color);
+      border-radius: 18px;
+      width: 90%;
+      max-width: 580px;
+      padding: 2rem;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .modal-title { font-size: 1.25rem; font-weight: 700; }
+    .modal-body { margin-bottom: 1.75rem; font-size: 0.95rem; line-height: 1.6; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 1rem; }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+    }
+
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 0.65rem 0.9rem;
+      color: var(--text-main);
+      font-size: 0.9rem;
+      font-family: inherit;
+    }
+
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      outline: none;
+      border-color: var(--poly-blue);
+      box-shadow: 0 0 0 2px rgba(0, 114, 245, 0.2);
+    }
+
+    .mono-hash {
+      font-family: var(--font-mono);
+      color: var(--poly-green);
+      font-size: 0.8rem;
+    }
+  </style>
+
+  <script>
+    window.API_BASE = "{{ root_path }}";
+  </script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+      <div class="logo">
+        <span class="poly">Poly</span><span class="flip">Flip</span>
+      </div>
+      <ul class="nav-links">
+        <li class="nav-item" onclick="window.location.href='/dashboard'">Аналитика</li>
+        <li class="nav-item" onclick="window.location.href='/dashboard?tab=models'">Модели Polymarket</li>
+        <li class="nav-item" onclick="window.location.href='/dashboard?tab=status'">Статус Парсера</li>
+        <li class="nav-item" onclick="window.location.href='/trading'">Торговля (PnL)</li>
+        <li class="nav-item" onclick="window.location.href='/backtest'">Бэктест</li>
+        <li class="nav-item" onclick="window.location.href='/lightgbm'">LightGBM (15m)</li>
+        <li class="nav-item" onclick="window.location.href='/execution'">Исполнение сделок (LIVE)</li>
+        <li class="nav-item active" onclick="window.location.href='/optimizer'">AI Lab / Оптимизатор</li>
+      </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="opt-container">
+        
+        <!-- Active Live Revision Hero Banner -->
+        <div class="hero-banner" id="active-revision-banner">
+          <div class="hero-left">
+            <div class="hero-icon">⚡</div>
+            <div>
+              <div class="hero-title">Активная ревизия в LIVE</div>
+              <div class="hero-value" id="hero-active-title">Загрузка ревизии...</div>
+              <div class="hero-meta" id="hero-active-meta">—</div>
+            </div>
+          </div>
+          <div class="hero-right">
+            <button class="btn btn-warning" id="btn-emergency-rollback" onclick="openRollbackModal()">
+              ⏮ Аварийный откат (Rollback)
+            </button>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="opt-tabs">
+          <button class="opt-tab-btn active" data-tab="runs" onclick="switchOptTab('runs')">
+            📋 Запуски оптимизации
+          </button>
+          <button class="opt-tab-btn" data-tab="detail" onclick="switchOptTab('detail')">
+            🔬 Детали и Таймлайн
+          </button>
+          <button class="opt-tab-btn" data-tab="approval" onclick="switchOptTab('approval')">
+            ⚖️ Согласование и Visual Diff
+          </button>
+          <button class="opt-tab-btn" data-tab="revisions" onclick="switchOptTab('revisions')">
+            📜 Ревизии и Аудит-цепочка
+          </button>
+        </div>
+
+        <!-- TAB 1: RUNS LIST -->
+        <div id="tab-runs" class="tab-pane">
+          <div class="opt-panel">
+            <div class="panel-header">
+              <div class="panel-title">Экспериментальные прогоны (AIOptimizationRun)</div>
+              <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <select class="form-select" id="filter-run-status" onchange="loadRuns()" style="width: 180px;">
+                  <option value="">Все статусы</option>
+                  <option value="DRAFT">DRAFT</option>
+                  <option value="PLANNING">PLANNING</option>
+                  <option value="RUNNING">RUNNING</option>
+                  <option value="EVALUATING">EVALUATING</option>
+                  <option value="SHADOW">SHADOW</option>
+                  <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="REJECTED">REJECTED</option>
+                  <option value="FAILED">FAILED</option>
+                </select>
+                <button class="btn btn-primary" onclick="openNewRunModal()">+ Новый запуск</button>
+              </div>
+            </div>
+
+            <table class="opt-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Цель эксперимента</th>
+                  <th>Статус</th>
+                  <th>Автономия</th>
+                  <th>Бюджет</th>
+                  <th>agent_thread_id</th>
+                  <th>Создан</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody id="runs-table-body">
+                <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Загрузка списка запусков...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 2: RUN DETAIL & TIMELINE -->
+        <div id="tab-detail" class="tab-pane" style="display: none;">
+          <div class="opt-panel" style="margin-bottom: 1.5rem;">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span>Прогон #<span id="detail-run-id">—</span>: <span id="detail-run-objective">Выберите запуск</span></span>
+              </div>
+              <div id="detail-run-badge">—</div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1rem;">
+              <div class="diff-column">
+                <div class="diff-label">Уровень автономии</div>
+                <div class="diff-val" id="detail-autonomy">—</div>
+              </div>
+              <div class="diff-column">
+                <div class="diff-label">Бюджет шагов</div>
+                <div class="diff-val" id="detail-budget">—</div>
+              </div>
+              <div class="diff-column">
+                <div class="diff-label">agent_thread_id</div>
+                <div class="diff-val" id="detail-thread-id">—</div>
+              </div>
+              <div class="diff-column">
+                <div class="diff-label">Создатель</div>
+                <div class="diff-val" id="detail-created-by">—</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Strict Finalization Gate Banner -->
+          <div class="opt-panel" id="gate-report-panel" style="margin-bottom: 1.5rem; display: none;">
+            <div class="panel-header">
+              <div class="panel-title">🛡️ Результат строгого гейта финализации (Strict Finalization Gate)</div>
+              <div id="gate-status-badge">—</div>
+            </div>
+            <div id="gate-report-content" style="font-size: 0.95rem; line-height: 1.6;">
+              <!-- Dynamic gate details -->
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+            <!-- Timeline of Steps -->
+            <div class="opt-panel">
+              <div class="panel-header">
+                <div class="panel-title">⏱️ Таймлайн шагов (AIRunStep)</div>
+              </div>
+              <div class="timeline" id="steps-timeline">
+                <div style="color: var(--text-muted);">Загрузка шагов...</div>
+              </div>
+            </div>
+
+            <!-- Experiment Results -->
+            <div class="opt-panel">
+              <div class="panel-header">
+                <div class="panel-title">📊 Результаты OOT-оценок (ExperimentResult)</div>
+              </div>
+              <div id="results-table-container">
+                <table class="opt-table">
+                  <thead>
+                    <tr>
+                      <th>Config</th>
+                      <th>Тип</th>
+                      <th>Сделки</th>
+                      <th>Медианный PnL</th>
+                      <th>Drawdown</th>
+                      <th>ECE / AUC</th>
+                    </tr>
+                  </thead>
+                  <tbody id="results-table-body">
+                    <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Нет результатов</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: APPROVAL & VISUAL DIFF -->
+        <div id="tab-approval" class="tab-pane" style="display: none;">
+          <div class="opt-panel">
+            <div class="panel-header">
+              <div class="panel-title">⚖️ Согласование активации и Visual Diff</div>
+              <div id="approval-status-badge">—</div>
+            </div>
+
+            <div id="approval-action-banner" style="margin-bottom: 1.5rem; padding: 1rem; border-radius: 10px; background: rgba(0, 114, 245, 0.08); border: 1px solid rgba(0, 114, 245, 0.2);">
+              <!-- Action triggers depending on status -->
+            </div>
+
+            <div class="diff-grid" id="diff-grid-container">
+              <div class="diff-column candidate">
+                <div class="panel-title" style="color: var(--poly-green); margin-bottom: 1rem;">
+                  ✨ Кандидат (Candidate Model)
+                </div>
+                <div id="diff-candidate-content">
+                  <div style="color: var(--text-muted);">Выберите запуск в статусе SHADOW или PENDING_APPROVAL</div>
+                </div>
+              </div>
+
+              <div class="diff-column baseline">
+                <div class="panel-title" style="color: var(--text-muted); margin-bottom: 1rem;">
+                  🏛️ Текущая активная база (Active Baseline)
+                </div>
+                <div id="diff-baseline-content">
+                  <div style="color: var(--text-muted);">Загрузка baseline...</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Decision Box for PENDING_APPROVAL -->
+            <div id="approval-decision-box" class="opt-panel" style="background: rgba(0, 0, 0, 0.2); margin-top: 1.5rem; display: none;">
+              <div class="panel-title" style="margin-bottom: 1rem;">Решение оператора (Human Decision)</div>
+              <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 1rem; margin-bottom: 1.25rem;">
+                <div>
+                  <label class="form-label">Имя оператора (Actor)</label>
+                  <input type="text" class="form-input" id="approval-actor" value="operator">
+                </div>
+                <div>
+                  <label class="form-label">Обоснование решения (Reason)</label>
+                  <input type="text" class="form-input" id="approval-reason" placeholder="Например: подтверждено по итогам +2.4% OOT PnL">
+                </div>
+              </div>
+              <div style="display: flex; justify-content: flex-end; gap: 1rem;">
+                <button class="btn btn-danger" onclick="executeRejectApproval()">❌ Отклонить (Reject)</button>
+                <button class="btn btn-success" onclick="executeApproveLive()">✅ Утвердить и Активировать в LIVE</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: REVISIONS & AUDIT HASH CHAIN -->
+        <div id="tab-revisions" class="tab-pane" style="display: none;">
+          <div class="opt-panel">
+            <div class="panel-header">
+              <div class="panel-title">📜 История ревизий и Хеш-цепочка аудита (DeploymentRevision & Events)</div>
+              <button class="btn btn-outline" onclick="loadRevisions()">🔄 Обновить</button>
+            </div>
+
+            <table class="opt-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Ключ ревизии (Key)</th>
+                  <th>Хеш манифеста (SHA-256)</th>
+                  <th>Родитель (Parent)</th>
+                  <th>Статус</th>
+                  <th>Создана</th>
+                  <th>Активирована</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody id="revisions-table-body">
+                <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Загрузка ревизий...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Revision Event Chain Viewer Modal/Container -->
+          <div class="opt-panel" id="revision-events-panel" style="margin-top: 1.5rem; display: none;">
+            <div class="panel-header">
+              <div class="panel-title">🔗 Криптографическая цепочка событий для ревизии #<span id="events-rev-id">—</span></div>
+              <button class="btn btn-outline" onclick="document.getElementById('revision-events-panel').style.display='none'">Закрыть</button>
+            </div>
+            <div class="timeline" id="events-timeline">
+              <!-- Event chain items -->
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal: Create New Run -->
+  <div class="modal-backdrop" id="modal-new-run">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Создать новый запуск оптимизации</div>
+        <button class="btn btn-outline" onclick="closeModal('modal-new-run')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Цель оптимизации (Objective)</label>
+          <input type="text" class="form-input" id="new-run-objective" placeholder="Например: Поиск оптимальных порогов LightGBM для BTCUSDT">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ассет</label>
+          <select class="form-select" id="new-run-asset">
+            {% for asset in assets %}
+            <option value="{{ asset }}">{{ asset }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
+            <label class="form-label">Бюджет экспериментов</label>
+            <input type="number" class="form-input" id="new-run-budget" value="10" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Уровень автономии</label>
+            <select class="form-select" id="new-run-autonomy">
+              <option value="EXPERIMENT">EXPERIMENT</option>
+              <option value="AUTONOMOUS_SHADOW">AUTONOMOUS_SHADOW</option>
+              <option value="DIRECTED">DIRECTED</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
+            <label class="form-label">Мин. сделок (min_trades)</label>
+            <input type="number" class="form-input" id="new-run-min-trades" value="50" min="50">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Макс. просадка (%)</label>
+            <input type="number" class="form-input" id="new-run-max-dd" value="-5.0" step="0.5">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('modal-new-run')">Отмена</button>
+        <button class="btn btn-primary" onclick="submitCreateRun()">🚀 Запустить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Rollback Confirmation -->
+  <div class="modal-backdrop" id="modal-rollback">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">⚠️ Подтверждение отката (Emergency Rollback)</div>
+        <button class="btn btn-outline" onclick="closeModal('modal-rollback')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 1rem; color: #FBBF24;">
+          Внимание: Аварийный откат мгновенно переключит указатели активной модели в <code>ModelRegistry</code> на предыдущую стабильную ревизию.
+        </p>
+        <p style="margin-bottom: 1rem; font-size: 0.85rem; color: var(--text-muted);">
+          ℹ️ Открытые биржевые позиции и ордера <strong>не будут затронуты или ликвидированы</strong>.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Целевой ID ревизии (оставьте пустым для авто-выбора родительской)</label>
+          <input type="number" class="form-input" id="rollback-target-id" placeholder="Автоматически (parent_id)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Имя актора</label>
+          <input type="text" class="form-input" id="rollback-actor" value="admin">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Причина отката</label>
+          <input type="text" class="form-input" id="rollback-reason" placeholder="Например: Аномалия на рынке / резкий рост просадки">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('modal-rollback')">Отмена</button>
+        <button class="btn btn-warning" onclick="submitRollback()">⏮ Подтвердить откат</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript logic -->
+  <script src="{{ url_for('static', path='/js/optimizer.js') }}?v={{ static_version }}"></script>
+</body>
+</html>
