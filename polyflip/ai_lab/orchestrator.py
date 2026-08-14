@@ -91,9 +91,13 @@ def _oot_window_key(result: Any) -> tuple[str, str] | None:
         "oot_window_end",
         metrics.get("oot_window_end", metrics.get("window_end")),
     )
-    if start is not None and end is not None:
-        return (str(start), str(end))
-    return None
+    if start is None or end is None:
+        return None
+    start_text = str(start).strip()
+    end_text = str(end).strip()
+    if not start_text or not end_text or start_text == end_text:
+        return None
+    return (start_text, end_text)
 
 
 def default_plan_steps(config_ids: Sequence[int]) -> list[dict[str, Any]]:
