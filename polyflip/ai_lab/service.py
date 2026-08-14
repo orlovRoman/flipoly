@@ -759,6 +759,8 @@ async def approve_and_activate_deployment(
             )
         models_to_activate.append((asset, cand_model))
 
+    if not models_to_activate:
+        raise AILabError(f"revision {revision.id} has no valid model entries")
     for asset, cand_model in models_to_activate:
         active_models = (
             await session.execute(
@@ -983,6 +985,10 @@ async def rollback_deployment(
             )
         models_to_activate.append((asset, cand_model))
 
+    if not models_to_activate:
+        raise AILabError(
+            f"target rollback revision {target_revision.id} has no valid model entries"
+        )
     for asset, cand_model in models_to_activate:
         active_models = (
             await session.execute(
