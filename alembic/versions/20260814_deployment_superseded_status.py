@@ -1,14 +1,14 @@
 """Allow activated deployment revisions to be superseded by a newer revision.
 
-Revision ID: 20260814_deployment_superseded_status
-Revises: 20260814_deployment_events_revision_index
+Revision ID: 20260814_dep_superseded
+Revises: 20260814_dep_events_idx
 """
 
 from alembic import op
 
 
-revision = "20260814_deployment_superseded_status"
-down_revision = "20260814_deployment_events_revision_index"
+revision = "20260814_dep_superseded"
+down_revision = "20260814_dep_events_idx"
 branch_labels = None
 depends_on = None
 
