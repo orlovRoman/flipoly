@@ -825,6 +825,14 @@ async def approve_and_activate_deployment(
     await record_deployment_event(
         session,
         revision_id=revision.id,
+        event_type="APPROVED",
+        actor=actor,
+        reason=reason or "Human administrative approval",
+        payload={"approval_id": approval_id},
+    )
+    await record_deployment_event(
+        session,
+        revision_id=revision.id,
         event_type="ACTIVATED",
         actor=actor,
         reason=reason or "Human administrative activation",
