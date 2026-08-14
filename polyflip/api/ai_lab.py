@@ -29,13 +29,18 @@ from polyflip.ai_lab.service import (
     AIPermissionError,
     AIRunTransitionError,
     append_step,
+    approve_and_activate_deployment,
+    authorize_run_action,
+    create_deployment_revision,
     create_experiment_config,
     create_permission,
     create_run,
-    authorize_run_action,
     get_run_detail,
-    transition_action_for_target,
+    propose_live_deployment,
+    reject_deployment_approval,
     request_approval,
+    rollback_deployment,
+    transition_action_for_target,
     transition_run,
 )
 from polyflip.ai_lab.orchestrator import (
@@ -49,10 +54,13 @@ from polyflip.ai_lab.orchestrator import (
 from polyflip.api.auth import verify_api_key
 from polyflip.db.connection import get_db_session
 from polyflip.db.models import (
+    AIApprovalRequest,
+    AIExperimentConfig,
     AIOptimizationRun,
     AIPermission,
     AIRunStep,
-    AIExperimentConfig,
+    DeploymentEvent,
+    DeploymentRevision,
 )
 
 router = APIRouter(
@@ -158,10 +166,21 @@ class ActionCheckRequest(BaseModel):
 
 
 class ApprovalRequest(BaseModel):
-    target_type: str = Field(min_length=1, max_length=32)
-    target_id: str = Field(min_length=1, max_length=64)
-    requested_action: str = Field(min_length=1, max_length=32)
+    target_type: str = Field(default="DEPLOYMENT_REVISION", min_length=1, max_length=32)
+    target_id: str | None = Field(default=None, max_length=64)
+    requested_action: str = Field(default="ACTIVATE", min_length=1, max_length=32)
     diff: dict[str, Any] = Field(default_factory=dict)
+
+
+class ApprovalDecisionRequest(BaseModel):
+    actor: str = Field(default="admin", min_length=1, max_length=128)
+    reason: str | None = Field(default=None, max_length=4000)
+
+
+class RollbackRequest(BaseModel):
+    target_revision_id: int | None = Field(default=None, gt=0)
+    actor: str = Field(default="admin", min_length=1, max_length=128)
+    reason: str | None = Field(default=None, max_length=4000)
 
 
 class PlanRequest(BaseModel):
@@ -446,6 +465,7 @@ async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
             for result in detail["results"]
         ],
         "audits": [_audit_payload(audit) for audit in detail.get("audits", [])],
+        "approvals": [_approval_payload(app) for app in detail.get("approvals", [])],
     }
 
 
@@ -829,23 +849,214 @@ async def request_ai_approval(
     if await db.get(AIOptimizationRun, run_id) is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
     try:
-        row = await request_approval(
-            db,
-            run_id=run_id,
-            target_type=payload.target_type,
-            target_id=payload.target_id,
-            requested_action=payload.requested_action,
-            diff=payload.diff,
-        )
-        await db.commit()
-        await db.refresh(row)
+        if not payload.diff and payload.requested_action.upper() == "ACTIVATE":
+            row, _ = await propose_live_deployment(
+                db,
+                run_id=run_id,
+                actor="operator",
+            )
+            await db.commit()
+            await db.refresh(row)
+        else:
+            row = await request_approval(
+                db,
+                run_id=run_id,
+                target_type=payload.target_type,
+                target_id=payload.target_id or str(run_id),
+                requested_action=payload.requested_action,
+                diff=payload.diff,
+            )
+            await db.commit()
+            await db.refresh(row)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except AILabError as exc:
         await db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
         "id": row.id,
         "run_id": row.run_id,
+        "target_type": row.target_type,
+        "target_id": row.target_id,
         "requested_action": row.requested_action,
         "status": row.status,
+        "diff": row.diff,
         "requested_at": row.requested_at,
+    }
+
+
+@router.get("/approvals/{approval_id}")
+async def get_ai_approval(
+    approval_id: int,
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    app = await db.get(AIApprovalRequest, approval_id)
+    if not app:
+        raise HTTPException(status_code=404, detail=f"Approval {approval_id} not found")
+    return _approval_payload(app)
+
+
+@router.post("/approvals/{approval_id}/approve")
+async def approve_ai_deployment(
+    approval_id: int,
+    payload: ApprovalDecisionRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        approval, revision = await approve_and_activate_deployment(
+            db,
+            approval_id=approval_id,
+            actor=payload.actor,
+            reason=payload.reason,
+        )
+        await db.commit()
+        await db.refresh(revision)
+        await db.refresh(approval)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "status": "APPROVED",
+        "approval_id": approval.id,
+        "revision_id": revision.id,
+        "revision_key": revision.revision_key,
+        "revision_status": revision.status,
+        "activated_at": revision.activated_at,
+        "decided_by": approval.decided_by,
+    }
+
+
+@router.post("/approvals/{approval_id}/reject")
+async def reject_ai_deployment(
+    approval_id: int,
+    payload: ApprovalDecisionRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        approval, revision = await reject_deployment_approval(
+            db,
+            approval_id=approval_id,
+            actor=payload.actor,
+            reason=payload.reason,
+        )
+        await db.commit()
+        await db.refresh(approval)
+        if revision:
+            await db.refresh(revision)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "status": "REJECTED",
+        "approval_id": approval.id,
+        "revision_id": revision.id if revision else None,
+        "decided_by": approval.decided_by,
+        "decision_reason": approval.decision_reason,
+        "decided_at": approval.decided_at,
+    }
+
+
+@router.post("/deployments/rollback")
+async def rollback_ai_deployment(
+    payload: RollbackRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        restored = await rollback_deployment(
+            db,
+            target_revision_id=payload.target_revision_id,
+            actor=payload.actor,
+            reason=payload.reason,
+        )
+        await db.commit()
+        await db.refresh(restored)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "status": "ROLLED_BACK",
+        "active_revision_id": restored.id,
+        "revision_key": restored.revision_key,
+        "revision_status": restored.status,
+        "activated_at": restored.activated_at,
+    }
+
+
+@router.get("/deployments/revisions")
+async def list_ai_deployment_revisions(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db_session),
+):
+    revisions = (
+        await db.execute(
+            select(DeploymentRevision)
+            .order_by(DeploymentRevision.id.desc())
+            .limit(min(max(1, limit), 200))
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": rev.id,
+            "revision_key": rev.revision_key,
+            "parent_id": rev.parent_id,
+            "manifest_hash": rev.manifest_hash,
+            "status": rev.status,
+            "created_by": rev.created_by,
+            "created_at": rev.created_at,
+            "activated_at": rev.activated_at,
+            "rolled_back_at": rev.rolled_back_at,
+        }
+        for rev in revisions
+    ]
+
+
+@router.get("/deployments/revisions/{revision_id}")
+async def get_ai_deployment_revision(
+    revision_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    rev = await db.get(DeploymentRevision, revision_id)
+    if rev is None:
+        raise HTTPException(status_code=404, detail="Deployment revision not found")
+    events = (
+        await db.execute(
+            select(DeploymentEvent)
+            .where(DeploymentEvent.revision_id == revision_id)
+            .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+        )
+    ).scalars().all()
+    return {
+        "id": rev.id,
+        "revision_key": rev.revision_key,
+        "parent_id": rev.parent_id,
+        "manifest": rev.manifest,
+        "manifest_hash": rev.manifest_hash,
+        "status": rev.status,
+        "created_by": rev.created_by,
+        "created_at": rev.created_at,
+        "activated_at": rev.activated_at,
+        "rolled_back_at": rev.rolled_back_at,
+        "events": [
+            {
+                "id": ev.id,
+                "event_type": ev.event_type,
+                "actor": ev.actor,
+                "reason": ev.reason,
+                "payload": ev.payload,
+                "previous_hash": ev.previous_hash,
+                "event_hash": ev.event_hash,
+                "created_at": ev.created_at,
+            }
+            for ev in events
+        ],
     }

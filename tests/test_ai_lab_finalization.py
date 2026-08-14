@@ -7,9 +7,11 @@ from polyflip.ai_lab.service import AILabError
 
 
 class _Session:
-    def __init__(self, config=None, run=None):
+    def __init__(self, config=None, run=None, step=None):
         self.config = config
         self.run = run
+        self.step = step
+        self.added = []
         self.flush_count = 0
 
     async def get(self, model, object_id):
@@ -18,7 +20,28 @@ class _Session:
             return self.config
         if name == "AIOptimizationRun":
             return self.run
+        if name == "AIRunStep":
+            return self.step
         return None
+
+    def add(self, item):
+        self.added.append(item)
+
+    async def execute(self, stmt):
+        class _Result:
+            def __init__(self, item):
+                self._item = item
+
+            def scalars(self):
+                return self
+
+            def all(self):
+                return [self._item] if self._item is not None else []
+
+            def scalar_one_or_none(self):
+                return self._item
+
+        return _Result(self.step)
 
     async def flush(self):
         self.flush_count += 1
@@ -27,12 +50,42 @@ class _Session:
 def _ready_report(*, config_id=11, artifact_id=101):
     return {
         "recommendation_status": "READY_FOR_SHADOW",
+        "rejection_reasons": [],
         "recommended_config_id": config_id,
+        "window_count": 3,
+        "total_trades": 74,
+        "median_pnl": 1.24,
         "rows": [
             {
                 "config_id": config_id,
                 "artifact_ids": [artifact_id],
                 "eligible_for_shadow": True,
+                "window_count": 3,
+                "total_trades": 74,
+                "median_oot_pnl": 1.24,
+            }
+        ],
+    }
+
+
+def _rejected_report(*, status="INSUFFICIENT_TRADES", reasons=None):
+    reasons = reasons or [status]
+    return {
+        "recommendation_status": status,
+        "rejection_reasons": reasons,
+        "recommended_config_id": None,
+        "window_count": 3,
+        "total_trades": 40,
+        "median_pnl": 1.24,
+        "rows": [
+            {
+                "config_id": 11,
+                "artifact_ids": [101],
+                "eligible_for_shadow": False,
+                "rejection_reasons": reasons,
+                "window_count": 3,
+                "total_trades": 40,
+                "median_oot_pnl": 1.24,
             }
         ],
     }
@@ -54,7 +107,7 @@ async def test_finalize_can_evaluate_without_shadow_assignment(monkeypatch):
     monkeypatch.setattr(orchestrator, "promote_to_shadow", unexpected_promote)
 
     result = await orchestrator.finalize_run(
-        object(),
+        _Session(run=SimpleNamespace(summary=None)),
         7,
         auto_shadow=False,
     )
@@ -123,3 +176,30 @@ async def test_finalize_rejects_shadow_when_asset_is_missing(monkeypatch):
 
     with pytest.raises(AILabError, match="asset is required"):
         await orchestrator.finalize_run(session, 7)
+
+
+@pytest.mark.asyncio
+async def test_finalize_records_audit_log_and_summary_on_gate_rejection(monkeypatch):
+    run = SimpleNamespace(summary=None)
+    step = SimpleNamespace(id=10, step_index=2)
+    session = _Session(run=run, step=step)
+    report = _rejected_report(status="INSUFFICIENT_TRADES")
+
+    async def fake_evaluate(db, run_id):
+        return report
+
+    async def unexpected_promote(*args, **kwargs):
+        raise AssertionError("rejected run must not call promote_to_shadow")
+
+    monkeypatch.setattr(orchestrator, "evaluate_run", fake_evaluate)
+    monkeypatch.setattr(orchestrator, "promote_to_shadow", unexpected_promote)
+
+    result = await orchestrator.finalize_run(session, 7)
+
+    assert result["assignment"] is None
+    assert result["report"]["recommendation_status"] == "INSUFFICIENT_TRADES"
+    assert '"INSUFFICIENT_TRADES"' in run.summary
+    assert len(session.added) == 1
+    audit_entry = session.added[0]
+    assert audit_entry.action == "FINALIZE_RUN"
+    assert audit_entry.error_code == "GATE_REJECTED_INSUFFICIENT_TRADES"

@@ -3,450 +3,307 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PolyFlip — Backtest Dashboard</title>
+  <title>PolyFlip — Бэктест LightGBM</title>
   
   <!-- Google Fonts: Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
-  <!-- Стили приложения (наследование глобальной темы) -->
+  <!-- Main CSS -->
   <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ static_version }}">
-  
-  <!-- Chart.js для графиков -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  
+  <!-- Chart.js для графиков кривой капитала и метрик -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
-    /* ──── Backtest Specific Overrides ──── */
-    .bt-layout {
-      display: grid;
-      grid-template-columns: 340px 1fr;
-      gap: 2rem;
-      align-items: start;
+    /* Дополнительные стили для страницы бэктеста */
+    :root {
+      --font-mono: 'JetBrains Mono', monospace;
     }
-    
-    .bt-panel {
+
+    .backtest-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      padding: 1.5rem 2rem 3rem 2rem;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    /* Верхняя панель конфигурации бэктеста */
+    .config-panel {
       background: var(--bg-panel);
       backdrop-filter: var(--glass-blur);
       border: 1px solid var(--border-color);
       border-radius: 16px;
       padding: 1.5rem;
-      transition: border-color 0.3s ease;
-    }
-
-    .bt-panel:hover {
-      border-color: rgba(255, 255, 255, 0.08);
-    }
-
-    /* CSS Tooltips */
-    .tooltip-icon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      margin-left: 6px;
-      cursor: help;
-      color: var(--text-muted);
-      font-size: 0.75rem; /* FIX: мин. 12px */
-      border: 1px solid var(--border-color);
-      width: 16px;       /* FIX: мин. 12px */
-      height: 16px;      /* FIX: мин. 12px */
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.03);
-      position: relative;
-    }
-    
-    .tooltip-icon::after {
-      content: attr(data-tooltip);
-      position: absolute;
-      bottom: 130%;
-      left: 50%;
-      transform: translateX(-50%);
-      background-color: #141a26;
-      color: var(--text-main);
-      padding: 8px 12px;
-      border-radius: 8px;
-      font-size: 0.75rem;
-      white-space: normal;
-      width: 240px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-      border: 1px solid rgba(255,255,255,0.08);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.15s ease, transform 0.15s ease;
-      z-index: 9999;
-      font-weight: normal;
-      line-height: 1.35;
-      text-align: left;
-    }
-
-    .tooltip-icon:hover::after {
-      opacity: 1;
-      transform: translateX(-50%) translateY(-2px);
-    }
-
-    /* Модификатор для позиционирования влево (для левой колонки) */
-    .tooltip-icon--left::after {
-      left: 0;
-      right: auto;
-      transform: none !important;
-    }
-    .tooltip-icon--left:hover::after {
-      transform: translateY(-2px) !important;
-    }
-
-    /* Модификатор для позиционирования вправо (для правой колонки) */
-    .tooltip-icon--right::after {
-      left: auto;
-      right: 0;
-      transform: none !important;
-    }
-    .tooltip-icon--right:hover::after {
-      transform: translateY(-2px) !important;
-    }
-
-    /* Модификатор для позиционирования вниз */
-    .tooltip-icon[data-pos="down"]::after {
-      bottom: auto;
-      top: 130%;
-    }
-    .tooltip-icon[data-pos="down"]:hover::after {
-      transform: translateX(-50%) translateY(2px);
-    }
-
-    /* Совмещенный модификатор для левых колонок и направления вниз */
-    .tooltip-icon--left[data-pos="down"]::after {
-      bottom: auto;
-      top: 130%;
-      left: 0;
-      right: auto;
-      transform: none !important;
-    }
-    .tooltip-icon--left[data-pos="down"]:hover::after {
-      transform: translateY(2px) !important;
-    }
-
-    /* Совмещенный модификатор для правых колонок и направления вниз */
-    .tooltip-icon--right[data-pos="down"]::after {
-      bottom: auto;
-      top: 130%;
-      left: auto;
-      right: 0;
-      transform: none !important;
-    }
-    .tooltip-icon--right[data-pos="down"]:hover::after {
-      transform: translateY(2px) !important;
-    }
-
-    .config-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.25rem;
+      align-items: flex-end;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
     }
 
-    .config-group {
+    .form-group {
       display: flex;
       flex-direction: column;
-      gap: 0.3rem;
-      margin-bottom: 0.6rem;
+      gap: 0.5rem;
     }
 
-    .config-group label {
+    .form-group label {
       font-size: 0.8rem;
       font-weight: 600;
-      color: var(--text-main);
-    }
-
-    .config-group input, 
-    .config-group select {
-      background: rgba(10, 14, 23, 0.8);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 0.5rem 0.75rem;
-      color: var(--text-main);
-      font-size: 0.85rem;
-      width: 100%;
-      transition: all 0.2s ease;
-    }
-
-    .config-group input:focus, 
-    .config-group select:focus {
-      outline: none;
-      border-color: var(--poly-blue);
-      box-shadow: 0 0 0 2px rgba(0, 114, 245, 0.2);
-    }
-
-    .config-section-title {
-      font-size: 0.75rem;
-      font-weight: 800;
-      color: var(--poly-blue);
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      margin: 1.5rem 0 0.8rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      padding-bottom: 0.3rem;
-    }
-
-    /* Переключатель вкладок */
-    .bt-tabs {
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 1.5rem;
-      border-bottom: 1px solid var(--border-color);
-      padding-bottom: 0.5rem;
-    }
-
-    .bt-tab {
-      padding: 0.6rem 1.2rem;
-      border-radius: 8px;
-      cursor: pointer;
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-      font-weight: 600;
-      transition: all 0.2s ease;
-    }
-
-    .bt-tab:hover {
-      color: var(--text-main);
-      background: rgba(255, 255, 255, 0.03);
-    }
-
-    .bt-tab.active {
-      background: rgba(0, 114, 245, 0.1);
-      color: #0080ff;
-      border-color: rgba(0, 114, 245, 0.3);
-    }
-
-    .bt-tab-content {
-      display: none;
-      animation: fadeIn 0.4s ease forwards;
-    }
-
-    .bt-tab-content.active {
-      display: block;
-    }
-
-    /* Таблица сделок */
-    .trades-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.82rem;
-    }
-
-    .trades-table th {
-      text-align: left;
-      padding: 0.75rem 0.5rem;
-      color: var(--text-muted);
-      font-weight: 600;
-      border-bottom: 2px solid var(--border-color);
-    }
-
-    .trades-table td {
-      padding: 0.75rem 0.5rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.02);
-    }
-
-    .trades-table tr:hover td {
-      background: rgba(255, 255, 255, 0.02);
-    }
-
-    .win-badge {
-      color: var(--poly-green);
-      font-weight: 600;
-    }
-
-    .loss-badge {
-      color: #ff4d4d;
-      font-weight: 600;
-    }
-
-    /* Тоглы */
-    .toggle-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 0.6rem 0;
-    }
-
-    .toggle-row label {
-      font-size: 0.82rem;
-      color: var(--text-muted);
-    }
-
-    .toggle-switch {
-      position: relative;
-      display: inline-block;
-      width: 44px;
-      height: 24px;
-    }
-
-    .toggle-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .toggle-slider {
-      position: absolute;
-      inset: 0;
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 24px;
-      cursor: pointer;
-      transition: 0.2s ease;
-    }
-
-    .toggle-slider::before {
-      content: "";
-      position: absolute;
-      width: 18px;
-      height: 18px;
-      left: 3px;
-      top: 3px;
-      background: white;
-      border-radius: 50%;
-      transition: 0.2s ease;
-    }
-
-    input:checked + .toggle-slider {
-      background: var(--poly-blue);
-    }
-
-    input:checked + .toggle-slider::before {
-      transform: translateX(20px);
-    }
-
-    /* Карточки KPI переопределение */
-    .metric-card {
-      background: var(--bg-panel);
-      border: 1px solid var(--border-color);
-      border-radius: 12px;
-      padding: 1.2rem;
-      text-align: center;
-      transition: transform 0.3s ease;
-    }
-
-    .metric-card:hover {
-      transform: translateY(-3px);
-      border-color: rgba(255, 255, 255, 0.1);
-    }
-
-    .metric-card .value {
-      font-size: 1.8rem;
-      font-weight: 800;
-      margin-bottom: 0.3rem;
-    }
-
-    .metric-card .label {
-      font-size: 0.75rem;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
-    .metric-card.positive .value { color: var(--poly-green); }
-    .metric-card.negative .value { color: #ff4d4d; }
-    .metric-card.neutral .value { color: var(--text-main); }
-
-    /* Список истории */
-    .history-item {
-      padding: 0.8rem;
+    .form-control, .form-select {
+      background: rgba(255, 255, 255, 0.04);
       border: 1px solid var(--border-color);
       border-radius: 8px;
-      margin-bottom: 0.6rem;
-      cursor: pointer;
-      background: rgba(255, 255, 255, 0.01);
+      padding: 0.65rem 0.85rem;
+      color: var(--text-main);
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
       transition: all 0.2s ease;
     }
 
-    .history-item:hover {
+    .form-control:focus, .form-select:focus {
       border-color: var(--poly-blue);
       background: rgba(0, 114, 245, 0.05);
+      box-shadow: 0 0 0 3px rgba(0, 114, 245, 0.15);
     }
 
-    .history-item.active {
-      border-color: var(--poly-blue);
-      background: rgba(0, 114, 245, 0.1);
-      box-shadow: 0 0 10px rgba(0, 114, 245, 0.1);
+    .form-select option {
+      background: var(--bg-dark);
+      color: var(--text-main);
     }
 
-    .history-meta {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      margin-top: 0.3rem;
-    }
-
-    /* Разное */
-    .strategy-row {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      padding: 0.75rem 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    }
-
-    .strategy-badge {
-      padding: 0.25rem 0.6rem;
-      border-radius: 6px;
-      font-size: 0.75rem;
-      font-weight: 700;
-    }
-
-    .badge-ml { background: rgba(0, 114, 245, 0.15); color: #3b82f6; }
-    .badge-fav { background: rgba(0, 211, 149, 0.15); color: var(--poly-green); }
-    .badge-out { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
-
-    .run-btn {
-      width: 100%;
-      padding: 0.85rem;
-      border-radius: 8px;
-      background: linear-gradient(135deg, var(--poly-blue), #0056b3);
-      color: white;
+    .btn-run-backtest {
+      background: linear-gradient(135deg, var(--poly-blue) 0%, #0051cb 100%);
+      color: #fff;
       border: none;
+      border-radius: 8px;
+      padding: 0.75rem 1.5rem;
       font-size: 0.95rem;
       font-weight: 700;
       cursor: pointer;
-      margin-top: 1rem;
-      box-shadow: 0 4px 15px rgba(0, 114, 245, 0.2);
-      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(0, 114, 245, 0.35);
+      height: 42px;
     }
 
-    .run-btn:hover:not(:disabled) {
+    .btn-run-backtest:hover:not(:disabled) {
       transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0, 114, 245, 0.4);
+      box-shadow: 0 6px 20px rgba(0, 114, 245, 0.5);
     }
 
-    .run-btn:disabled {
-      opacity: 0.5;
+    .btn-run-backtest:disabled {
+      opacity: 0.6;
       cursor: not-allowed;
       transform: none;
-      box-shadow: none;
     }
 
-    .run-btn.loading::after {
-      content: " ⏳";
+    /* KPI Сетка бэктеста */
+    .bt-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
     }
 
-    .alert {
-      padding: 1rem;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      margin-bottom: 1.5rem;
+    .bt-kpi-card {
+      background: var(--bg-panel);
       backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
     }
-    .alert-error { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; }
-    .alert-success { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: var(--poly-green); }
-    .alert-info { background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); color: #3b82f6; }
 
-    #equity-chart-container { position: relative; height: 320px; }
-    #strategy-chart-container { position: relative; height: 220px; }
-    #asset-chart-container { position: relative; height: 220px; }
+    .bt-kpi-title {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .bt-kpi-val {
+      font-size: 1.45rem;
+      font-weight: 700;
+      color: var(--text-main);
+      font-family: var(--font-mono);
+    }
+
+    .bt-kpi-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .val-positive { color: var(--poly-green) !important; }
+    .val-negative { color: #ff4d4d !important; }
+    .val-neutral { color: var(--text-muted) !important; }
+
+    /* Панели графиков */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 1100px) {
+      .charts-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .chart-panel {
+      background: var(--bg-panel);
+      backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .chart-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .chart-panel-header h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--text-main);
+      margin: 0;
+    }
+
+    .chart-box {
+      position: relative;
+      width: 100%;
+      height: 320px;
+    }
+
+    /* Таблица сделок бэктеста */
+    .trades-table-container {
+      background: var(--bg-panel);
+      backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem;
+      overflow: hidden;
+    }
+
+    .table-scroll {
+      max-height: 450px;
+      overflow-y: auto;
+      margin-top: 1rem;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+    }
+
+    .bt-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.85rem;
+    }
+
+    .bt-table th {
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      padding: 0.75rem 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .bt-table td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+    }
+
+    .bt-table tbody tr:hover {
+      background: var(--bg-panel-hover);
+    }
+
+    .badge-dir {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+    }
+
+    .badge-up {
+      background: rgba(0, 211, 149, 0.15);
+      color: var(--poly-green);
+      border: 1px solid rgba(0, 211, 149, 0.3);
+    }
+
+    .badge-down {
+      background: rgba(255, 77, 77, 0.15);
+      color: #ff4d4d;
+      border: 1px solid rgba(255, 77, 77, 0.3);
+    }
+
+    .badge-role {
+      display: inline-block;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Модальное окно загрузки/прогресса */
+    .bt-progress-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 0.5rem;
+      display: none;
+    }
+
+    .bt-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--poly-blue);
+      transition: width 0.3s ease;
+    }
   </style>
+
+  <script>
+    window.API_BASE = "{{ root_path }}";
+  </script>
 </head>
 <body>
   <div class="app-container">
-    
-    <!-- Боковое меню (Идентично основной теме) -->
+    <!-- Сайдбар -->
     <nav class="sidebar">
       <div class="logo">
         <span class="poly">Poly</span><span class="flip">Flip</span>
@@ -459,380 +316,201 @@
         <li class="nav-item active" onclick="window.location.href='/backtest'">Бэктест</li>
         <li class="nav-item" onclick="window.location.href='/lightgbm'">LightGBM (15m)</li>
         <li class="nav-item" onclick="window.location.href='/execution'">Исполнение сделок (LIVE)</li>
+        <li class="nav-item" onclick="window.location.href='/optimizer'">AI Lab / Оптимизатор</li>
       </ul>
     </nav>
 
     <!-- Основной контент -->
     <main class="main-content">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
-        <div>
-          <h1 style="font-size:2rem; margin:0;">Бэктест Движок</h1>
-          <p style="color:var(--text-muted); font-size:0.85rem; margin-top:0.3rem;">
-            Симуляция торговых стратегий на исторических данных
-          </p>
-        </div>
-        <div id="dataset-info" style="font-size:0.85rem; color:var(--poly-green); font-weight:600; background:rgba(0,211,149,0.1); border:1px solid rgba(0,211,149,0.2); padding:0.4rem 1rem; border-radius:20px;">
-          Загрузка статистики датасета...
-        </div>
-      </div>
+      <div class="backtest-container">
+        
+        <!-- Header -->
+        <header class="top-bar" style="padding: 0; margin-bottom: 0.5rem;">
+          <div class="page-title">
+            <h1>Бэктестирование LightGBM Моделей</h1>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+              Симуляция торговли на исторических 15-минутных свечах с учетом комиссий, спредов и параметров исполнения.
+            </p>
+          </div>
+        </header>
 
-      <!-- Зона для алертов -->
-      <div id="bt-alert" style="display:none;"></div>
+        <!-- Конфигурация параметров бэктеста -->
+        <div class="config-panel">
+          <div class="form-group">
+            <label for="bt-asset">Актив</label>
+            <select id="bt-asset" class="form-select">
+              {% for asset in assets %}
+              <option value="{{ asset }}">{{ asset }}</option>
+              {% endfor %}
+            </select>
+          </div>
 
-      <div class="bt-layout">
+          <div class="form-group">
+            <label for="bt-feature-set">Набор признаков</label>
+            <select id="bt-feature-set" class="form-select">
+              <option value="FS_D0">FS_D0 (Базовые возвраты + RSI + ATR)</option>
+              <option value="FS_D1" selected>FS_D1 (+ Funding Rates + Скользящие)</option>
+              <option value="FS_D2">FS_D2 (+ Polymarket Orderbook & Imbalance)</option>
+              <option value="FS_D3">FS_D3 (+ Спектральный анализ & Режимы)</option>
+            </select>
+          </div>
 
-        <!-- ══════════════════════ ЛЕВАЯ КОЛОНКА: НАСТРОЙКИ ══════════════════════ -->
-        <div>
-          <div class="bt-panel">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.2rem;">
-              <strong style="font-size:0.95rem; color:var(--text-main);">⚙️ Конфигурация</strong>
-              <div style="display:flex; gap:0.8rem;">
-                <button onclick="applyLiveSettings()" style="font-size:0.75rem; color:var(--poly-green); background:none; border:none; cursor:pointer; font-weight:600;">Заполнить из Live</button>
-                <button onclick="resetConfig()" style="font-size:0.75rem; color:var(--poly-blue); background:none; border:none; cursor:pointer; font-weight:600;">Сбросить</button>
-              </div>
-            </div>
+          <div class="form-group">
+            <label for="bt-days">Период (дней)</label>
+            <select id="bt-days" class="form-select">
+              <option value="7">7 дней (~672 свечи)</option>
+              <option value="14">14 дней (~1344 свечи)</option>
+              <option value="30" selected>30 дней (~2880 свечей)</option>
+              <option value="60">60 дней (~5760 свечей)</option>
+              <option value="90">90 дней (~8640 свечей)</option>
+            </select>
+          </div>
 
-            <!-- Раздел: Данные -->
-            <div class="config-section-title">📊 Исторические данные</div>
-            
-            <div class="config-group">
-              <label>Активы <span class="tooltip-icon tooltip-icon--left" data-tooltip="Коды токенов для тестирования через запятую. Пример: BTC, ETH, TRUMP." data-pos="down">❓</span></label>
-              <input id="cfg-assets" type="text" value="BTC">
-            </div>
+          <div class="form-group">
+            <label for="bt-threshold-up">Порог UP (p_up &ge;)</label>
+            <input type="number" id="bt-threshold-up" class="form-control" value="0.55" step="0.01" min="0.50" max="0.99">
+          </div>
 
-            <div class="config-grid">
-              <div class="config-group">
-                <label>Начало периода <span class="tooltip-icon tooltip-icon--left" data-tooltip="Левая временная граница исторического теста (только дата)." data-pos="down">❓</span></label>
-                <input id="cfg-date-from" type="date">
-              </div>
-              <div class="config-group">
-                <label>Конец периода <span class="tooltip-icon tooltip-icon--right" data-tooltip="Правая временная граница исторического теста (только дата)." data-pos="down">❓</span></label>
-                <input id="cfg-date-to" type="date">
-              </div>
-            </div>
+          <div class="form-group">
+            <label for="bt-threshold-down">Порог DOWN (p_up &le;)</label>
+            <input type="number" id="bt-threshold-down" class="form-control" value="0.45" step="0.01" min="0.01" max="0.50">
+          </div>
 
-            <div class="config-grid">
-              <div class="config-group">
-                <label>Мин. снимков <span class="tooltip-icon tooltip-icon--left" data-tooltip="Исключать малоактивные рынки, где записано меньше N снимков." data-pos="down">❓</span></label>
-                <input id="cfg-min-snaps" type="number" value="3" min="1" max="50">
-              </div>
-              <div class="config-group">
-                <label>Выбор модели <span class="tooltip-icon tooltip-icon--right" data-tooltip="ML-модель прогнозирования. Авто — использовать активную модель для каждого ассета." data-pos="down">❓</span></label>
-                <select id="cfg-model-id">
-                  <option value="">Авто (активная модель)</option>
-                </select>
-              </div>
-            </div>
+          <div class="form-group">
+            <label for="bt-stake">Ставка на сделку ($)</label>
+            <input type="number" id="bt-stake" class="form-control" value="10.0" step="1.0" min="1.0">
+          </div>
 
-            <!-- Раздел: Настройки стратегии -->
-            <div class="config-section-title">🎯 Логика торговли</div>
-            
-            <div class="config-group">
-              <label>Режим стратегии <span class="tooltip-icon tooltip-icon--left" data-tooltip="Only the OUTSIDER LogReg strategy is supported in this backtest." data-pos="down">❓</span></label>
-              <select id="cfg-strategy-mode" onchange="onStrategyChange()">
-                <option value="OUTSIDER">Outsider LogReg</option>
-              </select>
-            </div>
+          <div class="form-group">
+            <label for="bt-initial-balance">Стартовый баланс ($)</label>
+            <input type="number" id="bt-initial-balance" class="form-control" value="1000.0" step="50.0" min="100.0">
+          </div>
 
-            <div class="config-section-title">⏳ Временные рамки входа</div>
-            <div class="config-grid">
-              <div class="config-group">
-                <label>Фаворит (мин. мин) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Мин время для фаворитов.">❓</span></label>
-                <input id="cfg-favor-min-time" type="number" value="1" step="0.5" min="0">
-              </div>
-              <div class="config-group">
-                <label>Фаворит (макс. мин) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Макс время для фаворитов.">❓</span></label>
-                <input id="cfg-favor-max-time" type="number" value="15" step="1" min="1">
-              </div>
-            </div>
-            
-            <div class="config-grid" style="margin-top: 10px;">
-              <div class="config-group">
-                <label>Аутсайдер (мин. мин) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Мин время для аутсайдеров.">❓</span></label>
-                <input id="cfg-outs-min-time" type="number" value="1" step="0.5" min="0">
-              </div>
-              <div class="config-group">
-                <label>Аутсайдер (макс. мин) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Макс время для аутсайдеров.">❓</span></label>
-                <input id="cfg-outs-max-time" type="number" value="15" step="1" min="1">
-              </div>
-            </div>
-
-            <!-- Настройки ML порогов (скрывается, если PURE_FAVORITE) -->
-            <div id="ml-section">
-              <div class="config-section-title">🤖 Пороги ML-модели</div>
-              <div class="config-grid">
-                <div class="config-group">
-                  <label>Порог ПО ТРЕНДУ — no_flip (%) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Вероятность флипа ниже этого значения расценивается как сигнал для торговли ПО тренду (покупка фаворита). В процентах (0–100).">❓</span></label>
-                  <input id="cfg-no-flip" type="number" value="35" step="1" min="0" max="100">
-                </div>
-                <div class="config-group">
-                  <label>Порог ПРОТИВ ТОЛПЫ — flip (%) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Вероятность флипа выше этого значения расценивается как сигнал для торговли ПРОТИВ толпы (покупка аутсайдера). В процентах (0–100).">❓</span></label>
-                  <input id="cfg-flip" type="number" value="60" step="1" min="0" max="100">
-                </div>
-              </div>
-              
-              <div class="toggle-row">
-                <div>
-                  <div style="font-size:0.8rem; font-weight:600;">Включить OUTSIDER <span class="tooltip-icon tooltip-icon--left" data-tooltip="Разрешить сделки против толпы на аутсайдерах при достижении порога Flip.">❓</span></div>
-                </div>
-                <label class="toggle-switch">
-                  <input type="checkbox" id="cfg-trade-on-flip">
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-
-            <!-- Раздел: Границы цен -->
-            <div class="config-section-title">💰 Ценовые коридоры</div>
-            
-            <div class="config-grid">
-              <div class="config-group">
-                <label>Порог фаворита <span class="tooltip-icon tooltip-icon--left" data-tooltip="Цена отсечки фаворита (например, >0.65). Выше этого значения исход считается фаворитом.">❓</span></label>
-                <input id="cfg-fav-thresh" type="number" value="0.65" step="0.01" min="0.5" max="0.99">
-              </div>
-              <div class="config-group">
-                <label>Ширина мёртвой зоны (%) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Ширина зоны вокруг порога фаворита, где сделки блокируются для фильтрации шума. В процентах (0–100).">❓</span></label>
-                <input id="cfg-dead-zone" type="number" value="10" step="1" min="0" max="50">
-              </div>
-            </div>
-
-            <div class="config-grid">
-              <div class="config-group">
-                <label>Мин. цена входа <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальная допустимая цена покупки.">❓</span></label>
-                <input id="cfg-fav-min" type="number" value="0.55" step="0.01" min="0.01">
-              </div>
-              <div class="config-group">
-                <label>Макс. цена входа <span class="tooltip-icon tooltip-icon--right" data-tooltip="Максимальная допустимая цена покупки.">❓</span></label>
-                <input id="cfg-fav-max" type="number" value="0.95" step="0.01" max="0.99">
-              </div>
-            </div>
-
-            <!-- Раздел: Управление капиталом -->
-            <div class="config-section-title">📐 Мани-менеджмент</div>
-            
-            <div class="config-grid">
-              <div class="config-group">
-                <label>Стартовый капитал <span class="tooltip-icon tooltip-icon--right" data-tooltip="Начальный виртуальный баланс бэктеста в USDC.">❓</span></label>
-                <input id="cfg-capital" type="number" value="1000" step="100" min="10">
-              </div>
-            </div>
-
-            <div class="config-grid">
-              <div class="config-group">
-                <label>Аутсайдер Мин. Edge <span class="tooltip-icon tooltip-icon--left" data-tooltip="Минимальное математическое ожидание сделки для входа (аутсайдер).">❓</span></label>
-                <input id="cfg-outs-min-edge" type="number" value="0.04" step="0.01">
-              </div>
-              <div class="config-group">
-                <label>Фаворит Мин. Edge <span class="tooltip-icon tooltip-icon--right" data-tooltip="Минимальное математическое ожидание сделки для входа (фаворит).">❓</span></label>
-                <input id="cfg-fav-min-edge" type="number" value="0.05" step="0.01">
-              </div>
-            </div>
-
-            <div class="config-grid">
-              <div class="config-group">
-                <label>Макс. Edge <span class="tooltip-icon tooltip-icon--left" data-tooltip="Уровень Edge, при котором достигается MAX_BET.">❓</span></label>
-                <input id="cfg-max-edge" type="number" value="0.50" step="0.01">
-              </div>
-              <div class="config-group">
-                <label>Фильтр Edge (MAX_EDGE_FILTER) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Предохранитель. Сделки с Edge выше этого отбрасываются.">❓</span></label>
-                <input id="cfg-max-edge-filter" type="number" value="0.20" step="0.01">
-              </div>
-            </div>
-
-            <div class="config-grid">
-              <div class="config-group" style="grid-column: span 2;">
-                <label>Режим размера ставки <span class="tooltip-icon tooltip-icon--right" data-tooltip="Масштабировать ставку от базовой до максимальной в зависимости от ROI, либо использовать строго фиксированную">❓</span></label>
-                <select id="cfg-bet-sizing-mode" style="width: 100%; background: var(--bg-color); border: 1px solid var(--border-color); color: white; padding: 0.75rem 1rem; border-radius: 8px; outline: none;">
-                    <option value="fixed">Фиксированная ставка (без разгона)</option>
-                    <option value="scaled" selected>Масштабирование по ROI (Скейлинг)</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="config-grid">
-              <div class="config-group">
-                <label>Размер ставки (Базовый) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Размер базовой (или фиксированной) ставки в USDC.">❓</span></label>
-                <input id="cfg-min-bet" type="number" value="10" step="1" min="1">
-              </div>
-              <div class="config-group" id="cfg-max-bet-group">
-                <label>Макс. ставка (Скейлинг) <span class="tooltip-icon tooltip-icon--right" data-tooltip="Максимальный размер ставки при скейлинге.">❓</span></label>
-                <input id="cfg-max-bet" type="number" value="50" step="5" min="1">
-              </div>
-            </div>
-
-            <div class="config-group">
-              <label>Проскальзывание (Slippage, %) <span class="tooltip-icon tooltip-icon--left" data-tooltip="Имитирует ухудшение цены исполнения ордера на бирже (проскальзывание).">❓</span></label>
-              <input id="cfg-slippage" type="number" value="0.5" step="0.1" min="0" max="10">
-            </div>
-
-            <button class="run-btn" id="run-btn" onclick="runBacktest()">
-              ▶ Запустить бэктест
+          <div class="form-group" style="min-width: 160px;">
+            <button id="btn-run-backtest" class="btn-run-backtest" onclick="runBacktest()">
+              <span id="btn-icon">⚡</span>
+              <span id="btn-text">Запустить бэктест</span>
             </button>
           </div>
+        </div>
 
-          <!-- Панель недавних запусков -->
-          <div class="bt-panel" style="margin-top:1.5rem;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-              <strong style="font-size:0.9rem; color:var(--text-main);">🕓 Недавние тесты</strong>
-              <button onclick="loadHistory()" style="font-size:0.75rem; color:var(--poly-blue); background:none; border:none; cursor:pointer; font-weight:600;">Обновить</button>
+        <!-- Прогресс бар симуляции -->
+        <div id="bt-progress" class="bt-progress-bar">
+          <div id="bt-progress-fill" class="bt-progress-fill"></div>
+        </div>
+
+        <!-- KPI Метрики Результатов -->
+        <div class="bt-kpi-grid">
+          <div class="bt-kpi-card">
+            <div class="bt-kpi-title">Чистый PnL ($)</div>
+            <div class="bt-kpi-val" id="res-net-pnl">—</div>
+            <div class="bt-kpi-sub" id="res-roi">ROI: —</div>
+          </div>
+
+          <div class="bt-kpi-card">
+            <div class="bt-kpi-title">Винрейт (Win Rate)</div>
+            <div class="bt-kpi-val" id="res-winrate">—</div>
+            <div class="bt-kpi-sub" id="res-win-loss-count">Побед / Поражений: —</div>
+          </div>
+
+          <div class="bt-kpi-card">
+            <div class="bt-kpi-title">Всего сделок</div>
+            <div class="bt-kpi-val" id="res-total-trades">—</div>
+            <div class="bt-kpi-sub" id="res-trades-per-day">В день: —</div>
+          </div>
+
+          <div class="bt-kpi-card">
+            <div class="bt-kpi-title">Профит-фактор (PF)</div>
+            <div class="bt-kpi-val" id="res-profit-factor">—</div>
+            <div class="bt-kpi-sub">Валовая прибыль / Убыток</div>
+          </div>
+
+          <div class="bt-kpi-card">
+            <div class="bt-kpi-title">Макс. просадка (MDD)</div>
+            <div class="bt-kpi-val" id="res-max-drawdown">—</div>
+            <div class="bt-kpi-sub" id="res-mdd-dollars">В долларах: —</div>
+          </div>
+
+          <div class="bt-kpi-card">
+            <div class="bt-kpi-title">Коэффициент Шарпа</div>
+            <div class="bt-kpi-val" id="res-sharpe">—</div>
+            <div class="bt-kpi-sub">Годовой (Rf = 0%)</div>
+          </div>
+        </div>
+
+        <!-- Графики бэктеста -->
+        <div class="charts-grid">
+          <!-- График кривой капитала (Equity Curve) -->
+          <div class="chart-panel">
+            <div class="chart-panel-header">
+              <h3>📈 Кривая капитала (Equity Curve & Drawdown)</h3>
+              <div style="display: flex; gap: 0.5rem;">
+                <span class="badge-role" style="background: rgba(0, 114, 245, 0.15); color: var(--poly-blue); border-color: rgba(0, 114, 245, 0.3);">
+                  Баланс ($)
+                </span>
+                <span class="badge-role" style="background: rgba(255, 77, 77, 0.1); color: #ff4d4d; border-color: rgba(255, 77, 77, 0.3);">
+                  Просадка (%)
+                </span>
+              </div>
             </div>
-            <div id="history-list">
-              <div class="no-data">Запусков еще не было</div>
+            <div class="chart-box">
+              <canvas id="equityChart"></canvas>
+            </div>
+          </div>
+
+          <!-- График распределения PnL по часам/дням или винрейта -->
+          <div class="chart-panel">
+            <div class="chart-panel-header">
+              <h3>🎯 Распределение доходности (PnL Distribution)</h3>
+            </div>
+            <div class="chart-box">
+              <canvas id="distributionChart"></canvas>
             </div>
           </div>
         </div>
 
-        <!-- ══════════════════════ ПРАВАЯ КОЛОНКА: РЕЗУЛЬТАТЫ ══════════════════════ -->
-        <div>
-          <!-- Сетка KPI показателей -->
-          <div class="stats-grid" id="kpi-cards" style="margin-bottom: 2rem;">
-            <div class="metric-card neutral">
-              <div class="value" id="kpi-trades">—</div>
-              <div class="label">Сделок всего</div>
-            </div>
-            <div class="metric-card neutral" id="kpi-pnl-card">
-              <div class="value" id="kpi-pnl">—</div>
-              <div class="label">Чистый P&L ($)</div>
-            </div>
-            <div class="metric-card neutral" id="kpi-roi-card">
-              <div class="value" id="kpi-roi">—</div>
-              <div class="label">ROI (%)</div>
-            </div>
-            <div class="metric-card neutral" id="kpi-winrate-card">
-              <div class="value" id="kpi-winrate">—</div>
-              <div class="label">Win Rate (%)</div>
-            </div>
-            <div class="metric-card neutral">
-              <div class="value" id="kpi-sharpe">—</div>
-              <div class="label">Sharpe Ratio</div>
-            </div>
-            <div class="metric-card neutral">
-              <div class="value" id="kpi-pf">—</div>
-              <div class="label">Profit Factor</div>
-            </div>
-            <div class="metric-card neutral" id="kpi-dd-card">
-              <div class="value" id="kpi-dd">—</div>
-              <div class="label">Макс. просадка</div>
-            </div>
-            <div class="metric-card neutral">
-              <div class="value" id="kpi-duration">—</div>
-              <div class="label">Время расчета</div>
-            </div>
-            <div class="metric-card neutral">
-              <div class="value" id="kpi-model" style="font-size:1rem;">—</div>
-              <div class="label">LogReg model / feature set</div>
-            </div>
+        <!-- Таблица сделок -->
+        <div class="trades-table-container">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1.05rem; font-weight: 600; margin: 0;">📋 Журнал смоделированных сделок</h3>
+            <span id="trades-count-label" style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono);">
+              Отображено: 0
+            </span>
           </div>
 
-          <!-- Результаты и графики -->
-          <div class="bt-panel">
-            <div class="bt-tabs">
-              <button class="bt-tab active" onclick="switchTab('equity')">📈 Кривая доходности</button>
-              <button class="bt-tab" onclick="switchTab('strategies')">🎯 По стратегиям</button>
-              <button class="bt-tab" onclick="switchTab('assets')">🏷️ По активам</button>
-              <button class="bt-tab" onclick="switchTab('slices')">Slices: direction / price / phase</button>
-              <button class="bt-tab" onclick="switchTab('trades')">📋 Журнал сделок</button>
-              <button class="bt-tab" onclick="switchTab('dataset')">🗄️ База данных</button>
-            </div>
+          <div class="table-scroll">
+            <table class="bt-table" id="bt-trades-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Время входа (UTC)</th>
+                  <th>Актив</th>
+                  <th>Направление</th>
+                  <th>Вероятность p_up</th>
+                  <th>Цена входа ($)</th>
+                  <th>Цена выхода ($)</th>
+                  <th>Результат</th>
+                  <th>PnL ($)</th>
+                  <th>PnL (%)</th>
+                  <th>Баланс ($)</th>
+                </tr>
+              </thead>
+              <tbody id="bt-trades-tbody">
+                <tr>
+                  <td colspan="11" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                    Запустите симуляцию бэктеста для просмотра журнала сделок
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-            <!-- Вкладка: График доходности (Equity) -->
-            <div class="bt-tab-content active" id="tab-equity">
-              <div id="equity-chart-container">
-                <canvas id="equity-chart"></canvas>
-              </div>
-              <div style="margin-top:0.8rem; font-size:0.78rem; color:var(--text-muted);">
-                Изменение кумулятивного баланса. Зеленый маркер — выигрыш, красный — проигрыш.
-              </div>
-            </div>
-
-            <!-- Вкладка: Статистика стратегий -->
-            <div class="bt-tab-content" id="tab-strategies">
-              <div id="strategy-chart-container">
-                <canvas id="strategy-chart"></canvas>
-              </div>
-              <div id="strategy-breakdown" style="margin-top:1.5rem;">
-                <div class="no-data">Запустите тест для анализа стратегий</div>
-              </div>
-            </div>
-
-            <!-- Вкладка: Статистика по активам -->
-            <div class="bt-tab-content" id="tab-assets">
-              <div id="asset-chart-container">
-                <canvas id="asset-chart"></canvas>
-              </div>
-              <div id="asset-breakdown" style="margin-top:1.5rem;">
-                <div class="no-data">Запустите тест для анализа активов</div>
-              </div>
-            </div>
-
-            <!-- Вкладка: Таблица сделок -->
-            <div class="bt-tab-content" id="tab-slices">
-              <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;">
-                <label for="slice-dimension" style="color:var(--text-muted);font-size:.85rem;">Dimension</label>
-                <select id="slice-dimension" onchange="renderSliceBreakdowns()" style="background:rgba(10,14,23,.8);border:1px solid var(--border-color);border-radius:6px;color:var(--text-main);padding:.4rem .65rem;">
-                  <option value="DIRECTION">UP / DOWN</option>
-                  <option value="PRICE">Entry price buckets</option>
-                  <option value="PHASE">Market phase</option>
-                </select>
-              </div>
-              <div style="overflow-x:auto;">
-                <table class="trades-table">
-                  <thead><tr><th>Bucket</th><th>Trades</th><th>Net PnL</th><th>ROI</th><th>Win rate</th><th>Avg price</th><th>Avg edge</th></tr></thead>
-                  <tbody id="slice-tbody"><tr><td colspan="7" class="no-data">Run a backtest to see slices</td></tr></tbody>
-                </table>
-              </div>
-              <div style="margin-top:.8rem;color:var(--text-muted);font-size:.78rem;">Only buckets from the same run and selected model are compared.</div>
-            </div>
-            <div class="bt-tab-content" id="tab-trades">
-              <div style="display:flex; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap;">
-                <select id="trades-filter-outcome" onchange="renderTradesTable()" style="font-size:0.8rem; padding:0.35rem 0.6rem; background:rgba(10,14,23,0.8); border:1px solid var(--border-color); border-radius:6px; color:var(--text-main);">
-                  <option value="ALL">Все исходы</option>
-                  <option value="WIN">Выигрышные</option>
-                  <option value="LOSS">Проигрышные</option>
-                </select>
-                <select id="trades-filter-strategy" onchange="renderTradesTable()" style="font-size:0.8rem; padding:0.35rem 0.6rem; background:rgba(10,14,23,0.8); border:1px solid var(--border-color); border-radius:6px; color:var(--text-main);">
-                  <option value="ALL">Все стратегии</option>
-                  <option value="COMBINED">COMBINED</option>
-                  <option value="ML_TREND">ML_TREND</option>
-                  <option value="OUTSIDER">OUTSIDER</option>
-                </select>
-                <select id="trades-sort" onchange="renderTradesTable()" style="font-size:0.8rem; padding:0.35rem 0.6rem; background:rgba(10,14,23,0.8); border:1px solid var(--border-color); border-radius:6px; color:var(--text-main);">
-                  <option value="index">По порядку</option>
-                  <option value="pnl_desc">Прибыльные вначале</option>
-                  <option value="pnl_asc">Убыточные вначале</option>
-                </select>
-                <span id="trades-count" style="font-size:0.8rem; color:var(--text-muted); align-self:center; margin-left:auto;"></span>
-              </div>
-              <div style="overflow-x:auto;">
-                <table class="trades-table">
-                  <thead>
-                    <tr>
-                      <th>#</th><th>Рынок (ID)</th><th>Актив</th>
-                      <th>Стратегия</th><th>Действие</th><th>Цена</th>
-                      <th>Ставка ($)</th><th>P(flip)</th><th>Edge</th><th>PnL ($)</th><th>Результат</th>
-                    </tr>
-                  </thead>
-                  <tbody id="trades-tbody">
-                    <tr><td colspan="11" class="no-data">Журнал пуст. Запустите бэктест</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- Вкладка: База данных снимков -->
-            <div class="bt-tab-content" id="tab-dataset">
-              <div id="dataset-breakdown">
-                <div class="no-data">Загрузка статистики о снимках...</div>
-              </div>
-            </div>
-
-          </div><!-- /bt-panel results -->
-        </div><!-- /right panel -->
-      </div><!-- /bt-layout -->
+      </div>
     </main>
   </div>
 
-  <script>window.API_KEY = "{{ api_key }}";</script>
-  <script src="/static/backtest.js?v={{ static_version }}"></script>
+  <!-- JavaScript логика страницы бэктеста -->
+  <script src="{{ url_for('static', path='/js/backtest.js') }}?v={{ static_version }}"></script>
 </body>
 </html>

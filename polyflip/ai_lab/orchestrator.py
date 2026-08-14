@@ -1,4 +1,4 @@
-"""Safe experiment orchestration for AI Lab phase 3.
+"""Safe experiment orchestration for AI Lab.
 
 The orchestrator creates and evaluates reproducible experiment work, but never
 changes active models, RuntimeSettings, live execution policy or open orders.
@@ -27,6 +27,7 @@ from polyflip.db.models import (
     AIOptimizationRun,
     AIShadowAssignment,
     AIRunStep,
+    AIStepAuditLog,
     ExperimentResult,
 )
 
@@ -47,6 +48,9 @@ TERMINAL_STEP_STATUSES = {"SUCCEEDED", "FAILED", "SKIPPED"}
 # Result status INSUFFICIENT_DATA is persisted on ExperimentResult, but the
 # corresponding queue step must still be closed as SKIPPED rather than orphaned.
 RESULT_CLOSING_STATUSES = {"SUCCEEDED", "FAILED", "INSUFFICIENT_DATA"}
+
+MIN_TOTAL_TRADES = 50
+MIN_WINDOWS = 3
 
 
 def _value(item: Any, name: str, default: Any = None) -> Any:
@@ -75,6 +79,27 @@ def _median(values: Sequence[Any]) -> float | None:
     return float((numbers[middle - 1] + numbers[middle]) / 2)
 
 
+def _oot_window_key(result: Any) -> tuple[str, str] | None:
+    metrics = _value(result, "metrics", {}) or {}
+    start = _value(
+        result,
+        "oot_window_start",
+        metrics.get("oot_window_start", metrics.get("window_start")),
+    )
+    end = _value(
+        result,
+        "oot_window_end",
+        metrics.get("oot_window_end", metrics.get("window_end")),
+    )
+    if start is None or end is None:
+        return None
+    start_text = str(start).strip()
+    end_text = str(end).strip()
+    if not start_text or not end_text or start_text == end_text:
+        return None
+    return (start_text, end_text)
+
+
 def default_plan_steps(config_ids: Sequence[int]) -> list[dict[str, Any]]:
     """Return the deterministic three-stage plan for each candidate config."""
     normalized = list(dict.fromkeys(int(config_id) for config_id in config_ids))
@@ -94,20 +119,67 @@ def default_plan_steps(config_ids: Sequence[int]) -> list[dict[str, Any]]:
     return steps
 
 
+def evaluate_finalization_gate(
+    row: Mapping[str, Any],
+    *,
+    min_trades: int = MIN_TOTAL_TRADES,
+    min_windows: int = MIN_WINDOWS,
+) -> dict[str, Any]:
+    """Evaluate whether a candidate config passes strict finalization gates."""
+    rejection_reasons: list[str] = []
+    polymarket_count = int(_finite(row.get("polymarket_oot_evaluation_count")) or 0)
+    window_count = int(_finite(row.get("window_count")) or 0)
+    total_trades = int(_finite(row.get("total_trades")) or 0)
+    median_pnl = _finite(row.get("median_oot_pnl"))
+    median_drawdown_raw = row.get("median_oot_drawdown")
+    invalid_count = int(_finite(row.get("invalid_result_count")) or 0)
+
+    if polymarket_count == 0:
+        rejection_reasons.append("NO_PNL_SAMPLE")
+    if invalid_count > 0:
+        rejection_reasons.append("INVALID_RESULT")
+    if median_pnl is None:
+        if "INVALID_RESULT" not in rejection_reasons:
+            rejection_reasons.append("INVALID_RESULT")
+    elif median_pnl <= 0.0:
+        rejection_reasons.append("NON_POSITIVE_PNL")
+    if median_drawdown_raw is not None and _finite(median_drawdown_raw) is None:
+        if "INVALID_RESULT" not in rejection_reasons:
+            rejection_reasons.append("INVALID_RESULT")
+    if total_trades < min_trades:
+        rejection_reasons.append("INSUFFICIENT_TRADES")
+    if window_count < min_windows:
+        rejection_reasons.append("INSUFFICIENT_WINDOWS")
+
+    return {
+        "eligible": not rejection_reasons,
+        "rejection_reasons": list(dict.fromkeys(rejection_reasons)),
+        "window_count": window_count,
+        "total_trades": total_trades,
+        "median_pnl": median_pnl,
+    }
+
 def build_experiment_report(
     results: Sequence[ExperimentResult | Mapping[str, Any]],
     *,
-    min_trades: int = 3,
+    min_trades: int = MIN_TOTAL_TRADES,
+    min_windows: int = MIN_WINDOWS,
 ) -> dict[str, Any]:
     """Build an advisory report from persisted OOT evaluations.
 
     Generic OOT results remain visible as diagnostics. A candidate is eligible
     for SHADOW only when it has a finite PnL/trade sample from a real
-    POLYMARKET_OOT evaluation. AUC/ECE are reported but never replace PnL
-    evidence.
+    POLYMARKET_OOT evaluation passing the strict gate:
+      - At least min_windows (default 3) distinct non-empty OOT windows;
+      - At least min_trades (default 50) total trades;
+      - Strictly positive median net PnL (median_net_pnl > 0.0);
+      - Finite numeric PnL and drawdown values.
+    AUC/ECE are reported but never replace PnL evidence.
     """
     if min_trades < 0:
         raise AILabError("min_trades must be non-negative")
+    if min_windows < 0:
+        raise AILabError("min_windows must be non-negative")
 
     grouped: dict[int, dict[str, list[Any]]] = defaultdict(
         lambda: {"OOT": [], "POLYMARKET_OOT": []}
@@ -137,49 +209,114 @@ def build_experiment_report(
         trade_values: list[Any] = []
         drawdown_values: list[Any] = []
         artifact_ids: set[int] = set()
+        unique_windows: set[tuple[str, str]] = set()
+        window_details: list[dict[str, Any]] = []
+
         for result in successful_results:
-            metrics = _value(result, "metrics", {}) or {}
+            raw_metrics = _value(result, "metrics", {}) or {}
+            metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
             for metric_name in ("auc", "ece", "brier", "log_loss", "win_rate"):
                 metric_values[metric_name].append(metrics.get(metric_name))
             artifact_id = _value(result, "artifact_id")
             if artifact_id is not None:
                 artifact_ids.add(int(artifact_id))
 
+        invalid_result_count = 0
         for result in polymarket_results:
-            metrics = _value(result, "metrics", {}) or {}
-            pnl_values.append(_value(result, "net_pnl", metrics.get("net_pnl")))
-            trade_values.append(
-                _value(result, "trade_count", metrics.get("n_trades"))
-            )
-            drawdown_values.append(
-                _value(result, "max_drawdown", metrics.get("max_drawdown"))
+            raw_metrics = _value(result, "metrics", {}) or {}
+            metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
+            if not isinstance(raw_metrics, Mapping):
+                invalid_result_count += 1
+            w_key = _oot_window_key(result)
+            if w_key is None:
+                invalid_result_count += 1
+                continue
+            if w_key in unique_windows:
+                # A retry/duplicate for the same OOT interval must not inflate
+                # total trades or median samples.
+                invalid_result_count += 1
+                continue
+            unique_windows.add(w_key)
+            res_pnl = _value(result, "net_pnl", metrics.get("net_pnl"))
+            res_trades = _value(result, "trade_count", metrics.get("n_trades"))
+            res_dd = _value(result, "max_drawdown", metrics.get("max_drawdown"))
+            pnl_num = _finite(res_pnl)
+            trades_num = _finite(res_trades)
+            dd_num = _finite(res_dd) if res_dd is not None else None
+            if res_pnl is None or pnl_num is None:
+                invalid_result_count += 1
+            if (
+                res_trades is None
+                or trades_num is None
+                or trades_num < 0
+                or not trades_num.is_integer()
+            ):
+                invalid_result_count += 1
+            if res_dd is not None and dd_num is None:
+                invalid_result_count += 1
+
+            if pnl_num is not None:
+                pnl_values.append(pnl_num)
+            if (
+                trades_num is not None
+                and trades_num >= 0
+                and trades_num.is_integer()
+            ):
+                trade_values.append(trades_num)
+            if dd_num is not None:
+                drawdown_values.append(dd_num)
+
+            window_details.append(
+                {
+                    "oot_window_start": w_key[0],
+                    "oot_window_end": w_key[1],
+                    "net_pnl": pnl_num,
+                    "trade_count": (
+                        int(trades_num)
+                        if trades_num is not None
+                        and trades_num >= 0
+                        and trades_num.is_integer()
+                        else 0
+                    ),
+                    "max_drawdown": dd_num,
+                }
             )
 
         median_pnl = _median(pnl_values)
+
         median_trades = _median(trade_values)
         median_drawdown = _median(drawdown_values)
-        row = {
+        total_trades = sum(
+            int(_finite(t) or 0) for t in trade_values if _finite(t) is not None
+        )
+
+        row: dict[str, Any] = {
             "config_id": config_id,
             "evaluation_count": len(all_results),
             "oot_evaluation_count": len(by_kind["OOT"]),
             "polymarket_oot_evaluation_count": len(polymarket_results),
             "artifact_ids": sorted(artifact_ids),
+            "window_count": len(unique_windows),
+            "total_trades": total_trades,
+            "invalid_result_count": invalid_result_count,
             "median_oot_pnl": median_pnl,
             "median_oot_trades": int(round(median_trades))
             if median_trades is not None
             else 0,
             "median_oot_drawdown": median_drawdown,
+            "windows": window_details,
             "auc": _median(metric_values["auc"]),
             "ece": _median(metric_values["ece"]),
             "brier": _median(metric_values["brier"]),
             "log_loss": _median(metric_values["log_loss"]),
             "win_rate": _median(metric_values["win_rate"]),
         }
-        row["eligible_for_shadow"] = (
-            bool(polymarket_results)
-            and median_pnl is not None
-            and row["median_oot_trades"] >= min_trades
+
+        gate_res = evaluate_finalization_gate(
+            row, min_trades=min_trades, min_windows=min_windows
         )
+        row["eligible_for_shadow"] = gate_res["eligible"]
+        row["rejection_reasons"] = gate_res["rejection_reasons"]
         rows.append(row)
 
     eligible = [row for row in rows if row["eligible_for_shadow"]]
@@ -189,34 +326,93 @@ def build_experiment_report(
             key=lambda row: (
                 row["median_oot_pnl"],
                 -(abs(row["median_oot_drawdown"] or 0.0)),
-                row["median_oot_trades"],
+                row["total_trades"],
             ),
         )
         if eligible
         else None
     )
+
     if winner:
         status = "READY_FOR_SHADOW"
+        rejection_reasons: list[str] = []
         reason = (
             "Highest median Polymarket-OOT net PnL among candidates meeting the "
-            "minimum trade count; verify in SHADOW before any human activation."
+            "minimum trade count and window criteria; verify in SHADOW before any human activation."
         )
     elif rows:
-        status = "NO_PNL_SAMPLE"
-        reason = (
-            "No candidate has enough real Polymarket-OOT trades with finite PnL; "
-            "AUC/ECE do not substitute for this evidence."
+        rejection_reasons = sorted(
+            list(
+                dict.fromkeys(
+                    reason
+                    for row in rows
+                    for reason in row.get("rejection_reasons", [])
+                )
+            )
         )
+        if not rejection_reasons:
+            rejection_reasons = ["NO_PNL_SAMPLE"]
+        if "NO_PNL_SAMPLE" in rejection_reasons:
+            status = "NO_PNL_SAMPLE"
+            reason = (
+                "No candidate has enough real Polymarket-OOT trades with finite PnL; "
+                "AUC/ECE do not substitute for this evidence."
+            )
+        elif "INSUFFICIENT_TRADES" in rejection_reasons:
+            status = "INSUFFICIENT_TRADES"
+            reason = (
+                f"Candidates did not meet the minimum total trade threshold ({min_trades})."
+            )
+        elif "INSUFFICIENT_WINDOWS" in rejection_reasons:
+            status = "INSUFFICIENT_WINDOWS"
+            reason = (
+                f"Candidates did not meet the minimum OOT windows threshold ({min_windows})."
+            )
+        elif "NON_POSITIVE_PNL" in rejection_reasons:
+            status = "NON_POSITIVE_PNL"
+            reason = "Candidates produced non-positive median net PnL."
+        elif "INVALID_RESULT" in rejection_reasons:
+            status = "INVALID_RESULT"
+            reason = "Candidates produced non-finite or invalid metric results."
+        else:
+            status = rejection_reasons[0]
+            reason = f"Candidate rejected by finalization gate: {', '.join(rejection_reasons)}"
     else:
         status = "NO_RESULTS"
+        rejection_reasons = ["NO_RESULTS"]
         reason = "No OOT or Polymarket-OOT results have been recorded."
+
+    top_window_count = (
+        winner["window_count"]
+        if winner
+        else (rows[0]["window_count"] if rows else 0)
+    )
+    top_total_trades = (
+        winner["total_trades"]
+        if winner
+        else (rows[0]["total_trades"] if rows else 0)
+    )
+    top_median_pnl = (
+        winner["median_oot_pnl"]
+        if winner
+        else (rows[0]["median_oot_pnl"] if rows else None)
+    )
 
     return {
         "rows": rows,
-        "result_count": sum(len(items) for by_kind in grouped.values() for items in by_kind.values()),
+        "result_count": sum(
+            len(items)
+            for by_kind in grouped.values()
+            for items in by_kind.values()
+        ),
         "min_trades": min_trades,
+        "min_windows": min_windows,
         "recommended_config_id": winner["config_id"] if winner else None,
         "recommendation_status": status,
+        "rejection_reasons": rejection_reasons,
+        "window_count": top_window_count,
+        "total_trades": top_total_trades,
+        "median_pnl": top_median_pnl,
         "recommendation_reason": reason,
     }
 
@@ -284,40 +480,36 @@ async def plan_run(
     await session.flush()
     return steps
 
-
 async def claim_next_step(
     session: AsyncSession,
     run_id: int,
 ) -> AIRunStep | None:
-    """Atomically claim the next pending step for a worker or AI agent."""
+    """Atomically claim the next pending step using SELECT FOR UPDATE SKIP LOCKED."""
     run = await session.get(AIOptimizationRun, run_id)
     if run is None:
         raise AILabError(f"AI Lab run {run_id} not found")
     if run.status not in {"PLANNING", "RUNNING"}:
-        raise AILabError(f"run {run_id} cannot claim work from {run.status}")
+        raise AILabError(f"run {run_id} cannot execute steps from {run.status}")
 
-    step = (
-        await session.execute(
-            select(AIRunStep)
-            .where(
-                AIRunStep.run_id == run_id,
-                AIRunStep.status == "PENDING",
-            )
-            .order_by(AIRunStep.step_index)
-            .with_for_update(skip_locked=True)
-            .limit(1)
+    stmt = (
+        select(AIRunStep)
+        .where(
+            AIRunStep.run_id == run_id,
+            AIRunStep.status == "PENDING",
         )
-    ).scalar_one_or_none()
+        .order_by(AIRunStep.step_index, AIRunStep.id)
+        .with_for_update(skip_locked=True)
+        .limit(1)
+    )
+    step = (await session.execute(stmt)).scalar_one_or_none()
     if step is None:
         return None
 
-    if step.action:
-        await authorize_run_action(session, run_id, step.action)
+    await authorize_run_action(session, run_id, step.action)
     if run.status == "PLANNING":
-        await transition_run(session, run, "RUNNING", reason="first plan step claimed")
-    now = utc_now()
+        await transition_run(session, run, "RUNNING", reason="first step claimed")
     step.status = "RUNNING"
-    step.started_at = now
+    step.started_at = utc_now()
     await session.flush()
     return step
 
@@ -417,24 +609,36 @@ async def record_result(
         await session.flush()
     return result
 
-
 async def evaluate_run(
     session: AsyncSession,
     run_id: int,
 ) -> dict[str, Any]:
-    """Persist an advisory median-OOT report and move the run to EVALUATING."""
+    """Persist a strict median-OOT report and move the run to EVALUATING."""
     run = await session.get(AIOptimizationRun, run_id)
     if run is None:
         raise AILabError(f"AI Lab run {run_id} not found")
     await authorize_run_action(session, run_id, "RUN_OOT_BACKTEST")
+
+    # A completed SHADOW run is already finalized. Re-reading its persisted
+    # report makes repeated finalize calls idempotent instead of attempting an
+    # invalid SHADOW -> EVALUATING transition.
+    if run.status == "SHADOW":
+        try:
+            stored = json.loads(run.summary or "{}")
+        except (TypeError, ValueError) as exc:
+            raise AILabError(
+                f"run {run_id} has no valid persisted finalization report"
+            ) from exc
+        report = stored.get("report")
+        if isinstance(report, dict):
+            return report
+        raise AILabError(f"run {run_id} has no persisted finalization report")
+
     if run.status == "RUNNING":
         await transition_run(session, run, "EVALUATING", reason="evaluation started")
     elif run.status != "EVALUATING":
         raise AILabError(f"run {run_id} cannot be evaluated from {run.status}")
 
-    # Keep non-success rows in the audit input. build_experiment_report
-    # excludes them from metrics/PnL, while the persisted status still explains
-    # why a candidate has NO_PNL_SAMPLE or an incomplete run.
     results = (
         await session.execute(
             select(ExperimentResult)
@@ -442,14 +646,24 @@ async def evaluate_run(
             .order_by(ExperimentResult.created_at, ExperimentResult.id)
         )
     ).scalars().all()
+
+    scope = run.scope or {}
+    try:
+        requested_trades = int(scope.get("min_trades", MIN_TOTAL_TRADES))
+        requested_windows = int(scope.get("min_windows", MIN_WINDOWS))
+    except (TypeError, ValueError) as exc:
+        raise AILabError("run scope min_trades/min_windows must be integers") from exc
+    min_trades = max(MIN_TOTAL_TRADES, requested_trades)
+    min_windows = max(MIN_WINDOWS, requested_windows)
+
     report = build_experiment_report(
         results,
-        min_trades=int((run.scope or {}).get("min_trades", 3)),
+        min_trades=min_trades,
+        min_windows=min_windows,
     )
     run.summary = json.dumps(report, sort_keys=True, separators=(",", ":"))
     await session.flush()
     return report
-
 
 async def promote_to_shadow(
     session: AsyncSession,
@@ -464,9 +678,31 @@ async def promote_to_shadow(
     run = await session.get(AIOptimizationRun, run_id)
     if run is None:
         raise AILabError(f"AI Lab run {run_id} not found")
+    normalized_asset = asset.strip().upper()
+    normalized_regime = regime.strip().lower() if regime and regime.strip() else None
+    if not normalized_asset:
+        raise AILabError("asset must not be empty")
+    await authorize_run_action(session, run_id, "PROMOTE_TO_SHADOW")
+
+    existing = (
+        await session.execute(
+            select(AIShadowAssignment).where(
+                AIShadowAssignment.run_id == run_id,
+                AIShadowAssignment.asset == normalized_asset,
+                AIShadowAssignment.regime == normalized_regime,
+                AIShadowAssignment.status.in_({"PENDING", "RUNNING"}),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        if existing.candidate_artifact_id == candidate_artifact_id:
+            return existing
+        raise AILabError(
+            "an active SHADOW assignment already exists for this scope with a different artifact"
+        )
     if run.status != "EVALUATING":
         raise AILabError(f"run {run_id} must be EVALUATING before SHADOW")
-    await authorize_run_action(session, run_id, "PROMOTE_TO_SHADOW")
 
     results = (
         await session.execute(
@@ -474,13 +710,28 @@ async def promote_to_shadow(
             .where(ExperimentResult.run_id == run_id)
         )
     ).scalars().all()
+
+    scope = run.scope or {}
+    try:
+        requested_trades = int(scope.get("min_trades", MIN_TOTAL_TRADES))
+        requested_windows = int(scope.get("min_windows", MIN_WINDOWS))
+    except (TypeError, ValueError) as exc:
+        raise AILabError("run scope min_trades/min_windows must be integers") from exc
+    min_trades = max(MIN_TOTAL_TRADES, requested_trades)
+    min_windows = max(MIN_WINDOWS, requested_windows)
     report = build_experiment_report(
         results,
-        min_trades=int((run.scope or {}).get("min_trades", 3)),
+        min_trades=min_trades,
+        min_windows=min_windows,
     )
     recommended_config_id = report["recommended_config_id"]
-    if recommended_config_id is None:
-        raise AILabError("cannot promote without a real Polymarket-OOT winner")
+    if (
+        recommended_config_id is None
+        or report["recommendation_status"] != "READY_FOR_SHADOW"
+    ):
+        raise AILabError(
+            "cannot promote without a real Polymarket-OOT winner meeting strict gate"
+        )
     winner = next(
         row for row in report["rows"]
         if row["config_id"] == recommended_config_id
@@ -496,35 +747,21 @@ async def promote_to_shadow(
     ) is None:
         raise AILabError(f"baseline artifact {baseline_artifact_id} not found")
 
-    existing = (
-        await session.execute(
-            select(AIShadowAssignment.id).where(
-                AIShadowAssignment.run_id == run_id,
-                AIShadowAssignment.asset == asset.strip().upper(),
-                AIShadowAssignment.regime
-                == (regime.strip().lower() if regime else None),
-                AIShadowAssignment.status.in_({"PENDING", "RUNNING"}),
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise AILabError("an active SHADOW assignment already exists for this scope")
-
     assignment = AIShadowAssignment(
         run_id=run_id,
         candidate_artifact_id=candidate_artifact_id,
         baseline_artifact_id=baseline_artifact_id,
-        asset=asset.strip().upper(),
-        regime=regime.strip().lower() if regime else None,
+        asset=normalized_asset,
+        regime=normalized_regime,
         status="PENDING",
         created_at=utc_now(),
     )
     session.add(assignment)
-    await transition_run(session, run, "SHADOW", reason="recommended candidate assigned to SHADOW")
+    await transition_run(
+        session, run, "SHADOW", reason="recommended candidate assigned to SHADOW"
+    )
     await session.flush()
     return assignment
-
 
 async def finalize_run(
     session: AsyncSession,
@@ -576,13 +813,12 @@ async def finalize_run(
             asset=resolved_asset,
             regime=regime or config.regime,
         )
-        # transition_run writes a short status reason to summary. Replace it
-        # with an immutable JSON audit envelope so the metrics are not lost.
         session_run = await session.get(AIOptimizationRun, run_id)
         if session_run is not None:
             session_run.summary = json.dumps(
                 {
                     "report": report,
+                    "status": "READY_FOR_SHADOW",
                     "shadow_assignment": {
                         "assignment_id": assignment.id,
                         "candidate_artifact_id": assignment.candidate_artifact_id,
@@ -595,4 +831,74 @@ async def finalize_run(
                 separators=(",", ":"),
             )
             await session.flush()
+    else:
+        # Rejection or report-only mode: retain any prior assignment provenance.
+        session_run = await session.get(AIOptimizationRun, run_id)
+        previous_assignment = None
+        if session_run is not None:
+            try:
+                previous_summary = json.loads(session_run.summary or "{}")
+            except (TypeError, ValueError):
+                previous_summary = {}
+            previous_assignment = previous_summary.get("shadow_assignment")
+            session_run.summary = json.dumps(
+                {
+                    "report": report,
+                    "status": report.get("recommendation_status"),
+                    "rejection_reasons": report.get("rejection_reasons", []),
+                    "shadow_assignment": previous_assignment,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            await session.flush()
+
+        if report.get("recommendation_status") != "READY_FOR_SHADOW":
+            last_step = (
+                await session.execute(
+                    select(AIRunStep)
+                    .where(AIRunStep.run_id == run_id)
+                    .order_by(AIRunStep.step_index.desc(), AIRunStep.id.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if last_step is None:
+                # AIStepAuditLog.step_id is mandatory. Create a durable
+                # finalization step when a run has no queued steps yet.
+                last_step = AIRunStep(
+                    run_id=run_id,
+                    step_index=0,
+                    step_type="FINALIZE",
+                    status="FAILED",
+                    action="FINALIZE_RUN",
+                    summary="Finalization gate rejected the run before a plan step existed.",
+                    error_code=f"GATE_REJECTED_{report.get('recommendation_status')}",
+                    created_at=utc_now(),
+                    finished_at=utc_now(),
+                )
+                session.add(last_step)
+                await session.flush()
+            reasons_str = (
+                ", ".join(report.get("rejection_reasons", []))
+                or report.get("recommendation_status", "UNKNOWN")
+            )
+            audit_entry = AIStepAuditLog(
+                run_id=run_id,
+                step_id=last_step.id,
+                config_id=report.get("recommended_config_id"),
+                action="FINALIZE_RUN",
+                error_code=f"GATE_REJECTED_{report.get('recommendation_status')}",
+                error_message=f"Finalization rejected candidate: {reasons_str}",
+                payload={
+                    "recommendation_status": report.get("recommendation_status"),
+                    "rejection_reasons": report.get("rejection_reasons", []),
+                    "window_count": report.get("window_count"),
+                    "total_trades": report.get("total_trades"),
+                    "median_pnl": report.get("median_pnl"),
+                },
+                created_at=utc_now(),
+            )
+            session.add(audit_entry)
+            await session.flush()
+
     return {"report": report, "assignment": assignment}
