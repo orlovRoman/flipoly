@@ -41,6 +41,7 @@ from polyflip.ai_lab.service import (
 from polyflip.ai_lab.orchestrator import (
     claim_next_step,
     evaluate_run,
+    finalize_run,
     plan_run,
     promote_to_shadow,
     record_result,
@@ -194,6 +195,16 @@ class ShadowPromoteRequest(BaseModel):
     baseline_artifact_id: int | None = Field(default=None, gt=0)
     asset: str = Field(min_length=1, max_length=32)
     regime: str | None = Field(default=None, max_length=32)
+
+
+class FinalizeRunRequest(BaseModel):
+    """Post-worker finalization; SHADOW is optional, ACTIVE is impossible."""
+
+    auto_shadow: bool = True
+    asset: str | None = Field(default=None, max_length=32)
+    regime: str | None = Field(default=None, max_length=32)
+    candidate_artifact_id: int | None = Field(default=None, gt=0)
+    baseline_artifact_id: int | None = Field(default=None, gt=0)
 
 
 def _run_payload(run: AIOptimizationRun) -> dict[str, Any]:
@@ -653,6 +664,39 @@ async def evaluate_ai_run(
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"run": _run_payload(run), "report": report}
+
+
+@router.post("/runs/{run_id}/finalize")
+async def finalize_ai_run(
+    run_id: int,
+    payload: FinalizeRunRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Evaluate a run and optionally place its winner into passive SHADOW."""
+    try:
+        result = await finalize_run(
+            db,
+            run_id,
+            auto_shadow=payload.auto_shadow,
+            asset=payload.asset,
+            regime=payload.regime,
+            candidate_artifact_id=payload.candidate_artifact_id,
+            baseline_artifact_id=payload.baseline_artifact_id,
+        )
+        await db.commit()
+        run = await db.get(AIOptimizationRun, run_id)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    assignment = result.get("assignment")
+    return {
+        "run": _run_payload(run),
+        "report": result["report"],
+        "assignment": _assignment_payload(assignment) if assignment else None,
+    }
 
 
 @router.post("/runs/{run_id}/shadow")
