@@ -29,13 +29,18 @@ from polyflip.ai_lab.service import (
     AIPermissionError,
     AIRunTransitionError,
     append_step,
+    approve_and_activate_deployment,
+    authorize_run_action,
+    create_deployment_revision,
     create_experiment_config,
     create_permission,
     create_run,
-    authorize_run_action,
     get_run_detail,
-    transition_action_for_target,
+    propose_live_deployment,
+    reject_deployment_approval,
     request_approval,
+    rollback_deployment,
+    transition_action_for_target,
     transition_run,
 )
 from polyflip.ai_lab.orchestrator import (
@@ -49,10 +54,13 @@ from polyflip.ai_lab.orchestrator import (
 from polyflip.api.auth import verify_api_key
 from polyflip.db.connection import get_db_session
 from polyflip.db.models import (
+    AIApprovalRequest,
+    AIExperimentConfig,
     AIOptimizationRun,
     AIPermission,
     AIRunStep,
-    AIExperimentConfig,
+    DeploymentEvent,
+    DeploymentRevision,
 )
 
 router = APIRouter(
@@ -83,70 +91,52 @@ class SchedulerRunRequest(BaseModel):
     )
 
 
-def _execution_payload(outcome: Any) -> dict[str, Any]:
-    return {
-        "run_id": outcome.run_id,
-        "step_id": outcome.step_id,
-        "action": outcome.action,
-        "evaluation_kind": outcome.evaluation_kind,
-        "status": outcome.status,
-        "result_id": outcome.result_id,
-        "error_code": outcome.error_code,
-        "config_id": outcome.config_id,
-    }
-
-
 class RunCreateRequest(BaseModel):
-    objective: str = Field(min_length=1, max_length=4000)
+    objective: str = Field(min_length=1, max_length=500)
     scope: dict[str, Any] = Field(default_factory=dict)
-    autonomy_level: str = "EXPERIMENT"
-    budget_experiments: int = Field(default=0, ge=0, le=10000)
-    budget_seconds: int = Field(default=0, ge=0, le=7 * 24 * 3600)
-    created_by: str = Field(default="api", max_length=128)
-    permission_id: int | None = Field(
-        default=None,
-        description="Concrete AIPermission.id version captured as the run snapshot.",
+    autonomy_level: str = Field(
+        default="EXPERIMENT",
+        pattern=r"^(EXPERIMENT|AUTONOMOUS_SHADOW|DIRECTED)$",
     )
-
-
-class TransitionRequest(BaseModel):
-    target: str
-    reason: str | None = Field(default=None, max_length=4000)
+    budget_experiments: int = Field(default=10, ge=1, le=1000)
+    created_by: str = Field(default="api", max_length=128)
+    permission_profile: str = Field(
+        default="experiment-only", min_length=1, max_length=64
+    )
+    agent_thread_id: str | None = Field(default=None, max_length=128)
 
 
 class StepCreateRequest(BaseModel):
     step_index: int = Field(ge=0)
-    step_type: str = Field(min_length=1, max_length=32)
-    status: str = "SUCCEEDED"
-    hypothesis: str | None = None
+    step_type: str = Field(min_length=1, max_length=64)
+    status: str = Field(default="SUCCEEDED", min_length=1, max_length=24)
+    hypothesis: str | None = Field(default=None, max_length=4000)
     action: str | None = Field(default=None, max_length=64)
     input_payload: dict[str, Any] | None = None
     output_payload: dict[str, Any] | None = None
-    summary: str | None = None
-    error_code: str | None = None
-    error_message: str | None = None
+    summary: str | None = Field(default=None, max_length=4000)
+    error_code: str | None = Field(default=None, max_length=64)
+    error_message: str | None = Field(default=None, max_length=4000)
 
 
 class ConfigCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     model_family: str = Field(min_length=1, max_length=32)
-    feature_set: str = Field(min_length=1, max_length=32)
+    feature_set: str = Field(min_length=1, max_length=8)
     feature_pipeline_version: str = Field(min_length=1, max_length=64)
-    model_params: dict[str, Any] = Field(default_factory=dict)
-    strategy_params: dict[str, Any] = Field(default_factory=dict)
-    backtest_params: dict[str, Any] = Field(default_factory=dict)
+    model_params: dict[str, Any]
+    strategy_params: dict[str, Any]
+    backtest_params: dict[str, Any]
     asset: str | None = Field(default=None, max_length=32)
     regime: str | None = Field(default=None, max_length=32)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=4000)
     created_by: str = Field(default="api", max_length=128)
-    parent_id: int | None = None
-
-
+    parent_id: int | None = Field(default=None, gt=0)
 
 
 class PermissionCreateRequest(BaseModel):
     profile_name: str = Field(min_length=1, max_length=64)
-    allowed_actions: list[str] = Field(default_factory=list)
+    allowed_actions: list[str] = Field(min_length=1)
     scope: dict[str, Any] = Field(default_factory=dict)
     limits: dict[str, Any] = Field(default_factory=dict)
     updated_by: str = Field(default="api", max_length=128)
@@ -158,10 +148,21 @@ class ActionCheckRequest(BaseModel):
 
 
 class ApprovalRequest(BaseModel):
-    target_type: str = Field(min_length=1, max_length=32)
-    target_id: str = Field(min_length=1, max_length=64)
-    requested_action: str = Field(min_length=1, max_length=32)
+    target_type: str = Field(default="DEPLOYMENT_REVISION", min_length=1, max_length=32)
+    target_id: str | None = Field(default=None, max_length=64)
+    requested_action: str = Field(default="ACTIVATE", min_length=1, max_length=32)
     diff: dict[str, Any] = Field(default_factory=dict)
+
+
+class ApprovalDecisionRequest(BaseModel):
+    actor: str = Field(default="admin", min_length=1, max_length=128)
+    reason: str | None = Field(default=None, max_length=4000)
+
+
+class RollbackRequest(BaseModel):
+    target_revision_id: int | None = Field(default=None, gt=0)
+    actor: str = Field(default="admin", min_length=1, max_length=128)
+    reason: str | None = Field(default=None, max_length=4000)
 
 
 class PlanRequest(BaseModel):
@@ -270,119 +271,52 @@ def _assignment_payload(assignment: Any) -> dict[str, Any]:
         "asset": assignment.asset,
         "regime": assignment.regime,
         "status": assignment.status,
-        "metrics": assignment.metrics,
-        "started_at": assignment.started_at,
-        "ended_at": assignment.ended_at,
         "created_at": assignment.created_at,
     }
 
 
-
-
-@router.post("/permissions", status_code=201)
-async def create_ai_permission(
-    payload: PermissionCreateRequest,
-    db: AsyncSession = Depends(get_db_session),
-):
-    try:
-        row = await create_permission(
-            db,
-            profile_name=payload.profile_name,
-            allowed_actions=payload.allowed_actions,
-            scope=payload.scope,
-            limits=payload.limits,
-            updated_by=payload.updated_by,
-            enabled=payload.enabled,
-        )
-        await db.commit()
-        await db.refresh(row)
-    except (AILabError, AIPermissionError) as exc:
-        await db.rollback()
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {
-        "id": row.id,
-        "profile_name": row.profile_name,
-        "version": row.version,
-        "is_current": row.is_current,
-        "allowed_actions": row.allowed_actions,
-        "scope": row.scope,
-        "limits": row.limits,
-        "enabled": row.enabled,
-    }
-
-
-@router.get("/permissions")
-async def list_ai_permissions(db: AsyncSession = Depends(get_db_session)):
-    rows = (
-        await db.execute(
-            select(AIPermission)
-            .order_by(AIPermission.profile_name, AIPermission.version.desc())
-        )
-    ).scalars().all()
-    return {
-        "permissions": [
-            {
-                "id": row.id,
-                "profile_name": row.profile_name,
-                "version": row.version,
-                "is_current": row.is_current,
-                "allowed_actions": row.allowed_actions,
-                "scope": row.scope,
-                "limits": row.limits,
-                "enabled": row.enabled,
-            }
-            for row in rows
-        ]
-    }
-
-
-@router.post("/runs/{run_id}/actions/check")
-async def check_ai_action(
-    run_id: int,
-    payload: ActionCheckRequest,
-    db: AsyncSession = Depends(get_db_session),
-):
-    try:
-        run = await authorize_run_action(db, run_id, payload.action)
-    except AILabError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    return {"run_id": run.id, "action": payload.action.upper(), "allowed": True}
+class TransitionRequest(BaseModel):
+    target: str = Field(min_length=1, max_length=24)
+    reason: str | None = Field(default=None, max_length=4000)
 
 
 @router.post("/runs", status_code=201)
-async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(get_db_session)):
-    permission = None
-    if payload.permission_id is not None:
-        # Lock the concrete permission version while the run captures its
-        # immutable snapshot; profile updates cannot race this read.
-        permission = (
-            await db.execute(
-                select(AIPermission)
-                .where(AIPermission.id == payload.permission_id)
-                .with_for_update(read=True)
+async def create_ai_run(
+    payload: RunCreateRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    permission = (
+        await db.execute(
+            select(AIPermission)
+            .where(
+                AIPermission.profile_name == payload.permission_profile,
+                AIPermission.is_current.is_(True),
             )
-        ).scalar_one_or_none()
-    if payload.permission_id is not None and permission is None:
-        raise HTTPException(status_code=404, detail="permission profile not found")
-    if payload.permission_id is None and payload.autonomy_level.upper() != "OBSERVE":
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if permission is None:
         raise HTTPException(
-            status_code=422,
-            detail="permission_id is required for non-OBSERVE AI Lab runs",
+            status_code=404,
+            detail=f"permission profile {payload.permission_profile!r} not found",
         )
     try:
         run = await create_run(
             db,
             objective=payload.objective,
             scope=payload.scope,
-            autonomy_level=payload.autonomy_level.upper(),
+            autonomy_level=payload.autonomy_level,
             budget_experiments=payload.budget_experiments,
-            budget_seconds=payload.budget_seconds,
-            created_by=payload.created_by,
             permission=permission,
+            created_by=payload.created_by,
+            agent_thread_id=payload.agent_thread_id,
         )
         await db.commit()
         await db.refresh(run)
-    except (AILabError, AIPermissionError) as exc:
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
         await db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _run_payload(run)
@@ -391,32 +325,22 @@ async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(ge
 @router.get("/runs")
 async def list_ai_runs(
     status: str | None = None,
-    created_by: str | None = None,
-    before_id: int | None = None,
     limit: int = 50,
     db: AsyncSession = Depends(get_db_session),
 ):
-    # Cursor pagination is stable even when multiple runs share a timestamp.
-    limit = min(max(limit, 1), 100)
-    query = select(AIOptimizationRun).order_by(
-        AIOptimizationRun.id.desc()
-    ).limit(limit)
+    stmt = select(AIOptimizationRun).order_by(AIOptimizationRun.id.desc())
     if status:
-        query = query.where(AIOptimizationRun.status == status.strip().upper())
-    if created_by:
-        query = query.where(AIOptimizationRun.created_by == created_by.strip())
-    if before_id is not None:
-        query = query.where(AIOptimizationRun.id < before_id)
-    rows = (await db.execute(query)).scalars().all()
-    next_before_id = rows[-1].id if len(rows) == limit else None
-    return {
-        "runs": [_run_payload(row) for row in rows],
-        "next_before_id": next_before_id,
-    }
+        stmt = stmt.where(AIOptimizationRun.status == status.upper())
+    stmt = stmt.limit(min(max(1, limit), 200))
+    runs = (await db.execute(stmt)).scalars().all()
+    return [_run_payload(run) for run in runs]
 
 
 @router.get("/runs/{run_id}")
-async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
+async def get_ai_run(
+    run_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
     detail = await get_run_detail(db, run_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
@@ -427,179 +351,122 @@ async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
             {
                 "id": result.id,
                 "config_id": result.config_id,
-                "artifact_id": result.artifact_id,
                 "evaluation_kind": result.evaluation_kind,
                 "status": result.status,
-                "metrics": result.metrics,
-                "slices": result.slices,
-                "trade_count": result.trade_count,
                 "net_pnl": result.net_pnl,
+                "trade_count": result.trade_count,
                 "max_drawdown": result.max_drawdown,
-                "code_sha": result.code_sha,
-                "dataset_fingerprint": result.dataset_fingerprint,
-                "train_window_start": result.train_window_start,
-                "train_window_end": result.train_window_end,
-                "oot_window_start": result.oot_window_start,
-                "oot_window_end": result.oot_window_end,
+                "metrics": result.metrics,
+                "artifact_id": result.artifact_id,
                 "created_at": result.created_at,
             }
             for result in detail["results"]
         ],
-        "audits": [_audit_payload(audit) for audit in detail.get("audits", [])],
+        "audits": [_audit_payload(audit) for audit in detail["audits"]],
     }
 
 
-@router.post("/runs/{run_id}/plan")
+@router.post("/runs/{run_id}/plan", status_code=201)
 async def plan_ai_run(
     run_id: int,
     payload: PlanRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
     try:
-        steps = await plan_run(db, run_id, payload.config_ids)
+        steps = await plan_run(db, run_id=run_id, config_ids=payload.config_ids)
         await db.commit()
-        for step in steps:
-            await db.refresh(step)
     except AIPermissionError as exc:
         await db.rollback()
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except AILabError as exc:
         await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return {"run_id": run_id, "steps": [_step_payload(step) for step in steps]}
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return [_step_payload(step) for step in steps]
 
 
-@router.post("/runs/{run_id}/steps/claim")
+@router.post("/runs/{run_id}/claim-step")
 async def claim_ai_step(
     run_id: int,
     db: AsyncSession = Depends(get_db_session),
 ):
     try:
         step = await claim_next_step(db, run_id)
-        if step is not None:
-            await db.commit()
-            await db.refresh(step)
-        else:
-            await db.rollback()
+        await db.commit()
     except AIPermissionError as exc:
         await db.rollback()
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except AILabError as exc:
         await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return {"run_id": run_id, "step": _step_payload(step) if step else None}
-
-
-@router.post("/runs/{run_id}/worker/lgbm/schedule")
-async def schedule_ai_lgbm_worker(
-    run_id: int,
-    payload: SchedulerRunRequest,
-    db: AsyncSession = Depends(get_db_session),
-):
-    """Run a finite leased sequence of offline LightGBM worker batches."""
-    run = await db.get(AIOptimizationRun, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="AI Lab run not found")
-    if run.status not in {"PLANNING", "RUNNING"}:
-        raise HTTPException(
-            status_code=409,
-            detail=f"run {run_id} cannot execute from {run.status}",
-        )
-    try:
-        result = await run_lgbm_scheduler(
-            db,
-            run_id,
-            max_iterations=payload.max_iterations,
-            max_steps=payload.max_steps,
-            interval_seconds=payload.interval_seconds,
-            lease_ttl_seconds=payload.lease_ttl_seconds,
-        )
-    except ValueError as exc:
-        await db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:
-        await db.rollback()
-        logger.exception(
-            "ai_lab_lgbm_scheduler_failed",
-            run_id=run_id,
-            error=str(exc),
-        )
-        raise HTTPException(status_code=500, detail="AI Lab scheduler failed") from exc
-
-    logger.info(
-        "ai_lab_lgbm_scheduler_completed",
-        run_id=run_id,
-        status=result.status,
-        iterations=result.iterations,
-        stop_reason=result.stop_reason,
-    )
-    return {
-        "status": result.status,
-        "run_id": result.run_id,
-        "owner_token": result.owner_token,
-        "iterations": result.iterations,
-        "stop_reason": result.stop_reason,
-        "outcomes": [_execution_payload(item) for item in result.outcomes],
-    }
+    if step is None:
+        return {"step": None}
+    await db.refresh(step)
+    return {"step": _step_payload(step)}
 
 
-@router.post("/runs/{run_id}/worker/lgbm")
-async def execute_ai_lgbm_worker(
+@router.post("/runs/{run_id}/worker-run")
+async def run_ai_worker(
     run_id: int,
     payload: WorkerRunRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Execute a bounded offline LightGBM batch and return its audit outcomes."""
+    """Execute up to max_steps planned LightGBM steps for one run."""
     run = await db.get(AIOptimizationRun, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
-    if run.status not in {"PLANNING", "RUNNING"}:
-        raise HTTPException(
-            status_code=409,
-            detail=f"run {run_id} cannot execute from {run.status}",
-        )
     try:
-        outcomes = await execute_lgbm_steps(
-            db,
-            run_id,
-            max_steps=payload.max_steps,
-        )
+        results = await execute_lgbm_steps(db, run_id=run_id, max_steps=payload.max_steps)
+        await db.commit()
     except ExecutionBatchError as exc:
         await db.rollback()
-        logger.exception(
-            "ai_lab_lgbm_worker_partial_failure",
-            run_id=run_id,
-            completed=len(exc.completed),
-            error=str(exc.cause),
-        )
-        return {
-            "status": "partial_failure",
-            "run_id": run_id,
-            "completed": [_execution_payload(item) for item in exc.completed],
-            "error": str(exc.cause)[:4000],
-        }
-    except ValueError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "BATCH_EXECUTION_FAILED", "message": str(exc)},
+        ) from exc
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
         await db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    logger.info(
-        "ai_lab_lgbm_worker_batch_completed",
-        run_id=run_id,
-        requested_steps=payload.max_steps,
-        completed_steps=len(outcomes),
-        statuses=[item.status for item in outcomes],
-    )
     return {
-        "status": "completed",
         "run_id": run_id,
-        "requested_steps": payload.max_steps,
-        "completed_steps": len(outcomes),
-        "outcomes": [_execution_payload(item) for item in outcomes],
+        "processed_steps": len(results),
+        "steps": results,
     }
 
 
+@router.post("/scheduler/run")
+async def run_ai_scheduler(
+    payload: SchedulerRunRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Run the bounded scheduling loop across all active AI Lab runs."""
+    try:
+        summary = await run_lgbm_scheduler(
+            db,
+            max_iterations=payload.max_iterations,
+            max_steps_per_iteration=payload.max_steps,
+            interval_seconds=payload.interval_seconds,
+            lease_ttl_seconds=payload.lease_ttl_seconds,
+        )
+    except ExecutionBatchError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "SCHEDULER_EXECUTION_FAILED", "message": str(exc)},
+        ) from exc
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return summary
+
+
 @router.post("/runs/{run_id}/results", status_code=201)
-async def record_ai_result(
+async def add_ai_result(
     run_id: int,
     payload: ResultCreateRequest,
     db: AsyncSession = Depends(get_db_session),
@@ -829,23 +696,200 @@ async def request_ai_approval(
     if await db.get(AIOptimizationRun, run_id) is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
     try:
-        row = await request_approval(
-            db,
-            run_id=run_id,
-            target_type=payload.target_type,
-            target_id=payload.target_id,
-            requested_action=payload.requested_action,
-            diff=payload.diff,
-        )
-        await db.commit()
-        await db.refresh(row)
+        if not payload.diff and payload.requested_action.upper() == "ACTIVATE":
+            row, _ = await propose_live_deployment(
+                db,
+                run_id=run_id,
+                actor="operator",
+            )
+            await db.commit()
+            await db.refresh(row)
+        else:
+            row = await request_approval(
+                db,
+                run_id=run_id,
+                target_type=payload.target_type,
+                target_id=payload.target_id or str(run_id),
+                requested_action=payload.requested_action,
+                diff=payload.diff,
+            )
+            await db.commit()
+            await db.refresh(row)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except AILabError as exc:
         await db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
         "id": row.id,
         "run_id": row.run_id,
+        "target_type": row.target_type,
+        "target_id": row.target_id,
         "requested_action": row.requested_action,
         "status": row.status,
+        "diff": row.diff,
         "requested_at": row.requested_at,
+    }
+
+
+@router.post("/approvals/{approval_id}/approve")
+async def approve_ai_deployment(
+    approval_id: int,
+    payload: ApprovalDecisionRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        revision = await approve_and_activate_deployment(
+            db,
+            approval_id=approval_id,
+            actor=payload.actor,
+            reason=payload.reason,
+        )
+        await db.commit()
+        await db.refresh(revision)
+        approval = await db.get(AIApprovalRequest, approval_id)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "status": "APPROVED",
+        "approval_id": approval_id,
+        "revision_id": revision.id,
+        "revision_key": revision.revision_key,
+        "revision_status": revision.status,
+        "activated_at": revision.activated_at,
+        "decided_by": approval.decided_by if approval else payload.actor,
+    }
+
+
+@router.post("/approvals/{approval_id}/reject")
+async def reject_ai_deployment(
+    approval_id: int,
+    payload: ApprovalDecisionRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        approval = await reject_deployment_approval(
+            db,
+            approval_id=approval_id,
+            actor=payload.actor,
+            reason=payload.reason,
+        )
+        await db.commit()
+        await db.refresh(approval)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "status": "REJECTED",
+        "approval_id": approval.id,
+        "decided_by": approval.decided_by,
+        "decision_reason": approval.decision_reason,
+        "decided_at": approval.decided_at,
+    }
+
+
+@router.post("/deployments/rollback")
+async def rollback_ai_deployment(
+    payload: RollbackRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        restored = await rollback_deployment(
+            db,
+            target_revision_id=payload.target_revision_id,
+            actor=payload.actor,
+            reason=payload.reason,
+        )
+        await db.commit()
+        await db.refresh(restored)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "status": "ROLLED_BACK",
+        "active_revision_id": restored.id,
+        "revision_key": restored.revision_key,
+        "revision_status": restored.status,
+        "activated_at": restored.activated_at,
+    }
+
+
+@router.get("/deployments/revisions")
+async def list_ai_deployment_revisions(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db_session),
+):
+    revisions = (
+        await db.execute(
+            select(DeploymentRevision)
+            .order_by(DeploymentRevision.id.desc())
+            .limit(min(max(1, limit), 200))
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": rev.id,
+            "revision_key": rev.revision_key,
+            "parent_id": rev.parent_id,
+            "manifest_hash": rev.manifest_hash,
+            "status": rev.status,
+            "created_by": rev.created_by,
+            "created_at": rev.created_at,
+            "activated_at": rev.activated_at,
+            "rolled_back_at": rev.rolled_back_at,
+        }
+        for rev in revisions
+    ]
+
+
+@router.get("/deployments/revisions/{revision_id}")
+async def get_ai_deployment_revision(
+    revision_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    rev = await db.get(DeploymentRevision, revision_id)
+    if rev is None:
+        raise HTTPException(status_code=404, detail="Deployment revision not found")
+    events = (
+        await db.execute(
+            select(DeploymentEvent)
+            .where(DeploymentEvent.revision_id == revision_id)
+            .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+        )
+    ).scalars().all()
+    return {
+        "id": rev.id,
+        "revision_key": rev.revision_key,
+        "parent_id": rev.parent_id,
+        "manifest": rev.manifest,
+        "manifest_hash": rev.manifest_hash,
+        "status": rev.status,
+        "created_by": rev.created_by,
+        "created_at": rev.created_at,
+        "activated_at": rev.activated_at,
+        "rolled_back_at": rev.rolled_back_at,
+        "events": [
+            {
+                "id": ev.id,
+                "event_type": ev.event_type,
+                "actor": ev.actor,
+                "reason": ev.reason,
+                "payload": ev.payload,
+                "previous_hash": ev.previous_hash,
+                "event_hash": ev.event_hash,
+                "created_at": ev.created_at,
+            }
+            for ev in events
+        ],
     }
