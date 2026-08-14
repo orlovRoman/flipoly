@@ -10,10 +10,20 @@ from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+import structlog
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polyflip.ai_lab.executor import ExecutionBatchError
+from polyflip.ai_lab.lgbm_worker import MAX_LGBM_WORKER_STEPS, execute_lgbm_steps
+from polyflip.ai_lab.scheduler import (
+    MAX_LEASE_TTL_SECONDS,
+    MAX_SCHEDULER_INTERVAL_SECONDS,
+    MAX_SCHEDULER_ITERATIONS,
+    MIN_LEASE_TTL_SECONDS,
+    run_lgbm_scheduler,
+)
 from polyflip.ai_lab.service import (
     AILabError,
     AIPermissionError,
@@ -49,6 +59,40 @@ router = APIRouter(
     tags=["ai-lab"],
     dependencies=[Depends(verify_api_key)],
 )
+
+logger = structlog.get_logger(__name__)
+
+
+class WorkerRunRequest(BaseModel):
+    max_steps: int = Field(default=1, ge=1, le=MAX_LGBM_WORKER_STEPS)
+
+
+class SchedulerRunRequest(BaseModel):
+    max_iterations: int = Field(default=1, ge=1, le=MAX_SCHEDULER_ITERATIONS)
+    max_steps: int = Field(default=1, ge=1, le=MAX_LGBM_WORKER_STEPS)
+    interval_seconds: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=MAX_SCHEDULER_INTERVAL_SECONDS,
+    )
+    lease_ttl_seconds: float = Field(
+        default=120.0,
+        ge=MIN_LEASE_TTL_SECONDS,
+        le=MAX_LEASE_TTL_SECONDS,
+    )
+
+
+def _execution_payload(outcome: Any) -> dict[str, Any]:
+    return {
+        "run_id": outcome.run_id,
+        "step_id": outcome.step_id,
+        "action": outcome.action,
+        "evaluation_kind": outcome.evaluation_kind,
+        "status": outcome.status,
+        "result_id": outcome.result_id,
+        "error_code": outcome.error_code,
+        "config_id": outcome.config_id,
+    }
 
 
 class RunCreateRequest(BaseModel):
@@ -433,6 +477,114 @@ async def claim_ai_step(
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"run_id": run_id, "step": _step_payload(step) if step else None}
+
+
+@router.post("/runs/{run_id}/worker/lgbm/schedule")
+async def schedule_ai_lgbm_worker(
+    run_id: int,
+    payload: SchedulerRunRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Run a finite leased sequence of offline LightGBM worker batches."""
+    run = await db.get(AIOptimizationRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="AI Lab run not found")
+    if run.status not in {"PLANNING", "RUNNING"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"run {run_id} cannot execute from {run.status}",
+        )
+    try:
+        result = await run_lgbm_scheduler(
+            db,
+            run_id,
+            max_iterations=payload.max_iterations,
+            max_steps=payload.max_steps,
+            interval_seconds=payload.interval_seconds,
+            lease_ttl_seconds=payload.lease_ttl_seconds,
+        )
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.exception(
+            "ai_lab_lgbm_scheduler_failed",
+            run_id=run_id,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail="AI Lab scheduler failed") from exc
+
+    logger.info(
+        "ai_lab_lgbm_scheduler_completed",
+        run_id=run_id,
+        status=result.status,
+        iterations=result.iterations,
+        stop_reason=result.stop_reason,
+    )
+    return {
+        "status": result.status,
+        "run_id": result.run_id,
+        "owner_token": result.owner_token,
+        "iterations": result.iterations,
+        "stop_reason": result.stop_reason,
+        "outcomes": [_execution_payload(item) for item in result.outcomes],
+    }
+
+
+@router.post("/runs/{run_id}/worker/lgbm")
+async def execute_ai_lgbm_worker(
+    run_id: int,
+    payload: WorkerRunRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Execute a bounded offline LightGBM batch and return its audit outcomes."""
+    run = await db.get(AIOptimizationRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="AI Lab run not found")
+    if run.status not in {"PLANNING", "RUNNING"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"run {run_id} cannot execute from {run.status}",
+        )
+    try:
+        outcomes = await execute_lgbm_steps(
+            db,
+            run_id,
+            max_steps=payload.max_steps,
+        )
+    except ExecutionBatchError as exc:
+        await db.rollback()
+        logger.exception(
+            "ai_lab_lgbm_worker_partial_failure",
+            run_id=run_id,
+            completed=len(exc.completed),
+            error=str(exc.cause),
+        )
+        return {
+            "status": "partial_failure",
+            "run_id": run_id,
+            "completed": [_execution_payload(item) for item in exc.completed],
+            "error": str(exc.cause)[:4000],
+        }
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    logger.info(
+        "ai_lab_lgbm_worker_batch_completed",
+        run_id=run_id,
+        requested_steps=payload.max_steps,
+        completed_steps=len(outcomes),
+        statuses=[item.status for item in outcomes],
+    )
+    return {
+        "status": "completed",
+        "run_id": run_id,
+        "requested_steps": payload.max_steps,
+        "completed_steps": len(outcomes),
+        "outcomes": [_execution_payload(item) for item in outcomes],
+    }
 
 
 @router.post("/runs/{run_id}/results", status_code=201)

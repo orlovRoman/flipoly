@@ -15,6 +15,7 @@ from sqlalchemy import (
     SmallInteger,
     ForeignKey,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, validates
@@ -180,6 +181,13 @@ class LGBMTrainingJob(Base):
     __table_args__ = (
         Index("idx_lgbm_training_jobs_status_created", "status", "created_at"),
         Index("idx_lgbm_training_jobs_symbol_created", "symbol", "created_at"),
+        Index(
+            "uq_lgbm_training_jobs_symbol_active",
+            "symbol",
+            unique=True,
+            postgresql_where=text("status IN ('QUEUED', 'RUNNING')"),
+            sqlite_where=text("status IN ('QUEUED', 'RUNNING')"),
+        ),
         CheckConstraint(
             "status IN ('QUEUED', 'RUNNING', 'SUCCESS', 'FAILED')",
             name="ck_lgbm_training_jobs_status",
@@ -656,6 +664,28 @@ class AIOptimizationRun(Base):
             "'REJECTED', 'CANCELLED', 'ROLLED_BACK')",
             name="ck_ai_runs_status",
         ),
+    )
+
+
+class AIWorkerLease(Base):
+    """Short-lived cross-process lease for one autonomous worker run."""
+
+    __tablename__ = "ai_worker_leases"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("ai_optimization_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    owner_token = Column(String(128), nullable=False)
+    acquired_at = Column(DateTime(timezone=True), nullable=False)
+    heartbeat_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_ai_worker_leases_expires", "expires_at"),
     )
 
 
