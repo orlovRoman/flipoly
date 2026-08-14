@@ -285,7 +285,10 @@ class LiveMarket(Base):
 
     __tablename__ = "live_markets"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Compatibility column present in production; market_id remains the canonical key.
+    # Do not mark this column autoincrement/primary_key: SQLite test schemas cannot
+    # autoincrement one member of a composite primary key.
+    id = Column(Integer, nullable=True)
     condition_id = Column(String(128), unique=True, nullable=False)
     slug = Column(String(256), nullable=False)
     asset = Column(String(32), nullable=False)
