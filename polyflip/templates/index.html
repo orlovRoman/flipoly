@@ -120,6 +120,15 @@
 
                 <!-- ВКЛАДКА 2: МОДЕЛИ (ModelRegistry) -->
                 <section id="models-tab" class="tab-pane">
+                    <div style="display:flex;justify-content:flex-end;align-items:center;gap:.5rem;margin-bottom:1rem;">
+                        <label for="logreg-feature-set" style="font-size:.85rem;color:var(--text-muted);">LogReg feature set:</label>
+                        <select id="logreg-feature-set" title="Use the same variant across assets for comparable OOT experiments" class="custom-select">
+                            <option value="AUTO">Feature set: AUTO</option>
+                            <option value="A">A - control</option>
+                            <option value="B">B - candle direction and runs</option>
+                            <option value="C">C - direction, runs, body and range</option>
+                        </select>
+                    </div>
                     <!-- Верхняя карточка сводки (PnL по моделям) -->
                     <div class="kpi-grid">
                         <div class="kpi-card">
