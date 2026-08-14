@@ -1,894 +1,159 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PolyFlip Trading Dashboard</title>
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-    
-    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.2.1/dist/chartjs-plugin-annotation.min.js" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ static_version }}">
-    <style>
-        #trading-settings-form .form-group label {
-            font-size: 0.85rem !important;
-            color: var(--text-muted) !important;
-            font-weight: 500 !important;
-            margin-bottom: 0.4rem !important;
-        }
-        #trading-settings-form .form-group input {
-            font-size: 0.9rem !important;
-            padding: 0.6rem 0.85rem !important;
-        }
-        #trading-settings-form .form-group small {
-            font-size: 0.8rem !important;
-        }
-        .mode-badge {
-            font-size: 0.85rem;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-weight: 600;
-            display: inline-block;
-        }
-        .mode-ml {
-            background: rgba(0, 192, 135, 0.1) !important;
-            border: 1px solid rgba(0, 192, 135, 0.3) !important;
-            color: #00c087 !important;
-        }
-        .mode-favorite {
-            background: rgba(240, 185, 11, 0.1) !important;
-            border: 1px solid rgba(240, 185, 11, 0.3) !important;
-            color: #f0b90b !important;
-        }
-        .mode-lightgbm {
-            background: rgba(230, 100, 20, 0.1) !important;
-            border: 1px solid rgba(230, 100, 20, 0.3) !important;
-            color: #e66414 !important;
-        }
-        .mode-combined {
-            background: rgba(147, 51, 234, 0.1) !important;
-            border: 1px solid rgba(147, 51, 234, 0.3) !important;
-            color: #c084fc !important;
-        }
-        .settings-group {
-            margin-top: 1.5rem;
-            margin-bottom: 1.5rem;
-            padding: 1rem;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .settings-section-card {
-            margin-top: 1.25rem;
-            margin-bottom: 1.25rem;
-            padding: 1.25rem;
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            background: rgba(255, 255, 255, 0.02);
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-        .settings-section-card:hover {
-            border-color: rgba(255, 255, 255, 0.15);
-        }
-        .settings-section-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 1rem;
-            padding-bottom: 0.6rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        }
-        .settings-section-title {
-            font-size: 1rem;
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin: 0;
-        }
-        .group-global {
-            border-left: 4px solid #00a3ff;
-            background: linear-gradient(135deg, rgba(0, 163, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
-        }
-        .group-global .settings-section-title {
-            color: #38bdf8;
-        }
-        .group-models {
-            border-left: 4px solid #a855f7;
-            background: linear-gradient(135deg, rgba(168, 85, 247, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
-        }
-        .group-models .settings-section-title {
-            color: #c084fc;
-        }
-        .group-risk {
-            border-left: 4px solid #f59e0b;
-            background: linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
-        }
-        .group-risk .settings-section-title {
-            color: #fbbf24;
-        }
-        .group-betting {
-            border-left: 4px solid #10b981;
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
-        }
-        .group-betting .settings-section-title {
-            color: #34d399;
-        }
-        .group-bounds {
-            border-left: 4px solid #06b6d4;
-            background: linear-gradient(135deg, rgba(6, 182, 212, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
-        }
-        .group-bounds .settings-section-title {
-            color: #22d3ee;
-        }
-        .group-strategies {
-            border-left: 4px solid #ec4899;
-            background: linear-gradient(135deg, rgba(236, 72, 153, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
-        }
-        .group-strategies .settings-section-title {
-            color: #f472b6;
-        }
-        .settings-label {
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            font-weight: 500;
-            margin-bottom: 0.5rem;
-            display: block;
-        }
-        .radio-group {
-            display: flex;
-            gap: 1.5rem;
-            margin-top: 0.5rem;
-            margin-bottom: 0.5rem;
-        }
-        .radio-option {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            cursor: pointer;
-            font-size: 0.9rem;
-            color: #fff;
-        }
-        .radio-option input {
-            cursor: pointer;
-            accent-color: var(--poly-blue);
-            width: 1.1rem;
-            height: 1.1rem;
-        }
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            z-index: 9999;
-            background: rgba(0, 0, 0, 0.7);
-            justify-content: center;
-            align-items: center;
-            backdrop-filter: blur(4px);
-        }
-        .modal-content {
-            position: relative;
-            width: 100%;
-        }
-    </style>    
-    <script>
-        window.API_BASE = "{{ root_path }}";
-    </script>
-</head>
-<body>
-    <div class="app-container">
-        <nav class="sidebar">
-            <div class="logo">
-                <span class="poly">Poly</span><span class="flip">Flip</span>
-            </div>
-            <ul class="nav-links">
-                <li class="nav-item" onclick="window.location.href='/dashboard'">Аналитика</li>
-                <li class="nav-item" onclick="window.location.href='/dashboard?tab=models'">Модели Polymarket (LogReg)</li>
-                <li class="nav-item" onclick="window.location.href='/dashboard?tab=status'">Статус Парсера</li>
-                <li class="nav-item active" onclick="window.location.href='/trading'">Торговля (PnL)</li>
-                <li class="nav-item" onclick="window.location.href='/backtest'">Бэктест</li>
-                <li class="nav-item" onclick="window.location.href='/lightgbm'">LightGBM (15m)</li>
-                <li class="nav-item" onclick="window.location.href='/execution'">Исполнение сделок (LIVE)</li>
-            </ul>
-        </nav>
+{% extends "base.html" %}
 
-        <main class="main-content">
-            <section class="tab-content active">
-                <header class="tab-header">
-                    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-                        <h1 style="margin: 0; background: linear-gradient(90deg, #fff, #a0aec0); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;">Торговый Дашборд</h1>
-                        <span id="trading-status-badge" class="status-indicator" style="font-size: 0.8rem; font-weight: 600;">Загрузка...</span>
-                    </div>
-                    <button id="btn-refresh-trading" class="btn primary-btn">Обновить данные</button>
-                </header>
+{% block title %}Торговля (Paper & Live) — PolyFlip{% endblock %}
 
-                <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
-                    <div class="stat-card">
-                        <h3>Общий Капитал</h3>
-                        <div class="stat-value highlight" id="stat-capital">-- USDC</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Общий PnL</h3>
-                        <div class="stat-value" id="stat-pnl">-- USDC</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Winrate</h3>
-                        <div class="stat-value" id="stat-winrate">--%</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Победы / Поражения</h3>
-                        <div class="stat-value" id="stat-wl">-- / --</div>
-                    </div>
-                </div>
-
-                <div class="panel" style="margin-top: 1.5rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-                        <h3 style="margin: 0; font-size: 1.15rem;">Динамика доходности (PnL) и сделок</h3>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <label for="charts-tf-select" style="font-size: 0.85rem; color: var(--text-muted);">Период графиков:</label>
-                            <select id="charts-tf-select" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
-                                <option value="24h">24 часа</option>
-                                <option value="7d">7 дней</option>
-                                <option value="30d">30 дней</option>
-                                <option value="all" selected>За все время</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="charts-container" style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;">
-                        <div class="chart-box">
-                            <h3>График PnL (Доходность по дням)</h3>
-                            <canvas id="chart-daily-pnl" style="max-height: 300px;"></canvas>
-                        </div>
-                        <div class="chart-box">
-                            <h3>Прибыль / Убыток по дням (USDC)</h3>
-                            <canvas id="chart-daily-wl" style="max-height: 300px;"></canvas>
-                        </div>
-                    </div>
-
-                    <!-- PRESETS SECTION (UNDER PNL CHARTS) -->
-                    <div class="stat-card" style="margin-top: 1.5rem; background: rgba(99, 102, 241, 0.04); border: 1px solid rgba(99, 102, 241, 0.2);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.8rem;">
-                            <div>
-                                <h3 style="margin: 0; color: #818cf8; display: flex; align-items: center; gap: 8px;">
-                                    <span>📸 Снимки настроек &amp; Пресеты (Config Presets)</span>
-                                </h3>
-                                <p style="font-size: 0.85rem; color: var(--text-muted); margin: 4px 0 0 0;">
-                                    Сохраняйте успешные параметры торговли в 1 клик, сравнивайте изменения с текущими настройками и восстанавливайте их.
-                                </p>
-                            </div>
-                            <div style="display: flex; gap: 10px; align-items: center; flex: 1; max-width: 450px;">
-                                <input type="text" id="preset-name-input" placeholder="Имя пресета (напр. BTC_Profitable_July10)" 
-                                       style="flex: 1; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #fff; font-size: 0.88rem;">
-                                <button type="button" onclick="savePresetFromUI()" class="btn-primary" style="padding: 8px 16px; white-space: nowrap; cursor: pointer; font-size: 0.88rem;">
-                                    💾 Сохранить пресет
-                                </button>
-                            </div>
-                        </div>
-
-                        <div id="presets-container" style="display: flex; flex-direction: column; gap: 8px; margin-top: 0.5rem;">
-                            <!-- Rendered via JS -->
-                        </div>
-                    </div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem;">
-                    <div class="stat-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
-                            <h3 style="margin: 0;">Аналитика по активам</h3>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <label for="asset-stats-tf-select" style="font-size: 0.85rem; color: var(--text-muted);">Период:</label>
-                                <select id="asset-stats-tf-select" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
-                                    <option value="24h">24 часа</option>
-                                    <option value="7d">7 дней</option>
-                                    <option value="30d">30 дней</option>
-                                    <option value="all" selected>За все время</option>
-                                </select>
-                            </div>
-                        </div>
-                        <table class="data-table" id="asset-stats-table" style="width: 100%; text-align: left; margin-top: 0.5rem;">
-                            <thead>
-                                <tr>
-                                    <th>Актив</th>
-                                    <th>Сделок</th>
-                                    <th>Winrate</th>
-                                    <th>PnL</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <!-- Rendered via JS -->
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <div class="stat-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <h3 id="pnl-analytics-title">PnL за 24 часа (по стратегиям)</h3>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <select id="pnl-timeframe-select" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; cursor: pointer; outline: none;">
-                                    <option value="24h" selected>24 часа</option>
-                                    <option value="7d">7 дней</option>
-                                    <option value="30d">30 дней</option>
-                                    <option value="all">Все время</option>
-                                </select>
-                                <span id="daily-pnl-loader" class="sync-indicator">Загрузка...</span>
-                            </div>
-                        </div>
-
-                        <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
-                            <table class="data-table" id="daily-pnl-table" style="width: 100%; text-align: left; margin-top: 1rem;">
-                                <thead>
-                                    <tr>
-                                        <th>Актив & Стратегия</th>
-                                        <th>Сделок</th>
-                                        <th>Win Rate</th>
-                                        <th>PnL (USDC)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <!-- Rendered via JS -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- LOGS SECTION -->
-                <div class="stat-card" style="margin-top: 1.5rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                        <h3>Журнал событий торгового движка</h3>
-                        <button class="btn btn-outline" id="btn-refresh-logs">Обновить логи</button>
-                    </div>
-                    <div style="max-height: 400px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 1rem; border: 1px solid var(--border-color); font-family: monospace; font-size: 0.9rem;">
-                        <table style="width: 100%; border-collapse: collapse;" id="trade-logs-table">
-                            <thead style="position: sticky; top: -1rem; background: #141a26; z-index: 10; box-shadow: 0 1px 0 var(--border-color);">
-                                <tr style="text-align: left; color: var(--text-muted);">
-                                    <th style="padding: 8px;">До конца</th>
-                                    <th style="padding: 8px;">Время (UTC)</th>
-                                    <th style="padding: 8px; min-width: 150px;">Вопрос</th>
-                                    <th style="padding: 8px;">Направление (LGBM)</th>
-                                    <th style="padding: 8px;">LogReg</th>
-                                    <th style="padding: 8px;">Статус</th>
-                                    <th style="padding: 8px; min-width: 170px;">Тип ставки</th>
-                                    <th style="padding: 8px;">Ставка</th>
-                                    <th style="padding: 8px;">Цена</th>
-                                    <th style="padding: 8px;">PnL</th>
-                                    <th style="padding: 8px;">Flip %</th>
-                                    <th style="padding: 8px;">Edge</th>
-                                    <th style="padding: 8px;">Причина / Ошибка</th>
-                                    <th style="padding: 8px; text-align: center;">Диагн.</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <!-- JS will populate -->
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="pagination-bar" style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding: 0.5rem 0;">
-                        <button class="btn outline-btn" id="btn-prev" style="padding: 0.5rem 1rem;">← Назад</button>
-                        <span id="page-info" style="color: var(--text-muted); font-size: 0.9rem;">Стр. 1 из 1 (0 записей)</span>
-                        <button class="btn outline-btn" id="btn-next" style="padding: 0.5rem 1rem;">Вперёд →</button>
-                    </div>
-                </div>
-
-                <!-- Decision Funnel Widget -->
-                <div class="stat-card" id="funnel-card" style="margin-top: 1.5rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                        <h3 style="margin: 0;">🔍 Decision Funnel (последние <span id="funnel-hours">24</span>ч)</h3>
-                        <div style="display: flex; gap: 10px;">
-                            <select id="funnel-asset-filter" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem;">
-                                <option value="">Все активы</option>
-                                <option value="BTC">BTC</option>
-                                <option value="ETH">ETH</option>
-                                <option value="SOL">SOL</option>
-                                <option value="DOGE">DOGE</option>
-                                <option value="XRP">XRP</option>
-                            </select>
-                            <select id="funnel-hours-select" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 6px 10px; border-radius: 6px; outline: none; font-size: 0.85rem;">
-                                <option value="6">6ч</option>
-                                <option value="24" selected>24ч</option>
-                                <option value="72">72ч</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div style="display: flex; gap: 2rem; margin-bottom: 1rem; font-size: 0.95rem;">
-                        <div><strong id="funnel-total" style="color: #60a5fa;">—</strong> проверено</div>
-                        <div><strong id="funnel-traded" style="color: #4ade80;">—</strong> сделок</div>
-                        <div style="color: var(--text-muted);">conversion: <strong id="funnel-conv" style="color: white;">—</strong>%</div>
-                    </div>
-                    <div style="overflow-x: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 1rem; border: 1px solid var(--border-color);">
-                        <table class="data-table" id="funnel-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
-                            <thead>
-                                <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
-                                    <th style="padding: 8px;">Гейт</th>
-                                    <th style="padding: 8px;">Заблокировано</th>
-                                    <th style="padding: 8px;">% от total</th>
-                                    <th style="padding: 8px;">Статус</th>
-                                </tr>
-                            </thead>
-                            <tbody id="funnel-tbody">
-                                <!-- JS populated -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                
-
-                <!-- Trading Settings -->
-                <div class="stat-card" style="margin-top: 1.5rem; width: 100%;">
-
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            <h3 style="margin: 0;">Торговые настройки</h3>
-                            <div id="trading-mode-badge" class="mode-badge mode-ml">🤖 Режим: ML</div>
-                        </div>
-                        <button id="btn-save-trading-settings" class="btn primary-btn">Сохранить настройки</button>
-                    </div>
-                    <form id="trading-settings-form" style="background: none; border: none; padding: 0; max-width: 100%;">
-                        
-                        <!-- 1. Глобальные настройки и инфраструктура -->
-                        <div class="settings-section-card group-global">
-                            <div class="settings-section-header">
-                                <h4 class="settings-section-title">🌐 Глобальные настройки и инфраструктура</h4>
-                            </div>
-
-                            <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-bottom: 1.25rem;">
-                                <input type="checkbox" id="TRADING_ENABLED" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                <label for="TRADING_ENABLED" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important; font-size: 0.95rem !important;">Включить торговлю (Trading Enabled)</label>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem;">
-                                <div class="form-group">
-                                    <label for="API_KEY">API Key (для доступа к бэкенду)</label>
-                                    <input type="password" id="API_KEY" placeholder="Введите API ключ...">
-                                </div>
-                                <div class="form-group">
-                                    <label for="LIVE_POLL_INTERVAL_SECONDS" title="Частота сканирования активных рынков (в секундах) для поиска новых сделок.">Интервал обновления (сек)</label>
-                                    <input type="number" id="LIVE_POLL_INTERVAL_SECONDS" min="2" max="300" step="1" value="10">
-                                </div>
-                                <div class="form-group">
-                                    <label for="INITIAL_CAPITAL" title="Начальный капитал в USDC для расчета финансового результата и доходности (ROI).">Начальный Капитал (USDC)</label>
-                                    <input type="number" step="0.1" id="INITIAL_CAPITAL" value="1000.0">
-                                </div>
-                                <div class="form-group">
-                                    <label for="DAILY_LOSS_LIMIT_USDC" title="Сумма чистого убытка за день в USDC, при достижении которой бот прекратит торговлю.">Дневной лимит потерь (USDC, отрицательный)</label>
-                                    <input type="number" step="1" max="0" id="DAILY_LOSS_LIMIT_USDC" value="-100">
-                                </div>
-                            </div>
-
-                            <!-- Режим торговли -->
-                            <div class="settings-group" id="trading-mode-group" style="margin-top: 0; margin-bottom: 1.25rem;">
-                                <label class="settings-label" style="font-weight: 600; color: #fff; font-size: 0.95rem;">Режим торговли (Trading Mode)</label>
-                                <div class="radio-group" style="flex-wrap: wrap;">
-                                    <label class="radio-option">
-                                        <input type="radio" name="trading_mode" value="combined" id="mode-combined" checked>
-                                        <span>⚖️ ML + LightGBM (Combined — единственный активный режим)</span>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <div class="form-group" style="margin-bottom: 1.25rem;">
-                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Торгуемые активы:</label>
-                                <div id="trade-assets-container" style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
-                                    {% for asset in assets %}
-                                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                        <input type="checkbox" class="asset-checkbox" value="{{ asset }}" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue);"> {{ asset }}
-                                    </label>
-                                    {% endfor %}
-                                </div>
-                                <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">Бот будет анализировать рынки только для выбранных активов.</small>
-                            </div>
-                        </div> <!-- /group-global -->
-
-
-                        <!-- 2-column layout container for modules -->
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 1.25rem; align-items: start;">
-
-                            <!-- LEFT COLUMN -->
-                            <div style="display: flex; flex-direction: column; gap: 1.25rem;">
-                            <div class="settings-section-card group-models">
-                                <div class="settings-section-header">
-                                    <h4 class="settings-section-title">🧠 ML-модели, пороги и Combined-режим</h4>
-                                </div>
-
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.25rem;">
-                                <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 8px; background: rgba(234, 179, 8, 0.08); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(234, 179, 8, 0.2); margin: 0;">
-                                    <input type="checkbox" id="ENABLE_ECE_CORRECTION" style="width: 1.1rem; height: 1.1rem; accent-color: #eab308; cursor: pointer; margin-top: 2px;">
-                                    <div>
-                                        <label for="ENABLE_ECE_CORRECTION" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important; font-size: 0.82rem;">Коррекция вероятностей по ECE</label>
-                                        <small style="color: var(--text-muted); display: block; margin-top: 2px; font-size: 0.72rem;">Сжимать вероятности к 50% при высоком ECE (без сжатия при выкл).</small>
-                                    </div>
-                                </div>
-
-                                <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 8px; background: rgba(168, 85, 247, 0.08); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.2); margin: 0;">
-                                    <input type="checkbox" id="COMBINED_REQUIRE_CONSENSUS" style="width: 1.1rem; height: 1.1rem; accent-color: #a855f7; cursor: pointer; margin-top: 2px;">
-                                    <div>
-                                        <label for="COMBINED_REQUIRE_CONSENSUS" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important; font-size: 0.82rem;">Требовать консенсус</label>
-                                        <small style="color: var(--text-muted); display: block; margin-top: 2px; font-size: 0.72rem;">Обе модели должны проголосовать за одно направление.</small>
-                                    </div>
-                                </div>
-
-                                <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 8px; background: rgba(168, 85, 247, 0.08); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.2); margin: 0;">
-                                    <input type="checkbox" id="COMBINED_FALLBACK_TO_LOGREG_ON_NONE" style="width: 1.1rem; height: 1.1rem; accent-color: #a855f7; cursor: pointer; margin-top: 2px;">
-                                    <div>
-                                        <label for="COMBINED_FALLBACK_TO_LOGREG_ON_NONE" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important; font-size: 0.82rem;">Fallback на LogReg</label>
-                                        <small style="color: var(--text-muted); display: block; margin-top: 2px; font-size: 0.72rem;">Использовать голос LogReg, если LightGBM выдает NONE.</small>
-                                    </div>
-                                </div>
-
-                                <div class="form-group" style="display: flex; flex-direction: row; align-items: flex-start; gap: 8px; background: rgba(244, 63, 94, 0.08); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(244, 63, 94, 0.2); margin: 0;">
-                                    <input type="checkbox" id="INVERT_LGBM_SIGNAL" style="width: 1.1rem; height: 1.1rem; accent-color: #f43f5e; cursor: pointer; margin-top: 2px;">
-                                    <div>
-                                        <label for="INVERT_LGBM_SIGNAL" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important; font-size: 0.82rem;">Инвертировать LightGBM</label>
-                                        <small style="color: var(--text-muted); display: block; margin-top: 2px; font-size: 0.72rem;">Предсказания LightGBM для UP и DOWN меняются местами.</small>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
-                                <div class="form-group">
-                                    <label for="MIN_DIRECTION_PROB" title="Минимальная уверенность LGBM в направлении (UP/DOWN) для входа в Combined. Это абсолютный пол, двойная фильтрация отключена.">
-                                        Пол вероятности направления LGBM (%)
-                                    </label>
-                                    <input type="number" step="0.1" max="100" min="0" id="MIN_DIRECTION_PROB" value="50.5">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="MIN_WIN_PROB" title="Минимальная вероятность победы кандидата (LGBM + LogReg) для входа.">
-                                        Мин. вероятность победы кандидата (%)
-                                    </label>
-                                    <input type="number" step="0.1" max="100" min="0" id="MIN_WIN_PROB" value="51.0">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="OUTSIDER_PWIN_DISCOUNT" title="Дополнительный дисконт к MIN_WIN_PROB для аутсайдеров (в процентах). Если MIN_WIN_PROB = 51%, а DISCOUNT = 2%, то аутсайдеру нужно 53% вероятности победы для входа.">
-                                        Дисконт аутсайдера к Мин. P(Win) (%)
-                                    </label>
-                                    <input type="number" step="0.1" max="100" min="0" id="OUTSIDER_PWIN_DISCOUNT" value="65.0">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="COMBINED_DIR_DISCOUNT_WEIGHT" title="Вес дисконта P(Win) при неуверенности LightGBM (в %). 0% — дисконт отключен. 100% — полный линейный дисконт от порога уверенности до пола вероятности.">
-                                        Вес дисконта неуверенности LGBM (%)
-                                    </label>
-                                    <input type="number" step="1" max="100" min="0" id="COMBINED_DIR_DISCOUNT_WEIGHT" value="0">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="COMBINED_DIR_STRONG_THRESHOLD" title="Порог уверенности LightGBM для дисконта (в %). Если уверенность LGBM выше этого значения, дисконт равен 0.">
-                                        Порог уверенности LGBM для дисконта (%)
-                                    </label>
-                                    <input type="number" step="0.5" max="100" min="50" id="COMBINED_DIR_STRONG_THRESHOLD" value="65.0">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="FLIP_THRESHOLD" title="[ОСНОВНОЙ ПОРОГ] Порог вероятности флипа (в %, напр. 80%). Из него и ширины мёртвой зоны вычисляется коридор (lower, upper). При p_flip < lower — вход на фаворита, при p_flip >= upper — на аутсайдера.">
-                                        Порог ФЛИПА / Против толпы (%)
-                                    </label>
-                                    <input type="number" step="0.1" max="100" min="0" id="FLIP_THRESHOLD" value="80">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="COMBINED_LOGREG_ABSTAIN_BAND" title="Ширина коридора нерешительности LogReg вокруг 50% (|p_flip - 50%| < band). Внутри коридора LogReg воздерживается (ABSTAIN), делегируя выбор стороне LightGBM.">
-                                        Зона нерешительности LogReg (±%)
-                                    </label>
-                                    <input type="number" step="0.5" max="25" min="0" id="COMBINED_LOGREG_ABSTAIN_BAND" value="5.0">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="COMBINED_COST_BUFFER" title="Буфер транзакционных издержек и проскальзывания в Combined-режиме (в USD / центах, напр. 0.02 = 2 цента). Вычитается из gross_edge при расчете net_edge.">
-                                        Буфер издержек Combined ($)
-                                    </label>
-                                    <input type="number" step="0.005" max="0.20" min="0.0" id="COMBINED_COST_BUFFER" value="0.020">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 3. Стоп-лосс и Тейк-профит -->
-
-                        <div class="settings-section-card group-strategies">
-                            <div class="settings-section-header">
-                                <h4 class="settings-section-title">🎯 Стратегии Фаворита и Аутсайдера</h4>
-                            </div>
-
-                            <!-- Фаворит -->
-                            <div style="background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; margin-bottom: 1.25rem; border: 1px solid rgba(240, 185, 11, 0.15);">
-                                <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-bottom: 1rem;">
-                                    <input type="checkbox" id="TRADE_ON_FAVORITE" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;" checked>
-                                    <label for="TRADE_ON_FAVORITE" title="Разрешить ставки по тренду (за фаворита) во всех режимах." style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important;">Включить ставки по тренду (TRADE_ON_FAVORITE)</label>
-                                </div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                                    <div class="form-group">
-                                        <label for="FAVORITE_MIN_EDGE" title="Минимальный Edge (преимущество) для входа по фавориту.">Мин. Edge для фаворита (%)</label>
-                                        <input type="number" step="0.1" min="-10.0" max="100.0" id="FAVORITE_MIN_EDGE" value="-1.0">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="FAVORITE_THRESHOLD" title="Цена, начиная с которой токен считается Фаворитом.">Порог Фаворита (0.50 - 0.99)</label>
-                                        <input type="number" step="0.01" min="0.50" max="0.99" id="FAVORITE_THRESHOLD" value="0.55">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="FAVORITE_MIN_PRICE" title="Минимальная цена покупки фаворита.">⭐ Фаворит: Мин. цена входа (USD)</label>
-                                        <input type="number" step="0.01" min="0.01" max="0.99" id="FAVORITE_MIN_PRICE" value="0.55">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="FAVORITE_MAX_PRICE" title="Максимальная цена покупки фаворита.">⭐ Фаворит: Макс. цена входа (USD)</label>
-                                        <input type="number" step="0.01" min="0.01" max="0.99" id="FAVORITE_MAX_PRICE" value="0.95">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Аутсайдер -->
-                            <div style="background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; border: 1px solid rgba(236, 72, 153, 0.15);">
-                                <div class="form-group" style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <input type="checkbox" id="TRADE_ON_FLIP" style="width: 1.2rem; height: 1.2rem; accent-color: #ec4899; cursor: pointer; margin: 0;">
-                                        <label for="TRADE_ON_FLIP" title="Разрешить ставки против толпы (стратегия OUTSIDER)." style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important;">Включить ставки на аутсайдера (TRADE_ON_FLIP)</label>
-                                    </div>
-                                    <div id="outsider-strategy-status"></div>
-                                </div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                                    <div class="form-group">
-                                        <label for="OUTS_MIN_EDGE" title="Мин. Edge (%) для входа на аутсайдера.">
-                                            Мин. Edge для аутсайдера (%)
-                                        </label>
-                                        <input type="number" step="0.1" id="OUTS_MIN_EDGE" value="4">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="OUTSIDER_MAX_PRICE" title="Максимальная цена покупки токена аутсайдера.">Макс. цена аутсайдера (NO и YES)</label>
-                                        <input type="number" step="0.01" min="0.01" max="0.99" id="OUTSIDER_MAX_PRICE" value="0.45">
-                                    </div>
-                            </div>
-                        </div> <!-- /outsider block -->
-                        </div> <!-- /group-strategies -->
-                            </div> <!-- /LEFT COLUMN -->
-
-                            <!-- RIGHT COLUMN -->
-                            <div style="display: flex; flex-direction: column; gap: 1.25rem;">
-                        <div class="settings-section-card group-risk">
-                            <div class="settings-section-header">
-                                <h4 class="settings-section-title">🛡️ Риск-менеджмент: Стоп-лосс и Тейк-профит</h4>
-                            </div>
-
-                            <!-- Блок Стоп-лосс -->
-                            <div style="background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; margin-bottom: 1.25rem; border: 1px solid rgba(245, 158, 11, 0.15);">
-                                <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-bottom: 1rem;">
-                                    <input type="checkbox" id="STOP_LOSS_ENABLED" style="width: 1.2rem; height: 1.2rem; accent-color: #f59e0b; cursor: pointer; margin: 0;">
-                                    <label for="STOP_LOSS_ENABLED" title="Автоматически закрывать открытые позиции при падении цены." style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important;">Включить стоп-лосс открытых позиций</label>
-                                </div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
-                                    <div class="form-group">
-                                        <label for="STOP_LOSS_PCT_FAVORITE" title="Продать позицию фаворита, если её цена упала на этот % от цены нашей покупки.">Стоп-лосс % (фаворит)</label>
-                                        <input type="number" step="1" min="1" max="99" id="STOP_LOSS_PCT_FAVORITE" value="40.0">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="STOP_LOSS_PCT_OUTSIDER" title="Продать позицию аутсайдера, если её цена упала на этот % от цены нашей покупки.">Стоп-лосс % (аутсайдер)</label>
-                                        <input type="number" step="1" min="1" max="99" id="STOP_LOSS_PCT_OUTSIDER" value="60.0">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="STOP_LOSS_CHECK_SEC" title="Как часто бот проверяет стоимость открытых позиций для стоп-лосса.">Интервал проверки (сек)</label>
-                                        <input type="number" step="1" min="10" max="300" id="STOP_LOSS_CHECK_SEC" value="30">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Блок Тейк-профит -->
-                            <div style="background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.15);">
-                                <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-bottom: 1rem;">
-                                    <input type="checkbox" id="TAKE_PROFIT_ENABLED" style="width: 1.2rem; height: 1.2rem; accent-color: #10b981; cursor: pointer; margin: 0;">
-                                    <label for="TAKE_PROFIT_ENABLED" title="Автоматически закрывать открытые позиции при росте цены до цели." style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important;">Включить тейк-профит открытых позиций</label>
-                                </div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                                    <div class="form-group" id="tp-multiplier-group">
-                                        <label for="TAKE_PROFIT_MULTIPLIER" title="Целевой мультипликатор от цены входа (напр. 2.0 = удвоение).">Мультипликатор тейк-профита</label>
-                                        <input type="number" step="0.1" min="1.01" max="100.0" id="TAKE_PROFIT_MULTIPLIER" value="2.0">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="TAKE_PROFIT_ORDER_MODE" title="GTD places a resting limit order until market end; TRIGGERED waits for the bid target.">Take-profit order mode</label>
-                                        <select id="TAKE_PROFIT_ORDER_MODE" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 0.75rem 1rem; border-radius: 8px; outline: none;">
-                                            <option value="GTD">GTD - order until market end</option>
-                                            <option value="TRIGGERED">Triggered - wait for target</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="TAKE_PROFIT_CHECK_INTERVAL_SEC" title="Как часто бот проверяет стоимость открытых позиций для тейк-профита.">Интервал проверки (сек)</label>
-                                        <input type="number" step="1" min="10" max="300" id="TAKE_PROFIT_CHECK_INTERVAL_SEC" value="30">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 4. Управление ставками и ликвидностью -->
-
-                        <div class="settings-section-card group-betting">
-                            <div class="settings-section-header">
-                                <h4 class="settings-section-title">💵 Управление ставками и сайзинг</h4>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
-                                <div class="form-group">
-                                    <label for="BET_SIZING_MODE" title="scaled - размер ставки зависит от edge. fixed - всегда фиксированный.">Режим размера ставки</label>
-                                    <select id="BET_SIZING_MODE" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 0.75rem 1rem; border-radius: 8px; outline: none;">
-                                        <option value="fixed">Фиксированная ставка (без разгона)</option>
-                                        <option value="scaled">Масштабирование по ROI (Скейлинг)</option>
-                                    </select>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="TRADE_BET_SIZE_USDC" title="Базовый или фиксированный размер ставки в USDC.">Размер ставки (Базовый) (USDC)</label>
-                                    <input type="number" step="0.1" id="TRADE_BET_SIZE_USDC" value="10.0">
-                                </div>
-
-                                <div class="form-group" id="max-bet-size-group">
-                                    <label for="MAX_BET_SIZE_USDC" title="Максимальный размер ставки при скейлинге.">Макс. размер ставки (Скейлинг) (USDC)</label>
-                                    <input type="number" step="0.1" id="MAX_BET_SIZE_USDC" value="50.0">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="LIQUIDITY_FRACTION" title="Максимальная доля от 5-минутного объема торгов на рынке на одну ставку.">Макс. доля ликвидности на ставку</label>
-                                    <input type="number" step="0.01" id="LIQUIDITY_FRACTION" value="0.05">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="MAX_PRICE_DRIFT" title="Максимально допустимое проскальзывание цены.">Макс. дрифт цены (%)</label>
-                                    <input type="number" step="0.01" id="MAX_PRICE_DRIFT" value="0.03">
-                                </div>
-
-                                <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1.5rem;">
-                                    <input type="checkbox" id="BYPASS_BET_SIZE_CHECK" name="BYPASS_BET_SIZE_CHECK" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                    <label for="BYPASS_BET_SIZE_CHECK" title="Режим отладки: игнорировать проверку минимального размера биржи." style="margin: 0; cursor: pointer;">Игнорировать ограничения размера ставки</label>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 5. Временные и ценовые диапазоны -->
-
-                        <div class="settings-section-card group-bounds">
-                            <div class="settings-section-header">
-                                <h4 class="settings-section-title">⏱️ Временные и ценовые ограничения</h4>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
-                                <!-- Фаворит -->
-                                <div class="form-group">
-                                    <label for="FAVOR_MIN_TIME_LEFT_SEC"
-                                           title="Мин. секунд до конца рынка для входа на ФАВОРИТА.">
-                                        ⭐ Фаворит: Мин. время до конца (сек)
-                                    </label>
-                                    <input type="number" id="FAVOR_MIN_TIME_LEFT_SEC" min="0" max="3600" value="60">
-                                </div>
-                                <div class="form-group">
-                                    <label for="FAVOR_MAX_TIME_LEFT_SEC"
-                                           title="Макс. секунд до конца рынка для входа на ФАВОРИТА.">
-                                        ⭐ Фаворит: Макс. время до конца (сек)
-                                    </label>
-                                    <input type="number" id="FAVOR_MAX_TIME_LEFT_SEC" min="0" max="7200" value="600">
-                                </div>
-                                <!-- Аутсайдер -->
-                                <div class="form-group">
-                                    <label for="OUTS_MIN_TIME_LEFT_SEC"
-                                           title="Мин. секунд до конца рынка для входа на АУТСАЙДЕРА.">
-                                        🎯 Аутсайдер: Мин. время до конца (сек)
-                                    </label>
-                                    <input type="number" id="OUTS_MIN_TIME_LEFT_SEC" min="0" max="3600" value="30">
-                                </div>
-                                <div class="form-group">
-                                    <label for="OUTS_MAX_TIME_LEFT_SEC"
-                                           title="Макс. секунд до конца рынка для входа на АУТСАЙДЕРА.">
-                                        🎯 Аутсайдер: Макс. время до конца (сек)
-                                    </label>
-                                    <input type="number" id="OUTS_MAX_TIME_LEFT_SEC" min="0" max="7200" value="300">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="TRADE_MIN_PRICE" title="Глобальная минимальная цена токена (USD). Бот не будет покупать токены дешевле этого значения.">🌐 Глобальная мин. цена (USD)</label>
-                                    <input type="number" step="0.01" min="0" max="1" id="TRADE_MIN_PRICE" value="0.05">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="TRADE_MAX_PRICE" title="Глобальная максимальная цена токена (USD). Бот не будет покупать токены дороже этого значения.">🌐 Глобальная макс. цена (USD)</label>
-                                    <input type="number" step="0.01" min="0" max="1" id="TRADE_MAX_PRICE" value="0.95">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="MAX_SPREAD_PCT" title="Максимальный допустимый спред между ask и bid в процентах от mid price. Сделка отклоняется, если рынок неликвидный.">Максимальный спред (%)</label>
-                                    <input type="number" step="0.1" min="0" max="100" id="MAX_SPREAD_PCT" value="8.0">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 6. Стратегии Фаворита и Аутсайдера -->
-                            </div> <!-- /RIGHT COLUMN -->
-
-                        </div> <!-- /2-column layout container -->
-
-                    </form>
-                </div> <!-- /stat-card -->
-                
-            </section>
-        </main>
+{% block content %}
+<div class="row mb-4 align-items-center">
+    <div class="col-md-6">
+        <h2 class="h3 mb-0 text-gray-800"><i class="bi bi-graph-up-arrow text-primary me-2"></i>Торговый Терминал</h2>
+        <p class="text-muted small mb-0">Управление стратегиями, просмотр активных позиций и сигналов модели в реальном времени</p>
     </div>
+    <div class="col-md-6 text-md-end mt-3 mt-md-0">
+        <span class="badge bg-secondary me-2 p-2" id="market-status-badge"><i class="bi bi-clock me-1"></i>Рынок открыт</span>
+        <button class="btn btn-outline-primary btn-sm me-2" onclick="refreshTradingData()"><i class="bi bi-arrow-clockwise me-1"></i>Обновить</button>
+        <a href="/optimizer" class="btn btn-sm btn-outline-warning me-2"><i class="bi bi-cpu me-1"></i>AI Lab</a>
+        <a href="/execution" class="btn btn-sm btn-outline-info"><i class="bi bi-lightning-charge me-1"></i>Execution</a>
+    </div>
+</div>
 
-    <!-- Funnel Diagnostic Modal -->
-    <div id="funnel-diagnostic-modal" class="modal-overlay">
-        <div class="modal-content" style="max-width: 600px; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.5rem;">
-                <h3 style="margin: 0; color: white;">🔍 Детали Инференса</h3>
-                <span class="close-btn" onclick="document.getElementById('funnel-diagnostic-modal').style.display='none'" style="cursor: pointer; font-size: 1.5rem; color: #8F9BB3;">&times;</span>
-            </div>
-            
-            <div id="funnel-diagnostic-content" style="font-size: 0.9rem; color: var(--text-muted);">
-                <!-- Populated by JS -->
+<!-- Main Trading Metrics Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card shadow-sm border-start border-4 border-primary h-100">
+            <div class="card-body">
+                <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Режим Торговли</div>
+                <div class="h5 mb-0 font-weight-bold text-gray-800" id="trading-mode-display">Paper Trading</div>
+                <small class="text-muted" id="trading-mode-desc">Симуляция исполнения ордеров</small>
             </div>
         </div>
     </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-start border-4 border-success h-100">
+            <div class="card-body">
+                <div class="text-xs font-weight-bold text-success text-uppercase mb-1">Баланс Портфеля</div>
+                <div class="h5 mb-0 font-weight-bold text-gray-800" id="portfolio-balance">$0.00</div>
+                <small class="text-success" id="daily-pnl-display">+0.00% за 24ч</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-start border-4 border-info h-100">
+            <div class="card-body">
+                <div class="text-xs font-weight-bold text-info text-uppercase mb-1">Активные Позиции</div>
+                <div class="h5 mb-0 font-weight-bold text-gray-800" id="open-positions-count">0</div>
+                <small class="text-muted" id="positions-margin-used">Использовано маржи: $0.00</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-start border-4 border-warning h-100">
+            <div class="card-body">
+                <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">ML Сигнал (BTC/USDT)</div>
+                <div class="h5 mb-0 font-weight-bold text-gray-800" id="current-ml-signal">NEUTRAL</div>
+                <small class="text-muted" id="ml-confidence-display">Уверенность: 50.0%</small>
+            </div>
+        </div>
+    </div>
+</div>
 
-    <script src="{{ url_for('static', path='/js/utils.js') }}?v={{ static_version }}" defer></script>
-    <script src="{{ url_for('static', path='/js/trading.js') }}?v={{ static_version }}&cb=3" defer></script>
-    <script>
-    const GATE_LABELS = {
-      g1_model_loaded:   "G1: Модели загружены (LGBM + LogReg)",
-      g2_price_fetched:  "G2: API котировки получены",
-      g3_dead_zone:      "G3: Сигнал направления (LGBM Ready)",
-      g4_no_flip:        "G4: Консенсус моделей (LGBM + LogReg)",
-      g5_min_edge:       "G5: Вероятность победы (P_win ≥ MIN)",
-      g6_price_range:    "G6: Цена и время в диапазоне",
-      g7_crypto_confirm: "G7: Net Edge ≥ MIN (с буфером)",
-      g8_combined_vote:  "G8: Итоговый ордер (Action & Sizing)",
-    };
+<!-- Active Strategy & Positions Tabs -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-white py-3">
+        <ul class="nav nav-tabs card-header-tabs" id="trading-tabs" role="tablist">
+            <li class="nav-item">
+                <button class="nav-link active" id="positions-tab" data-bs-toggle="tab" data-bs-target="#positions-pane" type="button" role="tab">
+                    <i class="bi bi-briefcase me-1"></i>Открытые Позиции
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" id="orders-tab" data-bs-toggle="tab" data-bs-target="#orders-pane" type="button" role="tab">
+                    <i class="bi bi-list-check me-1"></i>Активные Ордера
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" id="signals-tab" data-bs-toggle="tab" data-bs-target="#signals-pane" type="button" role="tab">
+                    <i class="bi bi-broadcast me-1"></i>История Сигналов Модели
+                </button>
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+        <div class="tab-content" id="trading-tab-content">
+            <!-- Positions Pane -->
+            <div class="tab-pane fade show active" id="positions-pane" role="tabpanel">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="positions-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Актив</th>
+                                <th>Направление</th>
+                                <th>Размер</th>
+                                <th>Цена входа</th>
+                                <th>Текущая цена</th>
+                                <th>PnL (Unrealized)</th>
+                                <th>TP / SL</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="positions-table-body">
+                            <tr>
+                                <td colspan="8" class="text-center py-4 text-muted">Нет открытых позиций</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
-    async function loadFunnel() {
-      try {
-        const hoursSelect = document.getElementById("funnel-hours-select");
-        const assetFilter = document.getElementById("funnel-asset-filter");
-        if (!hoursSelect || !assetFilter) return;
+            <!-- Orders Pane -->
+            <div class="tab-pane fade" id="orders-pane" role="tabpanel">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="orders-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Время</th>
+                                <th>Актив</th>
+                                <th>Тип</th>
+                                <th>Сторона</th>
+                                <th>Количество</th>
+                                <th>Цена</th>
+                                <th>Статус</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-table-body">
+                            <tr>
+                                <td colspan="9" class="text-center py-4 text-muted">Нет активных ордеров</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
-        const hours = hoursSelect.value;
-        const asset = assetFilter.value;
-        document.getElementById("funnel-hours").textContent = hours;
-
-        const params = new URLSearchParams({ hours });
-        if (asset) params.set("asset", asset);
-
-        const res = await fetch(`/trading/funnel/stats?${params}`);
-        if (!res.ok) return;
-        const data = await res.json();
-
-        document.getElementById("funnel-total").textContent = data.total ?? 0;
-        document.getElementById("funnel-traded").textContent = data.traded ?? 0;
-        const conv = data.total > 0 ? ((data.traded / data.total) * 100).toFixed(1) : "0.0";
-        document.getElementById("funnel-conv").textContent = conv;
-
-        const tbody = document.getElementById("funnel-tbody");
-        if (!tbody) return;
-        tbody.innerHTML = "";
-        if (!data.by_gate || Object.keys(data.by_gate).length === 0) {
-          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 12px; color: var(--text-muted);">Нет данных за выбранный период</td></tr>`;
-          return;
-        }
-        for (const [gate, label] of Object.entries(GATE_LABELS)) {
-          const g = data.by_gate[gate];
-          if (!g) continue;
-          const severity = g.pct > 30 ? "background: rgba(239,68,68,0.15);" : g.pct > 10 ? "background: rgba(245,158,11,0.15);" : "";
-          const statusBadge = g.pct > 20 ? "🔴 bottleneck" : g.pct > 5 ? "🟡" : "🟢 ok";
-          tbody.innerHTML += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05); ${severity}">
-            <td style="padding: 8px;">${label}</td>
-            <td style="padding: 8px;">${g.blocked}</td>
-            <td style="padding: 8px;">${g.pct}%</td>
-            <td style="padding: 8px;">${statusBadge}</td>
-          </tr>`;
-        }
-      } catch (err) {
-        console.error("Failed to load funnel stats:", err);
-      }
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-      document.getElementById("funnel-hours-select")?.addEventListener("change", loadFunnel);
-      document.getElementById("funnel-asset-filter")?.addEventListener("change", loadFunnel);
-      loadFunnel();
-      setInterval(loadFunnel, 30000);
-    });
-    </script>
-</body>
-</html>
+            <!-- Signals Pane -->
+            <div class="tab-pane fade" id="signals-pane" role="tabpanel">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="signals-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Время</th>
+                                <th>Актив</th>
+                                <th>Модель</th>
+                                <th>P(Up)</th>
+                                <th>P(Down)</th>
+                                <th>Решение</th>
+                                <th>Причина / Guardrail</th>
+                            </tr>
+                        </thead>
+                        <tbody id="signals-table-body">
+                            <tr>
+                                <td colspan="7" class="text-center py-4 text-muted">Загрузка истории сигналов...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

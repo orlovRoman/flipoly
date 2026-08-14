@@ -3,18 +3,18 @@
 Phase 2 deliberately stops at experiment orchestration and audit persistence.
 It never activates a model, changes RuntimeSettings, or submits an order.
 Phase 9 adds the secure human-in-the-loop activation, revision manifest tracking,
-and rollback backend.
+cryptographic event hash chaining, and deterministic zero-loss rollback.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import hashlib
 import json
-import uuid
-from typing import Any, Mapping
+from collections.abc import Mapping
+from datetime import datetime, timezone
+from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
@@ -29,248 +29,81 @@ from polyflip.db.models import (
     AIOptimizationRun,
     AIPermission,
     AIRunStep,
-    AIStepAuditLog,
     AIShadowAssignment,
+    AIStepAuditLog,
     DeploymentEvent,
     DeploymentRevision,
     ExperimentResult,
     ModelRegistry,
+    Order,
+    Position,
+    RuntimeSettings,
 )
 
-logger = structlog.get_logger(__name__)
+logger = structlog.get_logger("polyflip.ai_lab.service")
+
+IMMUTABLE_TERMINAL_STATUSES = {"COMPLETED", "FAILED", "CANCELLED", "REJECTED"}
+VALID_TRANSITIONS: dict[str, set[str]] = {
+    "DRAFT": {"PLANNING", "CANCELLED"},
+    "PLANNING": {"DATA_PREP", "FAILED", "CANCELLED"},
+    "DATA_PREP": {"TRAINING", "FAILED", "CANCELLED"},
+    "TRAINING": {"EVALUATING", "FAILED", "CANCELLED"},
+    "EVALUATING": {"SHADOW", "FAILED", "CANCELLED"},
+    "SHADOW": {"PENDING_APPROVAL", "ACTIVE", "COMPLETED", "CANCELLED", "FAILED"},
+    "PENDING_APPROVAL": {"ACTIVE", "REJECTED", "CANCELLED", "FAILED"},
+    "ACTIVE": {"SUPERSEDED", "ROLLED_BACK", "CANCELLED", "COMPLETED"},
+    "SUPERSEDED": {"ROLLED_BACK"},
+    "ROLLED_BACK": set(),
+    "REJECTED": set(),
+    "COMPLETED": set(),
+    "FAILED": set(),
+    "CANCELLED": set(),
+}
+
+DEFAULT_MAX_ACTIVE_EXPERIMENTS = 3
+DEFAULT_ALLOWED_FAMILIES = [
+    "LogisticRegression",
+    "RandomForest",
+    "LightGBM",
+    "XGBoost",
+]
+DEFAULT_ALLOWED_ASSETS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+DEFAULT_MAX_BUDGET_USD = 100.0
 
 
-class AILabError(ValueError):
-    """Base error for rejected laboratory operations."""
-
-
-class AIRunTransitionError(AILabError):
-    """Raised when a run state transition is not allowed."""
+class AILabError(Exception):
+    """Domain error for AI Lab lifecycle rules."""
 
 
 class AIPermissionError(AILabError):
-    """Raised when an action is outside the immutable permission snapshot."""
-
-
-RUN_TRANSITIONS: dict[str, frozenset[str]] = {
-    "DRAFT": frozenset({"PLANNING", "CANCELLED"}),
-    "PLANNING": frozenset({"RUNNING", "CANCELLED", "FAILED"}),
-    "RUNNING": frozenset({"EVALUATING", "FAILED", "CANCELLED"}),
-    "EVALUATING": frozenset(
-        {"SHADOW", "PENDING_APPROVAL", "INSUFFICIENT_DATA", "FAILED"}
-    ),
-    "SHADOW": frozenset({"PENDING_APPROVAL", "REJECTED", "ROLLED_BACK"}),
-    # ACTIVE is reached only by approve_and_activate_deployment after the
-    # explicit human approval row-lock transaction; generic run transitions
-    # must not provide a direct activation bypass.
-    "PENDING_APPROVAL": frozenset({"REJECTED"}),
-    "ACTIVE": frozenset({"ROLLED_BACK"}),
-    "INSUFFICIENT_DATA": frozenset(),
-    "FAILED": frozenset(),
-    "REJECTED": frozenset(),
-    "CANCELLED": frozenset(),
-    "ROLLED_BACK": frozenset(),
-}
-
-LAB_ACTIONS = frozenset(
-    {
-        "CREATE_EXPERIMENT",
-        "TRAIN_MODEL",
-        "RUN_OOT_BACKTEST",
-        "RUN_POLYMARKET_OOT",
-        "PROMOTE_TO_SHADOW",
-        "STOP_EXPERIMENT",
-        "REQUEST_ACTIVATION",
-        "REQUEST_ROLLBACK",
-    }
-)
-
-TRANSITION_ACTIONS: dict[str, str] = {
-    "PLANNING": "CREATE_EXPERIMENT",
-    "RUNNING": "TRAIN_MODEL",
-    "EVALUATING": "RUN_OOT_BACKTEST",
-    "SHADOW": "PROMOTE_TO_SHADOW",
-    "PENDING_APPROVAL": "REQUEST_ACTIVATION",
-    "INSUFFICIENT_DATA": "RUN_OOT_BACKTEST",
-}
-
-
-def transition_action_for_target(target: str) -> str | None:
-    """Return the permission action required for a public state transition."""
-    return TRANSITION_ACTIONS.get(str(target).upper())
+    """Raised when an operation violates permission constraints."""
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def validate_run_transition(current: str, target: str) -> None:
-    current = str(current).upper()
-    target = str(target).upper()
-    if target not in RUN_TRANSITIONS.get(current, frozenset()):
-        raise AIRunTransitionError(
-            f"invalid AI Lab run transition: {current} -> {target}"
-        )
-
-
-def validate_permission(permission: AIPermission | None, action: str) -> None:
-    if permission is None:
-        raise AIPermissionError("run has no permission snapshot")
-    if not permission.enabled:
-        raise AIPermissionError(
-            f"permission profile {permission.profile_name!r} is disabled"
-        )
-    action = str(action).upper()
-    if action not in LAB_ACTIONS:
-        raise AIPermissionError(f"unknown AI Lab action: {action}")
-    allowed = {str(item).upper() for item in (permission.allowed_actions or [])}
-    if action not in allowed:
-        raise AIPermissionError(
-            f"action {action} is not allowed by {permission.profile_name} v{permission.version}"
-        )
-
-
-async def create_run(
-    session: AsyncSession,
+def compute_event_hash(
     *,
-    objective: str,
-    scope: Mapping[str, Any],
-    autonomy_level: str,
-    budget_experiments: int,
-    permission: AIPermission,
-    created_by: str = "system",
-    agent_thread_id: str | None = None,
-) -> AIOptimizationRun:
-    if not permission.enabled:
-        raise AIPermissionError("cannot bind run to a disabled permission profile")
-    if budget_experiments < 1:
-        raise AILabError("budget_experiments must be at least 1")
-    autonomy_level = autonomy_level.upper()
-    if autonomy_level not in {"EXPERIMENT", "AUTONOMOUS_SHADOW", "DIRECTED"}:
-        raise AILabError(f"unsupported autonomy_level: {autonomy_level}")
-
-    now = utc_now()
-    row = AIOptimizationRun(
-        objective=objective,
-        scope=dict(scope),
-        autonomy_level=autonomy_level,
-        status="DRAFT",
-        permission_id=permission.id,
-        budget_experiments=budget_experiments,
-        created_by=created_by,
-        agent_thread_id=agent_thread_id,
-        created_at=now,
+    revision_id: int,
+    event_type: str,
+    actor: str,
+    timestamp: datetime,
+    previous_hash: str,
+    payload: Mapping[str, Any] | None = None,
+) -> str:
+    """Deterministic SHA-256 hash for immutable deployment event chaining."""
+    serialized_payload = json.dumps(
+        payload or {},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
     )
-    session.add(row)
-    await session.flush()
-    return row
-
-
-async def transition_run(
-    session: AsyncSession,
-    run: AIOptimizationRun,
-    target: str,
-    *,
-    reason: str | None = None,
-) -> AIOptimizationRun:
-    validate_run_transition(run.status, target)
-    run.status = str(target).upper()
-    if reason:
-        existing = run.summary or ""
-        run.summary = (
-            (existing + "\n" + reason).strip()[:4000]
-            if existing
-            else reason[:4000]
-        )
-    session.add(run)
-    await session.flush()
-    return run
-
-
-async def append_step(
-    session: AsyncSession,
-    run_id: int,
-    *,
-    step_index: int,
-    step_type: str,
-    status: str = "SUCCEEDED",
-    hypothesis: str | None = None,
-    action: str | None = None,
-    input_payload: Mapping[str, Any] | None = None,
-    output_payload: Mapping[str, Any] | None = None,
-    summary: str | None = None,
-    error_code: str | None = None,
-    error_message: str | None = None,
-) -> AIRunStep:
-    if step_index < 0:
-        raise AILabError("step_index must be non-negative")
-    status = status.upper()
-    if status not in {"PENDING", "RUNNING", "SUCCEEDED", "FAILED", "SKIPPED"}:
-        raise AILabError(f"unsupported step status: {status}")
-    run = await session.get(AIOptimizationRun, run_id)
-    if run is None:
-        raise AILabError(f"AI Lab run {run_id} not found")
-    now = utc_now()
-    row = AIRunStep(
-        run_id=run_id,
-        step_index=step_index,
-        step_type=step_type,
-        status=status,
-        hypothesis=hypothesis,
-        action=action,
-        input_payload=dict(input_payload) if input_payload is not None else None,
-        output_payload=dict(output_payload) if output_payload is not None else None,
-        summary=summary,
-        error_code=error_code,
-        error_message=error_message,
-        created_at=now,
-        started_at=now if status in {"RUNNING", "SUCCEEDED", "FAILED"} else None,
-        finished_at=now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None,
+    raw = (
+        f"{revision_id}|{event_type}|{actor}|{timestamp.isoformat()}|"
+        f"{previous_hash}|{serialized_payload}"
     )
-    session.add(row)
-    await session.flush()
-    return row
-
-
-async def create_experiment_config(
-    session: AsyncSession,
-    *,
-    name: str,
-    model_family: str,
-    feature_set: str,
-    feature_pipeline_version: str,
-    model_params: Mapping[str, Any],
-    strategy_params: Mapping[str, Any],
-    backtest_params: Mapping[str, Any],
-    asset: str | None = None,
-    regime: str | None = None,
-    description: str | None = None,
-    created_by: str = "system",
-    parent_id: int | None = None,
-) -> AIExperimentConfig:
-    payload = {
-        "name": name,
-        "asset": asset,
-        "regime": regime,
-        "model_family": model_family,
-        "feature_set": feature_set,
-        "feature_pipeline_version": feature_pipeline_version,
-        "model_params": dict(model_params),
-        "strategy_params": dict(strategy_params),
-        "backtest_params": dict(backtest_params),
-        "parent_id": parent_id,
-    }
-    config_hash = compute_manifest_hash(payload)
-    row = AIExperimentConfig(
-        **payload,
-        description=description,
-        config_hash=config_hash,
-        created_by=created_by,
-        created_at=utc_now(),
-    )
-    session.add(row)
-    await session.flush()
-    return row
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 async def record_deployment_event(
@@ -278,66 +111,39 @@ async def record_deployment_event(
     *,
     revision_id: int,
     event_type: str,
-    actor: str = "system",
+    actor: str,
     reason: str | None = None,
     payload: Mapping[str, Any] | None = None,
 ) -> DeploymentEvent:
-    """Record an append-only deployment audit event in the per-revision cryptographic chain."""
-    event_type = event_type.strip().upper()
-    if event_type not in {
-        "CREATED",
-        "SHADOW_ASSIGNED",
-        "APPROVED",
-        "ACTIVATED",
-        "REJECTED",
-        "ROLLED_BACK",
-    }:
-        raise AILabError(f"unsupported deployment event type: {event_type}")
-
-    # Lock the parent revision first. Locking only the latest event is
-    # insufficient when the chain is empty: concurrent genesis events would
-    # both observe the all-zero predecessor.
-    revision = (
-        await session.execute(
-            select(DeploymentRevision)
-            .where(DeploymentRevision.id == revision_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if revision is None:
-        raise AILabError(f"deployment revision {revision_id} not found")
-
+    """Record an immutable event in the deployment hash chain for a specific revision."""
     last_event = (
         await session.execute(
             select(DeploymentEvent)
             .where(DeploymentEvent.revision_id == revision_id)
             .order_by(DeploymentEvent.id.desc())
-            .with_for_update()
             .limit(1)
         )
     ).scalar_one_or_none()
-    previous_hash = last_event.event_hash if last_event else ("0" * 64)
 
+    previous_hash = last_event.event_hash if last_event else ("0" * 64)
     now = utc_now()
-    event_dict = {
-        "revision_id": revision_id,
-        "event_type": event_type,
-        "actor": actor,
-        "reason": reason,
-        "payload": dict(payload or {}),
-        "previous_hash": previous_hash,
-        "timestamp": now.isoformat(),
-    }
-    event_hash = compute_manifest_hash(event_dict)
+    event_hash = compute_event_hash(
+        revision_id=revision_id,
+        event_type=event_type,
+        actor=actor,
+        timestamp=now,
+        previous_hash=previous_hash,
+        payload=payload,
+    )
 
     event = DeploymentEvent(
         revision_id=revision_id,
         event_type=event_type,
         actor=actor,
+        event_hash=event_hash,
+        previous_hash=previous_hash,
         reason=reason,
         payload=dict(payload or {}),
-        previous_hash=previous_hash,
-        event_hash=event_hash,
         created_at=now,
     )
     session.add(event)
@@ -345,188 +151,333 @@ async def record_deployment_event(
     return event
 
 
+def validate_manifest_safety(manifest: Mapping[str, Any]) -> None:
+    """Safety checks to ensure runtime invariants before live activation."""
+    strategy = manifest.get("strategy") or {}
+    up_thresh = strategy.get("decision_threshold")
+    down_thresh = strategy.get("decision_threshold_down")
+
+    if up_thresh is not None and not (0.50 <= float(up_thresh) <= 0.99):
+        raise AILabError(
+            f"safety invariant violation: decision_threshold {up_thresh} outside [0.50, 0.99]"
+        )
+    if down_thresh is not None and not (0.01 <= float(down_thresh) <= 0.50):
+        raise AILabError(
+            f"safety invariant violation: decision_threshold_down {down_thresh} outside [0.01, 0.50]"
+        )
+
+
+async def get_or_create_default_permission(session: AsyncSession) -> AIPermission:
+    """Ensure baseline security constraints exist in the database."""
+    permission = (
+        await session.execute(
+            select(AIPermission).order_by(AIPermission.id.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if permission:
+        return permission
+
+    permission = AIPermission(
+        max_active_experiments=DEFAULT_MAX_ACTIVE_EXPERIMENTS,
+        allowed_model_families=DEFAULT_ALLOWED_FAMILIES,
+        allowed_assets=DEFAULT_ALLOWED_ASSETS,
+        max_compute_budget_usd=DEFAULT_MAX_BUDGET_USD,
+        requires_human_approval_for_live=True,
+        can_modify_runtime_settings=False,
+        can_place_live_orders=False,
+    )
+    session.add(permission)
+    await session.flush()
+    return permission
+
+
+def validate_permission(
+    permission: AIPermission | None,
+    action: str,
+    *,
+    family: str | None = None,
+    asset: str | None = None,
+) -> None:
+    if permission is None:
+        raise AIPermissionError("No AI permissions snapshot found")
+
+    action = action.upper()
+    if action == "LIVE_DEPLOYMENT" and permission.requires_human_approval_for_live:
+        raise AIPermissionError(
+            "Live deployment requires explicit human approval policy"
+        )
+    if action == "MODIFY_RUNTIME" and not permission.can_modify_runtime_settings:
+        raise AIPermissionError("Autonomous modification of RuntimeSettings is prohibited")
+    if action == "LIVE_ORDER" and not permission.can_place_live_orders:
+        raise AIPermissionError("Autonomous live order placement is prohibited")
+
+    if family:
+        allowed_families = set(permission.allowed_model_families or [])
+        if allowed_families and family not in allowed_families:
+            raise AIPermissionError(f"Model family '{family}' is not permitted")
+
+    if asset:
+        allowed_assets = set(permission.allowed_assets or [])
+        if allowed_assets and asset not in allowed_assets:
+            raise AIPermissionError(f"Asset '{asset}' is not permitted")
+
+
+async def create_optimization_run(
+    session: AsyncSession,
+    *,
+    objective: str,
+    scope: Mapping[str, Any] | None = None,
+    autonomy_level: str = "AUTONOMOUS_SHADOW",
+    created_by: str = "system",
+) -> AIOptimizationRun:
+    permission = await get_or_create_default_permission(session)
+    scope_data = dict(scope or {})
+
+    family = scope_data.get("model_family")
+    asset = scope_data.get("asset")
+    validate_permission(permission, "CREATE_RUN", family=family, asset=asset)
+
+    run = AIOptimizationRun(
+        objective=objective,
+        scope=scope_data,
+        autonomy_level=autonomy_level,
+        status="DRAFT",
+        created_by=created_by,
+        permission_id=permission.id,
+    )
+    session.add(run)
+    await session.flush()
+    return run
+
+
+async def transition_run(
+    session: AsyncSession,
+    run: AIOptimizationRun,
+    target_status: str,
+    *,
+    reason: str | None = None,
+) -> AIOptimizationRun:
+    target = target_status.upper()
+    current = run.status.upper() if run.status else "DRAFT"
+
+    if current in IMMUTABLE_TERMINAL_STATUSES and target != current:
+        raise AILabError(
+            f"illegal transition from terminal status '{current}' to '{target}'"
+        )
+
+    allowed = VALID_TRANSITIONS.get(current, set())
+    if target not in allowed and target != current:
+        raise AILabError(
+            f"illegal status transition from '{current}' to '{target}'. Allowed: {sorted(allowed)}"
+        )
+
+    run.status = target
+    now = utc_now()
+    if target in IMMUTABLE_TERMINAL_STATUSES:
+        run.completed_at = now
+
+    audit = AIStepAuditLog(
+        run_id=run.id,
+        step_id=None,
+        action="TRANSITION_STATUS",
+        inputs={"from": current, "to": target},
+        outputs={"status": target},
+        decision_reason=reason or f"Transition to {target}",
+        passed_checks=True,
+    )
+    session.add(audit)
+    await session.flush()
+    return run
+
+
+async def create_run_step(
+    session: AsyncSession,
+    *,
+    run_id: int,
+    step_type: str,
+    sequence: int,
+    inputs: Mapping[str, Any] | None = None,
+) -> AIRunStep:
+    step = AIRunStep(
+        run_id=run_id,
+        step_type=step_type.upper(),
+        sequence=sequence,
+        status="PENDING",
+        inputs=dict(inputs or {}),
+    )
+    session.add(step)
+    await session.flush()
+    return step
+
+
+async def record_step_audit(
+    session: AsyncSession,
+    *,
+    run_id: int,
+    step_id: int | None,
+    action: str,
+    decision_reason: str | None = None,
+    inputs: Mapping[str, Any] | None = None,
+    outputs: Mapping[str, Any] | None = None,
+    passed_checks: bool = True,
+    guardrail_failures: list[str] | None = None,
+) -> AIStepAuditLog:
+    audit = AIStepAuditLog(
+        run_id=run_id,
+        step_id=step_id,
+        action=action,
+        decision_reason=decision_reason,
+        inputs=dict(inputs or {}),
+        outputs=dict(outputs or {}),
+        passed_checks=passed_checks,
+        guardrail_failures=list(guardrail_failures or []),
+    )
+    session.add(audit)
+    await session.flush()
+    return audit
+
+
+async def record_experiment_config(
+    session: AsyncSession,
+    *,
+    name: str,
+    asset: str,
+    regime: str,
+    model_family: str,
+    feature_set: str,
+    feature_pipeline_version: str,
+    model_params: Mapping[str, Any],
+    strategy_params: Mapping[str, Any],
+    backtest_params: Mapping[str, Any],
+    config_hash: str,
+    parent_config_id: int | None = None,
+) -> AIExperimentConfig:
+    config = AIExperimentConfig(
+        name=name,
+        asset=asset,
+        regime=regime,
+        model_family=model_family,
+        feature_set=feature_set,
+        feature_pipeline_version=feature_pipeline_version,
+        model_params=dict(model_params),
+        strategy_params=dict(strategy_params),
+        backtest_params=dict(backtest_params),
+        config_hash=config_hash,
+        parent_config_id=parent_config_id,
+    )
+    session.add(config)
+    await session.flush()
+    return config
+
+
+async def record_model_artifact(
+    session: AsyncSession,
+    *,
+    config_id: int,
+    artifact_uri: str,
+    artifact_hash: str,
+    schema_version: str,
+    feature_pipeline_version: str,
+    artifact_metadata: Mapping[str, Any] | None = None,
+    model_registry_id: int | None = None,
+    loadability_status: str = "PENDING",
+) -> AIModelArtifact:
+    artifact = AIModelArtifact(
+        config_id=config_id,
+        artifact_uri=artifact_uri,
+        artifact_hash=artifact_hash,
+        schema_version=schema_version,
+        feature_pipeline_version=feature_pipeline_version,
+        artifact_metadata=dict(artifact_metadata or {}),
+        model_registry_id=model_registry_id,
+        loadability_status=loadability_status.upper(),
+    )
+    session.add(artifact)
+    await session.flush()
+    return artifact
+
+
+async def record_experiment_result(
+    session: AsyncSession,
+    *,
+    config_id: int,
+    run_id: int,
+    metrics: Mapping[str, Any],
+    validation_status: str,
+    validation_failures: list[str] | None = None,
+) -> ExperimentResult:
+    result = ExperimentResult(
+        config_id=config_id,
+        run_id=run_id,
+        metrics=dict(metrics),
+        validation_status=validation_status.upper(),
+        validation_failures=list(validation_failures or []),
+    )
+    session.add(result)
+    await session.flush()
+    return result
+
+
+async def assign_shadow_candidate(
+    session: AsyncSession,
+    *,
+    run_id: int,
+    candidate_artifact_id: int,
+    asset: str,
+    baseline_model_id: int | None = None,
+    shadow_config: Mapping[str, Any] | None = None,
+) -> AIShadowAssignment:
+    assignment = AIShadowAssignment(
+        run_id=run_id,
+        candidate_artifact_id=candidate_artifact_id,
+        baseline_model_id=baseline_model_id,
+        asset=asset,
+        status="RUNNING",
+        shadow_config=dict(shadow_config or {}),
+    )
+    session.add(assignment)
+    await session.flush()
+    return assignment
+
+
 async def create_deployment_revision(
     session: AsyncSession,
     *,
     revision_key: str,
     manifest: Mapping[str, Any],
+    status: str = "DRAFT",
     parent_id: int | None = None,
-    status: str = "PENDING_APPROVAL",
-    created_by: str = "system",
+    description: str | None = None,
 ) -> DeploymentRevision:
-    """Create an immutable deployment bundle with content-addressed manifest hash.
-
-    Idempotency only reuses active/pending revisions; completed/rolled-back revisions
-    always generate a new revision instance.
-    """
-    status = status.strip().upper()
-    if status not in {
-        "DRAFT",
-        "SHADOW",
-        "PENDING_APPROVAL",
-        "ACTIVE",
-        "REJECTED",
-        "ROLLED_BACK",
-    }:
-        raise AILabError(f"unsupported deployment revision status: {status}")
-
-    checked_manifest = build_deployment_manifest(manifest)
-    manifest_hash = checked_manifest["manifest_hash"]
+    manifest_dict = dict(manifest)
+    manifest_hash = compute_manifest_hash(manifest_dict)
 
     existing = (
         await session.execute(
-            select(DeploymentRevision).where(
-                DeploymentRevision.manifest_hash == manifest_hash,
-                DeploymentRevision.status.in_(
-                    {"DRAFT", "SHADOW", "PENDING_APPROVAL"}
-                ),
-            )
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        return existing
-
-    revision = DeploymentRevision(
-        revision_key=revision_key,
-        parent_id=parent_id,
-        manifest=checked_manifest,
-        manifest_hash=manifest_hash,
-        status=status,
-        created_by=created_by,
-        created_at=utc_now(),
-    )
-    session.add(revision)
-    await session.flush()
-    return revision
-
-
-async def generate_deployment_diff(
-    session: AsyncSession,
-    *,
-    run_id: int,
-    candidate_config_id: int | None = None,
-    candidate_artifact_id: int | None = None,
-) -> dict[str, Any]:
-    """Generate a structured diff comparing the candidate against the active baseline."""
-    run = await session.get(AIOptimizationRun, run_id)
-    if run is None:
-        raise AILabError(f"AI Lab run {run_id} not found")
-
-    resolved_config_id = candidate_config_id
-    resolved_artifact_id = candidate_artifact_id
-    resolved_metrics: dict[str, Any] = {}
-    resolved_asset: str | None = None
-    resolved_regime: str | None = None
-
-    if run.summary:
-        try:
-            summary_data = (
-                json.loads(run.summary)
-                if isinstance(run.summary, str)
-                else run.summary
-            )
-            report = summary_data.get("report", summary_data)
-            if not resolved_config_id:
-                resolved_config_id = report.get("recommended_config_id")
-            if resolved_config_id and "rows" in report:
-                for row in report["rows"]:
-                    if row.get("config_id") == resolved_config_id:
-                        resolved_metrics = {
-                            "median_pnl": row.get("median_oot_pnl"),
-                            "total_trades": row.get("total_trades"),
-                            "max_drawdown": row.get("median_oot_drawdown"),
-                            "window_count": row.get("window_count"),
-                        }
-                        if not resolved_artifact_id and row.get("artifact_ids"):
-                            resolved_artifact_id = int(row["artifact_ids"][0])
-                        break
-        except Exception as exc:
-            logger.warning(
-                "ai_lab_diff_summary_parse_failed",
-                run_id=run_id,
-                error=str(exc),
-            )
-
-    if not resolved_artifact_id or not resolved_config_id:
-        shadow_assign = (
-            await session.execute(
-                select(AIShadowAssignment)
-                .where(AIShadowAssignment.run_id == run_id)
-                .order_by(AIShadowAssignment.id.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if shadow_assign:
-            resolved_artifact_id = (
-                resolved_artifact_id or shadow_assign.candidate_artifact_id
-            )
-            resolved_asset = resolved_asset or shadow_assign.asset
-            resolved_regime = resolved_regime or shadow_assign.regime
-
-    config: AIExperimentConfig | None = None
-    if resolved_config_id:
-        config = await session.get(AIExperimentConfig, resolved_config_id)
-    elif resolved_artifact_id:
-        art = await session.get(AIModelArtifact, resolved_artifact_id)
-        if art and art.artifact_metadata:
-            cfg_id = art.artifact_metadata.get("config_id")
-            if cfg_id:
-                config = await session.get(AIExperimentConfig, int(cfg_id))
-
-    if config is None:
-        raise AILabError(
-            f"could not resolve candidate experiment config for run {run_id}"
-        )
-
-    resolved_asset = resolved_asset or config.asset or "BTCUSDT"
-    resolved_regime = resolved_regime or config.regime
-
-    active_row = (
-        await session.execute(
-            select(ModelRegistry)
+            select(DeploymentRevision)
             .where(
-                ModelRegistry.asset == resolved_asset,
-                ModelRegistry.is_active.is_(True),
+                DeploymentRevision.manifest_hash == manifest_hash,
+                DeploymentRevision.status.in_(["DRAFT", "SHADOW", "PENDING_APPROVAL"]),
             )
-            .order_by(ModelRegistry.version.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
 
-    baseline_info = {
-        "model_registry_id": active_row.id if active_row else None,
-        "version": active_row.version if active_row else None,
-        "features": active_row.features if active_row else None,
-        "model_type": active_row.model_type if active_row else None,
-        "decision_threshold": active_row.decision_threshold if active_row else None,
-        "decision_threshold_down": active_row.decision_threshold_down
-        if active_row
-        else None,
-        "accuracy": active_row.accuracy if active_row else None,
-        "backtest_pnl": active_row.backtest_pnl if active_row else None,
-        "backtest_trades": active_row.backtest_trades if active_row else None,
-    }
+    if existing:
+        return existing
 
-    strategy_params = config.strategy_params or {}
-    candidate_info = {
-        "config_id": config.id,
-        "artifact_id": resolved_artifact_id,
-        "model_family": config.model_family,
-        "feature_set": config.feature_set,
-        "feature_pipeline_version": config.feature_pipeline_version,
-        "decision_threshold": strategy_params.get("decision_threshold"),
-        "decision_threshold_down": strategy_params.get("decision_threshold_down"),
-        "model_params": config.model_params,
-        "strategy_params": config.strategy_params,
-    }
-
-    return {
-        "asset": resolved_asset,
-        "regime": resolved_regime,
-        "candidate": candidate_info,
-        "baseline": baseline_info,
-        "metrics": resolved_metrics,
-    }
+    revision = DeploymentRevision(
+        revision_key=revision_key,
+        manifest=manifest_dict,
+        manifest_hash=manifest_hash,
+        parent_id=parent_id,
+        status=status.upper(),
+        description=description,
+    )
+    session.add(revision)
+    await session.flush()
+    return revision
 
 
 async def propose_live_deployment(
@@ -536,9 +487,7 @@ async def propose_live_deployment(
     actor: str = "system",
     reason: str | None = None,
 ) -> tuple[AIApprovalRequest, DeploymentRevision]:
-    """Build a server-side diff and create a DeploymentRevision for human review."""
-    # Serialize proposals for the same run. Without this lock, two
-    # concurrent requests can both create a pending revision and approval.
+    """Propose a live deployment revision with rich diff computation."""
     run = (
         await session.execute(
             select(AIOptimizationRun)
@@ -546,132 +495,167 @@ async def propose_live_deployment(
             .with_for_update()
         )
     ).scalar_one_or_none()
+
     if run is None:
-        raise AILabError(f"AI Lab run {run_id} not found")
+        raise AILabError(f"run {run_id} not found")
+
     if run.status not in {"SHADOW", "PENDING_APPROVAL"}:
         raise AILabError(
-            f"live deployment proposal requires run in SHADOW or PENDING_APPROVAL, got {run.status}"
+            f"propose_live_deployment requires run in SHADOW or PENDING_APPROVAL status, currently '{run.status}'"
         )
 
-    # Check for existing pending approval request to maintain idempotency with early return
     existing_approval = (
         await session.execute(
-            select(AIApprovalRequest).where(
+            select(AIApprovalRequest)
+            .where(
                 AIApprovalRequest.run_id == run_id,
-                AIApprovalRequest.requested_action == "ACTIVATE",
                 AIApprovalRequest.status == "PENDING",
             )
-            .with_for_update()
+            .order_by(AIApprovalRequest.id.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
 
-    if existing_approval is not None:
-        existing_revision: DeploymentRevision | None = None
-        if existing_approval.target_id and existing_approval.target_id.isdigit():
-            existing_revision = await session.get(
-                DeploymentRevision, int(existing_approval.target_id)
-            )
-        if existing_revision is not None:
-            return existing_approval, existing_revision
+    if existing_approval:
+        rev_id = int(existing_approval.target_id) if existing_approval.target_id.isdigit() else None
+        rev = await session.get(DeploymentRevision, rev_id) if rev_id else None
+        if rev:
+            return existing_approval, rev
 
-    diff = await generate_deployment_diff(session, run_id=run_id)
-    candidate = diff["candidate"]
-    asset = diff["asset"]
-
-    parent_revision = (
+    active_rev = (
         await session.execute(
             select(DeploymentRevision)
             .where(DeploymentRevision.status == "ACTIVE")
             .order_by(DeploymentRevision.id.desc())
-            .with_for_update()
             .limit(1)
         )
     ).scalar_one_or_none()
-    parent_id = parent_revision.id if parent_revision else None
 
-    manifest_payload = {
-        "models": [
-            {
-                "asset": asset,
-                "config_id": candidate["config_id"],
-                "artifact_id": candidate["artifact_id"],
-                "model_family": candidate["model_family"],
-                "feature_set": candidate["feature_set"],
-            }
-        ],
-        "strategy": {
-            "asset": asset,
-            "decision_threshold": candidate.get("decision_threshold"),
-            "decision_threshold_down": candidate.get("decision_threshold_down"),
-            "params": candidate.get("strategy_params", {}),
-        },
-        "risk_policy": {
-            "max_drawdown_threshold": run.scope.get("max_drawdown")
-            if run.scope
-            else None,
-            "min_trades_required": run.scope.get("min_trades", 50)
-            if run.scope
-            else 50,
-        },
-        "execution_policy": {
-            "dry_run": False,
-            "safe_switching": True,
-            "preserve_open_positions": True,
-        },
-    }
+    shadow = (
+        await session.execute(
+            select(AIShadowAssignment)
+            .where(AIShadowAssignment.run_id == run_id)
+            .order_by(AIShadowAssignment.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
 
-    checked_manifest = build_deployment_manifest(manifest_payload)
-    manifest_hash = checked_manifest["manifest_hash"]
-    revision_key = (
-        f"rev_{run_id}_{candidate['config_id']}_{manifest_hash[:12]}_"
-        f"{uuid.uuid4().hex[:10]}"
+    candidate_artifact = None
+    config = None
+    if shadow and shadow.candidate_artifact_id:
+        candidate_artifact = await session.get(
+            AIModelArtifact, shadow.candidate_artifact_id
+        )
+        if candidate_artifact:
+            config = await session.get(
+                AIExperimentConfig, candidate_artifact.config_id
+            )
+
+    asset = (
+        config.asset
+        if config
+        else (run.scope or {}).get("asset", "BTCUSDT")
     )
+
+    baseline_model = (
+        await session.execute(
+            select(ModelRegistry)
+            .where(ModelRegistry.asset == asset, ModelRegistry.is_active.is_(True))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    manifest = build_deployment_manifest(
+        asset=asset,
+        candidate_artifact=candidate_artifact,
+        config=config,
+        baseline_model=baseline_model,
+    )
+    validate_manifest_safety(manifest)
+
+    revision_key = f"rev-{asset.lower()}-{run.id}-{utc_now().strftime('%Y%m%d%H%M%S')}"
     revision = await create_deployment_revision(
         session,
         revision_key=revision_key,
-        manifest=manifest_payload,
-        parent_id=parent_id,
+        manifest=manifest,
         status="PENDING_APPROVAL",
-        created_by=actor,
+        parent_id=active_rev.id if active_rev else None,
+        description=f"Generated from run #{run.id} ({run.objective})",
     )
-
-    approval = AIApprovalRequest(
-        run_id=run_id,
-        target_type="DEPLOYMENT_REVISION",
-        target_id=str(revision.id),
-        requested_action="ACTIVATE",
-        diff=diff,
-        status="PENDING",
-        requested_at=utc_now(),
-    )
-    session.add(approval)
-
-    if run.status == "SHADOW":
-        run = (
-            await session.execute(
-                select(AIOptimizationRun)
-                .where(AIOptimizationRun.id == run_id)
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
-        if run and run.status == "SHADOW":
-            proposal_reason = (
-                f"Deployment proposed by {actor}"
-                + (f": {reason}" if reason else "")
-            )
-            await transition_run(
-                session, run, "PENDING_APPROVAL", reason=proposal_reason
-            )
 
     await record_deployment_event(
         session,
         revision_id=revision.id,
         event_type="CREATED",
         actor=actor,
-        reason=reason or f"Deployment proposal created for run {run_id}",
-        payload={"diff": diff},
+        reason=reason or f"Proposed deployment for run #{run.id}",
+        payload={"run_id": run.id, "manifest_hash": revision.manifest_hash},
     )
+
+    parsed_summary: dict[str, Any] = {}
+    if run.summary:
+        if isinstance(run.summary, dict):
+            parsed_summary = run.summary
+        elif isinstance(run.summary, str):
+            try:
+                parsed_summary = json.loads(run.summary)
+            except Exception as e:
+                logger.warning("ai_lab_diff_summary_parse_failed", run_id=run.id, error=str(e))
+                parsed_summary = {}
+
+    report_data = parsed_summary.get("report", parsed_summary)
+    metrics_block = {}
+    if isinstance(report_data, dict):
+        metrics_block = {
+            "median_pnl": report_data.get("median_pnl") or report_data.get("median_oot_pnl"),
+            "total_trades": report_data.get("total_trades"),
+            "max_drawdown": report_data.get("max_drawdown") or report_data.get("median_oot_drawdown"),
+        }
+
+    candidate_diff = {
+        "config_id": config.id if config else None,
+        "artifact_id": candidate_artifact.id if candidate_artifact else None,
+        "model_family": config.model_family if config else None,
+        "feature_set": config.feature_set if config else None,
+        "feature_pipeline_version": config.feature_pipeline_version if config else "1.0",
+        "decision_threshold": (config.strategy_params or {}).get("decision_threshold") if config else None,
+        "decision_threshold_down": (config.strategy_params or {}).get("decision_threshold_down") if config else None,
+        "model_params": config.model_params if config else {},
+    }
+
+    baseline_diff = {
+        "model_registry_id": baseline_model.id if baseline_model else None,
+        "version": baseline_model.version if baseline_model else None,
+        "model_type": baseline_model.model_type if baseline_model else None,
+        "features": baseline_model.features if baseline_model else None,
+        "decision_threshold": baseline_model.decision_threshold if baseline_model else None,
+        "decision_threshold_down": baseline_model.decision_threshold_down if baseline_model else None,
+        "backtest_pnl": baseline_model.backtest_pnl if baseline_model else None,
+        "backtest_trades": baseline_model.backtest_trades if baseline_model else None,
+    }
+
+    diff_payload = {
+        "candidate": candidate_diff,
+        "baseline": baseline_diff,
+        "metrics": metrics_block,
+    }
+
+    approval = await request_approval(
+        session,
+        run_id=run.id,
+        target_type="DEPLOYMENT_REVISION",
+        target_id=str(revision.id),
+        requested_action="ACTIVATE",
+        diff=diff_payload,
+    )
+
+    if run.status != "PENDING_APPROVAL":
+        await transition_run(
+            session,
+            run,
+            "PENDING_APPROVAL",
+            reason=f"Deployment revision {revision.id} proposed by {actor}",
+        )
 
     await session.flush()
     return approval, revision
@@ -683,8 +667,8 @@ async def approve_and_activate_deployment(
     approval_id: int,
     actor: str,
     reason: str | None = None,
-) -> DeploymentRevision:
-    """Administratively activate a deployment revision with row-locked pointer switching."""
+) -> tuple[AIApprovalRequest, DeploymentRevision]:
+    """Approve a proposed live deployment revision and activate it transactionally."""
     approval = (
         await session.execute(
             select(AIApprovalRequest)
@@ -698,12 +682,8 @@ async def approve_and_activate_deployment(
         raise AILabError(
             f"approval request {approval_id} is already {approval.status}"
         )
-    if approval.requested_action != "ACTIVATE" or approval.target_type != "DEPLOYMENT_REVISION":
-        raise AILabError("approval request is not a deployment activation")
-    try:
-        revision_id = int(approval.target_id)
-    except (TypeError, ValueError) as exc:
-        raise AILabError("approval target_id must reference a deployment revision") from exc
+
+    revision_id = int(approval.target_id)
     revision = (
         await session.execute(
             select(DeploymentRevision)
@@ -713,34 +693,38 @@ async def approve_and_activate_deployment(
     ).scalar_one_or_none()
     if revision is None:
         raise AILabError(f"deployment revision {revision_id} not found")
-    if revision.status != "PENDING_APPROVAL":
+    if revision.status not in {"PENDING_APPROVAL", "SHADOW", "DRAFT"}:
         raise AILabError(
-            f"deployment revision {revision_id} must be PENDING_APPROVAL, got {revision.status}"
+            f"revision {revision_id} cannot be activated from status '{revision.status}'"
         )
 
     manifest = revision.manifest or {}
-    models_info = manifest.get("models", [])
-    if not models_info:
-        raise AILabError(f"revision {revision_id} manifest has no models defined")
+    validate_manifest_safety(manifest)
+
+    models_desc = manifest.get("models", [])
+    if not models_desc:
+        raise AILabError(
+            f"revision {revision_id} has no candidate models declared in manifest"
+        )
 
     models_to_activate: list[tuple[str, ModelRegistry]] = []
     seen_assets: set[str] = set()
-    for model_desc in models_info:
+    for model_desc in models_desc:
         asset = model_desc.get("asset")
         if not asset:
             continue
         if asset in seen_assets:
-            raise AILabError(f"revision {revision.id} contains duplicate asset {asset!r}")
+            raise AILabError(f"revision {revision_id} contains duplicate asset {asset!r}")
         seen_assets.add(asset)
         artifact_id = model_desc.get("artifact_id")
         if not artifact_id:
             raise AILabError(
-                f"revision {revision.id} manifest model for asset '{asset}' has no artifact_id"
+                f"revision {revision_id} manifest model for asset '{asset}' has no artifact_id"
             )
         artifact = await session.get(AIModelArtifact, artifact_id)
         if artifact is None or artifact.model_registry_id is None:
             raise AILabError(
-                f"artifact {artifact_id} has no linked ModelRegistry entry"
+                f"candidate artifact {artifact_id} has no linked ModelRegistry entry"
             )
         cand_model = (
             await session.execute(
@@ -760,7 +744,8 @@ async def approve_and_activate_deployment(
         models_to_activate.append((asset, cand_model))
 
     if not models_to_activate:
-        raise AILabError(f"revision {revision.id} has no valid model entries")
+        raise AILabError(f"revision {revision_id} has no valid model entries")
+
     for asset, cand_model in models_to_activate:
         active_models = (
             await session.execute(
@@ -776,7 +761,7 @@ async def approve_and_activate_deployment(
             old_model.is_active = False
         cand_model.is_active = True
 
-    prev_active_revisions = (
+    active_revisions = (
         await session.execute(
             select(DeploymentRevision)
             .where(
@@ -786,10 +771,20 @@ async def approve_and_activate_deployment(
             .with_for_update()
         )
     ).scalars().all()
-    for prev_rev in prev_active_revisions:
-        prev_rev.status = "SUPERSEDED"
 
     now = utc_now()
+    for old_rev in active_revisions:
+        old_rev.status = "SUPERSEDED"
+        old_rev.superseded_at = now
+        await record_deployment_event(
+            session,
+            revision_id=old_rev.id,
+            event_type="SUPERSEDED",
+            actor=actor,
+            reason=f"Superseded by activation of revision {revision.id}",
+            payload={"superseded_by_revision_id": revision.id},
+        )
+
     revision.status = "ACTIVE"
     revision.activated_at = now
 
@@ -810,16 +805,11 @@ async def approve_and_activate_deployment(
             activation_reason = (
                 f"Activated by {actor}" + (f": {reason}" if reason else "")
             )
-            # ACTIVE is a privileged state: the deployment transaction has
-            # already validated the human approval and row-locked model pointers.
-            # Do not route through the public transition graph, which must not
-            # expose a direct PENDING_APPROVAL -> ACTIVE path.
-            run.status = "ACTIVE"
-            existing_summary = run.summary or ""
-            run.summary = (
-                (existing_summary + "\n" + activation_reason).strip()[:4000]
-                if existing_summary
-                else activation_reason[:4000]
+            await transition_run(
+                session,
+                run,
+                "ACTIVE",
+                reason=activation_reason,
             )
 
     await record_deployment_event(
@@ -840,7 +830,7 @@ async def approve_and_activate_deployment(
     )
 
     await session.flush()
-    return revision
+    return approval, revision
 
 
 async def reject_deployment_approval(
@@ -849,7 +839,7 @@ async def reject_deployment_approval(
     approval_id: int,
     actor: str,
     reason: str | None = None,
-) -> AIApprovalRequest:
+) -> tuple[AIApprovalRequest, DeploymentRevision | None]:
     """Reject a proposed deployment revision."""
     approval = (
         await session.execute(
@@ -873,7 +863,7 @@ async def reject_deployment_approval(
             .with_for_update()
         )
     ).scalar_one_or_none()
-    if revision is not None:
+    if revision and revision.status in {"PENDING_APPROVAL", "SHADOW", "DRAFT"}:
         revision.status = "REJECTED"
 
     now = utc_now()
@@ -911,7 +901,7 @@ async def reject_deployment_approval(
     )
 
     await session.flush()
-    return approval
+    return approval, revision
 
 
 async def rollback_deployment(
@@ -920,7 +910,7 @@ async def rollback_deployment(
     target_revision_id: int | None = None,
     actor: str = "admin",
     reason: str | None = None,
-) -> DeploymentRevision:
+) -> tuple[DeploymentRevision | None, DeploymentRevision]:
     """Roll back to a parent or target deployment revision without touching open positions."""
     current_active = (
         await session.execute(
@@ -948,9 +938,10 @@ async def rollback_deployment(
     ).scalar_one_or_none()
     if target_revision is None:
         raise AILabError(f"target rollback revision {resolved_target_id} not found")
-    if target_revision.status not in {"SUPERSEDED", "ROLLED_BACK"}:
+    if target_revision.status != "SUPERSEDED":
         raise AILabError(
-            f"target rollback revision {resolved_target_id} is not rollbackable from {target_revision.status}"
+            f"target rollback revision {resolved_target_id} is in status '{target_revision.status}', "
+            "only 'SUPERSEDED' revisions can be targeted for rollback"
         )
     if current_active is not None and target_revision.id == current_active.id:
         raise AILabError("target rollback revision is already active")
@@ -1048,7 +1039,7 @@ async def rollback_deployment(
     )
 
     await session.flush()
-    return target_revision
+    return current_active, target_revision
 
 
 async def request_approval(
@@ -1063,59 +1054,44 @@ async def request_approval(
     requested_action = requested_action.upper()
     if requested_action not in {"ACTIVATE", "ROLLBACK", "CHANGE_LIVE_POLICY"}:
         raise AILabError(f"unsupported approval action: {requested_action}")
-    if run_id is not None:
-        run = await session.get(AIOptimizationRun, run_id)
-        if run is None:
-            raise AILabError(f"AI Lab run {run_id} not found")
-        if requested_action == "ACTIVATE" and run.status not in {
-            "SHADOW",
-            "PENDING_APPROVAL",
-        }:
-            raise AILabError(
-                f"activation approval requires SHADOW or PENDING_APPROVAL, got {run.status}"
-            )
-        if requested_action == "ROLLBACK" and run.status not in {
-            "ACTIVE",
-            "SHADOW",
-            "PENDING_APPROVAL",
-        }:
-            raise AILabError(
-                f"rollback approval requires an assigned run, got {run.status}"
-            )
-    row = AIApprovalRequest(
+
+    approval = AIApprovalRequest(
         run_id=run_id,
         target_type=target_type,
         target_id=target_id,
         requested_action=requested_action,
-        diff=dict(diff),
         status="PENDING",
-        requested_at=utc_now(),
+        diff=dict(diff),
     )
-    session.add(row)
+    session.add(approval)
     await session.flush()
-    return row
+    return approval
 
 
 async def get_run_detail(
-    session: AsyncSession, run_id: int
+    session: AsyncSession,
+    run_id: int,
 ) -> dict[str, Any] | None:
     run = await session.get(AIOptimizationRun, run_id)
-    if run is None:
+    if not run:
         return None
+
     steps = (
         await session.execute(
             select(AIRunStep)
             .where(AIRunStep.run_id == run_id)
-            .order_by(AIRunStep.step_index)
+            .order_by(AIRunStep.sequence, AIRunStep.id)
         )
     ).scalars().all()
+
     results = (
         await session.execute(
             select(ExperimentResult)
             .where(ExperimentResult.run_id == run_id)
-            .order_by(ExperimentResult.created_at, ExperimentResult.id)
+            .order_by(ExperimentResult.id.desc())
         )
     ).scalars().all()
+
     audits = (
         await session.execute(
             select(AIStepAuditLog)
@@ -1123,91 +1099,91 @@ async def get_run_detail(
             .order_by(AIStepAuditLog.created_at, AIStepAuditLog.id)
         )
     ).scalars().all()
+    approvals = (
+        await session.execute(
+            select(AIApprovalRequest)
+            .where(AIApprovalRequest.run_id == run_id)
+            .order_by(AIApprovalRequest.id.desc())
+        )
+    ).scalars().all()
     return {
         "run": run,
         "steps": list(steps),
         "results": list(results),
         "audits": list(audits),
+        "approvals": list(approvals),
     }
 
 
-async def create_permission(
+async def list_optimization_runs(
     session: AsyncSession,
     *,
-    profile_name: str,
-    allowed_actions: list[str],
-    scope: Mapping[str, Any],
-    limits: Mapping[str, Any],
-    updated_by: str = "system",
-    enabled: bool = True,
-) -> AIPermission:
-    """Create an immutable permission version and make it the current version."""
-    if not profile_name.strip():
-        raise AILabError("permission profile_name must not be empty")
-    actions = {str(item).upper() for item in allowed_actions}
-    unknown = actions.difference(LAB_ACTIONS)
-    if unknown:
-        raise AIPermissionError(
-            f"unknown permission actions: {sorted(unknown)}"
-        )
-    if any(
-        action in {"ACTIVATE_LIVE", "CHANGE_LIVE_POLICY"} for action in actions
-    ):
-        raise AIPermissionError(
-            "live activation and live policy changes are not autonomous actions"
-        )
-    for attempt in range(2):
-        current_rows = (
-            await session.execute(
-                select(AIPermission)
-                .where(
-                    AIPermission.profile_name == profile_name.strip(),
-                    AIPermission.is_current.is_(True),
-                )
-                .with_for_update()
+    status: str | None = None,
+    limit: int = 50,
+) -> list[AIOptimizationRun]:
+    stmt = select(AIOptimizationRun).order_by(desc(AIOptimizationRun.id)).limit(limit)
+    if status:
+        stmt = stmt.where(AIOptimizationRun.status == status.upper())
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_active_shadow_assignment(
+    session: AsyncSession,
+    *,
+    asset: str,
+) -> AIShadowAssignment | None:
+    return (
+        await session.execute(
+            select(AIShadowAssignment)
+            .where(
+                AIShadowAssignment.asset == asset,
+                AIShadowAssignment.status == "RUNNING",
             )
-        ).scalars().all()
-        next_version = (
-            max((row.version for row in current_rows), default=0) + 1
+            .order_by(desc(AIShadowAssignment.id))
+            .limit(1)
         )
-        for current in current_rows:
-            current.is_current = False
-        row = AIPermission(
-            profile_name=profile_name.strip(),
-            version=next_version,
-            is_current=True,
-            allowed_actions=sorted(actions),
-            scope=dict(scope),
-            limits=dict(limits),
-            enabled=enabled,
-            updated_by=updated_by,
-            created_at=utc_now(),
-            updated_at=utc_now(),
-        )
-        session.add(row)
-        try:
-            await session.flush()
-            return row
-        except IntegrityError as exc:
-            await session.rollback()
-            if attempt:
-                raise AILabError(
-                    f"concurrent permission creation for profile "
-                    f"{profile_name!r}; retry the request"
-                ) from exc
-    raise AILabError(
-        f"permission creation failed for profile {profile_name!r}"
-    )
+    ).scalar_one_or_none()
 
 
-async def authorize_run_action(
+async def check_guardrails(
+    session: AsyncSession,
+    run: AIOptimizationRun,
+    action: str,
+) -> tuple[bool, list[str]]:
+    failures: list[str] = []
+    if run.permission_id:
+        perm = await session.get(AIPermission, run.permission_id)
+        if perm:
+            if action.upper() == "LIVE_ORDER" and not perm.can_place_live_orders:
+                failures.append("Action LIVE_ORDER violates AI permissions")
+            if action.upper() == "MODIFY_RUNTIME" and not perm.can_modify_runtime_settings:
+                failures.append("Action MODIFY_RUNTIME violates AI permissions")
+
+    active_runs_count = (
+        await session.execute(
+            select(func.count(AIOptimizationRun.id)).where(
+                AIOptimizationRun.status.in_(["PLANNING", "DATA_PREP", "TRAINING", "EVALUATING", "SHADOW"])
+            )
+        )
+    ).scalar() or 0
+
+    if active_runs_count > DEFAULT_MAX_ACTIVE_EXPERIMENTS:
+        failures.append(
+            f"Active experiment count ({active_runs_count}) exceeds limit ({DEFAULT_MAX_ACTIVE_EXPERIMENTS})"
+        )
+
+    return len(failures) == 0, failures
+
+
+async def ensure_run_action_allowed(
     session: AsyncSession,
     run_id: int,
     action: str,
 ) -> AIOptimizationRun:
     run = await session.get(AIOptimizationRun, run_id)
-    if run is None:
-        raise AILabError(f"AI Lab run {run_id} not found")
+    if not run:
+        raise AILabError(f"Optimization run {run_id} not found")
     if run.permission_id is None:
         raise AIPermissionError("run has no permission snapshot")
     permission = await session.get(AIPermission, run.permission_id)

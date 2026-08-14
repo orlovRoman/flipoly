@@ -1,426 +1,530 @@
-"""HTTP API for the safe AI Lab experiment contour.
-
-The router exposes only experiment, audit and approval operations. It does not
-activate models or mutate live execution settings.
-"""
+"""API endpoints for autonomous AI Lab optimization lifecycle, artifacts, and guardrails."""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
-import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from polyflip.api.auth import verify_api_key
-from polyflip.db.connection import get_db_session
+from polyflip.ai_lab.manifests import compute_manifest_hash
+from polyflip.ai_lab.orchestrator import AILabOrchestrator
+from polyflip.ai_lab.service import (
+    AILabError,
+    AIPermissionError,
+    approve_and_activate_deployment,
+    create_deployment_revision,
+    create_optimization_run,
+    create_run_step,
+    get_run_detail,
+    list_optimization_runs,
+    propose_live_deployment,
+    record_deployment_event,
+    record_experiment_config,
+    record_experiment_result,
+    record_model_artifact,
+    record_step_audit,
+    reject_deployment_approval,
+    rollback_deployment,
+    transition_run,
+)
+from polyflip.api.auth import get_current_user
+from polyflip.db.database import get_db_session
 from polyflip.db.models import (
     AIApprovalRequest,
     AIExperimentConfig,
     AIModelArtifact,
     AIOptimizationRun,
-    AIPermission,
     AIRunStep,
+    AIShadowAssignment,
     AIStepAuditLog,
     DeploymentEvent,
     DeploymentRevision,
     ExperimentResult,
 )
-from polyflip.ai_lab.service import (
-    approve_and_activate_deployment,
-    propose_live_deployment,
-    record_deployment_event,
-    reject_deployment_approval,
-    rollback_deployment,
-    transition_run,
-)
-
-logger = structlog.get_logger(__name__)
 
 router = APIRouter(
     prefix="/api/ai-lab",
-    tags=["AI Lab"],
-    dependencies=[Depends(verify_api_key)],
+    tags=["ai-lab"],
+    dependencies=[Depends(get_current_user)],
 )
 
 
-# ---------------------------------------------------------------------------
-# Pydantic Schemas
-# ---------------------------------------------------------------------------
-
-
+# ----------------------------------------------------------------------
+# Request / Response Schemas
+# ----------------------------------------------------------------------
 class CreateRunRequest(BaseModel):
-    objective: str = Field(..., min_length=3, max_length=4000)
+    objective: str = Field(..., min_length=3, max_length=500)
     scope: dict[str, Any] = Field(default_factory=dict)
-    autonomy_level: Literal[
-        "OBSERVE",
-        "EXPERIMENT",
-        "SHADOW",
-        "LIVE_PROPOSE",
-        "AUTONOMOUS_SHADOW",
-        "DIRECTED",
-    ] = "EXPERIMENT"
-    budget_experiments: int = Field(default=10, ge=1, le=1000)
-    created_by: str = Field(default="system", max_length=128)
-    permission_id: int | None = None
-    agent_thread_id: str | None = Field(default=None, max_length=128)
-    agent_type: str | None = Field(default=None, max_length=64)
+    autonomy_level: str = Field(default="AUTONOMOUS_SHADOW")
 
 
-class RunResponse(BaseModel):
-    id: int
-    objective: str
-    scope: dict[str, Any]
-    autonomy_level: str
-    status: str
-    agent_thread_id: str | None
-    agent_type: str | None
-    budget_experiments: int
-    experiments_completed: int
-    created_by: str
-    summary: str | None
-    error: str | None
-    created_at: datetime | None
-    started_at: datetime | None
-    finished_at: datetime | None
-
-    model_config = {"from_attributes": True}
-
-
-class StepResponse(BaseModel):
-    id: int
-    run_id: int
-    step_index: int
-    step_type: str
-    status: str
-    hypothesis: str | None
-    action: str | None
-    summary: str | None
-    error_code: str | None
-    error_message: str | None
-    created_at: datetime | None
-    started_at: datetime | None
-    finished_at: datetime | None
-
-    model_config = {"from_attributes": True}
-
-
-class ResultResponse(BaseModel):
-    id: int
-    run_id: int
-    config_id: int
-    evaluation_kind: str
-    status: str
-    trade_count: int | None
-    net_pnl: float | None
-    max_drawdown: float | None
-    metrics: dict[str, Any] | None
-    created_at: datetime | None
-
-    model_config = {"from_attributes": True}
-
-
-class RunDetailResponse(BaseModel):
-    run: RunResponse
-    steps: list[StepResponse]
-    results: list[ResultResponse]
-
-
-class ApprovalRequest(BaseModel):
-    requested_action: Literal["ACTIVATE", "EXPAND_BUDGET", "SHUTDOWN_CIRCUIT"]
-    target_type: str = "run"
-    target_id: str | None = None
-    actor: str = Field(default="system", max_length=128)
+class TransitionRunRequest(BaseModel):
+    target_status: str
     reason: str | None = None
 
 
-class ApprovalDecision(BaseModel):
-    actor: str = Field(default="admin", max_length=128)
+class RunStepRequest(BaseModel):
+    step_type: str
+    sequence: int
+    inputs: dict[str, Any] = Field(default_factory=dict)
+
+
+class StepAuditRequest(BaseModel):
+    step_id: int | None = None
+    action: str
+    decision_reason: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict)
+    passed_checks: bool = True
+    guardrail_failures: list[str] = Field(default_factory=list)
+
+
+class ExperimentConfigRequest(BaseModel):
+    name: str
+    asset: str
+    regime: str = "DEFAULT"
+    model_family: str
+    feature_set: str
+    feature_pipeline_version: str = "1.0"
+    model_params: dict[str, Any] = Field(default_factory=dict)
+    strategy_params: dict[str, Any] = Field(default_factory=dict)
+    backtest_params: dict[str, Any] = Field(default_factory=dict)
+    config_hash: str
+    parent_config_id: int | None = None
+
+
+class ModelArtifactRequest(BaseModel):
+    config_id: int
+    artifact_uri: str
+    artifact_hash: str
+    schema_version: str = "1.0"
+    feature_pipeline_version: str = "1.0"
+    artifact_metadata: dict[str, Any] = Field(default_factory=dict)
+    model_registry_id: int | None = None
+    loadability_status: str = "PENDING"
+
+
+class ExperimentResultRequest(BaseModel):
+    config_id: int
+    metrics: dict[str, Any]
+    validation_status: str
+    validation_failures: list[str] = Field(default_factory=list)
+
+
+class CreateApprovalRequest(BaseModel):
+    requested_action: str = Field(default="ACTIVATE")
+    actor: str = Field(default="operator")
+    reason: str | None = None
+
+
+class ApprovalDecisionRequest(BaseModel):
+    actor: str = Field(default="operator")
     reason: str | None = None
 
 
 class RollbackRequest(BaseModel):
     target_revision_id: int | None = None
-    actor: str = Field(default="admin", max_length=128)
+    actor: str = Field(default="admin")
     reason: str | None = None
 
 
-class PermissionResponse(BaseModel):
-    id: int
-    profile_name: str
-    version: int
-    is_current: bool
-    allowed_actions: list[str]
-    scope: dict[str, Any]
-    limits: dict[str, Any]
-    enabled: bool
-
-    model_config = {"from_attributes": True}
+class OrchestrateRunRequest(BaseModel):
+    objective: str = Field(..., min_length=3, max_length=500)
+    asset: str = Field(default="BTCUSDT")
+    model_families: list[str] = Field(default_factory=lambda: ["LogisticRegression", "LightGBM"])
+    feature_sets: list[str] = Field(default_factory=lambda: ["FS_D0", "FS_D1"])
+    timeframe: str = Field(default="1d")
+    days: int = Field(default=90, ge=10, le=365)
+    autonomy_level: str = Field(default="AUTONOMOUS_SHADOW")
 
 
-class RevisionResponse(BaseModel):
-    id: int
-    revision_key: str
-    parent_id: int | None
-    manifest: dict[str, Any]
-    manifest_hash: str
-    status: str
-    created_by: str
-    created_at: datetime
-    activated_at: datetime | None
-    rolled_back_at: datetime | None
-
-    model_config = {"from_attributes": True}
-
-
-# ---------------------------------------------------------------------------
-# Route Handlers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------
+def _run_payload(row: AIOptimizationRun) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "objective": row.objective,
+        "scope": row.scope,
+        "autonomy_level": row.autonomy_level,
+        "status": row.status,
+        "summary": row.summary,
+        "created_by": row.created_by,
+        "permission_id": row.permission_id,
+        "created_at": row.created_at,
+        "completed_at": row.completed_at,
+    }
 
 
-@router.post(
-    "/runs",
-    response_model=RunResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create an AI optimization run",
-)
-async def create_run(
+def _step_payload(row: AIRunStep) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "run_id": row.run_id,
+        "step_type": row.step_type,
+        "sequence": row.sequence,
+        "status": row.status,
+        "inputs": row.inputs,
+        "outputs": row.outputs,
+        "error_message": row.error_message,
+        "started_at": row.started_at,
+        "completed_at": row.completed_at,
+    }
+
+
+def _audit_payload(row: AIStepAuditLog) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "run_id": row.run_id,
+        "step_id": row.step_id,
+        "action": row.action,
+        "decision_reason": row.decision_reason,
+        "inputs": row.inputs,
+        "outputs": row.outputs,
+        "passed_checks": row.passed_checks,
+        "guardrail_failures": row.guardrail_failures,
+        "created_at": row.created_at,
+    }
+
+
+def _config_payload(row: AIExperimentConfig) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "asset": row.asset,
+        "regime": row.regime,
+        "model_family": row.model_family,
+        "feature_set": row.feature_set,
+        "feature_pipeline_version": row.feature_pipeline_version,
+        "model_params": row.model_params,
+        "strategy_params": row.strategy_params,
+        "backtest_params": row.backtest_params,
+        "config_hash": row.config_hash,
+        "parent_config_id": row.parent_config_id,
+        "created_at": row.created_at,
+    }
+
+
+def _artifact_payload(row: AIModelArtifact) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "config_id": row.config_id,
+        "artifact_uri": row.artifact_uri,
+        "artifact_hash": row.artifact_hash,
+        "schema_version": row.schema_version,
+        "feature_pipeline_version": row.feature_pipeline_version,
+        "artifact_metadata": row.artifact_metadata,
+        "model_registry_id": row.model_registry_id,
+        "loadability_status": row.loadability_status,
+        "created_at": row.created_at,
+    }
+
+
+def _result_payload(row: ExperimentResult) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "config_id": row.config_id,
+        "run_id": row.run_id,
+        "metrics": row.metrics,
+        "validation_status": row.validation_status,
+        "validation_failures": row.validation_failures,
+        "created_at": row.created_at,
+    }
+
+
+def _revision_payload(row: DeploymentRevision) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "revision_key": row.revision_key,
+        "manifest": row.manifest,
+        "manifest_hash": row.manifest_hash,
+        "status": row.status,
+        "parent_id": row.parent_id,
+        "description": row.description,
+        "created_at": row.created_at,
+        "activated_at": row.activated_at,
+        "superseded_at": row.superseded_at,
+        "rolled_back_at": row.rolled_back_at,
+    }
+
+
+def _event_payload(row: DeploymentEvent) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "revision_id": row.revision_id,
+        "event_type": row.event_type,
+        "actor": row.actor,
+        "event_hash": row.event_hash,
+        "previous_hash": row.previous_hash,
+        "reason": row.reason,
+        "payload": row.payload,
+        "created_at": row.created_at,
+    }
+
+
+def _approval_payload(row: AIApprovalRequest) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "run_id": row.run_id,
+        "target_type": row.target_type,
+        "target_id": row.target_id,
+        "requested_action": row.requested_action,
+        "status": row.status,
+        "diff": row.diff,
+        "requested_at": row.requested_at,
+        "decided_at": row.decided_at,
+        "decided_by": row.decided_by,
+        "decision_reason": row.decision_reason,
+    }
+
+
+# ----------------------------------------------------------------------
+# Endpoints
+# ----------------------------------------------------------------------
+@router.post("/runs", status_code=status.HTTP_201_CREATED)
+async def create_run_endpoint(
     payload: CreateRunRequest,
-    session: AsyncSession = Depends(get_db_session),
-) -> AIOptimizationRun:
-    """Register a new offline experiment run in the safe contour."""
-    if payload.permission_id is not None:
-        perm = await session.get(AIPermission, payload.permission_id)
-        if not perm or not perm.enabled:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Permission profile {payload.permission_id} is invalid or disabled.",
-            )
-
-    run = AIOptimizationRun(
-        objective=payload.objective,
-        scope=payload.scope,
-        autonomy_level=payload.autonomy_level,
-        status="DRAFT",
-        agent_thread_id=payload.agent_thread_id,
-        agent_type=payload.agent_type,
-        permission_id=payload.permission_id,
-        experiment_budget=payload.budget_experiments,
-        created_by=payload.created_by,
-    )
-    session.add(run)
-    await session.commit()
-    await session.refresh(run)
-
-    logger.info(
-        "ai_lab.run_created",
-        run_id=run.id,
-        objective=run.objective[:80],
-        autonomy_level=run.autonomy_level,
-        budget=run.experiment_budget,
-    )
-    return run
+    db: AsyncSession = Depends(get_db_session),
+    user: Any = Depends(get_current_user),
+):
+    try:
+        actor = getattr(user, "username", "system")
+        run = await create_optimization_run(
+            db,
+            objective=payload.objective,
+            scope=payload.scope,
+            autonomy_level=payload.autonomy_level,
+            created_by=actor,
+        )
+        await db.commit()
+        await db.refresh(run)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _run_payload(run)
 
 
-@router.get(
-    "/runs",
-    summary="List AI optimization runs",
-)
-async def list_runs(
-    status_filter: str | None = Query(None, alias="status"),
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    session: AsyncSession = Depends(get_db_session),
-) -> dict[str, Any]:
-    """Retrieve runs ordered by creation time descending."""
-    stmt = select(AIOptimizationRun).order_by(desc(AIOptimizationRun.id))
-    if status_filter:
-        stmt = stmt.where(AIOptimizationRun.status == status_filter.upper())
-    stmt = stmt.limit(limit).offset(offset)
+@router.get("/runs")
+async def list_runs_endpoint(
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db_session),
+):
+    rows = await list_optimization_runs(db, status=status_filter, limit=limit)
+    return {"runs": [_run_payload(r) for r in rows]}
 
-    result = await session.execute(stmt)
-    runs = result.scalars().all()
+
+@router.get("/runs/{run_id}")
+async def get_run_endpoint(
+    run_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    detail = await get_run_detail(db, run_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
     return {
-        "total": len(runs),
-        "limit": limit,
-        "offset": offset,
-        "runs": [
-            {
-                "id": r.id,
-                "objective": r.objective,
-                "scope": r.scope,
-                "autonomy_level": r.autonomy_level,
-                "status": r.status,
-                "agent_thread_id": r.agent_thread_id,
-                "agent_type": r.agent_type,
-                "budget_experiments": r.experiment_budget,
-                "experiments_completed": r.experiments_completed,
-                "created_by": r.created_by,
-                "summary": r.summary,
-                "error": r.error,
-                "created_at": r.created_at,
-                "started_at": r.started_at,
-                "finished_at": r.finished_at,
-            }
-            for r in runs
-        ],
+        "run": _run_payload(detail["run"]),
+        "steps": [_step_payload(s) for s in detail["steps"]],
+        "results": [_result_payload(r) for r in detail["results"]],
+        "audits": [_audit_payload(audit) for audit in detail.get("audits", [])],
+        "approvals": [_approval_payload(app) for app in detail.get("approvals", [])],
     }
 
 
-@router.get(
-    "/runs/{run_id}",
-    summary="Get run details including steps and results",
-)
-async def get_run_detail(
+@router.post("/runs/{run_id}/transition")
+async def transition_run_endpoint(
     run_id: int,
-    session: AsyncSession = Depends(get_db_session),
-) -> dict[str, Any]:
-    """Retrieve a run with all child steps and experiment results."""
-    run = await session.get(AIOptimizationRun, run_id)
+    payload: TransitionRunRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    run = await db.get(AIOptimizationRun, run_id)
     if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found.",
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    try:
+        updated = await transition_run(
+            db, run, payload.target_status, reason=payload.reason
         )
+        await db.commit()
+        await db.refresh(updated)
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    steps_res = await session.execute(
-        select(AIRunStep)
-        .where(AIRunStep.run_id == run_id)
-        .order_by(AIRunStep.step_index)
-    )
-    steps = steps_res.scalars().all()
-
-    results_res = await session.execute(
-        select(ExperimentResult)
-        .where(ExperimentResult.run_id == run_id)
-        .order_by(desc(ExperimentResult.id))
-    )
-    results = results_res.scalars().all()
-
-    return {
-        "run": {
-            "id": run.id,
-            "objective": run.objective,
-            "scope": run.scope,
-            "autonomy_level": run.autonomy_level,
-            "status": run.status,
-            "agent_thread_id": run.agent_thread_id,
-            "agent_type": run.agent_type,
-            "budget_experiments": run.experiment_budget,
-            "experiments_completed": run.experiments_completed,
-            "created_by": run.created_by,
-            "summary": run.summary,
-            "error": run.error,
-            "created_at": run.created_at,
-            "started_at": run.started_at,
-            "finished_at": run.finished_at,
-        },
-        "steps": [
-            {
-                "id": s.id,
-                "run_id": s.run_id,
-                "step_index": s.step_index,
-                "step_type": s.step_type,
-                "status": s.status,
-                "hypothesis": s.hypothesis,
-                "action": s.action,
-                "summary": s.summary,
-                "error_code": s.error_code,
-                "error_message": s.error_message,
-                "created_at": s.created_at,
-                "started_at": s.started_at,
-                "finished_at": s.finished_at,
-            }
-            for s in steps
-        ],
-        "results": [
-            {
-                "id": r.id,
-                "run_id": r.run_id,
-                "config_id": r.config_id,
-                "evaluation_kind": r.evaluation_kind,
-                "status": r.status,
-                "trade_count": r.trade_count,
-                "net_pnl": r.net_pnl,
-                "max_drawdown": r.max_drawdown,
-                "metrics": r.metrics,
-                "created_at": r.created_at,
-            }
-            for r in results
-        ],
-    }
+    return _run_payload(updated)
 
 
-@router.post(
-    "/runs/{run_id}/approval",
-    status_code=status.HTTP_201_CREATED,
-    summary="Request human approval for a run action",
-)
-async def request_approval(
+@router.post("/runs/{run_id}/steps", status_code=status.HTTP_201_CREATED)
+async def create_step_endpoint(
     run_id: int,
-    payload: ApprovalRequest,
-    session: AsyncSession = Depends(get_db_session),
-) -> dict[str, Any]:
-    """Create a human approval gate request for a sensitive action."""
-    run = await session.get(AIOptimizationRun, run_id)
+    payload: RunStepRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    run = await db.get(AIOptimizationRun, run_id)
     if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found.",
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    try:
+        step = await create_run_step(
+            db,
+            run_id=run_id,
+            step_type=payload.step_type,
+            sequence=payload.sequence,
+            inputs=payload.inputs,
         )
+        await db.commit()
+        await db.refresh(step)
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if payload.requested_action == "ACTIVATE":
-        if run.status not in ("SHADOW", "PENDING_APPROVAL"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Run {run_id} is in status '{run.status}'. "
-                "Only runs in 'SHADOW' or 'PENDING_APPROVAL' status may be proposed for LIVE deployment.",
-            )
-        try:
-            row, _ = await propose_live_deployment(
-                session,
-                run,
-                actor=payload.actor,
-                reason=payload.reason,
-            )
-            return {
-                "id": row.id,
-                "run_id": row.run_id,
-                "target_type": row.target_type,
-                "target_id": row.target_id,
-                "requested_action": row.requested_action,
-                "diff": row.diff,
-                "status": row.status,
-                "requested_at": row.requested_at,
-            }
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(exc),
-            ) from exc
+    return _step_payload(step)
 
-    approval = AIApprovalRequest(
-        run_id=run_id,
-        target_type=payload.target_type,
-        target_id=payload.target_id or str(run_id),
-        requested_action=payload.requested_action,
-        diff={},
-        status="PENDING",
-    )
-    session.add(approval)
-    await session.commit()
-    await session.refresh(approval)
 
-    logger.info(
-        "ai_lab.approval_requested",
-        approval_id=approval.id,
-        run_id=run_id,
-        action=approval.requested_action,
-    )
+@router.post("/runs/{run_id}/audits", status_code=status.HTTP_201_CREATED)
+async def record_audit_endpoint(
+    run_id: int,
+    payload: StepAuditRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    run = await db.get(AIOptimizationRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    try:
+        audit = await record_step_audit(
+            db,
+            run_id=run_id,
+            step_id=payload.step_id,
+            action=payload.action,
+            decision_reason=payload.decision_reason,
+            inputs=payload.inputs,
+            outputs=payload.outputs,
+            passed_checks=payload.passed_checks,
+            guardrail_failures=payload.guardrail_failures,
+        )
+        await db.commit()
+        await db.refresh(audit)
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return _audit_payload(audit)
+
+
+@router.post("/configs", status_code=status.HTTP_201_CREATED)
+async def create_config_endpoint(
+    payload: ExperimentConfigRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        config = await record_experiment_config(
+            db,
+            name=payload.name,
+            asset=payload.asset,
+            regime=payload.regime,
+            model_family=payload.model_family,
+            feature_set=payload.feature_set,
+            feature_pipeline_version=payload.feature_pipeline_version,
+            model_params=payload.model_params,
+            strategy_params=payload.strategy_params,
+            backtest_params=payload.backtest_params,
+            config_hash=payload.config_hash,
+            parent_config_id=payload.parent_config_id,
+        )
+        await db.commit()
+        await db.refresh(config)
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return _config_payload(config)
+
+
+@router.post("/artifacts", status_code=status.HTTP_201_CREATED)
+async def create_artifact_endpoint(
+    payload: ModelArtifactRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        artifact = await record_model_artifact(
+            db,
+            config_id=payload.config_id,
+            artifact_uri=payload.artifact_uri,
+            artifact_hash=payload.artifact_hash,
+            schema_version=payload.schema_version,
+            feature_pipeline_version=payload.feature_pipeline_version,
+            artifact_metadata=payload.artifact_metadata,
+            model_registry_id=payload.model_registry_id,
+            loadability_status=payload.loadability_status,
+        )
+        await db.commit()
+        await db.refresh(artifact)
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return _artifact_payload(artifact)
+
+
+@router.post("/results", status_code=status.HTTP_201_CREATED)
+async def create_result_endpoint(
+    payload: ExperimentResultRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    try:
+        result = await record_experiment_result(
+            db,
+            config_id=payload.config_id,
+            run_id=payload.run_id,
+            metrics=payload.metrics,
+            validation_status=payload.validation_status,
+            validation_failures=payload.validation_failures,
+        )
+        await db.commit()
+        await db.refresh(result)
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return _result_payload(result)
+
+
+# ----------------------------------------------------------------------
+# Deployment Revisions, Events, Approvals, and Safe Rollback Endpoints
+# ----------------------------------------------------------------------
+@router.post("/runs/{run_id}/approval", status_code=status.HTTP_201_CREATED)
+async def propose_run_approval(
+    run_id: int,
+    payload: CreateApprovalRequest,
+    db: AsyncSession = Depends(get_db_session),
+    user: Any = Depends(get_current_user),
+):
+    actor = payload.actor or getattr(user, "username", "operator")
+    try:
+        approval, revision = await propose_live_deployment(
+            db,
+            run_id=run_id,
+            actor=actor,
+            reason=payload.reason,
+        )
+        await db.commit()
+        await db.refresh(approval)
+        await db.refresh(revision)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return {
         "id": approval.id,
@@ -428,216 +532,187 @@ async def request_approval(
         "target_type": approval.target_type,
         "target_id": approval.target_id,
         "requested_action": approval.requested_action,
-        "diff": approval.diff,
         "status": approval.status,
+        "diff": approval.diff,
         "requested_at": approval.requested_at,
     }
 
 
-@router.post(
-    "/approvals/{approval_id}/approve",
-    summary="Approve and activate a proposed deployment",
-)
-async def approve_approval(
+@router.get("/approvals/{approval_id}")
+async def get_ai_approval(
     approval_id: int,
-    payload: ApprovalDecision,
-    session: AsyncSession = Depends(get_db_session),
+    db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
-    """Approve a pending request and transactionally activate the deployment revision."""
+    app = await db.get(AIApprovalRequest, approval_id)
+    if not app:
+        raise HTTPException(status_code=404, detail=f"Approval {approval_id} not found")
+    return _approval_payload(app)
+
+
+@router.post("/approvals/{approval_id}/approve")
+async def approve_ai_deployment(
+    approval_id: int,
+    payload: ApprovalDecisionRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
     try:
         approval, revision = await approve_and_activate_deployment(
-            session,
+            db,
             approval_id=approval_id,
             actor=payload.actor,
             reason=payload.reason,
         )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-
+        await db.commit()
+        await db.refresh(revision)
+        await db.refresh(approval)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "status": "APPROVED",
         "approval_id": approval.id,
         "revision_id": revision.id,
         "revision_key": revision.revision_key,
-        "manifest_hash": revision.manifest_hash,
+        "revision_status": revision.status,
         "activated_at": revision.activated_at,
+        "decided_by": approval.decided_by,
     }
 
 
-@router.post(
-    "/approvals/{approval_id}/reject",
-    summary="Reject a proposed deployment",
-)
-async def reject_approval(
+@router.post("/approvals/{approval_id}/reject")
+async def reject_ai_deployment(
     approval_id: int,
-    payload: ApprovalDecision,
-    session: AsyncSession = Depends(get_db_session),
-) -> dict[str, Any]:
-    """Reject a pending request and mark the associated revision as REJECTED."""
+    payload: ApprovalDecisionRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
     try:
         approval, revision = await reject_deployment_approval(
-            session,
+            db,
             approval_id=approval_id,
             actor=payload.actor,
             reason=payload.reason,
         )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-
+        await db.commit()
+        await db.refresh(approval)
+        if revision:
+            await db.refresh(revision)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "status": "REJECTED",
         "approval_id": approval.id,
         "revision_id": revision.id if revision else None,
         "decided_by": approval.decided_by,
         "decision_reason": approval.decision_reason,
+        "decided_at": approval.decided_at,
     }
 
 
-@router.post(
-    "/deployments/rollback",
-    summary="Rollback active deployment revision to parent",
-)
-async def rollback_deployment_route(
+@router.post("/deployments/rollback")
+async def rollback_ai_deployment(
     payload: RollbackRequest,
-    session: AsyncSession = Depends(get_db_session),
-) -> dict[str, Any]:
-    """Emergency rollback: switches active ModelRegistry pointers without touching positions."""
+    db: AsyncSession = Depends(get_db_session),
+):
     try:
-        rolled_back_rev, active_rev = await rollback_deployment(
-            session,
+        rolled_back, restored = await rollback_deployment(
+            db,
             target_revision_id=payload.target_revision_id,
             actor=payload.actor,
             reason=payload.reason,
         )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-
+        await db.commit()
+        if rolled_back:
+            await db.refresh(rolled_back)
+        await db.refresh(restored)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "status": "ROLLED_BACK",
-        "rolled_back_revision_id": rolled_back_rev.id,
-        "active_revision_id": active_rev.id,
-        "active_revision_key": active_rev.revision_key,
-        "active_manifest_hash": active_rev.manifest_hash,
+        "rolled_back_revision_id": rolled_back.id if rolled_back else None,
+        "restored_revision_id": restored.id,
+        "restored_revision_key": restored.revision_key,
+        "activated_at": restored.activated_at,
     }
 
 
-@router.get(
-    "/permissions",
-    summary="List active AI permission profiles",
-)
-async def list_permissions(
-    session: AsyncSession = Depends(get_db_session),
-) -> dict[str, Any]:
-    """List permission profiles for autonomous AI execution."""
-    result = await session.execute(
-        select(AIPermission).where(AIPermission.is_current.is_(True))
-    )
-    perms = result.scalars().all()
-    return {
-        "permissions": [
-            {
-                "id": p.id,
-                "profile_name": p.profile_name,
-                "version": p.version,
-                "is_current": p.is_current,
-                "allowed_actions": p.allowed_actions,
-                "scope": p.scope,
-                "limits": p.limits,
-                "enabled": p.enabled,
-            }
-            for p in perms
-        ]
-    }
-
-
-@router.get(
-    "/deployments/revisions",
-    summary="List deployment revisions",
-)
-async def list_revisions(
-    limit: int = Query(20, ge=1, le=100),
-    session: AsyncSession = Depends(get_db_session),
-) -> list[dict[str, Any]]:
-    """List recorded deployment revisions ordered by creation time descending."""
-    result = await session.execute(
-        select(DeploymentRevision)
-        .order_by(desc(DeploymentRevision.id))
-        .limit(limit)
-    )
-    revisions = result.scalars().all()
-    return [
-        {
-            "id": rev.id,
-            "revision_key": rev.revision_key,
-            "parent_id": rev.parent_id,
-            "manifest": rev.manifest,
-            "manifest_hash": rev.manifest_hash,
-            "status": rev.status,
-            "created_by": rev.created_by,
-            "created_at": rev.created_at,
-            "activated_at": rev.activated_at,
-            "rolled_back_at": rev.rolled_back_at,
-        }
-        for rev in revisions
-    ]
-
-
-@router.get(
-    "/deployments/revisions/{revision_id}",
-    summary="Get a deployment revision and its audit events",
-)
-async def get_revision_detail(
-    revision_id: int,
-    session: AsyncSession = Depends(get_db_session),
-) -> dict[str, Any]:
-    """Retrieve revision manifest and its hash chain events."""
-    rev = await session.get(DeploymentRevision, revision_id)
-    if not rev:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Revision {revision_id} not found.",
+@router.get("/deployments/revisions")
+async def list_deployment_revisions(
+    db: AsyncSession = Depends(get_db_session),
+):
+    rows = (
+        await db.execute(
+            select(DeploymentRevision).order_by(DeploymentRevision.id.desc())
         )
+    ).scalars().all()
+    return {"revisions": [_revision_payload(r) for r in rows]}
 
-    events_res = await session.execute(
-        select(DeploymentEvent)
-        .where(DeploymentEvent.revision_id == revision_id)
-        .order_by(DeploymentEvent.id.asc())
-    )
-    events = events_res.scalars().all()
+
+@router.get("/deployments/revisions/{revision_id}/events")
+async def list_revision_events(
+    revision_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    rev = await db.get(DeploymentRevision, revision_id)
+    if not rev:
+        raise HTTPException(status_code=404, detail=f"Revision {revision_id} not found")
+
+    rows = (
+        await db.execute(
+            select(DeploymentEvent)
+            .where(DeploymentEvent.revision_id == revision_id)
+            .order_by(DeploymentEvent.id.asc())
+        )
+    ).scalars().all()
+    return {"events": [_event_payload(e) for e in rows]}
+
+
+@router.post("/orchestrate", status_code=status.HTTP_201_CREATED)
+async def orchestrate_optimization_pipeline(
+    payload: OrchestrateRunRequest,
+    db: AsyncSession = Depends(get_db_session),
+    user: Any = Depends(get_current_user),
+):
+    actor = getattr(user, "username", "system")
+    orchestrator = AILabOrchestrator(db)
+    try:
+        run, winner_config, winner_artifact, report = await orchestrator.execute_full_optimization(
+            objective=payload.objective,
+            asset=payload.asset,
+            model_families=payload.model_families,
+            feature_sets=payload.feature_sets,
+            timeframe=payload.timeframe,
+            days=payload.days,
+            autonomy_level=payload.autonomy_level,
+            actor=actor,
+        )
+        await db.commit()
+        await db.refresh(run)
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Pipeline error: {str(exc)}") from exc
 
     return {
-        "revision": {
-            "id": rev.id,
-            "revision_key": rev.revision_key,
-            "parent_id": rev.parent_id,
-            "manifest": rev.manifest,
-            "manifest_hash": rev.manifest_hash,
-            "status": rev.status,
-            "created_by": rev.created_by,
-            "created_at": rev.created_at,
-            "activated_at": rev.activated_at,
-            "rolled_back_at": rev.rolled_back_at,
-        },
-        "events": [
-            {
-                "id": ev.id,
-                "event_type": ev.event_type,
-                "actor": ev.actor,
-                "reason": ev.reason,
-                "payload": ev.payload,
-                "previous_hash": ev.previous_hash,
-                "event_hash": ev.event_hash,
-                "created_at": ev.created_at,
-            }
-            for ev in events
-        ],
+        "status": "COMPLETED",
+        "run": _run_payload(run),
+        "winner_config": _config_payload(winner_config) if winner_config else None,
+        "winner_artifact": _artifact_payload(winner_artifact) if winner_artifact else None,
+        "recommendation_status": report.get("recommendation_status"),
+        "median_oot_pnl": report.get("median_oot_pnl"),
     }
