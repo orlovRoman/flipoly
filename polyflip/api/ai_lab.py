@@ -696,7 +696,12 @@ async def request_ai_approval(
     if await db.get(AIOptimizationRun, run_id) is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
     try:
-        if not payload.diff and payload.requested_action.upper() == "ACTIVATE":
+        requested_action = payload.requested_action.upper()
+        if requested_action == "ACTIVATE":
+            if payload.diff or payload.target_id:
+                raise AILabError(
+                    "ACTIVATE approvals must use the server-generated deployment diff"
+                )
             row, _ = await propose_live_deployment(
                 db,
                 run_id=run_id,
@@ -710,7 +715,7 @@ async def request_ai_approval(
                 run_id=run_id,
                 target_type=payload.target_type,
                 target_id=payload.target_id or str(run_id),
-                requested_action=payload.requested_action,
+                requested_action=requested_action,
                 diff=payload.diff,
             )
             await db.commit()
