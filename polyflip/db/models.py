@@ -497,10 +497,6 @@ class ModelRegistry(Base):
     model_metadata = Column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True
     )  # гиперпараметры, train/test периоды
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
     __table_args__ = (
         UniqueConstraint(
             "asset", "version", name="uix_model_registry_asset_version"
