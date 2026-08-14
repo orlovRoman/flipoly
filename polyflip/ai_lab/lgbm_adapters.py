@@ -30,6 +30,7 @@ from polyflip.crypto.polymarket_backtest import (
 )
 from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.constants import resolve_binance_symbol
+from polyflip.ai_lab.logreg_adapters import LOGREG_MODEL_FAMILIES
 from polyflip.db.models import (
     AIModelArtifact,
     ExperimentResult,
@@ -534,14 +535,45 @@ async def run_lgbm_polymarket_oot(
     )
 
 
+def _is_logreg_context(context: StepContext) -> bool:
+    return str(context.model_family or "").strip().upper() in LOGREG_MODEL_FAMILIES
+
+
+async def _train_dispatch(
+    context: StepContext, session: AsyncSession
+) -> AdapterResult:
+    if _is_logreg_context(context):
+        from polyflip.ai_lab.logreg_adapters import train_logreg
+        return await train_logreg(context, session)
+    return await train_lgbm(context, session)
+
+
+async def _oot_dispatch(
+    context: StepContext, session: AsyncSession
+) -> AdapterResult:
+    if _is_logreg_context(context):
+        from polyflip.ai_lab.logreg_adapters import run_logreg_oot
+        return await run_logreg_oot(context, session)
+    return await run_lgbm_oot(context, session)
+
+
+async def _polymarket_oot_dispatch(
+    context: StepContext, session: AsyncSession
+) -> AdapterResult:
+    if _is_logreg_context(context):
+        from polyflip.ai_lab.logreg_adapters import run_logreg_polymarket_oot
+        return await run_logreg_polymarket_oot(context, session)
+    return await run_lgbm_polymarket_oot(context, session)
+
+
 def build_lgbm_adapter_registry(session: AsyncSession) -> AdapterRegistry:
     """Create an explicit registry; no adapters are installed globally."""
     return (
         AdapterRegistry()
-        .register("TRAIN_MODEL", lambda context: train_lgbm(context, session))
-        .register("RUN_OOT_BACKTEST", lambda context: run_lgbm_oot(context, session))
+        .register("TRAIN_MODEL", lambda context: _train_dispatch(context, session))
+        .register("RUN_OOT_BACKTEST", lambda context: _oot_dispatch(context, session))
         .register(
             "RUN_POLYMARKET_OOT",
-            lambda context: run_lgbm_polymarket_oot(context, session),
+            lambda context: _polymarket_oot_dispatch(context, session),
         )
     )
