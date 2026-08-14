@@ -60,7 +60,8 @@ async def test_finalize_can_evaluate_without_shadow_assignment(monkeypatch):
     )
 
     assert result == {"report": report, "assignment": None}
-    assert calls == [(calls[0][0], 7)]
+    assert len(calls) == 1
+    assert calls[0][1] == 7
 
 
 @pytest.mark.asyncio
