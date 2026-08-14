@@ -537,7 +537,15 @@ async def propose_live_deployment(
     reason: str | None = None,
 ) -> tuple[AIApprovalRequest, DeploymentRevision]:
     """Build a server-side diff and create a DeploymentRevision for human review."""
-    run = await session.get(AIOptimizationRun, run_id)
+    # Serialize proposals for the same run. Without this lock, two
+    # concurrent requests can both create a pending revision and approval.
+    run = (
+        await session.execute(
+            select(AIOptimizationRun)
+            .where(AIOptimizationRun.id == run_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if run is None:
         raise AILabError(f"AI Lab run {run_id} not found")
     if run.status not in {"SHADOW", "PENDING_APPROVAL"}:
@@ -553,6 +561,8 @@ async def propose_live_deployment(
                 AIApprovalRequest.requested_action == "ACTIVATE",
                 AIApprovalRequest.status == "PENDING",
             )
+            .with_for_update()
+            .limit(1)
         )
     ).scalar_one_or_none()
 
