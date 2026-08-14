@@ -1,9 +1,36 @@
 import asyncio
+import contextlib
 import os
 import sys
-
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
+
+try:
+    import pytest
+except ImportError:
+    class _PytestMock:
+        class mark:
+            @staticmethod
+            def asyncio(fn):
+                return fn
+
+        @staticmethod
+        @contextlib.contextmanager
+        def raises(expected_exc, match=None):
+            try:
+                yield
+            except expected_exc as exc:
+                if match and match not in str(exc):
+                    raise AssertionError(
+                        f"Pattern {match!r} not found in {str(exc)!r}"
+                    ) from exc
+            else:
+                raise AssertionError(
+                    f"Expected {expected_exc.__name__} was not raised"
+                )
+
+    pytest = _PytestMock()
 
 from polyflip.ai_lab.service import (
     AILabError,
@@ -28,119 +55,108 @@ from polyflip.db.models import (
 )
 
 
-class _MockSession:
-    def __init__(self, entities=None):
-        self.entities = entities or {}
-        self.added = []
+class FakeSession:
+    """Robust in-memory async session for unit testing without brittle SQL string parsing."""
+
+    def __init__(self, entities: dict[tuple[type, int], Any] | None = None):
+        self._store: dict[type, dict[int, Any]] = {}
+        self.added: list[Any] = []
         self.flush_count = 0
 
-    async def get(self, model, object_id):
-        name = getattr(model, "__name__", "")
-        return self.entities.get((name, int(object_id)))
+        if entities:
+            for (model_cls, obj_id), obj in entities.items():
+                self._store.setdefault(model_cls, {})[int(obj_id)] = obj
+                if hasattr(obj, "id") and obj.id is None:
+                    obj.id = int(obj_id)
 
-    def add(self, item):
+    async def get(self, model: type, object_id: int | str | None) -> Any | None:
+        if object_id is None:
+            return None
+        return self._store.get(model, {}).get(int(object_id))
+
+    def add(self, item: Any) -> None:
         self.added.append(item)
-        name = getattr(item.__class__, "__name__", "")
-        if hasattr(item, "id") and item.id is not None:
-            self.entities[(name, item.id)] = item
+        model_cls = item.__class__
+        if getattr(item, "id", None) is not None:
+            self._store.setdefault(model_cls, {})[int(item.id)] = item
 
-    async def execute(self, stmt):
+    async def flush(self) -> None:
+        self.flush_count += 1
+        for item in self.added:
+            model_cls = item.__class__
+            if getattr(item, "id", None) is None:
+                existing_ids = self._store.get(model_cls, {}).keys()
+                next_id = max(existing_ids, default=0) + 1
+                item.id = next_id
+                self._store.setdefault(model_cls, {})[next_id] = item
+
+    async def execute(self, stmt: Any) -> Any:
         class _Result:
-            def __init__(self, items):
-                self._items = items
+            def __init__(self, items: list[Any]):
+                self._items = list(items)
 
             def scalars(self):
                 return self
 
-            def all(self):
+            def all(self) -> list[Any]:
                 return list(self._items)
 
-            def scalar_one_or_none(self):
+            def scalar_one_or_none(self) -> Any | None:
                 return self._items[0] if self._items else None
 
-        stmt_str = str(stmt)
-        params = {}
+        descriptions = getattr(stmt, "column_descriptions", None)
+        if not descriptions:
+            return _Result([])
+        target_entity = descriptions[0].get("entity")
+        if not target_entity:
+            return _Result([])
+
+        items_map = dict(self._store.get(target_entity, {}))
+        for item in self.added:
+            if isinstance(item, target_entity) and getattr(item, "id", None) is not None:
+                items_map[int(item.id)] = item
+        items = list(items_map.values())
+
+        params: dict[str, Any] = {}
         try:
             params = stmt.compile().params
         except Exception:
             pass
 
-        if "FROM deployment_events" in stmt_str:
-            events = [e for e in self.added if isinstance(e, DeploymentEvent)]
-            return _Result(events[-1:] if events else [])
-        if "FROM deployment_revisions" in stmt_str:
-            revs = [
-                v
-                for (k, v) in self.entities.items()
-                if k[0] == "DeploymentRevision"
-            ] + [r for r in self.added if isinstance(r, DeploymentRevision)]
-            if "deployment_revisions.id =" in stmt_str:
-                for val in params.values():
-                    matching = [r for r in revs if getattr(r, "id", None) == val]
-                    if matching:
-                        return _Result(matching)
-            if "status IN" in stmt_str or "status in" in stmt_str:
-                matching = [
-                    r
-                    for r in revs
-                    if getattr(r, "status", None) in {"DRAFT", "SHADOW", "PENDING_APPROVAL"}
-                ]
-                return _Result(matching)
-            if "deployment_revisions.status =" in stmt_str:
-                for val in params.values():
-                    matching = [r for r in revs if getattr(r, "status", None) == val]
-                    if matching:
-                        if "DESC" in stmt_str:
-                            matching.sort(key=lambda r: getattr(r, "id", 0), reverse=True)
-                        return _Result(matching)
-            return _Result(revs)
-        if "FROM model_registry" in stmt_str:
-            models = [
-                v for (k, v) in self.entities.items() if k[0] == "ModelRegistry"
-            ]
-            if "model_registry.id =" in stmt_str:
-                for val in params.values():
-                    matching = [m for m in models if m.id == val]
-                    if matching:
-                        return _Result(matching)
-            if "model_registry.is_active" in stmt_str:
-                active_models = [m for m in models if getattr(m, "is_active", False) is True]
-                return _Result(active_models)
-            return _Result(models)
-        if "FROM ai_approval_requests" in stmt_str:
-            approvals = [
-                v
-                for (k, v) in self.entities.items()
-                if k[0] == "AIApprovalRequest"
-            ]
-            return _Result(approvals)
-        if "FROM ai_optimization_runs" in stmt_str:
-            runs = [
-                v
-                for (k, v) in self.entities.items()
-                if k[0] == "AIOptimizationRun"
-            ]
-            return _Result(runs)
-        if "FROM ai_shadow_assignments" in stmt_str:
-            shadows = [
-                v
-                for (k, v) in self.entities.items()
-                if k[0] == "AIShadowAssignment"
-            ]
-            return _Result(shadows)
-        return _Result([])
+        filtered = []
+        for item in items:
+            matches = True
+            for param_key, param_val in params.items():
+                clean_key = param_key.rsplit("_", 1)[0]
+                if hasattr(item, clean_key):
+                    attr_val = getattr(item, clean_key)
+                    if isinstance(param_val, (set, list, tuple)):
+                        if attr_val not in param_val:
+                            matches = False
+                            break
+                    elif attr_val != param_val:
+                        matches = False
+                        break
+            if matches:
+                filtered.append(item)
 
-    async def flush(self):
-        self.flush_count += 1
-        for item in self.added:
-            if not getattr(item, "id", None):
-                item.id = len(self.entities) + 1
-                name = getattr(item.__class__, "__name__", "")
-                self.entities[(name, item.id)] = item
+        order_clauses = getattr(stmt, "_order_by_clauses", ())
+        if any("DESC" in str(c).upper() for c in order_clauses):
+            filtered.sort(key=lambda x: getattr(x, "id", 0), reverse=True)
+        elif order_clauses:
+            filtered.sort(key=lambda x: getattr(x, "id", 0))
+
+        limit_val = getattr(stmt, "_limit", None)
+        if limit_val is not None and isinstance(limit_val, int):
+            filtered = filtered[:limit_val]
+
+        return _Result(filtered)
 
 
+@pytest.mark.asyncio
 async def test_hash_chain_no_bifurcation():
-    session = _MockSession()
+    """P0-1: Test per-revision event hash chain."""
+    session = FakeSession()
     ev1 = await record_deployment_event(
         session,
         revision_id=1,
@@ -163,6 +179,7 @@ async def test_hash_chain_no_bifurcation():
     assert ev2.event_hash != ev1.event_hash
 
 
+@pytest.mark.asyncio
 async def test_propose_live_deployment_generates_diff_and_revision():
     run = SimpleNamespace(
         id=7,
@@ -196,11 +213,11 @@ async def test_propose_live_deployment_generates_diff_and_revision():
         is_active=True,
     )
 
-    session = _MockSession(
+    session = FakeSession(
         {
-            ("AIOptimizationRun", 7): run,
-            ("AIExperimentConfig", 11): config,
-            ("ModelRegistry", 1): active_baseline,
+            (AIOptimizationRun, 7): run,
+            (AIExperimentConfig, 11): config,
+            (ModelRegistry, 1): active_baseline,
         }
     )
 
@@ -226,13 +243,15 @@ async def test_propose_live_deployment_generates_diff_and_revision():
     assert run.status == "PENDING_APPROVAL"
 
 
+@pytest.mark.asyncio
 async def test_propose_live_deployment_rejects_non_shadow_run():
     run = SimpleNamespace(id=8, status="RUNNING", summary=None)
-    session = _MockSession({("AIOptimizationRun", 8): run})
+    session = FakeSession({(AIOptimizationRun, 8): run})
     with pytest.raises(AILabError, match="requires run in SHADOW or PENDING_APPROVAL"):
         await propose_live_deployment(session, run_id=8)
 
 
+@pytest.mark.asyncio
 async def test_approve_and_activate_switches_model_registry_pointers():
     run = SimpleNamespace(id=7, status="PENDING_APPROVAL", summary="Initial")
     old_active = SimpleNamespace(id=1, asset="BTCUSDT", is_active=True)
@@ -259,14 +278,14 @@ async def test_approve_and_activate_switches_model_registry_pointers():
         decided_by=None,
     )
 
-    session = _MockSession(
+    session = FakeSession(
         {
-            ("AIApprovalRequest", 5): approval,
-            ("DeploymentRevision", 10): revision,
-            ("AIModelArtifact", 101): artifact,
-            ("ModelRegistry", 1): old_active,
-            ("ModelRegistry", 2): new_candidate,
-            ("AIOptimizationRun", 7): run,
+            (AIApprovalRequest, 5): approval,
+            (DeploymentRevision, 10): revision,
+            (AIModelArtifact, 101): artifact,
+            (ModelRegistry, 1): old_active,
+            (ModelRegistry, 2): new_candidate,
+            (AIOptimizationRun, 7): run,
         }
     )
 
@@ -284,9 +303,10 @@ async def test_approve_and_activate_switches_model_registry_pointers():
     assert old_active.is_active is False
     assert new_candidate.is_active is True
     assert run.status == "ACTIVE"
-    assert "Activated by admin" in run.summary
+    assert "Activated by admin: Approved by risk committee" in run.summary
 
 
+@pytest.mark.asyncio
 async def test_activate_no_artifact_raises():
     old_active = SimpleNamespace(id=1, asset="BTCUSDT", is_active=True)
     revision = SimpleNamespace(
@@ -300,24 +320,20 @@ async def test_activate_no_artifact_raises():
         },
     )
     approval = SimpleNamespace(id=5, target_id="10", status="PENDING", run_id=None)
-    session = _MockSession(
+    session = FakeSession(
         {
-            ("AIApprovalRequest", 5): approval,
-            ("DeploymentRevision", 10): revision,
-            ("ModelRegistry", 1): old_active,
+            (AIApprovalRequest, 5): approval,
+            (DeploymentRevision, 10): revision,
+            (ModelRegistry, 1): old_active,
         }
     )
 
-    raised = False
-    try:
+    with pytest.raises(AILabError, match="has no linked ModelRegistry entry"):
         await approve_and_activate_deployment(session, approval_id=5, actor="admin")
-    except AILabError as exc:
-        raised = True
-        assert "has no linked ModelRegistry entry" in str(exc)
-    assert raised
     assert old_active.is_active is True
 
 
+@pytest.mark.asyncio
 async def test_reject_deployment_approval_marks_revision_and_run_rejected():
     run = SimpleNamespace(id=7, status="PENDING_APPROVAL", summary="Initial")
     revision = SimpleNamespace(id=10, status="PENDING_APPROVAL")
@@ -331,11 +347,11 @@ async def test_reject_deployment_approval_marks_revision_and_run_rejected():
         decision_reason=None,
     )
 
-    session = _MockSession(
+    session = FakeSession(
         {
-            ("AIApprovalRequest", 5): approval,
-            ("DeploymentRevision", 10): revision,
-            ("AIOptimizationRun", 7): run,
+            (AIApprovalRequest, 5): approval,
+            (DeploymentRevision, 10): revision,
+            (AIOptimizationRun, 7): run,
         }
     )
 
@@ -350,9 +366,10 @@ async def test_reject_deployment_approval_marks_revision_and_run_rejected():
     assert rejected_appr.decided_by == "risk_officer"
     assert revision.status == "REJECTED"
     assert run.status == "REJECTED"
-    assert "Rejected by risk_officer" in run.summary
+    assert "Rejected by risk_officer: Drawdown too high" in run.summary
 
 
+@pytest.mark.asyncio
 async def test_rollback_deployment_restores_parent_revision():
     model_v1 = SimpleNamespace(id=1, asset="BTCUSDT", is_active=False)
     model_v2 = SimpleNamespace(id=2, asset="BTCUSDT", is_active=True)
@@ -372,13 +389,13 @@ async def test_rollback_deployment_restores_parent_revision():
         rolled_back_at=None,
     )
 
-    session = _MockSession(
+    session = FakeSession(
         {
-            ("DeploymentRevision", 1): parent_rev,
-            ("DeploymentRevision", 2): current_rev,
-            ("AIModelArtifact", 101): art1,
-            ("ModelRegistry", 1): model_v1,
-            ("ModelRegistry", 2): model_v2,
+            (DeploymentRevision, 1): parent_rev,
+            (DeploymentRevision, 2): current_rev,
+            (AIModelArtifact, 101): art1,
+            (ModelRegistry, 1): model_v1,
+            (ModelRegistry, 2): model_v2,
         }
     )
 
@@ -396,6 +413,7 @@ async def test_rollback_deployment_restores_parent_revision():
     assert model_v2.is_active is False
 
 
+@pytest.mark.asyncio
 async def test_rollback_no_artifact_raises():
     current_rev = SimpleNamespace(
         id=2,
@@ -410,24 +428,20 @@ async def test_rollback_no_artifact_raises():
     )
     active_model = SimpleNamespace(id=2, asset="BTCUSDT", is_active=True)
 
-    session = _MockSession(
+    session = FakeSession(
         {
-            ("DeploymentRevision", 1): parent_rev,
-            ("DeploymentRevision", 2): current_rev,
-            ("ModelRegistry", 2): active_model,
+            (DeploymentRevision, 1): parent_rev,
+            (DeploymentRevision, 2): current_rev,
+            (ModelRegistry, 2): active_model,
         }
     )
 
-    raised = False
-    try:
+    with pytest.raises(AILabError, match="has no linked ModelRegistry entry"):
         await rollback_deployment(session, target_revision_id=1)
-    except AILabError as exc:
-        raised = True
-        assert "has no linked ModelRegistry entry" in str(exc)
-    assert raised
     assert active_model.is_active is True
 
 
+@pytest.mark.asyncio
 async def test_idempotency_excludes_rolled_back():
     manifest = {
         "models": [{"asset": "BTCUSDT", "artifact_id": 101}],
@@ -442,7 +456,7 @@ async def test_idempotency_excludes_rolled_back():
         status="ROLLED_BACK",
         manifest_hash="abc123hash",
     )
-    session = _MockSession({("DeploymentRevision", 1): dead_rev})
+    session = FakeSession({(DeploymentRevision, 1): dead_rev})
 
     new_rev = await create_deployment_revision(
         session,
@@ -454,6 +468,7 @@ async def test_idempotency_excludes_rolled_back():
     assert new_rev.status == "PENDING_APPROVAL"
 
 
+@pytest.mark.asyncio
 async def test_propose_idempotent():
     run = SimpleNamespace(
         id=7,
@@ -473,24 +488,33 @@ async def test_propose_idempotent():
         model_params={},
         backtest_params={},
     )
+    existing_rev = SimpleNamespace(
+        id=99,
+        status="PENDING_APPROVAL",
+        manifest={},
+    )
     existing_appr = SimpleNamespace(
         id=42,
         run_id=7,
+        target_id="99",
         requested_action="ACTIVATE",
         status="PENDING",
     )
-    session = _MockSession(
+    session = FakeSession(
         {
-            ("AIOptimizationRun", 7): run,
-            ("AIExperimentConfig", 11): config,
-            ("AIApprovalRequest", 42): existing_appr,
+            (AIOptimizationRun, 7): run,
+            (AIExperimentConfig, 11): config,
+            (DeploymentRevision, 99): existing_rev,
+            (AIApprovalRequest, 42): existing_appr,
         }
     )
 
     approval, revision = await propose_live_deployment(session, run_id=7)
     assert approval.id == 42
+    assert revision.id == 99
 
 
+@pytest.mark.asyncio
 async def test_diff_broken_summary_logs_warning():
     run = SimpleNamespace(id=7, summary="INVALID_JSON{", scope={})
     shadow_assign = SimpleNamespace(
@@ -516,12 +540,12 @@ async def test_diff_broken_summary_logs_warning():
         model_params={},
         backtest_params={},
     )
-    session = _MockSession(
+    session = FakeSession(
         {
-            ("AIOptimizationRun", 7): run,
-            ("AIShadowAssignment", 1): shadow_assign,
-            ("AIModelArtifact", 101): art,
-            ("AIExperimentConfig", 11): config,
+            (AIOptimizationRun, 7): run,
+            (AIShadowAssignment, 1): shadow_assign,
+            (AIModelArtifact, 101): art,
+            (AIExperimentConfig, 11): config,
         }
     )
     with patch("polyflip.ai_lab.service.logger.warning") as mock_warn:
@@ -530,9 +554,10 @@ async def test_diff_broken_summary_logs_warning():
         assert diff["asset"] == "BTCUSDT"
 
 
+@pytest.mark.asyncio
 async def test_transition_preserves_reason():
     run = SimpleNamespace(id=7, status="SHADOW", summary="Summary from finalization")
-    session = _MockSession()
+    session = FakeSession()
     await transition_run(session, run, "PENDING_APPROVAL", reason="Proposed for live activation")
     assert "Summary from finalization" in run.summary
     assert "Proposed for live activation" in run.summary
@@ -542,6 +567,7 @@ async def main():
     test_funcs = [
         test_hash_chain_no_bifurcation,
         test_propose_live_deployment_generates_diff_and_revision,
+        test_propose_live_deployment_rejects_non_shadow_run,
         test_approve_and_activate_switches_model_registry_pointers,
         test_activate_no_artifact_raises,
         test_reject_deployment_approval_marks_revision_and_run_rejected,
@@ -555,10 +581,12 @@ async def main():
     passed = 0
     for fn in test_funcs:
         print(f"Running {fn.__name__}...", end=" ")
-        await fn()
+        res = fn()
+        if asyncio.iscoroutine(res):
+            await res
         print("PASSED")
         passed += 1
-    print(f"\nALL {passed} HARDENED TESTS PASSED!")
+    print(f"\nALL {passed} HARDENED TESTS PASSED VIA FAKESESSION!")
 
 
 if __name__ == "__main__":

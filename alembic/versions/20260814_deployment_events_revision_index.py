@@ -18,7 +18,7 @@ def upgrade() -> None:
     op.create_index(
         "idx_deployment_events_revision_id_desc",
         "deployment_events",
-        ["revision_id", "id"],
+        ["revision_id", sa.text("id DESC")],
     )
 
 

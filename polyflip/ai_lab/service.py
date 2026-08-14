@@ -293,7 +293,6 @@ async def record_deployment_event(
     }:
         raise AILabError(f"unsupported deployment event type: {event_type}")
 
-    # Per-revision chain with row locking to prevent bifurcation / race conditions (P0-1)
     last_event = (
         await session.execute(
             select(DeploymentEvent)
@@ -344,7 +343,7 @@ async def create_deployment_revision(
     """Create an immutable deployment bundle with content-addressed manifest hash.
 
     Idempotency only reuses active/pending revisions; completed/rolled-back revisions
-    always generate a new revision instance (P0-4).
+    always generate a new revision instance.
     """
     status = status.strip().upper()
     if status not in {
@@ -532,7 +531,7 @@ async def propose_live_deployment(
             f"live deployment proposal requires run in SHADOW or PENDING_APPROVAL, got {run.status}"
         )
 
-    # Check for existing pending approval request to maintain idempotency (P1-1)
+    # Check for existing pending approval request to maintain idempotency with early return
     existing_approval = (
         await session.execute(
             select(AIApprovalRequest).where(
@@ -542,6 +541,15 @@ async def propose_live_deployment(
             )
         )
     ).scalar_one_or_none()
+
+    if existing_approval is not None:
+        existing_revision: DeploymentRevision | None = None
+        if existing_approval.target_id and existing_approval.target_id.isdigit():
+            existing_revision = await session.get(
+                DeploymentRevision, int(existing_approval.target_id)
+            )
+        if existing_revision is not None:
+            return existing_approval, existing_revision
 
     diff = await generate_deployment_diff(session, run_id=run_id)
     candidate = diff["candidate"]
@@ -590,7 +598,6 @@ async def propose_live_deployment(
 
     checked_manifest = build_deployment_manifest(manifest_payload)
     manifest_hash = checked_manifest["manifest_hash"]
-    # Deterministic content-addressed revision key (P1-1)
     revision_key = f"rev_{run_id}_{candidate['config_id']}_{manifest_hash[:12]}"
     revision = await create_deployment_revision(
         session,
@@ -600,9 +607,6 @@ async def propose_live_deployment(
         status="PENDING_APPROVAL",
         created_by=actor,
     )
-
-    if existing_approval is not None:
-        return existing_approval, revision
 
     approval = AIApprovalRequest(
         run_id=run_id,
@@ -624,8 +628,12 @@ async def propose_live_deployment(
             )
         ).scalar_one_or_none()
         if run and run.status == "SHADOW":
+            proposal_reason = (
+                f"Deployment proposed by {actor}"
+                + (f": {reason}" if reason else "")
+            )
             await transition_run(
-                session, run, "PENDING_APPROVAL", reason="Deployment proposed"
+                session, run, "PENDING_APPROVAL", reason=proposal_reason
             )
 
     await record_deployment_event(
@@ -679,7 +687,6 @@ async def approve_and_activate_deployment(
     if not models_info:
         raise AILabError(f"revision {revision_id} manifest has no models defined")
 
-    # Strict validation of candidate artifacts BEFORE touching active state (P0-3)
     models_to_activate: list[tuple[str, ModelRegistry]] = []
     for model_desc in models_info:
         asset = model_desc.get("asset")
@@ -745,7 +752,6 @@ async def approve_and_activate_deployment(
     approval.decided_by = actor
     approval.decision_reason = reason
 
-    # Locked run status transition via transition_run (P0-2)
     if approval.run_id:
         run = (
             await session.execute(
@@ -755,11 +761,14 @@ async def approve_and_activate_deployment(
             )
         ).scalar_one_or_none()
         if run and run.status == "PENDING_APPROVAL":
+            activation_reason = (
+                f"Activated by {actor}" + (f": {reason}" if reason else "")
+            )
             await transition_run(
                 session,
                 run,
                 "ACTIVE",
-                reason=f"Activated by {actor}: {reason or ''}".strip(),
+                reason=activation_reason,
             )
 
     await record_deployment_event(
@@ -814,7 +823,6 @@ async def reject_deployment_approval(
     approval.decided_by = actor
     approval.decision_reason = reason
 
-    # Locked run status transition via transition_run (P0-2)
     if approval.run_id:
         run = (
             await session.execute(
@@ -824,11 +832,14 @@ async def reject_deployment_approval(
             )
         ).scalar_one_or_none()
         if run and run.status == "PENDING_APPROVAL":
+            rejection_reason = (
+                f"Rejected by {actor}" + (f": {reason}" if reason else "")
+            )
             await transition_run(
                 session,
                 run,
                 "REJECTED",
-                reason=f"Rejected by {actor}: {reason or ''}".strip(),
+                reason=rejection_reason,
             )
 
     await record_deployment_event(
@@ -886,7 +897,6 @@ async def rollback_deployment(
             f"target rollback revision {resolved_target_id} has no models in manifest"
         )
 
-    # Strict validation of rollback target artifacts BEFORE touching active state (P0-3)
     models_to_activate: list[tuple[str, ModelRegistry]] = []
     for model_desc in target_models:
         asset = model_desc.get("asset")
