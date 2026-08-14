@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import uuid
 from typing import Any, Mapping
 
 from sqlalchemy import select
@@ -293,6 +294,19 @@ async def record_deployment_event(
     }:
         raise AILabError(f"unsupported deployment event type: {event_type}")
 
+    # Lock the parent revision first. Locking only the latest event is
+    # insufficient when the chain is empty: concurrent genesis events would
+    # both observe the all-zero predecessor.
+    revision = (
+        await session.execute(
+            select(DeploymentRevision)
+            .where(DeploymentRevision.id == revision_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if revision is None:
+        raise AILabError(f"deployment revision {revision_id} not found")
+
     last_event = (
         await session.execute(
             select(DeploymentEvent)
@@ -560,6 +574,7 @@ async def propose_live_deployment(
             select(DeploymentRevision)
             .where(DeploymentRevision.status == "ACTIVE")
             .order_by(DeploymentRevision.id.desc())
+            .with_for_update()
             .limit(1)
         )
     ).scalar_one_or_none()
@@ -598,7 +613,10 @@ async def propose_live_deployment(
 
     checked_manifest = build_deployment_manifest(manifest_payload)
     manifest_hash = checked_manifest["manifest_hash"]
-    revision_key = f"rev_{run_id}_{candidate['config_id']}_{manifest_hash[:12]}"
+    revision_key = (
+        f"rev_{run_id}_{candidate['config_id']}_{manifest_hash[:12]}_"
+        f"{uuid.uuid4().hex[:10]}"
+    )
     revision = await create_deployment_revision(
         session,
         revision_key=revision_key,
@@ -670,8 +688,12 @@ async def approve_and_activate_deployment(
         raise AILabError(
             f"approval request {approval_id} is already {approval.status}"
         )
-
-    revision_id = int(approval.target_id)
+    if approval.requested_action != "ACTIVATE" or approval.target_type != "DEPLOYMENT_REVISION":
+        raise AILabError("approval request is not a deployment activation")
+    try:
+        revision_id = int(approval.target_id)
+    except (TypeError, ValueError) as exc:
+        raise AILabError("approval target_id must reference a deployment revision") from exc
     revision = (
         await session.execute(
             select(DeploymentRevision)
@@ -681,6 +703,10 @@ async def approve_and_activate_deployment(
     ).scalar_one_or_none()
     if revision is None:
         raise AILabError(f"deployment revision {revision_id} not found")
+    if revision.status != "PENDING_APPROVAL":
+        raise AILabError(
+            f"deployment revision {revision_id} must be PENDING_APPROVAL, got {revision.status}"
+        )
 
     manifest = revision.manifest or {}
     models_info = manifest.get("models", [])
@@ -688,10 +714,14 @@ async def approve_and_activate_deployment(
         raise AILabError(f"revision {revision_id} manifest has no models defined")
 
     models_to_activate: list[tuple[str, ModelRegistry]] = []
+    seen_assets: set[str] = set()
     for model_desc in models_info:
         asset = model_desc.get("asset")
         if not asset:
             continue
+        if asset in seen_assets:
+            raise AILabError(f"revision {revision.id} contains duplicate asset {asset!r}")
+        seen_assets.add(asset)
         artifact_id = model_desc.get("artifact_id")
         if not artifact_id:
             raise AILabError(
@@ -712,6 +742,10 @@ async def approve_and_activate_deployment(
         if cand_model is None:
             raise AILabError(
                 f"linked ModelRegistry entry {artifact.model_registry_id} for artifact {artifact_id} not found"
+            )
+        if cand_model.asset != asset:
+            raise AILabError(
+                f"artifact {artifact_id} model asset {cand_model.asset!r} does not match manifest asset {asset!r}"
             )
         models_to_activate.append((asset, cand_model))
 
@@ -889,6 +923,12 @@ async def rollback_deployment(
     ).scalar_one_or_none()
     if target_revision is None:
         raise AILabError(f"target rollback revision {resolved_target_id} not found")
+    if target_revision.status not in {"SUPERSEDED", "ROLLED_BACK"}:
+        raise AILabError(
+            f"target rollback revision {resolved_target_id} is not rollbackable from {target_revision.status}"
+        )
+    if current_active is not None and target_revision.id == current_active.id:
+        raise AILabError("target rollback revision is already active")
 
     target_manifest = target_revision.manifest or {}
     target_models = target_manifest.get("models", [])
@@ -923,6 +963,10 @@ async def rollback_deployment(
             raise AILabError(
                 f"linked ModelRegistry entry {artifact.model_registry_id} for artifact {artifact_id} not found"
             )
+        if cand_model.asset != asset:
+            raise AILabError(
+                f"artifact {artifact_id} model asset {cand_model.asset!r} does not match manifest asset {asset!r}"
+            )
         models_to_activate.append((asset, cand_model))
 
     for asset, cand_model in models_to_activate:
@@ -948,16 +992,26 @@ async def rollback_deployment(
     target_revision.status = "ACTIVE"
     target_revision.activated_at = now
 
+    rollback_payload = {
+        "rolled_back_from_id": current_active.id if current_active else None,
+        "restored_revision_id": target_revision.id,
+    }
+    if current_active is not None:
+        await record_deployment_event(
+            session,
+            revision_id=current_active.id,
+            event_type="ROLLED_BACK",
+            actor=actor,
+            reason=reason or f"Rolled back from revision {current_active.id}",
+            payload=rollback_payload,
+        )
     await record_deployment_event(
         session,
         revision_id=target_revision.id,
         event_type="ROLLED_BACK",
         actor=actor,
-        reason=reason or f"Rolled back to revision {target_revision.id}",
-        payload={
-            "rolled_back_from_id": current_active.id if current_active else None,
-            "restored_revision_id": target_revision.id,
-        },
+        reason=reason or f"Restored revision {target_revision.id}",
+        payload=rollback_payload,
     )
 
     await session.flush()
