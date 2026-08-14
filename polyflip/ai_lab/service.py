@@ -948,10 +948,14 @@ async def rollback_deployment(
         )
 
     models_to_activate: list[tuple[str, ModelRegistry]] = []
+    seen_assets: set[str] = set()
     for model_desc in target_models:
         asset = model_desc.get("asset")
         if not asset:
             continue
+        if asset in seen_assets:
+            raise AILabError(f"revision {target_revision.id} contains duplicate asset {asset!r}")
+        seen_assets.add(asset)
         artifact_id = model_desc.get("artifact_id")
         if not artifact_id:
             raise AILabError(
