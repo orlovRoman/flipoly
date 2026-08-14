@@ -1,6 +1,6 @@
 """add composite index for deployment_events revision queries
 
-Revision ID: 20260814_deployment_events_revision_index
+Revision ID: 20260814_dep_events_idx
 Revises: 20260814_ai_worker_leases
 """
 
@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20260814_deployment_events_revision_index"
+revision = "20260814_dep_events_idx"
 down_revision = "20260814_ai_worker_leases"
 branch_labels = None
 depends_on = None
