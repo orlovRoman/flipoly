@@ -872,7 +872,7 @@ class DeploymentRevision(Base):
     revision_key = Column(String(64), nullable=False, unique=True)
     parent_id = Column(Integer, ForeignKey("deployment_revisions.id"), nullable=True)
     manifest = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
-    manifest_hash = Column(String(64), nullable=False, unique=True)
+    manifest_hash = Column(String(64), nullable=False)
     status = Column(String(24), nullable=False, server_default="DRAFT")
     created_by = Column(String(128), nullable=False, server_default="system")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
