@@ -937,19 +937,37 @@ class ModelTrainer:
                 min_precision=min_precision,
                 max_suspicious=max_suspicious,
                 fee_per_trade=fee_per_trade,
-                artifact_frame=df[
-                    [
-                        "market_id", "asset", "recorded_at", "time_left_min",
-                        "mid_price", "spread", "best_bid", "best_ask",
-                        "target", "final_outcome",
+                artifact_frame=(
+                    df.assign(
+                        asset=df["asset"] if "asset" in df.columns else asset,
+                        recorded_at=(
+                            df["recorded_at"]
+                            if "recorded_at" in df.columns
+                            else df["_decision_at"]
+                        ),
+                    )[
+                        [
+                            "market_id", "asset", "recorded_at", "time_left_min",
+                            "mid_price", "spread", "best_bid", "best_ask",
+                            "target", "final_outcome",
+                        ]
                     ]
-                ],
-                artifact_quotes=df[
-                    [
-                        "market_id", "asset", "recorded_at", "time_left_min",
-                        "mid_price", "spread", "best_bid", "best_ask",
+                ),
+                artifact_quotes=(
+                    df.assign(
+                        asset=df["asset"] if "asset" in df.columns else asset,
+                        recorded_at=(
+                            df["recorded_at"]
+                            if "recorded_at" in df.columns
+                            else df["_decision_at"]
+                        ),
+                    )[
+                        [
+                            "market_id", "asset", "recorded_at", "time_left_min",
+                            "mid_price", "spread", "best_bid", "best_ask",
+                        ]
                     ]
-                ],
+                ),
                 feature_set=f"LOGREG_{experiment_variant}",
             )
         if fit_res is None:
@@ -1268,19 +1286,45 @@ class ModelTrainer:
                         min_precision=min_precision,
                         max_suspicious=max_suspicious,
                         fee_per_trade=fee_per_trade,
-                        artifact_frame=df_phase[
-                            [
-                                "market_id", "asset", "recorded_at", "time_left_min",
-                                "mid_price", "spread", "best_bid", "best_ask",
-                                "target", "final_outcome",
+                        artifact_frame=(
+                            df_phase.assign(
+                                asset=(
+                                    df_phase["asset"]
+                                    if "asset" in df_phase.columns
+                                    else asset
+                                ),
+                                recorded_at=(
+                                    df_phase["recorded_at"]
+                                    if "recorded_at" in df_phase.columns
+                                    else df_phase["_decision_at"]
+                                ),
+                            )[
+                                [
+                                    "market_id", "asset", "recorded_at", "time_left_min",
+                                    "mid_price", "spread", "best_bid", "best_ask",
+                                    "target", "final_outcome",
+                                ]
                             ]
-                        ],
-                        artifact_quotes=df_phase[
-                            [
-                                "market_id", "asset", "recorded_at", "time_left_min",
-                                "mid_price", "spread", "best_bid", "best_ask",
+                        ),
+                        artifact_quotes=(
+                            df_phase.assign(
+                                asset=(
+                                    df_phase["asset"]
+                                    if "asset" in df_phase.columns
+                                    else asset
+                                ),
+                                recorded_at=(
+                                    df_phase["recorded_at"]
+                                    if "recorded_at" in df_phase.columns
+                                    else df_phase["_decision_at"]
+                                ),
+                            )[
+                                [
+                                    "market_id", "asset", "recorded_at", "time_left_min",
+                                    "mid_price", "spread", "best_bid", "best_ask",
+                                ]
                             ]
-                        ],
+                        ),
                         feature_set=f"LOGREG_{experiment_variant}_{phase_name}",
                     )
             except Exception as e:
