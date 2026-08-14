@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 import pytest
 
 from polyflip.ai_lab.service import (
@@ -11,6 +11,7 @@ from polyflip.ai_lab.service import (
     record_deployment_event,
     reject_deployment_approval,
     rollback_deployment,
+    transition_run,
 )
 from polyflip.db.models import (
     AIApprovalRequest,
@@ -53,13 +54,16 @@ class _MockSession:
             def scalar_one_or_none(self):
                 return self._items[0] if self._items else None
 
-        # Simple string-matching mock for queries
         stmt_str = str(stmt)
         if "FROM deployment_events" in stmt_str:
             events = [e for e in self.added if isinstance(e, DeploymentEvent)]
             return _Result(events[-1:] if events else [])
         if "FROM deployment_revisions" in stmt_str:
-            revs = [r for r in self.added if isinstance(r, DeploymentRevision)]
+            revs = [
+                v
+                for (k, v) in self.entities.items()
+                if k[0] == "DeploymentRevision"
+            ] + [r for r in self.added if isinstance(r, DeploymentRevision)]
             return _Result(revs)
         if "FROM model_registry" in stmt_str:
             models = [
@@ -73,6 +77,13 @@ class _MockSession:
                 if k[0] == "AIApprovalRequest"
             ]
             return _Result(approvals)
+        if "FROM ai_optimization_runs" in stmt_str:
+            runs = [
+                v
+                for (k, v) in self.entities.items()
+                if k[0] == "AIOptimizationRun"
+            ]
+            return _Result(runs)
         return _Result([])
 
     async def flush(self):
@@ -85,7 +96,8 @@ class _MockSession:
 
 
 @pytest.mark.asyncio
-async def test_deployment_event_hash_chain_is_deterministic():
+async def test_hash_chain_no_bifurcation():
+    """P0-1: Test per-revision event hash chain."""
     session = _MockSession()
     ev1 = await record_deployment_event(
         session,
@@ -110,7 +122,7 @@ async def test_deployment_event_hash_chain_is_deterministic():
 
 
 @pytest.mark.asyncio
-async def test_propose_live_deployment_generates_diff_and_revision(monkeypatch):
+async def test_propose_live_deployment_generates_diff_and_revision():
     run = SimpleNamespace(
         id=7,
         status="SHADOW",
@@ -169,6 +181,7 @@ async def test_propose_live_deployment_generates_diff_and_revision(monkeypatch):
     assert revision.status == "PENDING_APPROVAL"
     assert revision.manifest["strategy"]["decision_threshold"] == 0.58
     assert revision.manifest_hash is not None
+    assert revision.revision_key.startswith("rev_7_11_")
     assert run.status == "PENDING_APPROVAL"
 
 
@@ -182,7 +195,8 @@ async def test_propose_live_deployment_rejects_non_shadow_run():
 
 @pytest.mark.asyncio
 async def test_approve_and_activate_switches_model_registry_pointers():
-    run = SimpleNamespace(id=7, status="PENDING_APPROVAL")
+    """P0-2, P0-3: Test activation with strict artifact check & transition_run."""
+    run = SimpleNamespace(id=7, status="PENDING_APPROVAL", summary="Initial")
     old_active = SimpleNamespace(id=1, asset="BTCUSDT", is_active=True)
     new_candidate = SimpleNamespace(id=2, asset="BTCUSDT", is_active=False)
     artifact = SimpleNamespace(id=101, model_registry_id=2)
@@ -232,11 +246,41 @@ async def test_approve_and_activate_switches_model_registry_pointers():
     assert old_active.is_active is False
     assert new_candidate.is_active is True
     assert run.status == "ACTIVE"
+    assert "Activated by admin" in run.summary
+
+
+@pytest.mark.asyncio
+async def test_activate_no_artifact_raises():
+    """P0-3: Test that missing artifact raises AILabError and does not deactivate old model."""
+    old_active = SimpleNamespace(id=1, asset="BTCUSDT", is_active=True)
+    revision = SimpleNamespace(
+        id=10,
+        status="PENDING_APPROVAL",
+        manifest={
+            "models": [{"asset": "BTCUSDT", "artifact_id": 999}],
+            "strategy": {},
+            "risk_policy": {},
+            "execution_policy": {},
+        },
+    )
+    approval = SimpleNamespace(id=5, target_id="10", status="PENDING", run_id=None)
+    session = _MockSession(
+        {
+            ("AIApprovalRequest", 5): approval,
+            ("DeploymentRevision", 10): revision,
+            ("ModelRegistry", 1): old_active,
+        }
+    )
+
+    with pytest.raises(AILabError, match="has no linked ModelRegistry entry"):
+        await approve_and_activate_deployment(session, approval_id=5, actor="admin")
+    assert old_active.is_active is True
 
 
 @pytest.mark.asyncio
 async def test_reject_deployment_approval_marks_revision_and_run_rejected():
-    run = SimpleNamespace(id=7, status="PENDING_APPROVAL")
+    """P0-2: Test reject uses transition_run and locks."""
+    run = SimpleNamespace(id=7, status="PENDING_APPROVAL", summary="Initial")
     revision = SimpleNamespace(id=10, status="PENDING_APPROVAL")
     approval = SimpleNamespace(
         id=5,
@@ -267,6 +311,7 @@ async def test_reject_deployment_approval_marks_revision_and_run_rejected():
     assert rejected_appr.decided_by == "risk_officer"
     assert revision.status == "REJECTED"
     assert run.status == "REJECTED"
+    assert "Rejected by risk_officer" in run.summary
 
 
 @pytest.mark.asyncio
@@ -311,3 +356,150 @@ async def test_rollback_deployment_restores_parent_revision():
     assert current_rev.status == "ROLLED_BACK"
     assert model_v1.is_active is True
     assert model_v2.is_active is False
+
+
+@pytest.mark.asyncio
+async def test_rollback_no_artifact_raises():
+    """P0-3: Test rollback with missing artifact raises AILabError."""
+    current_rev = SimpleNamespace(
+        id=2,
+        parent_id=1,
+        status="ACTIVE",
+        manifest={"models": [{"asset": "BTCUSDT", "artifact_id": 102}]},
+    )
+    parent_rev = SimpleNamespace(
+        id=1,
+        status="SUPERSEDED",
+        manifest={"models": [{"asset": "BTCUSDT", "artifact_id": 999}]},
+    )
+    active_model = SimpleNamespace(id=2, asset="BTCUSDT", is_active=True)
+
+    session = _MockSession(
+        {
+            ("DeploymentRevision", 1): parent_rev,
+            ("DeploymentRevision", 2): current_rev,
+            ("ModelRegistry", 2): active_model,
+        }
+    )
+
+    with pytest.raises(AILabError, match="has no linked ModelRegistry entry"):
+        await rollback_deployment(session, target_revision_id=1)
+    assert active_model.is_active is True
+
+
+@pytest.mark.asyncio
+async def test_idempotency_excludes_rolled_back():
+    """P0-4: Test that create_deployment_revision does not reuse ROLLED_BACK revisions."""
+    manifest = {
+        "models": [{"asset": "BTCUSDT", "artifact_id": 101}],
+        "strategy": {"decision_threshold": 0.58},
+        "risk_policy": {},
+        "execution_policy": {},
+    }
+    dead_rev = SimpleNamespace(
+        id=1,
+        revision_key="rev_old",
+        manifest=manifest,
+        status="ROLLED_BACK",
+        manifest_hash="abc123hash",
+    )
+    session = _MockSession({("DeploymentRevision", 1): dead_rev})
+
+    new_rev = await create_deployment_revision(
+        session,
+        revision_key="rev_new",
+        manifest=manifest,
+        status="PENDING_APPROVAL",
+    )
+    assert new_rev is not dead_rev
+    assert new_rev.status == "PENDING_APPROVAL"
+
+
+@pytest.mark.asyncio
+async def test_propose_idempotent():
+    """P1-1: Test that propose_live_deployment returns existing pending approval."""
+    run = SimpleNamespace(
+        id=7,
+        status="PENDING_APPROVAL",
+        summary='{"report":{"recommended_config_id":11,"rows":[{"config_id":11,"artifact_ids":[101],"median_oot_pnl":2.5,"total_trades":60,"median_oot_drawdown":-1.0,"window_count":3}]}}',
+        scope={},
+    )
+    config = SimpleNamespace(
+        id=11,
+        name="cand",
+        asset="BTCUSDT",
+        regime="mid_vol",
+        model_family="lightgbm",
+        feature_set="FS_D1",
+        feature_pipeline_version="v2",
+        strategy_params={},
+        model_params={},
+        backtest_params={},
+    )
+    existing_appr = SimpleNamespace(
+        id=42,
+        run_id=7,
+        requested_action="ACTIVATE",
+        status="PENDING",
+    )
+    session = _MockSession(
+        {
+            ("AIOptimizationRun", 7): run,
+            ("AIExperimentConfig", 11): config,
+            ("AIApprovalRequest", 42): existing_appr,
+        }
+    )
+
+    approval, revision = await propose_live_deployment(session, run_id=7)
+    assert approval.id == 42
+
+
+@pytest.mark.asyncio
+async def test_diff_broken_summary_logs_warning():
+    """P1-2: Test that broken summary is logged without unhandled crash."""
+    run = SimpleNamespace(id=7, summary="INVALID_JSON{", scope={})
+    shadow_assign = SimpleNamespace(
+        id=1,
+        run_id=7,
+        candidate_artifact_id=101,
+        asset="BTCUSDT",
+        regime="mid_vol",
+    )
+    art = SimpleNamespace(
+        id=101,
+        artifact_metadata={"config_id": 11},
+    )
+    config = SimpleNamespace(
+        id=11,
+        name="cand",
+        asset="BTCUSDT",
+        regime="mid_vol",
+        model_family="lightgbm",
+        feature_set="FS_D1",
+        feature_pipeline_version="v2",
+        strategy_params={},
+        model_params={},
+        backtest_params={},
+    )
+    session = _MockSession(
+        {
+            ("AIOptimizationRun", 7): run,
+            ("AIShadowAssignment", 1): shadow_assign,
+            ("AIModelArtifact", 101): art,
+            ("AIExperimentConfig", 11): config,
+        }
+    )
+    with patch("polyflip.ai_lab.service.logger.warning") as mock_warn:
+        diff = await generate_deployment_diff(session, run_id=7)
+        mock_warn.assert_called_once()
+        assert diff["asset"] == "BTCUSDT"
+
+
+@pytest.mark.asyncio
+async def test_transition_preserves_reason():
+    """P1-3: Test transition_run appends reason."""
+    run = SimpleNamespace(id=7, status="SHADOW", summary="Summary from finalization")
+    session = _MockSession()
+    await transition_run(session, run, "PENDING_APPROVAL", reason="Proposed for live activation")
+    assert "Summary from finalization" in run.summary
+    assert "Proposed for live activation" in run.summary

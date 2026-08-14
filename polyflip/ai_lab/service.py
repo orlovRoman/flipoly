@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from polyflip.ai_lab.manifests import (
     build_deployment_manifest,
@@ -34,6 +35,8 @@ from polyflip.db.models import (
     ExperimentResult,
     ModelRegistry,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class AILabError(ValueError):
@@ -172,7 +175,12 @@ async def transition_run(
     run.status = str(target).upper()
     run.updated_at = utc_now()
     if reason:
-        run.summary = reason[:4000] if not run.summary else run.summary
+        existing = run.summary or ""
+        run.summary = (
+            (existing + "\n" + reason).strip()[:4000]
+            if existing
+            else reason[:4000]
+        )
     session.add(run)
     await session.flush()
     return run
@@ -273,7 +281,7 @@ async def record_deployment_event(
     reason: str | None = None,
     payload: Mapping[str, Any] | None = None,
 ) -> DeploymentEvent:
-    """Record an append-only deployment audit event in the cryptographic chain."""
+    """Record an append-only deployment audit event in the per-revision cryptographic chain."""
     event_type = event_type.strip().upper()
     if event_type not in {
         "CREATED",
@@ -285,10 +293,13 @@ async def record_deployment_event(
     }:
         raise AILabError(f"unsupported deployment event type: {event_type}")
 
+    # Per-revision chain with row locking to prevent bifurcation / race conditions (P0-1)
     last_event = (
         await session.execute(
             select(DeploymentEvent)
+            .where(DeploymentEvent.revision_id == revision_id)
             .order_by(DeploymentEvent.id.desc())
+            .with_for_update()
             .limit(1)
         )
     ).scalar_one_or_none()
@@ -330,7 +341,11 @@ async def create_deployment_revision(
     status: str = "PENDING_APPROVAL",
     created_by: str = "system",
 ) -> DeploymentRevision:
-    """Create an immutable deployment bundle with content-addressed manifest hash."""
+    """Create an immutable deployment bundle with content-addressed manifest hash.
+
+    Idempotency only reuses active/pending revisions; completed/rolled-back revisions
+    always generate a new revision instance (P0-4).
+    """
     status = status.strip().upper()
     if status not in {
         "DRAFT",
@@ -348,7 +363,10 @@ async def create_deployment_revision(
     existing = (
         await session.execute(
             select(DeploymentRevision).where(
-                DeploymentRevision.manifest_hash == manifest_hash
+                DeploymentRevision.manifest_hash == manifest_hash,
+                DeploymentRevision.status.in_(
+                    {"DRAFT", "SHADOW", "PENDING_APPROVAL"}
+                ),
             )
         )
     ).scalar_one_or_none()
@@ -409,8 +427,12 @@ async def generate_deployment_diff(
                         if not resolved_artifact_id and row.get("artifact_ids"):
                             resolved_artifact_id = int(row["artifact_ids"][0])
                         break
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "ai_lab_diff_summary_parse_failed",
+                run_id=run_id,
+                error=str(exc),
+            )
 
     if not resolved_artifact_id or not resolved_config_id:
         shadow_assign = (
@@ -510,6 +532,17 @@ async def propose_live_deployment(
             f"live deployment proposal requires run in SHADOW or PENDING_APPROVAL, got {run.status}"
         )
 
+    # Check for existing pending approval request to maintain idempotency (P1-1)
+    existing_approval = (
+        await session.execute(
+            select(AIApprovalRequest).where(
+                AIApprovalRequest.run_id == run_id,
+                AIApprovalRequest.requested_action == "ACTIVATE",
+                AIApprovalRequest.status == "PENDING",
+            )
+        )
+    ).scalar_one_or_none()
+
     diff = await generate_deployment_diff(session, run_id=run_id)
     candidate = diff["candidate"]
     asset = diff["asset"]
@@ -555,7 +588,10 @@ async def propose_live_deployment(
         },
     }
 
-    revision_key = f"rev_{run_id}_{candidate['config_id']}_{int(utc_now().timestamp())}"
+    checked_manifest = build_deployment_manifest(manifest_payload)
+    manifest_hash = checked_manifest["manifest_hash"]
+    # Deterministic content-addressed revision key (P1-1)
+    revision_key = f"rev_{run_id}_{candidate['config_id']}_{manifest_hash[:12]}"
     revision = await create_deployment_revision(
         session,
         revision_key=revision_key,
@@ -564,6 +600,9 @@ async def propose_live_deployment(
         status="PENDING_APPROVAL",
         created_by=actor,
     )
+
+    if existing_approval is not None:
+        return existing_approval, revision
 
     approval = AIApprovalRequest(
         run_id=run_id,
@@ -577,8 +616,17 @@ async def propose_live_deployment(
     session.add(approval)
 
     if run.status == "SHADOW":
-        run.status = "PENDING_APPROVAL"
-        session.add(run)
+        run = (
+            await session.execute(
+                select(AIOptimizationRun)
+                .where(AIOptimizationRun.id == run_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if run and run.status == "SHADOW":
+            await transition_run(
+                session, run, "PENDING_APPROVAL", reason="Deployment proposed"
+            )
 
     await record_deployment_event(
         session,
@@ -631,10 +679,36 @@ async def approve_and_activate_deployment(
     if not models_info:
         raise AILabError(f"revision {revision_id} manifest has no models defined")
 
+    # Strict validation of candidate artifacts BEFORE touching active state (P0-3)
+    models_to_activate: list[tuple[str, ModelRegistry]] = []
     for model_desc in models_info:
         asset = model_desc.get("asset")
         if not asset:
             continue
+        artifact_id = model_desc.get("artifact_id")
+        if not artifact_id:
+            raise AILabError(
+                f"revision {revision.id} manifest model for asset '{asset}' has no artifact_id"
+            )
+        artifact = await session.get(AIModelArtifact, artifact_id)
+        if artifact is None or artifact.model_registry_id is None:
+            raise AILabError(
+                f"artifact {artifact_id} has no linked ModelRegistry entry"
+            )
+        cand_model = (
+            await session.execute(
+                select(ModelRegistry)
+                .where(ModelRegistry.id == artifact.model_registry_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if cand_model is None:
+            raise AILabError(
+                f"linked ModelRegistry entry {artifact.model_registry_id} for artifact {artifact_id} not found"
+            )
+        models_to_activate.append((asset, cand_model))
+
+    for asset, cand_model in models_to_activate:
         active_models = (
             await session.execute(
                 select(ModelRegistry)
@@ -647,20 +721,7 @@ async def approve_and_activate_deployment(
         ).scalars().all()
         for old_model in active_models:
             old_model.is_active = False
-
-        artifact_id = model_desc.get("artifact_id")
-        if artifact_id:
-            artifact = await session.get(AIModelArtifact, artifact_id)
-            if artifact and artifact.model_registry_id:
-                cand_model = (
-                    await session.execute(
-                        select(ModelRegistry)
-                        .where(ModelRegistry.id == artifact.model_registry_id)
-                        .with_for_update()
-                    )
-                ).scalar_one_or_none()
-                if cand_model:
-                    cand_model.is_active = True
+        cand_model.is_active = True
 
     prev_active_revisions = (
         await session.execute(
@@ -684,10 +745,22 @@ async def approve_and_activate_deployment(
     approval.decided_by = actor
     approval.decision_reason = reason
 
+    # Locked run status transition via transition_run (P0-2)
     if approval.run_id:
-        run = await session.get(AIOptimizationRun, approval.run_id)
+        run = (
+            await session.execute(
+                select(AIOptimizationRun)
+                .where(AIOptimizationRun.id == approval.run_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
         if run and run.status == "PENDING_APPROVAL":
-            run.status = "ACTIVE"
+            await transition_run(
+                session,
+                run,
+                "ACTIVE",
+                reason=f"Activated by {actor}: {reason or ''}".strip(),
+            )
 
     await record_deployment_event(
         session,
@@ -741,10 +814,22 @@ async def reject_deployment_approval(
     approval.decided_by = actor
     approval.decision_reason = reason
 
+    # Locked run status transition via transition_run (P0-2)
     if approval.run_id:
-        run = await session.get(AIOptimizationRun, approval.run_id)
+        run = (
+            await session.execute(
+                select(AIOptimizationRun)
+                .where(AIOptimizationRun.id == approval.run_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
         if run and run.status == "PENDING_APPROVAL":
-            run.status = "REJECTED"
+            await transition_run(
+                session,
+                run,
+                "REJECTED",
+                reason=f"Rejected by {actor}: {reason or ''}".strip(),
+            )
 
     await record_deployment_event(
         session,
@@ -796,10 +881,41 @@ async def rollback_deployment(
 
     target_manifest = target_revision.manifest or {}
     target_models = target_manifest.get("models", [])
+    if not target_models:
+        raise AILabError(
+            f"target rollback revision {resolved_target_id} has no models in manifest"
+        )
+
+    # Strict validation of rollback target artifacts BEFORE touching active state (P0-3)
+    models_to_activate: list[tuple[str, ModelRegistry]] = []
     for model_desc in target_models:
         asset = model_desc.get("asset")
         if not asset:
             continue
+        artifact_id = model_desc.get("artifact_id")
+        if not artifact_id:
+            raise AILabError(
+                f"revision {target_revision.id} manifest model for asset '{asset}' has no artifact_id"
+            )
+        artifact = await session.get(AIModelArtifact, artifact_id)
+        if artifact is None or artifact.model_registry_id is None:
+            raise AILabError(
+                f"artifact {artifact_id} has no linked ModelRegistry entry"
+            )
+        cand_model = (
+            await session.execute(
+                select(ModelRegistry)
+                .where(ModelRegistry.id == artifact.model_registry_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if cand_model is None:
+            raise AILabError(
+                f"linked ModelRegistry entry {artifact.model_registry_id} for artifact {artifact_id} not found"
+            )
+        models_to_activate.append((asset, cand_model))
+
+    for asset, cand_model in models_to_activate:
         active_models = (
             await session.execute(
                 select(ModelRegistry)
@@ -812,20 +928,7 @@ async def rollback_deployment(
         ).scalars().all()
         for old_model in active_models:
             old_model.is_active = False
-
-        artifact_id = model_desc.get("artifact_id")
-        if artifact_id:
-            artifact = await session.get(AIModelArtifact, artifact_id)
-            if artifact and artifact.model_registry_id:
-                cand_model = (
-                    await session.execute(
-                        select(ModelRegistry)
-                        .where(ModelRegistry.id == artifact.model_registry_id)
-                        .with_for_update()
-                    )
-                ).scalar_one_or_none()
-                if cand_model:
-                    cand_model.is_active = True
+        cand_model.is_active = True
 
     now = utc_now()
     if current_active is not None:
