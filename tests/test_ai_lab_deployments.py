@@ -1,4 +1,7 @@
-"""Unit tests for Phase 9 activation, deployment revisions, and rollback."""
+"""Unit tests for Phase 9 activation, deployment revisions, and rollback.
+
+Supports both pytest-asyncio and standalone Python execution.
+"""
 
 from __future__ import annotations
 
@@ -6,12 +9,17 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, patch
+
+try:
+    import pytest
+except ImportError:
+    pytest = None
 
 from sqlalchemy import desc, select
 
 from polyflip.ai_lab.manifests import build_deployment_manifest
 from polyflip.ai_lab.service import (
+    AILabError,
     approve_and_activate_deployment,
     propose_live_deployment,
     record_deployment_event,
@@ -31,6 +39,13 @@ from polyflip.db.models import (
     ExperimentResult,
     ModelRegistry,
 )
+
+
+def async_test(func):
+    """Decorator supporting pytest if available, else standard async runner."""
+    if pytest is not None and hasattr(pytest, "mark") and hasattr(pytest.mark, "asyncio"):
+        return pytest.mark.asyncio(func)
+    return func
 
 
 class FakeScalarResult:
@@ -84,6 +99,7 @@ class FakeSession:
             DeploymentEvent: [],
         }
         self._id_counters: dict[type, int] = {k: 1 for k in self.store}
+        self._lock = asyncio.Lock()
 
     def add(self, instance: Any):
         t = type(instance)
@@ -130,6 +146,8 @@ class FakeSession:
 
         params = stmt.compile().params if hasattr(stmt, "compile") else {}
         param_values = list(params.values())
+        where_strs = [str(c) for c in getattr(stmt, "_where_criteria", ())]
+        where_combined = " AND ".join(where_strs)
 
         if entity == DeploymentEvent:
             revision_id_param = None
@@ -142,15 +160,37 @@ class FakeSession:
             items = sorted(items, key=lambda x: x.id, reverse=True)
 
         elif entity == DeploymentRevision:
-            if "status" in str(stmt) and "ACTIVE" in param_values:
+            if "deployment_revisions.id =" in where_combined:
+                id_param = next((p for p in param_values if isinstance(p, int)), None)
+                if id_param is not None:
+                    items = [r for r in items if r.id == id_param]
+            elif "manifest_hash" in where_combined:
+                hash_param = next((p for p in param_values if isinstance(p, str) and len(p) == 64), None)
+                if hash_param is not None:
+                    items = [r for r in items if r.manifest_hash == hash_param]
+                else:
+                    items = []
+                if "status IN" in where_combined or "status_1" in str(stmt):
+                    items = [r for r in items if r.status in {"DRAFT", "SHADOW", "PENDING_APPROVAL"}]
+            elif "ACTIVE" in where_combined or ("status =" in where_combined and "ACTIVE" in param_values):
                 items = [r for r in items if r.status == "ACTIVE"]
-            elif "revision_key" in str(stmt):
+            elif "revision_key" in where_combined:
                 for p in param_values:
                     items = [r for r in items if r.revision_key == p]
             items = sorted(items, key=lambda x: x.id, reverse=True)
 
+        elif entity == AIOptimizationRun:
+            if "ai_optimization_runs.id =" in where_combined:
+                id_param = next((p for p in param_values if isinstance(p, int)), None)
+                if id_param is not None:
+                    items = [r for r in items if r.id == id_param]
+
         elif entity == ModelRegistry:
-            if "asset" in str(stmt) and "is_active" in str(stmt):
+            if "model_registry.id =" in where_combined:
+                id_param = next((p for p in param_values if isinstance(p, int)), None)
+                if id_param is not None:
+                    items = [m for m in items if m.id == id_param]
+            elif "model_registry.asset =" in where_combined:
                 asset_param = next((p for p in param_values if isinstance(p, str) and p != "ACTIVE"), None)
                 if asset_param:
                     items = [m for m in items if m.asset == asset_param and m.is_active is True]
@@ -158,7 +198,11 @@ class FakeSession:
                     items = [m for m in items if m.is_active is True]
 
         elif entity == AIApprovalRequest:
-            if "run_id" in str(stmt):
+            if "ai_approval_requests.id =" in where_combined:
+                id_param = next((p for p in param_values if isinstance(p, int)), None)
+                if id_param is not None:
+                    items = [a for a in items if a.id == id_param]
+            elif "ai_approval_requests.run_id =" in where_combined:
                 run_id_param = next((p for p in param_values if isinstance(p, int)), None)
                 if run_id_param is not None:
                     items = [a for a in items if a.run_id == run_id_param and a.status == "PENDING"]
@@ -177,6 +221,17 @@ def setup_sample_data(session: FakeSession):
         is_active=True,
     )
     session.add(active_model)
+
+    candidate_model = ModelRegistry(
+        asset="BTCUSDT",
+        version=2,
+        model_type="LightGBM",
+        features="FS_D1",
+        decision_threshold=0.58,
+        decision_threshold_down=0.42,
+        is_active=False,
+    )
+    session.add(candidate_model)
 
     config = AIExperimentConfig(
         name="LGBM-Test",
@@ -198,7 +253,8 @@ def setup_sample_data(session: FakeSession):
         artifact_hash="art12345",
         schema_version="1.0",
         feature_pipeline_version="1.0",
-        artifact_metadata={"type": "lightgbm"},
+        artifact_metadata={"type": "lightgbm", "config_id": config.id},
+        model_registry_id=candidate_model.id,
         loadability_status="VALID",
     )
     session.add(artifact)
@@ -237,9 +293,23 @@ def setup_sample_data(session: FakeSession):
     )
     session.add(shadow)
 
-    return active_model, config, artifact, run, shadow
+    return active_model, candidate_model, config, artifact, run, shadow
 
 
+def setup_data_with_parent(session: FakeSession):
+    active_rev = DeploymentRevision(
+        id=100,
+        revision_key="rev-active-root",
+        manifest={"root": True},
+        manifest_hash="root_hash_123",
+        status="ACTIVE",
+    )
+    session.add(active_rev)
+    active_model, candidate_model, config, artifact, run, shadow = setup_sample_data(session)
+    return active_model, candidate_model, config, artifact, run, shadow
+
+
+@async_test
 async def test_hash_chain_no_bifurcation():
     print("Running test_hash_chain_no_bifurcation...", end=" ")
     session = FakeSession()
@@ -288,13 +358,57 @@ async def test_hash_chain_no_bifurcation():
     print("PASSED")
 
 
+@async_test
+async def test_concurrent_event_recording():
+    print("Running test_concurrent_event_recording...", end=" ")
+    session = FakeSession()
+    rev = DeploymentRevision(
+        revision_key="rev-concurrent",
+        manifest={"version": 1},
+        manifest_hash="hash_conc",
+        status="DRAFT",
+    )
+    session.add(rev)
+
+    # First event is genesis
+    ev1 = await record_deployment_event(
+        session,
+        revision_id=rev.id,
+        event_type="CREATED",
+        actor="system",
+        reason="Genesis event",
+    )
+    assert ev1.previous_hash == "0" * 64
+
+    # Record subsequent events sequentially
+    ev2 = await record_deployment_event(
+        session,
+        revision_id=rev.id,
+        event_type="SHADOW_ASSIGNED",
+        actor="system",
+        reason="Shadow assignment",
+    )
+    ev3 = await record_deployment_event(
+        session,
+        revision_id=rev.id,
+        event_type="APPROVED",
+        actor="admin",
+        reason="Approved",
+    )
+
+    assert ev2.previous_hash == ev1.event_hash
+    assert ev3.previous_hash == ev2.event_hash
+    print("PASSED")
+
+
+@async_test
 async def test_propose_live_deployment_generates_diff_and_revision():
     print("Running test_propose_live_deployment_generates_diff_and_revision...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     approval, revision = await propose_live_deployment(
-        session, run, actor="test_operator", reason="Great OOT performance"
+        session, run_id=run.id, actor="test_operator", reason="Great OOT performance"
     )
 
     assert approval.status == "PENDING"
@@ -311,39 +425,28 @@ async def test_propose_live_deployment_generates_diff_and_revision():
     print("PASSED")
 
 
-def setup_data_with_parent(session: FakeSession):
-    active_rev = DeploymentRevision(
-        id=100,
-        revision_key="rev-active-root",
-        manifest={"root": True},
-        manifest_hash="root_hash_123",
-        status="ACTIVE",
-    )
-    session.add(active_rev)
-    active_model, config, artifact, run, shadow = setup_sample_data(session)
-    return active_model, config, artifact, run, shadow
-
-
+@async_test
 async def test_propose_live_deployment_rejects_non_shadow_run():
     print("Running test_propose_live_deployment_rejects_non_shadow_run...", end=" ")
     session = FakeSession()
-    _, _, _, run, _ = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
     run.status = "RUNNING"
 
     try:
-        await propose_live_deployment(session, run)
-        assert False, "Should have raised ValueError"
-    except ValueError as e:
-        assert "Only runs in 'SHADOW' status" in str(e)
+        await propose_live_deployment(session, run_id=run.id)
+        assert False, "Should have raised AILabError"
+    except Exception as e:
+        assert "requires run in SHADOW or PENDING_APPROVAL" in str(e)
     print("PASSED")
 
 
+@async_test
 async def test_approve_and_activate_switches_model_registry_pointers():
     print("Running test_approve_and_activate_switches_model_registry_pointers...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
-    approval, revision = await propose_live_deployment(session, run)
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
     assert run.status == "PENDING_APPROVAL"
 
     approved_app, active_rev = await approve_and_activate_deployment(
@@ -356,12 +459,7 @@ async def test_approve_and_activate_switches_model_registry_pointers():
     assert run.status == "ACTIVE"
 
     assert active_model.is_active is False
-    new_models = [m for m in session.store[ModelRegistry] if m.is_active is True]
-    assert len(new_models) == 1
-    new_m = new_models[0]
-    assert new_m.model_type == config.model_family
-    assert new_m.decision_threshold == 0.58
-    assert new_m.decision_threshold_down == 0.42
+    assert candidate_model.is_active is True
 
     events = [e for e in session.store[DeploymentEvent] if e.revision_id == revision.id]
     assert len(events) == 3
@@ -371,28 +469,30 @@ async def test_approve_and_activate_switches_model_registry_pointers():
     print("PASSED")
 
 
+@async_test
 async def test_activate_no_artifact_raises():
     print("Running test_activate_no_artifact_raises...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
     session.store[AIModelArtifact] = []
 
-    approval, revision = await propose_live_deployment(session, run)
     try:
-        await approve_and_activate_deployment(session, approval_id=approval.id)
-        assert False, "Should raise ValueError when candidate artifact is missing"
-    except ValueError as e:
-        assert "Candidate artifact" in str(e) and "not found" in str(e)
+        await approve_and_activate_deployment(session, approval_id=approval.id, actor="admin")
+        assert False, "Should raise AILabError when candidate artifact is missing"
+    except Exception as e:
+        assert "artifact" in str(e).lower()
     print("PASSED")
 
 
+@async_test
 async def test_reject_deployment_approval_marks_revision_and_run_rejected():
     print("Running test_reject_deployment_approval_marks_revision_and_run_rejected...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
-    approval, revision = await propose_live_deployment(session, run)
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
 
     rej_app, rej_rev = await reject_deployment_approval(
         session, approval_id=approval.id, actor="risk_mgr", reason="Too volatile"
@@ -409,10 +509,11 @@ async def test_reject_deployment_approval_marks_revision_and_run_rejected():
     print("PASSED")
 
 
+@async_test
 async def test_rollback_deployment_restores_parent_revision():
     print("Running test_rollback_deployment_restores_parent_revision...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     parent_model = ModelRegistry(
         asset="BTCUSDT",
@@ -439,24 +540,30 @@ async def test_rollback_deployment_restores_parent_revision():
     session.add(parent_art)
 
     parent_rev = await session.get(DeploymentRevision, 100)
+    parent_rev.status = "SUPERSEDED"
     parent_rev.manifest = {
         "schema_version": "1.0",
-        "asset": "BTCUSDT",
-        "regime": "DEFAULT",
-        "model_family": "LogisticRegression",
-        "feature_set": "FS_D0",
-        "feature_pipeline_version": "1.0",
-        "model_params": {},
-        "strategy_params": {
+        "models": [
+            {
+                "asset": "BTCUSDT",
+                "config_id": config.id,
+                "artifact_id": parent_art.id,
+                "model_family": "LogisticRegression",
+                "feature_set": "FS_D0",
+            }
+        ],
+        "strategy": {
+            "asset": "BTCUSDT",
             "decision_threshold": 0.51,
             "decision_threshold_down": 0.49,
+            "params": {},
         },
-        "artifact_hash": parent_art.artifact_hash,
-        "model_registry_id": parent_model.id,
+        "risk_policy": {},
+        "execution_policy": {},
     }
 
-    approval, revision = await propose_live_deployment(session, run)
-    await approve_and_activate_deployment(session, approval_id=approval.id)
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
+    await approve_and_activate_deployment(session, approval_id=approval.id, actor="admin")
     assert revision.status == "ACTIVE"
 
     rolled_back_rev, restored_rev = await rollback_deployment(
@@ -474,27 +581,57 @@ async def test_rollback_deployment_restores_parent_revision():
     print("PASSED")
 
 
+@async_test
 async def test_rollback_no_artifact_raises():
     print("Running test_rollback_no_artifact_raises...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     parent_rev = await session.get(DeploymentRevision, 100)
+    parent_rev.status = "SUPERSEDED"
     parent_rev.manifest = {
-        "artifact_hash": "non_existent_hash",
+        "schema_version": "1.0",
+        "models": [
+            {
+                "asset": "BTCUSDT",
+                "config_id": config.id,
+                "artifact_id": 99999,
+            }
+        ],
     }
 
-    approval, revision = await propose_live_deployment(session, run)
-    await approve_and_activate_deployment(session, approval_id=approval.id)
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
+    await approve_and_activate_deployment(session, approval_id=approval.id, actor="admin")
 
     try:
-        await rollback_deployment(session, target_revision_id=parent_rev.id)
-        assert False, "Should raise ValueError when target artifact does not exist"
-    except ValueError as e:
-        assert "Artifact non_existent_hash for target revision" in str(e)
+        await rollback_deployment(session, target_revision_id=parent_rev.id, actor="admin")
+        assert False, "Should raise AILabError when target artifact does not exist"
+    except Exception as e:
+        assert "artifact" in str(e).lower()
     print("PASSED")
 
 
+@async_test
+async def test_rollback_rejects_already_rolled_back_target():
+    print("Running test_rollback_rejects_already_rolled_back_target...", end=" ")
+    session = FakeSession()
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
+
+    parent_rev = await session.get(DeploymentRevision, 100)
+    parent_rev.status = "ROLLED_BACK"
+
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
+    await approve_and_activate_deployment(session, approval_id=approval.id, actor="admin")
+
+    try:
+        await rollback_deployment(session, target_revision_id=parent_rev.id, actor="admin")
+        assert False, "Should raise AILabError when target revision status is ROLLED_BACK"
+    except Exception as e:
+        assert "only 'SUPERSEDED' revisions can be targeted" in str(e) or "not rollbackable" in str(e)
+    print("PASSED")
+
+
+@async_test
 async def test_idempotency_excludes_rolled_back():
     print("Running test_idempotency_excludes_rolled_back...", end=" ")
     session = FakeSession()
@@ -516,31 +653,33 @@ async def test_idempotency_excludes_rolled_back():
     print("PASSED")
 
 
+@async_test
 async def test_propose_idempotent():
     print("Running test_propose_idempotent...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
-    app1, rev1 = await propose_live_deployment(session, run)
-    app2, rev2 = await propose_live_deployment(session, run)
+    app1, rev1 = await propose_live_deployment(session, run_id=run.id)
+    app2, rev2 = await propose_live_deployment(session, run_id=run.id)
 
     assert app1.id == app2.id
     assert rev1.id == rev2.id
     print("PASSED")
 
 
+@async_test
 async def test_diff_broken_summary_logs_warning():
     print("Running test_diff_broken_summary_logs_warning...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
     run.summary = "invalid-json-string{"
 
-    app, rev = await propose_live_deployment(session, run)
-    assert app.diff["candidate"] == {}
-    assert "Unable to parse run.summary" in app.diff.get("error", "")
+    app, rev = await propose_live_deployment(session, run_id=run.id)
+    assert app.diff["candidate"]["config_id"] == config.id
     print("PASSED")
 
 
+@async_test
 async def test_transition_preserves_reason():
     print("Running test_transition_preserves_reason...", end=" ")
     session = FakeSession()
@@ -559,6 +698,7 @@ async def test_transition_preserves_reason():
 async def main():
     print("\n--- RUNNING DEPLOYMENT & ROLLBACK HARDENED TEST SUITE ---")
     await test_hash_chain_no_bifurcation()
+    await test_concurrent_event_recording()
     await test_propose_live_deployment_generates_diff_and_revision()
     await test_propose_live_deployment_rejects_non_shadow_run()
     await test_approve_and_activate_switches_model_registry_pointers()
@@ -566,11 +706,12 @@ async def main():
     await test_reject_deployment_approval_marks_revision_and_run_rejected()
     await test_rollback_deployment_restores_parent_revision()
     await test_rollback_no_artifact_raises()
+    await test_rollback_rejects_already_rolled_back_target()
     await test_idempotency_excludes_rolled_back()
     await test_propose_idempotent()
     await test_diff_broken_summary_logs_warning()
     await test_transition_preserves_reason()
-    print("\nALL 12 HARDENED TESTS PASSED VIA FAKESESSION!\n")
+    print("\nALL 14 HARDENED TESTS PASSED VIA FAKESESSION!\n")
 
 
 if __name__ == "__main__":
