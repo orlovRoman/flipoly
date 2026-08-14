@@ -160,7 +160,6 @@ async def create_run(
         created_by=created_by,
         agent_thread_id=agent_thread_id,
         created_at=now,
-        updated_at=now,
     )
     session.add(row)
     await session.flush()
@@ -176,7 +175,6 @@ async def transition_run(
 ) -> AIOptimizationRun:
     validate_run_transition(run.status, target)
     run.status = str(target).upper()
-    run.updated_at = utc_now()
     if reason:
         existing = run.summary or ""
         run.summary = (
@@ -817,7 +815,6 @@ async def approve_and_activate_deployment(
             # Do not route through the public transition graph, which must not
             # expose a direct PENDING_APPROVAL -> ACTIVE path.
             run.status = "ACTIVE"
-            run.updated_at = utc_now()
             existing_summary = run.summary or ""
             run.summary = (
                 (existing_summary + "\n" + activation_reason).strip()[:4000]
