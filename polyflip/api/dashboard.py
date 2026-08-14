@@ -22,6 +22,7 @@ from polyflip.db.models import (
     RuntimeSettings,
     DecisionFunnelLog,
 )
+from polyflip.db.execution_models import ExecutionRequest
 from polyflip.ui_helpers import direction_display_value
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
@@ -603,6 +604,23 @@ async def get_trade_logs(
         # Latest decision_run_id log takes precedence
         funnel_map = {f.decision_run_id: f for f in funnel_res.scalars().all()}
 
+    execution_failure_map = {}
+    trade_history_ids = [log.id for log, _, _ in logs_with_questions]
+    if trade_history_ids:
+        execution_res = await db.execute(
+            select(ExecutionRequest)
+            .where(ExecutionRequest.trade_history_id.in_(trade_history_ids))
+            .where(
+                ExecutionRequest.state.in_(
+                    {"REJECTED", "EXPIRED", "CANCELED", "MANUAL_REVIEW_FAILED"}
+                )
+            )
+            .order_by(ExecutionRequest.updated_at.desc())
+        )
+        # The latest terminal request is the canonical execution explanation.
+        for request in execution_res.scalars().all():
+            execution_failure_map.setdefault(request.trade_history_id, request)
+
     settings_res = await db.execute(
         select(RuntimeSettings.key, RuntimeSettings.value)
     )
@@ -637,6 +655,15 @@ async def get_trade_logs(
             else:
                 active_feat = "ml_strategy"
 
+        execution_failure = execution_failure_map.get(log.id)
+        error_msg = getattr(log, "error_msg", None)
+        if not error_msg and log.status == "FAILED" and execution_failure:
+            error_msg = (
+                execution_failure.error_reason
+                or execution_failure.terminal_code
+                or f"Execution request {execution_failure.state}"
+            )
+
         item = {
                 "id": log.id,
                 "market_id": log.market_id,
@@ -654,7 +681,7 @@ async def get_trade_logs(
                 "market_role": getattr(log, "market_role", None),
                 "p_flip_effective": getattr(log, "p_flip_effective", None),
                 "p_win_effective": getattr(log, "p_win_effective", None),
-                "error_msg": log.error_msg,
+                "error_msg": error_msg,
                 "mode": getattr(log, "mode", "LIVE"),
                 "pnl": getattr(log, "pnl", None),
                 "kelly_fraction": getattr(log, "kelly_fraction", None),
