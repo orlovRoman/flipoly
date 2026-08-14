@@ -244,6 +244,16 @@ class TradeHistory(Base):
     p_flip_raw = Column(Float, nullable=True)
     entry_model_ece = Column(Float, nullable=True)
 
+    __table_args__ = (
+        Index("idx_trade_history_market_id", "market_id"),
+        Index("idx_trade_history_model_version", "asset", "model_version", "status", "created_at"),
+        Index("idx_trade_model_analytics", "mode", "model_key", "model_version", "position_status", "closed_at"),
+        CheckConstraint(
+            "position_accounting_version = 0 OR (entry_filled_shares IS NOT NULL AND entry_cost_usdc IS NOT NULL AND remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
+            name="ck_trade_position_accounting_initialized",
+        ),
+    )
+
 
 class CollectorStatus(Base):
     """
@@ -452,10 +462,10 @@ class ModelRegistry(Base):
     asset = Column(String(32), nullable=False)
     version = Column(Integer, nullable=False)
     model_type = Column(
-        String(64), nullable=False
+        String(64), nullable=True
     )  # LogisticRegression, LightGBM, etc.
     features = Column(
-        String(256), nullable=False
+        String(256), nullable=True
     )  # comma-separated feature list (e.g. FS_D0)
     decision_threshold = Column(Float, nullable=False, default=0.55)
     decision_threshold_down = Column(Float, nullable=True, default=0.45)
@@ -478,7 +488,7 @@ class ModelRegistry(Base):
         Index("idx_model_registry_asset_active", "asset", "is_active"),
     )
 
-    model_blob = Column(LargeBinary, nullable=False)
+    model_blob = Column(LargeBinary, nullable=True)
     baseline = Column(Float, nullable=True)
     training_params = Column(JSON().with_variant(JSONB, 'postgresql'), nullable=True)
     feature_importance = Column(JSON().with_variant(JSONB, 'postgresql'), nullable=True)
