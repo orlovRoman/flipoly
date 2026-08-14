@@ -14,7 +14,20 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score, precision_recall_curve
 
-from polyflip.db.models import CryptoCandle, MarketSnapshot, ModelRegistry, RuntimeSettings
+from polyflip.db.models import (
+    CryptoCandle,
+    MarketSnapshot,
+    ModelRegistry,
+    ModelRegistryOOFArtifact,
+    RuntimeSettings,
+)
+from polyflip.crypto.oof_artifact import (
+    OOF_ARTIFACT_SCHEMA_VERSION,
+    serialize_oof_artifact,
+)
+from polyflip.crypto.logreg_polymarket_backtest import (
+    compute_logreg_polymarket_variants,
+)
 from polyflip.config import settings
 from polyflip.constants import (
     ASSET_TO_BINANCE_SYMBOL,
@@ -271,6 +284,9 @@ def _fit_and_serialize(
     timestamps: pd.Series | None = None,
     max_suspicious: float = 0.95,
     fee_per_trade: float = 0.02,
+    artifact_frame: pd.DataFrame | None = None,
+    artifact_quotes: pd.DataFrame | None = None,
+    feature_set: str = "LOGREG",
 ):
     """Синхронная CPU-bound функция для кросс-валидации, обучения и сериализации модели."""
     X = X.reset_index(drop=True)
@@ -532,7 +548,23 @@ def _fit_and_serialize(
 
     # Сериализуем модель (Pipeline сохраняет скейлер внутри)
     model_bytes = pickle.dumps(final_model)
-    
+
+    oof_artifact = None
+    polymarket_variants = {}
+    if artifact_frame is not None:
+        artifact_frame = artifact_frame.reset_index(drop=True).copy()
+        if len(artifact_frame) != len(oof_scores):
+            raise ValueError("OOF artifact frame must align with OOF scores")
+        oof_artifact = serialize_oof_artifact(
+            artifact_frame,
+            oof_scores,
+            artifact_quotes,
+            feature_set=feature_set,
+        )
+        polymarket_variants = compute_logreg_polymarket_variants(
+            artifact_frame, oof_scores, artifact_quotes,
+        )
+
     backtest = _compute_backtest_pnl(
         oof_scores=valid_scores,
         y=pd.Series(valid_y),
@@ -556,6 +588,10 @@ def _fit_and_serialize(
         "market_balanced_weights": True,
     })
 
+    if polymarket_variants:
+        backtest["polymarket_variants"] = polymarket_variants
+        backtest["backtest_pnl_mode"] = "POLYMARKET_OOF"
+
     logger.info(
         "backtest_pnl_result",
         total_pnl=backtest["total_pnl"],
@@ -564,7 +600,15 @@ def _fit_and_serialize(
         sharpe=backtest["sharpe"],
     )
 
-    return model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest
+    return (
+        model_bytes,
+        val_acc,
+        baseline_acc,
+        optimal_threshold,
+        ece,
+        backtest,
+        oof_artifact,
+    )
 def serialize_training(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
@@ -590,7 +634,11 @@ class ModelTrainer:
 
     @serialize_training
     async def train_model(
-        self, asset: str, save_settings: bool = True, feature_set: str = "AUTO"
+        self,
+        asset: str,
+        save_settings: bool = True,
+        feature_set: str = "AUTO",
+        activate_after_train: bool = True,
     ) -> bool:
         """
         Обучает модель LogisticRegression для заданного актива на основе 
@@ -675,11 +723,14 @@ class ModelTrainer:
                 "time_left_min": s.time_left_min,
                 "mid_price": s.mid_price,
                 "spread": s.spread,
+                "best_bid": s.best_bid,
+                "best_ask": s.best_ask,
                 "price_velocity": s.price_velocity,
                 "volume_5min": s.volume_5min,
                 "hour_of_day": s.hour_of_day,
                 "day_of_week": float(s.recorded_at.weekday()) if s.recorded_at else 0.0,
-                "target": 1 if s.flip_vs_final else 0
+                "target": 1 if s.flip_vs_final else 0,
+                "final_outcome": s.final_outcome,
             })
             
         df = pd.DataFrame(data)
@@ -884,12 +935,34 @@ class ModelTrainer:
                 min_precision=min_precision,
                 max_suspicious=max_suspicious,
                 fee_per_trade=fee_per_trade,
+                artifact_frame=df[
+                    [
+                        "market_id", "asset", "recorded_at", "time_left_min",
+                        "mid_price", "spread", "best_bid", "best_ask",
+                        "target", "final_outcome",
+                    ]
+                ],
+                artifact_quotes=df[
+                    [
+                        "market_id", "asset", "recorded_at", "time_left_min",
+                        "mid_price", "spread", "best_bid", "best_ask",
+                    ]
+                ],
+                feature_set=f"LOGREG_{experiment_variant}",
             )
         if fit_res is None:
             logger.error("model_fit_failed", asset=asset)
             self.status_messages[asset] = "Training failed: no valid OOF predictions"
             return False
-        model_bytes, val_acc, baseline_acc, optimal_threshold, ece, backtest = fit_res
+        (
+            model_bytes,
+            val_acc,
+            baseline_acc,
+            optimal_threshold,
+            ece,
+            backtest,
+            oof_artifact,
+        ) = fit_res
 
         logger.info("model_trained", asset=asset, samples=len(df), val_auc=val_acc, baseline_auc=baseline_acc, ece=ece)
 
@@ -961,7 +1034,8 @@ class ModelTrainer:
             )
 
         # LogReg quality metrics are advisory; only technical failures block use.
-        should_activate = True
+        # AI Lab passes False to create an inactive, auditable candidate.
+        should_activate = bool(activate_after_train)
         if not passed_quality_gate:
             logger.warning(
                 "model_quality_gate_failed",
@@ -1070,11 +1144,17 @@ class ModelTrainer:
                 "brier_score": backtest["brier_score"],
                 "log_loss": backtest["log_loss"],
                 "oot_markets": backtest["oot_markets"],
+                "prediction_semantics": "FLIP_VS_FINAL_OUTCOME",
+                "oof_artifact_schema": OOF_ARTIFACT_SCHEMA_VERSION,
+                "backtest_pnl_mode": backtest.get("backtest_pnl_mode"),
+                "polymarket_backtest_variants": backtest.get("polymarket_variants", {}),
             },
-            activation_source="TRAINER",
+            activation_source="TRAINER" if should_activate else None,
             quality_override=not passed_quality_gate,
-            activated_at=datetime.now(timezone.utc),
-            activated_by="trainer",
+            activated_at=(
+                datetime.now(timezone.utc) if should_activate else None
+            ),
+            activated_by="trainer" if should_activate else None,
             interval="15m",
             dataset_fingerprint=dataset_fingerprint,
             training_window_start=df["_decision_at"].min().to_pydatetime(),
@@ -1086,6 +1166,18 @@ class ModelTrainer:
         )
 
         self.db.add(new_model_record)
+        await self.db.flush()
+        if oof_artifact is not None:
+            self.db.add(
+                ModelRegistryOOFArtifact(
+                    model_registry_id=new_model_record.id,
+                    schema_version=OOF_ARTIFACT_SCHEMA_VERSION,
+                    row_count=len(df),
+                    artifact_blob=oof_artifact,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            await self.db.flush()
         await self.db.commit()
 
         logger.info("model_saved_to_db", asset=asset, version=next_version, threshold=optimal_threshold)
@@ -1174,6 +1266,20 @@ class ModelTrainer:
                         min_precision=min_precision,
                         max_suspicious=max_suspicious,
                         fee_per_trade=fee_per_trade,
+                        artifact_frame=df_phase[
+                            [
+                                "market_id", "asset", "recorded_at", "time_left_min",
+                                "mid_price", "spread", "best_bid", "best_ask",
+                                "target", "final_outcome",
+                            ]
+                        ],
+                        artifact_quotes=df_phase[
+                            [
+                                "market_id", "asset", "recorded_at", "time_left_min",
+                                "mid_price", "spread", "best_bid", "best_ask",
+                            ]
+                        ],
+                        feature_set=f"LOGREG_{experiment_variant}_{phase_name}",
                     )
             except Exception as e:
                 logger.error("price_phase_fit_failed", asset=asset, phase=phase_name, error=str(e))
@@ -1183,7 +1289,15 @@ class ModelTrainer:
             if not fit_res_phase:
                 continue
 
-            model_bytes_p, val_acc_p, baseline_acc_p, threshold_p, ece_p, backtest_p = fit_res_phase
+            (
+                model_bytes_p,
+                val_acc_p,
+                baseline_acc_p,
+                threshold_p,
+                ece_p,
+                backtest_p,
+                oof_artifact_p,
+            ) = fit_res_phase
 
             phase_gate_reasons = []
             if val_acc_p < min_auc:
@@ -1199,10 +1313,13 @@ class ModelTrainer:
                     f"Backtest PnL {backtest_p['total_pnl']:.4f} below {MIN_BACKTEST_PNL:.4f}"
                 )
 
-            # Деактивируем старые
-            await self.db.execute(
-                update(ModelRegistry).where(ModelRegistry.asset == phase_asset).values(is_active=False)
-            )
+            # An AI Lab candidate must not replace the active phase model.
+            if activate_after_train:
+                await self.db.execute(
+                    update(ModelRegistry)
+                    .where(ModelRegistry.asset == phase_asset)
+                    .values(is_active=False)
+                )
             last_v_p = (await self.db.execute(
                 select(ModelRegistry.version).where(ModelRegistry.asset == phase_asset)
                 .order_by(ModelRegistry.version.desc()).limit(1)
@@ -1222,11 +1339,11 @@ class ModelTrainer:
                         updated_at=datetime.now(timezone.utc), updated_by="train_job_phase"
                     ))
 
-            self.db.add(ModelRegistry(
+            phase_model = ModelRegistry(
                 asset=phase_asset, version=(last_v_p or 0) + 1,
                 model_blob=model_bytes_p, accuracy=val_acc_p,
                 baseline=baseline_acc_p, features=",".join(active_features),
-                ece=ece_p, is_active=True, interval="15m",
+                ece=ece_p, is_active=bool(activate_after_train), interval="15m",
                 trained_at=datetime.now(timezone.utc),
                 backtest_pnl=backtest_p["total_pnl"],
                 decision_threshold=threshold_p,
@@ -1235,7 +1352,7 @@ class ModelTrainer:
                     "reasons": phase_gate_reasons, "auc": val_acc_p,
                     "ece": ece_p, "backtest": backtest_p,
                 },
-                activation_source="TRAINER",
+                activation_source="TRAINER" if activate_after_train else None,
                 training_params={
                     "quality_gate_mode": "ADVISORY",
                     "backtest_strategy_branch": backtest_p["strategy_branch"],
@@ -1250,13 +1367,32 @@ class ModelTrainer:
                     "sequence_coverage": round(sequence_coverage, 6),
                     "model_config": backtest_p["model_config"],
                     "oot_markets": backtest_p["oot_markets"],
+                    "prediction_semantics": "FLIP_VS_FINAL_OUTCOME",
+                    "oof_artifact_schema": OOF_ARTIFACT_SCHEMA_VERSION,
+                    "backtest_pnl_mode": backtest_p.get("backtest_pnl_mode"),
+                    "polymarket_backtest_variants": backtest_p.get("polymarket_variants", {}),
                 },
                 quality_override=bool(phase_gate_reasons),
-                activated_at=datetime.now(timezone.utc),
-                activated_by="trainer",
+                activated_at=(
+                    datetime.now(timezone.utc) if activate_after_train else None
+                ),
+                activated_by="trainer" if activate_after_train else None,
                 backtest_trades=backtest_p["n_trades"],
                 backtest_wr=backtest_p["win_rate"],
-            ))
+            )
+            self.db.add(phase_model)
+            await self.db.flush()
+            if oof_artifact_p is not None:
+                self.db.add(
+                    ModelRegistryOOFArtifact(
+                        model_registry_id=phase_model.id,
+                        schema_version=OOF_ARTIFACT_SCHEMA_VERSION,
+                        row_count=len(df_phase),
+                        artifact_blob=oof_artifact_p,
+                        created_at=datetime.now(timezone.utc),
+                    )
+                )
+                await self.db.flush()
             phase_state = "warning" if phase_gate_reasons else "ok"
             phase_results[phase_name] = (
                 f"{phase_state} (AUC {val_acc_p:.3f}, n={n_phase})"
@@ -1270,5 +1406,16 @@ class ModelTrainer:
 
         return True
 
-    async def train(self, asset: str, save_settings: bool = True) -> bool:
-        return await self.train_model(asset, save_settings=save_settings)
+    async def train(
+        self,
+        asset: str,
+        save_settings: bool = True,
+        feature_set: str = "AUTO",
+        activate_after_train: bool = True,
+    ) -> bool:
+        return await self.train_model(
+            asset,
+            save_settings=save_settings,
+            feature_set=feature_set,
+            activate_after_train=activate_after_train,
+        )
