@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.schema import FetchedValue
 
 Base = declarative_base()
 
@@ -299,7 +300,7 @@ class LiveMarket(Base):
     # Compatibility column present in production; market_id remains the canonical key.
     # Do not mark this column autoincrement/primary_key: SQLite test schemas cannot
     # autoincrement one member of a composite primary key.
-    id = Column(Integer, nullable=True)
+    id = Column(Integer, nullable=True, server_default=FetchedValue())
     # Optional compatibility field; market_id is the canonical identifier.
     condition_id = Column(String(128), unique=True, nullable=True)
     slug = Column(String(256), nullable=True)
