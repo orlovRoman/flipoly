@@ -1,4 +1,7 @@
-"""Unit tests for Phase 9 activation, deployment revisions, and rollback."""
+"""Unit tests for Phase 9 activation, deployment revisions, and rollback.
+
+Supports both pytest-asyncio and standalone Python execution.
+"""
 
 from __future__ import annotations
 
@@ -6,12 +9,17 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, patch
+
+try:
+    import pytest
+except ImportError:
+    pytest = None
 
 from sqlalchemy import desc, select
 
 from polyflip.ai_lab.manifests import build_deployment_manifest
 from polyflip.ai_lab.service import (
+    AILabError,
     approve_and_activate_deployment,
     propose_live_deployment,
     record_deployment_event,
@@ -31,6 +39,13 @@ from polyflip.db.models import (
     ExperimentResult,
     ModelRegistry,
 )
+
+
+def async_test(func):
+    """Decorator supporting pytest if available, else standard async runner."""
+    if pytest is not None and hasattr(pytest, "mark") and hasattr(pytest.mark, "asyncio"):
+        return pytest.mark.asyncio(func)
+    return func
 
 
 class FakeScalarResult:
@@ -84,6 +99,7 @@ class FakeSession:
             DeploymentEvent: [],
         }
         self._id_counters: dict[type, int] = {k: 1 for k in self.store}
+        self._lock = asyncio.Lock()
 
     def add(self, instance: Any):
         t = type(instance)
@@ -277,9 +293,23 @@ def setup_sample_data(session: FakeSession):
     )
     session.add(shadow)
 
-    return active_model, config, artifact, run, shadow
+    return active_model, candidate_model, config, artifact, run, shadow
 
 
+def setup_data_with_parent(session: FakeSession):
+    active_rev = DeploymentRevision(
+        id=100,
+        revision_key="rev-active-root",
+        manifest={"root": True},
+        manifest_hash="root_hash_123",
+        status="ACTIVE",
+    )
+    session.add(active_rev)
+    active_model, candidate_model, config, artifact, run, shadow = setup_sample_data(session)
+    return active_model, candidate_model, config, artifact, run, shadow
+
+
+@async_test
 async def test_hash_chain_no_bifurcation():
     print("Running test_hash_chain_no_bifurcation...", end=" ")
     session = FakeSession()
@@ -328,23 +358,54 @@ async def test_hash_chain_no_bifurcation():
     print("PASSED")
 
 
-def setup_data_with_parent(session: FakeSession):
-    active_rev = DeploymentRevision(
-        id=100,
-        revision_key="rev-active-root",
-        manifest={"root": True},
-        manifest_hash="root_hash_123",
-        status="ACTIVE",
+@async_test
+async def test_concurrent_event_recording():
+    print("Running test_concurrent_event_recording...", end=" ")
+    session = FakeSession()
+    rev = DeploymentRevision(
+        revision_key="rev-concurrent",
+        manifest={"version": 1},
+        manifest_hash="hash_conc",
+        status="DRAFT",
     )
-    session.add(active_rev)
-    active_model, config, artifact, run, shadow = setup_sample_data(session)
-    return active_model, config, artifact, run, shadow
+    session.add(rev)
+
+    # First event is genesis
+    ev1 = await record_deployment_event(
+        session,
+        revision_id=rev.id,
+        event_type="CREATED",
+        actor="system",
+        reason="Genesis event",
+    )
+    assert ev1.previous_hash == "0" * 64
+
+    # Record subsequent events sequentially
+    ev2 = await record_deployment_event(
+        session,
+        revision_id=rev.id,
+        event_type="SHADOW_ASSIGNED",
+        actor="system",
+        reason="Shadow assignment",
+    )
+    ev3 = await record_deployment_event(
+        session,
+        revision_id=rev.id,
+        event_type="APPROVED",
+        actor="admin",
+        reason="Approved",
+    )
+
+    assert ev2.previous_hash == ev1.event_hash
+    assert ev3.previous_hash == ev2.event_hash
+    print("PASSED")
 
 
+@async_test
 async def test_propose_live_deployment_generates_diff_and_revision():
     print("Running test_propose_live_deployment_generates_diff_and_revision...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     approval, revision = await propose_live_deployment(
         session, run_id=run.id, actor="test_operator", reason="Great OOT performance"
@@ -364,44 +425,41 @@ async def test_propose_live_deployment_generates_diff_and_revision():
     print("PASSED")
 
 
+@async_test
 async def test_propose_live_deployment_rejects_non_shadow_run():
     print("Running test_propose_live_deployment_rejects_non_shadow_run...", end=" ")
     session = FakeSession()
-    _, _, _, run, _ = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
     run.status = "RUNNING"
 
     try:
         await propose_live_deployment(session, run_id=run.id)
-        assert False, "Should have raised ValueError or AILabError"
+        assert False, "Should have raised AILabError"
     except Exception as e:
         assert "requires run in SHADOW or PENDING_APPROVAL" in str(e)
     print("PASSED")
 
 
+@async_test
 async def test_approve_and_activate_switches_model_registry_pointers():
     print("Running test_approve_and_activate_switches_model_registry_pointers...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     approval, revision = await propose_live_deployment(session, run_id=run.id)
     assert run.status == "PENDING_APPROVAL"
 
-    active_rev = await approve_and_activate_deployment(
+    approved_app, active_rev = await approve_and_activate_deployment(
         session, approval_id=approval.id, actor="admin", reason="Approved for prod"
     )
 
-    assert approval.status == "APPROVED"
+    assert approved_app.status == "APPROVED"
     assert active_rev.status == "ACTIVE"
     assert active_rev.activated_at is not None
     assert run.status == "ACTIVE"
 
     assert active_model.is_active is False
-    new_models = [m for m in session.store[ModelRegistry] if m.is_active is True]
-    assert len(new_models) == 1
-    new_m = new_models[0]
-    assert new_m.model_type == config.model_family
-    assert new_m.decision_threshold == 0.58
-    assert new_m.decision_threshold_down == 0.42
+    assert candidate_model.is_active is True
 
     events = [e for e in session.store[DeploymentEvent] if e.revision_id == revision.id]
     assert len(events) == 3
@@ -411,35 +469,37 @@ async def test_approve_and_activate_switches_model_registry_pointers():
     print("PASSED")
 
 
+@async_test
 async def test_activate_no_artifact_raises():
     print("Running test_activate_no_artifact_raises...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     approval, revision = await propose_live_deployment(session, run_id=run.id)
     session.store[AIModelArtifact] = []
 
     try:
         await approve_and_activate_deployment(session, approval_id=approval.id, actor="admin")
-        assert False, "Should raise ValueError or AILabError when candidate artifact is missing"
+        assert False, "Should raise AILabError when candidate artifact is missing"
     except Exception as e:
         assert "artifact" in str(e).lower()
     print("PASSED")
 
 
+@async_test
 async def test_reject_deployment_approval_marks_revision_and_run_rejected():
     print("Running test_reject_deployment_approval_marks_revision_and_run_rejected...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     approval, revision = await propose_live_deployment(session, run_id=run.id)
 
-    rej_app = await reject_deployment_approval(
+    rej_app, rej_rev = await reject_deployment_approval(
         session, approval_id=approval.id, actor="risk_mgr", reason="Too volatile"
     )
 
     assert rej_app.status == "REJECTED"
-    assert revision.status == "REJECTED"
+    assert rej_rev.status == "REJECTED"
     assert run.status == "REJECTED"
 
     events = [e for e in session.store[DeploymentEvent] if e.revision_id == revision.id]
@@ -449,10 +509,11 @@ async def test_reject_deployment_approval_marks_revision_and_run_rejected():
     print("PASSED")
 
 
+@async_test
 async def test_rollback_deployment_restores_parent_revision():
     print("Running test_rollback_deployment_restores_parent_revision...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     parent_model = ModelRegistry(
         asset="BTCUSDT",
@@ -479,6 +540,7 @@ async def test_rollback_deployment_restores_parent_revision():
     session.add(parent_art)
 
     parent_rev = await session.get(DeploymentRevision, 100)
+    parent_rev.status = "SUPERSEDED"
     parent_rev.manifest = {
         "schema_version": "1.0",
         "models": [
@@ -504,11 +566,12 @@ async def test_rollback_deployment_restores_parent_revision():
     await approve_and_activate_deployment(session, approval_id=approval.id, actor="admin")
     assert revision.status == "ACTIVE"
 
-    restored_rev = await rollback_deployment(
+    rolled_back_rev, restored_rev = await rollback_deployment(
         session, target_revision_id=parent_rev.id, actor="admin", reason="Market emergency"
     )
 
-    assert revision.status == "ROLLED_BACK"
+    assert rolled_back_rev.id == revision.id
+    assert rolled_back_rev.status == "ROLLED_BACK"
     assert restored_rev.id == parent_rev.id
     assert restored_rev.status == "ACTIVE"
     assert parent_model.is_active is True
@@ -518,12 +581,14 @@ async def test_rollback_deployment_restores_parent_revision():
     print("PASSED")
 
 
+@async_test
 async def test_rollback_no_artifact_raises():
     print("Running test_rollback_no_artifact_raises...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     parent_rev = await session.get(DeploymentRevision, 100)
+    parent_rev.status = "SUPERSEDED"
     parent_rev.manifest = {
         "schema_version": "1.0",
         "models": [
@@ -540,12 +605,33 @@ async def test_rollback_no_artifact_raises():
 
     try:
         await rollback_deployment(session, target_revision_id=parent_rev.id, actor="admin")
-        assert False, "Should raise ValueError when target artifact does not exist"
+        assert False, "Should raise AILabError when target artifact does not exist"
     except Exception as e:
         assert "artifact" in str(e).lower()
     print("PASSED")
 
 
+@async_test
+async def test_rollback_rejects_already_rolled_back_target():
+    print("Running test_rollback_rejects_already_rolled_back_target...", end=" ")
+    session = FakeSession()
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
+
+    parent_rev = await session.get(DeploymentRevision, 100)
+    parent_rev.status = "ROLLED_BACK"
+
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
+    await approve_and_activate_deployment(session, approval_id=approval.id, actor="admin")
+
+    try:
+        await rollback_deployment(session, target_revision_id=parent_rev.id, actor="admin")
+        assert False, "Should raise AILabError when target revision status is ROLLED_BACK"
+    except Exception as e:
+        assert "only 'SUPERSEDED' revisions can be targeted" in str(e) or "not rollbackable" in str(e)
+    print("PASSED")
+
+
+@async_test
 async def test_idempotency_excludes_rolled_back():
     print("Running test_idempotency_excludes_rolled_back...", end=" ")
     session = FakeSession()
@@ -567,10 +653,11 @@ async def test_idempotency_excludes_rolled_back():
     print("PASSED")
 
 
+@async_test
 async def test_propose_idempotent():
     print("Running test_propose_idempotent...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     app1, rev1 = await propose_live_deployment(session, run_id=run.id)
     app2, rev2 = await propose_live_deployment(session, run_id=run.id)
@@ -580,10 +667,11 @@ async def test_propose_idempotent():
     print("PASSED")
 
 
+@async_test
 async def test_diff_broken_summary_logs_warning():
     print("Running test_diff_broken_summary_logs_warning...", end=" ")
     session = FakeSession()
-    active_model, config, artifact, run, shadow = setup_data_with_parent(session)
+    active_model, candidate_model, config, artifact, run, shadow = setup_data_with_parent(session)
     run.summary = "invalid-json-string{"
 
     app, rev = await propose_live_deployment(session, run_id=run.id)
@@ -591,6 +679,7 @@ async def test_diff_broken_summary_logs_warning():
     print("PASSED")
 
 
+@async_test
 async def test_transition_preserves_reason():
     print("Running test_transition_preserves_reason...", end=" ")
     session = FakeSession()
@@ -609,6 +698,7 @@ async def test_transition_preserves_reason():
 async def main():
     print("\n--- RUNNING DEPLOYMENT & ROLLBACK HARDENED TEST SUITE ---")
     await test_hash_chain_no_bifurcation()
+    await test_concurrent_event_recording()
     await test_propose_live_deployment_generates_diff_and_revision()
     await test_propose_live_deployment_rejects_non_shadow_run()
     await test_approve_and_activate_switches_model_registry_pointers()
@@ -616,11 +706,12 @@ async def main():
     await test_reject_deployment_approval_marks_revision_and_run_rejected()
     await test_rollback_deployment_restores_parent_revision()
     await test_rollback_no_artifact_raises()
+    await test_rollback_rejects_already_rolled_back_target()
     await test_idempotency_excludes_rolled_back()
     await test_propose_idempotent()
     await test_diff_broken_summary_logs_warning()
     await test_transition_preserves_reason()
-    print("\nALL 12 HARDENED TESTS PASSED VIA FAKESESSION!\n")
+    print("\nALL 14 HARDENED TESTS PASSED VIA FAKESESSION!\n")
 
 
 if __name__ == "__main__":

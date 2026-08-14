@@ -465,6 +465,7 @@ async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
             for result in detail["results"]
         ],
         "audits": [_audit_payload(audit) for audit in detail.get("audits", [])],
+        "approvals": [_approval_payload(app) for app in detail.get("approvals", [])],
     }
 
 
@@ -885,6 +886,17 @@ async def request_ai_approval(
     }
 
 
+@router.get("/approvals/{approval_id}")
+async def get_ai_approval(
+    approval_id: int,
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    app = await db.get(AIApprovalRequest, approval_id)
+    if not app:
+        raise HTTPException(status_code=404, detail=f"Approval {approval_id} not found")
+    return _approval_payload(app)
+
+
 @router.post("/approvals/{approval_id}/approve")
 async def approve_ai_deployment(
     approval_id: int,
@@ -892,7 +904,7 @@ async def approve_ai_deployment(
     db: AsyncSession = Depends(get_db_session),
 ):
     try:
-        revision = await approve_and_activate_deployment(
+        approval, revision = await approve_and_activate_deployment(
             db,
             approval_id=approval_id,
             actor=payload.actor,
@@ -900,7 +912,7 @@ async def approve_ai_deployment(
         )
         await db.commit()
         await db.refresh(revision)
-        approval = await db.get(AIApprovalRequest, approval_id)
+        await db.refresh(approval)
     except AIPermissionError as exc:
         await db.rollback()
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -909,12 +921,12 @@ async def approve_ai_deployment(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "status": "APPROVED",
-        "approval_id": approval_id,
+        "approval_id": approval.id,
         "revision_id": revision.id,
         "revision_key": revision.revision_key,
         "revision_status": revision.status,
         "activated_at": revision.activated_at,
-        "decided_by": approval.decided_by if approval else payload.actor,
+        "decided_by": approval.decided_by,
     }
 
 
@@ -925,7 +937,7 @@ async def reject_ai_deployment(
     db: AsyncSession = Depends(get_db_session),
 ):
     try:
-        approval = await reject_deployment_approval(
+        approval, revision = await reject_deployment_approval(
             db,
             approval_id=approval_id,
             actor=payload.actor,
@@ -933,6 +945,8 @@ async def reject_ai_deployment(
         )
         await db.commit()
         await db.refresh(approval)
+        if revision:
+            await db.refresh(revision)
     except AIPermissionError as exc:
         await db.rollback()
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -942,6 +956,7 @@ async def reject_ai_deployment(
     return {
         "status": "REJECTED",
         "approval_id": approval.id,
+        "revision_id": revision.id if revision else None,
         "decided_by": approval.decided_by,
         "decision_reason": approval.decision_reason,
         "decided_at": approval.decided_at,

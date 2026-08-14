@@ -840,7 +840,7 @@ async def approve_and_activate_deployment(
     )
 
     await session.flush()
-    return revision
+    return approval, revision
 
 
 async def reject_deployment_approval(
@@ -849,7 +849,7 @@ async def reject_deployment_approval(
     approval_id: int,
     actor: str,
     reason: str | None = None,
-) -> AIApprovalRequest:
+) -> tuple[AIApprovalRequest, DeploymentRevision | None]:
     """Reject a proposed deployment revision."""
     approval = (
         await session.execute(
@@ -911,7 +911,7 @@ async def reject_deployment_approval(
     )
 
     await session.flush()
-    return approval
+    return approval, revision
 
 
 async def rollback_deployment(
@@ -920,7 +920,7 @@ async def rollback_deployment(
     target_revision_id: int | None = None,
     actor: str = "admin",
     reason: str | None = None,
-) -> DeploymentRevision:
+) -> tuple[DeploymentRevision | None, DeploymentRevision]:
     """Roll back to a parent or target deployment revision without touching open positions."""
     current_active = (
         await session.execute(
@@ -948,9 +948,10 @@ async def rollback_deployment(
     ).scalar_one_or_none()
     if target_revision is None:
         raise AILabError(f"target rollback revision {resolved_target_id} not found")
-    if target_revision.status not in {"SUPERSEDED", "ROLLED_BACK"}:
+    if target_revision.status != "SUPERSEDED":
         raise AILabError(
-            f"target rollback revision {resolved_target_id} is not rollbackable from {target_revision.status}"
+            f"target rollback revision {resolved_target_id} is in status '{target_revision.status}', "
+            "only 'SUPERSEDED' revisions can be targeted for rollback"
         )
     if current_active is not None and target_revision.id == current_active.id:
         raise AILabError("target rollback revision is already active")
@@ -1048,7 +1049,7 @@ async def rollback_deployment(
     )
 
     await session.flush()
-    return target_revision
+    return current_active, target_revision
 
 
 async def request_approval(
@@ -1123,11 +1124,19 @@ async def get_run_detail(
             .order_by(AIStepAuditLog.created_at, AIStepAuditLog.id)
         )
     ).scalars().all()
+    approvals = (
+        await session.execute(
+            select(AIApprovalRequest)
+            .where(AIApprovalRequest.run_id == run_id)
+            .order_by(AIApprovalRequest.id.desc())
+        )
+    ).scalars().all()
     return {
         "run": run,
         "steps": list(steps),
         "results": list(results),
         "audits": list(audits),
+        "approvals": list(approvals),
     }
 
 

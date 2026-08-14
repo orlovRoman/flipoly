@@ -171,6 +171,7 @@ async function loadRuns() {
 // Select Run & Load Detail
 async function selectRun(runId) {
   currentSelectedRunId = runId;
+  currentPendingApprovalId = null; // Сброс ID согласования предыдущего запуска
   switchOptTab("detail");
   await loadRunDetail(runId);
 }
@@ -330,8 +331,18 @@ async function loadApprovalView(runId) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const run = data.run;
+    const approvals = data.approvals || [];
 
     badgeEl.innerHTML = formatStatusBadge(run.status);
+
+    const pendingApproval = approvals.find((a) => a.status === "PENDING");
+    const latestApproval = approvals.length > 0 ? approvals[0] : null;
+
+    if (pendingApproval) {
+      currentPendingApprovalId = pendingApproval.id;
+    } else {
+      currentPendingApprovalId = null;
+    }
 
     if (run.status === "SHADOW") {
       bannerEl.innerHTML = `
@@ -354,7 +365,7 @@ async function loadApprovalView(runId) {
           <div>
             <strong style="color: #FBBF24;">⏳ Требуется согласование оператора (Human Approval Required)</strong>
             <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-              Внимательно проверьте Visual Diff параметров и метрик кандидата перед утверждением.
+              Внимательно проверьте серверный Visual Diff параметров и метрик кандидата перед утверждением.
             </div>
           </div>
         </div>
@@ -376,72 +387,58 @@ async function loadApprovalView(runId) {
       decisionBox.style.display = "none";
     }
 
-    // Check if there is an existing approval for this run
-    let diff = null;
-    if (run.summary) {
-      try {
-        const s = typeof run.summary === "string" ? JSON.parse(run.summary) : run.summary;
-        const report = s.report || s;
-        if (report.rows && report.rows.length > 0) {
-          const winnerRow = report.rows.find((r) => r.config_id === report.recommended_config_id) || report.rows[0];
-          diff = {
-            candidate: {
-              config_id: winnerRow.config_id,
-              model_family: "LightGBM",
-              feature_set: "FS_D1",
-              decision_threshold: "0.58",
-              decision_threshold_down: "0.42",
-            },
-            baseline: {
-              model_type: "LogisticRegression",
-              features: "FS_D0",
-              decision_threshold: "0.55",
-              decision_threshold_down: "0.45",
-            },
-            metrics: {
-              median_pnl: winnerRow.median_oot_pnl,
-              total_trades: winnerRow.total_trades,
-              max_drawdown: winnerRow.median_oot_drawdown,
-            },
-          };
-        }
-      } catch (e) {}
-    }
+    // Load actual server-generated diff from AIApprovalRequest
+    const targetApproval = pendingApproval || latestApproval;
+    const diff = targetApproval && targetApproval.diff && Object.keys(targetApproval.diff).length > 0
+      ? targetApproval.diff
+      : null;
 
-    if (diff) {
-      renderDiffTables(diff);
-    }
+    renderDiffTables(diff);
   } catch (err) {
     console.error("loadApprovalView error:", err);
   }
 }
 
 function renderDiffTables(diff) {
+  const candEl = document.getElementById("diff-candidate-content");
+  const baseEl = document.getElementById("diff-baseline-content");
+
+  if (!diff || !diff.candidate) {
+    const emptyMsg = `<div style="color: var(--text-muted); padding: 1.5rem; text-align: center;">Серверный diff еще не сформирован для данного запуска. Нажмите «Запросить допуск в LIVE» для генерации.</div>`;
+    candEl.innerHTML = emptyMsg;
+    baseEl.innerHTML = emptyMsg;
+    return;
+  }
+
   const cand = diff.candidate || {};
   const base = diff.baseline || {};
   const metrics = diff.metrics || {};
 
-  const candEl = document.getElementById("diff-candidate-content");
-  const baseEl = document.getElementById("diff-baseline-content");
+  const pnlVal = metrics.median_pnl !== undefined && metrics.median_pnl !== null
+    ? `${Number(metrics.median_pnl) > 0 ? "+" : ""}${Number(metrics.median_pnl).toFixed(2)}%`
+    : "—";
+  const pnlColor = (metrics.median_pnl || 0) >= 0 ? "var(--poly-green)" : "var(--color-rejected)";
 
   candEl.innerHTML = `
     <div class="diff-row"><span class="diff-label">Config ID:</span><span class="diff-val">#${cand.config_id || "—"}</span></div>
+    <div class="diff-row"><span class="diff-label">Artifact ID:</span><span class="diff-val">${cand.artifact_id ? "#" + cand.artifact_id : "—"}</span></div>
     <div class="diff-row"><span class="diff-label">Семейство модели:</span><span class="diff-val">${escapeHtml(cand.model_family || "—")}</span></div>
-    <div class="diff-row"><span class="diff-label">Набор признаков:</span><span class="diff-val">${escapeHtml(cand.feature_set || "—")}</span></div>
-    <div class="diff-row"><span class="diff-label">Порог UP (Threshold):</span><span class="diff-val" style="color: var(--poly-green);">${cand.decision_threshold || "—"}</span></div>
-    <div class="diff-row"><span class="diff-label">Порог DOWN (Threshold):</span><span class="diff-val" style="color: var(--color-failed);">${cand.decision_threshold_down || "—"}</span></div>
-    <div class="diff-row"><span class="diff-label">Медианный PnL OOT:</span><span class="diff-val" style="color: var(--poly-green); font-size: 1.1rem;">+${metrics.median_pnl || "0.0"}%</span></div>
+    <div class="diff-row"><span class="diff-label">Набор признаков:</span><span class="diff-val">${escapeHtml(cand.feature_set || "—")} (v${escapeHtml(cand.feature_pipeline_version || "1.0")})</span></div>
+    <div class="diff-row"><span class="diff-label">Порог UP (Threshold):</span><span class="diff-val" style="color: var(--poly-green); font-weight: 700;">${cand.decision_threshold !== undefined && cand.decision_threshold !== null ? cand.decision_threshold : "—"}</span></div>
+    <div class="diff-row"><span class="diff-label">Порог DOWN (Threshold):</span><span class="diff-val" style="color: var(--color-failed); font-weight: 700;">${cand.decision_threshold_down !== undefined && cand.decision_threshold_down !== null ? cand.decision_threshold_down : "—"}</span></div>
+    <div class="diff-row"><span class="diff-label">Медианный PnL OOT:</span><span class="diff-val" style="color: ${pnlColor}; font-size: 1.1rem; font-weight: 700;">${pnlVal}</span></div>
     <div class="diff-row"><span class="diff-label">Объем сделок OOT:</span><span class="diff-val">${metrics.total_trades || "0"}</span></div>
-    <div class="diff-row"><span class="diff-label">Макс. просадка:</span><span class="diff-val" style="color: var(--color-failed);">${metrics.max_drawdown || "0.0"}%</span></div>
+    <div class="diff-row"><span class="diff-label">Макс. просадка OOT:</span><span class="diff-val" style="color: var(--color-failed);">${metrics.max_drawdown !== undefined && metrics.max_drawdown !== null ? Number(metrics.max_drawdown).toFixed(2) + "%" : "—"}</span></div>
   `;
 
   baseEl.innerHTML = `
-    <div class="diff-row"><span class="diff-label">Model Registry ID:</span><span class="diff-val">${base.model_registry_id || "Active Default"}</span></div>
-    <div class="diff-row"><span class="diff-label">Тип модели:</span><span class="diff-val">${escapeHtml(base.model_type || "LogReg")}</span></div>
-    <div class="diff-row"><span class="diff-label">Набор признаков:</span><span class="diff-val">${escapeHtml(base.features || "FS_D0")}</span></div>
-    <div class="diff-row"><span class="diff-label">Порог UP (Threshold):</span><span class="diff-val">${base.decision_threshold || "0.55"}</span></div>
-    <div class="diff-row"><span class="diff-label">Порог DOWN (Threshold):</span><span class="diff-val">${base.decision_threshold_down || "0.45"}</span></div>
-    <div class="diff-row"><span class="diff-label">Исторический PnL:</span><span class="diff-val">${base.backtest_pnl || "—"}</span></div>
+    <div class="diff-row"><span class="diff-label">Model Registry ID:</span><span class="diff-val">${base.model_registry_id ? "#" + base.model_registry_id : "Active Default"}</span></div>
+    <div class="diff-row"><span class="diff-label">Версия модели:</span><span class="diff-val">${base.version ? "v" + base.version : "—"}</span></div>
+    <div class="diff-row"><span class="diff-label">Тип модели:</span><span class="diff-val">${escapeHtml(base.model_type || "—")}</span></div>
+    <div class="diff-row"><span class="diff-label">Набор признаков:</span><span class="diff-val">${escapeHtml(base.features || "—")}</span></div>
+    <div class="diff-row"><span class="diff-label">Порог UP (Threshold):</span><span class="diff-val">${base.decision_threshold !== undefined && base.decision_threshold !== null ? base.decision_threshold : "—"}</span></div>
+    <div class="diff-row"><span class="diff-label">Порог DOWN (Threshold):</span><span class="diff-val">${base.decision_threshold_down !== undefined && base.decision_threshold_down !== null ? base.decision_threshold_down : "—"}</span></div>
+    <div class="diff-row"><span class="diff-label">Исторический PnL:</span><span class="diff-val">${base.backtest_pnl !== null && base.backtest_pnl !== undefined ? Number(base.backtest_pnl).toFixed(2) + "%" : "—"}</span></div>
     <div class="diff-row"><span class="diff-label">Исторические сделки:</span><span class="diff-val">${base.backtest_trades || "—"}</span></div>
   `;
 }
