@@ -156,6 +156,25 @@ class TradeHistory(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+    @validates("exit_reason")
+    def _validate_exit_reason(self, key, value):
+        if value is not None:
+            from polyflip.execution.states import ExitReason
+            if value not in ExitReason.values():
+                raise ValueError(f"Invalid exit_reason: {value!r}")
+        return value
+
+    @validates("position_status")
+    def _validate_position_status(self, key, value):
+        if value in ("RESOLVED_REDEEMABLE", "RESOLVED_LOST") and getattr(self, "exit_reason", None) is None:
+            import structlog
+            structlog.get_logger(__name__).warning(
+                "trade_resolved_without_exit_reason",
+                trade_id=getattr(self, "id", None),
+                status=value,
+            )
+        return value
+
     __table_args__ = (
         Index("idx_trades_strategy_asset", "strategy_name", "asset"),
         Index("idx_trades_timestamp", "timestamp"),
