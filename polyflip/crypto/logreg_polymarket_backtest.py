@@ -31,7 +31,9 @@ def flip_probability_to_yes_probability(p_flip: Any, mid_price: Any) -> float:
         raise ValueError("p_flip must be finite and in [0, 1]")
     if not np.isfinite(mid_price) or not 0.0 <= mid_price <= 1.0:
         raise ValueError("mid_price must be finite and in [0, 1]")
-    return float(1.0 - p_flip if mid_price >= 0.5 else p_flip)
+    if mid_price == 0.5:
+        raise ValueError("mid_price=0.5 has no canonical favourite")
+    return float(1.0 - p_flip if mid_price > 0.5 else p_flip)
 
 
 def _first_valid_per_market(
