@@ -72,7 +72,7 @@ def test_calibrated_oof_path_defines_probabilities():
     )
 
     assert result is not None
-    model_bytes, auc, baseline, threshold, ece, backtest = result
+    model_bytes, auc, baseline, threshold, ece, backtest, artifact = result
     assert model_bytes
     assert np.isfinite([auc, baseline, threshold, ece]).all()
     assert backtest["strategy_branch"] == "OUTSIDER_ONLY"
