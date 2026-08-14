@@ -609,6 +609,8 @@ def _fit_and_serialize(
         backtest,
         oof_artifact,
     )
+
+
 def serialize_training(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
