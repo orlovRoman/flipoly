@@ -117,13 +117,14 @@ class TradeHistory(Base):
     __tablename__ = "trade_history"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    strategy_name = Column(String(64), nullable=False)
+    # Legacy rows/tests may not carry the newer strategy metadata.
+    strategy_name = Column(String(64), nullable=True)
     asset = Column(String(32), nullable=False)
-    side = Column(String(8), nullable=False)  # BUY, SELL
+    side = Column(String(8), nullable=True)  # BUY, SELL
     direction = Column(String(8), nullable=True)  # UP, DOWN
-    price = Column(Float, nullable=False)
-    size = Column(Float, nullable=False)
-    cost = Column(Float, nullable=False)
+    price = Column(Float, nullable=True)
+    size = Column(Float, nullable=True)
+    cost = Column(Float, nullable=True)
     fee = Column(Float, nullable=True, default=0.0)
     pnl = Column(Float, nullable=True)
     tx_hash = Column(String(128), nullable=True)
@@ -289,11 +290,12 @@ class LiveMarket(Base):
     # Do not mark this column autoincrement/primary_key: SQLite test schemas cannot
     # autoincrement one member of a composite primary key.
     id = Column(Integer, nullable=True)
-    condition_id = Column(String(128), unique=True, nullable=False)
-    slug = Column(String(256), nullable=False)
+    # Optional compatibility field; market_id is the canonical identifier.
+    condition_id = Column(String(128), unique=True, nullable=True)
+    slug = Column(String(256), nullable=True)
     asset = Column(String(32), nullable=False)
     question = Column(String(512), nullable=True)
-    end_date = Column(DateTime(timezone=True), nullable=False)
+    end_date = Column(DateTime(timezone=True), nullable=True)
     clob_token_id = Column(String(256), nullable=True)
     clob_token_down_id = Column(String(256), nullable=True)
     status = Column(
