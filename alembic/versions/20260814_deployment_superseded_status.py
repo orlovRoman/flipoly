@@ -20,10 +20,9 @@ def upgrade() -> None:
         "ALTER TABLE deployment_revisions "
         "DROP CONSTRAINT IF EXISTS deployment_revisions_manifest_hash_key"
     )
-    op.drop_constraint(
-        "ck_deployment_revisions_status",
-        "deployment_revisions",
-        type_="check",
+    op.execute(
+        "ALTER TABLE deployment_revisions "
+        "DROP CONSTRAINT IF EXISTS ck_deployment_revisions_status"
     )
     op.create_check_constraint(
         "ck_deployment_revisions_status",

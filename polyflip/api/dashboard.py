@@ -9,7 +9,7 @@ import json
 import structlog
 import math
 from fastapi.templating import Jinja2Templates
-from fastapi import APIRouter, Request, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case, or_, and_, cast, Numeric
 from polyflip.db.connection import get_db_session, async_session
@@ -83,6 +83,12 @@ async def get_execution_dashboard(request: Request):
 
 
 _dashboard_cache = {}
+
+
+def invalidate_dashboard_cache():
+    _dashboard_cache.clear()
+    _model_pnl_cache.clear()
+
 _DASHBOARD_CACHE_TTL = 30  # 30 секунд кэша
 
 
@@ -231,7 +237,10 @@ async def get_dashboard_data(
         return result
     except Exception as e:
         logger.exception("Error generating dashboard data", exc_info=e)
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate dashboard data",
+        ) from e
 
 
 _model_pnl_cache = {}
