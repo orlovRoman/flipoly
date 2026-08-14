@@ -1,3 +1,4 @@
+import inspect
 from types import SimpleNamespace
 
 from polyflip.ai_lab.orchestrator import (
@@ -7,6 +8,7 @@ from polyflip.ai_lab.orchestrator import (
     build_experiment_report,
     default_plan_steps,
     evaluate_finalization_gate,
+    plan_run,
 )
 
 
@@ -224,4 +226,39 @@ def test_finalization_gate_accepts_valid_candidate_with_contract_fields():
     assert report["window_count"] == 3
     assert report["total_trades"] == 74
     assert report["median_pnl"] == 1.24
+    assert report["recommended_config_id"] == 1
+
+
+def test_plan_run_preserves_positional_api_contract():
+    params = list(inspect.signature(plan_run).parameters.values())
+    assert [param.name for param in params[:3]] == ["session", "run_id", "config_ids"]
+    assert params[1].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert params[2].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+
+
+def test_report_rejects_duplicate_oot_window_without_inflating_trades():
+    results = [
+        _result(1, pnl=1.0, trades=30, window_start="2026-01-01", window_end="2026-01-15"),
+        _result(1, pnl=1.1, trades=30, window_start="2026-01-01", window_end="2026-01-15"),
+        _result(1, pnl=1.2, trades=10, window_start="2026-01-16", window_end="2026-01-31"),
+        _result(1, pnl=1.3, trades=10, window_start="2026-02-01", window_end="2026-02-15"),
+    ]
+    report = build_experiment_report(results)
+    row = report["rows"][0]
+    assert row["total_trades"] == 50
+    assert row["window_count"] == 3
+    assert row["eligible_for_shadow"] is False
+    assert "INVALID_RESULT" in row["rejection_reasons"]
+
+
+def test_report_tolerates_non_mapping_diagnostic_metrics():
+    results = [
+        _result(1, kind="OOT", pnl=None, trades=None),
+        _result(1, pnl=1.0, trades=20, window_start="2026-01-01", window_end="2026-01-15"),
+        _result(1, pnl=1.1, trades=20, window_start="2026-01-16", window_end="2026-01-31"),
+        _result(1, pnl=1.2, trades=20, window_start="2026-02-01", window_end="2026-02-15"),
+    ]
+    results[0].metrics = "corrupted"
+    report = build_experiment_report(results)
+    assert report["recommendation_status"] == "READY_FOR_SHADOW"
     assert report["recommended_config_id"] == 1
