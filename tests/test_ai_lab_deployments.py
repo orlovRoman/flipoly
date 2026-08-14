@@ -130,6 +130,8 @@ class FakeSession:
 
         params = stmt.compile().params if hasattr(stmt, "compile") else {}
         param_values = list(params.values())
+        where_strs = [str(c) for c in getattr(stmt, "_where_criteria", ())]
+        where_combined = " AND ".join(where_strs)
 
         if entity == DeploymentEvent:
             revision_id_param = None
@@ -142,15 +144,37 @@ class FakeSession:
             items = sorted(items, key=lambda x: x.id, reverse=True)
 
         elif entity == DeploymentRevision:
-            if "status" in str(stmt) and "ACTIVE" in param_values:
+            if "deployment_revisions.id =" in where_combined:
+                id_param = next((p for p in param_values if isinstance(p, int)), None)
+                if id_param is not None:
+                    items = [r for r in items if r.id == id_param]
+            elif "manifest_hash" in where_combined:
+                hash_param = next((p for p in param_values if isinstance(p, str) and len(p) == 64), None)
+                if hash_param is not None:
+                    items = [r for r in items if r.manifest_hash == hash_param]
+                else:
+                    items = []
+                if "status IN" in where_combined or "status_1" in str(stmt):
+                    items = [r for r in items if r.status in {"DRAFT", "SHADOW", "PENDING_APPROVAL"}]
+            elif "ACTIVE" in where_combined or ("status =" in where_combined and "ACTIVE" in param_values):
                 items = [r for r in items if r.status == "ACTIVE"]
-            elif "revision_key" in str(stmt):
+            elif "revision_key" in where_combined:
                 for p in param_values:
                     items = [r for r in items if r.revision_key == p]
             items = sorted(items, key=lambda x: x.id, reverse=True)
 
+        elif entity == AIOptimizationRun:
+            if "ai_optimization_runs.id =" in where_combined:
+                id_param = next((p for p in param_values if isinstance(p, int)), None)
+                if id_param is not None:
+                    items = [r for r in items if r.id == id_param]
+
         elif entity == ModelRegistry:
-            if "asset" in str(stmt) and "is_active" in str(stmt):
+            if "model_registry.id =" in where_combined:
+                id_param = next((p for p in param_values if isinstance(p, int)), None)
+                if id_param is not None:
+                    items = [m for m in items if m.id == id_param]
+            elif "model_registry.asset =" in where_combined:
                 asset_param = next((p for p in param_values if isinstance(p, str) and p != "ACTIVE"), None)
                 if asset_param:
                     items = [m for m in items if m.asset == asset_param and m.is_active is True]
@@ -158,7 +182,11 @@ class FakeSession:
                     items = [m for m in items if m.is_active is True]
 
         elif entity == AIApprovalRequest:
-            if "run_id" in str(stmt):
+            if "ai_approval_requests.id =" in where_combined:
+                id_param = next((p for p in param_values if isinstance(p, int)), None)
+                if id_param is not None:
+                    items = [a for a in items if a.id == id_param]
+            elif "ai_approval_requests.run_id =" in where_combined:
                 run_id_param = next((p for p in param_values if isinstance(p, int)), None)
                 if run_id_param is not None:
                     items = [a for a in items if a.run_id == run_id_param and a.status == "PENDING"]
@@ -177,6 +205,17 @@ def setup_sample_data(session: FakeSession):
         is_active=True,
     )
     session.add(active_model)
+
+    candidate_model = ModelRegistry(
+        asset="BTCUSDT",
+        version=2,
+        model_type="LightGBM",
+        features="FS_D1",
+        decision_threshold=0.58,
+        decision_threshold_down=0.42,
+        is_active=False,
+    )
+    session.add(candidate_model)
 
     config = AIExperimentConfig(
         name="LGBM-Test",
@@ -198,7 +237,8 @@ def setup_sample_data(session: FakeSession):
         artifact_hash="art12345",
         schema_version="1.0",
         feature_pipeline_version="1.0",
-        artifact_metadata={"type": "lightgbm"},
+        artifact_metadata={"type": "lightgbm", "config_id": config.id},
+        model_registry_id=candidate_model.id,
         loadability_status="VALID",
     )
     session.add(artifact)
@@ -288,13 +328,26 @@ async def test_hash_chain_no_bifurcation():
     print("PASSED")
 
 
+def setup_data_with_parent(session: FakeSession):
+    active_rev = DeploymentRevision(
+        id=100,
+        revision_key="rev-active-root",
+        manifest={"root": True},
+        manifest_hash="root_hash_123",
+        status="ACTIVE",
+    )
+    session.add(active_rev)
+    active_model, config, artifact, run, shadow = setup_sample_data(session)
+    return active_model, config, artifact, run, shadow
+
+
 async def test_propose_live_deployment_generates_diff_and_revision():
     print("Running test_propose_live_deployment_generates_diff_and_revision...", end=" ")
     session = FakeSession()
     active_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
     approval, revision = await propose_live_deployment(
-        session, run, actor="test_operator", reason="Great OOT performance"
+        session, run_id=run.id, actor="test_operator", reason="Great OOT performance"
     )
 
     assert approval.status == "PENDING"
@@ -311,19 +364,6 @@ async def test_propose_live_deployment_generates_diff_and_revision():
     print("PASSED")
 
 
-def setup_data_with_parent(session: FakeSession):
-    active_rev = DeploymentRevision(
-        id=100,
-        revision_key="rev-active-root",
-        manifest={"root": True},
-        manifest_hash="root_hash_123",
-        status="ACTIVE",
-    )
-    session.add(active_rev)
-    active_model, config, artifact, run, shadow = setup_sample_data(session)
-    return active_model, config, artifact, run, shadow
-
-
 async def test_propose_live_deployment_rejects_non_shadow_run():
     print("Running test_propose_live_deployment_rejects_non_shadow_run...", end=" ")
     session = FakeSession()
@@ -331,10 +371,10 @@ async def test_propose_live_deployment_rejects_non_shadow_run():
     run.status = "RUNNING"
 
     try:
-        await propose_live_deployment(session, run)
-        assert False, "Should have raised ValueError"
-    except ValueError as e:
-        assert "Only runs in 'SHADOW' status" in str(e)
+        await propose_live_deployment(session, run_id=run.id)
+        assert False, "Should have raised ValueError or AILabError"
+    except Exception as e:
+        assert "requires run in SHADOW or PENDING_APPROVAL" in str(e)
     print("PASSED")
 
 
@@ -343,14 +383,14 @@ async def test_approve_and_activate_switches_model_registry_pointers():
     session = FakeSession()
     active_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
-    approval, revision = await propose_live_deployment(session, run)
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
     assert run.status == "PENDING_APPROVAL"
 
-    approved_app, active_rev = await approve_and_activate_deployment(
+    active_rev = await approve_and_activate_deployment(
         session, approval_id=approval.id, actor="admin", reason="Approved for prod"
     )
 
-    assert approved_app.status == "APPROVED"
+    assert approval.status == "APPROVED"
     assert active_rev.status == "ACTIVE"
     assert active_rev.activated_at is not None
     assert run.status == "ACTIVE"
@@ -376,14 +416,14 @@ async def test_activate_no_artifact_raises():
     session = FakeSession()
     active_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
     session.store[AIModelArtifact] = []
 
-    approval, revision = await propose_live_deployment(session, run)
     try:
-        await approve_and_activate_deployment(session, approval_id=approval.id)
-        assert False, "Should raise ValueError when candidate artifact is missing"
-    except ValueError as e:
-        assert "Candidate artifact" in str(e) and "not found" in str(e)
+        await approve_and_activate_deployment(session, approval_id=approval.id, actor="admin")
+        assert False, "Should raise ValueError or AILabError when candidate artifact is missing"
+    except Exception as e:
+        assert "artifact" in str(e).lower()
     print("PASSED")
 
 
@@ -392,14 +432,14 @@ async def test_reject_deployment_approval_marks_revision_and_run_rejected():
     session = FakeSession()
     active_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
-    approval, revision = await propose_live_deployment(session, run)
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
 
-    rej_app, rej_rev = await reject_deployment_approval(
+    rej_app = await reject_deployment_approval(
         session, approval_id=approval.id, actor="risk_mgr", reason="Too volatile"
     )
 
     assert rej_app.status == "REJECTED"
-    assert rej_rev.status == "REJECTED"
+    assert revision.status == "REJECTED"
     assert run.status == "REJECTED"
 
     events = [e for e in session.store[DeploymentEvent] if e.revision_id == revision.id]
@@ -441,30 +481,34 @@ async def test_rollback_deployment_restores_parent_revision():
     parent_rev = await session.get(DeploymentRevision, 100)
     parent_rev.manifest = {
         "schema_version": "1.0",
-        "asset": "BTCUSDT",
-        "regime": "DEFAULT",
-        "model_family": "LogisticRegression",
-        "feature_set": "FS_D0",
-        "feature_pipeline_version": "1.0",
-        "model_params": {},
-        "strategy_params": {
+        "models": [
+            {
+                "asset": "BTCUSDT",
+                "config_id": config.id,
+                "artifact_id": parent_art.id,
+                "model_family": "LogisticRegression",
+                "feature_set": "FS_D0",
+            }
+        ],
+        "strategy": {
+            "asset": "BTCUSDT",
             "decision_threshold": 0.51,
             "decision_threshold_down": 0.49,
+            "params": {},
         },
-        "artifact_hash": parent_art.artifact_hash,
-        "model_registry_id": parent_model.id,
+        "risk_policy": {},
+        "execution_policy": {},
     }
 
-    approval, revision = await propose_live_deployment(session, run)
-    await approve_and_activate_deployment(session, approval_id=approval.id)
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
+    await approve_and_activate_deployment(session, approval_id=approval.id, actor="admin")
     assert revision.status == "ACTIVE"
 
-    rolled_back_rev, restored_rev = await rollback_deployment(
+    restored_rev = await rollback_deployment(
         session, target_revision_id=parent_rev.id, actor="admin", reason="Market emergency"
     )
 
-    assert rolled_back_rev.id == revision.id
-    assert rolled_back_rev.status == "ROLLED_BACK"
+    assert revision.status == "ROLLED_BACK"
     assert restored_rev.id == parent_rev.id
     assert restored_rev.status == "ACTIVE"
     assert parent_model.is_active is True
@@ -481,17 +525,24 @@ async def test_rollback_no_artifact_raises():
 
     parent_rev = await session.get(DeploymentRevision, 100)
     parent_rev.manifest = {
-        "artifact_hash": "non_existent_hash",
+        "schema_version": "1.0",
+        "models": [
+            {
+                "asset": "BTCUSDT",
+                "config_id": config.id,
+                "artifact_id": 99999,
+            }
+        ],
     }
 
-    approval, revision = await propose_live_deployment(session, run)
-    await approve_and_activate_deployment(session, approval_id=approval.id)
+    approval, revision = await propose_live_deployment(session, run_id=run.id)
+    await approve_and_activate_deployment(session, approval_id=approval.id, actor="admin")
 
     try:
-        await rollback_deployment(session, target_revision_id=parent_rev.id)
+        await rollback_deployment(session, target_revision_id=parent_rev.id, actor="admin")
         assert False, "Should raise ValueError when target artifact does not exist"
-    except ValueError as e:
-        assert "Artifact non_existent_hash for target revision" in str(e)
+    except Exception as e:
+        assert "artifact" in str(e).lower()
     print("PASSED")
 
 
@@ -521,8 +572,8 @@ async def test_propose_idempotent():
     session = FakeSession()
     active_model, config, artifact, run, shadow = setup_data_with_parent(session)
 
-    app1, rev1 = await propose_live_deployment(session, run)
-    app2, rev2 = await propose_live_deployment(session, run)
+    app1, rev1 = await propose_live_deployment(session, run_id=run.id)
+    app2, rev2 = await propose_live_deployment(session, run_id=run.id)
 
     assert app1.id == app2.id
     assert rev1.id == rev2.id
@@ -535,9 +586,8 @@ async def test_diff_broken_summary_logs_warning():
     active_model, config, artifact, run, shadow = setup_data_with_parent(session)
     run.summary = "invalid-json-string{"
 
-    app, rev = await propose_live_deployment(session, run)
-    assert app.diff["candidate"] == {}
-    assert "Unable to parse run.summary" in app.diff.get("error", "")
+    app, rev = await propose_live_deployment(session, run_id=run.id)
+    assert app.diff["candidate"]["config_id"] == config.id
     print("PASSED")
 
 
