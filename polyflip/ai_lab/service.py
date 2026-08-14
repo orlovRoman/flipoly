@@ -60,7 +60,7 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
         {"SHADOW", "PENDING_APPROVAL", "INSUFFICIENT_DATA", "FAILED"}
     ),
     "SHADOW": frozenset({"PENDING_APPROVAL", "REJECTED", "ROLLED_BACK"}),
-    "PENDING_APPROVAL": frozenset({"ACTIVE", "REJECTED"}),
+    # ACTIVE is reached only by approve_and_activate_deployment after the\n    # explicit human approval row-lock transaction; generic run transitions\n    # must not provide a direct activation bypass.\n    "PENDING_APPROVAL": frozenset({"REJECTED"}),
     "ACTIVE": frozenset({"ROLLED_BACK"}),
     "INSUFFICIENT_DATA": frozenset(),
     "FAILED": frozenset(),
@@ -810,11 +810,17 @@ async def approve_and_activate_deployment(
             activation_reason = (
                 f"Activated by {actor}" + (f": {reason}" if reason else "")
             )
-            await transition_run(
-                session,
-                run,
-                "ACTIVE",
-                reason=activation_reason,
+            # ACTIVE is a privileged state: the deployment transaction has
+            # already validated the human approval and row-locked model pointers.
+            # Do not route through the public transition graph, which must not
+            # expose a direct PENDING_APPROVAL -> ACTIVE path.
+            run.status = "ACTIVE"
+            run.updated_at = utc_now()
+            existing_summary = run.summary or ""
+            run.summary = (
+                (existing_summary + "\n" + activation_reason).strip()[:4000]
+                if existing_summary
+                else activation_reason[:4000]
             )
 
     await record_deployment_event(
