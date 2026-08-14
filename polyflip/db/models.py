@@ -882,7 +882,7 @@ class DeploymentRevision(Base):
     __table_args__ = (
         Index("idx_deployment_revisions_status_created", "status", "created_at"),
         CheckConstraint(
-            "status IN ('DRAFT', 'SHADOW', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED', 'ROLLED_BACK')",
+            "status IN ('DRAFT', 'SHADOW', 'PENDING_APPROVAL', 'ACTIVE', 'SUPERSEDED', 'REJECTED', 'ROLLED_BACK')",
             name="ck_deployment_revisions_status",
         ),
     )
