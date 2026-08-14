@@ -608,6 +608,22 @@ async def evaluate_run(
     if run is None:
         raise AILabError(f"AI Lab run {run_id} not found")
     await authorize_run_action(session, run_id, "RUN_OOT_BACKTEST")
+
+    # A completed SHADOW run is already finalized. Re-reading its persisted
+    # report makes repeated finalize calls idempotent instead of attempting an
+    # invalid SHADOW -> EVALUATING transition.
+    if run.status == "SHADOW":
+        try:
+            stored = json.loads(run.summary or "{}")
+        except (TypeError, ValueError) as exc:
+            raise AILabError(
+                f"run {run_id} has no valid persisted finalization report"
+            ) from exc
+        report = stored.get("report")
+        if isinstance(report, dict):
+            return report
+        raise AILabError(f"run {run_id} has no persisted finalization report")
+
     if run.status == "RUNNING":
         await transition_run(session, run, "EVALUATING", reason="evaluation started")
     elif run.status != "EVALUATING":
@@ -622,12 +638,13 @@ async def evaluate_run(
     ).scalars().all()
 
     scope = run.scope or {}
-    min_trades = max(
-        MIN_TOTAL_TRADES, int(scope.get("min_trades", MIN_TOTAL_TRADES))
-    )
-    min_windows = max(
-        MIN_WINDOWS, int(scope.get("min_windows", MIN_WINDOWS))
-    )
+    try:
+        requested_trades = int(scope.get("min_trades", MIN_TOTAL_TRADES))
+        requested_windows = int(scope.get("min_windows", MIN_WINDOWS))
+    except (TypeError, ValueError) as exc:
+        raise AILabError("run scope min_trades/min_windows must be integers") from exc
+    min_trades = max(MIN_TOTAL_TRADES, requested_trades)
+    min_windows = max(MIN_WINDOWS, requested_windows)
 
     report = build_experiment_report(
         results,
@@ -637,7 +654,6 @@ async def evaluate_run(
     run.summary = json.dumps(report, sort_keys=True, separators=(",", ":"))
     await session.flush()
     return report
-
 
 async def promote_to_shadow(
     session: AsyncSession,
@@ -652,9 +668,31 @@ async def promote_to_shadow(
     run = await session.get(AIOptimizationRun, run_id)
     if run is None:
         raise AILabError(f"AI Lab run {run_id} not found")
+    normalized_asset = asset.strip().upper()
+    normalized_regime = regime.strip().lower() if regime and regime.strip() else None
+    if not normalized_asset:
+        raise AILabError("asset must not be empty")
+    await authorize_run_action(session, run_id, "PROMOTE_TO_SHADOW")
+
+    existing = (
+        await session.execute(
+            select(AIShadowAssignment).where(
+                AIShadowAssignment.run_id == run_id,
+                AIShadowAssignment.asset == normalized_asset,
+                AIShadowAssignment.regime == normalized_regime,
+                AIShadowAssignment.status.in_({"PENDING", "RUNNING"}),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        if existing.candidate_artifact_id == candidate_artifact_id:
+            return existing
+        raise AILabError(
+            "an active SHADOW assignment already exists for this scope with a different artifact"
+        )
     if run.status != "EVALUATING":
         raise AILabError(f"run {run_id} must be EVALUATING before SHADOW")
-    await authorize_run_action(session, run_id, "PROMOTE_TO_SHADOW")
 
     results = (
         await session.execute(
@@ -664,12 +702,13 @@ async def promote_to_shadow(
     ).scalars().all()
 
     scope = run.scope or {}
-    min_trades = max(
-        MIN_TOTAL_TRADES, int(scope.get("min_trades", MIN_TOTAL_TRADES))
-    )
-    min_windows = max(
-        MIN_WINDOWS, int(scope.get("min_windows", MIN_WINDOWS))
-    )
+    try:
+        requested_trades = int(scope.get("min_trades", MIN_TOTAL_TRADES))
+        requested_windows = int(scope.get("min_windows", MIN_WINDOWS))
+    except (TypeError, ValueError) as exc:
+        raise AILabError("run scope min_trades/min_windows must be integers") from exc
+    min_trades = max(MIN_TOTAL_TRADES, requested_trades)
+    min_windows = max(MIN_WINDOWS, requested_windows)
     report = build_experiment_report(
         results,
         min_trades=min_trades,
@@ -698,31 +737,12 @@ async def promote_to_shadow(
     ) is None:
         raise AILabError(f"baseline artifact {baseline_artifact_id} not found")
 
-    existing = (
-        await session.execute(
-            select(AIShadowAssignment).where(
-                AIShadowAssignment.run_id == run_id,
-                AIShadowAssignment.asset == asset.strip().upper(),
-                AIShadowAssignment.regime
-                == (regime.strip().lower() if regime else None),
-                AIShadowAssignment.status.in_({"PENDING", "RUNNING"}),
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        if existing.candidate_artifact_id == candidate_artifact_id:
-            return existing
-        raise AILabError(
-            "an active SHADOW assignment already exists for this scope with a different artifact"
-        )
-
     assignment = AIShadowAssignment(
         run_id=run_id,
         candidate_artifact_id=candidate_artifact_id,
         baseline_artifact_id=baseline_artifact_id,
-        asset=asset.strip().upper(),
-        regime=regime.strip().lower() if regime else None,
+        asset=normalized_asset,
+        regime=normalized_regime,
         status="PENDING",
         created_at=utc_now(),
     )
@@ -732,7 +752,6 @@ async def promote_to_shadow(
     )
     await session.flush()
     return assignment
-
 
 async def finalize_run(
     session: AsyncSession,
