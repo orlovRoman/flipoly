@@ -535,7 +535,6 @@ async def run_lgbm_polymarket_oot(
     )
 
 
-
 def _is_logreg_context(context: StepContext) -> bool:
     return str(context.model_family or "").strip().upper() in LOGREG_MODEL_FAMILIES
 

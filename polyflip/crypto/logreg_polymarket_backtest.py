@@ -22,7 +22,7 @@ LOGREG_PREDICTION_SEMANTICS = "FLIP_VS_FINAL_OUTCOME"
 def flip_probability_to_yes_probability(p_flip: Any, mid_price: Any) -> float:
     """Convert a flip probability into P(YES wins).
 
-    A YES midpoint at/above 0.5 means YES is the current favourite; otherwise
+    A YES midpoint above 0.5 means YES is the current favourite; otherwise
     NO is the favourite. p_flip is complemented only in the first case.
     """
     p_flip = float(p_flip)
