@@ -213,7 +213,8 @@ def build_experiment_report(
         window_details: list[dict[str, Any]] = []
 
         for result in successful_results:
-            metrics = _value(result, "metrics", {}) or {}
+            raw_metrics = _value(result, "metrics", {}) or {}
+            metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
             for metric_name in ("auc", "ece", "brier", "log_loss", "win_rate"):
                 metric_values[metric_name].append(metrics.get(metric_name))
             artifact_id = _value(result, "artifact_id")
@@ -222,10 +223,20 @@ def build_experiment_report(
 
         invalid_result_count = 0
         for result in polymarket_results:
-            metrics = _value(result, "metrics", {}) or {}
-            if not isinstance(metrics, Mapping):
-                metrics = {}
+            raw_metrics = _value(result, "metrics", {}) or {}
+            metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
+            if not isinstance(raw_metrics, Mapping):
                 invalid_result_count += 1
+            w_key = _oot_window_key(result)
+            if w_key is None:
+                invalid_result_count += 1
+                continue
+            if w_key in unique_windows:
+                # A retry/duplicate for the same OOT interval must not inflate
+                # total trades or median samples.
+                invalid_result_count += 1
+                continue
+            unique_windows.add(w_key)
             res_pnl = _value(result, "net_pnl", metrics.get("net_pnl"))
             res_trades = _value(result, "trade_count", metrics.get("n_trades"))
             res_dd = _value(result, "max_drawdown", metrics.get("max_drawdown"))
@@ -255,11 +266,6 @@ def build_experiment_report(
             if dd_num is not None:
                 drawdown_values.append(dd_num)
 
-            w_key = _oot_window_key(result)
-            if w_key is None:
-                invalid_result_count += 1
-                continue
-            unique_windows.add(w_key)
             window_details.append(
                 {
                     "oot_window_start": w_key[0],
@@ -856,28 +862,43 @@ async def finalize_run(
                     .limit(1)
                 )
             ).scalar_one_or_none()
-            if last_step is not None:
-                reasons_str = (
-                    ", ".join(report.get("rejection_reasons", []))
-                    or report.get("recommendation_status", "UNKNOWN")
-                )
-                audit_entry = AIStepAuditLog(
+            if last_step is None:
+                # AIStepAuditLog.step_id is mandatory. Create a durable
+                # finalization step when a run has no queued steps yet.
+                last_step = AIRunStep(
                     run_id=run_id,
-                    step_id=last_step.id,
-                    config_id=report.get("recommended_config_id"),
+                    step_index=0,
+                    step_type="FINALIZE",
+                    status="FAILED",
                     action="FINALIZE_RUN",
+                    summary="Finalization gate rejected the run before a plan step existed.",
                     error_code=f"GATE_REJECTED_{report.get('recommendation_status')}",
-                    error_message=f"Finalization rejected candidate: {reasons_str}",
-                    payload={
-                        "recommendation_status": report.get("recommendation_status"),
-                        "rejection_reasons": report.get("rejection_reasons", []),
-                        "window_count": report.get("window_count"),
-                        "total_trades": report.get("total_trades"),
-                        "median_pnl": report.get("median_pnl"),
-                    },
                     created_at=utc_now(),
+                    finished_at=utc_now(),
                 )
-                session.add(audit_entry)
+                session.add(last_step)
                 await session.flush()
+            reasons_str = (
+                ", ".join(report.get("rejection_reasons", []))
+                or report.get("recommendation_status", "UNKNOWN")
+            )
+            audit_entry = AIStepAuditLog(
+                run_id=run_id,
+                step_id=last_step.id,
+                config_id=report.get("recommended_config_id"),
+                action="FINALIZE_RUN",
+                error_code=f"GATE_REJECTED_{report.get('recommendation_status')}",
+                error_message=f"Finalization rejected candidate: {reasons_str}",
+                payload={
+                    "recommendation_status": report.get("recommendation_status"),
+                    "rejection_reasons": report.get("rejection_reasons", []),
+                    "window_count": report.get("window_count"),
+                    "total_trades": report.get("total_trades"),
+                    "median_pnl": report.get("median_pnl"),
+                },
+                created_at=utc_now(),
+            )
+            session.add(audit_entry)
+            await session.flush()
 
     return {"report": report, "assignment": assignment}
