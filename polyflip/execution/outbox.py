@@ -355,9 +355,21 @@ async def finalize_request(
     error: str | None = None,
 ) -> None:
     now = datetime.now(timezone.utc)
+    # Never leave a terminal execution without a human-readable reason.
+    # Older callers sometimes passed an empty error, which made the dashboard
+    # show only generic FAILED even though the request had a terminal code.
+    terminal_error = (
+        error.strip()
+        if isinstance(error, str) and error.strip()
+        else (
+            f"Execution request {state}"
+            if state in FAILURE_TERMINAL_STATES
+            else error
+        )
+    )
     req.state = state
-    req.error_reason = error
-    req.terminal_code = _terminal_code(state, error)
+    req.error_reason = terminal_error
+    req.terminal_code = _terminal_code(state, terminal_error)
     req.updated_at = now
 
     if req.intent == "OPEN" and state in TERMINAL_REQUEST_STATES:
@@ -382,7 +394,7 @@ async def finalize_request(
         if req.intent == "OPEN":
             trade.status = "FAILED"
             trade.position_status = "ENTRY_FAILED"
-            trade.error_msg = error
+            trade.error_msg = terminal_error
         else:
             new_status = (
                 "PARTIALLY_CLOSED"
@@ -409,7 +421,7 @@ async def finalize_request(
         ExecutionEvent(
             level="ERROR" if error else "INFO",
             event_type=f"REQUEST_{state}",
-            message=error or f"Request transitioned to {state}",
+            message=terminal_error or f"Request transitioned to {state}",
             source="execution_worker",
             request_id=req.id,
             trade_history_id=req.trade_history_id,

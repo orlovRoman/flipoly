@@ -101,3 +101,54 @@ async def test_live_sizing_rejection_chain(db_session):
     # Но так как он уже FAILED/ENTRY_FAILED, он должен остаться FAILED/ENTRY_FAILED.
     assert final_trade.status == "FAILED"
     assert final_trade.position_status == "ENTRY_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_rebuild_repairs_expired_open_request_reason_and_position():
+    """A lease-expired OPEN must not remain an OPENING/blank-error trade."""
+    trade = TradeHistory(
+        id=1000,
+        asset="ETHUSDT",
+        amount_usdc=0.0,
+        executed_price=0.0,
+        predicted_flip_prob=Decimal("0.60"),
+        mode="PAPER",
+        active_features="{}",
+        model_version="1.0",
+        model_key="test_key",
+        status="FAILED",
+        position_status="OPENING",
+        market_id="expired_market",
+        outcome_bought="YES",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        error_msg=None,
+    )
+    db_session.add(trade)
+    await db_session.commit()
+
+    req = ExecutionRequest(
+        trade_history_id=trade.id,
+        intent="OPEN",
+        target_amount_usdc=Decimal("1.00"),
+        state="EXPIRED",
+        filled_shares=Decimal("0"),
+        error_reason="TTL expired",
+        terminal_code="TTL_EXPIRED",
+        market_id="expired_market",
+        asset="ETHUSDT",
+        outcome_to_buy="YES",
+        requested_mode="PAPER",
+        max_slippage_pct=Decimal("0.02"),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add(req)
+    await db_session.commit()
+
+    repaired = await rebuild_trade_accounting(db_session, trade.id)
+    await db_session.commit()
+
+    assert repaired.status == "FAILED"
+    assert repaired.position_status == "ENTRY_FAILED"
+    assert repaired.error_msg == "TTL expired"

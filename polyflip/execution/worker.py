@@ -32,6 +32,8 @@ from polyflip.execution.gateways.exceptions import (
 )
 from polyflip.execution.outbox import enqueue_close_request, finalize_request
 from polyflip.execution.states import (
+    ACTIVE_REQUEST_STATES,
+    FAILURE_TERMINAL_STATES,
     RECONCILABLE_REQUEST_STATES,
 )
 from polyflip.execution.risk_checks import check_risk_limits
@@ -878,6 +880,49 @@ async def rebuild_trade_accounting(session, trade_id: int) -> Optional[TradeHist
         )
         await session.commit()
         return
+
+    # Repair legacy rows where a terminal OPEN request was marked FAILED but
+    # accounting left the position in OPENING and dropped the provider reason.
+    # This can happen when a worker lease expires between finalize and a later
+    # accounting rebuild. Do not repair while another OPEN request is active.
+    failed_open_requests = [
+        req
+        for req in reqs
+        if req.intent == "OPEN"
+        and req.state in FAILURE_TERMINAL_STATES
+        and Decimal(str(req.filled_shares or 0)) <= Decimal("0")
+    ]
+    active_open_requests = [
+        req
+        for req in reqs
+        if req.intent == "OPEN" and req.state in ACTIVE_REQUEST_STATES
+    ]
+    if (
+        open_shares <= Decimal("0")
+        and not trade.entry_filled_shares
+        and failed_open_requests
+        and not active_open_requests
+    ):
+        failed_req = max(
+            failed_open_requests,
+            key=lambda item: item.updated_at or item.created_at or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        trade.status = "FAILED"
+        trade.position_status = "ENTRY_FAILED"
+        if not trade.error_msg:
+            trade.error_msg = (
+                failed_req.error_reason
+                or failed_req.terminal_code
+                or f"Execution request {failed_req.state}"
+            )
+        trade.entry_filled_shares = Decimal("0")
+        trade.entry_cost_usdc = Decimal("0")
+        trade.remaining_shares = Decimal("0")
+        trade.executed_price = 0.0
+        trade.realized_pnl_usdc = Decimal("0")
+        trade.pnl = 0.0
+        trade.position_accounting_version = (trade.position_accounting_version or 0) + 1
+        return trade
 
     # --- PnL по формуле частичного закрытия ---
     # entry_basis включает gross + fees (полная стоимость входа)
