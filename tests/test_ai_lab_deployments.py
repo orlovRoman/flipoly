@@ -156,7 +156,7 @@ class FakeSession:
 @pytest.mark.asyncio
 async def test_hash_chain_no_bifurcation():
     """P0-1: Test per-revision event hash chain."""
-    session = FakeSession()
+    session = FakeSession({(DeploymentRevision, 1): SimpleNamespace(id=1)})
     ev1 = await record_deployment_event(
         session,
         revision_id=1,
@@ -272,6 +272,8 @@ async def test_approve_and_activate_switches_model_registry_pointers():
     approval = SimpleNamespace(
         id=5,
         run_id=7,
+        target_type="DEPLOYMENT_REVISION",
+        requested_action="ACTIVATE",
         target_id="10",
         status="PENDING",
         decided_at=None,
@@ -319,7 +321,14 @@ async def test_activate_no_artifact_raises():
             "execution_policy": {},
         },
     )
-    approval = SimpleNamespace(id=5, target_id="10", status="PENDING", run_id=None)
+    approval = SimpleNamespace(
+        id=5,
+        target_type="DEPLOYMENT_REVISION",
+        requested_action="ACTIVATE",
+        target_id="10",
+        status="PENDING",
+        run_id=None,
+    )
     session = FakeSession(
         {
             (AIApprovalRequest, 5): approval,
@@ -591,3 +600,45 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+@pytest.mark.asyncio
+async def test_activation_rejects_non_activation_approval():
+    approval = SimpleNamespace(
+        id=5,
+        target_type="DEPLOYMENT_REVISION",
+        requested_action="ROLLBACK",
+        target_id="10",
+        status="PENDING",
+    )
+    session = FakeSession({(AIApprovalRequest, 5): approval})
+    with pytest.raises(AILabError, match="not a deployment activation"):
+        await approve_and_activate_deployment(session, approval_id=5, actor="admin")
+
+
+@pytest.mark.asyncio
+async def test_activation_rejects_artifact_for_wrong_asset():
+    approval = SimpleNamespace(
+        id=5,
+        target_type="DEPLOYMENT_REVISION",
+        requested_action="ACTIVATE",
+        target_id="10",
+        status="PENDING",
+    )
+    revision = SimpleNamespace(
+        id=10,
+        status="PENDING_APPROVAL",
+        manifest={
+            "models": [{"asset": "BTCUSDT", "artifact_id": 101}],
+        },
+    )
+    artifact = SimpleNamespace(id=101, model_registry_id=2)
+    wrong_model = SimpleNamespace(id=2, asset="ETHUSDT", is_active=False)
+    session = FakeSession({
+        (AIApprovalRequest, 5): approval,
+        (DeploymentRevision, 10): revision,
+        (AIModelArtifact, 101): artifact,
+        (ModelRegistry, 2): wrong_model,
+    })
+    with pytest.raises(AILabError, match="does not match manifest asset"):
+        await approve_and_activate_deployment(session, approval_id=5, actor="admin")
