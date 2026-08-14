@@ -3,27 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PolyFlip Dashboard</title>
-    
+    <title>PolyFlip — Dashboard & Модели</title>
     <!-- Google Fonts: Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-    
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-
-    <!-- Custom CSS -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Main CSS -->
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ static_version }}">
-    
+    <!-- Chart.js для графиков -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        // Это позволяет API работать корректно, даже если приложение висит на /polyflip/
         window.API_BASE = "{{ root_path }}";
     </script>
 </head>
 <body>
     <div class="app-container">
-        <!-- Sidebar / Navigation -->
+        <!-- Боковое меню -->
         <nav class="sidebar">
             <div class="logo">
                 <span class="poly">Poly</span><span class="flip">Flip</span>
@@ -36,378 +31,220 @@
                 <li class="nav-item" onclick="window.location.href='/backtest'">Бэктест</li>
                 <li class="nav-item" onclick="window.location.href='/lightgbm'">LightGBM (15m)</li>
                 <li class="nav-item" onclick="window.location.href='/execution'">Исполнение сделок (LIVE)</li>
+                <li class="nav-item" onclick="window.location.href='/optimizer'">AI Lab / Оптимизатор</li>
             </ul>
         </nav>
 
-        <!-- Main Content Area -->
+        <!-- Основной контент -->
         <main class="main-content">
-            
-            <!-- TAB: Analytics -->
-            <section id="analytics" class="tab-content active">
-                <header class="tab-header">
-                    <h1>Аналитика</h1>
-                    
+            <!-- Верхняя панель (Header) -->
+            <header class="top-bar">
+                <div class="page-title">
+                    <h1 id="tab-title">Аналитика рынков</h1>
+                </div>
+                <div class="header-actions">
+                    <!-- Селектор периода -->
+                    <div class="period-selector">
+                        <button class="period-btn" data-hours="1">1ч</button>
+                        <button class="period-btn" data-hours="6">6ч</button>
+                        <button class="period-btn active" data-hours="24">24ч</button>
+                    </div>
+                    <!-- Индикатор авто-обновления -->
+                    <div class="auto-refresh-indicator">
+                        <span class="pulse-dot"></span>
+                        <span class="refresh-text">Авто 10с</span>
+                    </div>
+                </div>
+            </header>
 
-                    <script>
-                    async function fetchTimeLeftStats() {
-                        const pre = document.getElementById('time-left-stats');
-                        pre.style.display = 'block';
-                        pre.innerHTML = "<div style='padding: 10px;'>Загрузка...</div>";
-                        try {
-                            const res = await fetch(window.API_BASE + '/api/analytics/time_left_distribution');
-                            const data = await res.json();
-                            
-                            let html = `<table class="data-table" style="width: 100%; text-align: left; margin-top: 10px;">
+            <!-- Контент вкладок -->
+            <div class="tab-content">
+                
+                <!-- ВКЛАДКА 1: АНАЛИТИКА -->
+                <section id="analytics-tab" class="tab-pane active">
+                    <!-- Сетка метрик (KPI Cards) -->
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-title">Активных рынков (15m)</div>
+                            <div class="kpi-value" id="kpi-active-markets">—</div>
+                            <div class="kpi-meta">Polymarket Crypto 15-min</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-title">Снапшотов собрано</div>
+                            <div class="kpi-value" id="kpi-snapshots-count">—</div>
+                            <div class="kpi-meta" id="kpi-snapshots-period">за последние 24ч</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-title">Статус парсеров</div>
+                            <div class="kpi-value status-ok" id="kpi-parsers-status">—</div>
+                            <div class="kpi-meta" id="kpi-parsers-details">Polymarket / Binance WS</div>
+                        </div>
+                    </div>
+
+                    <!-- График активности и сбора данных -->
+                    <div class="chart-container-card">
+                        <div class="card-header">
+                            <h3>Динамика сбора снапшотов (снапшотов/час)</h3>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="activityChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Таблица активных рынков Polymarket -->
+                    <div class="table-card">
+                        <div class="card-header">
+                            <h3>Текущие активные рынки</h3>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="markets-table">
                                 <thead>
                                     <tr>
                                         <th>Актив</th>
-                                        <th>Сэмплов (n)</th>
-                                        <th>Медиана</th>
-                                        <th>p10</th>
-                                        <th>p25</th>
-                                        <th>p75</th>
-                                        <th>p90</th>
-                                        <th>Мин</th>
-                                        <th>Макс</th>
-                                        <th>>22m (%)</th>
+                                        <th>Рынок (Slug)</th>
+                                        <th>Цена UP</th>
+                                        <th>Цена DOWN</th>
+                                        <th>Закрытие через</th>
+                                        <th>Condition ID</th>
                                     </tr>
                                 </thead>
-                                <tbody>`;
-                                
-                            for (const [asset, stats] of Object.entries(data)) {
-                                html += `<tr>
-                                    <td><strong>${asset}</strong></td>
-                                    <td>${stats.n}</td>
-                                    <td>${stats.median}</td>
-                                    <td>${stats.p10}</td>
-                                    <td>${stats.p25}</td>
-                                    <td>${stats.p75}</td>
-                                    <td>${stats.p90}</td>
-                                    <td>${stats.min}</td>
-                                    <td>${stats.max}</td>
-                                    <td>${stats.pct_above_22m}%</td>
-                                </tr>`;
-                            }
-                            html += `</tbody></table>`;
-                            pre.innerHTML = html;
-                            pre.style.background = 'none';
-                            pre.style.padding = '0';
-                        } catch (e) {
-                            pre.textContent = "Ошибка загрузки: " + e.message;
-                        }
-                    }
-                    </script>
-                </header>
-
-                <div class="panel" style="margin-top: 1.5rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-                        <h3 style="margin: 0; font-size: 1.15rem;">Активные ML-модели по активам (Base, Leaning, Decided, LightGBM)</h3>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <label for="active-models-tf-select" style="font-size: 0.85rem; color: var(--text-muted);">Период:</label>
-                            <select id="active-models-tf-select" style="padding: 4px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">
-                                <option value="24h" selected>24 часа</option>
-                                <option value="7d">7 дней</option>
-                                <option value="30d">30 дней</option>
-                                <option value="all">За все время</option>
-                            </select>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="6" class="text-center">Загрузка данных...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
-                    <div style="overflow-x: auto;">
-                        <table class="data-table" id="active-models-table">
-                            <thead>
-                                <tr>
-                                    <th data-sort="asset" style="cursor: pointer; user-select: none;">Актив<span class="sort-icon"></span></th>
-                                    <th data-sort="subtype" style="cursor: pointer; user-select: none;">Тип модели / Назначение<span class="sort-icon"></span></th>
-                                    <th data-sort="version" style="cursor: pointer; user-select: none;">Версия<span class="sort-icon"></span></th>
-                                    <th data-sort="accuracy" style="cursor: pointer; user-select: none;">Качество (Accuracy / ECE)<span class="sort-icon"></span></th>
-                                    <th data-sort="trades" style="cursor: pointer; user-select: none;">Сделок<span class="sort-icon"></span></th>
-                                    <th data-sort="win_rate" style="cursor: pointer; user-select: none;">Win Rate<span class="sort-icon"></span></th>
-                                    <th data-sort="pnl" style="cursor: pointer; user-select: none;">PnL (USDC)<span class="sort-icon"></span></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1rem;">Загрузка активных моделей...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                </section>
 
-                <div id="analytics-placeholder" style="background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 12px; padding: 2rem; text-align: center; margin-top: 1.5rem; margin-bottom: 2rem;">
-                    <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.95rem;">Общая статистика рынков, графики точности моделей и влияния параметров скрыты по умолчанию для максимального ускорения дашборда.</p>
-                    <button id="btn-load-analytics" class="btn primary-btn" style="padding: 0.6rem 1.4rem;">📊 Показать графики и полную статистику</button>
-                </div>
-
-                <div id="analytics-heavy-container" style="display: none; margin-top: 1.5rem;">
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <h3>Рынков обработано</h3>
-                            <div class="stat-value" id="stat-markets">Загрузка...</div>
+                <!-- ВКЛАДКА 2: МОДЕЛИ (ModelRegistry) -->
+                <section id="models-tab" class="tab-pane">
+                    <!-- Верхняя карточка сводки (PnL по моделям) -->
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-title">Всего моделей в Registry</div>
+                            <div class="kpi-value" id="kpi-total-models">—</div>
+                            <div class="kpi-meta">Активных в проде: <span id="kpi-active-models-count" class="text-success">—</span></div>
                         </div>
-                        <div class="stat-card">
-                            <h3>Процент флипов</h3>
-                            <div class="stat-value highlight" id="stat-flips">Загрузка...</div>
+                        <div class="kpi-card">
+                            <div class="kpi-title">Общий PnL (закрытые сделки)</div>
+                            <div class="kpi-value" id="kpi-total-pnl">$0.00</div>
+                            <div class="kpi-meta">Всего сделок: <span id="kpi-total-trades">0</span></div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-title">Средний Win Rate</div>
+                            <div class="kpi-value text-accent" id="kpi-avg-winrate">0.0%</div>
+                            <div class="kpi-meta">По закрытым сделкам</div>
                         </div>
                     </div>
 
-                    <div style="margin-top: 1.5rem; margin-bottom: 2rem;">
-                        <h2>Точность моделей (Accuracy) со временем</h2>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
-                        {% for asset in assets %}
-                            <div class="chart-box">
-                                <h3>{{ asset }}</h3>
-                                <canvas id="chart-model-accuracy-{{ asset|lower }}"></canvas>
+                    <!-- PnL разбивка по версиям моделей -->
+                    <div class="table-card" style="margin-bottom: 2rem;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <h3>Эффективность моделей (PnL по версиям)</h3>
+                                <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
+                                    Данные агрегируются на основе закрытых сделок (TradeHistory) с привязкой к версии модели.
+                                </p>
                             </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 15px; flex-wrap: wrap;">
-                        <h2>Влияние параметров на вероятность флипа</h2>
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <button id="btn-load-charts" class="btn primary-btn" style="padding: 0.5rem 1rem;">Обновить графики параметров</button>
-                            <select id="asset-selector" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; font-size: 1rem; cursor: pointer;">
-                        {% for asset in assets %}
-                                <option value="{{ asset }}">{{ asset }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="charts-container" id="flip-charts-wrapper" style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;">
-                        <div class="chart-box">
-                            <h3>Время до конца</h3>
-                            <p class="chart-desc">Вероятность флипа от оставшегося времени (мин)</p>
-                            <canvas id="chart-time"></canvas>
-                        </div>
-                        <div class="chart-box">
-                            <h3>Текущая цена (mid_price)</h3>
-                            <p class="chart-desc">Зависимость от текущей цены на рынке</p>
-                            <canvas id="chart-price"></canvas>
-                        </div>
-                        <div class="chart-box">
-                            <h3>Спред (spread)</h3>
-                            <p class="chart-desc">Зависимость от разницы между Bid и Ask</p>
-                            <canvas id="chart-spread"></canvas>
-                        </div>
-                        <div class="chart-box">
-                            <h3>Объем (volume_5min)</h3>
-                            <p class="chart-desc">Зависимость от объема торгов за последние 5 минут (USDC)</p>
-                            <canvas id="chart-volume"></canvas>
-                        </div>
-                        <div class="chart-box">
-                            <h3>Скорость изменения цены</h3>
-                            <p class="chart-desc">Зависимость от изменения цены за 5 минут</p>
-                            <canvas id="chart-velocity"></canvas>
-                        </div>
-                        <div class="chart-box">
-                            <h3>Час дня</h3>
-                            <p class="chart-desc">Зависимость от времени суток (UTC)</p>
-                            <canvas id="chart-hour"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- TAB: MODELS -->
-            <div id="models" class="tab-content">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-                    <h2>Управление моделями Polymarket (Logistic Regression)</h2>
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap;" id="train-buttons-container">
-                        <select id="logreg-feature-set" title="Use the same variant across assets for comparable OOT experiments" style="background:rgba(0,0,0,.3);color:white;border:1px solid var(--border-color);border-radius:6px;padding:.45rem .6rem;">
-                            <option value="AUTO">Feature set: AUTO</option>
-                            <option value="A">A - control</option>
-                            <option value="B">B - candle direction and runs</option>
-                            <option value="C">C - direction, runs, body and range</option>
-                        </select>
-                        {% for asset in assets %}
-                        <button class="btn primary-btn btn-train-asset" data-asset="{{ asset }}">Обучить {{ asset }} (LogReg)</button>
-
-                        {% endfor %}
-                        <button class="btn" onclick="fetchTimeLeftStats()">📊 Распределение time_left</button>
-                    </div>
-                </div>
-                <pre id="time-left-stats" style="margin-top: 10px; font-size: 0.9em; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 10px; display: none;"></pre>
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.75rem; background: rgba(255,255,255,0.03); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
-                    <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <span style="font-size: 0.85rem; color: var(--text-muted);">Фильтр:</span>
-                        <button class="btn btn-sm btn-model-filter active" data-filter="all" style="padding: 0.25rem 0.6rem; font-size: 0.8rem;">Все</button>
-                        <button class="btn btn-sm btn-model-filter" data-filter="active" style="padding: 0.25rem 0.6rem; font-size: 0.8rem;">Активные</button>
-                        <button class="btn btn-sm btn-model-filter" data-filter="archive" style="padding: 0.25rem 0.6rem; font-size: 0.8rem;">Архив</button>
-                    </div>
-                    <div id="attribution-stats-summary" style="font-size: 0.85rem; color: var(--text-muted);">
-                        Атрибуция PAPER PnL: точных — <b id="attr-exact-count" style="color: var(--text-main);">0</b> · восстановлено — <b id="attr-reconstructed-count" style="color: var(--text-main);">0</b> · не распределено — <b id="attr-unattributed-count" style="color: var(--text-main);">0</b> сд. / <b id="attr-unattributed-pnl" style="color: var(--text-main);">0.00 USDC</b>
-                    </div>
-                </div>
-
-                <div class="panel" id="model-experiment-panel" style="margin-bottom: 1rem;">
-                    <div style="display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; align-items:end;">
-                        <div>
-                            <h3 style="margin:0 0 0.35rem 0;">Model OOT experiment comparison</h3>
-                            <div style="color:var(--text-muted); font-size:0.85rem;">
-                                Each group has the same asset, OOT window, target, validation scheme and strategy branch.
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <label style="font-size: 0.85rem; color: var(--text-muted);">Период:</label>
+                                <select id="model-pnl-days" class="custom-select" style="padding: 0.3rem 0.6rem; font-size: 0.85rem;" onchange="loadModelsPnLData()">
+                                    <option value="7">7 дней</option>
+                                    <option value="14">14 дней</option>
+                                    <option value="30" selected>30 дней</option>
+                                    <option value="90">90 дней</option>
+                                </select>
                             </div>
                         </div>
-                        <label style="font-size:0.85rem; color:var(--text-muted);">
-                            Comparable group
-                            <select id="experiment-group-select" style="display:block; margin-top:0.3rem; min-width:330px; background:rgba(0,0,0,.3); color:white; border:1px solid var(--border-color); border-radius:6px; padding:.45rem .6rem;"></select>
-                        </label>
-                    </div>
-                    <div style="overflow-x:auto; margin-top:1rem;">
-                        <table class="data-table" id="experiment-comparison-table">
-                            <thead><tr>
-                                <th>Version</th><th>Feature set</th><th>Stable features</th><th>AUC</th><th>Lift</th>
-                                <th>Brier</th><th>ECE</th><th>Log Loss</th><th>OOT markets</th>
-                                <th>Backtest PnL</th><th>Trades</th><th>Configuration</th>
-                            </tr></thead>
-                            <tbody><tr><td colspan="12" style="text-align:center;color:var(--text-muted);">No comparable experiments yet</td></tr></tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="panel">
-                    <div style="overflow-x: auto;">
-                        <table class="data-table" id="models-table">
-                            <thead>
-                                <tr>
-                                    <th data-sort="asset" style="cursor: pointer; user-select: none;">Актив <span class="sort-icon"></span></th>
-                                    <th data-sort="version" style="cursor: pointer; user-select: none;">Версия <span class="sort-icon"></span></th>
-                                    <th data-sort="accuracy" style="cursor: pointer; user-select: none;">Точность <span class="sort-icon"></span></th>
-                                    <th data-sort="baseline" style="cursor: pointer; user-select: none;">Бейзлайн <span class="sort-icon"></span></th>
-                                    <th data-sort="ece" style="cursor: pointer; user-select: none;">ECE (Ошибка) <span class="sort-icon"></span></th>
-                                    <th data-sort="trained_at" style="cursor: pointer; user-select: none;">Дата обучения <span class="sort-icon"></span></th>
-                                    <th data-sort="backtest_pnl" style="cursor: pointer; user-select: none; white-space: nowrap;">BACKTEST PnL (OOF) <span class="sort-icon"></span></th>
-                                    <th data-sort="pnl" style="cursor: pointer; user-select: none; white-space: nowrap;">PnL модели в PAPER <span class="sort-icon"></span></th>
-                                    <th data-sort="status" style="cursor: pointer; user-select: none;">Статус <span class="sort-icon"></span></th>
-                                    <th>Действие</th>
-                                </tr>
-                            </thead>
-
-                            <tbody>
-                                <!-- JS will populate this -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="panel" style="margin-top: 1.5rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
-                        <div>
-                            <h3 style="margin: 0; font-size: 1.15rem;">📊 Анализ признаков и весов (Feature Importance)</h3>
-                            <p style="margin: 4px 0 0 0; color: var(--text-muted, #8F9BB3); font-size: 0.85rem;">Все 22 признака модели, весовые коэффициенты ($\beta$) и направление их влияния на вероятность флипа</p>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <label for="feature-weights-model-select" style="font-size: 0.88rem; color: var(--text-muted, #8F9BB3);">Модель:</label>
-                            <select id="feature-weights-model-select" class="form-control" style="background: rgba(0,0,0,0.3); color: #fff; border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 6px; font-size: 0.88rem; min-width: 180px;">
-                                <option value="">Загрузка моделей...</option>
-                            </select>
+                        <div class="table-responsive">
+                            <table class="data-table" id="models-pnl-table">
+                                <thead>
+                                    <tr>
+                                        <th>Актив</th>
+                                        <th>Версия</th>
+                                        <th>Сделок</th>
+                                        <th>Точных привязок</th>
+                                        <th>Восстановленных</th>
+                                        <th>Винрейт</th>
+                                        <th>Реализованный PnL ($)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="7" class="text-center">Загрузка PnL моделей...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
-                    <!-- Сводная сводка категорий признаков -->
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 1.2rem;">
-                        <div style="background: rgba(96, 165, 250, 0.08); border: 1px solid rgba(96, 165, 250, 0.2); border-radius: 8px; padding: 10px 14px;">
-                            <div style="color: #60a5fa; font-weight: 600; font-size: 0.85rem; margin-bottom: 2px;">📊 Рыночные сигналы (6)</div>
-                            <div style="color: var(--text-muted); font-size: 0.78rem;">Сценарий стакана: mid_price, spread, volume, velocity, time_left, hour</div>
+                    <!-- Таблица зарегистрированных моделей -->
+                    <div class="table-card">
+                        <div class="card-header">
+                            <h3>Реестр ML моделей (ModelRegistry)</h3>
                         </div>
-                        <div style="background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 8px; padding: 10px 14px;">
-                            <div style="color: #c084fc; font-weight: 600; font-size: 0.85rem; margin-bottom: 2px;">📈 Динамика & Лаги (6)</div>
-                            <div style="color: var(--text-muted); font-size: 0.78rem;">Тренды & История: velocity_lag1, momentum, spread_trend, volume_trend</div>
-                        </div>
-                        <div style="background: rgba(52, 211, 153, 0.08); border: 1px solid rgba(52, 211, 153, 0.2); border-radius: 8px; padding: 10px 14px;">
-                            <div style="color: #34d399; font-weight: 600; font-size: 0.85rem; margin-bottom: 2px;">🧮 Математика (10)</div>
-                            <div style="color: var(--text-muted); font-size: 0.78rem;">Нелинейности: deviation, dev_sq, time_phase, velocity_x_phase</div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="models-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Актив</th>
+                                        <th>Версия</th>
+                                        <th>Тип модели</th>
+                                        <th>Набор признаков (Features)</th>
+                                        <th>Порог UP</th>
+                                        <th>Порог DOWN</th>
+                                        <th>Точность (Acc)</th>
+                                        <th>Backtest PnL</th>
+                                        <th>Сделок (Backtest)</th>
+                                        <th>Статус</th>
+                                        <th>Дата создания</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="12" class="text-center">Загрузка моделей...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
+                </section>
 
-                    <!-- Таблица весов выбранной модели -->
-                    <div style="overflow-x: auto;">
-                        <table class="data-table" id="feature-weights-table" style="width: 100%; text-align: left; font-size: 0.88rem;">
-                            <thead>
-                                <tr>
-                                    <th>Признак (Feature)</th>
-                                    <th>Категория</th>
-                                    <th style="text-align: right;">Коэффициент ($\beta$)</th>
-                                    <th>Влияние на P(flip)</th>
-                                    <th style="width: 25%;">Сила воздействия</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Выберите модель для просмотра весов</td></tr>
-                            </tbody>
-                        </table>
+                <!-- ВКЛАДКА 3: СТАТУС ПАРСЕРА -->
+                <section id="status-tab" class="tab-pane">
+                    <div class="table-card">
+                        <div class="card-header">
+                            <h3>Состояние сервисов сбора данных (CollectorStatus)</h3>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="status-table">
+                                <thead>
+                                    <tr>
+                                        <th>Сервис</th>
+                                        <th>Статус</th>
+                                        <th>Задержка (Latency)</th>
+                                        <th>Последний сигнал</th>
+                                        <th>Детали / Ошибки</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="5" class="text-center">Загрузка статусов...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
+                </section>
+
             </div>
-
-            <!-- TAB: Status -->
-            <section id="status" class="tab-content">
-                 <header class="tab-header">
-                     <h1>Статус Парсера</h1>
-                     <div style="display: flex; gap: 10px;">
-                         <button id="btn-verify-resolves" class="btn primary-btn">Сверить исходы рынков</button>
-                         <button id="btn-refresh-status" class="btn outline-btn">Обновить</button>
-                     </div>
-                 </header>
-                 
-                 <!-- Лог сверки исходов -->
-                 <div id="verify-resolves-log-panel" class="status-panel" style="max-width: 900px; margin-bottom: 20px; display: none;">
-                     <h3 style="margin-bottom: 1rem;">Лог сверки исходов с Polymarket</h3>
-                     <div id="verify-resolves-log" style="max-height: 300px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 1rem; border: 1px solid var(--border-color); font-family: monospace; font-size: 0.9rem; color: #FFF;">
-                         <!-- Заполняется через JS -->
-                     </div>
-                 </div>
-                <div class="status-panel">
-                    <div id="collector-status-card" class="stat-card" style="margin-bottom: 20px;">
-                        <h3>Сборщик (Коллектор)</h3>
-                        <p>Статус: <span id="cs-status">--</span></p>
-                        <p>Последний запуск: <span id="cs-run-at">--</span></p>
-                        <p>Длительность: <span id="cs-duration">--</span> сек.</p>
-                        <p>Рынков найдено: <span id="cs-found">--</span> | Сохранено: <span id="cs-saved">--</span></p>
-                        <p id="cs-error" style="color: #ff3366; display: none;"></p>
-                    </div>
-
-                    <h3>Снепшоты (Датасет)</h3>
-                    <table class="data-table" id="dataset-table" style="width: 100%; margin-bottom: 20px; text-align: left;">
-                        <thead>
-                            <tr>
-                                <th>Актив</th>
-                                <th>Статус</th>
-                                <th>Готово к ML (RESOLVED)</th>
-                                <th>В процессе (PENDING)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Рендерится через JS -->
-                        </tbody>
-                    </table>
-
-                    <h3>Активные рынки (Live)</h3>
-                    <div style="overflow-x: auto;">
-                        <table class="data-table" id="live-table" style="width: 100%; text-align: left;">
-                            <thead>
-                                <tr>
-                                    <th>Актив</th>
-                                    <th>Рынок</th>
-                                    <th>Цена YES</th>
-                                    <th>Спред</th>
-                                    <th>Объем (5m)</th>
-                                    <th>Закрытие</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <!-- Рендерится через JS -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-
-
         </main>
     </div>
 
-    <!-- Custom JS -->
-    <script src="{{ url_for('static', path='/js/notifications.js') }}?v={{ static_version }}"></script>
-    <script src="{{ url_for('static', path='/js/app.js') }}?v={{ static_version }}"></script>
+    <!-- Основной JS скрипт дашборда -->
+    <script src="{{ url_for('static', path='/js/dashboard.js') }}?v={{ static_version }}"></script>
 </body>
 </html>
