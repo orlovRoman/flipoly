@@ -645,9 +645,9 @@ class DecisionFunnelLog(Base):
     asset = Column(String(32), nullable=False)
     condition_id = Column(String(128), nullable=True)
     step_name = Column(
-        String(64), nullable=False
+        String(64), nullable=True
     )  # e.g., 'TIME_WINDOW', 'SPREAD_CHECK', 'ML_INFERENCE', 'ORDER_EXECUTION'
-    decision = Column(String(16), nullable=False)  # 'PASS', 'REJECT', 'EXECUTE'
+    decision = Column(String(16), nullable=True)  # 'PASS', 'REJECT', 'EXECUTE'
     reason = Column(
         String(256), nullable=True
     )  # e.g., 'time_left_seconds 895 > 840', 'p_up 0.52 < 0.55'
@@ -1292,8 +1292,8 @@ class AIShadowAssignment(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     run_id = Column(
         Integer,
-        ForeignKey("ai_optimization_runs.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("ai_optimization_runs.id", ondelete="SET NULL"),
+        nullable=True,
     )
     candidate_artifact_id = Column(
         Integer,
