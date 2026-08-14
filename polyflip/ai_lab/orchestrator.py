@@ -123,43 +123,37 @@ def evaluate_finalization_gate(
 ) -> dict[str, Any]:
     """Evaluate whether a candidate config passes strict finalization gates."""
     rejection_reasons: list[str] = []
-    polymarket_count = int(row.get("polymarket_oot_evaluation_count") or 0)
+    polymarket_count = int(_finite(row.get("polymarket_oot_evaluation_count")) or 0)
+    window_count = int(_finite(row.get("window_count")) or 0)
+    total_trades = int(_finite(row.get("total_trades")) or 0)
+    median_pnl = _finite(row.get("median_oot_pnl"))
+    median_drawdown_raw = row.get("median_oot_drawdown")
+    invalid_count = int(_finite(row.get("invalid_result_count")) or 0)
+
     if polymarket_count == 0:
         rejection_reasons.append("NO_PNL_SAMPLE")
-
-    window_count = int(row.get("window_count") or 0)
-    total_trades = int(row.get("total_trades") or 0)
-    median_pnl = row.get("median_oot_pnl")
-    median_drawdown = row.get("median_oot_drawdown")
-
-    if median_pnl is None or not math.isfinite(median_pnl):
+    if invalid_count > 0:
         rejection_reasons.append("INVALID_RESULT")
-    elif median_pnl <= 0.0:
-        rejection_reasons.append("NON_POSITIVE_PNL")
-
-    if median_drawdown is not None and not math.isfinite(median_drawdown):
+    if median_pnl is None:
         if "INVALID_RESULT" not in rejection_reasons:
             rejection_reasons.append("INVALID_RESULT")
-
+    elif median_pnl <= 0.0:
+        rejection_reasons.append("NON_POSITIVE_PNL")
+    if median_drawdown_raw is not None and _finite(median_drawdown_raw) is None:
+        if "INVALID_RESULT" not in rejection_reasons:
+            rejection_reasons.append("INVALID_RESULT")
     if total_trades < min_trades:
         rejection_reasons.append("INSUFFICIENT_TRADES")
-
     if window_count < min_windows:
         rejection_reasons.append("INSUFFICIENT_WINDOWS")
 
-    is_eligible = len(rejection_reasons) == 0
     return {
-        "eligible": is_eligible,
-        "rejection_reasons": rejection_reasons,
+        "eligible": not rejection_reasons,
+        "rejection_reasons": list(dict.fromkeys(rejection_reasons)),
         "window_count": window_count,
         "total_trades": total_trades,
-        "median_pnl": (
-            median_pnl
-            if (median_pnl is not None and math.isfinite(median_pnl))
-            else None
-        ),
+        "median_pnl": median_pnl,
     }
-
 
 def build_experiment_report(
     results: Sequence[ExperimentResult | Mapping[str, Any]],
@@ -382,68 +376,66 @@ def build_experiment_report(
 
 async def plan_run(
     session: AsyncSession,
-    *,
     run_id: int,
     config_ids: Sequence[int],
 ) -> list[AIRunStep]:
-    """Populate the bounded queue for one optimization run."""
+    """Create an idempotent, bounded training/backtest plan for a run."""
     run = await session.get(AIOptimizationRun, run_id)
     if run is None:
         raise AILabError(f"AI Lab run {run_id} not found")
     if run.status not in {"DRAFT", "PLANNING"}:
         raise AILabError(f"run {run_id} cannot be planned from {run.status}")
+
+    normalized_ids = list(dict.fromkeys(int(config_id) for config_id in config_ids))
+    if not normalized_ids:
+        raise AILabError("at least one experiment config is required")
+    if run.budget_experiments and len(normalized_ids) > run.budget_experiments:
+        raise AILabError(
+            f"experiment budget {run.budget_experiments} is smaller than "
+            f"{len(normalized_ids)} requested configs"
+        )
     await authorize_run_action(session, run_id, "CREATE_EXPERIMENT")
+
+    existing = (
+        await session.execute(
+            select(AIRunStep.id).where(AIRunStep.run_id == run_id).limit(1)
+        )
+    ).first()
+    if existing is not None:
+        raise AILabError("run already has a plan")
 
     configs = (
         await session.execute(
             select(AIExperimentConfig).where(
-                AIExperimentConfig.id.in_(list(config_ids))
+                AIExperimentConfig.id.in_(normalized_ids)
             )
         )
     ).scalars().all()
     found_ids = {config.id for config in configs}
-    missing = set(config_ids) - found_ids
+    missing = sorted(set(normalized_ids).difference(found_ids))
     if missing:
-        raise AILabError(f"experiment configs not found: {sorted(missing)}")
+        raise AILabError(f"experiment configs not found: {missing}")
 
-    existing_steps = (
-        await session.execute(
-            select(AIRunStep.id).where(AIRunStep.run_id == run_id).limit(1)
-        )
-    ).scalar_one_or_none()
-    if existing_steps is not None:
-        raise AILabError(f"run {run_id} already has planned steps")
+    if run.status == "DRAFT":
+        await transition_run(session, run, "PLANNING", reason="experiment plan created")
 
-    planned = default_plan_steps(config_ids)
-    limit = int(run.experiment_budget or len(planned))
-    if len(planned) > limit:
-        raise AILabError(
-            f"plan exceeds experiment budget ({len(planned)} > {limit})"
-        )
-
-    db_steps: list[AIRunStep] = []
-    for item in planned:
+    steps: list[AIRunStep] = []
+    for payload in default_plan_steps(normalized_ids):
         step = AIRunStep(
             run_id=run_id,
-            step_index=item["step_index"],
-            action=item["action"],
+            step_index=payload["step_index"],
+            step_type=payload["step_type"],
             status="PENDING",
-            input_payload={
-                "step_type": item["step_type"],
-                "config_id": item["config_id"],
-            },
+            action=payload["action"],
+            input_payload={"config_id": payload["config_id"]},
+            summary=f"Queued {payload['step_type']} for config {payload['config_id']}.",
             created_at=utc_now(),
         )
         session.add(step)
-        db_steps.append(step)
-
-    if run.status == "DRAFT":
-        await transition_run(
-            session, run, "PLANNING", reason="experiment plan created"
-        )
+        steps.append(step)
+    run.summary = f"Planned {len(normalized_ids)} configs ({len(steps)} steps)."
     await session.flush()
-    return db_steps
-
+    return steps
 
 async def claim_next_step(
     session: AsyncSession,
@@ -486,13 +478,13 @@ async def record_result(
     config_id: int,
     evaluation_kind: str,
     status: str = "SUCCEEDED",
-    step_id: int | None = None,
-    artifact_id: int | None = None,
     metrics: Mapping[str, Any] | None = None,
     slices: Mapping[str, Any] | None = None,
     trade_count: int | None = None,
     net_pnl: float | None = None,
     max_drawdown: float | None = None,
+    artifact_id: int | None = None,
+    step_id: int | None = None,
     code_sha: str | None = None,
     dataset_fingerprint: str | None = None,
     train_window_start: Any | None = None,
@@ -503,20 +495,41 @@ async def record_result(
     error_code: str | None = None,
     error_message: str | None = None,
 ) -> ExperimentResult:
-    """Record an immutable result and atomically update the queue step."""
-    kind = evaluation_kind.upper()
-    action = RESULT_ACTIONS.get(kind)
-    if action is None:
-        raise AILabError(f"unsupported evaluation kind: {evaluation_kind}")
-    await authorize_run_action(session, run_id, action)
+    kind = evaluation_kind.strip().upper()
+    if kind not in RESULT_ACTIONS:
+        raise AILabError(f"unsupported evaluation kind: {kind}")
+    status = status.strip().upper()
+    if status not in {"PENDING", "RUNNING", "SUCCEEDED", "FAILED", "INSUFFICIENT_DATA"}:
+        raise AILabError(f"unsupported result status: {status}")
+    if trade_count is not None and trade_count < 0:
+        raise AILabError("trade_count must be non-negative")
+    if net_pnl is not None and _finite(net_pnl) is None:
+        raise AILabError("net_pnl must be finite when supplied")
+    if max_drawdown is not None and _finite(max_drawdown) is None:
+        raise AILabError("max_drawdown must be finite when supplied")
 
-    step: AIRunStep | None = None
+    run = await session.get(AIOptimizationRun, run_id)
+    if run is None:
+        raise AILabError(f"AI Lab run {run_id} not found")
+    await authorize_run_action(session, run_id, RESULT_ACTIONS[kind])
+    config = await session.get(AIExperimentConfig, config_id)
+    if config is None:
+        raise AILabError(f"experiment config {config_id} not found")
+    if artifact_id is not None and await session.get(AIModelArtifact, artifact_id) is None:
+        raise AILabError(f"model artifact {artifact_id} not found")
+
+    step = None
     if step_id is not None:
         step = await session.get(AIRunStep, step_id)
         if step is None or step.run_id != run_id:
-            raise AILabError(f"step {step_id} does not belong to run {run_id}")
-        if step.status not in {"RUNNING", "PENDING"}:
-            raise AILabError(f"step {step_id} cannot be closed from {step.status}")
+            raise AILabError(f"run step {step_id} not found")
+        if step.action and step.action != RESULT_ACTIONS[kind]:
+            raise AILabError(
+                f"step {step_id} action {step.action} does not match "
+                f"{RESULT_ACTIONS[kind]}"
+            )
+        if step.status in TERMINAL_STEP_STATUSES:
+            raise AILabError(f"step {step_id} is already terminal")
 
     result = ExperimentResult(
         run_id=run_id,
@@ -524,8 +537,8 @@ async def record_result(
         artifact_id=artifact_id,
         evaluation_kind=kind,
         status=status,
-        metrics=dict(metrics or {}),
-        slices=dict(slices or {}),
+        metrics=dict(metrics) if metrics is not None else None,
+        slices=dict(slices) if slices is not None else None,
         trade_count=trade_count,
         net_pnl=net_pnl,
         max_drawdown=max_drawdown,
@@ -547,12 +560,11 @@ async def record_result(
             "result_status": status,
             "evaluation_kind": kind,
         }
-        step.summary = summary[:4000] if summary else step.summary
+        step.summary = (summary[:4000] if summary else step.summary)
         step.error_code = error_code[:64] if error_code else None
         step.error_message = error_message[:4000] if error_message else None
         await session.flush()
     return result
-
 
 async def evaluate_run(
     session: AsyncSession,
