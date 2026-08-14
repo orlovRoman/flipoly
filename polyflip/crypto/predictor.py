@@ -398,6 +398,7 @@ class CryptoPredictor:
         invert_lgbm_signal: bool = False,
         underlying_price: float | None = None,
         decision_time: datetime | None = None,
+        market_context: Any | None = None,
     ) -> CryptoSignal:
         """
         Синхронный инференс по релевантной модели волатильности.
@@ -418,7 +419,11 @@ class CryptoPredictor:
 
         try:
             # 1. Сборка вектора признаков
-            feature_vector = build_crypto_features(candles, underlying_price=underlying_price)
+            feature_vector = build_crypto_features(
+                candles,
+                underlying_price=underlying_price,
+                market_context=market_context,
+            )
 
             if not feature_vector.valid:
                 return CryptoSignal(

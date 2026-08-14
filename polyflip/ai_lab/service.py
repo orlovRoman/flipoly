@@ -144,6 +144,7 @@ async def create_run(
         budget_seconds=budget_seconds,
         created_by=created_by,
         permission_id=permission.id if permission is not None else None,
+        status="DRAFT",
         created_at=utc_now(),
     )
     session.add(row)

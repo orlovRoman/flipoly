@@ -39,6 +39,31 @@ CONTROL_FEATURES: tuple[str, ...] = (
     "strike_gap_pct", "log_moneyness",
 )
 
+# D is a deliberately small, audit-derived schema.  It keeps features that
+# were repeatedly useful across recent asset/regime audits and removes the
+# sequence fields that were usually zero-gain.  E adds the canonical contract
+# context back; F adds only context that is available at the decision boundary.
+STABLE_FEATURES: tuple[str, ...] = (
+    "ret_1", "ret_3", "ret_6",
+    "vol_6", "vol_24", "vol_z_1",
+    "taker_buy_ratio", "cvd_1", "cvd_6",
+    "rsi_14", "ema_ratio_9_21", "bb_width", "bb_position",
+    "dist_to_high_24", "dist_to_low_24",
+    "range_1", "range_avg_24", "consec_balance",
+    "hour_sin", "hour_cos", "dow_sin", "dow_cos",
+)
+CANONICAL_STRIKE_FEATURES: tuple[str, ...] = ("strike_gap_pct", "log_moneyness")
+MARKET_CONTEXT_FEATURES: tuple[str, ...] = (
+    "pm_momentum_5m",
+    "pm_volume_5m",
+    "pm_spread_pct",
+    "pm_quote_pressure",
+    # Top-of-book prices persisted by MarketSnapshot. These are execution
+    # context features, not fabricated depth imbalance.
+    "pm_best_bid",
+    "pm_best_ask",
+)
+
 FEATURE_SETS: dict[str, CryptoFeatureSet] = {
     "A": CryptoFeatureSet("A", "A-control-v1", CONTROL_FEATURES),
     "B": CryptoFeatureSet(
@@ -51,10 +76,23 @@ FEATURE_SETS: dict[str, CryptoFeatureSet] = {
         "C-candle-structure-v1",
         (*CONTROL_FEATURES, *SEQUENCE_CANDLE_FEATURES),
     ),
+    "D": CryptoFeatureSet("D", "D-stable-audit-v1", STABLE_FEATURES),
+    "E": CryptoFeatureSet(
+        "E", "E-stable-strike-v1",
+        (*STABLE_FEATURES, *CANONICAL_STRIKE_FEATURES),
+    ),
+    "F": CryptoFeatureSet(
+        "F", "F-stable-market-context-v1",
+        (*STABLE_FEATURES, *CANONICAL_STRIKE_FEATURES, *MARKET_CONTEXT_FEATURES),
+    ),
 }
 
 EXPERIMENTAL_FEATURES: tuple[str, ...] = tuple(
-    dict.fromkeys((*SEQUENCE_DIRECTION_FEATURES, *SEQUENCE_CANDLE_FEATURES))
+    dict.fromkeys((
+        *SEQUENCE_DIRECTION_FEATURES,
+        *SEQUENCE_CANDLE_FEATURES,
+        *MARKET_CONTEXT_FEATURES,
+    ))
 )
 ALL_CRYPTO_FEATURES: tuple[str, ...] = tuple(
     dict.fromkeys((*CRYPTO_FEATURE_COLUMNS, *EXPERIMENTAL_FEATURES))

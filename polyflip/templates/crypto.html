@@ -231,13 +231,16 @@
                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;" id="train-buttons-container">
                     <label for="lgbm-feature-set" style="font-size: 0.85rem; color: var(--text-muted);">Набор признаков:</label>
                     <span class="lgbm-help" tabindex="0" role="img"
-                          aria-label="A — контрольный набор; B — направления и серии свечей; C — тело и структура свечей."
-                          title="A — контрольный набор; B — направления и серии свечей; C — тело и структура свечей.">?</span>
-                    <select id="lgbm-feature-set" title="A — контрольный набор; B — направления и серии свечей; C — тело и структура свечей."
+                          aria-label="A — контрольный набор; B/C — свечные признаки; D — стабильные; E — страйк; F — 5m market context."
+                          title="A — контрольный набор; B/C — свечные признаки; D — стабильные; E — страйк; F — 5m market context.">?</span>
+                    <select id="lgbm-feature-set" title="A — контрольный набор; B/C — sequence features; D — стабильные признаки; E — канонический strike; F — 5m context и top-of-book."
                             style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.65rem; border-radius: 6px;">
                         <option value="A">A — контрольный набор</option>
                         <option value="B">B — направления и серии</option>
                         <option value="C">C — структура свечей</option>
+                        <option value="D">D — стабильные признаки</option>
+                        <option value="E">E — D + канонический страйк</option>
+                        <option value="F">F — E + market context 5m</option>
                     </select>
                     <label for="lgbm-activate-after-train" style="font-size: 0.85rem; color: var(--text-muted); display:flex; align-items:center; gap:0.35rem;" title="Automatically activate the new model after training">
                         <input type="checkbox" id="lgbm-activate-after-train">
@@ -321,16 +324,16 @@
                 <div id="lgbm-experiment-panel" class="panel" style="margin-bottom: 1.5rem;">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
                         <div>
-                            <h2 style="margin:0;">LightGBM A/B/C experiment comparison</h2>
-                            <div style="color:var(--text-muted); font-size:0.85rem;">Сохранённые OOT-кандидаты; кнопка проверки не переобучает модель.</div>
+                            <h2 style="margin:0;">LightGBM D/E/F experiment comparison</h2>
+                            <div style="color:var(--text-muted); font-size:0.85rem;">Сохранённые OOT-кандидаты D/E/F; кнопка проверки не переобучает модель.</div>
                             <div class="lgbm-save-status" title="Что означает SAVED в таблице кандидатов">ℹ️ Легенда: SAVED = модель записана в ModelRegistry</div>
                         </div>
                         <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
                             <label for="lgbm-experiment-group" style="font-size:0.82rem; color:var(--text-muted);">Группа сравнения:</label>
                             <span class="lgbm-help" tabindex="0" role="img"
-                                  aria-label="Выберите актив и режим волатильности с сохранёнными кандидатами A/B/C, например BTCUSDT_high_vol."
-                                  title="Выберите актив и режим волатильности с сохранёнными кандидатами A/B/C, например BTCUSDT_high_vol.">?</span>
-                            <select id="lgbm-experiment-group" title="Группа сравнения: актив и режим волатильности для сопоставления кандидатов A/B/C." style="min-width:260px;">
+                                  aria-label="Выберите актив и режим волатильности с сохранёнными кандидатами D/E/F, например BTCUSDT_high_vol."
+                                  title="Выберите актив и режим волатильности с сохранёнными кандидатами D/E/F, например BTCUSDT_high_vol.">?</span>
+                            <select id="lgbm-experiment-group" title="Группа сравнения: актив и режим волатильности для сопоставления кандидатов D/E/F." style="min-width:260px;">
                                 <option value="">No comparable groups yet</option>
                             </select>
                             <label for="lgbm-experiment-branch" style="font-size:0.82rem; color:var(--text-muted);">Ветка бэктеста:</label>
@@ -470,10 +473,13 @@
                         <select id="bt-symbol" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 130px;">
                             {% for sym in symbols %}<option>{{ sym }}</option>{% endfor %}
                         </select>
-                        <select id="bt-feature-set" title="Compare A/B/C feature variants" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 180px;">
+                        <select id="bt-feature-set" title="Compare D/E/F feature variants" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 180px;">
                             <option value="A">A - control</option>
                             <option value="B">B - directions and runs</option>
                             <option value="C">C - candle structure</option>
+                            <option value="D">D - stable audit features</option>
+                            <option value="E">E - stable + canonical strike</option>
+                            <option value="F">F - stable + 5m market context</option>
                         </select>
                         <select id="bt-strategy-branch" title="Polymarket strategy branch" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; border-radius: 8px; outline: none; cursor: pointer; width: 180px;">
                             <option value="OUTSIDER_ONLY">Outsider only</option>
@@ -939,7 +945,7 @@
             }
             if (!lgbmExperimentData.length) {
                 select.innerHTML = '<option value="">No comparable groups yet</option>';
-                table.innerHTML = '<div style="color:var(--text-muted);">No saved A/B/C candidates.</div>';
+                table.innerHTML = '<div style="color:var(--text-muted);">No saved D/E/F candidates.</div>';
                 return;
             }
             const current = select.value || lgbmExperimentData[0].comparison_key;
@@ -1015,7 +1021,7 @@
                 const rows = (payload.rows || []).map(row => {
                     const delta = row.delta_vs_control || {};
                     const signed = value => value == null ? '-' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(4)}`;
-                    return `<tr><td>${row.feature_set || '-'}</td><td>v${row.version ?? '-'}</td><td>${row.pnl == null ? '-' : Number(row.pnl).toFixed(2)}</td><td>${row.trades}</td><td>${row.median_oot_drawdown_pct == null ? '-' : Number(row.median_oot_drawdown_pct).toFixed(2) + '%'}</td><td>${signed(delta.auc)}</td><td>${signed(delta.ece)}</td><td>${signed(delta.brier)}</td><td>${signed(delta.pnl)}</td></tr>`;
+                    return `<tr><td>${row.feature_set || '-'}</td><td>v${row.version ?? '-'}</td><td>${row.pnl == null ? '-' : Number(row.pnl).toFixed(2)}</td><td>${row.total_oot_trades ?? row.trades ?? '-'}</td><td>${row.median_oot_drawdown_pct == null ? '-' : Number(row.median_oot_drawdown_pct).toFixed(2) + '%'}</td><td>${signed(delta.auc)}</td><td>${signed(delta.ece)}</td><td>${signed(delta.brier)}</td><td>${signed(delta.pnl)}</td></tr>`;
                 }).join('');
                 const stable = Object.entries(payload.stable_features_by_variant || {})
                     .map(([variant, features]) => `${variant}: ${(features || []).join(', ') || '-'}`).join(' · ') || '-';
@@ -1024,7 +1030,7 @@
                     <div style="margin-top:0.45rem; color:var(--text-muted);">${payload.recommendation_reason}</div>
                     <div style="margin-top:0.45rem;">Recommendation: <b>${payload.recommended_variant || '-'}</b> (model ${payload.recommended_model_id || '-'}) · activation: <b>${payload.activation_policy}</b></div>
                     <div style="margin-top:0.45rem; color:var(--text-muted);">Stable features: ${stable}</div>
-                    <div class="lgbm-table-scroll" style="margin-top:0.7rem;"><table class="styled-table lgbm-report-table"><colgroup><col style="width:8%"><col style="width:9%"><col style="width:15%"><col style="width:15%"><col style="width:13%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th>Variant</th><th>Version</th><th>Median OOT PnL</th><th>Median OOT trades</th><th>Median OOT DD</th><th>Δ AUC</th><th>Δ ECE</th><th>Δ Brier</th><th>Δ PnL</th></tr></thead><tbody>${rows}</tbody></table></div>
+                    <div class="lgbm-table-scroll" style="margin-top:0.7rem;"><table class="styled-table lgbm-report-table"><colgroup><col style="width:8%"><col style="width:9%"><col style="width:15%"><col style="width:15%"><col style="width:13%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th>Variant</th><th>Version</th><th>Median OOT PnL</th><th>Total OOT trades</th><th>Median OOT DD</th><th>Δ AUC</th><th>Δ ECE</th><th>Δ Brier</th><th>Δ PnL</th></tr></thead><tbody>${rows}</tbody></table></div>
                 </div>`;
             } catch (error) {
                 if (error.name === 'AbortError') return;

@@ -110,6 +110,7 @@ async def get_or_create_market_direction_signal(
         funding_rate=funding_rate,
         invert_lgbm_signal=invert_lgbm_signal,
         underlying_price=underlying_price,
+        market_context=market,
         **prediction_kwargs,
     )
     row = MarketDirectionSignal(

@@ -796,7 +796,12 @@ def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -
     """Build a comparable, advisory report without activating any model."""
     branch = strategy_branch.strip().upper()
     candidates = list(group.get("variants") or [])
-    control = next((row for row in candidates if row.get("feature_set") == "A"), None)
+    # D is the control for the D/E/F experiment. Keep A as a
+    # compatibility fallback for older A/B/C groups.
+    control = next(
+        (row for row in candidates if row.get("feature_set") == "D"),
+        next((row for row in candidates if row.get("feature_set") == "A"), None),
+    )
 
     def metric(row: dict[str, Any] | None, name: str) -> float | None:
         if not row or row.get(name) is None:
@@ -825,6 +830,17 @@ def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -
         trades = int(round(trades_value or 0.0))
         pnl = oot_metric(backtest, "net_profit", "net_profit")
         drawdown = oot_metric(backtest, "max_drawdown_pct", "max_drawdown_pct")
+        total_trades = int(round(metric(backtest, "n_trades") or 0.0))
+        windows = [
+            item for item in (backtest.get("oot_windows") or [])
+            if isinstance(item, dict)
+        ]
+        window_pnls = [
+            float(item.get("net_profit") or 0.0)
+            for item in windows
+            if item.get("net_profit") is not None
+        ]
+        stable_oot = len(windows) >= 3 and len(window_pnls) >= 3
         control_pnl = oot_metric(branch_result(control), "net_profit", "net_profit") if control else None
         report_rows.append({
             "model_id": row.get("model_id"),
@@ -838,6 +854,10 @@ def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -
             "median_oot_pnl": pnl,
             "median_oot_trades": trades,
             "median_oot_drawdown_pct": drawdown,
+            "total_oot_trades": total_trades,
+            "oot_window_count": len(windows),
+            "oot_window_pnls": window_pnls,
+            "stable_oot": stable_oot,
             "roi_pct": metric(backtest, "roi_pct"),
             "coverage_pct": metric(backtest, "coverage_pct"),
             "delta_vs_control": {
@@ -850,15 +870,45 @@ def _build_lgbm_experiment_report(group: dict[str, Any], strategy_branch: str) -
             "feature_audit_summary": row.get("feature_audit_summary") or {},
         })
 
-    pnl_candidates = [row for row in report_rows if row["median_oot_pnl"] is not None and row["median_oot_trades"] >= 3]
+    # Activation recommendations require real coverage: at least 50 total
+    # OOT trades and three chronological windows. AUC/ECE fallback is only
+    # diagnostic and is never presented as an activation decision.
+    pnl_candidates = [
+        row for row in report_rows
+        if row["median_oot_pnl"] is not None
+        and row["total_oot_trades"] >= 50
+        and row["stable_oot"]
+    ]
     if pnl_candidates:
-        winner = max(pnl_candidates, key=lambda row: (row["median_oot_pnl"], -(row["median_oot_drawdown_pct"] or 0.0), row["median_oot_trades"], row["auc"] or float("-inf")))
-        recommendation_status = "READY_FOR_SHADOW" if winner["trades"] >= 10 else "PROVISIONAL_LOW_SAMPLE"
-        reason = f"Highest median {branch} OOT net PnL with median drawdown considered; validate in SHADOW before activation."
+        winner = max(
+            pnl_candidates,
+            key=lambda row: (
+                row["median_oot_pnl"],
+                -(row["median_oot_drawdown_pct"] or 0.0),
+                row["stable_oot"],
+                row["total_oot_trades"],
+                row["auc"] or float("-inf"),
+            ),
+        )
+        recommendation_status = "READY_FOR_SHADOW"
+        reason = (
+            f"Highest median {branch} OOT net PnL among candidates with "
+            ">=50 trades and three OOT windows; validate in SHADOW before activation."
+        )
     elif report_rows:
-        winner = max(report_rows, key=lambda row: (row["auc"] if row["auc"] is not None else float("-inf"), -(row["ece"] if row["ece"] is not None else float("inf"))))
+        winner = max(
+            report_rows,
+            key=lambda row: (
+                row["median_oot_pnl"] if row["median_oot_pnl"] is not None else float("-inf"),
+                -(row["median_oot_drawdown_pct"] or 0.0),
+                row["auc"] if row["auc"] is not None else float("-inf"),
+            ),
+        )
         recommendation_status = "NO_PNL_SAMPLE"
-        reason = "No candidate has at least 3 median OOT trades; ranking falls back to AUC/ECE and is not an activation decision."
+        reason = (
+            "No candidate satisfies >=50 OOT trades and three stable windows; "
+            "ranking is diagnostic only and falls back to AUC/ECE."
+        )
     else:
         winner = None
         recommendation_status = "NO_CANDIDATES"

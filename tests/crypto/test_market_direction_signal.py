@@ -97,6 +97,7 @@ async def test_get_or_create_market_direction_signal_creates_new_record():
         funding_rate=None,
         invert_lgbm_signal=False,
         underlying_price=3500.0,
+        market_context=market,
     )
 
 
@@ -141,4 +142,5 @@ async def test_market_direction_signal_normalizes_canonical_asset_symbol():
         funding_rate=None,
         invert_lgbm_signal=False,
         underlying_price=65000.0,
+        market_context=market,
     )
