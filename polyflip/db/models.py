@@ -21,6 +21,35 @@ from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 
 
+class CryptoCandle(Base):
+    """OHLCV-????? ?? Binance, ???????????? ????????????????? ??????."""
+
+    __tablename__ = "crypto_candles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(32), nullable=False)
+    interval = Column(String(8), nullable=False)
+    open_time = Column(DateTime(timezone=True), nullable=False)
+    close_time = Column(DateTime(timezone=True), nullable=True)
+    is_closed = Column(Boolean, nullable=True)
+    open = Column(Float, nullable=False)
+    high = Column(Float, nullable=False)
+    low = Column(Float, nullable=False)
+    close = Column(Float, nullable=False)
+    volume = Column(Float, nullable=False)
+    taker_buy_volume = Column(Float, nullable=True)
+    source = Column(String(16), nullable=False, default="binance")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "symbol", "interval", "open_time",
+            name="uix_crypto_candle",
+        ),
+        Index("idx_crypto_candles_symbol_interval", "symbol", "interval"),
+        Index("idx_crypto_candles_open_time", "open_time"),
+    )
+
+
 class MarketSnapshot(Base):
     """
     Таблица для хранения снапшотов цен с Polymarket и Binance.
