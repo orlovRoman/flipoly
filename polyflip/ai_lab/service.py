@@ -60,7 +60,10 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
         {"SHADOW", "PENDING_APPROVAL", "INSUFFICIENT_DATA", "FAILED"}
     ),
     "SHADOW": frozenset({"PENDING_APPROVAL", "REJECTED", "ROLLED_BACK"}),
-    # ACTIVE is reached only by approve_and_activate_deployment after the\n    # explicit human approval row-lock transaction; generic run transitions\n    # must not provide a direct activation bypass.\n    "PENDING_APPROVAL": frozenset({"REJECTED"}),
+    # ACTIVE is reached only by approve_and_activate_deployment after the
+    # explicit human approval row-lock transaction; generic run transitions
+    # must not provide a direct activation bypass.
+    "PENDING_APPROVAL": frozenset({"REJECTED"}),
     "ACTIVE": frozenset({"ROLLED_BACK"}),
     "INSUFFICIENT_DATA": frozenset(),
     "FAILED": frozenset(),
@@ -153,8 +156,7 @@ async def create_run(
         autonomy_level=autonomy_level,
         status="DRAFT",
         permission_id=permission.id,
-        experiment_budget=budget_experiments,
-        experiments_completed=0,
+        budget_experiments=budget_experiments,
         created_by=created_by,
         agent_thread_id=agent_thread_id,
         created_at=now,
