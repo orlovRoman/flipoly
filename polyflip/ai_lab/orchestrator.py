@@ -216,32 +216,64 @@ def build_experiment_report(
             if artifact_id is not None:
                 artifact_ids.add(int(artifact_id))
 
+        invalid_result_count = 0
         for result in polymarket_results:
             metrics = _value(result, "metrics", {}) or {}
+            if not isinstance(metrics, Mapping):
+                metrics = {}
+                invalid_result_count += 1
             res_pnl = _value(result, "net_pnl", metrics.get("net_pnl"))
             res_trades = _value(result, "trade_count", metrics.get("n_trades"))
             res_dd = _value(result, "max_drawdown", metrics.get("max_drawdown"))
+            pnl_num = _finite(res_pnl)
+            trades_num = _finite(res_trades)
+            dd_num = _finite(res_dd) if res_dd is not None else None
+            if res_pnl is None or pnl_num is None:
+                invalid_result_count += 1
+            if (
+                res_trades is None
+                or trades_num is None
+                or trades_num < 0
+                or not trades_num.is_integer()
+            ):
+                invalid_result_count += 1
+            if res_dd is not None and dd_num is None:
+                invalid_result_count += 1
 
-            pnl_values.append(res_pnl)
-            trade_values.append(res_trades)
-            drawdown_values.append(res_dd)
+            if pnl_num is not None:
+                pnl_values.append(pnl_num)
+            if (
+                trades_num is not None
+                and trades_num >= 0
+                and trades_num.is_integer()
+            ):
+                trade_values.append(trades_num)
+            if dd_num is not None:
+                drawdown_values.append(dd_num)
 
             w_key = _oot_window_key(result)
-            if w_key is not None:
-                unique_windows.add(w_key)
-                window_details.append(
-                    {
-                        "oot_window_start": w_key[0],
-                        "oot_window_end": w_key[1],
-                        "net_pnl": _finite(res_pnl),
-                        "trade_count": int(_finite(res_trades) or 0)
-                        if _finite(res_trades) is not None
-                        else 0,
-                        "max_drawdown": _finite(res_dd),
-                    }
-                )
+            if w_key is None:
+                invalid_result_count += 1
+                continue
+            unique_windows.add(w_key)
+            window_details.append(
+                {
+                    "oot_window_start": w_key[0],
+                    "oot_window_end": w_key[1],
+                    "net_pnl": pnl_num,
+                    "trade_count": (
+                        int(trades_num)
+                        if trades_num is not None
+                        and trades_num >= 0
+                        and trades_num.is_integer()
+                        else 0
+                    ),
+                    "max_drawdown": dd_num,
+                }
+            )
 
         median_pnl = _median(pnl_values)
+
         median_trades = _median(trade_values)
         median_drawdown = _median(drawdown_values)
         total_trades = sum(
@@ -256,6 +288,7 @@ def build_experiment_report(
             "artifact_ids": sorted(artifact_ids),
             "window_count": len(unique_windows),
             "total_trades": total_trades,
+            "invalid_result_count": invalid_result_count,
             "median_oot_pnl": median_pnl,
             "median_oot_trades": int(round(median_trades))
             if median_trades is not None
