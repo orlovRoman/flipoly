@@ -524,3 +524,75 @@ async def promote_to_shadow(
     await transition_run(session, run, "SHADOW", reason="recommended candidate assigned to SHADOW")
     await session.flush()
     return assignment
+
+
+async def finalize_run(
+    session: AsyncSession,
+    run_id: int,
+    *,
+    auto_shadow: bool = True,
+    asset: str | None = None,
+    regime: str | None = None,
+    candidate_artifact_id: int | None = None,
+    baseline_artifact_id: int | None = None,
+) -> dict[str, Any]:
+    """Evaluate a completed run and optionally assign its winner to SHADOW.
+
+    This is the autonomous laboratory boundary: it may select and assign a
+    candidate for passive observation, but it never transitions to ACTIVE or
+    changes RuntimeSettings/live execution. The report is retained in the run
+    summary together with the assignment provenance.
+    """
+    report = await evaluate_run(session, run_id)
+    assignment: AIShadowAssignment | None = None
+    if auto_shadow and report["recommendation_status"] == "READY_FOR_SHADOW":
+        config_id = report["recommended_config_id"]
+        config = await session.get(AIExperimentConfig, config_id)
+        if config is None:
+            raise AILabError(
+                f"recommended experiment config {config_id} no longer exists"
+            )
+        resolved_asset = (asset or config.asset or "").strip()
+        if not resolved_asset:
+            raise AILabError(
+                "asset is required for automatic SHADOW assignment when the "
+                "experiment config has no asset"
+            )
+        winner = next(
+            row for row in report["rows"] if row["config_id"] == config_id
+        )
+        resolved_artifact = candidate_artifact_id
+        if resolved_artifact is None and winner["artifact_ids"]:
+            resolved_artifact = int(winner["artifact_ids"][0])
+        if resolved_artifact is None:
+            raise AILabError(
+                "recommended experiment has no model artifact for SHADOW"
+            )
+        assignment = await promote_to_shadow(
+            session,
+            run_id=run_id,
+            candidate_artifact_id=resolved_artifact,
+            baseline_artifact_id=baseline_artifact_id,
+            asset=resolved_asset,
+            regime=regime or config.regime,
+        )
+        # transition_run writes a short status reason to summary. Replace it
+        # with an immutable JSON audit envelope so the metrics are not lost.
+        session_run = await session.get(AIOptimizationRun, run_id)
+        if session_run is not None:
+            session_run.summary = json.dumps(
+                {
+                    "report": report,
+                    "shadow_assignment": {
+                        "assignment_id": assignment.id,
+                        "candidate_artifact_id": assignment.candidate_artifact_id,
+                        "baseline_artifact_id": assignment.baseline_artifact_id,
+                        "asset": assignment.asset,
+                        "regime": assignment.regime,
+                    },
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            await session.flush()
+    return {"report": report, "assignment": assignment}
