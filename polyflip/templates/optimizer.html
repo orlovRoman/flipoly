@@ -702,9 +702,12 @@
           <div class="form-group">
             <label class="form-label">Уровень автономии</label>
             <select class="form-select" id="new-run-autonomy">
-              <option value="EXPERIMENT">EXPERIMENT</option>
-              <option value="AUTONOMOUS_SHADOW">AUTONOMOUS_SHADOW</option>
-              <option value="DIRECTED">DIRECTED</option>
+              <option value="OBSERVE">OBSERVE (Наблюдение и анализ)</option>
+              <option value="EXPERIMENT" selected>EXPERIMENT (Обучение и OOT-оценка)</option>
+              <option value="AUTONOMOUS_SHADOW">AUTONOMOUS_SHADOW (Авто-продвижение в SHADOW)</option>
+              <option value="AUTONOMOUS_CONFIG">AUTONOMOUS_CONFIG (Наложение безопасных оверлеев)</option>
+              <option value="LIVE_PROPOSE">LIVE_PROPOSE (Запрос на утверждение LIVE)</option>
+              <option value="DIRECTED">DIRECTED (Управляемый режим)</option>
             </select>
           </div>
         </div>
