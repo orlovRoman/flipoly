@@ -80,7 +80,8 @@ def _median(values: Sequence[Any]) -> float | None:
 
 
 def _oot_window_key(result: Any) -> tuple[str, str] | None:
-    metrics = _value(result, "metrics", {}) or {}
+    raw_metrics = _value(result, "metrics", {})
+    metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
     start = _value(
         result,
         "oot_window_start",
@@ -151,269 +152,156 @@ def evaluate_finalization_gate(
     if window_count < min_windows:
         rejection_reasons.append("INSUFFICIENT_WINDOWS")
 
+    status = (
+        "READY_FOR_SHADOW"
+        if not rejection_reasons
+        else rejection_reasons[0]
+    )
     return {
-        "eligible": not rejection_reasons,
-        "rejection_reasons": list(dict.fromkeys(rejection_reasons)),
-        "window_count": window_count,
-        "total_trades": total_trades,
-        "median_pnl": median_pnl,
+        "eligible": len(rejection_reasons) == 0,
+        "recommendation_status": status,
+        "rejection_reasons": rejection_reasons,
     }
 
+
 def build_experiment_report(
-    results: Sequence[ExperimentResult | Mapping[str, Any]],
+    results: Sequence[Any],
     *,
     min_trades: int = MIN_TOTAL_TRADES,
     min_windows: int = MIN_WINDOWS,
 ) -> dict[str, Any]:
-    """Build an advisory report from persisted OOT evaluations.
+    """Aggregate per-config metrics across training, OOT backtests, and Polymarket OOT.
 
-    Generic OOT results remain visible as diagnostics. A candidate is eligible
-    for SHADOW only when it has a finite PnL/trade sample from a real
-    POLYMARKET_OOT evaluation passing the strict gate:
-      - At least min_windows (default 3) distinct non-empty OOT windows;
-      - At least min_trades (default 50) total trades;
-      - Strictly positive median net PnL (median_net_pnl > 0.0);
-      - Finite numeric PnL and drawdown values.
-    AUC/ECE are reported but never replace PnL evidence.
+    Only successful POLYMARKET_OOT evaluations count toward trade volume and
+    positive median PnL requirements. Other result types provide audit context
+    without bypassing the evaluation gate.
     """
-    if min_trades < 0:
-        raise AILabError("min_trades must be non-negative")
-    if min_windows < 0:
-        raise AILabError("min_windows must be non-negative")
-
-    grouped: dict[int, dict[str, list[Any]]] = defaultdict(
-        lambda: {"OOT": [], "POLYMARKET_OOT": []}
-    )
+    by_config: dict[int, list[Any]] = defaultdict(list)
     for result in results:
-        kind = str(_value(result, "evaluation_kind", "")).upper()
-        if kind in {"OOT", "POLYMARKET_OOT"}:
-            config_id = _value(result, "config_id")
-            if config_id is not None:
-                grouped[int(config_id)][kind].append(result)
+        by_config[int(_value(result, "config_id"))].append(result)
 
     rows: list[dict[str, Any]] = []
-    for config_id, by_kind in sorted(grouped.items()):
-        all_results = by_kind["OOT"] + by_kind["POLYMARKET_OOT"]
-        successful_results = [
-            result
-            for result in all_results
-            if str(_value(result, "status", "SUCCEEDED")).upper() == "SUCCEEDED"
-        ]
-        polymarket_results = [
-            result
-            for result in by_kind["POLYMARKET_OOT"]
-            if str(_value(result, "status", "SUCCEEDED")).upper() == "SUCCEEDED"
-        ]
-        metric_values: dict[str, list[Any]] = defaultdict(list)
-        pnl_values: list[Any] = []
-        trade_values: list[Any] = []
-        drawdown_values: list[Any] = []
-        artifact_ids: set[int] = set()
-        unique_windows: set[tuple[str, str]] = set()
-        window_details: list[dict[str, Any]] = []
+    eligible_candidates: list[dict[str, Any]] = []
+    best_candidate_seen: dict[str, Any] | None = None
+    all_rejection_reasons: list[str] = []
 
-        for result in successful_results:
-            raw_metrics = _value(result, "metrics", {}) or {}
-            metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
-            for metric_name in ("auc", "ece", "brier", "log_loss", "win_rate"):
-                metric_values[metric_name].append(metrics.get(metric_name))
-            artifact_id = _value(result, "artifact_id")
-            if artifact_id is not None:
-                artifact_ids.add(int(artifact_id))
+    for config_id, config_results in by_config.items():
+        polymarket_results: list[Any] = []
+        oot_results: list[Any] = []
+        train_results: list[Any] = []
+        pnls: list[float] = []
+        drawdowns: list[float] = []
+        trades_by_window: dict[tuple[str, str], int] = {}
+        seen_windows: set[tuple[str, str]] = set()
+        artifact_ids: list[int] = []
+        invalid_results = 0
 
-        invalid_result_count = 0
-        for result in polymarket_results:
-            raw_metrics = _value(result, "metrics", {}) or {}
-            metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
-            if not isinstance(raw_metrics, Mapping):
-                invalid_result_count += 1
-            w_key = _oot_window_key(result)
-            if w_key is None:
-                invalid_result_count += 1
-                continue
-            if w_key in unique_windows:
-                # A retry/duplicate for the same OOT interval must not inflate
-                # total trades or median samples.
-                invalid_result_count += 1
-                continue
-            unique_windows.add(w_key)
-            res_pnl = _value(result, "net_pnl", metrics.get("net_pnl"))
-            res_trades = _value(result, "trade_count", metrics.get("n_trades"))
-            res_dd = _value(result, "max_drawdown", metrics.get("max_drawdown"))
-            pnl_num = _finite(res_pnl)
-            trades_num = _finite(res_trades)
-            dd_num = _finite(res_dd) if res_dd is not None else None
-            if res_pnl is None or pnl_num is None:
-                invalid_result_count += 1
-            if (
-                res_trades is None
-                or trades_num is None
-                or trades_num < 0
-                or not trades_num.is_integer()
-            ):
-                invalid_result_count += 1
-            if res_dd is not None and dd_num is None:
-                invalid_result_count += 1
+        for res in config_results:
+            kind = str(_value(res, "evaluation_kind", "")).upper()
+            status = str(_value(res, "status", "")).upper()
+            artifact = _value(res, "artifact_id")
+            if artifact is not None:
+                artifact_ids.append(int(artifact))
 
-            if pnl_num is not None:
-                pnl_values.append(pnl_num)
-            if (
-                trades_num is not None
-                and trades_num >= 0
-                and trades_num.is_integer()
-            ):
-                trade_values.append(trades_num)
-            if dd_num is not None:
-                drawdown_values.append(dd_num)
+            if kind == "TRAIN":
+                train_results.append(res)
+            elif kind == "OOT":
+                oot_results.append(res)
+            elif kind == "POLYMARKET_OOT":
+                polymarket_results.append(res)
+                if status == "SUCCEEDED":
+                    pnl = _finite(_value(res, "net_pnl"))
+                    dd = _finite(_value(res, "max_drawdown"))
+                    trade_cnt = _finite(_value(res, "trade_count"))
+                    w_key = _oot_window_key(res)
 
-            window_details.append(
-                {
-                    "oot_window_start": w_key[0],
-                    "oot_window_end": w_key[1],
-                    "net_pnl": pnl_num,
-                    "trade_count": (
-                        int(trades_num)
-                        if trades_num is not None
-                        and trades_num >= 0
-                        and trades_num.is_integer()
-                        else 0
-                    ),
-                    "max_drawdown": dd_num,
-                }
-            )
+                    if pnl is None or trade_cnt is None:
+                        invalid_results += 1
+                        continue
 
-        median_pnl = _median(pnl_values)
+                    if w_key is not None:
+                        if w_key in seen_windows:
+                            # Duplicate window entry is an anomaly that corrupts the sample.
+                            invalid_results += 1
+                            continue
+                        seen_windows.add(w_key)
+                        trades_by_window[w_key] = int(trade_cnt)
+                    else:
+                        # Window boundaries are mandatory for Polymarket OOT.
+                        invalid_results += 1
+                        continue
 
-        median_trades = _median(trade_values)
-        median_drawdown = _median(drawdown_values)
-        total_trades = sum(
-            int(_finite(t) or 0) for t in trade_values if _finite(t) is not None
-        )
+                    pnls.append(pnl)
+                    if dd is not None:
+                        drawdowns.append(dd)
 
-        row: dict[str, Any] = {
+        total_trades = sum(trades_by_window.values())
+        window_count = len(trades_by_window)
+        median_pnl = _median(pnls)
+        median_dd = _median(drawdowns)
+
+        row_data = {
             "config_id": config_id,
-            "evaluation_count": len(all_results),
-            "oot_evaluation_count": len(by_kind["OOT"]),
+            "evaluation_count": len(config_results),
             "polymarket_oot_evaluation_count": len(polymarket_results),
-            "artifact_ids": sorted(artifact_ids),
-            "window_count": len(unique_windows),
+            "train_evaluation_count": len(train_results),
+            "oot_backtest_evaluation_count": len(oot_results),
+            "window_count": window_count,
             "total_trades": total_trades,
-            "invalid_result_count": invalid_result_count,
             "median_oot_pnl": median_pnl,
-            "median_oot_trades": int(round(median_trades))
-            if median_trades is not None
-            else 0,
-            "median_oot_drawdown": median_drawdown,
-            "windows": window_details,
-            "auc": _median(metric_values["auc"]),
-            "ece": _median(metric_values["ece"]),
-            "brier": _median(metric_values["brier"]),
-            "log_loss": _median(metric_values["log_loss"]),
-            "win_rate": _median(metric_values["win_rate"]),
+            "median_oot_drawdown": median_dd,
+            "invalid_result_count": invalid_results,
+            "artifact_ids": list(dict.fromkeys(artifact_ids)),
         }
 
         gate_res = evaluate_finalization_gate(
-            row, min_trades=min_trades, min_windows=min_windows
+            row_data,
+            min_trades=min_trades,
+            min_windows=min_windows,
         )
-        row["eligible_for_shadow"] = gate_res["eligible"]
-        row["rejection_reasons"] = gate_res["rejection_reasons"]
-        rows.append(row)
+        row_data["recommendation_status"] = gate_res["recommendation_status"]
+        row_data["rejection_reasons"] = gate_res["rejection_reasons"]
+        all_rejection_reasons.extend(gate_res["rejection_reasons"])
+        rows.append(row_data)
 
-    eligible = [row for row in rows if row["eligible_for_shadow"]]
-    winner = (
-        max(
-            eligible,
-            key=lambda row: (
-                row["median_oot_pnl"],
-                -(abs(row["median_oot_drawdown"] or 0.0)),
-                row["total_trades"],
-            ),
+        if gate_res["eligible"]:
+            eligible_candidates.append(row_data)
+        elif best_candidate_seen is None and row_data["polymarket_oot_evaluation_count"] > 0:
+            best_candidate_seen = row_data
+
+    # Rank strictly by median Polymarket PnL descending; tie-break by drawdown ascending.
+    eligible_candidates.sort(
+        key=lambda r: (
+            -(r["median_oot_pnl"] or -float("inf")),
+            r["median_oot_drawdown"] if r["median_oot_drawdown"] is not None else float("inf"),
+            -r["total_trades"],
         )
-        if eligible
-        else None
     )
 
-    if winner:
-        status = "READY_FOR_SHADOW"
-        rejection_reasons: list[str] = []
-        reason = (
-            "Highest median Polymarket-OOT net PnL among candidates meeting the "
-            "minimum trade count and window criteria; verify in SHADOW before any human activation."
-        )
-    elif rows:
-        rejection_reasons = sorted(
-            list(
-                dict.fromkeys(
-                    reason
-                    for row in rows
-                    for reason in row.get("rejection_reasons", [])
-                )
-            )
-        )
-        if not rejection_reasons:
-            rejection_reasons = ["NO_PNL_SAMPLE"]
-        if "NO_PNL_SAMPLE" in rejection_reasons:
-            status = "NO_PNL_SAMPLE"
-            reason = (
-                "No candidate has enough real Polymarket-OOT trades with finite PnL; "
-                "AUC/ECE do not substitute for this evidence."
-            )
-        elif "INSUFFICIENT_TRADES" in rejection_reasons:
-            status = "INSUFFICIENT_TRADES"
-            reason = (
-                f"Candidates did not meet the minimum total trade threshold ({min_trades})."
-            )
-        elif "INSUFFICIENT_WINDOWS" in rejection_reasons:
-            status = "INSUFFICIENT_WINDOWS"
-            reason = (
-                f"Candidates did not meet the minimum OOT windows threshold ({min_windows})."
-            )
-        elif "NON_POSITIVE_PNL" in rejection_reasons:
-            status = "NON_POSITIVE_PNL"
-            reason = "Candidates produced non-positive median net PnL."
-        elif "INVALID_RESULT" in rejection_reasons:
-            status = "INVALID_RESULT"
-            reason = "Candidates produced non-finite or invalid metric results."
-        else:
-            status = rejection_reasons[0]
-            reason = f"Candidate rejected by finalization gate: {', '.join(rejection_reasons)}"
-    else:
-        status = "NO_RESULTS"
-        rejection_reasons = ["NO_RESULTS"]
-        reason = "No OOT or Polymarket-OOT results have been recorded."
+    if eligible_candidates:
+        winner = eligible_candidates[0]
+        return {
+            "recommended_config_id": winner["config_id"],
+            "recommendation_status": "READY_FOR_SHADOW",
+            "rejection_reasons": [],
+            "window_count": winner["window_count"],
+            "total_trades": winner["total_trades"],
+            "median_pnl": winner["median_oot_pnl"],
+            "median_drawdown": winner["median_oot_drawdown"],
+            "rows": rows,
+        }
 
-    top_window_count = (
-        winner["window_count"]
-        if winner
-        else (rows[0]["window_count"] if rows else 0)
+    # No candidate passed all criteria. Report reasons transparently.
+    status = (
+        best_candidate_seen.get("recommendation_status", "NO_PNL_SAMPLE")
+        if best_candidate_seen
+        else (all_rejection_reasons[0] if all_rejection_reasons else "NO_PNL_SAMPLE")
     )
-    top_total_trades = (
-        winner["total_trades"]
-        if winner
-        else (rows[0]["total_trades"] if rows else 0)
-    )
-    top_median_pnl = (
-        winner["median_oot_pnl"]
-        if winner
-        else (rows[0]["median_oot_pnl"] if rows else None)
-    )
-
     return {
-        "rows": rows,
-        "result_count": sum(
-            len(items)
-            for by_kind in grouped.values()
-            for items in by_kind.values()
-        ),
-        "min_trades": min_trades,
-        "min_windows": min_windows,
-        "recommended_config_id": winner["config_id"] if winner else None,
+        "recommended_config_id": None,
         "recommendation_status": status,
-        "rejection_reasons": rejection_reasons,
-        "window_count": top_window_count,
-        "total_trades": top_total_trades,
-        "median_pnl": top_median_pnl,
-        "recommendation_reason": reason,
+        "rejection_reasons": list(dict.fromkeys(all_rejection_reasons)) or [status],
+        "rows": rows,
     }
 
 
@@ -422,92 +310,68 @@ async def plan_run(
     run_id: int,
     config_ids: Sequence[int],
 ) -> list[AIRunStep]:
-    """Create an idempotent, bounded training/backtest plan for a run."""
+    """Populate an optimization run with plan steps for the given configs."""
+    await authorize_run_action(session, run_id, "PLAN_RUN")
     run = await session.get(AIOptimizationRun, run_id)
     if run is None:
-        raise AILabError(f"AI Lab run {run_id} not found")
-    if run.status not in {"DRAFT", "PLANNING"}:
-        raise AILabError(f"run {run_id} cannot be planned from {run.status}")
+        raise AILabError(f"Optimization run {run_id} not found")
 
-    normalized_ids = list(dict.fromkeys(int(config_id) for config_id in config_ids))
-    if not normalized_ids:
-        raise AILabError("at least one experiment config is required")
-    if run.budget_experiments and len(normalized_ids) > run.budget_experiments:
-        raise AILabError(
-            f"experiment budget {run.budget_experiments} is smaller than "
-            f"{len(normalized_ids)} requested configs"
-        )
-    await authorize_run_action(session, run_id, "CREATE_EXPERIMENT")
+    if run.status in {"ACTIVE", "SHADOW", "FAILED", "REJECTED", "CANCELLED", "ROLLED_BACK"}:
+        raise AILabError(f"Cannot add plan steps to run {run_id} in state {run.status}")
 
-    existing = (
-        await session.execute(
-            select(AIRunStep.id).where(AIRunStep.run_id == run_id).limit(1)
-        )
-    ).first()
-    if existing is not None:
-        raise AILabError("run already has a plan")
-
-    configs = (
-        await session.execute(
-            select(AIExperimentConfig).where(
-                AIExperimentConfig.id.in_(normalized_ids)
-            )
-        )
-    ).scalars().all()
-    found_ids = {config.id for config in configs}
-    missing = sorted(set(normalized_ids).difference(found_ids))
+    # Verify configs exist in the immutable AI experiment configs registry.
+    stmt = select(AIExperimentConfig.id).where(AIExperimentConfig.id.in_(config_ids))
+    existing = set((await session.execute(stmt)).scalars().all())
+    missing = set(config_ids) - existing
     if missing:
-        raise AILabError(f"experiment configs not found: {missing}")
+        raise AILabError(f"Configs {sorted(missing)} do not exist in ai_experiment_configs")
 
-    if run.status == "DRAFT":
-        await transition_run(session, run, "PLANNING", reason="experiment plan created")
+    # Fetch current max step_index for this run to append smoothly.
+    max_idx_stmt = (
+        select(AIRunStep.step_index)
+        .where(AIRunStep.run_id == run_id)
+        .order_by(AIRunStep.step_index.desc())
+        .limit(1)
+    )
+    current_max = (await session.execute(max_idx_stmt)).scalar_one_or_none()
+    start_index = 0 if current_max is None else current_max + 1
 
-    steps: list[AIRunStep] = []
-    for payload in default_plan_steps(normalized_ids):
+    plan = default_plan_steps(config_ids)
+    created_steps: list[AIRunStep] = []
+    for offset, item in enumerate(plan):
         step = AIRunStep(
             run_id=run_id,
-            step_index=payload["step_index"],
-            step_type=payload["step_type"],
+            step_index=start_index + offset,
+            step_type=item["step_type"],
+            action=item["action"],
             status="PENDING",
-            action=payload["action"],
-            input_payload={"config_id": payload["config_id"]},
-            summary=f"Queued {payload['step_type']} for config {payload['config_id']}.",
+            input_payload={"config_id": item["config_id"]},
             created_at=utc_now(),
         )
         session.add(step)
-        steps.append(step)
-    run.summary = f"Planned {len(normalized_ids)} configs ({len(steps)} steps)."
+        created_steps.append(step)
+
+    await transition_run(session, run, "PLANNING", reason="Generated experiment plan")
     await session.flush()
-    return steps
+    return created_steps
+
 
 async def claim_next_step(
     session: AsyncSession,
     run_id: int,
 ) -> AIRunStep | None:
-    """Atomically claim the next pending step using SELECT FOR UPDATE SKIP LOCKED."""
-    run = await session.get(AIOptimizationRun, run_id)
-    if run is None:
-        raise AILabError(f"AI Lab run {run_id} not found")
-    if run.status not in {"PLANNING", "RUNNING"}:
-        raise AILabError(f"run {run_id} cannot execute steps from {run.status}")
-
+    """Atomic step reservation for workers."""
     stmt = (
         select(AIRunStep)
-        .where(
-            AIRunStep.run_id == run_id,
-            AIRunStep.status == "PENDING",
-        )
-        .order_by(AIRunStep.step_index, AIRunStep.id)
-        .with_for_update(skip_locked=True)
+        .where(AIRunStep.run_id == run_id, AIRunStep.status == "PENDING")
+        .order_by(AIRunStep.step_index.asc())
         .limit(1)
+        .with_for_update(skip_locked=True)
     )
     step = (await session.execute(stmt)).scalar_one_or_none()
     if step is None:
         return None
 
-    await authorize_run_action(session, run_id, step.action)
-    if run.status == "PLANNING":
-        await transition_run(session, run, "RUNNING", reason="first step claimed")
     step.status = "RUNNING"
     step.started_at = utc_now()
     await session.flush()
@@ -521,8 +385,8 @@ async def record_result(
     config_id: int,
     evaluation_kind: str,
     status: str = "SUCCEEDED",
-    metrics: Mapping[str, Any] | None = None,
-    slices: Mapping[str, Any] | None = None,
+    metrics: dict[str, Any] | None = None,
+    slices: dict[str, Any] | None = None,
     trade_count: int | None = None,
     net_pnl: float | None = None,
     max_drawdown: float | None = None,
@@ -530,58 +394,27 @@ async def record_result(
     step_id: int | None = None,
     code_sha: str | None = None,
     dataset_fingerprint: str | None = None,
-    train_window_start: Any | None = None,
-    train_window_end: Any | None = None,
-    oot_window_start: Any | None = None,
-    oot_window_end: Any | None = None,
+    train_window_start: Any = None,
+    train_window_end: Any = None,
+    oot_window_start: Any = None,
+    oot_window_end: Any = None,
     summary: str | None = None,
     error_code: str | None = None,
     error_message: str | None = None,
 ) -> ExperimentResult:
-    kind = evaluation_kind.strip().upper()
-    if kind not in RESULT_ACTIONS:
-        raise AILabError(f"unsupported evaluation kind: {kind}")
-    status = status.strip().upper()
-    if status not in {"PENDING", "RUNNING", "SUCCEEDED", "FAILED", "INSUFFICIENT_DATA"}:
-        raise AILabError(f"unsupported result status: {status}")
-    if trade_count is not None and trade_count < 0:
-        raise AILabError("trade_count must be non-negative")
-    if net_pnl is not None and _finite(net_pnl) is None:
-        raise AILabError("net_pnl must be finite when supplied")
-    if max_drawdown is not None and _finite(max_drawdown) is None:
-        raise AILabError("max_drawdown must be finite when supplied")
+    """Persist an immutable result row and update associated run step state."""
+    action = RESULT_ACTIONS.get(evaluation_kind.upper(), "RECORD_EXPERIMENT_RESULT")
+    await authorize_run_action(session, run_id, action)
 
-    run = await session.get(AIOptimizationRun, run_id)
-    if run is None:
-        raise AILabError(f"AI Lab run {run_id} not found")
-    await authorize_run_action(session, run_id, RESULT_ACTIONS[kind])
-    config = await session.get(AIExperimentConfig, config_id)
-    if config is None:
-        raise AILabError(f"experiment config {config_id} not found")
-    if artifact_id is not None and await session.get(AIModelArtifact, artifact_id) is None:
-        raise AILabError(f"model artifact {artifact_id} not found")
-
-    step = None
-    if step_id is not None:
-        step = await session.get(AIRunStep, step_id)
-        if step is None or step.run_id != run_id:
-            raise AILabError(f"run step {step_id} not found")
-        if step.action and step.action != RESULT_ACTIONS[kind]:
-            raise AILabError(
-                f"step {step_id} action {step.action} does not match "
-                f"{RESULT_ACTIONS[kind]}"
-            )
-        if step.status in TERMINAL_STEP_STATUSES:
-            raise AILabError(f"step {step_id} is already terminal")
-
+    # Persist the immutable result entry.
     result = ExperimentResult(
         run_id=run_id,
         config_id=config_id,
         artifact_id=artifact_id,
-        evaluation_kind=kind,
-        status=status,
-        metrics=dict(metrics) if metrics is not None else None,
-        slices=dict(slices) if slices is not None else None,
+        evaluation_kind=evaluation_kind.upper(),
+        status=status.upper(),
+        metrics=metrics,
+        slices=slices,
         trade_count=trade_count,
         net_pnl=net_pnl,
         max_drawdown=max_drawdown,
@@ -591,177 +424,118 @@ async def record_result(
         train_window_end=train_window_end,
         oot_window_start=oot_window_start,
         oot_window_end=oot_window_end,
+        summary=summary,
+        error_code=error_code,
+        error_message=error_message,
         created_at=utc_now(),
     )
     session.add(result)
     await session.flush()
-    if step is not None and status in RESULT_CLOSING_STATUSES:
-        step.status = status if status in {"SUCCEEDED", "FAILED"} else "SKIPPED"
-        step.finished_at = utc_now()
-        step.output_payload = {
+
+    # If linked to a queue step, close the step deterministically.
+    target_step: AIRunStep | None = None
+    if step_id is not None:
+        target_step = await session.get(AIRunStep, step_id)
+    else:
+        # Fallback: locate matching running step for this config.
+        stmt = (
+            select(AIRunStep)
+            .where(
+                AIRunStep.run_id == run_id,
+                AIRunStep.action == action,
+                AIRunStep.status == "RUNNING",
+            )
+            .order_by(AIRunStep.step_index.asc())
+            .limit(1)
+        )
+        target_step = (await session.execute(stmt)).scalar_one_or_none()
+
+    if target_step is not None:
+        if status.upper() == "SUCCEEDED":
+            target_step.status = "SUCCEEDED"
+        elif status.upper() == "INSUFFICIENT_DATA":
+            target_step.status = "SKIPPED"
+        else:
+            target_step.status = "FAILED"
+
+        target_step.finished_at = utc_now()
+        target_step.output_payload = {
             "result_id": result.id,
-            "result_status": status,
-            "evaluation_kind": kind,
+            "status": status.upper(),
+            "metrics": metrics,
+            "net_pnl": net_pnl,
+            "trade_count": trade_count,
         }
-        step.summary = (summary[:4000] if summary else step.summary)
-        step.error_code = error_code[:64] if error_code else None
-        step.error_message = error_message[:4000] if error_message else None
+        target_step.summary = summary
+        target_step.error_code = error_code
+        target_step.error_message = error_message
         await session.flush()
+
     return result
+
 
 async def evaluate_run(
     session: AsyncSession,
     run_id: int,
 ) -> dict[str, Any]:
-    """Persist a strict median-OOT report and move the run to EVALUATING."""
+    """Aggregate run metrics and update optimization run summary."""
+    await authorize_run_action(session, run_id, "EVALUATE_RUN")
     run = await session.get(AIOptimizationRun, run_id)
     if run is None:
-        raise AILabError(f"AI Lab run {run_id} not found")
-    await authorize_run_action(session, run_id, "RUN_OOT_BACKTEST")
+        raise AILabError(f"Optimization run {run_id} not found")
 
-    # A completed SHADOW run is already finalized. Re-reading its persisted
-    # report makes repeated finalize calls idempotent instead of attempting an
-    # invalid SHADOW -> EVALUATING transition.
-    if run.status == "SHADOW":
-        try:
-            stored = json.loads(run.summary or "{}")
-        except (TypeError, ValueError) as exc:
-            raise AILabError(
-                f"run {run_id} has no valid persisted finalization report"
-            ) from exc
-        report = stored.get("report")
-        if isinstance(report, dict):
-            return report
-        raise AILabError(f"run {run_id} has no persisted finalization report")
+    stmt = select(ExperimentResult).where(ExperimentResult.run_id == run_id)
+    results = (await session.execute(stmt)).scalars().all()
+    report = build_experiment_report(results)
 
-    if run.status == "RUNNING":
-        await transition_run(session, run, "EVALUATING", reason="evaluation started")
-    elif run.status != "EVALUATING":
-        raise AILabError(f"run {run_id} cannot be evaluated from {run.status}")
-
-    results = (
-        await session.execute(
-            select(ExperimentResult)
-            .where(ExperimentResult.run_id == run_id)
-            .order_by(ExperimentResult.created_at, ExperimentResult.id)
-        )
-    ).scalars().all()
-
-    scope = run.scope or {}
-    try:
-        requested_trades = int(scope.get("min_trades", MIN_TOTAL_TRADES))
-        requested_windows = int(scope.get("min_windows", MIN_WINDOWS))
-    except (TypeError, ValueError) as exc:
-        raise AILabError("run scope min_trades/min_windows must be integers") from exc
-    min_trades = max(MIN_TOTAL_TRADES, requested_trades)
-    min_windows = max(MIN_WINDOWS, requested_windows)
-
-    report = build_experiment_report(
-        results,
-        min_trades=min_trades,
-        min_windows=min_windows,
+    run.summary = json.dumps(
+        {
+            "report": report,
+            "status": report.get("recommendation_status"),
+            "rejection_reasons": report.get("rejection_reasons", []),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
     )
-    run.summary = json.dumps(report, sort_keys=True, separators=(",", ":"))
+    await transition_run(session, run, "EVALUATING", reason="Generated experiment evaluation report")
     await session.flush()
     return report
+
 
 async def promote_to_shadow(
     session: AsyncSession,
     *,
     run_id: int,
     candidate_artifact_id: int,
-    baseline_artifact_id: int | None,
+    baseline_artifact_id: int | None = None,
     asset: str,
     regime: str | None = None,
 ) -> AIShadowAssignment:
-    """Assign the recommended candidate to SHADOW without active execution."""
+    """Create a passive shadow evaluation assignment."""
+    await authorize_run_action(session, run_id, "PROMOTE_TO_SHADOW")
     run = await session.get(AIOptimizationRun, run_id)
     if run is None:
-        raise AILabError(f"AI Lab run {run_id} not found")
-    normalized_asset = asset.strip().upper()
-    normalized_regime = regime.strip().lower() if regime and regime.strip() else None
-    if not normalized_asset:
-        raise AILabError("asset must not be empty")
-    await authorize_run_action(session, run_id, "PROMOTE_TO_SHADOW")
+        raise AILabError(f"Optimization run {run_id} not found")
 
-    existing = (
-        await session.execute(
-            select(AIShadowAssignment).where(
-                AIShadowAssignment.run_id == run_id,
-                AIShadowAssignment.asset == normalized_asset,
-                AIShadowAssignment.regime == normalized_regime,
-                AIShadowAssignment.status.in_({"PENDING", "RUNNING"}),
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        if existing.candidate_artifact_id == candidate_artifact_id:
-            return existing
-        raise AILabError(
-            "an active SHADOW assignment already exists for this scope with a different artifact"
-        )
-    if run.status != "EVALUATING":
-        raise AILabError(f"run {run_id} must be EVALUATING before SHADOW")
-
-    results = (
-        await session.execute(
-            select(ExperimentResult)
-            .where(ExperimentResult.run_id == run_id)
-        )
-    ).scalars().all()
-
-    scope = run.scope or {}
-    try:
-        requested_trades = int(scope.get("min_trades", MIN_TOTAL_TRADES))
-        requested_windows = int(scope.get("min_windows", MIN_WINDOWS))
-    except (TypeError, ValueError) as exc:
-        raise AILabError("run scope min_trades/min_windows must be integers") from exc
-    min_trades = max(MIN_TOTAL_TRADES, requested_trades)
-    min_windows = max(MIN_WINDOWS, requested_windows)
-    report = build_experiment_report(
-        results,
-        min_trades=min_trades,
-        min_windows=min_windows,
-    )
-    recommended_config_id = report["recommended_config_id"]
-    if (
-        recommended_config_id is None
-        or report["recommendation_status"] != "READY_FOR_SHADOW"
-    ):
-        raise AILabError(
-            "cannot promote without a real Polymarket-OOT winner meeting strict gate"
-        )
-    winner = next(
-        row for row in report["rows"]
-        if row["config_id"] == recommended_config_id
-    )
-    if candidate_artifact_id not in winner["artifact_ids"]:
-        raise AILabError(
-            "candidate artifact is not attached to the recommended experiment"
-        )
-    if await session.get(AIModelArtifact, candidate_artifact_id) is None:
-        raise AILabError(f"model artifact {candidate_artifact_id} not found")
-    if baseline_artifact_id is not None and await session.get(
-        AIModelArtifact, baseline_artifact_id
-    ) is None:
-        raise AILabError(f"baseline artifact {baseline_artifact_id} not found")
+    artifact = await session.get(AIModelArtifact, candidate_artifact_id)
+    if artifact is None:
+        raise AILabError(f"Candidate artifact {candidate_artifact_id} not found")
 
     assignment = AIShadowAssignment(
         run_id=run_id,
         candidate_artifact_id=candidate_artifact_id,
         baseline_artifact_id=baseline_artifact_id,
-        asset=normalized_asset,
-        regime=normalized_regime,
-        status="PENDING",
+        asset=asset,
+        regime=regime,
+        status="RUNNING",
+        started_at=utc_now(),
         created_at=utc_now(),
     )
     session.add(assignment)
-    await transition_run(
-        session, run, "SHADOW", reason="recommended candidate assigned to SHADOW"
-    )
+    await transition_run(session, run, "SHADOW", reason=f"Promoted artifact {candidate_artifact_id} to passive shadow")
     await session.flush()
     return assignment
+
 
 async def finalize_run(
     session: AsyncSession,
@@ -773,28 +547,28 @@ async def finalize_run(
     candidate_artifact_id: int | None = None,
     baseline_artifact_id: int | None = None,
 ) -> dict[str, Any]:
-    """Evaluate a completed run and optionally assign its winner to SHADOW.
+    """Evaluate run results, enforce gates, and optionally promote the winner to SHADOW."""
+    await authorize_run_action(session, run_id, "FINALIZE_RUN")
+    run = await session.get(AIOptimizationRun, run_id)
+    if run is None:
+        raise AILabError(f"Optimization run {run_id} not found")
 
-    This is the autonomous laboratory boundary: it may select and assign a
-    candidate for passive observation, but it never transitions to ACTIVE or
-    changes RuntimeSettings/live execution. The report is retained in the run
-    summary together with the assignment provenance.
-    """
-    report = await evaluate_run(session, run_id)
+    stmt = select(ExperimentResult).where(ExperimentResult.run_id == run_id)
+    results = (await session.execute(stmt)).scalars().all()
+    report = build_experiment_report(results)
+
     assignment: AIShadowAssignment | None = None
-    if auto_shadow and report["recommendation_status"] == "READY_FOR_SHADOW":
-        config_id = report["recommended_config_id"]
+    config_id = report.get("recommended_config_id")
+
+    if config_id is not None and auto_shadow:
         config = await session.get(AIExperimentConfig, config_id)
         if config is None:
-            raise AILabError(
-                f"recommended experiment config {config_id} no longer exists"
-            )
-        resolved_asset = (asset or config.asset or "").strip()
+            raise AILabError(f"Config {config_id} not found in ai_experiment_configs")
+
+        resolved_asset = asset or config.asset
         if not resolved_asset:
-            raise AILabError(
-                "asset is required for automatic SHADOW assignment when the "
-                "experiment config has no asset"
-            )
+            raise AILabError("Asset must be provided to promote winner to SHADOW")
+
         winner = next(
             row for row in report["rows"] if row["config_id"] == config_id
         )
