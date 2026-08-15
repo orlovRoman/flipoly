@@ -6,6 +6,9 @@ activate models or mutate live execution settings.
 
 from __future__ import annotations
 
+from polyflip.ai_lab.agent import AILabAgent
+from polyflip.db.models import AIConfigOverlay
+
 from datetime import datetime
 from typing import Any, Literal
 
@@ -296,6 +299,20 @@ def _assignment_payload(assignment: Any) -> dict[str, Any]:
     }
 
 
+def _approval_payload(app: Any) -> dict[str, Any]:
+    return {
+        "id": app.id,
+        "run_id": app.run_id,
+        "target_type": app.target_type,
+        "target_id": app.target_id,
+        "requested_action": app.requested_action,
+        "diff": app.diff,
+        "status": app.status,
+        "requested_at": app.requested_at,
+        "decided_at": app.decided_at,
+        "decided_by": app.decided_by,
+        "decision_reason": app.decision_reason,
+    }
 
 
 @router.post("/permissions", status_code=201)
@@ -1059,4 +1076,128 @@ async def get_ai_deployment_revision(
             }
             for ev in events
         ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 10: Autonomous Agent, Overlays, and Runtime Controls
+# ---------------------------------------------------------------------------
+@router.post("/runs/{run_id}/iterate")
+async def trigger_agent_iteration(
+    run_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Execute a single autonomous researcher iteration driven by LLM and policy engine."""
+    agent = AILabAgent(db)
+    try:
+        result = await agent.execute_iteration(run_id)
+        return result
+    except AILabError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("agent_iteration_endpoint_failed", run_id=run_id, error=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to execute agent iteration",
+        ) from exc
+
+
+@router.post("/runs/{run_id}/pause")
+async def pause_optimization_run(
+    run_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Pause an active optimization run."""
+    run = await db.get(AIOptimizationRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status in {"COMPLETED", "FAILED", "CANCELLED", "REJECTED"}:
+        raise HTTPException(status_code=409, detail=f"Cannot pause run in terminal status {run.status}")
+
+    run.status = "PAUSED"
+    await db.commit()
+    await db.refresh(run)
+    return _run_payload(run)
+
+
+@router.post("/runs/{run_id}/resume")
+async def resume_optimization_run(
+    run_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Resume a paused optimization run."""
+    run = await db.get(AIOptimizationRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status != "PAUSED":
+        raise HTTPException(status_code=409, detail=f"Run is not paused (current: {run.status})")
+
+    run.status = "RUNNING"
+    await db.commit()
+    await db.refresh(run)
+    return _run_payload(run)
+
+
+@router.post("/runs/{run_id}/cancel")
+async def cancel_optimization_run(
+    run_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Cancel an active or paused optimization run."""
+    run = await db.get(AIOptimizationRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    run.status = "CANCELLED"
+    run.finished_at = utc_now()
+    await db.commit()
+    await db.refresh(run)
+    return _run_payload(run)
+
+
+@router.get("/runs/{run_id}/overlays")
+async def list_run_overlays(
+    run_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """List all runtime setting overlays associated with an optimization run."""
+    stmt = (
+        select(AIConfigOverlay)
+        .where(AIConfigOverlay.run_id == run_id)
+        .order_by(AIConfigOverlay.id.desc())
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "id": r.id,
+            "run_id": r.run_id,
+            "parent_overlay_id": r.parent_overlay_id,
+            "scope": r.scope,
+            "changes": r.changes,
+            "status": r.status,
+            "created_by": r.created_by,
+            "expires_at": r.expires_at,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/overlays/{overlay_id}/rollback")
+async def rollback_config_overlay_endpoint(
+    overlay_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Roll back a specific active configuration overlay."""
+    overlay = await db.get(AIConfigOverlay, overlay_id)
+    if not overlay:
+        raise HTTPException(status_code=404, detail="Overlay not found")
+
+    overlay.status = "ROLLED_BACK"
+    await db.commit()
+    await db.refresh(overlay)
+    return {
+        "status": "ROLLED_BACK",
+        "overlay_id": overlay.id,
+        "run_id": overlay.run_id,
     }
