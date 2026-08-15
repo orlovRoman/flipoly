@@ -40,6 +40,7 @@ async def audit_models(
     symbols: Sequence[str] = (),
     model_ids: Sequence[int] = (),
     selected_target_coverage: float = 0.40,
+    all_versions: bool = False,
 ) -> dict[str, Any]:
     symbols = tuple(symbol.strip().upper() for symbol in symbols if symbol.strip())
     model_ids = tuple(int(value) for value in model_ids)
@@ -58,6 +59,14 @@ async def audit_models(
             )
         )).scalars().all() if models else []
         artifacts = {artifact.model_registry_id: artifact for artifact in artifact_rows}
+
+        if not all_versions:
+            latest_by_asset: dict[str, ModelRegistry] = {}
+            for model in models:
+                if model.id not in artifacts:
+                    continue
+                latest_by_asset.setdefault(model.asset, model)
+            models = list(latest_by_asset.values())
 
         results: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
@@ -105,6 +114,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model-ids", nargs="*", type=int, default=(), help="Optional ModelRegistry ids")
     parser.add_argument("--target-coverage", type=float, default=0.40, help="Selected candidate target, e.g. 0.40")
     parser.add_argument("--output", type=Path, help="Optional JSON output path")
+    parser.add_argument("--all-versions", action="store_true", help="Audit every saved version instead of the latest artifact per asset")
     return parser.parse_args()
 
 
@@ -116,6 +126,7 @@ def main() -> int:
         symbols=args.symbols,
         model_ids=args.model_ids,
         selected_target_coverage=args.target_coverage,
+        all_versions=args.all_versions,
     ))
     rendered = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
     if args.output:
