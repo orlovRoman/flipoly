@@ -4,7 +4,7 @@ The command is read-only. It evaluates 20/40/60/80% target coverage for all
 saved canonical LightGBM candidates and writes no registry or runtime state.
 Run it from the repository root, for example:
 
-    python -m scripts.audit_lgbm_thresholds --symbols BTCUSDT ETHUSDT
+    python -m polyflip.scripts.audit_lgbm_thresholds --symbols BTCUSDT ETHUSDT
 """
 
 from __future__ import annotations

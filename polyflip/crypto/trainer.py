@@ -585,7 +585,10 @@ def _fit_lgbm_and_serialize(
 
     y_oof = y[valid_mask].astype(int)
     p_oof = oof_scores[valid_mask]
-    y_pred = (p_oof >= optimal_threshold).astype(int)
+    # Registry precision/recall remain a directional UP diagnostic.  The
+    # actionable trade signal itself is evaluated jointly above; using the
+    # lower threshold here would incorrectly label the entire dead zone as UP.
+    y_pred = (direction_oof >= optimal_threshold_up).astype(int)
 
     precision = float(precision_score(y_oof, y_pred, zero_division=0))
     recall = float(recall_score(y_oof, y_pred, zero_division=0))
