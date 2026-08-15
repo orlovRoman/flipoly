@@ -30,6 +30,7 @@ from polyflip.ai_lab.llm import (
     LLMProvider,
     get_llm_provider,
 )
+from polyflip.ai_lab.lgbm_worker import execute_lgbm_steps
 from polyflip.ai_lab.orchestrator import (
     evaluate_finalization_gate,
     evaluate_run,
@@ -151,9 +152,16 @@ class AILabAgent:
         proposal, prop_stats = await self.llm.propose_hypothesis(context)
 
         step_idx = run.experiments_completed + 1
+        existing_indices = (
+            await self.session.execute(
+                select(AIRunStep.step_index).where(AIRunStep.run_id == run.id)
+            )
+        ).scalars().all()
+        next_step_index = max(existing_indices) + 1 if existing_indices else 0
         hypo_step = await append_step(
             self.session,
             run_id=run.id,
+            step_index=next_step_index,
             step_type="HYPOTHESIS",
             hypothesis=proposal.hypothesis,
             action="PROPOSE_HYPOTHESIS",
@@ -167,18 +175,21 @@ class AILabAgent:
         config = await create_experiment_config_from_proposal(self.session, proposal)
 
         # 3. Plan and Execute Model Training / Evaluation Steps
-        try:
-            planned_steps = await plan_run(
-                self.session,
-                run_id=run.id,
-                config_ids=[config.id],
-                actor="ai_agent",
-            )
-        except Exception as exc:
-            logger.error("agent_planning_failed", run_id=run.id, error=str(exc))
-            planned_steps = []
+        planned_steps = await plan_run(
+            self.session,
+            run_id=run.id,
+            config_ids=[config.id],
+        )
 
-        # 4. Evaluate Run results
+        # 4. Execute the queued training and OOT steps in this dedicated worker.
+        if planned_steps:
+            await execute_lgbm_steps(
+                self.session,
+                run.id,
+                max_steps=min(len(planned_steps), 10),
+            )
+
+        # 5. Evaluate Run results
         try:
             eval_report = await evaluate_run(self.session, run_id=run.id)
             metrics = eval_report.get("report", eval_report) if isinstance(eval_report, dict) else {}
@@ -191,10 +202,10 @@ class AILabAgent:
                 "windows_count": 0,
             }
 
-        # 5. Evaluate Quantitative Policy Rules
+        # 6. Evaluate Quantitative Policy Rules
         policy_result = evaluate_candidate_policy(metrics)
 
-        # 6. LLM Post-Experiment Analysis & Decision
+        # 7. LLM Post-Experiment Analysis & Decision
         analysis_ctx = AnalysisContext(
             run_id=run.id,
             hypothesis=proposal,
@@ -208,9 +219,15 @@ class AILabAgent:
         decision, dec_stats = await self.llm.analyze_experiment(analysis_ctx)
 
         # Record Analysis Step
+        current_indices = (
+            await self.session.execute(
+                select(AIRunStep.step_index).where(AIRunStep.run_id == run.id)
+            )
+        ).scalars().all()
         analysis_step = await append_step(
             self.session,
             run_id=run.id,
+            step_index=max(current_indices) + 1 if current_indices else next_step_index + 1,
             step_type="ANALYSIS",
             action="ANALYZE_EXPERIMENT",
             input_payload=decision.model_dump(),
@@ -218,7 +235,7 @@ class AILabAgent:
         analysis_step.status = "SUCCEEDED"
         analysis_step.summary = decision.rationale
 
-        # 7. Apply Autonomy Decision & Gate Checks
+        # 8. Apply Autonomy Decision & Gate Checks
         assigned_shadow = False
         applied_overlay = False
         proposed_live = False
@@ -233,7 +250,11 @@ class AILabAgent:
             )
         ).scalar_one_or_none()
 
-        if policy_result.gate_passed and artifact:
+        if (
+            policy_result.gate_passed
+            and artifact
+            and decision.action == "RECOMMEND_SHADOW"
+        ):
             # Validate Autonomy level for SHADOW assignment
             try:
                 validate_agent_action_autonomy("ASSIGN_SHADOW", run.autonomy_level)
@@ -248,7 +269,12 @@ class AILabAgent:
             except AILabError as e:
                 logger.info("shadow_assignment_skipped_by_autonomy", reason=str(e))
 
-            # Validate Autonomy level for LIVE proposal
+        if (
+            policy_result.gate_passed
+            and artifact
+            and decision.action == "REQUEST_LIVE_APPROVAL"
+        ):
+            # A live proposal is only an approval request, never activation.
             try:
                 validate_agent_action_autonomy("PROPOSE_LIVE_DEPLOYMENT", run.autonomy_level)
                 await propose_live_deployment(
@@ -261,8 +287,8 @@ class AILabAgent:
             except AILabError as e:
                 logger.info("live_proposal_skipped_by_autonomy", reason=str(e))
 
-        # Handle Configuration Overlay
-        if decision.proposed_overlay:
+        # Handle Configuration Overlay only when explicitly requested.
+        if decision.proposed_overlay and decision.action == "APPLY_OVERLAY":
             try:
                 validate_agent_action_autonomy("APPLY_CONFIG_OVERLAY", run.autonomy_level)
                 overlay = await create_config_overlay(
@@ -276,7 +302,7 @@ class AILabAgent:
             except AILabError as e:
                 logger.info("overlay_skipped_by_autonomy", reason=str(e))
 
-        # 8. Update Run Counters & Summary
+        # 9. Update Run Counters & Summary
         run.experiments_completed += 1
         summary_payload = {
             "last_iteration": step_idx,
@@ -291,6 +317,29 @@ class AILabAgent:
             "winner_artifact_id": artifact.id if artifact else None,
         }
         run.summary = json.dumps(summary_payload, ensure_ascii=False)
+
+        if run.status == "EVALUATING":
+            if run.experiments_completed >= run.experiment_budget:
+                await transition_run(
+                    self.session,
+                    run,
+                    "COMPLETED",
+                    reason="experiment budget exhausted",
+                )
+            elif decision.action in {"FINALIZE_NO_WINNER", "STOP_BUDGET_EXHAUSTED"}:
+                await transition_run(
+                    self.session,
+                    run,
+                    "INSUFFICIENT_DATA",
+                    reason="agent finalized without a policy winner",
+                )
+            else:
+                await transition_run(
+                    self.session,
+                    run,
+                    "QUEUED",
+                    reason="agent queued the next research iteration",
+                )
 
         await self.session.commit()
         return summary_payload

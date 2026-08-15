@@ -79,6 +79,17 @@ OVERLAY_BOUNDS: dict[str, tuple[float, float]] = {
     "MAX_BET_SIZE_USDC": (1.0, 100.0),
     "DAILY_LOSS_LIMIT_USDC": (-500.0, -10.0),
     "FLIP_THRESHOLD": (0.50, 0.90),
+    "TRADE_NO_FLIP_THRESHOLD": (0.10, 0.90),
+    "TRADE_MIN_TIME_LEFT_SEC": (0.0, 3600.0),
+    "TRADE_MAX_TIME_LEFT_SEC": (1.0, 3600.0),
+}
+
+OVERLAY_ENUMS: dict[str, set[str]] = {
+    "BET_SIZING_MODE": {"flat", "fixed", "scaled", "kelly"},
+}
+INTEGER_OVERLAY_KEYS = {
+    "TRADE_MIN_TIME_LEFT_SEC",
+    "TRADE_MAX_TIME_LEFT_SEC",
 }
 
 
@@ -281,23 +292,39 @@ def validate_overlay_changes(changes: Mapping[str, Any]) -> dict[str, Any]:
     """Validate that overlay changes stay within strict allowed parameters and ranges."""
     cleaned: dict[str, Any] = {}
     for key, value in changes.items():
+        key = str(key).strip()
         if key not in ALLOWED_OVERLAY_KEYS:
             raise AILabError(f"Prohibited overlay parameter: '{key}'. Allowed keys: {sorted(ALLOWED_OVERLAY_KEYS)}")
-
+        if key in OVERLAY_ENUMS:
+            if not isinstance(value, str) or value.lower() not in OVERLAY_ENUMS[key]:
+                raise AILabError(
+                    f"Overlay parameter '{key}' must be one of {sorted(OVERLAY_ENUMS[key])}"
+                )
+            cleaned[key] = value.lower()
+            continue
         if key in OVERLAY_BOUNDS:
+            if isinstance(value, bool):
+                raise AILabError(f"Overlay parameter '{key}' must be numeric, got boolean")
             min_val, max_val = OVERLAY_BOUNDS[key]
             try:
                 num_val = float(value)
             except (TypeError, ValueError):
                 raise AILabError(f"Overlay parameter '{key}' must be numeric, got: {value}")
-
             if not (min_val <= num_val <= max_val):
                 raise AILabError(
                     f"Overlay parameter '{key}' value {num_val} violates safety bounds [{min_val}, {max_val}]"
                 )
-            cleaned[key] = num_val
-        else:
-            cleaned[key] = value
+            if key in INTEGER_OVERLAY_KEYS and not num_val.is_integer():
+                raise AILabError(f"Overlay parameter '{key}' must be an integer")
+            cleaned[key] = int(num_val) if key in INTEGER_OVERLAY_KEYS else num_val
+            continue
+        raise AILabError(f"Overlay parameter '{key}' has no declared type or bounds")
+    if "TRADE_MIN_PRICE" in cleaned and "TRADE_MAX_PRICE" in cleaned:
+        if cleaned["TRADE_MIN_PRICE"] > cleaned["TRADE_MAX_PRICE"]:
+            raise AILabError("TRADE_MIN_PRICE must not exceed TRADE_MAX_PRICE")
+    if "TRADE_MIN_TIME_LEFT_SEC" in cleaned and "TRADE_MAX_TIME_LEFT_SEC" in cleaned:
+        if cleaned["TRADE_MIN_TIME_LEFT_SEC"] > cleaned["TRADE_MAX_TIME_LEFT_SEC"]:
+            raise AILabError("TRADE_MIN_TIME_LEFT_SEC must not exceed TRADE_MAX_TIME_LEFT_SEC")
     return cleaned
 
 
@@ -315,9 +342,19 @@ async def create_config_overlay(
     now = utc_now()
     expires_at = now + timedelta(seconds=min(ttl_seconds, 86400))
 
-    base_settings_hash = hashlib.sha256(b"current_base_runtime").hexdigest()
+    current_rows = (
+        await session.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key.in_(list(cleaned_changes)))
+        )
+    ).scalars().all()
+    current_values = {row.key: row.value for row in current_rows}
+    base_payload = {key: current_values.get(key) for key in sorted(cleaned_changes)}
+    resulting_payload = {key: cleaned_changes[key] for key in sorted(cleaned_changes)}
+    base_settings_hash = hashlib.sha256(
+        json.dumps(base_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
     resulting_hash = hashlib.sha256(
-        json.dumps(cleaned_changes, sort_keys=True).encode("utf-8")
+        json.dumps(resulting_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     ).hexdigest()
 
     overlay = AIConfigOverlay(
@@ -330,7 +367,11 @@ async def create_config_overlay(
         status="PENDING",
         created_by=created_by,
         expires_at=expires_at,
-        rollback_payload={"reverted_changes": list(cleaned_changes.keys())},
+        rollback_payload={
+            "previous_values": current_values,
+            "keys": sorted(cleaned_changes),
+            "runtime_settings_applied": False,
+        },
         created_at=now,
     )
     session.add(overlay)
@@ -352,14 +393,42 @@ async def apply_shadow_overlay(session: AsyncSession, overlay_id: int) -> AIConf
 
 
 async def rollback_overlay(session: AsyncSession, overlay_id: int) -> AIConfigOverlay:
-    """Roll back an applied overlay immediately."""
+    """Roll back a shadow overlay; runtime settings are never mutated implicitly."""
     overlay = await session.get(AIConfigOverlay, overlay_id)
     if not overlay:
         raise AILabError(f"Overlay {overlay_id} not found")
-
+    if overlay.status not in {"PENDING", "APPLIED"}:
+        raise AILabError(
+            f"Overlay {overlay_id} cannot be rolled back from status {overlay.status}"
+        )
     overlay.status = "ROLLED_BACK"
     await session.flush()
     return overlay
+
+
+async def expire_overlays(
+    session: AsyncSession,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Mark expired shadow overlays durably; no live settings are changed."""
+    cutoff = now or utc_now()
+    rows = (
+        await session.execute(
+            select(AIConfigOverlay)
+            .where(
+                AIConfigOverlay.status.in_({"PENDING", "APPLIED"}),
+                AIConfigOverlay.expires_at.is_not(None),
+                AIConfigOverlay.expires_at <= cutoff,
+            )
+            .with_for_update()
+        )
+    ).scalars().all()
+    for overlay in rows:
+        overlay.status = "EXPIRED"
+    if rows:
+        await session.flush()
+    return len(rows)
 
 
 # ---------------------------------------------------------------------------

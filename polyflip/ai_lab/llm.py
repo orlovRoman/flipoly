@@ -18,7 +18,10 @@ logger = structlog.get_logger("polyflip.ai_lab.llm")
 ALLOWED_MODEL_FAMILIES = {"LOGREG", "LIGHTGBM", "LogisticRegression", "LightGBM"}
 ALLOWED_FEATURE_SETS = {"FS_D0", "FS_D1", "FS_D2", "FS_D3", "FS_D4", "FS_D5", "DEFAULT"}
 ALLOWED_MARKET_ROLES = {"FAVORITE", "OUTSIDER", "COMBINED", "DIRECTION_ONLY", "ALL"}
-ALLOWED_ASSETS = {"BTC", "ETH", "SOL", "BTCUSDT", "ETHUSDT", "SOLUSDT"}
+ALLOWED_ASSETS = {
+    "BTC", "ETH", "SOL", "XRP", "DOGE",
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -51,8 +54,10 @@ class HypothesisProposal(BaseModel):
     @classmethod
     def validate_asset(cls, v: str) -> str:
         clean = v.upper().replace("USDT", "")
-        if clean not in {"BTC", "ETH", "SOL"}:
-            raise ValueError(f"Unsupported asset: '{v}'. Must be one of BTC, ETH, SOL.")
+        if clean not in {"BTC", "ETH", "SOL", "XRP", "DOGE"}:
+            raise ValueError(
+                f"Unsupported asset: '{v}'. Must be one of BTC, ETH, SOL, XRP, DOGE."
+            )
         return clean + "USDT"
 
     @field_validator("model_family")
@@ -122,7 +127,7 @@ class LLMUsageStats(BaseModel):
     estimated_cost_usd: float = 0.0
     latency_ms: int = 0
     provider: str = "openai"
-    model: str = "gpt-4o"
+    model: str = "gpt-5.6"
     prompt_hash: str = ""
     response_hash: str = ""
 
@@ -238,7 +243,10 @@ class MockLLMProvider:
         context: AnalysisContext,
     ) -> tuple[AgentDecision, LLMUsageStats]:
         self.call_count += 1
-        gate_passed = context.finalization_gate.get("passed", False)
+        gate_passed = context.finalization_gate.get(
+            "gate_passed",
+            context.finalization_gate.get("passed", False),
+        )
         median_pnl = context.metrics.get("median_pnl", 0.0)
 
         if gate_passed and median_pnl > 0:
@@ -299,8 +307,8 @@ class OpenAIResponsesProvider:
     def __init__(
         self,
         api_key: str,
-        model_research: str = "gpt-4o",
-        model_summary: str = "gpt-4o-mini",
+        model_research: str = "gpt-5.6",
+        model_summary: str = "gpt-5.6-mini",
         store: bool = False,
         timeout_seconds: float = 60.0,
     ) -> None:
@@ -316,224 +324,258 @@ class OpenAIResponsesProvider:
             return (prompt_tokens * 0.15 + completion_tokens * 0.60) / 1_000_000.0
         return (prompt_tokens * 2.50 + completion_tokens * 10.00) / 1_000_000.0
 
-    async def propose_hypothesis(
+
+    @staticmethod
+    def _kv_items_schema() -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string"},
+                "value": {"type": ["string", "number", "boolean", "null"]},
+            },
+            "required": ["key", "value"],
+            "additionalProperties": False,
+        }
+
+    @classmethod
+    def _schema_for(cls, kind: str) -> dict[str, Any]:
+        kv = {"type": "array", "items": cls._kv_items_schema()}
+        if kind == "hypothesis":
+            return {
+                "type": "object",
+                "properties": {
+                    "hypothesis": {"type": "string"},
+                    "asset": {"type": "string"},
+                    "market_role": {"type": "string"},
+                    "model_family": {"type": "string"},
+                    "feature_set": {"type": "string"},
+                    "parameter_changes": kv,
+                    "strategy_parameter_changes": kv,
+                    "expected_effect": {
+                        "type": "object",
+                        "properties": {
+                            "metric": {"type": "string"},
+                            "direction": {"type": "string"},
+                            "target_gain": {"type": ["number", "null"]},
+                        },
+                        "required": ["metric", "direction", "target_gain"],
+                        "additionalProperties": False,
+                    },
+                    "reasoning": {"type": "array", "items": {"type": "string"}},
+                    "risks": {"type": "array", "items": {"type": "string"}},
+                    "test_plan": {
+                        "type": "object",
+                        "properties": {
+                            "oot_windows": {"type": "integer"},
+                            "min_markets": {"type": "integer"},
+                            "execution_mode": {"type": "string"},
+                        },
+                        "required": ["oot_windows", "min_markets", "execution_mode"],
+                        "additionalProperties": False,
+                    },
+                },
+                "required": [
+                    "hypothesis", "asset", "market_role", "model_family",
+                    "feature_set", "parameter_changes",
+                    "strategy_parameter_changes", "expected_effect",
+                    "reasoning", "risks", "test_plan",
+                ],
+                "additionalProperties": False,
+            }
+        return {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "rationale": {"type": "string"},
+                "key_findings": {"type": "array", "items": {"type": "string"}},
+                "recommended_config_id": {"type": ["integer", "null"]},
+                "proposed_overlay": {"type": ["array", "null"], "items": cls._kv_items_schema()},
+                "next_step_focus": {"type": ["string", "null"]},
+            },
+            "required": [
+                "action", "rationale", "key_findings",
+                "recommended_config_id", "proposed_overlay", "next_step_focus",
+            ],
+            "additionalProperties": False,
+        }
+
+    @staticmethod
+    def _coerce_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        result = dict(payload)
+        for key in ("parameter_changes", "strategy_parameter_changes", "proposed_overlay"):
+            value = result.get(key)
+            if isinstance(value, list):
+                result[key] = {
+                    str(item["key"]): item.get("value")
+                    for item in value
+                    if isinstance(item, dict) and isinstance(item.get("key"), str)
+                }
+        return result
+
+    async def _responses_json(
         self,
-        context: AgentContext,
-    ) -> tuple[HypothesisProposal, LLMUsageStats]:
+        *,
+        model: str,
+        instructions: str,
+        context: Mapping[str, Any],
+        schema_name: str,
+        schema: dict[str, Any],
+        temperature: float | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         import httpx
 
-        prompt_payload = {
-            "instructions": (
-                "You are an autonomous quant researcher for Polymarket crypto binary outcome markets. "
-                "Formulate a testable ML hypothesis for model architecture, feature sets (FS_D0, FS_D1, FS_D2), "
-                "and strategy decision thresholds. Never propose shell commands, external network calls, or direct LIVE trades."
-            ),
-            "context": context.model_dump(),
-        }
-        serialized_prompt = json.dumps(prompt_payload, sort_keys=True)
-        prompt_hash = hashlib.sha256(serialized_prompt.encode("utf-8")).hexdigest()
-
-        start_time = time.time()
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        request_body = {
-            "model": self.model_research,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": prompt_payload["instructions"],
-                },
-                {
-                    "role": "user",
-                    "content": f"Current market context and history:\n{json.dumps(context.model_dump(), indent=2)}",
-                },
+        body: dict[str, Any] = {
+            "model": model,
+            "input": [
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": json.dumps(dict(context), indent=2, default=str)},
             ],
-            "response_format": {
-                "type": "json_object",
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": schema_name,
+                    "strict": True,
+                    "schema": schema,
+                }
             },
-            "store": self.store,
-            "temperature": 0.7,
+            "store": False,
+        }
+        if temperature is not None and not model.lower().startswith("gpt-5"):
+            body["temperature"] = temperature
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        started = time.time()
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/responses",
+                headers=headers,
+                json=body,
+            )
+            response.raise_for_status()
+            data = response.json()
+        raw = data.get("output_text")
+        if not raw:
+            for item in data.get("output", []):
+                for content in item.get("content", []):
+                    if content.get("type") in {"output_text", "text"}:
+                        raw = content.get("text") or content.get("value")
+                        if raw:
+                            break
+                if raw:
+                    break
+        if not raw:
+            raise ValueError("OpenAI Responses API returned no structured output")
+        usage = data.get("usage") or {}
+        prompt_tokens = int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)
+        completion_tokens = int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)
+        return self._coerce_payload(json.loads(raw)), {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": int(usage.get("total_tokens", prompt_tokens + completion_tokens) or prompt_tokens + completion_tokens),
+            "latency_ms": int((time.time() - started) * 1000),
+            "response_hash": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            try:
-                response = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers=headers,
-                    json=request_body,
-                )
-                response.raise_for_status()
-                data = response.json()
-            except Exception as exc:
-                logger.error("openai_propose_hypothesis_failed", error=str(exc))
-                raise
-
-        latency_ms = int((time.time() - start_time) * 1000)
-        raw_content = data["choices"][0]["message"]["content"]
-        response_hash = hashlib.sha256(raw_content.encode("utf-8")).hexdigest()
-
-        usage = data.get("usage", {})
-        prompt_tokens = usage.get("prompt_tokens", 0)
-        completion_tokens = usage.get("completion_tokens", 0)
-        total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
-        cost = self._compute_cost(prompt_tokens, completion_tokens, self.model_research)
-
-        parsed_json = json.loads(raw_content)
-        proposal = HypothesisProposal.model_validate(parsed_json)
-
-        stats = LLMUsageStats(
+    def _stats(self, *, model: str, prompt: Mapping[str, Any], usage: Mapping[str, Any]) -> LLMUsageStats:
+        prompt_tokens = int(usage.get("prompt_tokens", 0))
+        completion_tokens = int(usage.get("completion_tokens", 0))
+        return LLMUsageStats(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            estimated_cost_usd=cost,
-            latency_ms=latency_ms,
+            total_tokens=int(usage.get("total_tokens", prompt_tokens + completion_tokens)),
+            estimated_cost_usd=self._compute_cost(prompt_tokens, completion_tokens, model),
+            latency_ms=int(usage.get("latency_ms", 0)),
             provider="openai",
-            model=self.model_research,
-            prompt_hash=prompt_hash,
-            response_hash=response_hash,
+            model=model,
+            prompt_hash=hashlib.sha256(json.dumps(dict(prompt), sort_keys=True, default=str).encode("utf-8")).hexdigest(),
+            response_hash=str(usage.get("response_hash", "")),
         )
-        return proposal, stats
 
-    async def analyze_experiment(
-        self,
-        context: AnalysisContext,
-    ) -> tuple[AgentDecision, LLMUsageStats]:
+    async def propose_hypothesis(self, context: AgentContext) -> tuple[HypothesisProposal, LLMUsageStats]:
+        instructions = (
+            "You are an autonomous quant researcher for Polymarket crypto binary markets. "
+            "Formulate one testable hypothesis for model architecture, feature set and "
+            "strategy parameters. Never propose shell commands, external network calls or direct LIVE trades."
+        )
+        prompt = {"instructions": instructions, "context": context.model_dump()}
+        payload, usage = await self._responses_json(
+            model=self.model_research,
+            instructions=instructions,
+            context={"context": context.model_dump()},
+            schema_name="hypothesis_proposal",
+            schema=self._schema_for("hypothesis"),
+        )
+        return HypothesisProposal.model_validate(payload), self._stats(
+            model=self.model_research, prompt=prompt, usage=usage
+        )
+
+    async def analyze_experiment(self, context: AnalysisContext) -> tuple[AgentDecision, LLMUsageStats]:
+        instructions = (
+            "Analyze Polymarket-OOT results, compare to baseline, obey the strict finalization "
+            "gate, and choose exactly one next action. Request live approval only after the "
+            "policy gate; never activate LIVE directly."
+        )
+        prompt = {"instructions": instructions, "context": context.model_dump()}
+        payload, usage = await self._responses_json(
+            model=self.model_research,
+            instructions=instructions,
+            context={"context": context.model_dump()},
+            schema_name="agent_decision",
+            schema=self._schema_for("decision"),
+        )
+        return AgentDecision.model_validate(payload), self._stats(
+            model=self.model_research, prompt=prompt, usage=usage
+        )
+
+    async def summarize_step(self, step_name: str, details: Mapping[str, Any]) -> tuple[str, LLMUsageStats]:
         import httpx
 
-        prompt_payload = {
-            "instructions": (
-                "You are an analytical evaluator. Analyze out-of-time (OOT) Polymarket backtest metrics, "
-                "compare against baseline, check strict finalization gate clearance, and decide the next experiment step."
-            ),
-            "context": context.model_dump(),
-        }
-        serialized_prompt = json.dumps(prompt_payload, sort_keys=True)
-        prompt_hash = hashlib.sha256(serialized_prompt.encode("utf-8")).hexdigest()
-
-        start_time = time.time()
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        request_body = {
-            "model": self.model_research,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": prompt_payload["instructions"],
-                },
-                {
-                    "role": "user",
-                    "content": f"Experiment results and evaluation data:\n{json.dumps(context.model_dump(), indent=2)}",
-                },
-            ],
-            "response_format": {
-                "type": "json_object",
-            },
-            "store": self.store,
-            "temperature": 0.2,
-        }
-
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            try:
-                response = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers=headers,
-                    json=request_body,
-                )
-                response.raise_for_status()
-                data = response.json()
-            except Exception as exc:
-                logger.error("openai_analyze_experiment_failed", error=str(exc))
-                raise
-
-        latency_ms = int((time.time() - start_time) * 1000)
-        raw_content = data["choices"][0]["message"]["content"]
-        response_hash = hashlib.sha256(raw_content.encode("utf-8")).hexdigest()
-
-        usage = data.get("usage", {})
-        prompt_tokens = usage.get("prompt_tokens", 0)
-        completion_tokens = usage.get("completion_tokens", 0)
-        total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
-        cost = self._compute_cost(prompt_tokens, completion_tokens, self.model_research)
-
-        parsed_json = json.loads(raw_content)
-        decision = AgentDecision.model_validate(parsed_json)
-
-        stats = LLMUsageStats(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            estimated_cost_usd=cost,
-            latency_ms=latency_ms,
-            provider="openai",
-            model=self.model_research,
-            prompt_hash=prompt_hash,
-            response_hash=response_hash,
-        )
-        return decision, stats
-
-    async def summarize_step(
-        self,
-        step_name: str,
-        details: Mapping[str, Any],
-    ) -> tuple[str, LLMUsageStats]:
-        import httpx
-
-        start_time = time.time()
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        request_body = {
+        body = {
             "model": self.model_summary,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "Summarize the execution step concisely for trading audit logs (1-2 sentences in Russian).",
-                },
-                {
-                    "role": "user",
-                    "content": f"Step: {step_name}\nDetails: {json.dumps(dict(details), default=str)}",
-                },
+            "input": [
+                {"role": "system", "content": "Summarize one execution step in 1-2 concise Russian sentences. Do not invent metrics."},
+                {"role": "user", "content": f"Step: {step_name}\nDetails: {json.dumps(dict(details), default=str)}"},
             ],
-            "store": self.store,
-            "temperature": 0.3,
+            "store": False,
         }
-
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            try:
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        started = time.time()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
+                    "https://api.openai.com/v1/responses",
                     headers=headers,
-                    json=request_body,
+                    json=body,
                 )
                 response.raise_for_status()
                 data = response.json()
-            except Exception as exc:
-                logger.warning("openai_summary_fallback", error=str(exc))
-                return f"Шаг {step_name} завершён. Статус: {details.get('status', 'OK')}", LLMUsageStats(provider="fallback")
-
-        latency_ms = int((time.time() - start_time) * 1000)
-        summary_text = data["choices"][0]["message"]["content"].strip()
-        usage = data.get("usage", {})
-        prompt_tokens = usage.get("prompt_tokens", 0)
-        completion_tokens = usage.get("completion_tokens", 0)
-        cost = self._compute_cost(prompt_tokens, completion_tokens, self.model_summary)
-
-        stats = LLMUsageStats(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=prompt_tokens + completion_tokens,
-            estimated_cost_usd=cost,
-            latency_ms=latency_ms,
-            provider="openai",
-            model=self.model_summary,
-        )
-        return summary_text, stats
-
+            text = data.get("output_text") or ""
+            if not text:
+                for item in data.get("output", []):
+                    for content in item.get("content", []):
+                        if content.get("type") in {"output_text", "text"}:
+                            text = content.get("text") or content.get("value") or ""
+                            if text:
+                                break
+                    if text:
+                        break
+            usage = data.get("usage") or {}
+            return text.strip() or f"Шаг {step_name} завершён.", self._stats(
+                model=self.model_summary,
+                prompt={"step": step_name, "details": dict(details)},
+                usage={
+                    "prompt_tokens": usage.get("input_tokens", 0),
+                    "completion_tokens": usage.get("output_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0),
+                    "latency_ms": int((time.time() - started) * 1000),
+                    "response_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                },
+            )
+        except Exception as exc:
+            logger.warning("openai_summary_failed", error=str(exc))
+            return (
+                f"Шаг {step_name} завершён. Статус: {details.get('status', 'OK')}",
+                LLMUsageStats(provider="fallback", model=self.model_summary),
+            )
 
 def get_llm_provider(
     provider_name: str | None = None,
@@ -547,11 +589,18 @@ def get_llm_provider(
     provider = (provider_name or settings.AI_LAB_LLM_PROVIDER or "mock").lower()
     key = api_key or getattr(settings, "OPENAI_API_KEY", "")
 
-    if provider == "openai" and key:
+    if provider == "mock":
+        return MockLLMProvider(model_name=model_research or "mock-gpt-5")
+    if provider == "openai":
+        if not key:
+            raise RuntimeError(
+                "AI_LAB_LLM_PROVIDER=openai requires OPENAI_API_KEY; "
+                "set AI_LAB_LLM_PROVIDER=mock explicitly for offline tests"
+            )
         return OpenAIResponsesProvider(
             api_key=key,
-            model_research=model_research or getattr(settings, "AI_LAB_MODEL_RESEARCH", "gpt-4o"),
-            model_summary=model_summary or getattr(settings, "AI_LAB_MODEL_SUMMARY", "gpt-4o-mini"),
-            store=getattr(settings, "AI_LAB_LLM_STORE", False),
+            model_research=model_research or getattr(settings, "AI_LAB_MODEL_RESEARCH", "gpt-5.6"),
+            model_summary=model_summary or getattr(settings, "AI_LAB_MODEL_SUMMARY", "gpt-5.6-mini"),
+            store=False,
         )
-    return MockLLMProvider(model_name=model_research or "mock-gpt-5")
+    raise ValueError(f"Unsupported AI_LAB_LLM_PROVIDER: {provider}")

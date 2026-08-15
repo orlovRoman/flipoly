@@ -132,6 +132,7 @@ def evaluate_finalization_gate(
     total_trades = int(_finite(row.get("total_trades")) or 0)
     median_pnl = _finite(row.get("median_oot_pnl"))
     median_drawdown_raw = row.get("median_oot_drawdown")
+    max_drawdown_limit = 25.0
     invalid_count = int(_finite(row.get("invalid_result_count")) or 0)
 
     if polymarket_count == 0:
@@ -142,6 +143,7 @@ def evaluate_finalization_gate(
             "window_count": window_count,
             "total_trades": total_trades,
             "median_pnl": median_pnl,
+            "median_drawdown": None,
         }
 
     rejection_reasons: list[str] = []
@@ -152,9 +154,15 @@ def evaluate_finalization_gate(
             rejection_reasons.append("INVALID_RESULT")
     elif median_pnl <= 0.0:
         rejection_reasons.append("NON_POSITIVE_PNL")
-    if median_drawdown_raw is not None and _finite(median_drawdown_raw) is None:
+    drawdown_num = _finite(median_drawdown_raw) if median_drawdown_raw is not None else None
+    if median_drawdown_raw is not None and drawdown_num is None:
         if "INVALID_RESULT" not in rejection_reasons:
             rejection_reasons.append("INVALID_RESULT")
+    elif drawdown_num is not None:
+        if drawdown_num < 0:
+            rejection_reasons.append("INVALID_RESULT")
+        elif drawdown_num > max_drawdown_limit:
+            rejection_reasons.append("EXCESSIVE_DRAWDOWN")
     if total_trades < min_trades:
         rejection_reasons.append("INSUFFICIENT_TRADES")
     if window_count < min_windows:
@@ -169,6 +177,7 @@ def evaluate_finalization_gate(
         "window_count": window_count,
         "total_trades": total_trades,
         "median_pnl": median_pnl,
+        "median_drawdown": drawdown_num,
     }
 
 def build_experiment_report(
@@ -404,7 +413,7 @@ async def plan_run(
             f"cannot add plan steps to run {run_id} in terminal or active state "
             f"{run.status}"
         )
-    await authorize_run_action(session, run_id, "PLAN_RUN")
+    await authorize_run_action(session, run_id, "CREATE_EXPERIMENT")
 
     cleaned_ids = [
         int(config_id) for config_id in config_ids if config_id is not None
@@ -417,11 +426,17 @@ async def plan_run(
             raise AILabError(f"experiment config {config_id} not found")
 
     planned_steps = default_plan_steps(cleaned_ids)
+    existing_indices = (
+        await session.execute(
+            select(AIRunStep.step_index).where(AIRunStep.run_id == run_id)
+        )
+    ).scalars().all()
+    step_offset = max(existing_indices) + 1 if existing_indices else 0
     created_steps: list[AIRunStep] = []
     for step_data in planned_steps:
         step = AIRunStep(
             run_id=run_id,
-            step_index=step_data["step_index"],
+            step_index=step_offset + step_data["step_index"],
             step_type=step_data["step_type"],
             action=step_data["action"],
             status="PENDING",
@@ -585,7 +600,7 @@ async def evaluate_run(
     run = await session.get(AIOptimizationRun, run_id)
     if run is None:
         raise AILabError(f"AI Lab run {run_id} not found")
-    await authorize_run_action(session, run_id, "EVALUATE_RUN")
+    await authorize_run_action(session, run_id, "RUN_OOT_BACKTEST")
 
     results = (
         await session.execute(
@@ -602,9 +617,10 @@ async def evaluate_run(
         sort_keys=True,
         separators=(",", ":"),
     )
-    await transition_run(
-        session, run, "EVALUATING", reason="evaluation report generated"
-    )
+    if run.status != "EVALUATING":
+        await transition_run(
+            session, run, "EVALUATING", reason="evaluation report generated"
+        )
     await session.flush()
     return report
 

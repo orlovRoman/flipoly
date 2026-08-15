@@ -980,9 +980,9 @@ class AIOptimizationRun(Base):
         Index("idx_ai_runs_status_created", "status", "created_at"),
         Index("idx_ai_runs_permission_id", "permission_id"),
         CheckConstraint(
-            "status IN ('DRAFT', 'PLANNING', 'RUNNING', 'EVALUATING', 'SHADOW', "
-            "'PENDING_APPROVAL', 'ACTIVE', 'INSUFFICIENT_DATA', 'FAILED', "
-            "'REJECTED', 'CANCELLED', 'ROLLED_BACK')",
+            "status IN ('DRAFT', 'QUEUED', 'PLANNING', 'RUNNING', 'EVALUATING', "
+            "'PAUSED', 'SHADOW', 'PENDING_APPROVAL', 'ACTIVE', 'COMPLETED', "
+            "'INSUFFICIENT_DATA', 'FAILED', 'REJECTED', 'CANCELLED', 'ROLLED_BACK')",
             name="ck_ai_runs_status",
         ),
         CheckConstraint(

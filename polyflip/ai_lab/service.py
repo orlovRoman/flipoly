@@ -53,18 +53,33 @@ class AIPermissionError(AILabError):
 
 
 RUN_TRANSITIONS: dict[str, frozenset[str]] = {
-    "DRAFT": frozenset({"PLANNING", "CANCELLED"}),
-    "PLANNING": frozenset({"RUNNING", "CANCELLED", "FAILED"}),
-    "RUNNING": frozenset({"EVALUATING", "FAILED", "CANCELLED"}),
+    "DRAFT": frozenset({"QUEUED", "PLANNING", "CANCELLED"}),
+    "QUEUED": frozenset({"PLANNING", "RUNNING", "CANCELLED", "FAILED"}),
+    "PLANNING": frozenset({"RUNNING", "CANCELLED", "FAILED", "PAUSED"}),
+    "RUNNING": frozenset({"EVALUATING", "FAILED", "CANCELLED", "PAUSED"}),
     "EVALUATING": frozenset(
-        {"SHADOW", "PENDING_APPROVAL", "INSUFFICIENT_DATA", "FAILED"}
+        {
+            "PLANNING",
+            "QUEUED",
+            "SHADOW",
+            "PENDING_APPROVAL",
+            "INSUFFICIENT_DATA",
+            "COMPLETED",
+            "FAILED",
+            "CANCELLED",
+            "PAUSED",
+        }
     ),
-    "SHADOW": frozenset({"PENDING_APPROVAL", "REJECTED", "ROLLED_BACK"}),
+    "PAUSED": frozenset({"PLANNING", "RUNNING", "CANCELLED", "FAILED"}),
+    "SHADOW": frozenset(
+        {"PENDING_APPROVAL", "REJECTED", "ROLLED_BACK", "COMPLETED"}
+    ),
     # ACTIVE is reached only by approve_and_activate_deployment after the
     # explicit human approval row-lock transaction; generic run transitions
     # must not provide a direct activation bypass.
-    "PENDING_APPROVAL": frozenset({"REJECTED"}),
+    "PENDING_APPROVAL": frozenset({"REJECTED", "COMPLETED"}),
     "ACTIVE": frozenset({"ROLLED_BACK"}),
+    "COMPLETED": frozenset(),
     "INSUFFICIENT_DATA": frozenset(),
     "FAILED": frozenset(),
     "REJECTED": frozenset(),
@@ -137,16 +152,32 @@ async def create_run(
     scope: Mapping[str, Any],
     autonomy_level: str,
     budget_experiments: int,
-    permission: AIPermission,
+    budget_seconds: int = 0,
+    permission: AIPermission | None,
     created_by: str = "system",
     agent_thread_id: str | None = None,
 ) -> AIOptimizationRun:
-    if not permission.enabled:
+    autonomy_level = autonomy_level.upper()
+    if permission is None and autonomy_level != "OBSERVE":
+        raise AIPermissionError(
+            "permission snapshot is required for autonomous AI Lab runs"
+        )
+    if permission is not None and not permission.enabled:
         raise AIPermissionError("cannot bind run to a disabled permission profile")
     if budget_experiments < 1:
         raise AILabError("budget_experiments must be at least 1")
-    autonomy_level = autonomy_level.upper()
-    if autonomy_level not in {"EXPERIMENT", "AUTONOMOUS_SHADOW", "DIRECTED"}:
+    if budget_seconds < 0:
+        raise AILabError("budget_seconds must be non-negative")
+    if autonomy_level not in {
+        "OBSERVE",
+        "EXPERIMENT",
+        "SHADOW",
+        "AUTONOMOUS_SHADOW",
+        "AUTONOMOUS_CONFIG",
+        "LIVE_PROPOSE",
+        "AUTONOMOUS_LIVE",
+        "DIRECTED",
+    }:
         raise AILabError(f"unsupported autonomy_level: {autonomy_level}")
 
     now = utc_now()
@@ -155,8 +186,9 @@ async def create_run(
         scope=dict(scope),
         autonomy_level=autonomy_level,
         status="DRAFT",
-        permission_id=permission.id,
+        permission_id=permission.id if permission is not None else None,
         budget_experiments=budget_experiments,
+        budget_seconds=budget_seconds,
         created_by=created_by,
         agent_thread_id=agent_thread_id,
         created_at=now,
@@ -175,6 +207,18 @@ async def transition_run(
 ) -> AIOptimizationRun:
     validate_run_transition(run.status, target)
     run.status = str(target).upper()
+    now = utc_now()
+    if run.status == "RUNNING" and run.started_at is None:
+        run.started_at = now
+    if run.status in {
+        "COMPLETED",
+        "INSUFFICIENT_DATA",
+        "FAILED",
+        "REJECTED",
+        "CANCELLED",
+        "ROLLED_BACK",
+    }:
+        run.finished_at = now
     if reason:
         existing = run.summary or ""
         run.summary = (

@@ -507,6 +507,8 @@ async def run_lgbm_polymarket_oot(
             "coverage_pct",
             "sharpe_ratio",
             "profit_factor",
+            "max_drawdown_usdc",
+            "max_drawdown_pct",
         )
     }
     return AdapterResult(

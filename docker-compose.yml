@@ -79,6 +79,36 @@ services:
           memory: 768M
           cpus: "1.0"
 
+  ai_lab_agent:
+    build: .
+    container_name: polyflip_ai_lab_agent
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
+      - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - AI_LAB_LLM_PROVIDER=${AI_LAB_LLM_PROVIDER:-mock}
+      - AI_LAB_MODEL_RESEARCH=${AI_LAB_MODEL_RESEARCH:-gpt-5.6}
+      - AI_LAB_MODEL_SUMMARY=${AI_LAB_MODEL_SUMMARY:-gpt-5.6-mini}
+      - AI_LAB_LLM_STORE=false
+      - OMP_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - NUMEXPR_NUM_THREADS=1
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    command: python -m polyflip.ai_lab.agent_runner
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.50"
+
   scheduler:
     build: .
     container_name: polyflip_scheduler

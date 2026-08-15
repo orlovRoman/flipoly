@@ -16,7 +16,8 @@ logger = structlog.get_logger("polyflip.ai_lab.policy")
 
 MIN_MANDATORY_TRADES = 50
 MIN_MANDATORY_WINDOWS = 3
-MAX_ALLOWED_DRAWDOWN = 25.0  # USDC
+MAX_ALLOWED_DRAWDOWN_USDC = 25.0
+MAX_ALLOWED_DRAWDOWN = MAX_ALLOWED_DRAWDOWN_USDC
 
 
 class PolicyEvaluationResult:
@@ -72,25 +73,10 @@ def score_candidate(
     if not math.isfinite(median_pnl) or not math.isfinite(max_drawdown):
         return -9999.0
 
-    # Base score is the median net PnL
-    score = float(median_pnl)
-
-    # Drawdown penalty
-    if max_drawdown > 15.0:
-        score -= (max_drawdown - 15.0) * 0.15
-
-    # Stability bonus for having multiple evaluated windows
-    stability_bonus = min(windows_count, 5) * 0.02
-    score += stability_bonus
-
-    # Volume confidence bonus (small bonus for robust sample sizes >= 75 trades)
-    if trade_count >= 75:
-        score += 0.05
-
-    # Diagnostic quality bonus if AUC is known and strong
-    if auc is not None and math.isfinite(auc) and auc > 0.55:
-        score += (auc - 0.55) * 0.10
-
+    # Financial score: PnL scales with independent trades and drawdown is
+    # an explicit USDC penalty. AUC/ECE/Brier remain diagnostics.
+    score = float(median_pnl) * max(int(trade_count), 0)
+    score -= 0.5 * max(float(max_drawdown), 0.0)
     return round(score, 4)
 
 
@@ -105,49 +91,78 @@ def evaluate_candidate_policy(
     rejection_reasons: list[str] = []
 
     median_pnl = metrics.get("median_pnl", metrics.get("median_oot_pnl", 0.0))
-    max_dd = metrics.get("max_drawdown", metrics.get("median_oot_drawdown", 0.0))
+    max_dd = metrics.get(
+        "max_drawdown_usdc",
+        metrics.get("max_drawdown", metrics.get("median_oot_drawdown", 0.0)),
+    )
     trade_count = metrics.get("total_trades", metrics.get("trade_count", 0))
-    windows_count = metrics.get("windows_count", metrics.get("oot_windows", 0))
+    windows_count = metrics.get(
+        "window_count",
+        metrics.get("windows_count", metrics.get("oot_windows", 0)),
+    )
     auc = metrics.get("auc")
     brier = metrics.get("brier")
 
-    # 1. Finite checks
-    for name, val in [("median_pnl", median_pnl), ("max_drawdown", max_dd)]:
-        if val is None or not math.isfinite(float(val)):
-            rejection_reasons.append(f"NON_FINITE_VALUE: {name}")
+    def finite_number(value: Any, fallback: float = 0.0) -> tuple[float, bool]:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return fallback, False
+        return (number, math.isfinite(number))
 
-    # 2. Trade volume check
+    pnl_num, pnl_ok = finite_number(median_pnl)
+    dd_num, dd_ok = finite_number(max_dd)
+    try:
+        trades_num = int(trade_count)
+        trades_ok = trades_num >= 0
+    except (TypeError, ValueError):
+        trades_num, trades_ok = 0, False
+    try:
+        windows_num = int(windows_count)
+        windows_ok = windows_num >= 0
+    except (TypeError, ValueError):
+        windows_num, windows_ok = 0, False
+
+    # 1. Finite and shape checks.
+    if not pnl_ok:
+        rejection_reasons.append("NON_FINITE_VALUE: median_pnl")
+    if not dd_ok:
+        rejection_reasons.append("NON_FINITE_VALUE: max_drawdown")
+    if not trades_ok:
+        rejection_reasons.append("INVALID_TRADE_COUNT")
+    if not windows_ok:
+        rejection_reasons.append("INVALID_WINDOW_COUNT")
+
+    # 2. Trade volume and independent window checks.
     effective_min_trades = max(MIN_MANDATORY_TRADES, min_trades)
-    if int(trade_count) < effective_min_trades:
+    if trades_num < effective_min_trades:
         rejection_reasons.append(
             f"INSUFFICIENT_TRADES: got {trade_count}, required minimum {effective_min_trades}"
         )
-
-    # 3. Independent windows check
     effective_min_windows = max(MIN_MANDATORY_WINDOWS, min_windows)
-    if int(windows_count) < effective_min_windows:
+    if windows_num < effective_min_windows:
         rejection_reasons.append(
             f"INSUFFICIENT_WINDOWS: got {windows_count}, required minimum {effective_min_windows}"
         )
 
-    # 4. Strictly positive net PnL
-    if float(median_pnl) <= 0.0:
+    # 3. Strictly positive net PnL and drawdown cap (USDC).
+    if pnl_ok and pnl_num <= 0.0:
         rejection_reasons.append(
-            f"NON_POSITIVE_PNL: median net PnL is {median_pnl:.4f} <= 0.0"
+            f"NON_POSITIVE_PNL: median net PnL is {pnl_num:.4f} <= 0.0"
         )
-
-    # 5. Drawdown limit
-    if float(max_dd) > max_drawdown_limit:
+    if dd_ok and dd_num < 0.0:
+        rejection_reasons.append("INVALID_DRAWDOWN")
+    elif dd_ok and dd_num > max_drawdown_limit:
         rejection_reasons.append(
-            f"EXCESSIVE_DRAWDOWN: max drawdown {max_dd:.2f} exceeds limit {max_drawdown_limit:.2f}"
+            f"EXCESSIVE_DRAWDOWN: max drawdown {dd_num:.2f} exceeds limit {max_drawdown_limit:.2f}"
         )
 
     gate_passed = len(rejection_reasons) == 0
     score = score_candidate(
-        median_pnl=float(median_pnl) if math.isfinite(float(median_pnl)) else 0.0,
-        max_drawdown=float(max_dd) if math.isfinite(float(max_dd)) else 0.0,
-        trade_count=int(trade_count),
-        windows_count=int(windows_count),
+        median_pnl=pnl_num,
+        max_drawdown=dd_num,
+        trade_count=trades_num,
+        windows_count=windows_num,
         auc=float(auc) if auc is not None and math.isfinite(float(auc)) else None,
         brier=float(brier) if brier is not None and math.isfinite(float(brier)) else None,
     )
@@ -156,10 +171,10 @@ def evaluate_candidate_policy(
         is_eligible=gate_passed,
         gate_passed=gate_passed,
         score=score,
-        median_pnl=float(median_pnl) if math.isfinite(float(median_pnl)) else 0.0,
-        max_drawdown=float(max_dd) if math.isfinite(float(max_dd)) else 0.0,
-        trade_count=int(trade_count),
-        windows_count=int(windows_count),
+        median_pnl=pnl_num,
+        max_drawdown=dd_num,
+        trade_count=trades_num,
+        windows_count=windows_num,
         rejection_reasons=rejection_reasons,
         diagnostics={"auc": auc, "brier": brier},
     )
@@ -194,8 +209,7 @@ def validate_agent_action_autonomy(
         return
 
     if action in {"PROPOSE_LIVE_DEPLOYMENT"}:
-        # Allowed in LIVE_PROPOSE or higher
-        if level in {"OBSERVE", "EXPERIMENT"}:
+        if level not in {"LIVE_PROPOSE", "AUTONOMOUS_LIVE", "DIRECTED"}:
             raise AILabError(f"Action '{action}' requires 'LIVE_PROPOSE' autonomy level")
         return
 
