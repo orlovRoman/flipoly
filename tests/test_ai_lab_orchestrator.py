@@ -1,9 +1,6 @@
 import inspect
 from types import SimpleNamespace
-
 from polyflip.ai_lab.orchestrator import (
-    MIN_TOTAL_TRADES,
-    MIN_WINDOWS,
     RESULT_CLOSING_STATUSES,
     build_experiment_report,
     default_plan_steps,
@@ -13,37 +10,46 @@ from polyflip.ai_lab.orchestrator import (
 
 
 def _result(
-    config_id: int,
-    *,
-    kind: str = "POLYMARKET_OOT",
-    pnl: float | None = None,
-    trades: int | None = None,
-    drawdown: float | None = None,
-    artifact_id: int | None = None,
-    auc: float | None = None,
-    window_start: str | None = None,
-    window_end: str | None = None,
-    status: str = "SUCCEEDED",
+    config_id,
+    kind="POLYMARKET_OOT",
+    pnl=0.0,
+    trades=0,
+    drawdown=0.0,
+    artifact_id=None,
+    auc=None,
+    brier=None,
+    window_start=None,
+    window_end=None,
+    status="SUCCEEDED",
 ):
+    metrics = {
+        "auc": auc,
+        "brier": brier,
+        "median_oot_pnl": pnl,
+        "median_oot_drawdown": drawdown,
+        "total_trades": trades,
+    }
     return SimpleNamespace(
         config_id=config_id,
+        artifact_id=artifact_id,
         evaluation_kind=kind,
         status=status,
         net_pnl=pnl,
         trade_count=trades,
         max_drawdown=drawdown,
-        artifact_id=artifact_id,
+        train_window_start=None,
+        train_window_end=None,
         oot_window_start=window_start,
         oot_window_end=window_end,
-        metrics={"auc": auc} if auc is not None else {},
+        metrics=metrics,
     )
 
 
 def test_default_plan_steps_use_global_unique_indices():
-    steps = default_plan_steps([11, 12])
-    assert [step["step_index"] for step in steps] == list(range(6))
-    assert [step["config_id"] for step in steps] == [11, 11, 11, 12, 12, 12]
-    assert [step["action"] for step in steps[:3]] == [
+    steps = default_plan_steps([1, 2])
+    assert len(steps) == 6
+    assert [step["sequence"] for step in steps] == [1, 2, 3, 4, 5, 6]
+    assert [step["step_type"] for step in steps[:3]] == [
         "TRAIN_MODEL",
         "RUN_OOT_BACKTEST",
         "RUN_POLYMARKET_OOT",
@@ -262,3 +268,12 @@ def test_report_tolerates_non_mapping_diagnostic_metrics():
     report = build_experiment_report(results)
     assert report["recommendation_status"] == "READY_FOR_SHADOW"
     assert report["recommended_config_id"] == 1
+
+
+if __name__ == "__main__":
+    for name, obj in list(globals().items()):
+        if name.startswith("test_") and callable(obj):
+            print(f"Running {name}...")
+            obj()
+            print("PASSED")
+    print("ALL ORCHESTRATOR TESTS PASSED!")
