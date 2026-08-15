@@ -1548,9 +1548,12 @@ window.showFunnelDiagnostic = function(logId) {
             <div style="font-weight:600; color:#fff; margin-bottom:4px;">Direction Model</div>
             <div>Key: <span style="color:#e2e8f0;">${funnel.direction_model_key || "—"}</span></div>
             <div>Status: <span style="color:${funnel.direction_status === 'READY' ? '#00ff88' : '#ff3366'};">${funnel.direction_status || "—"}</span></div>
-            <div>p_up: <b>${fmt(funnel.direction_p_up)}</b> (порог ≥ ${funnel.direction_threshold_up ?? "—"})&nbsp;&nbsp;
-                 p_down: <b>${fmt(funnel.direction_p_down)}</b> (порог ≥ ${funnel.direction_threshold_down ?? "—"})</div>
+            <div>calibrated p_up: <b>${fmt(funnel.direction_p_up)}</b>
+                 (UP при raw p_up ≥ ${funnel.direction_threshold_up ?? "—"}; DOWN при raw p_up ≤ ${funnel.direction_threshold_down ?? "—"})</div>
             <div>direction_probability: <b>${fmt(funnel.direction_probability)}</b></div>
+            <div>Raw opinion: <b>${funnel.raw_opinion || "—"}</b>
+                 (raw p_up=${fmt(funnel.direction_p_up_raw)}, raw p_down=${fmt(funnel.direction_p_down_raw)})</div>
+            <div>Actionable signal: <b>${funnel.actionable_signal || funnel.direction_value || "NONE"}</b></div>
         </div>
         <hr style="border-color:rgba(255,255,255,0.1); margin:0;">
         <div>

@@ -96,6 +96,7 @@ class CryptoSignal:
     inverted: bool = False
     p_up_raw: float = 0.0
     p_down_raw: float = 0.0
+    raw_opinion: str = "NONE"
 
 class CryptoPredictor:
     """Кэширует загруженные модели в памяти во избежание частой десериализации."""
@@ -356,6 +357,18 @@ class CryptoPredictor:
                     th_up = row.decision_threshold if row.decision_threshold is not None else 0.55
                     th_down = row.decision_threshold_down if row.decision_threshold_down is not None else 0.45
 
+                    if not 0.0 <= th_down < th_up <= 1.0:
+                        logger.error(
+                            "invalid_overlapping_crypto_thresholds",
+                            symbol=symbol,
+                            regime=regime,
+                            version=row.version,
+                            threshold_down=th_down,
+                            threshold_up=th_up,
+                            action="safe_fallback_pair",
+                        )
+                        th_down, th_up = 0.49, 0.51
+
                     self._thresholds[symbol][regime] = (th_up, th_down)
                     loaded_regimes += 1
                     logger.info(
@@ -494,16 +507,27 @@ class CryptoPredictor:
             th_up, th_down = self._thresholds.get(symbol, {}).get(selected_regime, (0.55, 0.45))
             model_key = f"{symbol}_{selected_regime}"
 
-            # 3. Инференс
-            p_up_raw = float(model.predict_proba([fv_array])[0][1])
-            p_down_raw = 1.0 - p_up_raw
-            
+            # 3. Инференс.  Calibrated p_up is used for p_win/edge; the raw
+            # LightGBM score is the only source of the direction vote.
+            p_up_calibrated = float(model.predict_proba([fv_array])[0][1])
+            raw_predictor = getattr(model, "predict_raw_proba", None)
+            p_up_score = float(
+                (raw_predictor([fv_array]) if callable(raw_predictor) else model.predict_proba([fv_array]))[0][1]
+            )
+            p_down_calibrated = 1.0 - p_up_calibrated
+            p_down_score = 1.0 - p_up_score
+
             if invert_lgbm_signal:
-                p_up = p_down_raw
-                p_down = p_up_raw
+                p_up = p_down_calibrated
+                p_down = p_up_calibrated
+                p_up_raw = p_down_score
+                p_down_raw = p_up_score
             else:
-                p_up = p_up_raw
-                p_down = p_down_raw
+                p_up = p_up_calibrated
+                p_down = p_down_calibrated
+                p_up_raw = p_up_score
+                p_down_raw = p_down_score
+            raw_opinion = "UP" if p_up_raw >= 0.5 else "DOWN"
 
             signal_status = "READY"
             DEGENERATE_THRESHOLD = 0.05
@@ -517,7 +541,7 @@ class CryptoPredictor:
                     hint="Model likely trained on different feature set — retrain required",
                 )
             
-            signal_strength, direction = compute_crypto_signal_strength(p_up, th_up, th_down)
+            signal_strength, direction = compute_crypto_signal_strength(p_up_raw, th_up, th_down)
             
             # Страйк (канонический underlying_price без подмены на candles[-1].open)
             strike = float(underlying_price) if underlying_price is not None else 0.0
@@ -552,6 +576,7 @@ class CryptoPredictor:
                     inverted=invert_lgbm_signal,
                     p_up_raw=p_up_raw,
                     p_down_raw=p_down_raw,
+                    raw_opinion=raw_opinion,
                 )
 
 
@@ -585,6 +610,7 @@ class CryptoPredictor:
                 inverted=invert_lgbm_signal,
                 p_up_raw=p_up_raw,
                 p_down_raw=p_down_raw,
+                raw_opinion=raw_opinion,
             )
         except Exception as e:
             logger.exception("crypto_inference_failed", symbol=symbol, error=str(e))
@@ -598,4 +624,3 @@ class CryptoPredictor:
                 p_up_raw=p_up_raw,
                 p_down_raw=p_down_raw,
             )
-

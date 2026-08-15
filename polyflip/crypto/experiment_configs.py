@@ -29,6 +29,8 @@ MODEL_DEFAULTS: dict[str, int | float] = {
 
 CALIBRATION_DEFAULTS: dict[str, Any] = {"method": "AUTO"}
 
+THRESHOLD_DEFAULTS: dict[str, float] = {"target_coverage": 0.40}
+
 BACKTEST_DEFAULTS: dict[str, int | float] = {
     "min_edge": 0.04,
     "cost_buffer": 0.02,
@@ -62,6 +64,10 @@ _BACKTEST_BOUNDS: dict[str, tuple[float, float]] = {
     "outsider_max_price": (0.001, 0.999),
     "stake_usdc": (0.000001, 1_000_000.0),
     "slippage_pct": (0.0, 0.999),
+}
+
+_THRESHOLD_BOUNDS: dict[str, tuple[float, float]] = {
+    "target_coverage": (0.05, 0.95),
 }
 
 
@@ -102,18 +108,20 @@ def normalize_experiment_config(payload: Mapping[str, Any] | None = None) -> dic
     calibration = deepcopy(CALIBRATION_DEFAULTS)
     calibration.update(data.get("calibration", {}) or {})
     method = str(calibration.get("method", "AUTO")).strip().upper()
-    if method not in {"AUTO", "NONE", "TEMPERATURE", "PLATT", "ISOTONIC"}:
-        raise ValueError("calibration.method must be AUTO, NONE, TEMPERATURE, PLATT or ISOTONIC")
+    if method not in {"AUTO", "NONE", "PLATT", "ISOTONIC"}:
+        raise ValueError("calibration.method must be AUTO, NONE, PLATT or ISOTONIC")
     calibration["method"] = method
     backtest = _validate_group(data.get("backtest"), BACKTEST_DEFAULTS, _BACKTEST_BOUNDS)
     if backtest["min_price"] > backtest["max_price"]:
         raise ValueError("backtest.min_price must not exceed max_price")
     model = _validate_group(data.get("model"), MODEL_DEFAULTS, _MODEL_BOUNDS)
+    thresholds = _validate_group(data.get("thresholds"), THRESHOLD_DEFAULTS, _THRESHOLD_BOUNDS)
     return {
         "feature_set": feature_spec.key,
         "feature_set_version": feature_spec.version,
         "model": model,
         "calibration": calibration,
+        "thresholds": thresholds,
         "backtest": backtest,
     }
 

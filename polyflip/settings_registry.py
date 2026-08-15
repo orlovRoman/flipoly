@@ -237,6 +237,10 @@ REGISTRY: list[SettingDef] = [
                description="Нейтральный порог при некорректном автоматическом значении"),
     SettingDef("LGBM_MIN_PRECISION_FOR_THRESHOLD", "0.52",
                description="Мин. precision при поиске оптимального порога. 0.52 для крипто, 0.60 для строгого режима"),
+    SettingDef("LGBM_TARGET_COVERAGE", "0.40",
+               description="Целевое покрытие направленных сигналов LightGBM (0.20 / 0.40 / 0.60 / 0.80)"),
+    SettingDef("LGBM_CALIBRATION_METHOD", "PLATT",
+               description="Калибровка p_win: PLATT, AUTO или ISOTONIC; AUTO допускает isotonic только при OOT-улучшении"),
 
     # --- CV / обучение ---
     SettingDef("LGBM_CV_N_SPLITS", "5",

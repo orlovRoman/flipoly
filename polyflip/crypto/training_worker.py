@@ -109,6 +109,7 @@ async def _run_job(payload: dict) -> None:
                     "feature_set": config.feature_set,
                     "model": config.model_params,
                     "calibration": config.calibration_params,
+                    "thresholds": config.threshold_params,
                     "backtest": config.backtest_params,
                 }
 

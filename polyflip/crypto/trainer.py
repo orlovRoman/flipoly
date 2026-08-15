@@ -40,6 +40,7 @@ from polyflip.crypto.market_outcome_dataset import build_market_outcome_dataset
 from polyflip.db.models import CryptoCandle, ModelRegistry, ModelRegistryOOFArtifact, RuntimeSettings
 from polyflip.crypto.polymarket_backtest import compute_oof_polymarket_backtest, load_market_entry_quotes
 from polyflip.crypto.oof_artifact import serialize_oof_artifact, OOF_ARTIFACT_SCHEMA_VERSION
+from polyflip.crypto.threshold_optimizer import TARGET_COVERAGES, optimize_joint_thresholds
 
 # Импортируем общий семафор из LogReg-трейнера.
 # NOTE: Семафор инициализируется один раз при первом вызове и кэшируется до перезапуска сервиса.
@@ -174,12 +175,18 @@ def _evaluate_quality_gate(
                 )
         normalized_thresholds.append(normalized)
 
+    if normalized_thresholds[1] >= normalized_thresholds[0]:
+        reasons.append(
+            "ThresholdCompatibilityError: lower threshold must be strictly below upper threshold"
+        )
+
     smoke_error = _model_smoke_test(model_bytes, features)
     if smoke_error:
         reasons.append(smoke_error)
 
     technical_errors = [
-        reason for reason in reasons if reason.startswith("ModelCompatibilityError")
+        reason for reason in reasons
+        if reason.startswith(("ModelCompatibilityError", "ThresholdCompatibilityError"))
     ]
     return not technical_errors, reasons, normalized_thresholds[0], normalized_thresholds[1]
 
@@ -214,6 +221,10 @@ class LGBMFitResult:
     feature_audit_summary: dict[str, object] = field(default_factory=dict)
     # OOF probabilities are retained for the canonical Polymarket PnL audit.
     oof_scores: np.ndarray | None = None
+    raw_oof_scores: np.ndarray | None = None
+    calibration_method: str = "PLATT"
+    calibration_comparison: dict[str, dict[str, float | None]] = field(default_factory=dict)
+    threshold_sweep: list[dict[str, object]] = field(default_factory=list)
     # Effective LightGBM parameters, including the selected controlled-search trial.
     effective_params: dict[str, object] = field(default_factory=dict)
 
@@ -233,6 +244,23 @@ class LGBMFitResult:
 
     def __len__(self) -> int:
         return 11
+
+
+class CalibratedLightGBMModel:
+    """Pickle-safe model bundle with separate raw and calibrated scores."""
+
+    def __init__(self, raw_model, calibrated_model, calibration_method: str) -> None:
+        self.raw_model = raw_model
+        self.calibrated_model = calibrated_model
+        self.calibration_method = str(calibration_method).upper()
+        self.n_features_in_ = getattr(raw_model, "n_features_in_", None)
+        self.feature_importances_ = getattr(raw_model, "feature_importances_", None)
+
+    def predict_raw_proba(self, rows):
+        return self.raw_model.predict_proba(rows)
+
+    def predict_proba(self, rows):
+        return self.calibrated_model.predict_proba(rows)
 
 
 def _make_lgbm(**params) -> LGBMClassifier:
@@ -300,6 +328,11 @@ def _fit_lgbm_and_serialize(
     return_metrics: bool = False,
     early_stopping_rounds: int = 30,
     compute_feature_audit: bool = False,
+    calibration_method: str = "PLATT",
+    selected_target_coverage: float = 0.40,
+    backtest_frame: pd.DataFrame | None = None,
+    backtest_quotes: pd.DataFrame | None = None,
+    backtest_options: dict | None = None,
     **lgbm_params,
 ) -> LGBMFitResult:
     """
@@ -309,6 +342,21 @@ def _fit_lgbm_and_serialize(
     tscv = TimeSeriesSplit(n_splits=n_splits)
 
     oof_scores = np.full(len(y), np.nan)
+    raw_oof_scores = np.full(len(y), np.nan)
+    requested_calibration = str(calibration_method or "PLATT").strip().upper()
+    if requested_calibration in {"SIGMOID", "PLATT"}:
+        calibration_methods = ("PLATT",)
+    elif requested_calibration == "ISOTONIC":
+        calibration_methods = ("ISOTONIC",)
+    elif requested_calibration == "NONE":
+        calibration_methods = ("NONE",)
+    else:
+        # AUTO is intentionally conservative: isotonic must beat PLATT on all
+        # available OOT diagnostics before it is allowed to win.
+        calibration_methods = ("PLATT", "ISOTONIC")
+    calibration_oof = {
+        method: np.full(len(y), np.nan) for method in calibration_methods
+    }
     aucs: list[float] = []
     fold_gain_importances: list[np.ndarray] = []
 
@@ -321,51 +369,122 @@ def _fit_lgbm_and_serialize(
         if compute_feature_audit:
             fold_gain_importances.append(model_gain_importance(fold_lgbm, X.columns))
 
-        # Калибруем на первой половине val, измеряем AUC на второй — без пересечения
+        raw_prob = np.asarray(fold_lgbm.predict_proba(X.iloc[val_idx])[:, 1], dtype=float)
+        raw_oof_scores[val_idx] = raw_prob
+        # Calibrate on the first half of the validation tail and score only the
+        # second half. The raw score remains the source of direction.
         mid = len(val_idx) // 2
         cal_idx, eval_idx = val_idx[:mid], val_idx[mid:]
 
         if len(cal_idx) >= 20 and len(eval_idx) >= 20:
             X_cal,  y_cal  = X.iloc[cal_idx],  y.iloc[cal_idx]
             X_eval, y_eval = X.iloc[eval_idx], y.iloc[eval_idx]
-            calibration_method = "sigmoid" if len(cal_idx) < 200 else "isotonic"
-            fold_cal = CalibratedClassifierCV(
-                estimator=FrozenEstimator(fold_lgbm), method=calibration_method, cv=None
-            )
-            fold_cal.fit(X_cal, y_cal)
-            y_proba = fold_cal.predict_proba(X_eval)[:, 1]
+            for method in calibration_methods:
+                if method == "NONE":
+                    y_proba = raw_prob[eval_idx - val_idx[0]]
+                else:
+                    fold_cal = CalibratedClassifierCV(
+                        estimator=FrozenEstimator(fold_lgbm),
+                        method="sigmoid" if method == "PLATT" else "isotonic",
+                        cv=None,
+                    )
+                    fold_cal.fit(X_cal, y_cal)
+                    y_proba = np.asarray(fold_cal.predict_proba(X_eval)[:, 1], dtype=float)
+                calibration_oof[method][eval_idx] = y_proba
+            y_proba = calibration_oof[calibration_methods[0]][eval_idx]
             oof_scores[eval_idx] = y_proba
             aucs.append(roc_auc_score(y_eval, y_proba))
         else:
-            # Фолд слишком мал — используем некалиброванную модель
-            y_proba = fold_lgbm.predict_proba(X.iloc[val_idx])[:, 1]
-            oof_scores[val_idx] = y_proba
-            aucs.append(roc_auc_score(y.iloc[val_idx], y_proba))
+            # Small folds cannot support a reliable calibrator.
+            for method in calibration_methods:
+                calibration_oof[method][val_idx] = raw_prob
+            oof_scores[val_idx] = raw_prob
+            aucs.append(roc_auc_score(y.iloc[val_idx], raw_prob))
 
     val_auc = float(np.mean(aucs))
     baseline_auc = 0.5
 
-    # ECE через OOF
-    valid_mask = ~np.isnan(oof_scores)
-    try:
-        if valid_mask.sum() > 10:
-            y_cal = y[valid_mask].to_numpy(dtype=float)
-            p_cal = oof_scores[valid_mask]
-            frac_pos, mean_pred = calibration_curve(y_cal, p_cal, n_bins=10, strategy="uniform")
+    def _ece(y_true: np.ndarray, probs: np.ndarray) -> float:
+        if len(y_true) <= 10:
+            return 0.5
+        try:
+            frac_pos, mean_pred = calibration_curve(y_true, probs, n_bins=10, strategy="uniform")
             edges = np.linspace(0.0, 1.0, 11)
-            bucket = np.clip(np.digitize(p_cal, edges[1:-1], right=False), 0, 9)
+            bucket = np.clip(np.digitize(probs, edges[1:-1], right=False), 0, 9)
             counts = np.bincount(bucket, minlength=10)
-            weights = counts[counts > 0] / len(p_cal)
-            ece = float(np.sum(weights * np.abs(frac_pos - mean_pred)))
-        else:
-            ece = 0.5
-    except ValueError:
-        ece = 0.5  # недостаточно данных для расчёта
+            weights = counts[counts > 0] / len(probs)
+            return float(np.sum(weights * np.abs(frac_pos - mean_pred)))
+        except ValueError:
+            return 0.5
 
-    logger.info("crypto_calibration", ece=round(ece, 4))
+    calibration_comparison: dict[str, dict[str, float | None]] = {}
+    for method, scores in calibration_oof.items():
+        valid = np.isfinite(scores)
+        if valid.sum() == 0:
+            continue
+        y_valid = y[valid].to_numpy(dtype=float)
+        p_valid = scores[valid]
+        try:
+            method_log_loss = float(log_loss(y_valid, p_valid, labels=[0, 1]))
+        except ValueError:
+            method_log_loss = None
+        method_pnl = None
+        if backtest_frame is not None and backtest_quotes is not None and not backtest_quotes.empty:
+            try:
+                economic = compute_oof_polymarket_backtest(
+                    backtest_frame,
+                    scores,
+                    backtest_quotes,
+                    strategy_branch="COMBINED",
+                    **(backtest_options or {}),
+                )
+                method_pnl = float(economic.get("net_profit") or 0.0)
+            except Exception:
+                method_pnl = None
+        calibration_comparison[method] = {
+            "brier": float(brier_score_loss(y_valid, p_valid)),
+            "ece": _ece(y_valid, p_valid),
+            "log_loss": method_log_loss,
+            "polymarket_pnl": method_pnl,
+        }
+
+    selected_method = requested_calibration
+    if selected_method in {"AUTO", "SIGMOID"}:
+        selected_method = "PLATT"
+    if requested_calibration == "AUTO" and "ISOTONIC" in calibration_comparison:
+        platt = calibration_comparison.get("PLATT", {})
+        isotonic = calibration_comparison["ISOTONIC"]
+        pnl_ok = (
+            platt.get("polymarket_pnl") is None
+            or isotonic.get("polymarket_pnl") is None
+            or isotonic["polymarket_pnl"] >= platt.get("polymarket_pnl", -np.inf)
+        )
+        if (
+            isotonic.get("brier", np.inf) <= platt.get("brier", np.inf)
+            and isotonic.get("ece", np.inf) <= platt.get("ece", np.inf)
+            and pnl_ok
+            and (
+                isotonic.get("brier", np.inf) < platt.get("brier", np.inf)
+                or isotonic.get("ece", np.inf) < platt.get("ece", np.inf)
+                or isotonic.get("polymarket_pnl", -np.inf) > platt.get("polymarket_pnl", -np.inf)
+            )
+        ):
+            selected_method = "ISOTONIC"
+    if selected_method not in calibration_oof:
+        selected_method = calibration_methods[0]
+    oof_scores = calibration_oof[selected_method].copy()
+    valid_mask = np.isfinite(oof_scores)
+    ece = calibration_comparison.get(selected_method, {}).get("ece", 0.5) or 0.5
+    logger.info(
+        "crypto_calibration",
+        method=selected_method,
+        ece=round(float(ece), 4),
+        comparison=calibration_comparison,
+    )
 
     # Финальная модель на всех данных
-    n_cal = max(50, int(len(X) * 0.15))
+    n_cal = max(20, int(len(X) * 0.15))
+    n_cal = min(n_cal, max(20, len(X) // 3))
     X_fit, X_cal_final = X.iloc[:-n_cal], X.iloc[-n_cal:]
     y_fit, y_cal_final = y.iloc[:-n_cal], y.iloc[-n_cal:]
 
@@ -380,46 +499,57 @@ def _fit_lgbm_and_serialize(
         final_params["n_estimators"] = int(best_iteration)
     final_lgbm = _make_lgbm(**final_params)
     final_lgbm.fit(X_fit, y_fit)
-    final_calibration_method = "sigmoid" if n_cal < 200 else "isotonic"
-    final_cal = CalibratedClassifierCV(
-        estimator=FrozenEstimator(final_lgbm), method=final_calibration_method, cv=None
-    )
-    final_cal.fit(X_cal_final, y_cal_final)
+    final_cal = final_lgbm
+    if selected_method != "NONE":
+        try:
+            final_cal = CalibratedClassifierCV(
+                estimator=FrozenEstimator(final_lgbm),
+                method="sigmoid" if selected_method == "PLATT" else "isotonic",
+                cv=None,
+            )
+            final_cal.fit(X_cal_final, y_cal_final)
+        except ValueError:
+            logger.warning("final_calibration_failed_fallback_raw", method=selected_method)
+            selected_method = "NONE"
+            final_cal = final_lgbm
+    model_bundle = CalibratedLightGBMModel(final_lgbm, final_cal, selected_method)
 
-    def _find_threshold(y_true, y_prob):
-        prec_arr, rec_arr, thr_arr = precision_recall_curve(y_true, y_prob)
-        if len(thr_arr) > 0:
-            valid = prec_arr[:-1] >= min_precision
-            f1 = 2 * prec_arr[:-1] * rec_arr[:-1] / (prec_arr[:-1] + rec_arr[:-1] + 1e-8)
-            if valid.any():
-                th = float(thr_arr[np.argmax(np.where(valid, f1, 0.0))])
-            else:
-                th = float(thr_arr[np.argmax(f1)])
-        else:
-            th = thr_fallback
-        if th >= max_valid_thr:
-            th = max_valid_thr
-        if th < min_valid_thr or th > max_valid_thr:
-            th = thr_fallback
-        return th
+    valid_mask = np.isfinite(oof_scores) & np.isfinite(raw_oof_scores)
+    threshold_sweep: list[dict[str, object]] = []
+    if backtest_frame is not None and backtest_quotes is not None and not backtest_quotes.empty:
+        threshold_audit = optimize_joint_thresholds(
+            backtest_frame,
+            raw_oof_scores,
+            oof_scores,
+            backtest_quotes,
+            target_coverages=TARGET_COVERAGES,
+            selected_target_coverage=selected_target_coverage,
+            **(backtest_options or {}),
+        )
+        optimal_threshold = float(threshold_audit["selected_lower_threshold"])
+        optimal_threshold_up = float(threshold_audit["selected_upper_threshold"])
+        threshold_sweep = list(threshold_audit.get("sweep") or [])
+    else:
+        valid_raw = raw_oof_scores[valid_mask]
+        target = max(0.05, min(0.95, float(selected_target_coverage)))
+        optimal_threshold = float(np.quantile(valid_raw, target / 2.0)) if len(valid_raw) else 0.45
+        optimal_threshold_up = float(np.quantile(valid_raw, 1.0 - target / 2.0)) if len(valid_raw) else 0.55
+        if optimal_threshold >= optimal_threshold_up:
+            optimal_threshold, optimal_threshold_up = 0.49, 0.51
 
-    optimal_threshold = _find_threshold(y[valid_mask], oof_scores[valid_mask])
-    
-    y_down = 1 - y[valid_mask]
-    oof_scores_down = 1.0 - oof_scores[valid_mask]
-    optimal_threshold_down = _find_threshold(y_down, oof_scores_down)
-
-    # Считаем реальный precision при optimal_threshold на OOF
+    # Direction precision is retained as a diagnostic only; it no longer
+    # chooses either threshold.
     valid_oof = oof_scores[valid_mask]
+    direction_oof = raw_oof_scores[valid_mask]
     y_valid = y[valid_mask]
-    predictions_at_thr = valid_oof >= optimal_threshold
+    predictions_at_thr = (direction_oof <= optimal_threshold) | (direction_oof >= optimal_threshold_up)
     if predictions_at_thr.sum() > 20:
         real_precision = float((y_valid[predictions_at_thr] == 1).mean())
         signal_rate = float(predictions_at_thr.mean())
         logger.info("oof_real_precision",
             precision=round(real_precision, 4),
             signal_rate=round(signal_rate, 4),
-            threshold=round(optimal_threshold, 4))
+            threshold=round(optimal_threshold_up, 4))
         # Если precision < 0.52 — порог бесполезен
         if real_precision < 0.52:
             logger.warning("precision_below_random",
@@ -467,11 +597,11 @@ def _fit_lgbm_and_serialize(
         oot_log_loss = None
 
     return LGBMFitResult(
-        model_bytes=pickle.dumps(final_cal),
+        model_bytes=pickle.dumps(model_bundle),
         val_auc=val_auc,
         baseline_auc=baseline_auc,
-        threshold=optimal_threshold,
-        threshold_down=optimal_threshold_down,
+        threshold=optimal_threshold_up,
+        threshold_down=optimal_threshold,
         ece=ece,
         feature_importance=fi,
         precision=precision,
@@ -483,6 +613,10 @@ def _fit_lgbm_and_serialize(
         feature_audit=feature_audit,
         feature_audit_summary=audit_summary,
         oof_scores=oof_scores.copy() if return_metrics else None,
+        raw_oof_scores=raw_oof_scores.copy() if return_metrics else None,
+        calibration_method=selected_method,
+        calibration_comparison=calibration_comparison,
+        threshold_sweep=threshold_sweep,
         effective_params={
             **final_params,
             "n_estimators": int(getattr(final_lgbm, "n_estimators_", final_params.get("n_estimators", 0))),
@@ -525,6 +659,8 @@ def _fit_controlled_lgbm(
     backtest_frame: pd.DataFrame | None = None,
     backtest_quotes: pd.DataFrame | None = None,
     backtest_options: dict | None = None,
+    calibration_method: str = "PLATT",
+    selected_target_coverage: float = 0.40,
 ) -> LGBMFitResult:
     candidates = _controlled_lgbm_candidates(base_params, search_trials)
     if len(candidates) == 1:
@@ -539,6 +675,11 @@ def _fit_controlled_lgbm(
             thr_fallback=thr_fallback,
             return_metrics=True,
             compute_feature_audit=True,
+            calibration_method=calibration_method,
+            selected_target_coverage=selected_target_coverage,
+            backtest_frame=backtest_frame,
+            backtest_quotes=backtest_quotes,
+            backtest_options=backtest_options,
             **candidates[0],
         )
     trial_results = []
@@ -554,6 +695,11 @@ def _fit_controlled_lgbm(
             thr_fallback=thr_fallback,
             return_metrics=True,
             compute_feature_audit=False,
+            calibration_method=calibration_method,
+            selected_target_coverage=selected_target_coverage,
+            backtest_frame=backtest_frame,
+            backtest_quotes=backtest_quotes,
+            backtest_options=backtest_options,
             **params,
         ))
 
@@ -623,6 +769,11 @@ def _fit_controlled_lgbm(
         thr_fallback=thr_fallback,
         return_metrics=True,
         compute_feature_audit=True,
+        calibration_method=calibration_method,
+        selected_target_coverage=selected_target_coverage,
+        backtest_frame=backtest_frame,
+        backtest_quotes=backtest_quotes,
+        backtest_options=backtest_options,
         **best_params,
     )
 async def _get_float_setting(db: AsyncSession, key: str, default: float = 0.0) -> float:
@@ -639,6 +790,11 @@ async def _get_int_setting(db: AsyncSession, key: str, default: int = 0) -> int:
     except KeyError:
         row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
         return int(row.value) if row else default
+
+
+async def _get_string_setting(db: AsyncSession, key: str, default: str = "") -> str:
+    row = (await db.execute(select(RuntimeSettings).where(RuntimeSettings.key == key))).scalar_one_or_none()
+    return str(row.value).strip() if row and row.value is not None else default
 
 
 class CryptoModelTrainer:
@@ -664,6 +820,8 @@ class CryptoModelTrainer:
         n_jobs = await _get_int_setting(self.db, "CRYPTO_LGBM_N_JOBS", 2)
         early_stopping_rounds = await _get_int_setting(self.db, "CRYPTO_LGBM_EARLY_STOPPING_ROUNDS", 30)
         search_trials = await _get_int_setting(self.db, "CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS", 1)
+        calibration_method = await _get_string_setting(self.db, "LGBM_CALIBRATION_METHOD", "PLATT")
+        selected_target_coverage = await _get_float_setting(self.db, "LGBM_TARGET_COVERAGE", 0.40)
 
         logger.info(
             "crypto_training_start",
@@ -700,6 +858,8 @@ class CryptoModelTrainer:
         }
         if normalized_config:
             lgbm_params.update(normalized_config["model"])
+            calibration_method = normalized_config["calibration"]["method"]
+            selected_target_coverage = float(normalized_config["thresholds"]["target_coverage"])
             logger.info(
                 "lgbm_experiment_config_applied",
                 experiment_config_id=experiment_config_id,
@@ -882,6 +1042,8 @@ class CryptoModelTrainer:
                                     "stake_usdc": backtest_stake_usdc,
                                     "slippage_pct": backtest_slippage_pct,
                                 },
+                                calibration_method=calibration_method,
+                                selected_target_coverage=selected_target_coverage,
                             ),
                             timeout=1800.0,   # 30 минут — hard limit
                         )
@@ -910,6 +1072,9 @@ class CryptoModelTrainer:
                     "log_loss": result.log_loss,
                     "feature_audit": result.feature_audit,
                     "feature_audit_summary": result.feature_audit_summary,
+                    "calibration_method": result.calibration_method,
+                    "calibration_comparison": result.calibration_comparison,
+                    "threshold_sweep": result.threshold_sweep,
                 }
 
                 # Evaluate all three trading branches only when OOF scores are
@@ -1100,6 +1265,10 @@ class CryptoModelTrainer:
                         "backtest_pnl_mode": "POLYMARKET_OOF",
                         "backtest": backtest_outsider,
                         "backtest_variants": backtest_variants,
+                        "calibration_method": result.calibration_method,
+                        "calibration_comparison": result.calibration_comparison,
+                        "threshold_sweep": result.threshold_sweep,
+                        "target_coverage": selected_target_coverage,
                     },
                     features=",".join(available),
                     feature_importance=fi,
@@ -1161,6 +1330,7 @@ class CryptoModelTrainer:
                         entry_quotes,
                         feature_set=feature_spec.key,
                         feature_schema_hash=feature_schema_hash(available),
+                        raw_scores=result.raw_oof_scores,
                     )
                     self.db.add(ModelRegistryOOFArtifact(
                         model_registry_id=model_row.id,

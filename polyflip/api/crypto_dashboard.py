@@ -31,6 +31,7 @@ from polyflip.api.auth import verify_api_key
 import polyflip.constants as C
 from polyflip.crypto.backtester import run_backtest
 from polyflip.crypto.polymarket_backtest import aggregate_stored_polymarket_backtests, compute_oof_polymarket_backtest
+from polyflip.crypto.threshold_optimizer import TARGET_COVERAGES, optimize_joint_thresholds
 from polyflip.crypto.feature_builder import build_features
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.trainer import CryptoModelTrainer
@@ -98,6 +99,8 @@ async def crypto_page(request: Request, db: AsyncSession = Depends(get_db_sessio
                 "early_stopping_rounds": int(defs.get("CRYPTO_LGBM_EARLY_STOPPING_ROUNDS", "30")),
                 "search_trials": int(defs.get("CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS", "1")),
                 "min_edge": float(defs.get("BACKTEST_MIN_EDGE", "0.04")),
+                "target_coverage": float(defs.get("LGBM_TARGET_COVERAGE", "0.40")),
+                "calibration_method": defs.get("LGBM_CALIBRATION_METHOD", "PLATT"),
                 "enable_ece_correction": enable_ece,
             },
         },
@@ -220,6 +223,8 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS",
         "BACKTEST_MIN_EDGE",
         "LGBM_EPSILON_QUANTILE",
+        "LGBM_TARGET_COVERAGE",
+        "LGBM_CALIBRATION_METHOD",
         "ENABLE_ECE_CORRECTION",
     ]
     set_stmt = select(RuntimeSettings).where(RuntimeSettings.key.in_(settings_keys))
@@ -262,6 +267,8 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
         "n_jobs": _safe_int("CRYPTO_LGBM_N_JOBS", "2"),
         "early_stopping_rounds": _safe_int("CRYPTO_LGBM_EARLY_STOPPING_ROUNDS", "30"),
         "search_trials": _safe_int("CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS", "1"),
+        "target_coverage": _safe_float("LGBM_TARGET_COVERAGE", "0.40"),
+        "calibration_method": str(db_settings.get("LGBM_CALIBRATION_METHOD", defs.get("LGBM_CALIBRATION_METHOD", "PLATT"))).upper(),
     }
 
     models_info = {}
@@ -312,6 +319,10 @@ async def crypto_status(db: AsyncSession = Depends(get_db_session)):
                 "backtest_trades": int(m.backtest_trades) if getattr(m, "backtest_trades", None) is not None else 0,
                 "backtest_wr": round_optional(getattr(m, "backtest_wr", None), 6),
                 "backtest_pnl_mode": (m.training_params or {}).get("backtest_pnl_mode"),
+                "calibration_method": (m.training_params or {}).get("calibration_method"),
+                "calibration_comparison": (m.training_params or {}).get("calibration_comparison", {}),
+                "target_coverage": (m.training_params or {}).get("target_coverage"),
+                "threshold_sweep": (m.training_params or {}).get("threshold_sweep", []),
             }
         except Exception as e:
             logger.error("crypto_status_model_parse_error", key=key, error=str(e))
@@ -418,12 +429,28 @@ async def save_crypto_settings(
         "reg_alpha": "CRYPTO_LGBM_REG_ALPHA",
         "reg_lambda": "CRYPTO_LGBM_REG_LAMBDA",
         "min_edge": "BACKTEST_MIN_EDGE",
+        "target_coverage": "LGBM_TARGET_COVERAGE",
+        "calibration_method": "LGBM_CALIBRATION_METHOD",
         "epsilon_quantile": "LGBM_EPSILON_QUANTILE",
         "enable_ece_correction": "ENABLE_ECE_CORRECTION",
         "n_jobs": "CRYPTO_LGBM_N_JOBS",
         "early_stopping_rounds": "CRYPTO_LGBM_EARLY_STOPPING_ROUNDS",
         "search_trials": "CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS",
     }
+
+    if "target_coverage" in settings:
+        try:
+            target_coverage = float(settings["target_coverage"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="target_coverage must be numeric") from exc
+        if not 0.05 <= target_coverage <= 0.95:
+            raise HTTPException(status_code=422, detail="target_coverage must be between 0.05 and 0.95")
+        settings["target_coverage"] = target_coverage
+    if "calibration_method" in settings:
+        calibration_method = str(settings["calibration_method"]).strip().upper()
+        if calibration_method not in {"AUTO", "NONE", "PLATT", "ISOTONIC"}:
+            raise HTTPException(status_code=422, detail="calibration_method must be AUTO, NONE, PLATT or ISOTONIC")
+        settings["calibration_method"] = calibration_method
 
     for key, db_key in keys_map.items():
         if key in settings:
@@ -460,6 +487,7 @@ class ExperimentConfigRequest(BaseModel):
     feature_set: str = "A"
     model: dict[str, Any] = Field(default_factory=dict)
     calibration: dict[str, Any] = Field(default_factory=dict)
+    thresholds: dict[str, Any] = Field(default_factory=dict)
     backtest: dict[str, Any] = Field(default_factory=dict)
     parent_id: int | None = None
     created_by: str = "dashboard"
@@ -476,6 +504,7 @@ def _experiment_config_response(row: LGBMExperimentConfig) -> dict[str, Any]:
         "feature_set_version": row.feature_set_version,
         "model": row.model_params,
         "calibration": row.calibration_params,
+        "thresholds": row.threshold_params,
         "backtest": row.backtest_params,
         "config_hash": row.config_hash,
         "parent_id": row.parent_id,
@@ -532,6 +561,7 @@ async def create_experiment_config(
             "feature_set": payload.feature_set,
             "model": payload.model,
             "calibration": payload.calibration,
+            "thresholds": payload.thresholds,
             "backtest": payload.backtest,
         })
     except ValueError as exc:
@@ -550,6 +580,7 @@ async def create_experiment_config(
         feature_set_version=config["feature_set_version"],
         model_params=config["model"],
         calibration_params=config["calibration"],
+        threshold_params=config["thresholds"],
         backtest_params=config["backtest"],
         config_hash=experiment_config_hash(config),
         parent_id=payload.parent_id,
@@ -580,6 +611,7 @@ async def copy_experiment_config(
         "feature_set": source.feature_set,
         "model": source.model_params,
         "calibration": source.calibration_params,
+        "thresholds": source.threshold_params,
         "backtest": source.backtest_params,
     })
     row = LGBMExperimentConfig(
@@ -587,6 +619,7 @@ async def copy_experiment_config(
         volatility_regime=source.volatility_regime,
         feature_set=config["feature_set"], feature_set_version=config["feature_set_version"],
         model_params=config["model"], calibration_params=config["calibration"],
+        threshold_params=config["thresholds"],
         backtest_params=config["backtest"], config_hash=experiment_config_hash(config),
         parent_id=source.id, created_at=datetime.now(timezone.utc),
         created_by=payload.created_by.strip() or "dashboard",
@@ -1086,6 +1119,79 @@ async def _saved_lgbm_model_polymarket_backtest(
         "artifact_rows": artifact.row_count,
         "artifact_schema_version": artifact.schema_version,
     }
+
+
+async def _saved_lgbm_threshold_audit(
+    db: AsyncSession,
+    *,
+    model_id: int,
+    selected_target_coverage: float,
+) -> dict[str, Any]:
+    """Sweep joint UP/DOWN thresholds from a saved OOF artifact.
+
+    This endpoint is deliberately read-only: it never changes registry rows,
+    thresholds, activation state, or runtime settings.
+    """
+    model = (await db.execute(
+        select(ModelRegistry).where(ModelRegistry.id == model_id, ModelRegistry.model_type == "lgbm")
+    )).scalar_one_or_none()
+    if model is None:
+        raise HTTPException(status_code=404, detail=f"LightGBM model {model_id} not found")
+    artifact = (await db.execute(
+        select(ModelRegistryOOFArtifact).where(
+            ModelRegistryOOFArtifact.model_registry_id == model.id,
+            ModelRegistryOOFArtifact.schema_version == OOF_ARTIFACT_SCHEMA_VERSION,
+        )
+    )).scalar_one_or_none()
+    if artifact is None:
+        raise HTTPException(status_code=409, detail={
+            "error": "OOF_ARTIFACT_MISSING",
+            "model_id": model_id,
+            "message": "This model has no saved OOF artifact.",
+        })
+    try:
+        payload = deserialize_oof_artifact(artifact.artifact_blob)
+        raw_scores = payload.get("raw_oof_scores")
+        if raw_scores is None:
+            raw_scores = payload["oof_scores"]
+        backtest_options = _backtest_options_for_model(model.training_params or {})
+        audit = optimize_joint_thresholds(
+            payload["frame"],
+            raw_scores,
+            payload["oof_scores"],
+            payload["quotes"],
+            target_coverages=TARGET_COVERAGES,
+            selected_target_coverage=selected_target_coverage,
+            strategy_branches=("OUTSIDER_ONLY", "FAVORITE_ONLY", "COMBINED"),
+            **backtest_options,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"error": "OOF_ARTIFACT_INVALID", "message": str(exc)}) from exc
+    params = model.training_params or {}
+    return {
+        "model_id": model.id,
+        "model_asset": model.asset,
+        "model_version": model.version,
+        "is_active": bool(model.is_active),
+        "calibration_method": params.get("calibration_method"),
+        "artifact_rows": artifact.row_count,
+        "artifact_schema_version": artifact.schema_version,
+        "target_coverages": [round(value * 100.0, 2) for value in TARGET_COVERAGES],
+        "selected_target_coverage": round(float(selected_target_coverage) * 100.0, 2),
+        **audit,
+    }
+
+
+@router.get("/api/threshold-audit", dependencies=[Depends(verify_api_key)])
+async def crypto_threshold_audit(
+    model_id: int,
+    target_coverage: float = Query(0.40, ge=0.05, le=0.95),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Run the 20/40/60/80% joint-threshold audit for one saved candidate."""
+    return await _saved_lgbm_threshold_audit(
+        db, model_id=model_id, selected_target_coverage=target_coverage
+    )
 
 
 @router.get("/api/backtest", dependencies=[Depends(verify_api_key)])

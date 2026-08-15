@@ -460,6 +460,24 @@
                         <label for="p-min-edge">Порог сигнала (min_edge)</label>
                         <input type="number" id="p-min-edge" step="0.01" value="{{ defaults.min_edge }}">
                     </div>
+                    <div class="settings-group">
+                        <label for="p-target-coverage">Целевое покрытие сигналами</label>
+                        <select id="p-target-coverage">
+                            <option value="0.20">20% — консервативное</option>
+                            <option value="0.40" selected>40% — сбалансированное</option>
+                            <option value="0.60">60% — активное</option>
+                            <option value="0.80">80% — диагностическое</option>
+                        </select>
+                    </div>
+                    <div class="settings-group">
+                        <label for="p-calibration-method">Калибровка вероятности</label>
+                        <select id="p-calibration-method">
+                            <option value="PLATT">Platt / sigmoid</option>
+                            <option value="AUTO">AUTO: OOT Brier / ECE / PnL</option>
+                            <option value="ISOTONIC">Isotonic</option>
+                            <option value="NONE">Raw score</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
@@ -1140,6 +1158,10 @@
                     document.getElementById('p-search-trials').value = d.settings.search_trials;
                     document.getElementById('p-epsilon-quantile').value = d.settings.epsilon_quantile;
                     document.getElementById('p-min-edge').value = d.settings.min_edge;
+                    const coverage = document.getElementById('p-target-coverage');
+                    if (coverage && d.settings.target_coverage != null) coverage.value = Number(d.settings.target_coverage).toFixed(2);
+                    const calibration = document.getElementById('p-calibration-method');
+                    if (calibration && d.settings.calibration_method) calibration.value = d.settings.calibration_method;
                 }
 
                 // Заполняем селектор важности признаков
@@ -1778,6 +1800,8 @@
                 'p-reg-alpha': set.reg_alpha,
                 'p-reg-lambda': set.reg_lambda,
                 'p-min-edge': config.backtest?.min_edge,
+                'p-target-coverage': config.thresholds?.target_coverage,
+                'p-calibration-method': config.calibration?.method,
             };
             Object.entries(fields).forEach(([field, value]) => {
                 const el = document.getElementById(field);
@@ -1825,7 +1849,8 @@
                 name,
                 feature_set: document.getElementById('lgbm-feature-set')?.value || 'A',
                 model: _experimentInputValues(),
-                calibration: { method: 'AUTO' },
+                calibration: { method: document.getElementById('p-calibration-method')?.value || 'PLATT' },
+                thresholds: { target_coverage: parseFloat(document.getElementById('p-target-coverage')?.value || '0.40') },
                 backtest: { min_edge: parseFloat(document.getElementById('p-min-edge').value) },
                 parent_id: selectedId ? Number(selectedId) : null,
             };
@@ -1868,6 +1893,8 @@
                 search_trials: parseInt(document.getElementById('p-search-trials').value),
                 epsilon_quantile: parseFloat(document.getElementById('p-epsilon-quantile').value),
                 min_edge: parseFloat(document.getElementById('p-min-edge').value),
+                target_coverage: parseFloat(document.getElementById('p-target-coverage').value),
+                calibration_method: document.getElementById('p-calibration-method').value,
                 enable_ece_correction: document.getElementById('p-enable-ece-correction')?.checked ?? true,
             };
 

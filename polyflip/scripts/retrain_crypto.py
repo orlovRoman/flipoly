@@ -1,6 +1,10 @@
+"""Sequential candidate retraining with pauses between symbols.
+
+Candidate retraining is intentionally inactive by default.  Live activation
+requires a separate explicit action after the saved OOT report is reviewed.
 """
-Sequential background retraining with pauses between symbols to limit peak CPU load.
-"""
+
+import argparse
 import asyncio
 import logging
 from collections.abc import Sequence
@@ -17,9 +21,15 @@ SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT")
 async def run_sequential_retrain(
     symbols: Sequence[str] = SYMBOLS,
     pause_seconds: float = 3,
+    *,
+    activate_after_train: bool = False,
 ) -> dict[str, str]:
     symbols = tuple(symbols)
-    logger.info("Starting background retraining for symbols: %s", symbols)
+    logger.info(
+        "Starting background retraining for symbols: %s (activate_after_train=%s)",
+        symbols,
+        activate_after_train,
+    )
     results: dict[str, str] = {}
 
     for index, symbol in enumerate(symbols):
@@ -28,14 +38,10 @@ async def run_sequential_retrain(
             async with async_session() as session:
                 trainer = CryptoModelTrainer(session)
                 ok = await trainer.train(
-                    symbol, interval="15m", activate_after_train=True
+                    symbol, interval="15m", activate_after_train=activate_after_train
                 )
                 results[symbol] = "COMPLETED" if ok else "FAILED_OR_EMPTY"
-                logger.info(
-                    ">>> Retrain finished for %s: status=%s",
-                    symbol,
-                    results[symbol],
-                )
+                logger.info(">>> Retrain finished for %s: status=%s", symbol, results[symbol])
         except Exception as exc:
             logger.exception("Error retraining %s: %s", symbol, str(exc))
             results[symbol] = f"ERROR: {exc}"
@@ -50,12 +56,24 @@ async def run_sequential_retrain(
 
 
 def exit_code_for(results: dict[str, str]) -> int:
-    """Return a non-zero process status when any symbol did not complete."""
     return 0 if results and all(value == "COMPLETED" for value in results.values()) else 1
 
 
 def main() -> int:
-    return exit_code_for(asyncio.run(run_sequential_retrain()))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--symbols", nargs="*", default=SYMBOLS)
+    parser.add_argument("--pause-seconds", type=float, default=3)
+    parser.add_argument(
+        "--activate-after-train",
+        action="store_true",
+        help="Explicitly allow Quality-Gate-passing models to replace active models",
+    )
+    args = parser.parse_args()
+    return exit_code_for(asyncio.run(run_sequential_retrain(
+        args.symbols,
+        args.pause_seconds,
+        activate_after_train=args.activate_after_train,
+    )))
 
 
 if __name__ == "__main__":

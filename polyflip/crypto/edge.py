@@ -15,11 +15,15 @@ def compute_crypto_signal_strength(
         Если p_up попадает в мертвую зону (threshold_down, threshold_up),
         возвращается signal_strength=0.0 и direction="NONE".
     """
-    p_down = 1.0 - p_up
+    if not 0.0 <= threshold_down < threshold_up <= 1.0:
+        return 0.0, "NONE"
+    # ``threshold_down`` is a lower bound on p_up, not a threshold on p_down.
+    # Keeping both thresholds in the same coordinate system makes the dead
+    # zone explicit and prevents overlapping UP/DOWN ranges.
     if p_up >= threshold_up:
         return round(p_up - threshold_up, 4), "UP"
-    if p_down >= threshold_down:
-        return round(p_down - threshold_down, 4), "DOWN"
+    if p_up <= threshold_down:
+        return round(threshold_down - p_up, 4), "DOWN"
     return 0.0, "NONE"
 
 def compute_economic_edge(

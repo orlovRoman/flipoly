@@ -89,6 +89,7 @@ def serialize_oof_artifact(
     *,
     feature_set: str,
     feature_schema_hash: str | None = None,
+    raw_scores: Any | None = None,
 ) -> bytes:
     """Serialize aligned OOF rows and quotes without executable payloads."""
     if "market_id" not in frame.columns or "target" not in frame.columns:
@@ -102,6 +103,11 @@ def serialize_oof_artifact(
     quote_rows = quotes.copy() if quotes is not None else pd.DataFrame()
     if not quote_rows.empty and "market_id" in quote_rows.columns:
         quote_rows = quote_rows.drop_duplicates("market_id", keep="first").reset_index(drop=True)
+    raw = scores if raw_scores is None else np.asarray(raw_scores, dtype=np.float64)
+    if len(raw) != len(frame):
+        raise ValueError("raw OOF scores must align with artifact frame")
+    if np.isinf(raw).any() or ((raw[~np.isnan(raw)] < 0) | (raw[~np.isnan(raw)] > 1)).any():
+        raise ValueError("raw OOF scores must be in [0, 1] or NaN")
     payload = {
         "schema_version": OOF_ARTIFACT_SCHEMA_VERSION,
         "feature_set": str(feature_set),
@@ -109,6 +115,7 @@ def serialize_oof_artifact(
         "frame": _json_frame(rows, label="frame"),
         "quotes": _json_frame(quote_rows, label="quotes"),
         "oof_scores": [None if np.isnan(value) else float(value) for value in scores],
+        "raw_oof_scores": [None if np.isnan(value) else float(value) for value in raw],
     }
     raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     return gzip.compress(raw, compresslevel=6)
@@ -143,6 +150,23 @@ def deserialize_oof_artifact(blob: bytes) -> dict[str, Any]:
         if not np.isfinite(score) or not 0.0 <= score <= 1.0:
             raise ValueError("OOF score is outside [0, 1]")
         scores.append(score)
+    raw_payload = payload.get("raw_oof_scores", raw_scores)
+    if not isinstance(raw_payload, list) or len(raw_payload) != len(frame):
+        raise ValueError("OOF artifact rows and raw scores are misaligned")
+    raw_values: list[float] = []
+    for value in raw_payload:
+        if value is None:
+            raw_values.append(np.nan)
+            continue
+        if isinstance(value, bool):
+            raise ValueError("raw OOF score is invalid")
+        try:
+            score = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("raw OOF score is invalid") from exc
+        if not np.isfinite(score) or not 0.0 <= score <= 1.0:
+            raise ValueError("raw OOF score is outside [0, 1]")
+        raw_values.append(score)
     return {
         "schema_version": OOF_ARTIFACT_SCHEMA_VERSION,
         "feature_set": payload.get("feature_set"),
@@ -150,4 +174,5 @@ def deserialize_oof_artifact(blob: bytes) -> dict[str, Any]:
         "frame": frame,
         "quotes": quotes,
         "oof_scores": np.asarray(scores, dtype=np.float64),
+        "raw_oof_scores": np.asarray(raw_values, dtype=np.float64),
     }

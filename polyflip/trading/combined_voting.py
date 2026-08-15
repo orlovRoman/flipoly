@@ -141,6 +141,9 @@ class CombinedEntryResult:
     lgbm_inverted: bool = False
     lgbm_p_up_raw: float = 0.0
     lgbm_p_down_raw: float = 0.0
+    direction_raw_opinion: Optional[str] = None
+    direction_p_up_raw: Optional[float] = None
+    direction_p_down_raw: Optional[float] = None
     p_flip_raw: Optional[float] = None
     p_flip_effective: Optional[float] = None
     entry_model_ece: float = 0.0
@@ -232,7 +235,10 @@ def evaluate_combined_entry(
             result,
             lgbm_inverted=getattr(crypto_sig, "inverted", False),
             lgbm_p_up_raw=getattr(crypto_sig, "p_up_raw", 0.0),
-            lgbm_p_down_raw=getattr(crypto_sig, "p_down_raw", 0.0)
+            lgbm_p_down_raw=getattr(crypto_sig, "p_down_raw", 0.0),
+            direction_raw_opinion=getattr(crypto_sig, "raw_opinion", None),
+            direction_p_up_raw=getattr(crypto_sig, "p_up_raw", None),
+            direction_p_down_raw=getattr(crypto_sig, "p_down_raw", None),
         )
     return result
 
