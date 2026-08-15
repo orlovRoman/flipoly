@@ -710,3 +710,66 @@ async function executeCreateRun() {
     alert(`Ошибка: ${e.message}`);
   }
 }
+
+/* -------------------------------------------------------------------------
+ * Phase 10: Autonomous Agent Controls & Overlays
+ * ------------------------------------------------------------------------- */
+async function triggerRunIterate() {
+  if (!currentRunId) return;
+  const btn = document.getElementById("btn-run-iterate");
+  if (btn) { btn.disabled = true; btn.textContent = "⚡ Выполняется..."; }
+  try {
+    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/iterate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || "Iteration failed");
+    }
+    const data = await resp.json();
+    showToast("Шаг агента успешно выполнен: " + (data.decision || "OK"), "success");
+    await loadRunDetail(currentRunId);
+  } catch (e) {
+    showToast("Ошибка шага агента: " + e.message, "danger");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "⚡ Шаг агента"; }
+  }
+}
+
+async function pauseRun() {
+  if (!currentRunId) return;
+  try {
+    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/pause`, { method: "POST" });
+    if (!resp.ok) throw new Error("Pause failed");
+    showToast("Запуск приостановлен", "info");
+    await loadRunDetail(currentRunId);
+  } catch (e) {
+    showToast("Ошибка паузы: " + e.message, "danger");
+  }
+}
+
+async function resumeRun() {
+  if (!currentRunId) return;
+  try {
+    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/resume`, { method: "POST" });
+    if (!resp.ok) throw new Error("Resume failed");
+    showToast("Запуск возобновлен", "success");
+    await loadRunDetail(currentRunId);
+  } catch (e) {
+    showToast("Ошибка возобновления: " + e.message, "danger");
+  }
+}
+
+async function cancelRun() {
+  if (!currentRunId) return;
+  if (!confirm("Вы уверены, что хотите отменить запуск #" + currentRunId + "?")) return;
+  try {
+    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/cancel`, { method: "POST" });
+    if (!resp.ok) throw new Error("Cancel failed");
+    showToast("Запуск отменен", "warning");
+    await loadRunDetail(currentRunId);
+  } catch (e) {
+    showToast("Ошибка отмены: " + e.message, "danger");
+  }
+}
