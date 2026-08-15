@@ -25,7 +25,7 @@ Base = declarative_base()
 
 
 class CryptoCandle(Base):
-    """OHLCV-????? ?? Binance, ???????????? ????????????????? ??????."""
+    """OHLCV-свечи с Binance, агрегированные полировщиком тиков."""
 
     __tablename__ = "crypto_candles"
 
@@ -178,8 +178,14 @@ class TradeHistory(Base):
     __table_args__ = (
         Index("idx_trades_strategy_asset", "strategy_name", "asset"),
         Index("idx_trades_timestamp", "timestamp"),
-        Index("idx_trades_asset_model_version", "asset", "model_version"),
+        Index("idx_trades_asset_model_version", "asset", "model_version", "status", "created_at"),
         Index("idx_trades_model_registry_id", "model_registry_id"),
+        Index("idx_trade_history_market_id", "market_id"),
+        Index("idx_trade_model_analytics", "mode", "model_key", "model_version", "position_status", "closed_at"),
+        CheckConstraint(
+            "position_accounting_version = 0 OR (entry_filled_shares IS NOT NULL AND entry_cost_usdc IS NOT NULL AND remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
+            name="ck_trade_position_accounting_initialized",
+        ),
     )
 
     market_id = Column(String(128), nullable=False)
@@ -264,16 +270,6 @@ class TradeHistory(Base):
     p_flip_raw = Column(Float, nullable=True)
     entry_model_ece = Column(Float, nullable=True)
 
-    __table_args__ = (
-        Index("idx_trade_history_market_id", "market_id"),
-        Index("idx_trade_history_model_version", "asset", "model_version", "status", "created_at"),
-        Index("idx_trade_model_analytics", "mode", "model_key", "model_version", "position_status", "closed_at"),
-        CheckConstraint(
-            "position_accounting_version = 0 OR (entry_filled_shares IS NOT NULL AND entry_cost_usdc IS NOT NULL AND remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
-            name="ck_trade_position_accounting_initialized",
-        ),
-    )
-
 
 class CollectorStatus(Base):
     """
@@ -316,11 +312,7 @@ class LiveMarket(Base):
 
     __tablename__ = "live_markets"
 
-    # Compatibility column present in production; market_id remains the canonical key.
-    # Do not mark this column autoincrement/primary_key: SQLite test schemas cannot
-    # autoincrement one member of a composite primary key.
     id = Column(Integer, nullable=True, server_default=FetchedValue())
-    # Optional compatibility field; market_id is the canonical identifier.
     condition_id = Column(String(128), unique=True, nullable=True)
     slug = Column(String(256), nullable=True)
     asset = Column(String(32), nullable=False)
@@ -332,7 +324,6 @@ class LiveMarket(Base):
         String(32), default="ACTIVE"
     )  # ACTIVE, RESOLVED, EXPIRED, CANCELLED
 
-    # Текущие цены для быстрого доступа
     current_price_up = Column(Float, nullable=True)
     current_price_down = Column(Float, nullable=True)
     rewards_min_size = Column(Float, nullable=True)
@@ -496,7 +487,7 @@ class ModelRegistry(Base):
     model_weights = Column(LargeBinary, nullable=True)
     model_metadata = Column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True
-    )  # гиперпараметры, train/test периоды
+    )
     __table_args__ = (
         UniqueConstraint(
             "asset", "version", name="uix_model_registry_asset_version"
@@ -558,7 +549,7 @@ class ExecutionSession(Base):
     losing_trades = Column(Integer, nullable=False, default=0)
     config = Column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True
-    )  # Runtime settings snapshot
+    )
     error_message = Column(String(512), nullable=True)
 
     __table_args__ = (
@@ -669,7 +660,7 @@ class DecisionFunnelLog(Base):
     )  # e.g., 'time_left_seconds 895 > 840', 'p_up 0.52 < 0.55'
     details = Column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True
-    )  # Полный снапшот фичей/метрик на момент шага
+    )
 
     __table_args__ = (
         Index("idx_funnel_asset_timestamp", "asset", "timestamp"),
@@ -995,7 +986,7 @@ class AIOptimizationRun(Base):
             name="ck_ai_runs_status",
         ),
         CheckConstraint(
-            "autonomy_level IN ('OBSERVE', 'EXPERIMENT', 'SHADOW', 'LIVE_PROPOSE', 'AUTONOMOUS_SHADOW', 'DIRECTED')",
+            "autonomy_level IN ('OBSERVE', 'EXPERIMENT', 'SHADOW', 'AUTONOMOUS_SHADOW', 'AUTONOMOUS_CONFIG', 'LIVE_PROPOSE', 'AUTONOMOUS_LIVE', 'DIRECTED')",
             name="ck_ai_runs_autonomy_level",
         ),
     )
@@ -1598,4 +1589,40 @@ class AIWorkerLease(Base):
 
     __table_args__ = (
         Index("idx_ai_worker_leases_expires", "expires_at"),
+    )
+
+
+class AIConfigOverlay(Base):
+    """Versioned runtime settings overlay proposed and applied by AI Lab."""
+
+    __tablename__ = "ai_config_overlays"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("ai_optimization_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    parent_overlay_id = Column(
+        Integer,
+        ForeignKey("ai_config_overlays.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    scope = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict)
+    changes = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict)
+    base_settings_hash = Column(String(64), nullable=False)
+    resulting_settings_hash = Column(String(64), nullable=False)
+    status = Column(String(32), nullable=False, server_default="PENDING")
+    created_by = Column(String(128), nullable=False, server_default="ai_agent")
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    rollback_payload = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_ai_overlay_run_status", "run_id", "status"),
+        Index("idx_ai_overlay_expires", "expires_at"),
+        CheckConstraint(
+            "status IN ('PENDING', 'APPLIED', 'EXPIRED', 'ROLLED_BACK', 'REJECTED')",
+            name="ck_ai_config_overlays_status",
+        ),
     )
