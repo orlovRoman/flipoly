@@ -127,7 +127,6 @@ def evaluate_finalization_gate(
     min_windows: int = MIN_WINDOWS,
 ) -> dict[str, Any]:
     """Evaluate whether a candidate config passes strict finalization gates."""
-    rejection_reasons: list[str] = []
     polymarket_count = int(_finite(row.get("polymarket_oot_evaluation_count")) or 0)
     window_count = int(_finite(row.get("window_count")) or 0)
     total_trades = int(_finite(row.get("total_trades")) or 0)
@@ -136,7 +135,16 @@ def evaluate_finalization_gate(
     invalid_count = int(_finite(row.get("invalid_result_count")) or 0)
 
     if polymarket_count == 0:
-        rejection_reasons.append("NO_PNL_SAMPLE")
+        return {
+            "eligible": False,
+            "recommendation_status": "NO_PNL_SAMPLE",
+            "rejection_reasons": ["NO_PNL_SAMPLE"],
+            "window_count": window_count,
+            "total_trades": total_trades,
+            "median_pnl": median_pnl,
+        }
+
+    rejection_reasons: list[str] = []
     if invalid_count > 0:
         rejection_reasons.append("INVALID_RESULT")
     if median_pnl is None:
@@ -152,20 +160,19 @@ def evaluate_finalization_gate(
     if window_count < min_windows:
         rejection_reasons.append("INSUFFICIENT_WINDOWS")
 
-    status = (
-        "READY_FOR_SHADOW"
-        if not rejection_reasons
-        else rejection_reasons[0]
-    )
+    reasons = list(dict.fromkeys(rejection_reasons))
+    status = "READY_FOR_SHADOW" if not reasons else reasons[0]
     return {
-        "eligible": len(rejection_reasons) == 0,
+        "eligible": not reasons,
         "recommendation_status": status,
-        "rejection_reasons": rejection_reasons,
+        "rejection_reasons": reasons,
+        "window_count": window_count,
+        "total_trades": total_trades,
+        "median_pnl": median_pnl,
     }
 
-
 def build_experiment_report(
-    results: Sequence[Any],
+    results: Sequence[ExperimentResult | Mapping[str, Any]],
     *,
     min_trades: int = MIN_TOTAL_TRADES,
     min_windows: int = MIN_WINDOWS,
@@ -319,6 +326,7 @@ def build_experiment_report(
             row, min_trades=min_trades, min_windows=min_windows
         )
         row["eligible_for_shadow"] = gate_res["eligible"]
+        row["recommendation_status"] = gate_res["recommendation_status"]
         row["rejection_reasons"] = gate_res["rejection_reasons"]
         rows.append(row)
 
@@ -344,13 +352,11 @@ def build_experiment_report(
             "minimum trade count and window criteria; verify in SHADOW before any human activation."
         )
     elif rows:
-        rejection_reasons = sorted(
-            list(
-                dict.fromkeys(
-                    reason
-                    for row in rows
-                    for reason in row.get("rejection_reasons", [])
-                )
+        rejection_reasons = list(
+            dict.fromkeys(
+                reason
+                for row in rows
+                for reason in row.get("rejection_reasons", [])
             )
         )
         status = rejection_reasons[0] if rejection_reasons else "REJECTED"
