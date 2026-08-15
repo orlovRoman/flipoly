@@ -4,7 +4,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20260815_lgbm_threshold_calibration"
+revision = "20260815_lgbm_threshold_calib"
 down_revision = "20260815_ai_agent_run_states"
 branch_labels = None
 depends_on = None
