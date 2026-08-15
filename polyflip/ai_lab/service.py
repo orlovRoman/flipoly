@@ -286,6 +286,7 @@ async def create_experiment_config(
     model_params: Mapping[str, Any],
     strategy_params: Mapping[str, Any],
     backtest_params: Mapping[str, Any],
+    config_hash: str | None = None,
     asset: str | None = None,
     regime: str | None = None,
     description: str | None = None,
@@ -304,7 +305,7 @@ async def create_experiment_config(
         "backtest_params": dict(backtest_params),
         "parent_id": parent_id,
     }
-    config_hash = compute_manifest_hash(payload)
+    config_hash = config_hash or compute_manifest_hash(payload)
     row = AIExperimentConfig(
         **payload,
         description=description,
