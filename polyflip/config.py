@@ -7,27 +7,27 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://polyflip:secret@db/polyflip"
     API_KEY: str = "test-key"
     ASSETS: str = "BTC,ETH"
-    
-    # Инфраструктура / Мониторинг
+
+    # Monitoring / Alerts
     ALERT_WEBHOOK_URL: str = ""
     COLLECTOR_STALE_HOURS: int = 2
     RATE_LIMIT: str = "60/minute"
     SENTRY_DSN: str = ""
 
-    # Дефолтные настройки, которые могут быть переопределены в БД
+    # Polling & Retrain Intervals
     LIVE_POLL_INTERVAL_SECONDS: int = _DEFAULT_POLL_INTERVAL
     TRADE_JOB_INTERVAL_SECONDS: int = 15
     RETRAIN_INTERVAL_HOURS: int = 24
     MIN_SAMPLES_FOR_MODEL: int = 50
-    
-    # Новые параметры Фазы 5
+
+    # Trading Execution Parameters
     ACTIVE_FEATURES: str = "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day"
     TRADE_EXECUTION_TIME_SEC: int = 30
     TRADE_MIN_TIME_LEFT_SEC: int = 10
     TRADE_MAX_TIME_LEFT_SEC: int = 360
     TRADE_BET_SIZE_USDC: float = 10.0
     TRADE_NO_FLIP_THRESHOLD: float = 0.15
-    DEAD_ZONE_WIDTH: float = 0.10  # единственный параметр ширины зоны
+    DEAD_ZONE_WIDTH: float = 0.10
     TRADING_ENABLED: bool = False
     TRADE_ASSETS: str = "BTC,ETH"
     INITIAL_CAPITAL: float = 1000.0
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     TRADE_MAX_PRICE: float = 0.95
     TRADING_MODE: str = "ml"
     FAVORITE_THRESHOLD: float = 0.55
-    
+
     # Unified Fallbacks
     BET_SIZING_MODE: str = "scaled"
     MAX_BET_SIZE_USDC: float = 50.0
@@ -50,6 +50,15 @@ class Settings(BaseSettings):
     CRYPTO_MIN_EDGE: float = 0.05
     COMBINED_NONE_BET_MULTIPLIER: float = 0.0
 
+    # AI Lab LLM & Autonomous Loop (Phase 10)
+    OPENAI_API_KEY: str = ""
+    AI_LAB_LLM_PROVIDER: str = "openai"
+    AI_LAB_MODEL_RESEARCH: str = "gpt-4o"
+    AI_LAB_MODEL_SUMMARY: str = "gpt-4o-mini"
+    AI_LAB_LLM_STORE: bool = False
+    AI_LAB_MAX_RUNTIME_SECONDS: int = 3600
+    AI_LAB_MAX_COST_USD: float = 10.0
+
     @property
     def asset_list(self) -> List[str]:
         return [a.strip() for a in self.ASSETS.split(",") if a.strip()]
@@ -59,5 +68,6 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore"
     )
+
 
 settings = Settings()
