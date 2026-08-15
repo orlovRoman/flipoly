@@ -1,6 +1,7 @@
+import asyncio
+import unittest
 from types import SimpleNamespace
-
-import pytest
+from unittest.mock import AsyncMock
 
 from polyflip.ai_lab import orchestrator
 from polyflip.ai_lab.service import AILabError
@@ -91,115 +92,141 @@ def _rejected_report(*, status="INSUFFICIENT_TRADES", reasons=None):
     }
 
 
-@pytest.mark.asyncio
-async def test_finalize_can_evaluate_without_shadow_assignment(monkeypatch):
-    report = _ready_report()
-    calls = []
+class TestAILabFinalization(unittest.IsolatedAsyncioTestCase):
 
-    async def fake_evaluate(session, run_id):
-        calls.append((session, run_id))
-        return report
+    async def test_finalize_can_evaluate_without_shadow_assignment(self):
+        report = _ready_report()
+        calls = []
 
-    async def unexpected_promote(*args, **kwargs):
-        raise AssertionError("auto_shadow=False must not assign SHADOW")
+        async def fake_evaluate(session, run_id):
+            calls.append((session, run_id))
+            return report
 
-    monkeypatch.setattr(orchestrator, "evaluate_run", fake_evaluate)
-    monkeypatch.setattr(orchestrator, "promote_to_shadow", unexpected_promote)
+        async def unexpected_promote(*args, **kwargs):
+            raise AssertionError("auto_shadow=False must not assign SHADOW")
 
-    result = await orchestrator.finalize_run(
-        _Session(run=SimpleNamespace(summary=None)),
-        7,
-        auto_shadow=False,
-    )
+        orig_eval = orchestrator.evaluate_run
+        orig_promote = orchestrator.promote_to_shadow
+        try:
+            orchestrator.evaluate_run = fake_evaluate
+            orchestrator.promote_to_shadow = unexpected_promote
 
-    assert result == {"report": report, "assignment": None}
-    assert len(calls) == 1
-    assert calls[0][1] == 7
+            result = await orchestrator.finalize_run(
+                _Session(run=SimpleNamespace(summary=None)),
+                7,
+                auto_shadow=False,
+            )
+
+            self.assertEqual(result, {"report": report, "assignment": None})
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][1], 7)
+        finally:
+            orchestrator.evaluate_run = orig_eval
+            orchestrator.promote_to_shadow = orig_promote
+
+    async def test_finalize_assigns_reported_winner_to_shadow(self):
+        config = SimpleNamespace(asset="BTCUSDT", regime="low_vol")
+        run = SimpleNamespace(summary=None)
+        session = _Session(config=config, run=run)
+        report = _ready_report(config_id=11, artifact_id=101)
+        captured = {}
+
+        async def fake_evaluate(db, run_id):
+            self.assertIs(db, session)
+            self.assertEqual(run_id, 7)
+            return report
+
+        assignment = SimpleNamespace(
+            id=42,
+            candidate_artifact_id=101,
+            baseline_artifact_id=None,
+            asset="BTCUSDT",
+            regime="low_vol",
+        )
+
+        async def fake_promote(db, **kwargs):
+            self.assertIs(db, session)
+            captured.update(kwargs)
+            return assignment
+
+        orig_eval = orchestrator.evaluate_run
+        orig_promote = orchestrator.promote_to_shadow
+        try:
+            orchestrator.evaluate_run = fake_evaluate
+            orchestrator.promote_to_shadow = fake_promote
+
+            result = await orchestrator.finalize_run(session, 7)
+
+            self.assertIs(result["assignment"], assignment)
+            self.assertEqual(
+                captured,
+                {
+                    "run_id": 7,
+                    "candidate_artifact_id": 101,
+                    "baseline_artifact_id": None,
+                    "asset": "BTCUSDT",
+                    "regime": "low_vol",
+                },
+            )
+            self.assertIn('"shadow_assignment"', run.summary)
+            self.assertEqual(session.flush_count, 1)
+        finally:
+            orchestrator.evaluate_run = orig_eval
+            orchestrator.promote_to_shadow = orig_promote
+
+    async def test_finalize_rejects_shadow_when_asset_is_missing(self):
+        session = _Session(config=SimpleNamespace(asset=None, regime=None))
+        report = _ready_report()
+
+        async def fake_evaluate(db, run_id):
+            return report
+
+        async def unexpected_promote(*args, **kwargs):
+            raise AssertionError("promotion must not happen without an asset")
+
+        orig_eval = orchestrator.evaluate_run
+        orig_promote = orchestrator.promote_to_shadow
+        try:
+            orchestrator.evaluate_run = fake_evaluate
+            orchestrator.promote_to_shadow = unexpected_promote
+
+            with self.assertRaises(AILabError):
+                await orchestrator.finalize_run(session, 7)
+        finally:
+            orchestrator.evaluate_run = orig_eval
+            orchestrator.promote_to_shadow = orig_promote
+
+    async def test_finalize_records_audit_log_and_summary_on_gate_rejection(self):
+        run = SimpleNamespace(summary=None)
+        step = SimpleNamespace(id=10, step_index=2)
+        session = _Session(run=run, step=step)
+        report = _rejected_report(status="INSUFFICIENT_TRADES")
+
+        async def fake_evaluate(db, run_id):
+            return report
+
+        async def unexpected_promote(*args, **kwargs):
+            raise AssertionError("rejected run must not call promote_to_shadow")
+
+        orig_eval = orchestrator.evaluate_run
+        orig_promote = orchestrator.promote_to_shadow
+        try:
+            orchestrator.evaluate_run = fake_evaluate
+            orchestrator.promote_to_shadow = unexpected_promote
+
+            result = await orchestrator.finalize_run(session, 7)
+
+            self.assertIsNone(result["assignment"])
+            self.assertEqual(result["report"]["recommendation_status"], "INSUFFICIENT_TRADES")
+            self.assertIn('"INSUFFICIENT_TRADES"', run.summary)
+            self.assertEqual(len(session.added), 1)
+            audit_entry = session.added[0]
+            self.assertEqual(audit_entry.action, "FINALIZE_RUN")
+            self.assertEqual(audit_entry.error_code, "GATE_REJECTED_INSUFFICIENT_TRADES")
+        finally:
+            orchestrator.evaluate_run = orig_eval
+            orchestrator.promote_to_shadow = orig_promote
 
 
-@pytest.mark.asyncio
-async def test_finalize_assigns_reported_winner_to_shadow(monkeypatch):
-    config = SimpleNamespace(asset="BTCUSDT", regime="low_vol")
-    run = SimpleNamespace(summary=None)
-    session = _Session(config=config, run=run)
-    report = _ready_report(config_id=11, artifact_id=101)
-    captured = {}
-
-    async def fake_evaluate(db, run_id):
-        assert db is session
-        assert run_id == 7
-        return report
-
-    assignment = SimpleNamespace(
-        id=42,
-        candidate_artifact_id=101,
-        baseline_artifact_id=None,
-        asset="BTCUSDT",
-        regime="low_vol",
-    )
-
-    async def fake_promote(db, **kwargs):
-        assert db is session
-        captured.update(kwargs)
-        return assignment
-
-    monkeypatch.setattr(orchestrator, "evaluate_run", fake_evaluate)
-    monkeypatch.setattr(orchestrator, "promote_to_shadow", fake_promote)
-
-    result = await orchestrator.finalize_run(session, 7)
-
-    assert result["assignment"] is assignment
-    assert captured == {
-        "run_id": 7,
-        "candidate_artifact_id": 101,
-        "baseline_artifact_id": None,
-        "asset": "BTCUSDT",
-        "regime": "low_vol",
-    }
-    assert '"shadow_assignment"' in run.summary
-    assert session.flush_count == 1
-
-
-@pytest.mark.asyncio
-async def test_finalize_rejects_shadow_when_asset_is_missing(monkeypatch):
-    session = _Session(config=SimpleNamespace(asset=None, regime=None))
-    report = _ready_report()
-
-    async def fake_evaluate(db, run_id):
-        return report
-
-    async def unexpected_promote(*args, **kwargs):
-        raise AssertionError("promotion must not happen without an asset")
-
-    monkeypatch.setattr(orchestrator, "evaluate_run", fake_evaluate)
-    monkeypatch.setattr(orchestrator, "promote_to_shadow", unexpected_promote)
-
-    with pytest.raises(AILabError, match="asset is required"):
-        await orchestrator.finalize_run(session, 7)
-
-
-@pytest.mark.asyncio
-async def test_finalize_records_audit_log_and_summary_on_gate_rejection(monkeypatch):
-    run = SimpleNamespace(summary=None)
-    step = SimpleNamespace(id=10, step_index=2)
-    session = _Session(run=run, step=step)
-    report = _rejected_report(status="INSUFFICIENT_TRADES")
-
-    async def fake_evaluate(db, run_id):
-        return report
-
-    async def unexpected_promote(*args, **kwargs):
-        raise AssertionError("rejected run must not call promote_to_shadow")
-
-    monkeypatch.setattr(orchestrator, "evaluate_run", fake_evaluate)
-    monkeypatch.setattr(orchestrator, "promote_to_shadow", unexpected_promote)
-
-    result = await orchestrator.finalize_run(session, 7)
-
-    assert result["assignment"] is None
-    assert result["report"]["recommendation_status"] == "INSUFFICIENT_TRADES"
-    assert '"INSUFFICIENT_TRADES"' in run.summary
-    assert len(session.added) == 1
-    audit_entry = session.added[0]
-    assert audit_entry.action == "FINALIZE_RUN"
-    assert audit_entry.error_code == "GATE_REJECTED_INSUFFICIENT_TRADES"
+if __name__ == "__main__":
+    unittest.main()
