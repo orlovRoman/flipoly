@@ -77,8 +77,8 @@ def threshold_grid(
     scores: Iterable[float],
     *,
     target_coverage: float,
-    quantile_steps: int = 10,
-    tolerance: float = 0.15,
+    quantile_steps: int = 5,
+    tolerance: float = 0.10,
 ) -> list[ThresholdPair]:
     """Create a bounded asymmetric grid around one target coverage."""
     values = np.asarray(list(scores), dtype=float)
