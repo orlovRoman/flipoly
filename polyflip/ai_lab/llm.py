@@ -572,10 +572,28 @@ class OpenAIResponsesProvider:
             )
         except Exception as exc:
             logger.error("openai_summary_failed", error=str(exc), step=step_name)
-            # Do not turn a provider/network failure into a successful-looking
-            # experiment note. The durable agent runner records this exception
-            # and the run remains auditable/retryable.
-            raise RuntimeError(f"LLM summary failed for step {step_name}: {exc}") from exc
+            # Summary is auxiliary telemetry: a provider timeout or rate limit
+            # must not abort the durable experiment loop. Return a deterministic
+            # status-only note and preserve the failure in structured logs.
+            status = str(details.get("status") or "результат сохранён")
+            fallback = (
+                f"Шаг {step_name}: {status}. "
+                "LLM-саммаризация недоступна, использовано базовое описание."
+            )
+            latency_ms = int((time.time() - started) * 1000)
+            return fallback, self._stats(
+                model=self.model_summary,
+                prompt={"step": step_name, "details": dict(details)},
+                usage={
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "latency_ms": latency_ms,
+                    "response_hash": hashlib.sha256(
+                        fallback.encode("utf-8")
+                    ).hexdigest(),
+                },
+            )
 
 def get_llm_provider(
     provider_name: str | None = None,
