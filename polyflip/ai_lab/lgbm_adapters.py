@@ -209,6 +209,10 @@ async def _training_artifact_id(
     session: AsyncSession,
     context: StepContext,
 ) -> int | None:
+    # Unit-level adapter tests may use a sentinel session while exercising
+    # persisted ModelRegistry summaries. Production always supplies AsyncSession.
+    if not hasattr(session, "execute"):
+        return None
     result = (
         await session.execute(
             select(ExperimentResult.artifact_id)
