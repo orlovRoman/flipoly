@@ -269,63 +269,87 @@ def build_experiment_report(
                 artifact_ids.add(int(artifact_id))
 
         invalid_result_count = 0
-        for result in polymarket_results:
-            raw_metrics = _value(result, "metrics", {}) or {}
-            metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
-            w_key = _oot_window_key(result)
-            if w_key is None:
+        for result_index, result in enumerate(polymarket_results):
+            windows = _result_oot_windows(result)
+            if not windows:
                 invalid_result_count += 1
                 continue
-            if w_key in unique_windows:
-                # A retry/duplicate for the same OOT interval must not inflate
-                # total trades or median samples.
-                invalid_result_count += 1
-                continue
-            unique_windows.add(w_key)
-            res_pnl = _value(result, "net_pnl", metrics.get("net_pnl"))
-            res_trades = _value(result, "trade_count", metrics.get("n_trades"))
-            res_dd = _value(result, "max_drawdown", metrics.get("max_drawdown"))
-            pnl_num = _finite(res_pnl)
-            trades_num = _finite(res_trades)
-            dd_num = _finite(res_dd) if res_dd is not None else None
-            if res_pnl is None or pnl_num is None:
-                invalid_result_count += 1
-            if (
-                res_trades is None
-                or trades_num is None
-                or trades_num < 0
-                or not trades_num.is_integer()
-            ):
-                invalid_result_count += 1
-            if res_dd is not None and dd_num is None:
-                invalid_result_count += 1
+            for window in windows:
+                window_data = window if isinstance(window, Mapping) else {}
+                w_key = _oot_window_key(window_data) or _oot_window_key(result)
+                if w_key is None:
+                    invalid_result_count += 1
+                    continue
+                if w_key in unique_windows:
+                    # A retry/duplicate for the same OOT interval must not
+                    # inflate total trades or median samples.
+                    invalid_result_count += 1
+                    continue
+                unique_windows.add(w_key)
 
-            if pnl_num is not None:
-                pnl_values.append(pnl_num)
-            if (
-                trades_num is not None
-                and trades_num >= 0
-                and trades_num.is_integer()
-            ):
-                trade_values.append(trades_num)
-            if dd_num is not None:
-                drawdown_values.append(dd_num)
+                raw_metrics = _value(result, "metrics", {}) or {}
+                result_metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
+                res_pnl = _value(
+                    window_data,
+                    "net_pnl",
+                    window_data.get("net_profit", window_data.get("pnl")),
+                )
+                if res_pnl is None:
+                    res_pnl = _value(result, "net_pnl", result_metrics.get("net_pnl"))
+                res_trades = _value(
+                    window_data,
+                    "trade_count",
+                    window_data.get("n_trades"),
+                )
+                if res_trades is None:
+                    res_trades = _value(result, "trade_count", result_metrics.get("n_trades"))
+                res_dd = _value(
+                    window_data,
+                    "max_drawdown",
+                    window_data.get("max_drawdown_usdc"),
+                )
+                if res_dd is None:
+                    res_dd = _value(result, "max_drawdown", result_metrics.get("max_drawdown"))
+                pnl_num = _finite(res_pnl)
+                trades_num = _finite(res_trades)
+                dd_num = _finite(res_dd) if res_dd is not None else None
+                if res_pnl is None or pnl_num is None:
+                    invalid_result_count += 1
+                if (
+                    res_trades is None
+                    or trades_num is None
+                    or trades_num < 0
+                    or not trades_num.is_integer()
+                ):
+                    invalid_result_count += 1
+                if res_dd is not None and dd_num is None:
+                    invalid_result_count += 1
 
-            window_details.append(
-                {
-                    "oot_window_start": w_key[0],
-                    "oot_window_end": w_key[1],
-                    "net_pnl": pnl_num,
-                    "trade_count": (
-                        int(trades_num)
-                        if trades_num is not None
-                        and trades_num >= 0
-                        and trades_num.is_integer()
-                        else 0
-                    ),
-                    "max_drawdown": dd_num,
-                }
-            )
+                if pnl_num is not None:
+                    pnl_values.append(pnl_num)
+                if (
+                    trades_num is not None
+                    and trades_num >= 0
+                    and trades_num.is_integer()
+                ):
+                    trade_values.append(trades_num)
+                if dd_num is not None:
+                    drawdown_values.append(dd_num)
+
+                window_details.append(
+                    {
+                        "window_key": f"{w_key[0]}:{w_key[1]}",
+                        "net_pnl": pnl_num,
+                        "trade_count": (
+                            int(trades_num)
+                            if trades_num is not None
+                            and trades_num >= 0
+                            and trades_num.is_integer()
+                            else 0
+                        ),
+                        "max_drawdown": dd_num,
+                    }
+                )
 
         median_pnl = _median(pnl_values)
 
