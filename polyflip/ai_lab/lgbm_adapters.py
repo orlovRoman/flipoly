@@ -441,7 +441,7 @@ async def run_lgbm_oot(context: StepContext, session: AsyncSession) -> AdapterRe
     return AdapterResult(
         evaluation_kind="OOT",
         status="SUCCEEDED",
-        artifact_id=None,
+        artifact_id=await _training_artifact_id(session, context),
         metrics={
             "model_count": len(metrics),
             "auc": sum(finite_auc) / len(finite_auc) if finite_auc else None,
