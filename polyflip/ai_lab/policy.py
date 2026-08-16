@@ -142,6 +142,8 @@ def evaluate_candidate_policy(
         rejection_reasons.append("INVALID_WINDOW_COUNT")
 
     # 2. Trade volume and independent window checks.
+    if trades_num == 0 and windows_num == 0:
+        rejection_reasons.append("NO_PNL_SAMPLE")
     effective_min_trades = max(MIN_MANDATORY_TRADES, min_trades)
     if trades_num < effective_min_trades:
         rejection_reasons.append(
@@ -171,6 +173,7 @@ def evaluate_candidate_policy(
         "INVALID_TRADE_COUNT",
         "INVALID_WINDOW_COUNT",
         "INVALID_DRAWDOWN",
+        "NO_PNL_SAMPLE",
     }
     if research_mode:
         gate_passed = not any(
