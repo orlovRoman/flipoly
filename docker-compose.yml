@@ -32,6 +32,8 @@ services:
       - API_KEY=${API_KEY:-test-key}
       - ASSETS=${ASSETS:-BTC,ETH,SOL,XRP,DOGE}
       - EXECUTION_MODE=${EXECUTION_MODE:-PAPER}
+      - AI_LAB_MODE=${AI_LAB_MODE:-STANDARD}
+      - AI_LAB_LLM_PROVIDER=${AI_LAB_LLM_PROVIDER:-openai}
     volumes:
       - ./polyflip:/app/polyflip
       - ./scripts:/app/scripts
