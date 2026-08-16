@@ -249,8 +249,8 @@ async def _create_bundle_artifact(
 
     manifest = build_experiment_manifest(
         {
-            "code_sha": _code_sha(),
-            "dataset_fingerprint": _fingerprint(rows),
+            "code_sha": _code_sha() or "unknown",
+            "dataset_fingerprint": _fingerprint(rows) or "unknown",
             "feature_pipeline_version": (
                 config.get("feature_pipeline_version")
                 or DEFAULT_FEATURE_PIPELINE_VERSION
