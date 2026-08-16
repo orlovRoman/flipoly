@@ -101,6 +101,10 @@ def _dt(value: Any) -> datetime | None:
             return None
     return None
 
+def _iso_dt(value: Any) -> str | None:
+    parsed = _dt(value)
+    return parsed.isoformat() if parsed is not None else None
+
 
 def _fingerprint(rows: Sequence[ModelRegistry]) -> str | None:
     values = sorted(
@@ -310,10 +314,8 @@ async def _create_bundle_artifact(
         },
         "training_windows": {
             str(row.asset): {
-                "start": row.training_window_start.isoformat()
-                if row.training_window_start else None,
-                "end": row.training_window_end.isoformat()
-                if row.training_window_end else None,
+                "start": _iso_dt(row.training_window_start),
+                "end": _iso_dt(row.training_window_end),
             }
             for row in rows
         },
