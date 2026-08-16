@@ -67,7 +67,17 @@ def _code_sha() -> str | None:
 
 
 def _dt(value: Any) -> datetime | None:
-    return value if isinstance(value, datetime) else None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text.endswith(("Z", "z")):
+            text = text[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    return None
 
 
 def _fingerprint(rows: Sequence[ModelRegistry]) -> str | None:
@@ -87,7 +97,7 @@ async def _training_artifact_id(
     session: AsyncSession,
     context: StepContext,
 ) -> int | None:
-    if not hasattr(session, "execute"):
+    if not isinstance(session, AsyncSession):
         return None
     result = (
         await session.execute(
@@ -104,6 +114,17 @@ async def _training_artifact_id(
         )
     ).scalar_one_or_none()
     return int(result) if result is not None else None
+
+
+async def _flushed_training_artifact_id(
+    session: AsyncSession,
+    context: StepContext,
+) -> int | None:
+    """Flush the TRAIN result before linking it from a later OOT result."""
+    if not isinstance(session, AsyncSession):
+        return None
+    await session.flush()
+    return await _training_artifact_id(session, context)
 
 
 def _row_metrics(row: ModelRegistry) -> dict[str, Any]:
@@ -415,6 +436,7 @@ async def run_logreg_polymarket_oot(
     summary = aggregate_stored_polymarket_backtests(
         results, strategy_branch=branch
     )
+    training_artifact_id = await _flushed_training_artifact_id(session, context)
     return AdapterResult(
         evaluation_kind="POLYMARKET_OOT",
         status="SUCCEEDED" if summary["n_markets"] else "INSUFFICIENT_DATA",
@@ -445,7 +467,7 @@ async def run_logreg_polymarket_oot(
         trade_count=int(summary.get("n_trades") or 0),
         net_pnl=float(summary.get("net_profit") or 0.0),
         max_drawdown=float(summary.get("max_drawdown_usdc") or 0.0),
-        artifact_id=await _training_artifact_id(session, context),
+        artifact_id=training_artifact_id,
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(provenance),
         summary=(
