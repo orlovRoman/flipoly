@@ -56,12 +56,19 @@ class Settings(BaseSettings):
     AI_LAB_MODEL_RESEARCH: str = "gpt-4o"
     AI_LAB_MODEL_SUMMARY: str = "gpt-4o-mini"
     AI_LAB_LLM_STORE: bool = False
+    # STANDARD keeps evidence gates strict; RESEARCH permits provisional SHADOW
+    # candidates while never enabling live execution.
+    AI_LAB_MODE: str = "STANDARD"
     AI_LAB_MAX_RUNTIME_SECONDS: int = 3600
     AI_LAB_MAX_COST_USD: float = 10.0
 
     @property
     def asset_list(self) -> List[str]:
         return [a.strip() for a in self.ASSETS.split(",") if a.strip()]
+
+    @property
+    def ai_lab_research_mode(self) -> bool:
+        return str(self.AI_LAB_MODE or "STANDARD").strip().upper() == "RESEARCH"
 
     model_config = SettingsConfigDict(
         env_file=".env",
