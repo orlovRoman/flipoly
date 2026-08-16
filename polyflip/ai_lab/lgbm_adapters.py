@@ -31,6 +31,7 @@ from polyflip.crypto.polymarket_backtest import (
 from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.constants import resolve_binance_symbol
 from polyflip.ai_lab.logreg_adapters import LOGREG_MODEL_FAMILIES
+from polyflip.ai_lab.manifests import build_experiment_manifest
 from polyflip.db.models import (
     AIModelArtifact,
     ExperimentResult,
@@ -204,6 +205,27 @@ async def _training_rows(
     return await _registry_rows(session, context, ids=[int(item) for item in ids])
 
 
+async def _training_artifact_id(
+    session: AsyncSession,
+    context: StepContext,
+) -> int | None:
+    result = (
+        await session.execute(
+            select(ExperimentResult.artifact_id)
+            .where(
+                ExperimentResult.run_id == context.run_id,
+                ExperimentResult.config_id == context.config_id,
+                ExperimentResult.evaluation_kind == "TRAIN",
+                ExperimentResult.status == "SUCCEEDED",
+                ExperimentResult.artifact_id.is_not(None),
+            )
+            .order_by(ExperimentResult.created_at.desc(), ExperimentResult.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return int(result) if result is not None else None
+
+
 async def _create_bundle_artifact(
     session: AsyncSession,
     context: StepContext,
@@ -225,8 +247,29 @@ async def _create_bundle_artifact(
             existing.loadability_status = "VALID"
         return existing
 
+    manifest = build_experiment_manifest(
+        {
+            "code_sha": _code_sha(),
+            "dataset_fingerprint": _fingerprint(rows),
+            "feature_pipeline_version": (
+                config.get("feature_pipeline_version")
+                or DEFAULT_FEATURE_PIPELINE_VERSION
+            ),
+            "train_window": {
+                "start": min((_dt(row.training_window_start) for row in rows), default=None),
+                "end": max((_dt(row.training_window_end) for row in rows), default=None),
+            },
+            "oot_window": _json_mapping(context.backtest_params).get("oot_window")
+            or {"start": None, "end": None},
+            "seed": _json_mapping(context.model_params).get("seed", 0),
+            "model_params": _json_mapping(context.model_params),
+            "strategy_params": _json_mapping(context.strategy_params),
+            "backtest_params": _json_mapping(context.backtest_params),
+        }
+    )
     metadata = {
         "artifact_kind": "LIGHTGBM_REGISTRY_BUNDLE",
+        "experiment_manifest": manifest,
         "run_id": context.run_id,
         "config_id": context.config_id,
         "config_hash": context.config_hash,
@@ -525,7 +568,7 @@ async def run_lgbm_polymarket_oot(
         trade_count=int(summary.get("n_trades") or 0),
         net_pnl=float(summary.get("net_profit") or 0.0),
         max_drawdown=float(summary.get("max_drawdown_usdc") or 0.0),
-        artifact_id=None,
+        artifact_id=await _training_artifact_id(session, context),
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(provenance_rows),
         train_window_start=min(
