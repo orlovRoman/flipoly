@@ -509,13 +509,19 @@ async def run_lgbm_polymarket_oot(
             "profit_factor",
             "max_drawdown_usdc",
             "max_drawdown_pct",
+            "window_count",
+            "median_oot_pnl",
+            "median_oot_drawdown",
         )
     }
     return AdapterResult(
         evaluation_kind="POLYMARKET_OOT",
         status="SUCCEEDED",
         metrics=metrics,
-        slices={"slices": summary.get("slices", [])},
+        slices={
+            "slices": summary.get("slices", []),
+            "oot_windows": summary.get("oot_windows", []),
+        },
         trade_count=int(summary.get("n_trades") or 0),
         net_pnl=float(summary.get("net_profit") or 0.0),
         max_drawdown=float(summary.get("max_drawdown_usdc") or 0.0),
