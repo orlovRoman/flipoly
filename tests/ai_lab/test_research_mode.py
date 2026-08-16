@@ -2,7 +2,11 @@
 
 import pytest
 
+from polyflip.ai_lab.logreg_adapters import _dt as logreg_dt
+from polyflip.ai_lab.lgbm_adapters import _dt as lgbm_dt
+from polyflip.ai_lab.orchestrator import _oot_window_key, _result_oot_windows
 from polyflip.ai_lab.policy import evaluate_candidate_policy
+from polyflip.ai_lab.service import _live_trading_enabled
 from polyflip.crypto.polymarket_backtest import aggregate_stored_polymarket_backtests
 
 
@@ -79,3 +83,32 @@ def test_research_mode_rejects_missing_polymarket_sample():
     )
     assert result.gate_passed is False
     assert "NO_PNL_SAMPLE" in result.rejection_reasons
+\n
+
+def test_manifest_datetime_parser_preserves_iso8601_values():
+    value = "2026-07-01T00:00:00Z"
+    assert lgbm_dt(value) is not None
+    assert lgbm_dt(value).isoformat() == "2026-07-01T00:00:00+00:00"
+    assert logreg_dt(value).isoformat() == "2026-07-01T00:00:00+00:00"
+    assert lgbm_dt("not-a-timestamp") is None
+
+
+def test_oot_window_extraction_reads_persisted_slices():
+    result = {
+        "slices": {
+            "oot_windows": [
+                {"window": 1, "net_profit": 0.4, "n_trades": 2},
+                {"window": 2, "net_profit": 0.6, "n_trades": 3},
+            ]
+        }
+    }
+    windows = _result_oot_windows(result)
+    assert len(windows) == 2
+    assert _oot_window_key(windows[0]) == ("ordinal", "1")
+    assert _oot_window_key(windows[1]) == ("ordinal", "2")
+
+
+def test_research_gate_allows_paper_but_blocks_live_trading():
+    assert not _live_trading_enabled([("TRADING_ENABLED", "true")])
+    assert not _live_trading_enabled([("LIVE_TRADING_ENABLED", "false")])
+    assert _live_trading_enabled([("LIVE_TRADING_ENABLED", "true")])
