@@ -83,16 +83,20 @@ def _oot_window_key(result: Any) -> tuple[str, str] | None:
     """Return a stable key for one persisted OOT window."""
     raw_metrics = _value(result, "metrics", {}) or {}
     metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
-    start = _value(
-        result,
-        "oot_window_start",
-        metrics.get("oot_window_start", metrics.get("window_start")),
-    )
-    end = _value(
-        result,
-        "oot_window_end",
-        metrics.get("oot_window_end", metrics.get("window_end")),
-    )
+
+    def _first(item: Any, *names: str) -> Any:
+        for name in names:
+            value = _value(item, name)
+            if value is not None:
+                return value
+        return None
+
+    start = _first(result, "oot_window_start", "window_start", "start")
+    end = _first(result, "oot_window_end", "window_end", "end")
+    if start is None:
+        start = _first(metrics, "oot_window_start", "window_start", "start")
+    if end is None:
+        end = _first(metrics, "oot_window_end", "window_end", "end")
     if start is not None and end is not None:
         start_text = str(start).strip()
         end_text = str(end).strip()
