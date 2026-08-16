@@ -89,7 +89,8 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - AI_LAB_LLM_PROVIDER=${AI_LAB_LLM_PROVIDER:-mock}
+      - AI_LAB_LLM_PROVIDER=${AI_LAB_LLM_PROVIDER:-openai}
+      - AI_LAB_MODE=${AI_LAB_MODE:-STANDARD}
       - AI_LAB_MODEL_RESEARCH=${AI_LAB_MODEL_RESEARCH:-gpt-5.6}
       - AI_LAB_MODEL_SUMMARY=${AI_LAB_MODEL_SUMMARY:-gpt-5.6-mini}
       - AI_LAB_LLM_STORE=false
