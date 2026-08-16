@@ -3,7 +3,7 @@
 import pytest
 
 from polyflip.ai_lab.logreg_adapters import _dt as logreg_dt
-from polyflip.ai_lab.lgbm_adapters import _dt as lgbm_dt
+from polyflip.ai_lab.lgbm_adapters import _dt as lgbm_dt, _iso_dt
 from polyflip.ai_lab.orchestrator import _oot_window_key, _result_oot_windows
 from polyflip.ai_lab.policy import evaluate_candidate_policy
 from polyflip.ai_lab.service import _live_trading_enabled
@@ -91,6 +91,7 @@ def test_manifest_datetime_parser_preserves_iso8601_values():
     assert lgbm_dt(value).isoformat() == "2026-07-01T00:00:00+00:00"
     assert logreg_dt(value).isoformat() == "2026-07-01T00:00:00+00:00"
     assert lgbm_dt("not-a-timestamp") is None
+    assert _iso_dt(None) is None
 
 
 def test_oot_window_extraction_reads_persisted_slices():
