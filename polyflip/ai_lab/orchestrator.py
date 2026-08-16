@@ -80,6 +80,7 @@ def _median(values: Sequence[Any]) -> float | None:
 
 
 def _oot_window_key(result: Any) -> tuple[str, str] | None:
+    """Return a stable key for one persisted OOT window."""
     raw_metrics = _value(result, "metrics", {}) or {}
     metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
     start = _value(
@@ -92,13 +93,28 @@ def _oot_window_key(result: Any) -> tuple[str, str] | None:
         "oot_window_end",
         metrics.get("oot_window_end", metrics.get("window_end")),
     )
-    if start is None or end is None:
-        return None
-    start_text = str(start).strip()
-    end_text = str(end).strip()
-    if not start_text or not end_text or start_text == end_text:
-        return None
-    return (start_text, end_text)
+    if start is not None and end is not None:
+        start_text = str(start).strip()
+        end_text = str(end).strip()
+        if start_text and end_text and start_text != end_text:
+            return ("timestamp", f"{start_text}/{end_text}")
+    ordinal = _value(result, "window")
+    if ordinal is not None:
+        source = _value(result, "source")
+        token = f"{source}:{ordinal}" if source is not None else str(ordinal)
+        return ("ordinal", token)
+    return None
+
+
+def _result_oot_windows(result: Any) -> list[Mapping[str, Any]]:
+    """Extract per-window summaries persisted in slices or metrics."""
+    for field in ("slices", "metrics"):
+        raw = _value(result, field, {}) or {}
+        if isinstance(raw, Mapping):
+            windows = raw.get("oot_windows")
+            if isinstance(windows, list):
+                return [item for item in windows if isinstance(item, Mapping)]
+    return [result] if _oot_window_key(result) is not None else []
 
 
 def default_plan_steps(config_ids: Sequence[int]) -> list[dict[str, Any]]:
