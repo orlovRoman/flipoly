@@ -125,8 +125,11 @@ def evaluate_finalization_gate(
     *,
     min_trades: int = MIN_TOTAL_TRADES,
     min_windows: int = MIN_WINDOWS,
+    mode: str | None = None,
 ) -> dict[str, Any]:
-    """Evaluate whether a candidate config passes strict finalization gates."""
+    """Evaluate finalization gates; RESEARCH keeps valid low-evidence rows provisional."""
+    from polyflip.config import settings
+    research_mode = str(mode or getattr(settings, "AI_LAB_MODE", "STANDARD")).upper() == "RESEARCH"
     polymarket_count = int(_finite(row.get("polymarket_oot_evaluation_count")) or 0)
     window_count = int(_finite(row.get("window_count")) or 0)
     total_trades = int(_finite(row.get("total_trades")) or 0)
@@ -169,9 +172,15 @@ def evaluate_finalization_gate(
         rejection_reasons.append("INSUFFICIENT_WINDOWS")
 
     reasons = list(dict.fromkeys(rejection_reasons))
-    status = "READY_FOR_SHADOW" if not reasons else reasons[0]
+    hard_reasons = {"INVALID_RESULT", "EXCESSIVE_DRAWDOWN"}
+    if research_mode and not any(reason in hard_reasons for reason in reasons):
+        status = "READY_FOR_SHADOW" if not reasons else "RESEARCH_PROVISIONAL"
+        eligible = True
+    else:
+        status = "READY_FOR_SHADOW" if not reasons else reasons[0]
+        eligible = not reasons
     return {
-        "eligible": not reasons,
+        "eligible": eligible,
         "recommendation_status": status,
         "rejection_reasons": reasons,
         "window_count": window_count,
@@ -185,6 +194,7 @@ def build_experiment_report(
     *,
     min_trades: int = MIN_TOTAL_TRADES,
     min_windows: int = MIN_WINDOWS,
+    mode: str | None = None,
 ) -> dict[str, Any]:
     """Aggregate per-config metrics across training, OOT backtests, and Polymarket OOT.
 
@@ -332,7 +342,7 @@ def build_experiment_report(
         }
 
         gate_res = evaluate_finalization_gate(
-            row, min_trades=min_trades, min_windows=min_windows
+            row, min_trades=min_trades, min_windows=min_windows, mode=mode
         )
         row["eligible_for_shadow"] = gate_res["eligible"]
         row["recommendation_status"] = gate_res["recommendation_status"]
@@ -354,7 +364,7 @@ def build_experiment_report(
     )
 
     if winner:
-        status = "READY_FOR_SHADOW"
+        status = winner.get("recommendation_status", "READY_FOR_SHADOW")
         rejection_reasons: list[str] = []
         reason = (
             "Highest median Polymarket-OOT net PnL among candidates meeting the "
@@ -690,7 +700,7 @@ async def finalize_run(
     """
     report = await evaluate_run(session, run_id)
     assignment: AIShadowAssignment | None = None
-    if auto_shadow and report["recommendation_status"] == "READY_FOR_SHADOW":
+    if auto_shadow and report["recommendation_status"] in {"READY_FOR_SHADOW", "RESEARCH_PROVISIONAL"}:
         config_id = report["recommended_config_id"]
         config = await session.get(AIExperimentConfig, config_id)
         if config is None:
@@ -726,7 +736,7 @@ async def finalize_run(
             session_run.summary = json.dumps(
                 {
                     "report": report,
-                    "status": "READY_FOR_SHADOW",
+                    "status": report.get("recommendation_status"),
                     "shadow_assignment": {
                         "assignment_id": assignment.id,
                         "candidate_artifact_id": assignment.candidate_artifact_id,
