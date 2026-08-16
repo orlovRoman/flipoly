@@ -410,7 +410,8 @@ def aggregate_stored_polymarket_backtests(
     weighted_stake = 0.0
     weighted_stake_count = 0
     coverage_reasons = Counter()
-    for result in results:
+    oot_windows: list[dict[str, Any]] = []
+    for result_index, result in enumerate(results):
         n_markets += int(result.get("n_markets") or 0)
         n_quotes += int(result.get("n_quotes") or 0)
         n_oof += int(result.get("n_oof") or 0)
@@ -448,6 +449,9 @@ def aggregate_stored_polymarket_backtests(
             except (TypeError, ValueError):
                 continue
         slices.extend(result.get("slices") or [])
+        for window in result.get("oot_windows") or []:
+            if isinstance(window, dict):
+                oot_windows.append({"source": result_index, **window})
         curve_items.extend(result.get("equity_curve") or [])
 
     curve_items.sort(key=lambda item: str(item.get("entry_time") or ""))
@@ -503,6 +507,18 @@ def aggregate_stored_polymarket_backtests(
         "coverage_reasons": dict(coverage_reasons),
         "slices": slices,
         "equity_curve": equity_curve,
+        "oot_windows": oot_windows,
+        "window_count": len(oot_windows),
+        "median_oot_pnl": (
+            float(np.median([float(item.get("net_profit") or 0.0) for item in oot_windows]))
+            if oot_windows else None
+        ),
+        "median_oot_drawdown": (
+            float(np.median([float(item.get("max_drawdown_usdc") or 0.0) for item in oot_windows]))
+            if oot_windows else None
+        ),
+        # Trade rows can be very large; slices and window summaries are the
+        # stable persisted audit surface for AI Lab and the dashboard.
         "trades": [],
     }
 
