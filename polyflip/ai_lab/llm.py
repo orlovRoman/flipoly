@@ -571,11 +571,11 @@ class OpenAIResponsesProvider:
                 },
             )
         except Exception as exc:
-            logger.warning("openai_summary_failed", error=str(exc))
-            return (
-                f"Шаг {step_name} завершён. Статус: {details.get('status', 'OK')}",
-                LLMUsageStats(provider="fallback", model=self.model_summary),
-            )
+            logger.error("openai_summary_failed", error=str(exc), step=step_name)
+            # Do not turn a provider/network failure into a successful-looking
+            # experiment note. The durable agent runner records this exception
+            # and the run remains auditable/retryable.
+            raise RuntimeError(f"LLM summary failed for step {step_name}: {exc}") from exc
 
 def get_llm_provider(
     provider_name: str | None = None,
@@ -586,7 +586,9 @@ def get_llm_provider(
     """Factory to instantiate the configured LLM provider."""
     from polyflip.config import settings
 
-    provider = (provider_name or settings.AI_LAB_LLM_PROVIDER or "mock").lower()
+    provider = (provider_name or getattr(settings, "AI_LAB_LLM_PROVIDER", "")).strip().lower()
+    if not provider:
+        raise RuntimeError("AI_LAB_LLM_PROVIDER must be explicitly configured (openai or mock)")
     key = api_key or getattr(settings, "OPENAI_API_KEY", "")
 
     if provider == "mock":
