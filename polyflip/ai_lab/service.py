@@ -177,7 +177,7 @@ async def create_run(
         enabled_rows = (
             await session.execute(
                 select(RuntimeSettings.key, RuntimeSettings.value).where(
-                    RuntimeSettings.key.in_({"TRADING_ENABLED", "LIVE_TRADING_ENABLED"})
+                    RuntimeSettings.key == "LIVE_TRADING_ENABLED"
                 )
             )
         ).all()
@@ -185,10 +185,11 @@ async def create_run(
             str(key): str(value).strip().lower() in {"1", "true", "yes", "on"}
             for key, value in enabled_rows
         }
-        if enabled.get("TRADING_ENABLED") or enabled.get("LIVE_TRADING_ENABLED"):
+        # PAPER may keep the general trading switch enabled. Only the explicit
+        # real-money kill switch must be off for research runs.
+        if enabled.get("LIVE_TRADING_ENABLED"):
             raise AILabError(
-                "AI_LAB_MODE=RESEARCH requires trading to be disabled; "
-                "set TRADING_ENABLED and LIVE_TRADING_ENABLED to false"
+                "AI_LAB_MODE=RESEARCH requires LIVE_TRADING_ENABLED=false"
             )
     if autonomy_level not in {
         "OBSERVE",
