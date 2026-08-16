@@ -281,8 +281,8 @@ async def _create_bundle_artifact(
                 or DEFAULT_FEATURE_PIPELINE_VERSION
             ),
             "train_window": {
-                "start": min((_dt(row.training_window_start) for row in rows), default=None),
-                "end": max((_dt(row.training_window_end) for row in rows), default=None),
+                "start": min((dt for row in rows if (dt := _dt(row.training_window_start)) is not None), default=None),
+                "end": max((dt for row in rows if (dt := _dt(row.training_window_end)) is not None), default=None),
             },
             "oot_window": _json_mapping(context.backtest_params).get("oot_window")
             or {"start": None, "end": None},
