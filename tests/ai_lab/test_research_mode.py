@@ -83,7 +83,7 @@ def test_research_mode_rejects_missing_polymarket_sample():
     )
     assert result.gate_passed is False
     assert "NO_PNL_SAMPLE" in result.rejection_reasons
-\n
+
 
 def test_manifest_datetime_parser_preserves_iso8601_values():
     value = "2026-07-01T00:00:00Z"
