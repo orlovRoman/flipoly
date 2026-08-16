@@ -66,6 +66,10 @@ def _code_sha() -> str | None:
     return value.strip()[:64] if value and value.strip() else None
 
 
+def _dt(value: Any) -> datetime | None:
+    return value if isinstance(value, datetime) else None
+
+
 def _fingerprint(rows: Sequence[ModelRegistry]) -> str | None:
     values = sorted(
         str(row.dataset_fingerprint)
