@@ -215,8 +215,8 @@ async def _create_bundle_artifact(
             "dataset_fingerprint": _fingerprint(rows) or "unknown",
             "feature_pipeline_version": "LOGREG_FEATURES_V1",
             "train_window": {
-                "start": min((_dt(row.training_window_start) for row in rows), default=None),
-                "end": max((_dt(row.training_window_end) for row in rows), default=None),
+                "start": min((dt for row in rows if (dt := _dt(row.training_window_start)) is not None), default=None),
+                "end": max((dt for row in rows if (dt := _dt(row.training_window_end)) is not None), default=None),
             },
             "oot_window": _mapping(context.backtest_params).get("oot_window")
             or {"start": None, "end": None},
