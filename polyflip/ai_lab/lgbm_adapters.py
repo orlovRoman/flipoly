@@ -434,11 +434,19 @@ async def train_lgbm(context: StepContext, session: AsyncSession) -> AdapterResu
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(rows),
         train_window_start=min(
-            (_dt(row.training_window_start) for row in rows),
+            (
+                dt
+                for row in rows
+                if (dt := _dt(row.training_window_start)) is not None
+            ),
             default=None,
         ),
         train_window_end=max(
-            (_dt(row.training_window_end) for row in rows),
+            (
+                dt
+                for row in rows
+                if (dt := _dt(row.training_window_end)) is not None
+            ),
             default=None,
         ),
         summary=(
@@ -479,11 +487,19 @@ async def run_lgbm_oot(context: StepContext, session: AsyncSession) -> AdapterRe
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(rows),
         train_window_start=min(
-            (_dt(row.training_window_start) for row in rows),
+            (
+                dt
+                for row in rows
+                if (dt := _dt(row.training_window_start)) is not None
+            ),
             default=None,
         ),
         train_window_end=max(
-            (_dt(row.training_window_end) for row in rows),
+            (
+                dt
+                for row in rows
+                if (dt := _dt(row.training_window_end)) is not None
+            ),
             default=None,
         ),
         summary=(
@@ -599,11 +615,19 @@ async def run_lgbm_polymarket_oot(
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(provenance_rows),
         train_window_start=min(
-            (_dt(row.training_window_start) for row in provenance_rows),
+            (
+                dt
+                for row in provenance_rows
+                if (dt := _dt(row.training_window_start)) is not None
+            ),
             default=None,
         ),
         train_window_end=max(
-            (_dt(row.training_window_end) for row in provenance_rows),
+            (
+                dt
+                for row in provenance_rows
+                if (dt := _dt(row.training_window_end)) is not None
+            ),
             default=None,
         ),
         summary=(
