@@ -35,6 +35,7 @@ from polyflip.db.models import (
     DeploymentRevision,
     ExperimentResult,
     ModelRegistry,
+    RuntimeSettings,
 )
 
 logger = structlog.get_logger(__name__)
@@ -168,6 +169,27 @@ async def create_run(
         raise AILabError("budget_experiments must be at least 1")
     if budget_seconds < 0:
         raise AILabError("budget_seconds must be non-negative")
+    from polyflip.config import settings
+    ai_lab_mode = str(getattr(settings, "AI_LAB_MODE", "STANDARD") or "STANDARD").strip().upper()
+    if ai_lab_mode not in {"STANDARD", "RESEARCH"}:
+        raise AILabError(f"unsupported AI_LAB_MODE: {ai_lab_mode}")
+    if ai_lab_mode == "RESEARCH":
+        enabled_rows = (
+            await session.execute(
+                select(RuntimeSettings.key, RuntimeSettings.value).where(
+                    RuntimeSettings.key.in_({"TRADING_ENABLED", "LIVE_TRADING_ENABLED"})
+                )
+            )
+        ).all()
+        enabled = {
+            str(key): str(value).strip().lower() in {"1", "true", "yes", "on"}
+            for key, value in enabled_rows
+        }
+        if enabled.get("TRADING_ENABLED") or enabled.get("LIVE_TRADING_ENABLED"):
+            raise AILabError(
+                "AI_LAB_MODE=RESEARCH requires trading to be disabled; "
+                "set TRADING_ENABLED and LIVE_TRADING_ENABLED to false"
+            )
     if autonomy_level not in {
         "OBSERVE",
         "EXPERIMENT",
