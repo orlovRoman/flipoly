@@ -1,5 +1,7 @@
 """Regression tests for the AI Lab research contour."""
 
+import pytest
+
 from polyflip.ai_lab.policy import evaluate_candidate_policy
 from polyflip.crypto.polymarket_backtest import aggregate_stored_polymarket_backtests
 
@@ -68,4 +70,4 @@ def test_aggregated_polymarket_backtest_preserves_window_metrics():
     )
     assert summary["window_count"] == 2
     assert summary["median_oot_pnl"] == 0.5
-    assert summary["median_oot_drawdown"] == 0.15
+    assert summary["median_oot_drawdown"] == pytest.approx(0.15)
