@@ -71,3 +71,11 @@ def test_aggregated_polymarket_backtest_preserves_window_metrics():
     assert summary["window_count"] == 2
     assert summary["median_oot_pnl"] == 0.5
     assert summary["median_oot_drawdown"] == pytest.approx(0.15)
+
+def test_research_mode_rejects_missing_polymarket_sample():
+    result = evaluate_candidate_policy(
+        {"median_pnl": 0.0, "max_drawdown_usdc": 0.0, "total_trades": 0, "window_count": 0},
+        mode="RESEARCH",
+    )
+    assert result.gate_passed is False
+    assert "NO_PNL_SAMPLE" in result.rejection_reasons
