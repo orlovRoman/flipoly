@@ -100,7 +100,10 @@ async function loadOptimizationRuns(silent = false) {
     const res = await fetch(`${window.API_BASE}/api/ai-lab/runs?limit=50`, {
       headers: getAuthHeaders(),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      if (res.status === 401) throw new Error("HTTP 401: укажите API key в localStorage.polyflip_api_key");
+      throw new Error(`HTTP ${res.status}`);
+    }
     const data = await res.json();
     const runs = data.runs || [];
 
@@ -177,6 +180,7 @@ async function loadRunDetail(runId) {
           <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem;">Запуск #${run.id}: ${escapeHtml(run.objective)}</h3>
           <div style="color: var(--text-muted); font-size: 0.85rem;">
             Создан: <strong>${created}</strong> | Завершён: <strong>${completed}</strong> | Инициатор: <strong>${escapeHtml(run.created_by || "system")}</strong>
+            <br>Контур: <strong>${escapeHtml(run.ai_lab_mode || "STANDARD")}</strong>
           </div>
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
