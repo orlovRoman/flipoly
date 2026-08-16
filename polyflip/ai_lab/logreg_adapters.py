@@ -25,6 +25,7 @@ from polyflip.constants import resolve_binance_symbol
 from polyflip.crypto.logreg_polymarket_backtest import (
     compute_logreg_polymarket_backtest,
 )
+from polyflip.ai_lab.manifests import build_experiment_manifest
 from polyflip.crypto.oof_artifact import deserialize_oof_artifact
 from polyflip.crypto.polymarket_backtest import aggregate_stored_polymarket_backtests
 from polyflip.db.models import (
@@ -76,6 +77,29 @@ def _fingerprint(rows: Sequence[ModelRegistry]) -> str | None:
     if len(set(values)) == 1:
         return values[0]
     return hashlib.sha256("|".join(values).encode("utf-8")).hexdigest()[:32]
+
+
+async def _training_artifact_id(
+    session: AsyncSession,
+    context: StepContext,
+) -> int | None:
+    if not hasattr(session, "execute"):
+        return None
+    result = (
+        await session.execute(
+            select(ExperimentResult.artifact_id)
+            .where(
+                ExperimentResult.run_id == context.run_id,
+                ExperimentResult.config_id == context.config_id,
+                ExperimentResult.evaluation_kind == "TRAIN",
+                ExperimentResult.status == "SUCCEEDED",
+                ExperimentResult.artifact_id.is_not(None),
+            )
+            .order_by(ExperimentResult.created_at.desc(), ExperimentResult.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return int(result) if result is not None else None
 
 
 def _row_metrics(row: ModelRegistry) -> dict[str, Any]:
@@ -160,8 +184,26 @@ async def _create_bundle_artifact(
     ).scalar_one_or_none()
     if existing is not None:
         return existing
+    manifest = build_experiment_manifest(
+        {
+            "code_sha": _code_sha() or "unknown",
+            "dataset_fingerprint": _fingerprint(rows) or "unknown",
+            "feature_pipeline_version": "LOGREG_FEATURES_V1",
+            "train_window": {
+                "start": min((_dt(row.training_window_start) for row in rows), default=None),
+                "end": max((_dt(row.training_window_end) for row in rows), default=None),
+            },
+            "oot_window": _mapping(context.backtest_params).get("oot_window")
+            or {"start": None, "end": None},
+            "seed": _mapping(context.model_params).get("seed", 0),
+            "model_params": _mapping(context.model_params),
+            "strategy_params": _mapping(context.strategy_params),
+            "backtest_params": _mapping(context.backtest_params),
+        }
+    )
     metadata = {
         "artifact_kind": "LOGREG_REGISTRY_BUNDLE",
+        "experiment_manifest": manifest,
         "run_id": context.run_id,
         "config_id": context.config_id,
         "config_hash": context.config_hash,
@@ -387,12 +429,19 @@ async def run_logreg_polymarket_oot(
                 "max_drawdown_usdc",
                 "max_drawdown_pct",
                 "coverage_pct",
+                "window_count",
+                "median_oot_pnl",
+                "median_oot_drawdown",
             )
         },
-        slices={"slices": summary.get("slices", [])},
+        slices={
+            "slices": summary.get("slices", []),
+            "oot_windows": summary.get("oot_windows", []),
+        },
         trade_count=int(summary.get("n_trades") or 0),
         net_pnl=float(summary.get("net_profit") or 0.0),
         max_drawdown=float(summary.get("max_drawdown_usdc") or 0.0),
+        artifact_id=await _training_artifact_id(session, context),
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(provenance),
         summary=(
