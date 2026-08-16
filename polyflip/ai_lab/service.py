@@ -41,6 +41,23 @@ from polyflip.db.models import (
 logger = structlog.get_logger(__name__)
 
 
+def _live_trading_enabled(enabled_rows: Any) -> bool:
+    """Return whether the explicit real-money switch is enabled.
+
+    TRADING_ENABLED also controls PAPER processing, so it must not block
+    research runs. Only LIVE_TRADING_ENABLED is a real-money safety gate.
+    """
+    for key, value in enabled_rows:
+        if str(key) == "LIVE_TRADING_ENABLED" and str(value).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return True
+    return False
+
+
 class AILabError(ValueError):
     """Base error for rejected laboratory operations."""
 
@@ -181,13 +198,9 @@ async def create_run(
                 )
             )
         ).all()
-        enabled = {
-            str(key): str(value).strip().lower() in {"1", "true", "yes", "on"}
-            for key, value in enabled_rows
-        }
         # PAPER may keep the general trading switch enabled. Only the explicit
         # real-money kill switch must be off for research runs.
-        if enabled.get("LIVE_TRADING_ENABLED"):
+        if _live_trading_enabled(enabled_rows):
             raise AILabError(
                 "AI_LAB_MODE=RESEARCH requires LIVE_TRADING_ENABLED=false"
             )
