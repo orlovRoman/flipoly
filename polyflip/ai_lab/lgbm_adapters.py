@@ -89,7 +89,17 @@ def _code_sha() -> str | None:
 
 
 def _dt(value: Any) -> datetime | None:
-    return value if isinstance(value, datetime) else None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text.endswith(("Z", "z")):
+            text = text[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    return None
 
 
 def _fingerprint(rows: Sequence[ModelRegistry]) -> str | None:
@@ -211,7 +221,7 @@ async def _training_artifact_id(
 ) -> int | None:
     # Unit-level adapter tests may use a sentinel session while exercising
     # persisted ModelRegistry summaries. Production always supplies AsyncSession.
-    if not hasattr(session, "execute"):
+    if not isinstance(session, AsyncSession):
         return None
     result = (
         await session.execute(
@@ -228,6 +238,17 @@ async def _training_artifact_id(
         )
     ).scalar_one_or_none()
     return int(result) if result is not None else None
+
+
+async def _flushed_training_artifact_id(
+    session: AsyncSession,
+    context: StepContext,
+) -> int | None:
+    """Flush the TRAIN result before linking it from a later OOT result."""
+    if not isinstance(session, AsyncSession):
+        return None
+    await session.flush()
+    return await _training_artifact_id(session, context)
 
 
 async def _create_bundle_artifact(
@@ -442,10 +463,11 @@ async def run_lgbm_oot(context: StepContext, session: AsyncSession) -> AdapterRe
     finite_auc = [item["auc"] for item in metrics if item["auc"] is not None]
     finite_ece = [item["ece"] for item in metrics if item["ece"] is not None]
     finite_brier = [item["brier"] for item in metrics if item["brier"] is not None]
+    training_artifact_id = await _flushed_training_artifact_id(session, context)
     return AdapterResult(
         evaluation_kind="OOT",
         status="SUCCEEDED",
-        artifact_id=await _training_artifact_id(session, context),
+        artifact_id=training_artifact_id,
         metrics={
             "model_count": len(metrics),
             "auc": sum(finite_auc) / len(finite_auc) if finite_auc else None,
@@ -561,6 +583,7 @@ async def run_lgbm_polymarket_oot(
             "median_oot_drawdown",
         )
     }
+    training_artifact_id = await _flushed_training_artifact_id(session, context)
     return AdapterResult(
         evaluation_kind="POLYMARKET_OOT",
         status="SUCCEEDED",
@@ -572,7 +595,7 @@ async def run_lgbm_polymarket_oot(
         trade_count=int(summary.get("n_trades") or 0),
         net_pnl=float(summary.get("net_profit") or 0.0),
         max_drawdown=float(summary.get("max_drawdown_usdc") or 0.0),
-        artifact_id=await _training_artifact_id(session, context),
+        artifact_id=training_artifact_id,
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(provenance_rows),
         train_window_start=min(
