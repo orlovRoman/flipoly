@@ -191,31 +191,33 @@
 
                     <!-- Таблица зарегистрированных моделей -->
                     <div class="table-card">
-                        <div class="card-header">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
                             <h3>Реестр ML моделей (ModelRegistry)</h3>
+                            <div style="display:flex; gap:0.4rem;">
+                                <button class="btn btn-model-filter" data-filter="all" style="padding:0.3rem 0.8rem; font-size:0.82rem; background:var(--poly-blue,#2563eb); color:#fff;">Все</button>
+                                <button class="btn btn-model-filter" data-filter="active" style="padding:0.3rem 0.8rem; font-size:0.82rem;">Только активные</button>
+                                <button class="btn btn-model-filter" data-filter="archive" style="padding:0.3rem 0.8rem; font-size:0.82rem;">Только архив</button>
+                            </div>
                         </div>
                         <div class="table-responsive">
                             <table class="data-table" id="models-table">
                                 <thead>
                                     <tr>
-                                        <th>ID</th>
-                                        <th>Актив</th>
-                                        <th>Версия</th>
-                                        <th>Тип модели</th>
-                                        <th>Набор признаков (Features)</th>
-                                        <th>Порог UP</th>
-                                        <th>Порог DOWN</th>
-                                        <th>Точность (Acc)</th>
-                                        <th>Backtest PnL</th>
-                                        <th>Сделок (Backtest)</th>
-                                        <th>Статус</th>
-                                        <th>Дата создания</th>
+                                        <th data-sort="asset" style="cursor:pointer; user-select:none;">Актив<span class="sort-icon"></span></th>
+                                        <th data-sort="version" style="cursor:pointer; user-select:none;">Версия<span class="sort-icon"></span></th>
+                                        <th data-sort="accuracy" style="cursor:pointer; user-select:none;">Точность (Acc)<span class="sort-icon"></span></th>
+                                        <th data-sort="baseline" style="cursor:pointer; user-select:none;">Базовая точность<span class="sort-icon"></span></th>
+                                        <th data-sort="ece" style="cursor:pointer; user-select:none;">ECE<span class="sort-icon"></span></th>
+                                        <th data-sort="trained_at" style="cursor:pointer; user-select:none;">Дата обучения<span class="sort-icon"></span></th>
+                                        <th data-sort="backtest_pnl" style="cursor:pointer; user-select:none;">Backtest PnL<span class="sort-icon"></span></th>
+                                        <th data-sort="pnl" style="cursor:pointer; user-select:none;">Реализованный PnL<span class="sort-icon"></span></th>
+                                        <th data-sort="status" style="cursor:pointer; user-select:none;">Статус<span class="sort-icon"></span></th>
                                         <th>Действия</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr>
-                                        <td colspan="12" class="text-center">Загрузка моделей...</td>
+                                        <td colspan="10" class="text-center">Загрузка моделей...</td>
                                     </tr>
                                 </tbody>
                             </table>
