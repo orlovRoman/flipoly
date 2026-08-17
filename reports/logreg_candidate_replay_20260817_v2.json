@@ -19524,5 +19524,7 @@
         }
       }
     }
-  ]
+  ],
+  "report_classification": "PRELIMINARY_REPLAY_REPORT",
+  "ranking_eligible": false
 }
