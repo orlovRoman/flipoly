@@ -144,7 +144,12 @@ async def get_dashboard_data(
         statuses = statuses_res.scalars().all()
 
         # 2. Активные рынки (live_markets)
-        markets_query = select(LiveMarket).order_by(LiveMarket.asset)
+        markets_query = (
+            select(LiveMarket)
+            .where(LiveMarket.status == "ACTIVE")
+            .order_by(LiveMarket.id.desc())
+            .limit(20)
+        )
         markets_res = await db.execute(markets_query)
         markets = markets_res.scalars().all()
 
