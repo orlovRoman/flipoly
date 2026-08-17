@@ -1467,12 +1467,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // === Init ===
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
+      loadSummary();
       fetchActiveModelsSummary();
       loadSettings();
       loadParserStatus();
       loadModelsHistory();
     });
   } else {
+    loadSummary();
     fetchActiveModelsSummary();
     loadSettings();
     loadParserStatus();
