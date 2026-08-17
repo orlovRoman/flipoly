@@ -1,0 +1,2696 @@
+{
+  "timestamp_utc": "2026-08-15T15:06:28.096838+00:00",
+  "git_commit": "8391416",
+  "containers": {},
+  "runtime_settings": {
+    "MIN_SAMPLES_FOR_PHASE_MODEL": {
+      "value": "150",
+      "description": null,
+      "updated_by": "system"
+    },
+    "AUTO_FLIP_THRESHOLD_XRP": {
+      "value": "0.2197",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "TRAINING_STATUS_JSON": {
+      "value": "{\"status\": \"success\", \"message\": \"DOGE: \\u0423\\u0441\\u043f\\u0435\\u0448\\u043d\\u043e: \\u0432\\u0435\\u0440\\u0441\\u0438\\u044f 2 (\\u0442\\u043e\\u0447\\u043d\\u043e\\u0441\\u0442\\u044c 85.98%, \\u0431\\u0435\\u0439\\u0437\\u043b\\u0430\\u0439\\u043d 97.86%)\", \"last_run\": \"2026-06-27T04:22:45.756439+00:00\"}",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "LR_TRAIN_MIN_TIME_LEFT_MIN": {
+      "value": "0.5",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LIVE_MIN_NET_EDGE": {
+      "value": "0.03",
+      "description": null,
+      "updated_by": "system"
+    },
+    "TRADE_EXECUTION_TIME_SEC": {
+      "value": "360",
+      "description": null,
+      "updated_by": "api"
+    },
+    "AUTO_FLIP_THRESHOLD_DOGE_contested": {
+      "value": "0.5323",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "MAX_EDGE": {
+      "value": "1",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "MAX_TOTAL_EXPOSURE_USDC": {
+      "value": "50.0",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LGBM_TARGET_COVERAGE": {
+      "value": "0.40",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_THRESHOLD_SOLUSDT_high_vol": {
+      "value": "0.65",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_THRESHOLD_DOWN_XRPUSDT_mid_vol": {
+      "value": "0.596",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_LGBM_N_JOBS": {
+      "value": "2",
+      "description": null,
+      "updated_by": "system"
+    },
+    "AUTO_FLIP_THRESHOLD_BTC": {
+      "value": "0.8729",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "LGBM_MAX_VALID_THRESHOLD": {
+      "value": "0.75",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LGBM_THRESHOLD_FALLBACK": {
+      "value": "0.55",
+      "description": null,
+      "updated_by": "system"
+    },
+    "TRAINING_STATUS_SOL": {
+      "value": "{\"status\": \"success\", \"message\": \"SOL: \\u0423\\u0441\\u043f\\u0435\\u0448\\u043d\\u043e: \\u0432\\u0435\\u0440\\u0441\\u0438\\u044f 35 (AUC 0.7441 (+0.0001 \\ud83d\\udfe2 \\u043b\\u0443\\u0447\\u0448\\u0435)) | \\u0424\\u0430\\u0437\\u044b: [contested: warning (AUC 0.522, n=17175), leaning: ok (AUC 0.551, n=19323), decided: warning (AUC 0.752, n=34226)]\", \"last_run\": \"2026-08-10T15:09:36.612583+00:00\"}",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "AUTO_FLIP_THRESHOLD_BTC_contested": {
+      "value": "0.5584",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "AUTO_FLIP_THRESHOLD_ETH": {
+      "value": "0.2292",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "LGBM_MIN_PRECISION_FOR_THRESHOLD": {
+      "value": "0.6",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CONFIRM_THRESHOLD_USDC": {
+      "value": "5.0",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LR_SAMPLE_WEIGHT_MODE": {
+      "value": "time_decay",
+      "description": null,
+      "updated_by": "system"
+    },
+    "KELLY_ENABLED": {
+      "value": "false",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "LGBM_CV_N_SPLITS": {
+      "value": "5",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_VOL_MEDIAN_BTCUSDT": {
+      "value": "0.9477",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "LR_SAMPLE_WEIGHT_TAU": {
+      "value": "5.0",
+      "description": null,
+      "updated_by": "system"
+    },
+    "EXECUTION_COOLDOWN_SEC": {
+      "value": "10",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_THRESHOLD_DOWN_BTCUSDT_low_vol": {
+      "value": "0.4059",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "LGBM_CALIBRATION_METHOD": {
+      "value": "PLATT",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_THRESHOLD_DOWN_XRPUSDT_high_vol": {
+      "value": "0.75",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "AUTO_FLIP_THRESHOLD_DOGE_leaning": {
+      "value": "0.7349",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "LIGHTGBM_DECISION_MODE": {
+      "value": "ACTIVE",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "CRYPTO_THRESHOLD_DOWN_DOGEUSDT_mid_vol": {
+      "value": "0.5609",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "_DEPRECATED_TRADE_FLIP_THRESHOLD": {
+      "value": "0.85",
+      "description": null,
+      "updated_by": "api"
+    },
+    "POLYMARKET_FEE_RATE": {
+      "value": "0.002",
+      "description": null,
+      "updated_by": "system"
+    },
+    "TRADING_ENABLED": {
+      "value": "false",
+      "description": null,
+      "updated_by": "api"
+    },
+    "_DEPRECATED_TRADE_ONLY_FAVORITE": {
+      "value": "true",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "BACKTEST_TRAIN_RATIO": {
+      "value": "0.7",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_THRESHOLD_DOWN_XRPUSDT_low_vol": {
+      "value": "0.4832",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "TRAIN_MAX_PARALLEL_JOBS": {
+      "value": "2",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_LGBM_EARLY_STOPPING_ROUNDS": {
+      "value": "30",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_THRESHOLD_DOWN_BTCUSDT_mid_vol": {
+      "value": "0.6651",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_THRESHOLD_DOWN_DOGEUSDT_low_vol": {
+      "value": "0.75",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "AUTO_FLIP_THRESHOLD_ETH_contested": {
+      "value": "0.5219",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "CRYPTO_THRESHOLD_DOWN_BTCUSDT_high_vol": {
+      "value": "0.5201",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "BACKTEST_FEE_PER_TRADE": {
+      "value": "0.02",
+      "description": null,
+      "updated_by": "system"
+    },
+    "BACKTEST_MIN_TRADES": {
+      "value": "10",
+      "description": null,
+      "updated_by": "system"
+    },
+    "BACKTEST_MIN_PNL": {
+      "value": "0.0",
+      "description": null,
+      "updated_by": "system"
+    },
+    "IS_LIVE_TRADING_ACTIVE": {
+      "value": "false",
+      "description": null,
+      "updated_by": "manual_stop"
+    },
+    "LIVE_IGNORE_EDGE_DECAY": {
+      "value": "true",
+      "description": null,
+      "updated_by": "api"
+    },
+    "MAX_OPEN_POSITIONS": {
+      "value": "5",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "ACTIVE_FEATURES": {
+      "value": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "CRYPTO_LGBM_HYPERPARAM_SEARCH_TRIALS": {
+      "value": "1",
+      "description": null,
+      "updated_by": "system"
+    },
+    "COMBINED_MIN_NET_EDGE": {
+      "value": "0.03",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LR_TRAIN_MAX_TIME_LEFT_MIN": {
+      "value": "15.0",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_MIN_EDGE": {
+      "value": "0.1",
+      "description": null,
+      "updated_by": "preset_restore:4:user_ui"
+    },
+    "BACKTEST_MIN_EDGE": {
+      "value": "0.04",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "TRADE_MIN_TIME_LEFT_SEC": {
+      "value": "180",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_THRESHOLD_BTCUSDT_low_vol": {
+      "value": "0.7426",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "LR_MIN_AUC_FOR_DEPLOY": {
+      "value": "0.53",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LR_COEF_THRESHOLD": {
+      "value": "0.005",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LGBM_MIN_VALID_THRESHOLD": {
+      "value": "0.3",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LR_MIN_FEATURES": {
+      "value": "4",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LGBM_EPSILON_QUANTILE": {
+      "value": "0.7",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "PAPER_EXECUTION_PROFILE": {
+      "value": "INSTANT",
+      "description": null,
+      "updated_by": "system"
+    },
+    "COMBINED_LGBM_UNAVAILABLE_POLICY": {
+      "value": "SKIP",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_THRESHOLD_ETHUSDT_mid_vol": {
+      "value": "0.65",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "MAX_SINGLE_ORDER_USDC": {
+      "value": "1.0",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "NO_FLIP_THRESHOLD": {
+      "value": "0.35",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "PAPER_LIVE_DELAY_SEC": {
+      "value": "2.0",
+      "description": null,
+      "updated_by": "system"
+    },
+    "KELLY_MAX_FRACTION": {
+      "value": "0.1",
+      "description": null,
+      "updated_by": "migration"
+    },
+    "MIRROR_MAX_BACKOFF_SECONDS": {
+      "value": "30",
+      "description": null,
+      "updated_by": "system"
+    },
+    "AUTO_FLIP_THRESHOLD_DOGE_decided": {
+      "value": "0.1431",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "USE_CRYPTO_CONFIRM": {
+      "value": "false",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "CRYPTO_THRESHOLD_DOWN_DOGEUSDT_high_vol": {
+      "value": "0.53",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_STANDALONE": {
+      "value": "false",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "AUTO_FLIP_THRESHOLD_SOL_leaning": {
+      "value": "0.6031",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "AUTO_FLIP_THRESHOLD_SOL_decided": {
+      "value": "0.8639",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "CRYPTO_LGBM_MAX_DEPTH": {
+      "value": "4",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "CRYPTO_LGBM_REG_LAMBDA": {
+      "value": "1.0",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LGBM_MAX_SUSPICIOUS_THRESHOLD": {
+      "value": "0.95",
+      "description": null,
+      "updated_by": "system"
+    },
+    "AUTO_FLIP_THRESHOLD_DOGE": {
+      "value": "0.7379",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "OUTS_MIN_TIME_LEFT_SEC": {
+      "value": "300",
+      "description": null,
+      "updated_by": "system"
+    },
+    "TRADE_FLIP_THRESHOLD": {
+      "value": "0.85",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_LGBM_MIN_CHILD_SAMPLES": {
+      "value": "50",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "AUTO_FLIP_THRESHOLD_SOL": {
+      "value": "0.7297",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "AUTO_FLIP_THRESHOLD_XRP_contested": {
+      "value": "0.3246",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "CRYPTO_THRESHOLD_DOWN_SOLUSDT_high_vol": {
+      "value": "0.6438",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "FUNDING_RATE_MA3_BTCUSDT": {
+      "value": "4.651e-05",
+      "description": null,
+      "updated_by": "funding_collector"
+    },
+    "CRYPTO_FI_BTCUSDT_low_vol": {
+      "value": "{\"ret_1\": 1, \"ret_3\": 0, \"ret_6\": 0, \"vol_6\": 0, \"vol_24\": 0, \"vol_z_1\": 0, \"taker_buy_ratio\": 1, \"cvd_1\": 0, \"cvd_6\": 0, \"rsi_14\": 0, \"ema_ratio_9_21\": 0, \"bb_width\": 0, \"bb_position\": 0, \"dist_to_high_24\": 1, \"dist_to_low_24\": 0, \"range_1\": 0, \"range_avg_24\": 0, \"consec_balance\": 0, \"hour_sin\": 1, \"hour_cos\": 0, \"dow_sin\": 1, \"dow_cos\": 0, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_CANDLE_EPSILON_QUANTILE": {
+      "value": "0.8",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "ENTRY_STRATEGY": {
+      "value": "first",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_THRESHOLD_BTCUSDT_high_vol": {
+      "value": "0.4878",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_BACKTEST_MIN_EDGE": {
+      "value": "0.08",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "LIVE_MIRROR_ENABLED": {
+      "value": "false",
+      "description": null,
+      "updated_by": "user_stop"
+    },
+    "TRADE_NO_FLIP_THRESHOLD": {
+      "value": "0.2",
+      "description": null,
+      "updated_by": "api"
+    },
+    "AUTO_DEAD_ZONE": {
+      "value": "false",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "CRYPTO_FI_ETHUSDT_mid_vol": {
+      "value": "{\"ret_1\": 2, \"ret_3\": 0, \"ret_6\": 0, \"vol_6\": 0, \"vol_24\": 0, \"vol_z_1\": 1, \"taker_buy_ratio\": 1, \"cvd_1\": 0, \"cvd_6\": 1, \"rsi_14\": 1, \"ema_ratio_9_21\": 0, \"bb_width\": 0, \"bb_position\": 0, \"dist_to_high_24\": 0, \"dist_to_low_24\": 0, \"range_1\": 0, \"range_avg_24\": 0, \"consec_balance\": 0, \"hour_sin\": 0, \"hour_cos\": 0, \"dow_sin\": 0, \"dow_cos\": 0, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "LIVE_RELEASE_MODE": {
+      "value": "DISABLED",
+      "description": null,
+      "updated_by": "user_stop"
+    },
+    "MIN_EDGE": {
+      "value": "0.1",
+      "description": null,
+      "updated_by": "preset_restore:5:user_ui"
+    },
+    "CRYPTO_LGBM_SUBSAMPLE": {
+      "value": "0.8",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "LIVE_TRADING_ENABLED": {
+      "value": "false",
+      "description": null,
+      "updated_by": "user_stop"
+    },
+    "TRAINING_STATUS_DOGE": {
+      "value": "{\"status\": \"success\", \"message\": \"DOGE: \\u0423\\u0441\\u043f\\u0435\\u0448\\u043d\\u043e: \\u0432\\u0435\\u0440\\u0441\\u0438\\u044f 35 (AUC 0.7301 (-0.0009 \\ud83d\\udd34 \\u0445\\u0443\\u0436\\u0435)) | \\u0424\\u0430\\u0437\\u044b: [contested: warning (AUC 0.493, n=17027), leaning: warning (AUC 0.544, n=19103), decided: warning (AUC 0.731, n=33940)]\", \"last_run\": \"2026-08-10T17:54:33.649078+00:00\"}",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "CRYPTO_LGBM_COLSAMPLE_BYTREE": {
+      "value": "1",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "FAVOR_MIN_TIME_LEFT_SEC": {
+      "value": "60",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LIVE_MIRROR_STARTED_AT": {
+      "value": "",
+      "description": null,
+      "updated_by": "user_stop"
+    },
+    "AUTO_FLIP_THRESHOLD_SOL_contested": {
+      "value": "0.2742",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "AUTO_FLIP_THRESHOLD_XRP_leaning": {
+      "value": "0.4424",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "AUTO_FLIP_THRESHOLD_ETH_leaning": {
+      "value": "0.2263",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "AUTO_FLIP_THRESHOLD_ETH_decided": {
+      "value": "0.1306",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "CRYPTO_LGBM_N_ESTIMATORS": {
+      "value": "300",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "CRYPTO_LGBM_LEARNING_RATE": {
+      "value": "0.05",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "CRYPTO_THRESHOLD_DOWN_SOLUSDT_mid_vol": {
+      "value": "0.600",
+      "description": null,
+      "updated_by": "user_manual"
+    },
+    "CRYPTO_LGBM_NUM_LEAVES": {
+      "value": "15",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "CRYPTO_THRESHOLD_DOWN_SOLUSDT_low_vol": {
+      "value": "0.4838",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "TRAINING_STATUS_ETH": {
+      "value": "{\"status\": \"success\", \"message\": \"ETH: \\u0423\\u0441\\u043f\\u0435\\u0448\\u043d\\u043e: \\u0432\\u0435\\u0440\\u0441\\u0438\\u044f 47 (AUC 0.7489 (-0.0012 \\ud83d\\udd34 \\u0445\\u0443\\u0436\\u0435)) | \\u0424\\u0430\\u0437\\u044b: [contested: warning (AUC 0.503, n=18455), leaning: warning (AUC 0.552, n=20213), decided: warning (AUC 0.743, n=35181)]\", \"last_run\": \"2026-08-10T14:12:14.123257+00:00\"}",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "FUNDING_RATE_BTCUSDT": {
+      "value": "6.523e-05",
+      "description": null,
+      "updated_by": "funding_collector"
+    },
+    "CRYPTO_VOL_P33_BTCUSDT": {
+      "value": "0.7295",
+      "description": null,
+      "updated_by": "candidate_retrain_restore"
+    },
+    "CRYPTO_THRESHOLD_BTCUSDT_mid_vol": {
+      "value": "0.6159",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_VOL_P67_BTCUSDT": {
+      "value": "1.083",
+      "description": null,
+      "updated_by": "candidate_retrain_restore"
+    },
+    "CRYPTO_LGBM_REG_ALPHA": {
+      "value": "0.1",
+      "description": null,
+      "updated_by": "system"
+    },
+    "AUTO_FLIP_THRESHOLD_XRP_decided": {
+      "value": "0.121",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "TRAINING_STATUS_XRP": {
+      "value": "{\"status\": \"success\", \"message\": \"XRP: \\u0423\\u0441\\u043f\\u0435\\u0448\\u043d\\u043e: \\u0432\\u0435\\u0440\\u0441\\u0438\\u044f 36 (AUC 0.7419 (-0.0002 \\ud83d\\udd34 \\u0445\\u0443\\u0436\\u0435)) | \\u0424\\u0430\\u0437\\u044b: [contested: warning (AUC 0.515, n=17039), leaning: warning (AUC 0.535, n=19326), decided: warning (AUC 0.735, n=34609)]\", \"last_run\": \"2026-08-10T16:09:17.927958+00:00\"}",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "CRYPTO_VOL_MEDIAN_ETHUSDT": {
+      "value": "0.9235",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_THRESHOLD_XRPUSDT_low_vol": {
+      "value": "0.55",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "AUTO_FLIP_THRESHOLD_BTC_leaning": {
+      "value": "0.639",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "CRYPTO_FI_SOLUSDT_low_vol": {
+      "value": "{\"ret_1\": 18, \"ret_3\": 4, \"ret_6\": 17, \"vol_6\": 4, \"vol_24\": 8, \"vol_z_1\": 17, \"taker_buy_ratio\": 19, \"cvd_1\": 0, \"cvd_6\": 13, \"rsi_14\": 7, \"ema_ratio_9_21\": 3, \"bb_width\": 14, \"bb_position\": 10, \"dist_to_high_24\": 6, \"dist_to_low_24\": 6, \"range_1\": 14, \"range_avg_24\": 5, \"consec_balance\": 1, \"hour_sin\": 13, \"hour_cos\": 5, \"dow_sin\": 2, \"dow_cos\": 0, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "AUTO_FLIP_THRESHOLD_BTC_decided": {
+      "value": "1.0",
+      "description": null,
+      "updated_by": "train_job_phase"
+    },
+    "TRAINING_STATUS_BTC": {
+      "value": "{\"status\": \"success\", \"message\": \"BTC: \\u0423\\u0441\\u043f\\u0435\\u0448\\u043d\\u043e: \\u0432\\u0435\\u0440\\u0441\\u0438\\u044f 47 (AUC 0.7487 (= \\u0431\\u0435\\u0437 \\u0438\\u0437\\u043c.)) | \\u0424\\u0430\\u0437\\u044b: [contested: ok (AUC 0.531, n=18434), leaning: ok (AUC 0.542, n=20188), decided: warning (AUC 0.738, n=35497)]\", \"last_run\": \"2026-08-10T13:13:06.223420+00:00\"}",
+      "description": null,
+      "updated_by": "train_job"
+    },
+    "CRYPTO_VOL_P67_SOLUSDT": {
+      "value": "1.0661",
+      "description": null,
+      "updated_by": "candidate_retrain_restore"
+    },
+    "CRYPTO_THRESHOLD_ETHUSDT_high_vol": {
+      "value": "0.5358",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_THRESHOLD_DOWN_ETHUSDT_high_vol": {
+      "value": "0.5336",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_FI_XRPUSDT_high_vol": {
+      "value": "{\"ret_1\": 3, \"ret_3\": 1, \"ret_6\": 0, \"vol_6\": 0, \"vol_24\": 5, \"vol_z_1\": 4, \"taker_buy_ratio\": 3, \"cvd_1\": 0, \"cvd_6\": 1, \"rsi_14\": 4, \"ema_ratio_9_21\": 0, \"bb_width\": 2, \"bb_position\": 1, \"dist_to_high_24\": 7, \"dist_to_low_24\": 6, \"range_1\": 3, \"range_avg_24\": 4, \"consec_balance\": 0, \"hour_sin\": 3, \"hour_cos\": 3, \"dow_sin\": 1, \"dow_cos\": 0, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_VOL_P33_DOGEUSDT": {
+      "value": "0.7767",
+      "description": null,
+      "updated_by": "candidate_retrain_restore"
+    },
+    "CRYPTO_VOL_P33_XRPUSDT": {
+      "value": "0.7535",
+      "description": null,
+      "updated_by": "candidate_retrain_restore"
+    },
+    "CRYPTO_VOL_P67_XRPUSDT": {
+      "value": "1.0754",
+      "description": null,
+      "updated_by": "candidate_retrain_restore"
+    },
+    "CRYPTO_VOL_P33_ETHUSDT": {
+      "value": "0.7134",
+      "description": null,
+      "updated_by": "candidate_retrain_restore"
+    },
+    "FAVOR_MAX_TIME_LEFT_SEC": {
+      "value": "600",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_THRESHOLD_XRPUSDT_high_vol": {
+      "value": "0.55",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_THRESHOLD_ETHUSDT_low_vol": {
+      "value": "0.6254",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_THRESHOLD_DOWN_ETHUSDT_low_vol": {
+      "value": "0.5335",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_THRESHOLD_DOWN_ETHUSDT_mid_vol": {
+      "value": "0.75",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "OUTS_MAX_TIME_LEFT_SEC": {
+      "value": "900",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_VOL_P67_ETHUSDT": {
+      "value": "1.0818",
+      "description": null,
+      "updated_by": "candidate_retrain_restore"
+    },
+    "MAX_BET_SIZE_USDC": {
+      "value": "10.0",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "TRADE_BET_SIZE_USDC": {
+      "value": "1",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "MIN_WIN_PROB": {
+      "value": "0.01",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "COMBINED_DIR_DISCOUNT_WEIGHT": {
+      "value": "0.1",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "COMBINED_FALLBACK_TO_LOGREG_ON_NONE": {
+      "value": "true",
+      "description": null,
+      "updated_by": "system"
+    },
+    "ENABLE_ECE_CORRECTION": {
+      "value": "false",
+      "description": null,
+      "updated_by": "crypto_dashboard_ui"
+    },
+    "CRYPTO_VOL_P33_SOLUSDT": {
+      "value": "0.7477",
+      "description": null,
+      "updated_by": "candidate_retrain_restore"
+    },
+    "CRYPTO_FI_ETHUSDT_low_vol": {
+      "value": "{\"ret_1\": 2, \"ret_3\": 0, \"ret_6\": 1, \"vol_6\": 0, \"vol_24\": 1, \"vol_z_1\": 1, \"taker_buy_ratio\": 0, \"cvd_1\": 0, \"cvd_6\": 0, \"rsi_14\": 0, \"ema_ratio_9_21\": 0, \"bb_width\": 1, \"bb_position\": 0, \"dist_to_high_24\": 0, \"dist_to_low_24\": 0, \"range_1\": 0, \"range_avg_24\": 0, \"consec_balance\": 0, \"hour_sin\": 0, \"hour_cos\": 0, \"dow_sin\": 0, \"dow_cos\": 0, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_THRESHOLD_SOLUSDT_low_vol": {
+      "value": "0.5497",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "FAVORITE_MODE_ENTRY_SEC": {
+      "value": "360",
+      "description": null,
+      "updated_by": "system"
+    },
+    "LIVE_ORDER_MODE": {
+      "value": "GTC_TTL",
+      "description": null,
+      "updated_by": "api"
+    },
+    "LIVE_GTC_TTL_SECONDS": {
+      "value": "10.0",
+      "description": null,
+      "updated_by": "api"
+    },
+    "LIVE_FAK_RETRY_MAX_ATTEMPTS": {
+      "value": "3",
+      "description": null,
+      "updated_by": "api"
+    },
+    "LIVE_FAK_RETRY_DELAY_SEC": {
+      "value": "0.75",
+      "description": null,
+      "updated_by": "api"
+    },
+    "MIN_EDGE_ETH": {
+      "value": "",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "COMBINED_NONE_BET_MULTIPLIER": {
+      "value": "0.5",
+      "description": null,
+      "updated_by": "system"
+    },
+    "MIN_EDGE_XRP": {
+      "value": "",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_FI_BTCUSDT_mid_vol": {
+      "value": "{\"ret_1\": 0, \"ret_3\": 1, \"ret_6\": 0, \"vol_6\": 0, \"vol_24\": 0, \"vol_z_1\": 0, \"taker_buy_ratio\": 0, \"cvd_1\": 0, \"cvd_6\": 0, \"rsi_14\": 2, \"ema_ratio_9_21\": 0, \"bb_width\": 0, \"bb_position\": 0, \"dist_to_high_24\": 0, \"dist_to_low_24\": 0, \"range_1\": 1, \"range_avg_24\": 0, \"consec_balance\": 0, \"hour_sin\": 0, \"hour_cos\": 0, \"dow_sin\": 0, \"dow_cos\": 1, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "NO_MIN_EDGE": {
+      "value": "0.01",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "CRYPTO_FI_XRPUSDT_low_vol": {
+      "value": "{\"ret_1\": 6, \"ret_3\": 16, \"ret_6\": 9, \"vol_6\": 4, \"vol_24\": 6, \"vol_z_1\": 12, \"taker_buy_ratio\": 7, \"cvd_1\": 1, \"cvd_6\": 7, \"rsi_14\": 7, \"ema_ratio_9_21\": 4, \"bb_width\": 4, \"bb_position\": 1, \"dist_to_high_24\": 6, \"dist_to_low_24\": 12, \"range_1\": 14, \"range_avg_24\": 1, \"consec_balance\": 1, \"hour_sin\": 0, \"hour_cos\": 2, \"dow_sin\": 3, \"dow_cos\": 2, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_FI_XRPUSDT_mid_vol": {
+      "value": "{\"ret_1\": 1, \"ret_3\": 0, \"ret_6\": 0, \"vol_6\": 1, \"vol_24\": 0, \"vol_z_1\": 0, \"taker_buy_ratio\": 1, \"cvd_1\": 0, \"cvd_6\": 1, \"rsi_14\": 1, \"ema_ratio_9_21\": 0, \"bb_width\": 0, \"bb_position\": 2, \"dist_to_high_24\": 0, \"dist_to_low_24\": 0, \"range_1\": 0, \"range_avg_24\": 0, \"consec_balance\": 0, \"hour_sin\": 0, \"hour_cos\": 0, \"dow_sin\": 0, \"dow_cos\": 0, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_THRESHOLD_XRPUSDT_mid_vol": {
+      "value": "0.65",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "TRADE_MAX_TIME_LEFT_SEC": {
+      "value": "900",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_THRESHOLD_SOLUSDT_mid_vol": {
+      "value": "0.600",
+      "description": null,
+      "updated_by": "user_manual"
+    },
+    "DEAD_ZONE_WIDTH": {
+      "value": "0.01",
+      "description": null,
+      "updated_by": "preset_restore:8:user_ui"
+    },
+    "CRYPTO_FI_BTCUSDT_high_vol": {
+      "value": "{\"ret_1\": 7, \"ret_3\": 3, \"ret_6\": 9, \"vol_6\": 1, \"vol_24\": 1, \"vol_z_1\": 9, \"taker_buy_ratio\": 8, \"cvd_1\": 0, \"cvd_6\": 12, \"rsi_14\": 14, \"ema_ratio_9_21\": 13, \"bb_width\": 0, \"bb_position\": 9, \"dist_to_high_24\": 10, \"dist_to_low_24\": 5, \"range_1\": 7, \"range_avg_24\": 5, \"consec_balance\": 8, \"hour_sin\": 2, \"hour_cos\": 9, \"dow_sin\": 2, \"dow_cos\": 3, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "COMBINED_LOGREG_ABSTAIN_BAND": {
+      "value": "0.01",
+      "description": null,
+      "updated_by": "system"
+    },
+    "CRYPTO_FI_ETHUSDT_high_vol": {
+      "value": "{\"ret_1\": 18, \"ret_3\": 11, \"ret_6\": 10, \"vol_6\": 8, \"vol_24\": 7, \"vol_z_1\": 23, \"taker_buy_ratio\": 30, \"cvd_1\": 1, \"cvd_6\": 24, \"rsi_14\": 12, \"ema_ratio_9_21\": 8, \"bb_width\": 5, \"bb_position\": 22, \"dist_to_high_24\": 19, \"dist_to_low_24\": 5, \"range_1\": 4, \"range_avg_24\": 13, \"consec_balance\": 4, \"hour_sin\": 11, \"hour_cos\": 9, \"dow_sin\": 7, \"dow_cos\": 6, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_FI_SOLUSDT_mid_vol": {
+      "value": "{\"ret_1\": 0, \"ret_3\": 1, \"ret_6\": 1, \"vol_6\": 0, \"vol_24\": 0, \"vol_z_1\": 0, \"taker_buy_ratio\": 0, \"cvd_1\": 0, \"cvd_6\": 1, \"rsi_14\": 0, \"ema_ratio_9_21\": 1, \"bb_width\": 0, \"bb_position\": 1, \"dist_to_high_24\": 0, \"dist_to_low_24\": 0, \"range_1\": 2, \"range_avg_24\": 1, \"consec_balance\": 1, \"hour_sin\": 0, \"hour_cos\": 1, \"dow_sin\": 0, \"dow_cos\": 0, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_FI_SOLUSDT_high_vol": {
+      "value": "{\"ret_1\": 1, \"ret_3\": 6, \"ret_6\": 2, \"vol_6\": 1, \"vol_24\": 1, \"vol_z_1\": 2, \"taker_buy_ratio\": 0, \"cvd_1\": 1, \"cvd_6\": 4, \"rsi_14\": 0, \"ema_ratio_9_21\": 0, \"bb_width\": 0, \"bb_position\": 0, \"dist_to_high_24\": 0, \"dist_to_low_24\": 2, \"range_1\": 2, \"range_avg_24\": 1, \"consec_balance\": 0, \"hour_sin\": 2, \"hour_cos\": 0, \"dow_sin\": 0, \"dow_cos\": 1, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_FI_DOGEUSDT_high_vol": {
+      "value": "{\"ret_1\": 1, \"ret_3\": 0, \"ret_6\": 0, \"vol_6\": 0, \"vol_24\": 0, \"vol_z_1\": 1, \"taker_buy_ratio\": 1, \"cvd_1\": 0, \"cvd_6\": 1, \"rsi_14\": 0, \"ema_ratio_9_21\": 0, \"bb_width\": 0, \"bb_position\": 1, \"dist_to_high_24\": 0, \"dist_to_low_24\": 0, \"range_1\": 2, \"range_avg_24\": 1, \"consec_balance\": 1, \"hour_sin\": 1, \"hour_cos\": 0, \"dow_sin\": 0, \"dow_cos\": 0, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "STOP_LOSS_ENABLED": {
+      "value": "false",
+      "description": null,
+      "updated_by": "system"
+    },
+    "STOP_LOSS_PCT_OUTSIDER": {
+      "value": "50.0",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "TAKE_PROFIT_CHECK_INTERVAL_SEC": {
+      "value": "10",
+      "description": null,
+      "updated_by": "system"
+    },
+    "TRADING_MODE": {
+      "value": "combined",
+      "description": null,
+      "updated_by": "system"
+    },
+    "FLIP_THRESHOLD": {
+      "value": "0.2",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "TRADE_ASSETS": {
+      "value": "BTC,ETH,SOL,XRP,DOGE",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "MAX_BET_EDGE": {
+      "value": "0.1",
+      "description": null,
+      "updated_by": "system"
+    },
+    "MAX_EDGE_FILTER": {
+      "value": "0.01",
+      "description": null,
+      "updated_by": "system"
+    },
+    "FUNDING_RATE_ETHUSDT": {
+      "value": "4.368e-05",
+      "description": null,
+      "updated_by": "funding_collector"
+    },
+    "CRYPTO_THRESHOLD_DOGEUSDT_high_vol": {
+      "value": "0.6192",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_FI_DOGEUSDT_low_vol": {
+      "value": "{\"ret_1\": 31, \"ret_3\": 25, \"ret_6\": 18, \"vol_6\": 17, \"vol_24\": 16, \"vol_z_1\": 23, \"taker_buy_ratio\": 11, \"cvd_1\": 2, \"cvd_6\": 18, \"rsi_14\": 16, \"ema_ratio_9_21\": 20, \"bb_width\": 14, \"bb_position\": 20, \"dist_to_high_24\": 15, \"dist_to_low_24\": 21, \"range_1\": 38, \"range_avg_24\": 19, \"consec_balance\": 2, \"hour_sin\": 14, \"hour_cos\": 15, \"dow_sin\": 21, \"dow_cos\": 5, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "CRYPTO_FI_DOGEUSDT_mid_vol": {
+      "value": "{\"ret_1\": 10, \"ret_3\": 5, \"ret_6\": 3, \"vol_6\": 2, \"vol_24\": 3, \"vol_z_1\": 3, \"taker_buy_ratio\": 6, \"cvd_1\": 3, \"cvd_6\": 3, \"rsi_14\": 4, \"ema_ratio_9_21\": 13, \"bb_width\": 3, \"bb_position\": 2, \"dist_to_high_24\": 3, \"dist_to_low_24\": 7, \"range_1\": 2, \"range_avg_24\": 3, \"consec_balance\": 4, \"hour_sin\": 3, \"hour_cos\": 4, \"dow_sin\": 0, \"dow_cos\": 0, \"strike_gap_pct\": 0, \"log_moneyness\": 0}",
+      "description": null,
+      "updated_by": "crypto_train_job"
+    },
+    "BYPASS_BET_SIZE_CHECK": {
+      "value": "false",
+      "description": null,
+      "updated_by": "api"
+    },
+    "CRYPTO_VOL_P67_DOGEUSDT": {
+      "value": "1.0824",
+      "description": null,
+      "updated_by": "candidate_retrain_restore"
+    },
+    "BET_SIZING_MODE": {
+      "value": "fixed",
+      "description": null,
+      "updated_by": "system"
+    },
+    "MIN_DIRECTION_PROB": {
+      "value": "0.2",
+      "description": null,
+      "updated_by": "preset_restore:18:user_ui"
+    },
+    "OUTSIDER_PWIN_DISCOUNT": {
+      "value": "1",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "COMBINED_DIR_STRONG_THRESHOLD": {
+      "value": "0.3",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "COMBINED_REQUIRE_CONSENSUS": {
+      "value": "false",
+      "description": null,
+      "updated_by": "system"
+    },
+    "MIN_EDGE_BTC": {
+      "value": "",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_THRESHOLD_DOGEUSDT_mid_vol": {
+      "value": "0.45",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "CRYPTO_THRESHOLD_DOGEUSDT_low_vol": {
+      "value": "0.5267",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "INVERT_LGBM_SIGNAL": {
+      "value": "false",
+      "description": null,
+      "updated_by": "system"
+    },
+    "COMBINED_COST_BUFFER": {
+      "value": "0.001",
+      "description": null,
+      "updated_by": "system"
+    },
+    "STOP_LOSS_CHECK_SEC": {
+      "value": "15",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "TAKE_PROFIT_MULTIPLIER": {
+      "value": "2",
+      "description": null,
+      "updated_by": "system"
+    },
+    "MIN_EDGE_SOL": {
+      "value": "",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "MAX_SPREAD_PCT": {
+      "value": "0.08",
+      "description": null,
+      "updated_by": "system"
+    },
+    "TRADE_ON_FLIP": {
+      "value": "true",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "FAVORITE_MIN_PRICE": {
+      "value": "0.5",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "MAX_PRICE_DRIFT": {
+      "value": "0.1",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "MIN_EDGE_DOGE": {
+      "value": "",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "LIQUIDITY_FRACTION": {
+      "value": "0.05",
+      "description": null,
+      "updated_by": "system"
+    },
+    "FUNDING_RATE_MA3_ETHUSDT": {
+      "value": "3.395e-05",
+      "description": null,
+      "updated_by": "funding_collector"
+    },
+    "FUNDING_RATE_DOGEUSDT": {
+      "value": "4.654e-05",
+      "description": null,
+      "updated_by": "funding_collector"
+    },
+    "FUNDING_RATE_MA3_DOGEUSDT": {
+      "value": "6.539e-05",
+      "description": null,
+      "updated_by": "funding_collector"
+    },
+    "FUNDING_RATE_XRPUSDT": {
+      "value": "3.471e-05",
+      "description": null,
+      "updated_by": "funding_collector"
+    },
+    "FUNDING_RATE_MA3_XRPUSDT": {
+      "value": "-3.342e-05",
+      "description": null,
+      "updated_by": "funding_collector"
+    },
+    "DAILY_LOSS_LIMIT_USDC": {
+      "value": "-100.0",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "TAKE_PROFIT_ENABLED": {
+      "value": "false",
+      "description": null,
+      "updated_by": "system"
+    },
+    "TRADE_MIN_PRICE": {
+      "value": "0.01",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "TRADE_MAX_PRICE": {
+      "value": "0.9",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "FAVORITE_THRESHOLD": {
+      "value": "0.5",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "TRADE_ON_FAVORITE": {
+      "value": "true",
+      "description": null,
+      "updated_by": "system"
+    },
+    "FAVORITE_MIN_EDGE": {
+      "value": "0.05",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "OUTSIDER_MAX_PRICE": {
+      "value": "0.4",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "FUNDING_RATE_SOLUSDT": {
+      "value": "6.794e-05",
+      "description": null,
+      "updated_by": "funding_collector"
+    },
+    "FUNDING_RATE_MA3_SOLUSDT": {
+      "value": "-3.655e-05",
+      "description": null,
+      "updated_by": "funding_collector"
+    },
+    "STOP_LOSS_PCT_FAVORITE": {
+      "value": "70.0",
+      "description": null,
+      "updated_by": "preset_restore:17:user_ui"
+    },
+    "TAKE_PROFIT_ORDER_MODE": {
+      "value": "GTD",
+      "description": null,
+      "updated_by": "system"
+    },
+    "INITIAL_CAPITAL": {
+      "value": "100",
+      "description": null,
+      "updated_by": "dashboard"
+    },
+    "LIVE_POLL_INTERVAL_SECONDS": {
+      "value": "45",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    },
+    "OUTS_MIN_EDGE": {
+      "value": "0.01",
+      "description": null,
+      "updated_by": "system"
+    },
+    "FAVORITE_MAX_PRICE": {
+      "value": "0.8",
+      "description": null,
+      "updated_by": "preset_restore:9:user_ui"
+    }
+  },
+  "active_logreg_models_count": 20,
+  "active_models": [
+    {
+      "id": 644,
+      "asset": "BTC",
+      "version": 47,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.8729104474340957,
+      "decision_threshold_down": null,
+      "accuracy": 0.7486855244736657,
+      "ece": 0.017256580561821857,
+      "backtest_pnl": 0.485,
+      "backtest_trades": 1,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6,signed_trend_efficiency_6,signed_body_pct,body_to_range",
+      "training_params": {
+        "log_loss": 0.473353,
+        "brier_score": 0.157978,
+        "oot_markets": 3592,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "sequence_source": "CLOSED_UNDERLYING_15M",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T05:43:37.732143+00:00",
+            "train_markets": 719,
+            "validation_end": "2026-07-10T22:28:20.562374+00:00",
+            "validation_start": "2026-07-03T05:45:08.488486+00:00",
+            "validation_markets": 719
+          },
+          {
+            "train_end": "2026-07-10T22:28:20.562374+00:00",
+            "train_markets": 1438,
+            "validation_end": "2026-07-18T21:28:54.550394+00:00",
+            "validation_start": "2026-07-10T22:30:37.407796+00:00",
+            "validation_markets": 719
+          },
+          {
+            "train_end": "2026-07-18T21:28:54.550394+00:00",
+            "train_markets": 2157,
+            "validation_end": "2026-07-26T09:59:25.010862+00:00",
+            "validation_start": "2026-07-18T21:30:25.926466+00:00",
+            "validation_markets": 718
+          },
+          {
+            "train_end": "2026-07-26T09:59:25.010862+00:00",
+            "train_markets": 2875,
+            "validation_end": "2026-08-03T00:59:10.398410+00:00",
+            "validation_start": "2026-07-26T10:00:12.644529+00:00",
+            "validation_markets": 718
+          },
+          {
+            "train_end": "2026-08-03T00:59:10.398410+00:00",
+            "train_markets": 3593,
+            "validation_end": "2026-08-10T12:44:08.183491+00:00",
+            "validation_start": "2026-08-03T01:01:27.536496+00:00",
+            "validation_markets": 718
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "C",
+        "feature_set_version": "C-candle-structure-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": "ebc6941ceeab5659e9a50d82cc528501",
+      "trained_at": "2026-08-10T13:00:26.958044+00:00",
+      "activated_at": "2026-08-10T13:00:26.957190+00:00"
+    },
+    {
+      "id": 637,
+      "asset": "BTC_contested",
+      "version": 6,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.526541067028029,
+      "decision_threshold_down": null,
+      "accuracy": 0.5313444695731897,
+      "ece": 0.01110514522272684,
+      "backtest_pnl": 6.915,
+      "backtest_trades": 59,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final",
+      "training_params": {
+        "oot_markets": 3300,
+        "model_config": {
+          "C": 0.5,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T05:51:52.096870+00:00",
+            "train_markets": 660,
+            "validation_end": "2026-07-10T19:04:21.896135+00:00",
+            "validation_start": "2026-07-03T06:00:08.199778+00:00",
+            "validation_markets": 660
+          },
+          {
+            "train_end": "2026-07-10T19:04:21.896135+00:00",
+            "train_markets": 1320,
+            "validation_end": "2026-07-18T20:30:25.635816+00:00",
+            "validation_start": "2026-07-10T19:15:37.974140+00:00",
+            "validation_markets": 660
+          },
+          {
+            "train_end": "2026-07-18T20:30:25.635816+00:00",
+            "train_markets": 1980,
+            "validation_end": "2026-07-26T08:25:41.405914+00:00",
+            "validation_start": "2026-07-18T20:45:25.517565+00:00",
+            "validation_markets": 660
+          },
+          {
+            "train_end": "2026-07-26T08:25:41.405914+00:00",
+            "train_markets": 2640,
+            "validation_end": "2026-08-02T20:31:51.904522+00:00",
+            "validation_start": "2026-07-26T08:30:12.070916+00:00",
+            "validation_markets": 660
+          },
+          {
+            "train_end": "2026-08-02T20:31:51.904522+00:00",
+            "train_markets": 3300,
+            "validation_end": "2026-08-10T11:10:41.793855+00:00",
+            "validation_start": "2026-08-02T20:45:21.600685+00:00",
+            "validation_markets": 660
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "A",
+        "feature_set_version": "A-control-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T11:56:47.930781+00:00",
+      "activated_at": "2026-08-10T11:56:47.930801+00:00"
+    },
+    {
+      "id": 643,
+      "asset": "BTC_decided",
+      "version": 12,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.9970796222775962,
+      "decision_threshold_down": null,
+      "accuracy": 0.739276035635036,
+      "ece": 0.007908703256434564,
+      "backtest_pnl": 1.335,
+      "backtest_trades": 3,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6",
+      "training_params": {
+        "oot_markets": 3510,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T06:59:20.824720+00:00",
+            "train_markets": 703,
+            "validation_end": "2026-07-10T23:14:07.720500+00:00",
+            "validation_start": "2026-07-03T07:05:23.842108+00:00",
+            "validation_markets": 702
+          },
+          {
+            "train_end": "2026-07-10T23:14:07.720500+00:00",
+            "train_markets": 1405,
+            "validation_end": "2026-07-18T21:13:55.255330+00:00",
+            "validation_start": "2026-07-10T23:18:37.339609+00:00",
+            "validation_markets": 702
+          },
+          {
+            "train_end": "2026-07-18T21:13:55.255330+00:00",
+            "train_markets": 2107,
+            "validation_end": "2026-07-26T10:29:24.956378+00:00",
+            "validation_start": "2026-07-18T21:16:56.087903+00:00",
+            "validation_markets": 702
+          },
+          {
+            "train_end": "2026-07-26T10:29:24.956378+00:00",
+            "train_markets": 2809,
+            "validation_end": "2026-08-03T01:29:11.617738+00:00",
+            "validation_start": "2026-07-26T10:35:26.442462+00:00",
+            "validation_markets": 702
+          },
+          {
+            "train_end": "2026-08-03T01:29:11.617738+00:00",
+            "train_markets": 3511,
+            "validation_end": "2026-08-10T11:58:30.160826+00:00",
+            "validation_start": "2026-08-03T01:30:42.587064+00:00",
+            "validation_markets": 702
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "B",
+        "feature_set_version": "B-direction-sequence-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T12:43:57.424858+00:00",
+      "activated_at": "2026-08-10T12:43:57.424879+00:00"
+    },
+    {
+      "id": 642,
+      "asset": "BTC_leaning",
+      "version": 8,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.6248562505568409,
+      "decision_threshold_down": null,
+      "accuracy": 0.540740518285664,
+      "ece": 0.007883688965768087,
+      "backtest_pnl": 1.74,
+      "backtest_trades": 4,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6",
+      "training_params": {
+        "oot_markets": 3430,
+        "model_config": {
+          "C": 0.5,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T06:52:35.844745+00:00",
+            "train_markets": 687,
+            "validation_end": "2026-07-10T21:02:51.859334+00:00",
+            "validation_start": "2026-07-03T07:03:08.304013+00:00",
+            "validation_markets": 686
+          },
+          {
+            "train_end": "2026-07-10T21:02:51.859334+00:00",
+            "train_markets": 1373,
+            "validation_end": "2026-07-18T15:46:55.107071+00:00",
+            "validation_start": "2026-07-10T21:20:07.021937+00:00",
+            "validation_markets": 686
+          },
+          {
+            "train_end": "2026-07-18T15:46:55.107071+00:00",
+            "train_markets": 2059,
+            "validation_end": "2026-07-26T03:57:22.523818+00:00",
+            "validation_start": "2026-07-18T16:01:11.246951+00:00",
+            "validation_markets": 686
+          },
+          {
+            "train_end": "2026-07-26T03:57:22.523818+00:00",
+            "train_markets": 2745,
+            "validation_end": "2026-08-02T23:17:37.297405+00:00",
+            "validation_start": "2026-07-26T04:01:08.051426+00:00",
+            "validation_markets": 686
+          },
+          {
+            "train_end": "2026-08-02T23:17:37.297405+00:00",
+            "train_markets": 3431,
+            "validation_end": "2026-08-10T11:52:37.813293+00:00",
+            "validation_start": "2026-08-02T23:34:04.078706+00:00",
+            "validation_markets": 686
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "B",
+        "feature_set_version": "B-direction-sequence-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T12:39:58.652642+00:00",
+      "activated_at": "2026-08-10T12:39:58.652658+00:00"
+    },
+    {
+      "id": 692,
+      "asset": "DOGE",
+      "version": 35,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.7379101764174901,
+      "decision_threshold_down": null,
+      "accuracy": 0.73011582856971,
+      "ece": 0.018889064918323616,
+      "backtest_pnl": 0.485,
+      "backtest_trades": 1,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6,signed_trend_efficiency_6,signed_body_pct,body_to_range",
+      "training_params": {
+        "log_loss": 0.491321,
+        "brier_score": 0.16434,
+        "oot_markets": 3533,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "sequence_source": "CLOSED_UNDERLYING_15M",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-04T00:59:22.622164+00:00",
+            "train_markets": 707,
+            "validation_end": "2026-07-11T14:44:07.020342+00:00",
+            "validation_start": "2026-07-04T01:00:08.312165+00:00",
+            "validation_markets": 707
+          },
+          {
+            "train_end": "2026-07-11T14:44:07.020342+00:00",
+            "train_markets": 1414,
+            "validation_end": "2026-07-19T10:43:54.497512+00:00",
+            "validation_start": "2026-07-11T14:45:38.363662+00:00",
+            "validation_markets": 707
+          },
+          {
+            "train_end": "2026-07-19T10:43:54.497512+00:00",
+            "train_markets": 2121,
+            "validation_end": "2026-07-26T20:28:44.934699+00:00",
+            "validation_start": "2026-07-19T10:45:25.249205+00:00",
+            "validation_markets": 707
+          },
+          {
+            "train_end": "2026-07-26T20:28:44.934699+00:00",
+            "train_markets": 2828,
+            "validation_end": "2026-08-03T08:28:44.111504+00:00",
+            "validation_start": "2026-07-26T20:30:16.118409+00:00",
+            "validation_markets": 706
+          },
+          {
+            "train_end": "2026-08-03T08:28:44.111504+00:00",
+            "train_markets": 3534,
+            "validation_end": "2026-08-10T17:13:07.348536+00:00",
+            "validation_start": "2026-08-03T08:30:20.742610+00:00",
+            "validation_markets": 706
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "C",
+        "feature_set_version": "C-candle-structure-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": "291d47e0851ddccf57d57331dbc4626c",
+      "trained_at": "2026-08-10T17:38:05.387502+00:00",
+      "activated_at": "2026-08-10T17:38:05.383092+00:00"
+    },
+    {
+      "id": 693,
+      "asset": "DOGE_contested",
+      "version": 7,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.5323354873138286,
+      "decision_threshold_down": null,
+      "accuracy": 0.4929826760084574,
+      "ece": 0.007843708722397816,
+      "backtest_pnl": 5.97,
+      "backtest_trades": 35,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6,signed_trend_efficiency_6,signed_body_pct,body_to_range",
+      "training_params": {
+        "oot_markets": 3230,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-04T01:00:08.312165+00:00",
+            "train_markets": 646,
+            "validation_end": "2026-07-11T14:23:51.086613+00:00",
+            "validation_start": "2026-07-04T01:15:08.501270+00:00",
+            "validation_markets": 646
+          },
+          {
+            "train_end": "2026-07-11T14:23:51.086613+00:00",
+            "train_markets": 1292,
+            "validation_end": "2026-07-19T10:30:25.890019+00:00",
+            "validation_start": "2026-07-11T14:32:53.531095+00:00",
+            "validation_markets": 646
+          },
+          {
+            "train_end": "2026-07-19T10:30:25.890019+00:00",
+            "train_markets": 1938,
+            "validation_end": "2026-07-26T17:54:59.852529+00:00",
+            "validation_start": "2026-07-19T11:04:10.911025+00:00",
+            "validation_markets": 646
+          },
+          {
+            "train_end": "2026-07-26T17:54:59.852529+00:00",
+            "train_markets": 2584,
+            "validation_end": "2026-08-03T03:35:14.024610+00:00",
+            "validation_start": "2026-07-26T18:00:16.241453+00:00",
+            "validation_markets": 646
+          },
+          {
+            "train_end": "2026-08-03T03:35:14.024610+00:00",
+            "train_markets": 3230,
+            "validation_end": "2026-08-10T17:07:21.576909+00:00",
+            "validation_start": "2026-08-03T04:00:43.008698+00:00",
+            "validation_markets": 646
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "C",
+        "feature_set_version": "C-candle-structure-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T17:41:54.910752+00:00",
+      "activated_at": "2026-08-10T17:41:54.910770+00:00"
+    },
+    {
+      "id": 543,
+      "asset": "DOGE_decided",
+      "version": 10,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": null,
+      "decision_threshold_down": null,
+      "accuracy": 0.7451358972277763,
+      "ece": 0.41188137948267967,
+      "backtest_pnl": -2386.6805,
+      "backtest_trades": 8594,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final",
+      "training_params": null,
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-05T05:43:24.853273+00:00",
+      "activated_at": "2026-08-05T05:43:24.853273+00:00"
+    },
+    {
+      "id": 694,
+      "asset": "DOGE_leaning",
+      "version": 15,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.7349154329080538,
+      "decision_threshold_down": null,
+      "accuracy": 0.5442040543531593,
+      "ece": 0.04521272880057457,
+      "backtest_pnl": 2.11,
+      "backtest_trades": 8,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6,signed_trend_efficiency_6,signed_body_pct,body_to_range",
+      "training_params": {
+        "oot_markets": 3368,
+        "model_config": {
+          "C": 0.5,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-04T05:00:52.517214+00:00",
+            "train_markets": 674,
+            "validation_end": "2026-07-11T17:21:37.611688+00:00",
+            "validation_start": "2026-07-04T05:15:54.085705+00:00",
+            "validation_markets": 674
+          },
+          {
+            "train_end": "2026-07-11T17:21:37.611688+00:00",
+            "train_markets": 1348,
+            "validation_end": "2026-07-19T12:58:54.843731+00:00",
+            "validation_start": "2026-07-11T17:31:24.202995+00:00",
+            "validation_markets": 674
+          },
+          {
+            "train_end": "2026-07-19T12:58:54.843731+00:00",
+            "train_markets": 2022,
+            "validation_end": "2026-07-26T19:54:59.407460+00:00",
+            "validation_start": "2026-07-19T13:00:26.914909+00:00",
+            "validation_markets": 674
+          },
+          {
+            "train_end": "2026-07-26T19:54:59.407460+00:00",
+            "train_markets": 2696,
+            "validation_end": "2026-08-03T07:53:30.990878+00:00",
+            "validation_start": "2026-07-26T20:01:46.213592+00:00",
+            "validation_markets": 673
+          },
+          {
+            "train_end": "2026-08-03T07:53:30.990878+00:00",
+            "train_markets": 3369,
+            "validation_end": "2026-08-10T17:05:29.054342+00:00",
+            "validation_start": "2026-08-03T08:04:01.675257+00:00",
+            "validation_markets": 673
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "C",
+        "feature_set_version": "C-candle-structure-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T17:47:12.896614+00:00",
+      "activated_at": "2026-08-10T17:47:12.896634+00:00"
+    },
+    {
+      "id": 656,
+      "asset": "ETH",
+      "version": 47,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.22922831221233606,
+      "decision_threshold_down": null,
+      "accuracy": 0.7489080385905773,
+      "ece": 0.016696649450973378,
+      "backtest_pnl": -889.7665,
+      "backtest_trades": 30078,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6,signed_trend_efficiency_6,signed_body_pct,body_to_range",
+      "training_params": {
+        "log_loss": 0.474261,
+        "brier_score": 0.158331,
+        "oot_markets": 3595,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "sequence_source": "CLOSED_UNDERLYING_15M",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T05:43:36.897896+00:00",
+            "train_markets": 719,
+            "validation_end": "2026-07-10T22:29:05.797689+00:00",
+            "validation_start": "2026-07-03T05:45:07.370230+00:00",
+            "validation_markets": 719
+          },
+          {
+            "train_end": "2026-07-10T22:29:05.797689+00:00",
+            "train_markets": 1438,
+            "validation_end": "2026-07-18T21:43:54.131762+00:00",
+            "validation_start": "2026-07-10T22:30:36.909066+00:00",
+            "validation_markets": 719
+          },
+          {
+            "train_end": "2026-07-18T21:43:54.131762+00:00",
+            "train_markets": 2157,
+            "validation_end": "2026-07-26T10:29:26.110137+00:00",
+            "validation_start": "2026-07-18T21:45:26.650725+00:00",
+            "validation_markets": 719
+          },
+          {
+            "train_end": "2026-07-26T10:29:26.110137+00:00",
+            "train_markets": 2876,
+            "validation_end": "2026-08-03T01:44:11.846004+00:00",
+            "validation_start": "2026-07-26T10:30:12.603141+00:00",
+            "validation_markets": 719
+          },
+          {
+            "train_end": "2026-08-03T01:44:11.846004+00:00",
+            "train_markets": 3595,
+            "validation_end": "2026-08-10T13:43:01.826685+00:00",
+            "validation_start": "2026-08-03T01:45:42.145862+00:00",
+            "validation_markets": 719
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "C",
+        "feature_set_version": "C-candle-structure-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": "299e33e40aefcb64b6b3dced828a890f",
+      "trained_at": "2026-08-10T14:03:41.360011+00:00",
+      "activated_at": "2026-08-10T14:03:41.348683+00:00"
+    },
+    {
+      "id": 162,
+      "asset": "ETH_contested",
+      "version": 1,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": null,
+      "decision_threshold_down": null,
+      "accuracy": 0.5390723921823943,
+      "ece": 0.09921197409265815,
+      "backtest_pnl": null,
+      "backtest_trades": null,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_velocity_lag1,price_momentum,spread_trend,volume_trend,price_deviation,deviation_x_time,price_deviation_sq,spread_pct,log_time_left,time_phase,is_final_phase,high_price_final,velocity_x_phase,dev_sq_x_phase",
+      "training_params": null,
+      "dataset_fingerprint": null,
+      "trained_at": "2026-07-14T06:41:50.856989+00:00",
+      "activated_at": "2026-07-14T06:41:50.856989+00:00"
+    },
+    {
+      "id": 651,
+      "asset": "ETH_decided",
+      "version": 13,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.14418361769954557,
+      "decision_threshold_down": null,
+      "accuracy": 0.7495251580433502,
+      "ece": 0.01008484430193039,
+      "backtest_pnl": -235.5605,
+      "backtest_trades": 7202,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final",
+      "training_params": {
+        "oot_markets": 3520,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T05:29:21.690037+00:00",
+            "train_markets": 705,
+            "validation_end": "2026-07-10T21:29:07.193343+00:00",
+            "validation_start": "2026-07-03T05:32:23.172756+00:00",
+            "validation_markets": 704
+          },
+          {
+            "train_end": "2026-07-10T21:29:07.193343+00:00",
+            "train_markets": 1409,
+            "validation_end": "2026-07-18T19:27:25.303483+00:00",
+            "validation_start": "2026-07-10T21:32:08.108836+00:00",
+            "validation_markets": 704
+          },
+          {
+            "train_end": "2026-07-18T19:27:25.303483+00:00",
+            "train_markets": 2113,
+            "validation_end": "2026-07-26T10:29:26.110137+00:00",
+            "validation_start": "2026-07-18T19:36:25.247438+00:00",
+            "validation_markets": 704
+          },
+          {
+            "train_end": "2026-07-26T10:29:26.110137+00:00",
+            "train_markets": 2817,
+            "validation_end": "2026-08-03T02:14:10.629547+00:00",
+            "validation_start": "2026-07-26T10:35:26.965165+00:00",
+            "validation_markets": 704
+          },
+          {
+            "train_end": "2026-08-03T02:14:10.629547+00:00",
+            "train_markets": 3521,
+            "validation_end": "2026-08-10T12:57:45.984843+00:00",
+            "validation_start": "2026-08-03T02:18:42.070581+00:00",
+            "validation_markets": 704
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "A",
+        "feature_set_version": "A-control-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T13:32:08.516531+00:00",
+      "activated_at": "2026-08-10T13:32:08.516546+00:00"
+    },
+    {
+      "id": 650,
+      "asset": "ETH_leaning",
+      "version": 11,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.19440538247473652,
+      "decision_threshold_down": null,
+      "accuracy": 0.5560650185659206,
+      "ece": 0.009770810818243821,
+      "backtest_pnl": -529.6075,
+      "backtest_trades": 16185,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final",
+      "training_params": {
+        "oot_markets": 3434,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T08:13:37.494842+00:00",
+            "train_markets": 687,
+            "validation_end": "2026-07-10T22:43:20.616372+00:00",
+            "validation_start": "2026-07-03T08:17:22.132872+00:00",
+            "validation_markets": 687
+          },
+          {
+            "train_end": "2026-07-10T22:43:20.616372+00:00",
+            "train_markets": 1374,
+            "validation_end": "2026-07-18T20:58:10.272938+00:00",
+            "validation_start": "2026-07-10T22:47:06.688708+00:00",
+            "validation_markets": 687
+          },
+          {
+            "train_end": "2026-07-18T20:58:10.272938+00:00",
+            "train_markets": 2061,
+            "validation_end": "2026-07-26T09:51:56.396091+00:00",
+            "validation_start": "2026-07-18T21:04:10.392950+00:00",
+            "validation_markets": 687
+          },
+          {
+            "train_end": "2026-07-26T09:51:56.396091+00:00",
+            "train_markets": 2748,
+            "validation_end": "2026-08-03T02:36:41.849281+00:00",
+            "validation_start": "2026-07-26T10:00:56.165800+00:00",
+            "validation_markets": 687
+          },
+          {
+            "train_end": "2026-08-03T02:36:41.849281+00:00",
+            "train_markets": 3435,
+            "validation_end": "2026-08-10T12:48:27.404022+00:00",
+            "validation_start": "2026-08-03T02:47:57.038477+00:00",
+            "validation_markets": 686
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "A",
+        "feature_set_version": "A-control-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T13:27:50.783347+00:00",
+      "activated_at": "2026-08-10T13:27:50.783361+00:00"
+    },
+    {
+      "id": 124,
+      "asset": "SOL",
+      "version": 15,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": null,
+      "decision_threshold_down": null,
+      "accuracy": 0.8078858369516613,
+      "ece": 0.025868892976513503,
+      "backtest_pnl": null,
+      "backtest_trades": null,
+      "features": "time_left_min,mid_price,spread,price_velocity,hour_of_day,price_deviation,deviation_x_time,price_deviation_sq,spread_pct,log_time_left",
+      "training_params": null,
+      "dataset_fingerprint": null,
+      "trained_at": "2026-07-11T10:42:57.367181+00:00",
+      "activated_at": "2026-07-11T10:42:57.367181+00:00"
+    },
+    {
+      "id": 665,
+      "asset": "SOL_contested",
+      "version": 2,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.5146183600225944,
+      "decision_threshold_down": null,
+      "accuracy": 0.5233978418830042,
+      "ece": 0.0029560004782760866,
+      "backtest_pnl": 0.94,
+      "backtest_trades": 8,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6",
+      "training_params": {
+        "oot_markets": 3231,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-04T03:31:38.795622+00:00",
+            "train_markets": 647,
+            "validation_end": "2026-07-11T17:14:06.197745+00:00",
+            "validation_start": "2026-07-04T03:45:09.093712+00:00",
+            "validation_markets": 647
+          },
+          {
+            "train_end": "2026-07-11T17:14:06.197745+00:00",
+            "train_markets": 1294,
+            "validation_end": "2026-07-19T10:45:26.861299+00:00",
+            "validation_start": "2026-07-11T17:15:36.972996+00:00",
+            "validation_markets": 646
+          },
+          {
+            "train_end": "2026-07-19T10:45:26.861299+00:00",
+            "train_markets": 1940,
+            "validation_end": "2026-07-26T18:51:15.972325+00:00",
+            "validation_start": "2026-07-19T11:04:53.880146+00:00",
+            "validation_markets": 646
+          },
+          {
+            "train_end": "2026-07-26T18:51:15.972325+00:00",
+            "train_markets": 2586,
+            "validation_end": "2026-08-03T03:27:41.359581+00:00",
+            "validation_start": "2026-07-26T19:00:15.438560+00:00",
+            "validation_markets": 646
+          },
+          {
+            "train_end": "2026-08-03T03:27:41.359581+00:00",
+            "train_markets": 3232,
+            "validation_end": "2026-08-10T14:27:57.078176+00:00",
+            "validation_start": "2026-08-03T03:30:44.700803+00:00",
+            "validation_markets": 646
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "B",
+        "feature_set_version": "B-direction-sequence-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T14:44:20.863462+00:00",
+      "activated_at": "2026-08-10T14:44:20.863476+00:00"
+    },
+    {
+      "id": 663,
+      "asset": "SOL_decided",
+      "version": 12,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.9074859227971437,
+      "decision_threshold_down": null,
+      "accuracy": 0.7572466886234699,
+      "ece": 0.010449012015151533,
+      "backtest_pnl": 0.79,
+      "backtest_trades": 1,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final",
+      "training_params": {
+        "oot_markets": 3451,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-04T01:12:52.529818+00:00",
+            "train_markets": 691,
+            "validation_end": "2026-07-11T14:14:07.282229+00:00",
+            "validation_start": "2026-07-04T01:17:24.109552+00:00",
+            "validation_markets": 691
+          },
+          {
+            "train_end": "2026-07-11T14:14:07.282229+00:00",
+            "train_markets": 1382,
+            "validation_end": "2026-07-19T08:28:53.808461+00:00",
+            "validation_start": "2026-07-11T14:19:23.027968+00:00",
+            "validation_markets": 690
+          },
+          {
+            "train_end": "2026-07-19T08:28:53.808461+00:00",
+            "train_markets": 2072,
+            "validation_end": "2026-07-26T17:59:28.923130+00:00",
+            "validation_start": "2026-07-19T08:40:09.048294+00:00",
+            "validation_markets": 690
+          },
+          {
+            "train_end": "2026-07-26T17:59:28.923130+00:00",
+            "train_markets": 2762,
+            "validation_end": "2026-08-03T05:59:10.895915+00:00",
+            "validation_start": "2026-07-26T18:06:58.991757+00:00",
+            "validation_markets": 690
+          },
+          {
+            "train_end": "2026-08-03T05:59:10.895915+00:00",
+            "train_markets": 3452,
+            "validation_end": "2026-08-10T13:58:47.327362+00:00",
+            "validation_start": "2026-08-03T06:20:10.398583+00:00",
+            "validation_markets": 690
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "A",
+        "feature_set_version": "A-control-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T14:29:01.848891+00:00",
+      "activated_at": "2026-08-10T14:29:01.848912+00:00"
+    },
+    {
+      "id": 666,
+      "asset": "SOL_leaning",
+      "version": 12,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.6244753690556031,
+      "decision_threshold_down": null,
+      "accuracy": 0.5485462148453935,
+      "ece": 0.015515854138806708,
+      "backtest_pnl": 1.2,
+      "backtest_trades": 2,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6",
+      "training_params": {
+        "oot_markets": 3370,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-04T04:06:05.791350+00:00",
+            "train_markets": 675,
+            "validation_end": "2026-07-11T15:20:07.489581+00:00",
+            "validation_start": "2026-07-04T04:15:07.555150+00:00",
+            "validation_markets": 674
+          },
+          {
+            "train_end": "2026-07-11T15:20:07.489581+00:00",
+            "train_markets": 1349,
+            "validation_end": "2026-07-19T10:38:40.420507+00:00",
+            "validation_start": "2026-07-11T15:30:39.106505+00:00",
+            "validation_markets": 674
+          },
+          {
+            "train_end": "2026-07-19T10:38:40.420507+00:00",
+            "train_markets": 2023,
+            "validation_end": "2026-07-26T18:06:13.927488+00:00",
+            "validation_start": "2026-07-19T10:46:11.780909+00:00",
+            "validation_markets": 674
+          },
+          {
+            "train_end": "2026-07-26T18:06:13.927488+00:00",
+            "train_markets": 2697,
+            "validation_end": "2026-08-03T08:17:30.449602+00:00",
+            "validation_start": "2026-07-26T18:16:46.876254+00:00",
+            "validation_markets": 674
+          },
+          {
+            "train_end": "2026-08-03T08:17:30.449602+00:00",
+            "train_markets": 3371,
+            "validation_end": "2026-08-10T14:28:47.601437+00:00",
+            "validation_start": "2026-08-03T08:31:45.261005+00:00",
+            "validation_markets": 674
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "B",
+        "feature_set_version": "B-direction-sequence-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T14:46:51.313757+00:00",
+      "activated_at": "2026-08-10T14:46:51.313773+00:00"
+    },
+    {
+      "id": 680,
+      "asset": "XRP",
+      "version": 36,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.21966686755650547,
+      "decision_threshold_down": null,
+      "accuracy": 0.7418838918779298,
+      "ece": 0.02170608106355958,
+      "backtest_pnl": -688.29,
+      "backtest_trades": 29886,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6,signed_trend_efficiency_6,signed_body_pct,body_to_range",
+      "training_params": {
+        "log_loss": 0.483083,
+        "brier_score": 0.161627,
+        "oot_markets": 3527,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "sequence_source": "CLOSED_UNDERLYING_15M",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-04T00:44:21.835655+00:00",
+            "train_markets": 706,
+            "validation_end": "2026-07-11T14:14:06.724428+00:00",
+            "validation_start": "2026-07-04T00:45:07.640346+00:00",
+            "validation_markets": 706
+          },
+          {
+            "train_end": "2026-07-11T14:14:06.724428+00:00",
+            "train_markets": 1412,
+            "validation_end": "2026-07-19T09:58:53.854092+00:00",
+            "validation_start": "2026-07-11T14:15:38.597030+00:00",
+            "validation_markets": 706
+          },
+          {
+            "train_end": "2026-07-19T09:58:53.854092+00:00",
+            "train_markets": 2118,
+            "validation_end": "2026-07-26T19:13:45.377036+00:00",
+            "validation_start": "2026-07-19T10:00:26.244942+00:00",
+            "validation_markets": 705
+          },
+          {
+            "train_end": "2026-07-26T19:13:45.377036+00:00",
+            "train_markets": 2823,
+            "validation_end": "2026-08-03T06:58:44.595602+00:00",
+            "validation_start": "2026-07-26T19:15:16.141734+00:00",
+            "validation_markets": 705
+          },
+          {
+            "train_end": "2026-08-03T06:58:44.595602+00:00",
+            "train_markets": 3528,
+            "validation_end": "2026-08-10T15:29:20.595675+00:00",
+            "validation_start": "2026-08-03T07:00:18.681351+00:00",
+            "validation_markets": 705
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "C",
+        "feature_set_version": "C-candle-structure-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": "6fa5dff62f27f9f7a9b4a8be569cd71b",
+      "trained_at": "2026-08-10T15:56:27.857665+00:00",
+      "activated_at": "2026-08-10T15:56:27.844471+00:00"
+    },
+    {
+      "id": 681,
+      "asset": "XRP_contested",
+      "version": 3,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.3245842349871509,
+      "decision_threshold_down": null,
+      "accuracy": 0.5154359043222682,
+      "ece": 0.007829714509596152,
+      "backtest_pnl": -432.1475,
+      "backtest_trades": 14016,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6,signed_trend_efficiency_6,signed_body_pct,body_to_range",
+      "training_params": {
+        "oot_markets": 3218,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T22:30:07.017563+00:00",
+            "train_markets": 644,
+            "validation_end": "2026-07-11T09:15:38.653025+00:00",
+            "validation_start": "2026-07-03T22:45:08.666189+00:00",
+            "validation_markets": 644
+          },
+          {
+            "train_end": "2026-07-11T09:15:38.653025+00:00",
+            "train_markets": 1288,
+            "validation_end": "2026-07-19T09:38:38.380252+00:00",
+            "validation_start": "2026-07-11T09:30:36.734039+00:00",
+            "validation_markets": 644
+          },
+          {
+            "train_end": "2026-07-19T09:38:38.380252+00:00",
+            "train_markets": 1932,
+            "validation_end": "2026-07-26T20:32:30.136657+00:00",
+            "validation_start": "2026-07-19T09:45:24.953176+00:00",
+            "validation_markets": 644
+          },
+          {
+            "train_end": "2026-07-26T20:32:30.136657+00:00",
+            "train_markets": 2576,
+            "validation_end": "2026-08-03T03:41:55.644125+00:00",
+            "validation_start": "2026-07-26T20:48:25.509754+00:00",
+            "validation_markets": 643
+          },
+          {
+            "train_end": "2026-08-03T03:41:55.644125+00:00",
+            "train_markets": 3219,
+            "validation_end": "2026-08-10T15:20:53.300253+00:00",
+            "validation_start": "2026-08-03T03:50:57.558571+00:00",
+            "validation_markets": 643
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "C",
+        "feature_set_version": "C-candle-structure-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T15:58:33.866787+00:00",
+      "activated_at": "2026-08-10T15:58:33.866833+00:00"
+    },
+    {
+      "id": 679,
+      "asset": "XRP_decided",
+      "version": 15,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.12240661700700387,
+      "decision_threshold_down": null,
+      "accuracy": 0.7385475767751934,
+      "ece": 0.012249584626577206,
+      "backtest_pnl": -226.4355,
+      "backtest_trades": 8314,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6",
+      "training_params": {
+        "oot_markets": 3455,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T23:44:22.708366+00:00",
+            "train_markets": 691,
+            "validation_end": "2026-07-11T11:44:06.014969+00:00",
+            "validation_start": "2026-07-03T23:47:22.310151+00:00",
+            "validation_markets": 691
+          },
+          {
+            "train_end": "2026-07-11T11:44:06.014969+00:00",
+            "train_markets": 1382,
+            "validation_end": "2026-07-19T07:41:38.889102+00:00",
+            "validation_start": "2026-07-11T11:52:22.424336+00:00",
+            "validation_markets": 691
+          },
+          {
+            "train_end": "2026-07-19T07:41:38.889102+00:00",
+            "train_markets": 2073,
+            "validation_end": "2026-07-26T17:44:28.946182+00:00",
+            "validation_start": "2026-07-19T07:49:53.377158+00:00",
+            "validation_markets": 691
+          },
+          {
+            "train_end": "2026-07-26T17:44:28.946182+00:00",
+            "train_markets": 2764,
+            "validation_end": "2026-08-03T06:44:28.872413+00:00",
+            "validation_start": "2026-07-26T18:07:00.462901+00:00",
+            "validation_markets": 691
+          },
+          {
+            "train_end": "2026-08-03T06:44:28.872413+00:00",
+            "train_markets": 3455,
+            "validation_end": "2026-08-10T15:12:07.800934+00:00",
+            "validation_start": "2026-08-03T06:46:02.134216+00:00",
+            "validation_markets": 691
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "B",
+        "feature_set_version": "B-direction-sequence-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T15:46:27.810767+00:00",
+      "activated_at": "2026-08-10T15:46:27.810784+00:00"
+    },
+    {
+      "id": 682,
+      "asset": "XRP_leaning",
+      "version": 16,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.4424355801874694,
+      "decision_threshold_down": null,
+      "accuracy": 0.5350780374556523,
+      "ece": 0.011658702205751435,
+      "backtest_pnl": 5.21,
+      "backtest_trades": 25,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6,signed_trend_efficiency_6,signed_body_pct,body_to_range",
+      "training_params": {
+        "oot_markets": 3348,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-04T01:42:07.044105+00:00",
+            "train_markets": 670,
+            "validation_end": "2026-07-11T12:28:22.313840+00:00",
+            "validation_start": "2026-07-04T01:46:38.932718+00:00",
+            "validation_markets": 670
+          },
+          {
+            "train_end": "2026-07-11T12:28:22.313840+00:00",
+            "train_markets": 1340,
+            "validation_end": "2026-07-19T05:49:54.267639+00:00",
+            "validation_start": "2026-07-11T12:31:22.158463+00:00",
+            "validation_markets": 670
+          },
+          {
+            "train_end": "2026-07-19T05:49:54.267639+00:00",
+            "train_markets": 2010,
+            "validation_end": "2026-07-26T17:22:59.166732+00:00",
+            "validation_start": "2026-07-19T06:02:40.226258+00:00",
+            "validation_markets": 670
+          },
+          {
+            "train_end": "2026-07-26T17:22:59.166732+00:00",
+            "train_markets": 2680,
+            "validation_end": "2026-08-03T07:04:01.678342+00:00",
+            "validation_start": "2026-07-26T17:32:44.506171+00:00",
+            "validation_markets": 669
+          },
+          {
+            "train_end": "2026-08-03T07:04:01.678342+00:00",
+            "train_markets": 3349,
+            "validation_end": "2026-08-10T15:21:41.852047+00:00",
+            "validation_start": "2026-08-03T07:21:17.140973+00:00",
+            "validation_markets": 669
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "C",
+        "feature_set_version": "C-candle-structure-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T16:00:47.366631+00:00",
+      "activated_at": "2026-08-10T16:00:47.366650+00:00"
+    }
+  ],
+  "problematic_models_focus": [
+    {
+      "id": 543,
+      "asset": "DOGE_decided",
+      "version": 10,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": null,
+      "decision_threshold_down": null,
+      "accuracy": 0.7451358972277763,
+      "ece": 0.41188137948267967,
+      "backtest_pnl": -2386.6805,
+      "backtest_trades": 8594,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final",
+      "training_params": null,
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-05T05:43:24.853273+00:00",
+      "activated_at": "2026-08-05T05:43:24.853273+00:00"
+    },
+    {
+      "id": 656,
+      "asset": "ETH",
+      "version": 47,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.22922831221233606,
+      "decision_threshold_down": null,
+      "accuracy": 0.7489080385905773,
+      "ece": 0.016696649450973378,
+      "backtest_pnl": -889.7665,
+      "backtest_trades": 30078,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6,signed_trend_efficiency_6,signed_body_pct,body_to_range",
+      "training_params": {
+        "log_loss": 0.474261,
+        "brier_score": 0.158331,
+        "oot_markets": 3595,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "sequence_source": "CLOSED_UNDERLYING_15M",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T05:43:36.897896+00:00",
+            "train_markets": 719,
+            "validation_end": "2026-07-10T22:29:05.797689+00:00",
+            "validation_start": "2026-07-03T05:45:07.370230+00:00",
+            "validation_markets": 719
+          },
+          {
+            "train_end": "2026-07-10T22:29:05.797689+00:00",
+            "train_markets": 1438,
+            "validation_end": "2026-07-18T21:43:54.131762+00:00",
+            "validation_start": "2026-07-10T22:30:36.909066+00:00",
+            "validation_markets": 719
+          },
+          {
+            "train_end": "2026-07-18T21:43:54.131762+00:00",
+            "train_markets": 2157,
+            "validation_end": "2026-07-26T10:29:26.110137+00:00",
+            "validation_start": "2026-07-18T21:45:26.650725+00:00",
+            "validation_markets": 719
+          },
+          {
+            "train_end": "2026-07-26T10:29:26.110137+00:00",
+            "train_markets": 2876,
+            "validation_end": "2026-08-03T01:44:11.846004+00:00",
+            "validation_start": "2026-07-26T10:30:12.603141+00:00",
+            "validation_markets": 719
+          },
+          {
+            "train_end": "2026-08-03T01:44:11.846004+00:00",
+            "train_markets": 3595,
+            "validation_end": "2026-08-10T13:43:01.826685+00:00",
+            "validation_start": "2026-08-03T01:45:42.145862+00:00",
+            "validation_markets": 719
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "C",
+        "feature_set_version": "C-candle-structure-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": "299e33e40aefcb64b6b3dced828a890f",
+      "trained_at": "2026-08-10T14:03:41.360011+00:00",
+      "activated_at": "2026-08-10T14:03:41.348683+00:00"
+    },
+    {
+      "id": 651,
+      "asset": "ETH_decided",
+      "version": 13,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.14418361769954557,
+      "decision_threshold_down": null,
+      "accuracy": 0.7495251580433502,
+      "ece": 0.01008484430193039,
+      "backtest_pnl": -235.5605,
+      "backtest_trades": 7202,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final",
+      "training_params": {
+        "oot_markets": 3520,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T05:29:21.690037+00:00",
+            "train_markets": 705,
+            "validation_end": "2026-07-10T21:29:07.193343+00:00",
+            "validation_start": "2026-07-03T05:32:23.172756+00:00",
+            "validation_markets": 704
+          },
+          {
+            "train_end": "2026-07-10T21:29:07.193343+00:00",
+            "train_markets": 1409,
+            "validation_end": "2026-07-18T19:27:25.303483+00:00",
+            "validation_start": "2026-07-10T21:32:08.108836+00:00",
+            "validation_markets": 704
+          },
+          {
+            "train_end": "2026-07-18T19:27:25.303483+00:00",
+            "train_markets": 2113,
+            "validation_end": "2026-07-26T10:29:26.110137+00:00",
+            "validation_start": "2026-07-18T19:36:25.247438+00:00",
+            "validation_markets": 704
+          },
+          {
+            "train_end": "2026-07-26T10:29:26.110137+00:00",
+            "train_markets": 2817,
+            "validation_end": "2026-08-03T02:14:10.629547+00:00",
+            "validation_start": "2026-07-26T10:35:26.965165+00:00",
+            "validation_markets": 704
+          },
+          {
+            "train_end": "2026-08-03T02:14:10.629547+00:00",
+            "train_markets": 3521,
+            "validation_end": "2026-08-10T12:57:45.984843+00:00",
+            "validation_start": "2026-08-03T02:18:42.070581+00:00",
+            "validation_markets": 704
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "A",
+        "feature_set_version": "A-control-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T13:32:08.516531+00:00",
+      "activated_at": "2026-08-10T13:32:08.516546+00:00"
+    },
+    {
+      "id": 650,
+      "asset": "ETH_leaning",
+      "version": 11,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.19440538247473652,
+      "decision_threshold_down": null,
+      "accuracy": 0.5560650185659206,
+      "ece": 0.009770810818243821,
+      "backtest_pnl": -529.6075,
+      "backtest_trades": 16185,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final",
+      "training_params": {
+        "oot_markets": 3434,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-03T08:13:37.494842+00:00",
+            "train_markets": 687,
+            "validation_end": "2026-07-10T22:43:20.616372+00:00",
+            "validation_start": "2026-07-03T08:17:22.132872+00:00",
+            "validation_markets": 687
+          },
+          {
+            "train_end": "2026-07-10T22:43:20.616372+00:00",
+            "train_markets": 1374,
+            "validation_end": "2026-07-18T20:58:10.272938+00:00",
+            "validation_start": "2026-07-10T22:47:06.688708+00:00",
+            "validation_markets": 687
+          },
+          {
+            "train_end": "2026-07-18T20:58:10.272938+00:00",
+            "train_markets": 2061,
+            "validation_end": "2026-07-26T09:51:56.396091+00:00",
+            "validation_start": "2026-07-18T21:04:10.392950+00:00",
+            "validation_markets": 687
+          },
+          {
+            "train_end": "2026-07-26T09:51:56.396091+00:00",
+            "train_markets": 2748,
+            "validation_end": "2026-08-03T02:36:41.849281+00:00",
+            "validation_start": "2026-07-26T10:00:56.165800+00:00",
+            "validation_markets": 687
+          },
+          {
+            "train_end": "2026-08-03T02:36:41.849281+00:00",
+            "train_markets": 3435,
+            "validation_end": "2026-08-10T12:48:27.404022+00:00",
+            "validation_start": "2026-08-03T02:47:57.038477+00:00",
+            "validation_markets": 686
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "A",
+        "feature_set_version": "A-control-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": null,
+      "trained_at": "2026-08-10T13:27:50.783347+00:00",
+      "activated_at": "2026-08-10T13:27:50.783361+00:00"
+    },
+    {
+      "id": 680,
+      "asset": "XRP",
+      "version": 36,
+      "is_active": true,
+      "model_type": "logreg",
+      "decision_threshold": 0.21966686755650547,
+      "decision_threshold_down": null,
+      "accuracy": 0.7418838918779298,
+      "ece": 0.02170608106355958,
+      "backtest_pnl": -688.29,
+      "backtest_trades": 29886,
+      "features": "time_left_min,mid_price,spread,volume_5min,price_velocity,hour_of_day,day_of_week,price_distance_from_max,price_momentum,spread_trend,volume_trend,price_deviation,spread_pct,log_time_left,is_final_phase,high_price_final,direction_lag_1,direction_lag_2,direction_lag_3,consecutive_up,consecutive_down,up_ratio_4,alternation_rate_6,signed_trend_efficiency_6,signed_body_pct,body_to_range",
+      "training_params": {
+        "log_loss": 0.483083,
+        "brier_score": 0.161627,
+        "oot_markets": 3527,
+        "model_config": {
+          "C": 0.1,
+          "solver": "lbfgs",
+          "penalty": "l2"
+        },
+        "target_source": "POLYMARKET_FLIP_VS_FINAL_OUTCOME",
+        "sequence_source": "CLOSED_UNDERLYING_15M",
+        "validation_folds": [
+          {
+            "train_end": "2026-07-04T00:44:21.835655+00:00",
+            "train_markets": 706,
+            "validation_end": "2026-07-11T14:14:06.724428+00:00",
+            "validation_start": "2026-07-04T00:45:07.640346+00:00",
+            "validation_markets": 706
+          },
+          {
+            "train_end": "2026-07-11T14:14:06.724428+00:00",
+            "train_markets": 1412,
+            "validation_end": "2026-07-19T09:58:53.854092+00:00",
+            "validation_start": "2026-07-11T14:15:38.597030+00:00",
+            "validation_markets": 706
+          },
+          {
+            "train_end": "2026-07-19T09:58:53.854092+00:00",
+            "train_markets": 2118,
+            "validation_end": "2026-07-26T19:13:45.377036+00:00",
+            "validation_start": "2026-07-19T10:00:26.244942+00:00",
+            "validation_markets": 705
+          },
+          {
+            "train_end": "2026-07-26T19:13:45.377036+00:00",
+            "train_markets": 2823,
+            "validation_end": "2026-08-03T06:58:44.595602+00:00",
+            "validation_start": "2026-07-26T19:15:16.141734+00:00",
+            "validation_markets": 705
+          },
+          {
+            "train_end": "2026-08-03T06:58:44.595602+00:00",
+            "train_markets": 3528,
+            "validation_end": "2026-08-10T15:29:20.595675+00:00",
+            "validation_start": "2026-08-03T07:00:18.681351+00:00",
+            "validation_markets": 705
+          }
+        ],
+        "quality_gate_mode": "ADVISORY",
+        "sequence_coverage": 1.0,
+        "validation_scheme": "GROUPED_WALK_FORWARD",
+        "experiment_variant": "C",
+        "feature_set_version": "C-candle-structure-v1",
+        "backtest_strategy_branch": "OUTSIDER_ONLY"
+      },
+      "dataset_fingerprint": "6fa5dff62f27f9f7a9b4a8be569cd71b",
+      "trained_at": "2026-08-10T15:56:27.857665+00:00",
+      "activated_at": "2026-08-10T15:56:27.844471+00:00"
+    }
+  ]
+}

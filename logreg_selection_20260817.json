@@ -1,0 +1,182 @@
+{
+  "timestamp_utc": "2026-08-17T02:06:53.752339+00:00",
+  "summary": "LogReg candidate audit and runtime selection recommendations",
+  "total_assets_covered": 5,
+  "asset_recommendations": {
+    "BTC": {
+      "base_model": {
+        "status": "UNDEPLOYABLE",
+        "recommended_candidate_id": null,
+        "version": null,
+        "combined_pnl": null,
+        "median_window_pnl": null
+      },
+      "phases": {
+        "contested": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase BTC_contested nor base BTC passed OOT criteria; trade abstained (NONE)."
+        },
+        "leaning": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase BTC_leaning nor base BTC passed OOT criteria; trade abstained (NONE)."
+        },
+        "decided": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase BTC_decided nor base BTC passed OOT criteria; trade abstained (NONE)."
+        }
+      }
+    },
+    "DOGE": {
+      "base_model": {
+        "status": "UNDEPLOYABLE",
+        "recommended_candidate_id": null,
+        "version": null,
+        "combined_pnl": null,
+        "median_window_pnl": null
+      },
+      "phases": {
+        "contested": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase DOGE_contested nor base DOGE passed OOT criteria; trade abstained (NONE)."
+        },
+        "leaning": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase DOGE_leaning nor base DOGE passed OOT criteria; trade abstained (NONE)."
+        },
+        "decided": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase DOGE_decided nor base DOGE passed OOT criteria; trade abstained (NONE)."
+        }
+      }
+    },
+    "ETH": {
+      "base_model": {
+        "status": "UNDEPLOYABLE",
+        "recommended_candidate_id": null,
+        "version": null,
+        "combined_pnl": null,
+        "median_window_pnl": null
+      },
+      "phases": {
+        "contested": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase ETH_contested nor base ETH passed OOT criteria; trade abstained (NONE)."
+        },
+        "leaning": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase ETH_leaning nor base ETH passed OOT criteria; trade abstained (NONE)."
+        },
+        "decided": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase ETH_decided nor base ETH passed OOT criteria; trade abstained (NONE)."
+        }
+      }
+    },
+    "SOL": {
+      "base_model": {
+        "status": "UNDEPLOYABLE",
+        "recommended_candidate_id": null,
+        "version": null,
+        "combined_pnl": null,
+        "median_window_pnl": null
+      },
+      "phases": {
+        "contested": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase SOL_contested nor base SOL passed OOT criteria; trade abstained (NONE)."
+        },
+        "leaning": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase SOL_leaning nor base SOL passed OOT criteria; trade abstained (NONE)."
+        },
+        "decided": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase SOL_decided nor base SOL passed OOT criteria; trade abstained (NONE)."
+        }
+      }
+    },
+    "XRP": {
+      "base_model": {
+        "status": "UNDEPLOYABLE",
+        "recommended_candidate_id": null,
+        "version": null,
+        "combined_pnl": null,
+        "median_window_pnl": null
+      },
+      "phases": {
+        "contested": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase XRP_contested nor base XRP passed OOT criteria; trade abstained (NONE)."
+        },
+        "leaning": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase XRP_leaning nor base XRP passed OOT criteria; trade abstained (NONE)."
+        },
+        "decided": {
+          "runtime_resolution": "ABSTAIN",
+          "recommended_model_id": null,
+          "version": null,
+          "combined_pnl": 0.0,
+          "median_window_pnl": 0.0,
+          "note": "Neither phase XRP_decided nor base XRP passed OOT criteria; trade abstained (NONE)."
+        }
+      }
+    }
+  }
+}

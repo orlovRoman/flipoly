@@ -195,6 +195,63 @@ async def _fetch_lgbm_signal(
             status="INFERENCE_FAILED", risk_reason=str(exc), model_key=""
         )
 
+def resolve_logreg_model(
+    models_cache: Any,
+    asset: str,
+    phase: str,
+) -> tuple[Any | None, str, str | None, str | None, int | None, list[str]]:
+    """
+    Resolves LogReg model with strict two-level deployability checks:
+    1. Try phase model (e.g. ETH_decided). If deployable -> PRIMARY.
+    2. Try base model (e.g. ETH). If deployable -> FALLBACK_BASE.
+    3. If neither deployable -> ABSTAIN (returns None).
+    Cross-phase fallback (e.g. decided -> leaning) is strictly forbidden.
+    """
+    asset_upper = asset.upper()
+    phase_asset = f"{asset_upper}_{phase}"
+
+    def _is_deployable(key: str) -> bool:
+        if not models_cache or not getattr(models_cache, "models", None) or key not in models_cache.models:
+            return False
+        if hasattr(models_cache, "deployable") and key in models_cache.deployable:
+            return bool(models_cache.deployable[key])
+        ece = getattr(models_cache, "eces", {}).get(key, 1.0)
+        return ece <= 0.15
+
+    # 1. Phase model
+    if phase_asset in getattr(models_cache, "models", {}):
+        if _is_deployable(phase_asset):
+            return (
+                models_cache.models[phase_asset],
+                "PRIMARY",
+                None,
+                phase_asset,
+                models_cache.versions.get(phase_asset),
+                models_cache.features.get(phase_asset, []),
+            )
+
+    # 2. Base model fallback
+    if asset_upper in getattr(models_cache, "models", {}):
+        if _is_deployable(asset_upper):
+            return (
+                models_cache.models[asset_upper],
+                "FALLBACK_BASE",
+                "PHASE_MODEL_NOT_DEPLOYABLE",
+                asset_upper,
+                models_cache.versions.get(asset_upper),
+                models_cache.features.get(asset_upper, []),
+            )
+
+    return (
+        None,
+        "ABSTAIN",
+        "BASE_AND_PHASE_NOT_DEPLOYABLE",
+        None,
+        None,
+        [],
+    )
+
+
 async def decide_combined_mode(
     db_session: AsyncSession,
     api_client: Any,
@@ -334,51 +391,16 @@ async def decide_combined_mode(
         else:
             logger.warning("combined_no_crypto_predictor", asset=asset_upper)
 
-    # 2.1 Fallback на ML (LogReg) режим, если LightGBM выдал NONE и включена настройка COMBINED_FALLBACK_TO_ML_ON_NONE
-    # cfg уже содержит актуальное значение из raw_settings (через parse_trading_settings) — источник один.
-    
-
     # 3. Выбор LogReg модели (Entry Model) с фазовым fallback
     phase = get_price_phase(fresh_yes_price)
     phase_asset = f"{asset_upper}_{phase}"
 
-    entry_model = None
-    entry_model_key = None
-    entry_model_ver = None
-    entry_features = []
-    entry_source = "NONE"
-    fallback_reason = None
+    entry_model, entry_source, fallback_reason, entry_model_key, entry_model_ver, entry_features = resolve_logreg_model(
+        models_cache, asset_upper, phase
+    )
     p_flip: Optional[float] = None
 
-    candidate_specs: list[tuple[str, str]] = []
-    fallback_notes: list[str] = []
-    if models_cache and models_cache.models:
-        if phase_asset in models_cache.models:
-            candidate_specs.append((phase_asset, "PHASE"))
-        elif execution_mode == "PAPER":
-            fallback_notes.append(f"Phase model {phase_asset} not found")
-        else:
-            fallback_reason = (
-                f"Phase model {phase_asset} not found, and fallback is "
-                f"forbidden in {execution_mode}"
-            )
-
-        if execution_mode == "PAPER":
-            if asset_upper in models_cache.models and asset_upper != phase_asset:
-                candidate_specs.append((asset_upper, "BASE"))
-            elif asset_upper not in models_cache.models:
-                fallback_notes.append(f"Base model {asset_upper} not found")
-            if "GLOBAL" in models_cache.models:
-                candidate_specs.append(("GLOBAL", "GLOBAL"))
-    else:
-        fallback_reason = "ModelsCache is empty"
-
-    for candidate_key, candidate_source in candidate_specs:
-        entry_model = models_cache.models[candidate_key]
-        entry_model_key = candidate_key
-        entry_model_ver = models_cache.versions.get(candidate_key)
-        entry_features = models_cache.features.get(candidate_key, [])
-        entry_source = candidate_source
+    if entry_model is not None:
         try:
             p_flip = await infer_flip_for_market(
                 db_session=db_session,
@@ -391,34 +413,24 @@ async def decide_combined_mode(
                 time_left_sec=time_left_sec,
                 max_time_left=max(cfg.favor_max_time_left, cfg.outs_max_time_left),
             )
-            if candidate_source != "PHASE":
-                fallback_notes.append(
-                    f"fell back to {candidate_source.lower()} {candidate_key}"
-                )
-                fallback_reason = "; ".join(fallback_notes)
-            break
         except Exception as exc:
             logger.error(
                 "combined_mode_infer_flip_error",
                 asset=asset_upper,
-                model_key=candidate_key,
-                model_source=candidate_source,
+                model_key=entry_model_key,
+                model_source=entry_source,
                 error=str(exc),
             )
             p_flip = None
-            fallback_notes.append(
-                f"{candidate_source} model {candidate_key} inference failed: {exc}"
-            )
-            if execution_mode != "PAPER":
-                break
+            fallback_reason = f"{entry_source} model {entry_model_key} inference failed: {exc}"
     else:
-        if fallback_notes:
-            fallback_reason = "; ".join(fallback_notes)
-        elif fallback_reason is None:
-            fallback_reason = "No active model matches phase, base asset, or GLOBAL"
-
-    if p_flip is None and fallback_notes:
-        fallback_reason = "; ".join(fallback_notes)
+        logger.info(
+            "logreg_model_abstained",
+            asset=asset_upper,
+            phase=phase,
+            requested_model=phase_asset,
+            reason=fallback_reason,
+        )
 
     # 5. Оценка входа через evaluate_combined_entry
     comb_cost_buffer = cfg.combined_cost_buffer

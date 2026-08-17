@@ -658,9 +658,11 @@ class ModelTrainer:
     async def train_model(
         self,
         asset: str,
-        save_settings: bool = True,
+        save_settings: bool = False,
         feature_set: str = "AUTO",
-        activate_after_train: bool = True,
+        activate_after_train: bool = False,
+        candidate_mode: bool = True,
+        explicit_manual_activation: bool = False,
     ) -> bool:
         """
         Обучает модель LogisticRegression для заданного актива на основе 
@@ -1073,9 +1075,14 @@ class ModelTrainer:
                 min_required=MIN_BACKTEST_TRADES,
             )
 
-        # LogReg quality metrics are advisory; only technical failures block use.
-        # AI Lab passes False to create an inactive, auditable candidate.
-        should_activate = bool(activate_after_train)
+        # LogReg candidate safety: never activate unless explicit manual activation is requested
+        # and model is not in candidate mode and passes quality gate.
+        should_activate = bool(
+            activate_after_train
+            and passed_quality_gate
+            and explicit_manual_activation
+            and not candidate_mode
+        )
         if not passed_quality_gate:
             logger.warning(
                 "model_quality_gate_failed",

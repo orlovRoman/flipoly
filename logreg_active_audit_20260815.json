@@ -1,0 +1,167 @@
+{
+  "timestamp_utc": "2026-08-15T15:07:43.221810+00:00",
+  "total_models_audited": 20,
+  "deployable_models_count": 0,
+  "models": [
+    {
+      "model_id": 644,
+      "asset": "BTC",
+      "version": 47,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 637,
+      "asset": "BTC_contested",
+      "version": 6,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 643,
+      "asset": "BTC_decided",
+      "version": 12,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 642,
+      "asset": "BTC_leaning",
+      "version": 8,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 692,
+      "asset": "DOGE",
+      "version": 35,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 693,
+      "asset": "DOGE_contested",
+      "version": 7,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 543,
+      "asset": "DOGE_decided",
+      "version": 10,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 694,
+      "asset": "DOGE_leaning",
+      "version": 15,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 656,
+      "asset": "ETH",
+      "version": 47,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 162,
+      "asset": "ETH_contested",
+      "version": 1,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 651,
+      "asset": "ETH_decided",
+      "version": 13,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 650,
+      "asset": "ETH_leaning",
+      "version": 11,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 124,
+      "asset": "SOL",
+      "version": 15,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 665,
+      "asset": "SOL_contested",
+      "version": 2,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 663,
+      "asset": "SOL_decided",
+      "version": 12,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 666,
+      "asset": "SOL_leaning",
+      "version": 12,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 680,
+      "asset": "XRP",
+      "version": 36,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 681,
+      "asset": "XRP_contested",
+      "version": 3,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 679,
+      "asset": "XRP_decided",
+      "version": 15,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    },
+    {
+      "model_id": 682,
+      "asset": "XRP_leaning",
+      "version": 16,
+      "is_active": true,
+      "error": "OOF artifact missing in model_registry_oof_artifacts",
+      "deployable": false
+    }
+  ]
+}
