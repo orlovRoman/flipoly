@@ -16,14 +16,14 @@ _MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
 _MAX_DECOMPRESSED_BYTES = 256 * 1024 * 1024
 _MAX_ROWS = 500_000
 _DATETIME_COLUMNS = {
-    "market_start", "recorded_at", "market_close_at", "resolved_at", "end_time_est",
+    "market_start", "recorded_at", "market_close_at", "resolved_at", "end_time_est", "close_time", "_close_time",
 }
 
 
 def _frame_columns(frame: pd.DataFrame) -> list[str]:
     preferred = (
         "market_id", "asset", "market_start", "market_close_at", "resolved_at",
-        "end_time_est", "recorded_at", "time_left_min", "vol_regime", "mid_price",
+        "end_time_est", "close_time", "recorded_at", "time_left_min", "vol_regime", "mid_price",
         "spread", "best_bid", "best_ask", "yes_price", "no_price", "target",
         "final_outcome",
     )

@@ -284,6 +284,7 @@ def test_logreg_split_chronological_windows_uses_canonical_adapter():
     frame = pd.DataFrame({
         "market_id": ["m1", "m2", "m3"],
         "recorded_at": starts,
+        "market_close_at": starts,
         "mid_price": [0.30, 0.30, 0.30],
         "best_bid": [0.29, 0.29, 0.29],
         "best_ask": [0.31, 0.31, 0.31],
@@ -336,6 +337,7 @@ def test_logreg_empty_windows_have_no_fictitious_zero_metrics():
     frame1 = pd.DataFrame([{
         "market_id": "m1",
         "recorded_at": pd.Timestamp("2026-08-01T00:00:00Z"),
+        "market_close_at": pd.Timestamp("2026-08-01T00:00:00Z"),
         "mid_price": 0.30,
         "best_bid": 0.29,
         "best_ask": 0.31,

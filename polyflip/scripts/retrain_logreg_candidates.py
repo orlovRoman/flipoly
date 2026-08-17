@@ -12,7 +12,7 @@ import asyncio
 import itertools
 import json
 import pickle
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -24,8 +24,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, roc_auc_score
 from sqlalchemy import func, select
 
-from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS, PRICE_PHASE_BOUNDARIES
-from polyflip.crypto.logreg_polymarket_backtest import compute_logreg_polymarket_backtest
+from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS, PRICE_PHASE_BOUNDARIES, get_price_phase
+from polyflip.crypto.logreg_polymarket_backtest import (
+    compute_logreg_polymarket_backtest,
+    resolve_market_close_time,
+    resolve_market_close_time_series,
+    split_chronological_oot_windows,
+)
 from polyflip.crypto.polymarket_backtest import (
     METRICS_SCHEMA_VERSION,
     CanonicalBacktestMetrics,
@@ -34,7 +39,7 @@ from polyflip.crypto.polymarket_backtest import (
 )
 from polyflip.crypto.oof_artifact import OOF_ARTIFACT_SCHEMA_VERSION, serialize_oof_artifact
 from polyflip.db.connection import async_session
-from polyflip.db.models import MarketSnapshot, ModelRegistry, ModelRegistryOOFArtifact
+from polyflip.db.models import LiveMarket, MarketSnapshot, ModelRegistry, ModelRegistryOOFArtifact
 from polyflip.models.feature_lags import LAG_FEATURE_NAMES, add_lag_features
 from polyflip.models.sequence_features import SEQUENCE_CANDLE_FEATURES, attach_closed_candle_features
 from polyflip.models.temporal_validation import grouped_walk_forward_folds
@@ -82,126 +87,15 @@ def _split_chronological_windows(
     strategy_branch: str,
     **backtest_kwargs: Any,
 ) -> dict[str, Any]:
-    """Split canonical evaluated markets into 3 chronological windows T1/T2/T3 by market_close_at."""
-    if frame.empty or len(p_yes) != len(frame):
-        return {
-            "metrics_schema_version": METRICS_SCHEMA_VERSION,
-            "T1": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "net_profit": None, "total_pnl": None, "roi_pct": None, "roi": None, "max_drawdown": None, "max_drawdown_usdc": None, "win_rate": None, "metrics_schema_version": METRICS_SCHEMA_VERSION},
-            "T2": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "net_profit": None, "total_pnl": None, "roi_pct": None, "roi": None, "max_drawdown": None, "max_drawdown_usdc": None, "win_rate": None, "metrics_schema_version": METRICS_SCHEMA_VERSION},
-            "T3": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "net_profit": None, "total_pnl": None, "roi_pct": None, "roi": None, "max_drawdown": None, "max_drawdown_usdc": None, "win_rate": None, "metrics_schema_version": METRICS_SCHEMA_VERSION},
-            "median_pnl": None,
-            "non_negative_windows_count": 0,
-        }
+    """Split canonical evaluated markets into 3 chronological windows T1/T2/T3 by market close time."""
+    return split_chronological_oot_windows(
+        frame,
+        p_yes,
+        quotes,
+        strategy_branch=strategy_branch,
+        **backtest_kwargs,
+    )
 
-    working = frame.copy()
-    close_col = None
-    for candidate in ("market_close_at", "resolved_at", "end_time_est", "market_start", "recorded_at"):
-        if candidate in working.columns and working[candidate].notna().any():
-            close_col = candidate
-            break
-
-    if close_col:
-        working["_close_time"] = pd.to_datetime(working[close_col], utc=True, errors="coerce")
-    else:
-        working["_close_time"] = pd.to_datetime(working["recorded_at"], utc=True, errors="coerce")
-
-    working["_p_yes"] = p_yes
-    working = working.sort_values("_close_time", kind="stable").reset_index(drop=True)
-
-    n = len(working)
-    if n < 3:
-        res = compute_logreg_polymarket_backtest(
-            working, working["_p_yes"].to_numpy(), quotes, strategy_branch=strategy_branch, **backtest_kwargs
-        )
-        metrics = adapt_canonical_backtest_metrics(res)
-        return {
-            "metrics_schema_version": METRICS_SCHEMA_VERSION,
-            "T1": {
-                "status": "SPARSE",
-                "n_markets": n,
-                "n_trades": metrics.n_trades,
-                "net_profit": round(metrics.net_profit, 4),
-                "total_pnl": round(metrics.net_profit, 4),
-                "win_rate": round(metrics.win_rate, 4),
-                "roi_pct": round(metrics.roi_pct, 4),
-                "roi": round(metrics.roi_pct, 4),
-                "max_drawdown": round(metrics.max_drawdown, 4),
-                "max_drawdown_usdc": round(metrics.max_drawdown, 4),
-                "metrics_schema_version": METRICS_SCHEMA_VERSION,
-            },
-            "T2": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "net_profit": None, "total_pnl": None, "roi_pct": None, "roi": None, "max_drawdown": None, "max_drawdown_usdc": None, "win_rate": None, "metrics_schema_version": METRICS_SCHEMA_VERSION},
-            "T3": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "net_profit": None, "total_pnl": None, "roi_pct": None, "roi": None, "max_drawdown": None, "max_drawdown_usdc": None, "win_rate": None, "metrics_schema_version": METRICS_SCHEMA_VERSION},
-            "median_pnl": round(metrics.net_profit, 4),
-            "non_negative_windows_count": 1 if metrics.net_profit >= 0 else 0,
-        }
-
-    q33 = working["_close_time"].quantile(1.0 / 3.0)
-    q67 = working["_close_time"].quantile(2.0 / 3.0)
-
-    w1_mask = working["_close_time"] <= q33
-    w2_mask = (working["_close_time"] > q33) & (working["_close_time"] <= q67)
-    w3_mask = working["_close_time"] > q67
-
-    if not w1_mask.any() or not w2_mask.any() or not w3_mask.any():
-        idx1 = n // 3
-        idx2 = 2 * n // 3
-        w1_mask = np.zeros(n, dtype=bool)
-        w2_mask = np.zeros(n, dtype=bool)
-        w3_mask = np.zeros(n, dtype=bool)
-        w1_mask[:idx1] = True
-        w2_mask[idx1:idx2] = True
-        w3_mask[idx2:] = True
-
-    windows: dict[str, Any] = {"metrics_schema_version": METRICS_SCHEMA_VERSION}
-    pnls = []
-    for label, mask in (("T1", w1_mask), ("T2", w2_mask), ("T3", w3_mask)):
-        sub = working[mask].reset_index(drop=True)
-        sub_n = len(sub)
-        if sub_n == 0:
-            windows[label] = {
-                "status": "EMPTY",
-                "n_markets": 0,
-                "n_trades": 0,
-                "net_profit": None,
-                "total_pnl": None,
-                "win_rate": None,
-                "roi_pct": None,
-                "roi": None,
-                "max_drawdown": None,
-                "max_drawdown_usdc": None,
-                "metrics_schema_version": METRICS_SCHEMA_VERSION,
-            }
-            continue
-
-        sub_quotes = (
-            quotes[quotes["market_id"].isin(sub["market_id"])].reset_index(drop=True)
-            if quotes is not None and not quotes.empty and "market_id" in quotes.columns
-            else None
-        )
-        res = compute_logreg_polymarket_backtest(
-            sub, sub["_p_yes"].to_numpy(), sub_quotes, strategy_branch=strategy_branch, **backtest_kwargs
-        )
-        metrics = adapt_canonical_backtest_metrics(res)
-        pnls.append(metrics.net_profit)
-        windows[label] = {
-            "status": "SPARSE" if sub_n < 30 else "OK",
-            "n_markets": sub_n,
-            "n_trades": metrics.n_trades,
-            "net_profit": round(metrics.net_profit, 4),
-            "total_pnl": round(metrics.net_profit, 4),
-            "win_rate": round(metrics.win_rate, 4),
-            "roi_pct": round(metrics.roi_pct, 4),
-            "roi": round(metrics.roi_pct, 4),
-            "max_drawdown": round(metrics.max_drawdown, 4),
-            "max_drawdown_usdc": round(metrics.max_drawdown, 4),
-            "metrics_schema_version": METRICS_SCHEMA_VERSION,
-            "time_start": sub["_close_time"].min().isoformat() if not sub.empty and pd.notna(sub["_close_time"].min()) else None,
-            "time_end": sub["_close_time"].max().isoformat() if not sub.empty and pd.notna(sub["_close_time"].max()) else None,
-        }
-
-    windows["median_pnl"] = round(float(np.median(pnls)), 4) if pnls else None
-    windows["non_negative_windows_count"] = int(sum(p >= 0 for p in pnls))
-    return windows
 
 MIN_SEQUENCE_COVERAGE = 0.95
 
@@ -261,9 +155,6 @@ def _compute_sample_weights(
     return w.astype(np.float64)
 
 
-from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS, PRICE_PHASE_BOUNDARIES, get_price_phase
-
-
 async def load_asset_snapshots(
     session: Any,
     asset_name: str,
@@ -290,7 +181,11 @@ async def load_asset_snapshots(
             MarketSnapshot.hour_of_day,
             MarketSnapshot.flip_vs_final,
             MarketSnapshot.final_outcome,
+            LiveMarket.end_date.label("market_close_at"),
+            LiveMarket.resolved_at.label("resolved_at"),
+            LiveMarket.end_time_est.label("end_time_est"),
         )
+        .outerjoin(LiveMarket, MarketSnapshot.market_id == LiveMarket.market_id)
         .where(
             MarketSnapshot.asset == base_asset,
             MarketSnapshot.final_outcome.in_(["YES", "NO"]),
@@ -313,6 +208,23 @@ async def load_asset_snapshots(
             if s_phase != phase:
                 continue
 
+        m_close = getattr(t, "market_close_at", None)
+        r_at = getattr(t, "resolved_at", None)
+        e_est = getattr(t, "end_time_est", None)
+        m_start = getattr(t, "market_start", None)
+        if m_start is None and e_est is not None:
+            try:
+                m_start = e_est - timedelta(minutes=15)
+            except Exception:
+                pass
+        if e_est is None and t.recorded_at is not None and t.time_left_min is not None:
+            try:
+                e_est = t.recorded_at + timedelta(minutes=float(t.time_left_min))
+                if m_start is None:
+                    m_start = e_est - timedelta(minutes=15)
+            except Exception:
+                pass
+
         records.append({
             "market_id": t.market_id,
             "asset": t.asset,
@@ -329,10 +241,19 @@ async def load_asset_snapshots(
             "final_outcome": t.final_outcome,
             "yes_price": mid_p,
             "no_price": 1.0 - mid_p,
+            "market_close_at": m_close,
+            "resolved_at": r_at,
+            "end_time_est": e_est,
+            "market_start": m_start,
         })
     df = pd.DataFrame(records)
     if not df.empty:
         df["_decision_at"] = pd.to_datetime(df["recorded_at"], utc=True)
+        df["market_close_at"] = pd.to_datetime(df["market_close_at"], utc=True, errors="coerce")
+        df["resolved_at"] = pd.to_datetime(df["resolved_at"], utc=True, errors="coerce")
+        df["end_time_est"] = pd.to_datetime(df["end_time_est"], utc=True, errors="coerce")
+        df["market_start"] = pd.to_datetime(df["market_start"], utc=True, errors="coerce")
+        df["close_time"] = resolve_market_close_time_series(df)
     return df
 
 
@@ -347,18 +268,38 @@ def train_and_eval_candidate(
     calibration_method: str,
 ) -> dict[str, Any] | None:
     """Perform chronological grouped walk-forward training & evaluation of one candidate."""
-    X, feature_names, seq_coverage = _build_feature_matrices(df, variant)
-    y = df["target"].to_numpy().astype(int)
-    groups = df["market_id"]
-    timestamps = df["_decision_at"]
-    time_left = df["time_left_min"].to_numpy()
+    if df.empty:
+        return None
+
+    # Resolve close_time strictly from canonical sources. Snapshot timestamps are FORBIDDEN as temporal boundaries.
+    working = df.copy()
+    if "close_time" in working.columns and working["close_time"].notna().any():
+        close_times = pd.to_datetime(working["close_time"], utc=True, errors="coerce")
+    else:
+        close_times = resolve_market_close_time_series(working)
+
+    working["close_time"] = close_times
+    valid_mask = working["close_time"].notna()
+    if not valid_mask.any():
+        return None
+
+    # Evaluate strictly on rows with valid market close time
+    working = working[valid_mask].reset_index(drop=True)
+    if len(working) < 30 or working["market_id"].nunique() < 3:
+        return None
+
+    X, feature_names, seq_coverage = _build_feature_matrices(working, variant)
+    y = working["target"].to_numpy().astype(int)
+    groups = working["market_id"]
+    timestamps = pd.to_datetime(working["close_time"], utc=True)
+    time_left = working["time_left_min"].to_numpy()
 
     folds = grouped_walk_forward_folds(groups, timestamps, n_splits=5)
     if not folds:
         return None
 
-    oof_raw_scores = np.full(len(df), np.nan, dtype=float)
-    oof_cal_scores = np.full(len(df), np.nan, dtype=float)
+    oof_raw_scores = np.full(len(working), np.nan, dtype=float)
+    oof_cal_scores = np.full(len(working), np.nan, dtype=float)
 
     sample_weights = _compute_sample_weights(time_left, sample_weight_mode, sample_weight_tau)
 
@@ -396,7 +337,6 @@ def train_and_eval_candidate(
                 oof_cal_scores[fold.validation_index] = raw_preds
         elif calibration_method == "ISOTONIC":
             try:
-                # Isotonic on training predictions
                 tr_raw = base_lr.predict_proba(X_tr)[:, 1]
                 iso = IsotonicRegression(out_of_bounds="clip")
                 iso.fit(tr_raw, y_tr)
@@ -404,13 +344,13 @@ def train_and_eval_candidate(
             except Exception:
                 oof_cal_scores[fold.validation_index] = raw_preds
 
-    valid_mask = np.isfinite(oof_cal_scores)
-    if valid_mask.sum() < 30:
+    valid_score_mask = np.isfinite(oof_cal_scores)
+    if valid_score_mask.sum() < 30:
         return None
 
-    y_val = y[valid_mask]
-    cal_val = oof_cal_scores[valid_mask]
-    raw_val = oof_raw_scores[valid_mask]
+    y_val = y[valid_score_mask]
+    cal_val = oof_cal_scores[valid_score_mask]
+    raw_val = oof_raw_scores[valid_score_mask]
 
     try:
         val_auc = float(roc_auc_score(y_val, cal_val))
@@ -420,7 +360,7 @@ def train_and_eval_candidate(
     brier = float(brier_score_loss(y_val, cal_val))
     ece = float(_compute_ece(y_val, cal_val))
 
-    # Fit final full model on entire dataset
+    # Fit final full model on entire valid dataset
     full_weights = sample_weights if sample_weights is not None else None
     final_model = LogisticRegression(
         C=C,
@@ -432,9 +372,9 @@ def train_and_eval_candidate(
     final_model.fit(X, y, sample_weight=full_weights)
 
     # Polymarket canonical evaluation
-    quotes = df[["market_id", "recorded_at", "mid_price", "best_bid", "best_ask", "final_outcome"]].copy()
+    quotes = working[["market_id", "recorded_at", "mid_price", "best_bid", "best_ask", "final_outcome"]].copy()
     backtest = compute_logreg_polymarket_backtest(
-        df,
+        working,
         oof_cal_scores,
         quotes,
         strategy_branch="COMBINED",
@@ -443,12 +383,10 @@ def train_and_eval_candidate(
         cost_buffer=0.0,
     )
 
-    # 3 Chronological Windows
-    from polyflip.crypto.logreg_polymarket_backtest import _first_valid_per_market
-    unique_selected, p_yes = _first_valid_per_market(df, oof_cal_scores)
-    oot_windows = _split_chronological_windows(
-        unique_selected,
-        p_yes,
+    # 3 Chronological Windows strictly by market close time
+    oot_windows = split_chronological_oot_windows(
+        working,
+        oof_cal_scores,
         quotes,
         strategy_branch="COMBINED",
         min_edge=0.03,
@@ -559,26 +497,26 @@ async def retrain_candidates_for_asset(
         if res is not None:
             candidates.append(res)
 
-    print(f"Completed evaluation: {len(candidates)} valid candidate runs.")
-
-    # Sort candidates by COMBINED net_profit descending, then median_pnl descending
+    print(f"[{asset_name}] Successfully evaluated {len(candidates)} candidates.")
     candidates.sort(
         key=lambda c: (
-            c["deployable"],
+            1 if c["deployable"] else 0,
             c["net_profit"],
             c["oot_windows"].get("median_pnl") if c["oot_windows"].get("median_pnl") is not None else -999.0,
+            -c["ece"],
         ),
         reverse=True,
     )
 
     if not dry_run and candidates:
-        # Get next version from DB
-        v_stmt = select(func.max(ModelRegistry.version)).where(ModelRegistry.asset == asset_name)
-        v_res = await session.execute(v_stmt)
-        max_v = v_res.scalar() or 0
+        max_ver_stmt = select(func.max(ModelRegistry.version)).where(
+            ModelRegistry.asset == asset_name,
+            ModelRegistry.model_type == "logreg",
+        )
+        max_v = (await session.execute(max_ver_stmt)).scalar() or 0
+        print(f"[{asset_name}] Current max version in registry: {max_v}. Saving top {top_n_save} candidates...")
 
-        to_save = candidates[:top_n_save]
-        for i, cand in enumerate(to_save):
+        for i, cand in enumerate(candidates[:top_n_save]):
             next_v = max_v + i + 1
             training_params = {
                 "metrics_schema_version": cand.get("metrics_schema_version", METRICS_SCHEMA_VERSION),
@@ -749,18 +687,15 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
+async def main() -> None:
     args = _parse_args()
-    asyncio.run(
-        run_retraining(
-            assets=args.assets,
-            phases=args.phases,
-            dry_run=args.dry_run,
-            output_dir=args.output_dir,
-        )
+    await run_retraining(
+        assets=args.assets,
+        phases=args.phases,
+        dry_run=args.dry_run,
+        output_dir=args.output_dir,
     )
-    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    asyncio.run(main())

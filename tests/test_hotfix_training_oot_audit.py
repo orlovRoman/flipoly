@@ -18,6 +18,8 @@ def test_legacy_polymarket_summary_keeps_default_invested_capital():
                 "n_eligible": 2,
                 "n_trades": 2,
                 "net_profit": 1.0,
+                "roi_pct": 50.0,
+                "max_drawdown_usdc": 1.0,
                 "total_invested": 0.0,
                 "avg_edge": 0.1,
                 "avg_net_edge": 0.08,

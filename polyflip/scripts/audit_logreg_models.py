@@ -19,8 +19,12 @@ import pandas as pd
 from sklearn.metrics import brier_score_loss, log_loss
 from sqlalchemy import select
 
-from polyflip.crypto.logreg_polymarket_backtest import compute_logreg_polymarket_backtest
+from polyflip.crypto.logreg_polymarket_backtest import (
+    compute_logreg_polymarket_backtest,
+    split_chronological_oot_windows,
+)
 from polyflip.crypto.oof_artifact import deserialize_oof_artifact
+from polyflip.crypto.polymarket_backtest import adapt_canonical_backtest_metrics
 from polyflip.db.connection import async_session
 from polyflip.db.models import ModelRegistry, ModelRegistryOOFArtifact
 
@@ -66,108 +70,14 @@ def _split_chronological_windows(
     strategy_branch: str,
     **backtest_kwargs: Any,
 ) -> dict[str, Any]:
-    """Split canonical evaluated markets into 3 chronological windows T1/T2/T3 by market_close_at."""
-    if frame.empty or len(p_yes) != len(frame):
-        return {
-            "T1": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "total_pnl": 0.0},
-            "T2": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "total_pnl": 0.0},
-            "T3": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "total_pnl": 0.0},
-            "median_pnl": 0.0,
-            "non_negative_windows_count": 0,
-        }
-
-    working = frame.copy()
-    # Determine market_close_at
-    close_col = None
-    for candidate in ("market_close_at", "resolved_at", "end_time_est", "market_start", "recorded_at"):
-        if candidate in working.columns and working[candidate].notna().any():
-            close_col = candidate
-            break
-
-    if close_col:
-        working["_close_time"] = pd.to_datetime(working[close_col], utc=True, errors="coerce")
-    else:
-        working["_close_time"] = pd.to_datetime(working["recorded_at"], utc=True, errors="coerce")
-
-    working["_p_yes"] = p_yes
-    working = working.sort_values("_close_time", kind="stable").reset_index(drop=True)
-
-    n = len(working)
-    if n < 3:
-        res = compute_logreg_polymarket_backtest(
-            working, working["_p_yes"].to_numpy(), quotes, strategy_branch=strategy_branch, **backtest_kwargs
-        )
-        return {
-            "T1": {"status": "SPARSE", "n_markets": n, "n_trades": res.get("n_trades", 0), "total_pnl": res.get("total_pnl", 0.0)},
-            "T2": {"status": "SPARSE", "n_markets": 0, "n_trades": 0, "total_pnl": 0.0},
-            "T3": {"status": "SPARSE", "n_markets": 0, "n_trades": 0, "total_pnl": 0.0},
-            "median_pnl": 0.0,
-            "non_negative_windows_count": 1 if res.get("total_pnl", 0.0) >= 0 else 0,
-        }
-
-    q33 = working["_close_time"].quantile(1.0 / 3.0)
-    q67 = working["_close_time"].quantile(2.0 / 3.0)
-
-    w1_mask = working["_close_time"] <= q33
-    w2_mask = (working["_close_time"] > q33) & (working["_close_time"] <= q67)
-    w3_mask = working["_close_time"] > q67
-
-    # Ensure no window is completely empty due to duplicate quantiles
-    if not w1_mask.any() or not w2_mask.any() or not w3_mask.any():
-        idx1 = n // 3
-        idx2 = 2 * n // 3
-        w1_mask = np.zeros(n, dtype=bool)
-        w2_mask = np.zeros(n, dtype=bool)
-        w3_mask = np.zeros(n, dtype=bool)
-        w1_mask[:idx1] = True
-        w2_mask[idx1:idx2] = True
-        w3_mask[idx2:] = True
-
-    windows = {}
-    pnls = []
-    for label, mask in (("T1", w1_mask), ("T2", w2_mask), ("T3", w3_mask)):
-        sub = working[mask].reset_index(drop=True)
-        sub_n = len(sub)
-        if sub_n == 0:
-            windows[label] = {
-                "status": "EMPTY",
-                "n_markets": 0,
-                "n_trades": 0,
-                "total_pnl": 0.0,
-                "win_rate": 0.0,
-                "max_drawdown": 0.0,
-            }
-            pnls.append(0.0)
-            continue
-
-        sub_quotes = (
-            quotes[quotes["market_id"].isin(sub["market_id"])].reset_index(drop=True)
-            if quotes is not None and not quotes.empty and "market_id" in quotes.columns
-            else None
-        )
-        res = compute_logreg_polymarket_backtest(
-            sub, sub["_p_yes"].to_numpy(), sub_quotes, strategy_branch=strategy_branch, **backtest_kwargs
-        )
-        trades = res.get("trades", [])
-        trade_pnls = [t.get("pnl", 0.0) for t in trades]
-        max_dd, _ = _compute_drawdown_series(trade_pnls)
-        tot_pnl = float(res.get("net_profit", res.get("total_pnl", 0.0)))
-        pnls.append(tot_pnl)
-        windows[label] = {
-            "status": "SPARSE" if sub_n < 30 else "OK",
-            "n_markets": sub_n,
-            "n_trades": int(res.get("n_trades", 0)),
-            "total_pnl": round(tot_pnl, 4),
-            "win_rate": round(float(res.get("win_rate", 0.0)), 4),
-            "roi": round(float(res.get("roi_pct", res.get("roi", 0.0))), 4),
-            "max_drawdown": round(max_dd, 4),
-            "time_start": sub["_close_time"].min().isoformat() if not sub.empty and pd.notna(sub["_close_time"].min()) else None,
-            "time_end": sub["_close_time"].max().isoformat() if not sub.empty and pd.notna(sub["_close_time"].max()) else None,
-        }
-
-    windows["median_pnl"] = round(float(np.median(pnls)), 4)
-    windows["non_negative_windows_count"] = int(sum(p >= 0 for p in pnls))
-    return windows
+    """Split canonical evaluated markets into 3 chronological windows T1/T2/T3 strictly by market close time."""
+    return split_chronological_oot_windows(
+        frame,
+        p_yes,
+        quotes,
+        strategy_branch=strategy_branch,
+        **backtest_kwargs,
+    )
 
 
 def audit_single_model(
@@ -233,31 +143,29 @@ def audit_single_model(
             fee_rate=fee_rate,
             cost_buffer=cost_buffer,
         )
+        canonical_metrics = adapt_canonical_backtest_metrics(res)
         trades = res.get("trades", [])
-        trade_pnls = [t.get("pnl", 0.0) for t in trades]
-        max_dd, _ = _compute_drawdown_series(trade_pnls)
-
         up_trades = [t for t in trades if t.get("side") == "YES"]
         down_trades = [t for t in trades if t.get("side") == "NO"]
 
         branches[branch] = {
-            "n_markets": res.get("n_markets", 0),
-            "n_trades": res.get("n_trades", 0),
-            "total_pnl": round(float(res.get("net_profit", res.get("total_pnl", 0.0))), 4),
-            "win_rate": round(float(res.get("win_rate", 0.0)), 4),
-            "roi": round(float(res.get("roi_pct", res.get("roi", 0.0))), 4),
-            "max_drawdown": round(max_dd, 4),
+            "n_markets": int(res.get("n_markets") or 0),
+            "n_trades": canonical_metrics.n_trades,
+            "net_profit": round(canonical_metrics.net_profit, 4),
+            "total_pnl": round(canonical_metrics.net_profit, 4),
+            "win_rate": round(canonical_metrics.win_rate, 4),
+            "roi_pct": round(canonical_metrics.roi_pct, 4),
+            "roi": round(canonical_metrics.roi_pct, 4),
+            "max_drawdown": round(canonical_metrics.max_drawdown, 4),
+            "max_drawdown_usdc": round(canonical_metrics.max_drawdown, 4),
             "up_pnl": round(sum(t.get("pnl", 0.0) for t in up_trades), 4),
             "down_pnl": round(sum(t.get("pnl", 0.0) for t in down_trades), 4),
         }
 
-    # 3 Chronological OOT Windows for COMBINED
-    # Get the unique first-valid-per-market frame and p_yes
-    from polyflip.crypto.logreg_polymarket_backtest import _first_valid_per_market
-    unique_selected, p_yes = _first_valid_per_market(frame, calibrated_scores)
-    oot_windows = _split_chronological_windows(
-        unique_selected,
-        p_yes,
+    # 3 Chronological OOT Windows for COMBINED strictly by market close time
+    oot_windows = split_chronological_oot_windows(
+        frame,
+        calibrated_scores,
         quotes,
         strategy_branch="COMBINED",
         min_edge=min_edge,
@@ -267,25 +175,30 @@ def audit_single_model(
 
     combined = branches["COMBINED"]
     ece_val = metrics.get("calibrated_ece", 1.0)
+    median_win_pnl = oot_windows.get("median_pnl")
+    non_neg_windows = oot_windows.get("non_negative_windows_count", 0)
+
     is_deployable = (
-        combined["total_pnl"] > 0
-        and oot_windows.get("median_pnl", -1.0) > 0
-        and oot_windows.get("non_negative_windows_count", 0) >= 2
+        combined["net_profit"] > 0
+        and median_win_pnl is not None
+        and median_win_pnl > 0
+        and non_neg_windows >= 2
         and combined["n_trades"] >= 30
         and (ece_val is None or ece_val <= 0.10)
     )
 
     rejection_reasons = []
-    if combined["total_pnl"] <= 0:
-        rejection_reasons.append(f"COMBINED PnL <= 0 ({combined['total_pnl']})")
-    if oot_windows.get("median_pnl", 0.0) <= 0:
-        rejection_reasons.append(f"Median window PnL <= 0 ({oot_windows.get('median_pnl')})")
-    if oot_windows.get("non_negative_windows_count", 0) < 2:
-        rejection_reasons.append(f"Less than 2 non-negative windows ({oot_windows.get('non_negative_windows_count')}/3)")
+    if combined["net_profit"] <= 0:
+        rejection_reasons.append(f"COMBINED PnL <= 0 ({combined['net_profit']:.2f})")
+    if median_win_pnl is None or median_win_pnl <= 0:
+        med_str = f"{median_win_pnl:.2f}" if median_win_pnl is not None else "None"
+        rejection_reasons.append(f"Median window PnL <= 0 ({med_str})")
+    if non_neg_windows < 2:
+        rejection_reasons.append(f"Less than 2 non-negative windows ({non_neg_windows}/3)")
     if combined["n_trades"] < 30:
         rejection_reasons.append(f"Insufficient trades ({combined['n_trades']} < 30)")
     if ece_val is not None and ece_val > 0.10:
-        rejection_reasons.append(f"Excessive ECE ({ece_val} > 0.10)")
+        rejection_reasons.append(f"Excessive ECE ({ece_val:.4f} > 0.10)")
 
     return {
         "model_id": model.id,
@@ -341,7 +254,7 @@ async def audit_models(
         for row in artifact_rows:
             try:
                 artifacts_by_id[row.model_registry_id] = deserialize_oof_artifact(row.artifact_blob)
-            except Exception as e:
+            except Exception:
                 artifacts_by_id[row.model_registry_id] = None
 
         results = []
