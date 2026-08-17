@@ -203,21 +203,24 @@
                             <table class="data-table" id="models-table">
                                 <thead>
                                     <tr>
+                                        <th data-sort="id" style="cursor:pointer; user-select:none;">ID<span class="sort-icon"></span></th>
                                         <th data-sort="asset" style="cursor:pointer; user-select:none;">Актив<span class="sort-icon"></span></th>
                                         <th data-sort="version" style="cursor:pointer; user-select:none;">Версия<span class="sort-icon"></span></th>
+                                        <th>Тип модели</th>
+                                        <th>Набор признаков (Features)</th>
+                                        <th>Порог UP</th>
+                                        <th>Порог DOWN</th>
                                         <th data-sort="accuracy" style="cursor:pointer; user-select:none;">Точность (Acc)<span class="sort-icon"></span></th>
-                                        <th data-sort="baseline" style="cursor:pointer; user-select:none;">Базовая точность<span class="sort-icon"></span></th>
-                                        <th data-sort="ece" style="cursor:pointer; user-select:none;">ECE<span class="sort-icon"></span></th>
-                                        <th data-sort="trained_at" style="cursor:pointer; user-select:none;">Дата обучения<span class="sort-icon"></span></th>
                                         <th data-sort="backtest_pnl" style="cursor:pointer; user-select:none;">Backtest PnL<span class="sort-icon"></span></th>
-                                        <th data-sort="pnl" style="cursor:pointer; user-select:none;">Реализованный PnL<span class="sort-icon"></span></th>
+                                        <th>Сделок (Backtest)</th>
                                         <th data-sort="status" style="cursor:pointer; user-select:none;">Статус<span class="sort-icon"></span></th>
+                                        <th data-sort="trained_at" style="cursor:pointer; user-select:none;">Дата создания<span class="sort-icon"></span></th>
                                         <th>Действия</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr>
-                                        <td colspan="10" class="text-center">Загрузка моделей...</td>
+                                        <td colspan="13" class="text-center">Загрузка моделей...</td>
                                     </tr>
                                 </tbody>
                             </table>
