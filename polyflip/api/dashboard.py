@@ -149,22 +149,19 @@ async def get_dashboard_data(
         markets = markets_res.scalars().all()
 
         # 3. Активность сбора данных по часам за указанный период (hours)
+        hour_trunc = func.date_trunc("hour", MarketSnapshot.market_timestamp)
         snapshot_counts_query = (
             select(
                 MarketSnapshot.asset,
-                func.to_char(
-                    MarketSnapshot.market_timestamp, "YYYY-MM-DD HH24:00:00"
-                ).label("hour"),
+                func.to_char(hour_trunc, "YYYY-MM-DD HH24:00:00").label("hour"),
                 func.count(MarketSnapshot.id).label("count"),
             )
             .where(MarketSnapshot.market_timestamp >= start_time)
             .group_by(
                 MarketSnapshot.asset,
-                func.to_char(
-                    MarketSnapshot.market_timestamp, "YYYY-MM-DD HH24:00:00"
-                ),
+                hour_trunc,
             )
-            .order_by("hour")
+            .order_by(hour_trunc)
         )
         counts_res = await db.execute(snapshot_counts_query)
         counts_data = counts_res.all()
