@@ -45,7 +45,7 @@ async def get_dashboard(request: Request):
         context={
             "request": request,
             "timestamp": int(time.time()),
-            "static_version": STATIC_VERSION,
+            "static_version": f"{STATIC_VERSION}_{int(time.time())}",
             "assets": settings.asset_list,
             "root_path": request.scope.get("root_path", ""),
         },
@@ -152,16 +152,16 @@ async def get_dashboard_data(
         snapshot_counts_query = (
             select(
                 MarketSnapshot.asset,
-                func.strftime(
-                    "%Y-%m-%d %H:00:00", MarketSnapshot.market_timestamp
+                func.to_char(
+                    MarketSnapshot.market_timestamp, "YYYY-MM-DD HH24:00:00"
                 ).label("hour"),
                 func.count(MarketSnapshot.id).label("count"),
             )
             .where(MarketSnapshot.market_timestamp >= start_time)
             .group_by(
                 MarketSnapshot.asset,
-                func.strftime(
-                    "%Y-%m-%d %H:00:00", MarketSnapshot.market_timestamp
+                func.to_char(
+                    MarketSnapshot.market_timestamp, "YYYY-MM-DD HH24:00:00"
                 ),
             )
             .order_by("hour")
@@ -202,11 +202,21 @@ async def get_dashboard_data(
             activity_data[asset].append({"hour": hour, "count": count})
 
         # 4. Получаем данные об активных моделях для вкладки "Модели"
-        models_query = select(ModelRegistry).where(
-            ModelRegistry.is_active == True
-        )
+        models_query = select(
+            ModelRegistry.id,
+            ModelRegistry.asset,
+            ModelRegistry.version,
+            ModelRegistry.model_type,
+            ModelRegistry.features,
+            ModelRegistry.decision_threshold,
+            ModelRegistry.decision_threshold_down,
+            ModelRegistry.accuracy,
+            ModelRegistry.backtest_pnl,
+            ModelRegistry.backtest_trades,
+            ModelRegistry.trained_at,
+        ).where(ModelRegistry.is_active == True)
         models_res = await db.execute(models_query)
-        models = models_res.scalars().all()
+        models_rows = models_res.all()
 
         models_data = [
             {
@@ -220,11 +230,11 @@ async def get_dashboard_data(
                 "accuracy": m.accuracy,
                 "backtest_pnl": m.backtest_pnl,
                 "backtest_trades": m.backtest_trades,
-                "created_at": m.created_at.isoformat()
-                if m.created_at
+                "created_at": m.trained_at.isoformat()
+                if m.trained_at
                 else None,
             }
-            for m in models
+            for m in models_rows
         ]
 
         result = {

@@ -86,54 +86,201 @@ document.addEventListener("DOMContentLoaded", () => {
       .join(", ");
   };
 
-  // 1. Fetch Summary
-  async function loadSummary(retryCount = 0) {
+  // === 1. Dashboard Analytics & Status Data ===
+  let currentDashboardHours = 24;
+  let activityChartInstance = null;
+
+  async function loadDashboardData(hours = currentDashboardHours) {
+    currentDashboardHours = hours;
     try {
-      
-      const res = await fetch(window.API_BASE + "/api/analytics/summary", {
+      const res = await fetch(`${window.API_BASE}/api/dashboard_data?hours=${hours}`, {
         headers: getHeaders()
       });
       if (!res.ok) {
-        console.error("[Summary] API returned non-200 status:", res.status);
-        if (retryCount < 3) {
-          setTimeout(() => loadSummary(retryCount + 1), 1000);
-        }
+        console.error("[Dashboard] API returned status:", res.status);
         return;
       }
-      const data = await res.json();
-      
+      const json = await res.json();
+      const data = json.data || {};
 
-      const marketsEl = document.getElementById("stat-markets");
-      if (marketsEl) {
-        marketsEl.innerText = (data.total_resolved_markets != null) 
-          ? data.total_resolved_markets.toLocaleString() 
-          : "0";
+      // 1.1 KPI Cards
+      const activeMarketsEl = document.getElementById("kpi-active-markets");
+      if (activeMarketsEl) {
+        activeMarketsEl.innerText = (data.markets ? data.markets.length : 0);
       }
 
-      const flipsEl = document.getElementById("stat-flips");
-      if (flipsEl) {
-        flipsEl.innerText = (data.flip_percentage != null) 
-          ? data.flip_percentage + "%" 
-          : "0%";
-      }
-
-      // Загружаем подробную таблицу активных моделей
-      fetchActiveModelsSummary();
-
-      // Рендерим графики точности при наличии Chart.js
-      if (data.model_history) {
-        Object.keys(data.model_history).forEach((asset) => {
-          try {
-            renderAccuracyChart(data.model_history[asset], asset);
-          } catch (chartErr) {
-            console.warn("Failed to render accuracy chart for " + asset, chartErr);
-          }
+      // Total snapshots in period
+      let totalSnapshots = 0;
+      if (data.activity) {
+        Object.values(data.activity).forEach((assetRows) => {
+          assetRows.forEach((r) => { totalSnapshots += (r.count || 0); });
         });
       }
+      const snapshotsCountEl = document.getElementById("kpi-snapshots-count");
+      if (snapshotsCountEl) {
+        snapshotsCountEl.innerText = totalSnapshots.toLocaleString();
+      }
+      const snapshotsPeriodEl = document.getElementById("kpi-snapshots-period");
+      if (snapshotsPeriodEl) {
+        snapshotsPeriodEl.innerText = `за последние ${hours}ч`;
+      }
+
+      // Parser status KPI
+      const parsersStatusEl = document.getElementById("kpi-parsers-status");
+      const parsersDetailsEl = document.getElementById("kpi-parsers-details");
+      if (parsersStatusEl && data.services) {
+        const hasServices = data.services.length > 0;
+        const allOk = hasServices && data.services.every((s) => s.status === "OK" || s.status === "RUNNING");
+        if (allOk) {
+          parsersStatusEl.innerText = "ONLINE";
+          parsersStatusEl.className = "kpi-value status-ok";
+        } else {
+          parsersStatusEl.innerText = hasServices ? "DEGRADED" : "—";
+          parsersStatusEl.className = hasServices ? "kpi-value status-warning" : "kpi-value";
+        }
+        if (parsersDetailsEl) {
+          parsersDetailsEl.innerText = `${data.services.length} сервисов активно`;
+        }
+      }
+
+      // 1.2 Active Markets Table
+      renderMarketsTable(data.markets || []);
+
+      // 1.3 Status Table (Parser Status tab)
+      renderStatusTable(data.services || []);
+
+      // 1.4 Activity Chart
+      renderActivityChart(data.activity || {});
+
     } catch (e) {
-      console.error("[Summary] Failed to load summary", e);
+      console.error("[Dashboard] Failed to load dashboard data", e);
+    }
+  }
+
+  function renderMarketsTable(markets) {
+    const tbody = document.querySelector("#markets-table tbody");
+    if (!tbody) return;
+    if (!markets || markets.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="color: var(--text-muted);">Нет активных рынков</td></tr>';
+      return;
+    }
+    tbody.innerHTML = markets.map((m) => {
+      const upPrice = m.price_up != null ? `$${Number(m.price_up).toFixed(3)}` : "—";
+      const downPrice = m.price_down != null ? `$${Number(m.price_down).toFixed(3)}` : "—";
+      let timeLeft = "—";
+      if (m.end_date) {
+        const diffMs = new Date(m.end_date) - new Date();
+        if (diffMs > 0) {
+          const mins = Math.floor(diffMs / 60000);
+          timeLeft = mins >= 60 ? `${Math.floor(mins / 60)}ч ${mins % 60}м` : `${mins} мин`;
+        } else {
+          timeLeft = "Закрыт";
+        }
+      }
+      const condId = m.condition_id 
+        ? `${m.condition_id.substring(0, 8)}...${m.condition_id.substring(m.condition_id.length - 6)}` 
+        : "—";
+      return `<tr>
+        <td><strong>${escapeHtml(m.asset || "")}</strong></td>
+        <td><span style="font-size:0.85rem;" title="${escapeHtml(m.slug || "")}">${escapeHtml(m.slug || "—")}</span></td>
+        <td style="color: var(--poly-green); font-weight: 600;">${upPrice}</td>
+        <td style="color: #ff6b6b; font-weight: 600;">${downPrice}</td>
+        <td>${timeLeft}</td>
+        <td><code style="font-size:0.75rem; color: var(--text-muted);">${escapeHtml(condId)}</code></td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderStatusTable(services) {
+    const tbody = document.querySelector("#status-table tbody");
+    if (!tbody) return;
+    if (!services || services.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="color: var(--text-muted);">Нет данных о статусах</td></tr>';
+      return;
+    }
+    tbody.innerHTML = services.map((s) => {
+      const isOk = s.status === "OK" || s.status === "RUNNING";
+      const statusBadge = isOk 
+        ? '<span style="color: var(--poly-green); font-weight: 600;">ONLINE</span>' 
+        : `<span style="color: #ff6b6b; font-weight: 600;">${escapeHtml(s.status || "ERROR")}</span>`;
+      const lastSeen = s.last_seen ? new Date(s.last_seen).toLocaleTimeString() : "—";
+      const latency = s.latency_ms != null ? `${s.latency_ms} мс` : "—";
+      return `<tr>
+        <td><strong>${escapeHtml(s.service || "")}</strong></td>
+        <td>${statusBadge}</td>
+        <td>${latency}</td>
+        <td>${lastSeen}</td>
+        <td style="font-size: 0.85rem; color: var(--text-muted);">${escapeHtml(s.details || "—")}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderActivityChart(activity) {
+    const canvas = document.getElementById("activityChart");
+    if (!canvas || typeof Chart === "undefined") return;
+
+    const allHours = new Set();
+    Object.values(activity).forEach((rows) => {
+      rows.forEach((r) => { if (r.hour) allHours.add(r.hour); });
+    });
+    const sortedHours = Array.from(allHours).sort();
+    const hourLabels = sortedHours.map((h) => {
+      const d = new Date(h);
+      return isNaN(d) ? h : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+
+    const datasets = Object.entries(activity).map(([asset, rows]) => {
+      const countsByHour = {};
+      rows.forEach((r) => { countsByHour[r.hour] = r.count; });
+      const data = sortedHours.map((h) => countsByHour[h] || 0);
+      const color = getAssetColor(asset);
+      return {
+        label: asset,
+        data: data,
+        borderColor: color,
+        backgroundColor: color + "20",
+        borderWidth: 2,
+        tension: 0.3,
+        fill: false,
+      };
+    });
+
+    if (activityChartInstance) {
+      activityChartInstance.destroy();
     }
 
+    activityChartInstance = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: {
+        labels: hourLabels,
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { labels: { color: "#8F9BB3" } }
+        },
+        scales: {
+          x: { ticks: { color: "#8F9BB3" }, grid: { color: "rgba(255,255,255,0.05)" } },
+          y: { ticks: { color: "#8F9BB3" }, grid: { color: "rgba(255,255,255,0.05)" }, beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  function setupPeriodSelector() {
+    document.querySelectorAll(".period-btn").forEach((btn) => {
+      if (btn.dataset.bound) return;
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".period-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const hours = parseInt(btn.getAttribute("data-hours"), 10) || 24;
+        loadDashboardData(hours);
+      });
+    });
   }
 
   let activeModelsData = [];
@@ -1397,11 +1544,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnRefreshStatus = document.getElementById("btn-refresh-status");
   if (btnRefreshStatus) {
     btnRefreshStatus.addEventListener("click", () => {
-      loadSummary();
-      if (chartsLoaded) {
-        loadCharts(true);
-      }
-      loadParserStatus();
+      loadDashboardData(currentDashboardHours);
+      loadModelsHistory();
     });
   }
 
@@ -1465,27 +1609,25 @@ document.addEventListener("DOMContentLoaded", () => {
   }
  
   // === Init ===
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => {
-      loadSummary();
-      fetchActiveModelsSummary();
-      loadSettings();
-      loadParserStatus();
-      loadModelsHistory();
-    });
-  } else {
-    loadSummary();
+  function initDashboard() {
+    setupPeriodSelector();
+    loadDashboardData(24);
     fetchActiveModelsSummary();
     loadSettings();
-    loadParserStatus();
     loadModelsHistory();
   }
 
-  // Auto-refresh parser status every 30 seconds (BUG-M)
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initDashboard);
+  } else {
+    initDashboard();
+  }
+
+  // Auto-refresh dashboard data every 10 seconds
   setInterval(() => {
     if (document.hidden) return;
-    loadParserStatus();
-  }, 30000);
+    loadDashboardData(currentDashboardHours);
+  }, 10000);
 });
 
 
