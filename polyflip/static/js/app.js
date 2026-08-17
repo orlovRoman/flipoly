@@ -12,19 +12,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // === Tab Switching Logic ===
   const navItems = document.querySelectorAll(".nav-item");
-  const tabContents = document.querySelectorAll(".tab-content");
+  const tabPanes = document.querySelectorAll(".tab-pane");
 
   navItems.forEach((item) => {
     item.addEventListener("click", () => {
       // Remove active class from all
       navItems.forEach((nav) => nav.classList.remove("active"));
-      tabContents.forEach((tab) => tab.classList.remove("active"));
+      tabPanes.forEach((tab) => tab.classList.remove("active"));
 
       // Add active class to clicked
       item.classList.add("active");
       const targetId = item.getAttribute("data-tab");
       if (targetId) {
-        document.getElementById(targetId).classList.add("active");
+        const targetPane = document.getElementById(`${targetId}-tab`) || document.getElementById(targetId);
+        if (targetPane) targetPane.classList.add("active");
       } else if (item.getAttribute("data-href")) {
         window.location.href = item.getAttribute("data-href");
       }
