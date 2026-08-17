@@ -159,7 +159,7 @@ def _split_chronological_windows(
         trades = res.get("trades", [])
         trade_pnls = [t.get("pnl", 0.0) for t in trades]
         max_dd, _ = _compute_drawdown_series(trade_pnls)
-        tot_pnl = float(res.get("total_pnl", 0.0))
+        tot_pnl = float(res.get("net_profit", res.get("total_pnl", 0.0)))
         pnls.append(tot_pnl)
         windows[label] = {
             "status": "SPARSE" if sub_n < 30 else "OK",
@@ -167,7 +167,7 @@ def _split_chronological_windows(
             "n_trades": int(res.get("n_trades", 0)),
             "total_pnl": round(tot_pnl, 4),
             "win_rate": round(float(res.get("win_rate", 0.0)), 4),
-            "roi": round(float(res.get("roi", 0.0)), 4),
+            "roi": round(float(res.get("roi_pct", res.get("roi", 0.0))), 4),
             "max_drawdown": round(max_dd, 4),
             "time_start": sub["_close_time"].min().isoformat() if not sub.empty and pd.notna(sub["_close_time"].min()) else None,
             "time_end": sub["_close_time"].max().isoformat() if not sub.empty and pd.notna(sub["_close_time"].max()) else None,
@@ -434,7 +434,7 @@ def train_and_eval_candidate(
     trade_pnls = [t.get("pnl", 0.0) for t in trades]
     max_dd, _ = _compute_drawdown_series(trade_pnls)
 
-    total_pnl = float(backtest.get("total_pnl", 0.0))
+    total_pnl = float(backtest.get("net_profit", backtest.get("total_pnl", 0.0)))
     median_win_pnl = oot_windows.get("median_pnl", -1.0)
     non_neg_windows = oot_windows.get("non_negative_windows_count", 0)
     n_trades = int(backtest.get("n_trades", 0))

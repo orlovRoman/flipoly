@@ -151,7 +151,7 @@ def _split_chronological_windows(
         trades = res.get("trades", [])
         trade_pnls = [t.get("pnl", 0.0) for t in trades]
         max_dd, _ = _compute_drawdown_series(trade_pnls)
-        tot_pnl = float(res.get("total_pnl", 0.0))
+        tot_pnl = float(res.get("net_profit", res.get("total_pnl", 0.0)))
         pnls.append(tot_pnl)
         windows[label] = {
             "status": "SPARSE" if sub_n < 30 else "OK",
@@ -159,7 +159,7 @@ def _split_chronological_windows(
             "n_trades": int(res.get("n_trades", 0)),
             "total_pnl": round(tot_pnl, 4),
             "win_rate": round(float(res.get("win_rate", 0.0)), 4),
-            "roi": round(float(res.get("roi", 0.0)), 4),
+            "roi": round(float(res.get("roi_pct", res.get("roi", 0.0))), 4),
             "max_drawdown": round(max_dd, 4),
             "time_start": sub["_close_time"].min().isoformat() if not sub.empty and pd.notna(sub["_close_time"].min()) else None,
             "time_end": sub["_close_time"].max().isoformat() if not sub.empty and pd.notna(sub["_close_time"].max()) else None,
@@ -243,9 +243,9 @@ def audit_single_model(
         branches[branch] = {
             "n_markets": res.get("n_markets", 0),
             "n_trades": res.get("n_trades", 0),
-            "total_pnl": round(float(res.get("total_pnl", 0.0)), 4),
+            "total_pnl": round(float(res.get("net_profit", res.get("total_pnl", 0.0))), 4),
             "win_rate": round(float(res.get("win_rate", 0.0)), 4),
-            "roi": round(float(res.get("roi", 0.0)), 4),
+            "roi": round(float(res.get("roi_pct", res.get("roi", 0.0))), 4),
             "max_drawdown": round(max_dd, 4),
             "up_pnl": round(sum(t.get("pnl", 0.0) for t in up_trades), 4),
             "down_pnl": round(sum(t.get("pnl", 0.0) for t in down_trades), 4),
