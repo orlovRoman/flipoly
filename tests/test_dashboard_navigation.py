@@ -23,3 +23,11 @@ def test_dashboard_navigation_targets_tab_panes():
     assert {f"{target}-tab" for target in targets} <= pane_ids
     assert 'querySelectorAll(".tab-pane")' in source
     assert 'document.getElementById(`${targetId}-tab`)' in source
+
+
+
+def test_dashboard_css_shows_active_tab_panes():
+    css = (ROOT / "polyflip" / "static" / "css" / "style.css").read_text(encoding="utf-8")
+    assert ".tab-pane {" in css
+    assert ".tab-pane.active {" in css
+    assert ".tab-content.active" not in css

@@ -90,12 +90,12 @@ body {
                 radial-gradient(circle at bottom left, rgba(0, 211, 149, 0.05), transparent 40%);
 }
 
-.tab-content {
+.tab-pane {
     display: none;
     animation: fadeIn 0.4s ease forwards;
 }
 
-.tab-content.active {
+.tab-pane.active {
     display: block;
 }
 
