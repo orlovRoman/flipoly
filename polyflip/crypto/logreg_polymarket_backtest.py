@@ -13,7 +13,13 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-from polyflip.crypto.polymarket_backtest import compute_oof_polymarket_backtest
+from polyflip.crypto.polymarket_backtest import (
+    METRICS_SCHEMA_VERSION,
+    CanonicalBacktestMetrics,
+    MetricsSchemaMismatchError,
+    adapt_canonical_backtest_metrics,
+    compute_oof_polymarket_backtest,
+)
 
 
 LOGREG_PREDICTION_SEMANTICS = "FLIP_VS_FINAL_OUTCOME"

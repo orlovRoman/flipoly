@@ -29,6 +29,88 @@ DEFAULT_OUTSIDER_MAX_PRICE = 0.45
 DEFAULT_STAKE_USDC = 1.0
 
 
+METRICS_SCHEMA_VERSION = "canonical_pnl_v1"
+
+
+class MetricsSchemaMismatchError(ValueError):
+    """Raised when backtest output misses required canonical metrics without fallback."""
+    pass
+
+
+@dataclass(frozen=True)
+class CanonicalBacktestMetrics:
+    net_profit: float
+    roi_pct: float
+    max_drawdown: float
+    n_trades: int
+    win_rate: float
+    metrics_schema_version: str = METRICS_SCHEMA_VERSION
+
+    @property
+    def max_drawdown_usdc(self) -> float:
+        return self.max_drawdown
+
+    @property
+    def total_pnl(self) -> float:
+        return self.net_profit
+
+
+def adapt_canonical_backtest_metrics(
+    result: dict[str, Any],
+    *,
+    schema_version: str = METRICS_SCHEMA_VERSION,
+) -> CanonicalBacktestMetrics:
+    """Strict canonical adapter for Polymarket backtester output.
+
+    Enforces the single permitted mapping:
+      net_profit = result["net_profit"]
+      roi_pct = result["roi_pct"]
+      max_drawdown = result["max_drawdown_usdc"]
+
+    Raises MetricsSchemaMismatchError if any required key is missing or None.
+    Zero-fallback is strictly prohibited.
+    """
+    if not isinstance(result, dict):
+        raise MetricsSchemaMismatchError(
+            f"Backtest result must be a dict, got {type(result).__name__}"
+        )
+
+    for key in ("net_profit", "roi_pct", "max_drawdown_usdc"):
+        if key not in result or result[key] is None:
+            present_keys = sorted(list(result.keys()))
+            raise MetricsSchemaMismatchError(
+                f"Metrics schema mismatch: missing required canonical key {key!r}. "
+                f"Keys present: {present_keys}"
+            )
+
+    try:
+        net_profit = float(result["net_profit"])
+        roi_pct = float(result["roi_pct"])
+        max_drawdown = float(result["max_drawdown_usdc"])
+    except (TypeError, ValueError) as exc:
+        raise MetricsSchemaMismatchError(
+            f"Metrics schema mismatch: non-numeric canonical metric value: {exc}"
+        ) from exc
+
+    if not np.isfinite(net_profit) or not np.isfinite(roi_pct) or not np.isfinite(max_drawdown):
+        raise MetricsSchemaMismatchError(
+            f"Metrics schema mismatch: non-finite metric value (net_profit={net_profit}, roi_pct={roi_pct}, max_drawdown={max_drawdown})"
+        )
+
+    n_trades = int(result.get("n_trades", 0))
+    win_rate = float(result.get("win_rate", 0.0))
+
+    return CanonicalBacktestMetrics(
+        net_profit=net_profit,
+        roi_pct=roi_pct,
+        max_drawdown=max_drawdown,
+        n_trades=n_trades,
+        win_rate=win_rate,
+        metrics_schema_version=schema_version,
+    )
+
+
+
 @dataclass(frozen=True)
 class Candidate:
     side: str
@@ -160,6 +242,7 @@ def _oot_window_summaries(trades: list[dict[str, Any]], stake_usdc: float) -> li
         window_invested = stake_usdc * len(indices)
         summaries.append({
             "window": index,
+            "metrics_schema_version": METRICS_SCHEMA_VERSION,
             "n_trades": int(len(indices)),
             "net_profit": float(pnl.sum()),
             "max_drawdown_usdc": drawdown,
@@ -285,6 +368,7 @@ def compute_oof_polymarket_backtest(
     if not trades:
         return {
             "strategy_branch": strategy_branch.upper(),
+            "metrics_schema_version": METRICS_SCHEMA_VERSION,
             "n_markets": int(len(base)),
             "n_quotes": int(len(merged)),
             "n_oof": int(np.isfinite(scores).sum()),
@@ -363,6 +447,7 @@ def compute_oof_polymarket_backtest(
 
     return {
         "strategy_branch": strategy_branch.upper(),
+        "metrics_schema_version": METRICS_SCHEMA_VERSION,
         "n_markets": int(len(base)),
         "n_quotes": int(len(merged)),
         "n_oof": int(np.isfinite(scores).sum()),
@@ -411,13 +496,15 @@ def aggregate_stored_polymarket_backtests(
     weighted_stake_count = 0
     coverage_reasons = Counter()
     for result in results:
+        metrics = adapt_canonical_backtest_metrics(result)
+        count = metrics.n_trades
+        n_trades += count
+        net_profit += metrics.net_profit
+        wins += metrics.win_rate * count
         n_markets += int(result.get("n_markets") or 0)
         n_quotes += int(result.get("n_quotes") or 0)
         n_oof += int(result.get("n_oof") or 0)
         n_eligible += int(result.get("n_eligible") or 0)
-        count = int(result.get("n_trades") or 0)
-        n_trades += count
-        net_profit += float(result.get("net_profit") or 0.0)
         invested_val = float(result.get("total_invested") or 0.0)
         persisted_stake = result.get("stake_usdc")
         try:
@@ -441,7 +528,6 @@ def aggregate_stored_polymarket_backtests(
         edge_sum += float(result.get("avg_edge") or 0.0) * count
         net_edge_sum += float(result.get("avg_net_edge") or 0.0) * count
         price_sum += float(result.get("avg_entry_price") or 0.0) * count
-        wins += float(result.get("win_rate") or 0.0) * count
         for reason, reason_count in (result.get("coverage_reasons") or {}).items():
             try:
                 coverage_reasons[str(reason)] += int(reason_count)
@@ -480,6 +566,7 @@ def aggregate_stored_polymarket_backtests(
     )
     return {
         "strategy_branch": branch,
+        "metrics_schema_version": METRICS_SCHEMA_VERSION,
         "n_markets": n_markets,
         "n_quotes": n_quotes,
         "n_oof": n_oof,

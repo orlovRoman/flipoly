@@ -26,6 +26,12 @@ from sqlalchemy import func, select
 
 from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS, PRICE_PHASE_BOUNDARIES
 from polyflip.crypto.logreg_polymarket_backtest import compute_logreg_polymarket_backtest
+from polyflip.crypto.polymarket_backtest import (
+    METRICS_SCHEMA_VERSION,
+    CanonicalBacktestMetrics,
+    MetricsSchemaMismatchError,
+    adapt_canonical_backtest_metrics,
+)
 from polyflip.crypto.oof_artifact import OOF_ARTIFACT_SCHEMA_VERSION, serialize_oof_artifact
 from polyflip.db.connection import async_session
 from polyflip.db.models import MarketSnapshot, ModelRegistry, ModelRegistryOOFArtifact
@@ -79,10 +85,11 @@ def _split_chronological_windows(
     """Split canonical evaluated markets into 3 chronological windows T1/T2/T3 by market_close_at."""
     if frame.empty or len(p_yes) != len(frame):
         return {
-            "T1": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "total_pnl": 0.0},
-            "T2": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "total_pnl": 0.0},
-            "T3": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "total_pnl": 0.0},
-            "median_pnl": 0.0,
+            "metrics_schema_version": METRICS_SCHEMA_VERSION,
+            "T1": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "net_profit": None, "total_pnl": None, "roi_pct": None, "roi": None, "max_drawdown": None, "max_drawdown_usdc": None, "win_rate": None, "metrics_schema_version": METRICS_SCHEMA_VERSION},
+            "T2": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "net_profit": None, "total_pnl": None, "roi_pct": None, "roi": None, "max_drawdown": None, "max_drawdown_usdc": None, "win_rate": None, "metrics_schema_version": METRICS_SCHEMA_VERSION},
+            "T3": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "net_profit": None, "total_pnl": None, "roi_pct": None, "roi": None, "max_drawdown": None, "max_drawdown_usdc": None, "win_rate": None, "metrics_schema_version": METRICS_SCHEMA_VERSION},
+            "median_pnl": None,
             "non_negative_windows_count": 0,
         }
 
@@ -106,12 +113,26 @@ def _split_chronological_windows(
         res = compute_logreg_polymarket_backtest(
             working, working["_p_yes"].to_numpy(), quotes, strategy_branch=strategy_branch, **backtest_kwargs
         )
+        metrics = adapt_canonical_backtest_metrics(res)
         return {
-            "T1": {"status": "SPARSE", "n_markets": n, "n_trades": res.get("n_trades", 0), "total_pnl": res.get("total_pnl", 0.0)},
-            "T2": {"status": "SPARSE", "n_markets": 0, "n_trades": 0, "total_pnl": 0.0},
-            "T3": {"status": "SPARSE", "n_markets": 0, "n_trades": 0, "total_pnl": 0.0},
-            "median_pnl": 0.0,
-            "non_negative_windows_count": 1 if res.get("total_pnl", 0.0) >= 0 else 0,
+            "metrics_schema_version": METRICS_SCHEMA_VERSION,
+            "T1": {
+                "status": "SPARSE",
+                "n_markets": n,
+                "n_trades": metrics.n_trades,
+                "net_profit": round(metrics.net_profit, 4),
+                "total_pnl": round(metrics.net_profit, 4),
+                "win_rate": round(metrics.win_rate, 4),
+                "roi_pct": round(metrics.roi_pct, 4),
+                "roi": round(metrics.roi_pct, 4),
+                "max_drawdown": round(metrics.max_drawdown, 4),
+                "max_drawdown_usdc": round(metrics.max_drawdown, 4),
+                "metrics_schema_version": METRICS_SCHEMA_VERSION,
+            },
+            "T2": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "net_profit": None, "total_pnl": None, "roi_pct": None, "roi": None, "max_drawdown": None, "max_drawdown_usdc": None, "win_rate": None, "metrics_schema_version": METRICS_SCHEMA_VERSION},
+            "T3": {"status": "EMPTY", "n_markets": 0, "n_trades": 0, "net_profit": None, "total_pnl": None, "roi_pct": None, "roi": None, "max_drawdown": None, "max_drawdown_usdc": None, "win_rate": None, "metrics_schema_version": METRICS_SCHEMA_VERSION},
+            "median_pnl": round(metrics.net_profit, 4),
+            "non_negative_windows_count": 1 if metrics.net_profit >= 0 else 0,
         }
 
     q33 = working["_close_time"].quantile(1.0 / 3.0)
@@ -131,7 +152,7 @@ def _split_chronological_windows(
         w2_mask[idx1:idx2] = True
         w3_mask[idx2:] = True
 
-    windows = {}
+    windows: dict[str, Any] = {"metrics_schema_version": METRICS_SCHEMA_VERSION}
     pnls = []
     for label, mask in (("T1", w1_mask), ("T2", w2_mask), ("T3", w3_mask)):
         sub = working[mask].reset_index(drop=True)
@@ -141,11 +162,15 @@ def _split_chronological_windows(
                 "status": "EMPTY",
                 "n_markets": 0,
                 "n_trades": 0,
-                "total_pnl": 0.0,
-                "win_rate": 0.0,
-                "max_drawdown": 0.0,
+                "net_profit": None,
+                "total_pnl": None,
+                "win_rate": None,
+                "roi_pct": None,
+                "roi": None,
+                "max_drawdown": None,
+                "max_drawdown_usdc": None,
+                "metrics_schema_version": METRICS_SCHEMA_VERSION,
             }
-            pnls.append(0.0)
             continue
 
         sub_quotes = (
@@ -156,24 +181,25 @@ def _split_chronological_windows(
         res = compute_logreg_polymarket_backtest(
             sub, sub["_p_yes"].to_numpy(), sub_quotes, strategy_branch=strategy_branch, **backtest_kwargs
         )
-        trades = res.get("trades", [])
-        trade_pnls = [t.get("pnl", 0.0) for t in trades]
-        max_dd, _ = _compute_drawdown_series(trade_pnls)
-        tot_pnl = float(res.get("net_profit", res.get("total_pnl", 0.0)))
-        pnls.append(tot_pnl)
+        metrics = adapt_canonical_backtest_metrics(res)
+        pnls.append(metrics.net_profit)
         windows[label] = {
             "status": "SPARSE" if sub_n < 30 else "OK",
             "n_markets": sub_n,
-            "n_trades": int(res.get("n_trades", 0)),
-            "total_pnl": round(tot_pnl, 4),
-            "win_rate": round(float(res.get("win_rate", 0.0)), 4),
-            "roi": round(float(res.get("roi_pct", res.get("roi", 0.0))), 4),
-            "max_drawdown": round(max_dd, 4),
+            "n_trades": metrics.n_trades,
+            "net_profit": round(metrics.net_profit, 4),
+            "total_pnl": round(metrics.net_profit, 4),
+            "win_rate": round(metrics.win_rate, 4),
+            "roi_pct": round(metrics.roi_pct, 4),
+            "roi": round(metrics.roi_pct, 4),
+            "max_drawdown": round(metrics.max_drawdown, 4),
+            "max_drawdown_usdc": round(metrics.max_drawdown, 4),
+            "metrics_schema_version": METRICS_SCHEMA_VERSION,
             "time_start": sub["_close_time"].min().isoformat() if not sub.empty and pd.notna(sub["_close_time"].min()) else None,
             "time_end": sub["_close_time"].max().isoformat() if not sub.empty and pd.notna(sub["_close_time"].max()) else None,
         }
 
-    windows["median_pnl"] = round(float(np.median(pnls)), 4)
+    windows["median_pnl"] = round(float(np.median(pnls)), 4) if pnls else None
     windows["non_negative_windows_count"] = int(sum(p >= 0 for p in pnls))
     return windows
 
@@ -430,32 +456,29 @@ def train_and_eval_candidate(
         cost_buffer=0.0,
     )
 
-    trades = backtest.get("trades", [])
-    trade_pnls = [t.get("pnl", 0.0) for t in trades]
-    max_dd, _ = _compute_drawdown_series(trade_pnls)
-
-    total_pnl = float(backtest.get("net_profit", backtest.get("total_pnl", 0.0)))
-    median_win_pnl = oot_windows.get("median_pnl", -1.0)
+    metrics = adapt_canonical_backtest_metrics(backtest)
+    median_win_pnl = oot_windows.get("median_pnl")
     non_neg_windows = oot_windows.get("non_negative_windows_count", 0)
-    n_trades = int(backtest.get("n_trades", 0))
 
     is_deployable = (
-        total_pnl > 0
+        metrics.net_profit > 0
+        and median_win_pnl is not None
         and median_win_pnl > 0
         and non_neg_windows >= 2
-        and n_trades >= 30
+        and metrics.n_trades >= 30
         and ece <= 0.10
     )
 
     rejection_reasons = []
-    if total_pnl <= 0:
-        rejection_reasons.append(f"COMBINED PnL <= 0 ({total_pnl:.2f})")
-    if median_win_pnl <= 0:
-        rejection_reasons.append(f"Median window PnL <= 0 ({median_win_pnl:.2f})")
+    if metrics.net_profit <= 0:
+        rejection_reasons.append(f"COMBINED PnL <= 0 ({metrics.net_profit:.2f})")
+    if median_win_pnl is None or median_win_pnl <= 0:
+        med_str = f"{median_win_pnl:.2f}" if median_win_pnl is not None else "None"
+        rejection_reasons.append(f"Median window PnL <= 0 ({med_str})")
     if non_neg_windows < 2:
         rejection_reasons.append(f"Less than 2 non-negative windows ({non_neg_windows}/3)")
-    if n_trades < 30:
-        rejection_reasons.append(f"Insufficient trades ({n_trades} < 30)")
+    if metrics.n_trades < 30:
+        rejection_reasons.append(f"Insufficient trades ({metrics.n_trades} < 30)")
     if ece > 0.10:
         rejection_reasons.append(f"Excessive ECE ({ece:.4f} > 0.10)")
 
@@ -471,11 +494,15 @@ def train_and_eval_candidate(
         "val_auc": round(val_auc, 4),
         "brier": round(brier, 4),
         "ece": round(ece, 4),
-        "total_pnl": round(total_pnl, 4),
-        "n_trades": n_trades,
-        "win_rate": round(float(backtest.get("win_rate", 0.0)), 4),
-        "roi": round(float(backtest.get("roi", 0.0)), 4),
-        "max_drawdown": round(max_dd, 4),
+        "metrics_schema_version": METRICS_SCHEMA_VERSION,
+        "net_profit": round(metrics.net_profit, 4),
+        "total_pnl": round(metrics.net_profit, 4),
+        "roi_pct": round(metrics.roi_pct, 4),
+        "roi": round(metrics.roi_pct, 4),
+        "n_trades": metrics.n_trades,
+        "win_rate": round(metrics.win_rate, 4),
+        "max_drawdown": round(metrics.max_drawdown, 4),
+        "max_drawdown_usdc": round(metrics.max_drawdown, 4),
         "oot_windows": oot_windows,
         "deployable": is_deployable,
         "rejection_reasons": rejection_reasons,
@@ -534,9 +561,13 @@ async def retrain_candidates_for_asset(
 
     print(f"Completed evaluation: {len(candidates)} valid candidate runs.")
 
-    # Sort candidates by COMBINED total_pnl descending, then median_pnl descending
+    # Sort candidates by COMBINED net_profit descending, then median_pnl descending
     candidates.sort(
-        key=lambda c: (c["deployable"], c["total_pnl"], c["oot_windows"].get("median_pnl", -999)),
+        key=lambda c: (
+            c["deployable"],
+            c["net_profit"],
+            c["oot_windows"].get("median_pnl") if c["oot_windows"].get("median_pnl") is not None else -999.0,
+        ),
         reverse=True,
     )
 
@@ -550,6 +581,7 @@ async def retrain_candidates_for_asset(
         for i, cand in enumerate(to_save):
             next_v = max_v + i + 1
             training_params = {
+                "metrics_schema_version": cand.get("metrics_schema_version", METRICS_SCHEMA_VERSION),
                 "experiment_variant": cand["variant"],
                 "C": cand["C"],
                 "class_weight": cand["class_weight"],
@@ -562,10 +594,14 @@ async def retrain_candidates_for_asset(
                 "deployable": cand["deployable"],
                 "rejection_reasons": cand["rejection_reasons"],
                 "oot_windows": cand["oot_windows"],
-                "combined_pnl": cand["total_pnl"],
+                "net_profit": cand["net_profit"],
+                "combined_pnl": cand["net_profit"],
+                "total_pnl": cand["net_profit"],
+                "roi_pct": cand["roi_pct"],
                 "n_trades": cand["n_trades"],
                 "win_rate": cand["win_rate"],
                 "max_drawdown": cand["max_drawdown"],
+                "max_drawdown_usdc": cand["max_drawdown"],
             }
 
             model_rec = ModelRegistry(
@@ -576,7 +612,7 @@ async def retrain_candidates_for_asset(
                 accuracy=cand["val_auc"],
                 features=",".join(cand["feature_names"]),
                 ece=cand["ece"],
-                backtest_pnl=cand["total_pnl"],
+                backtest_pnl=cand["net_profit"],
                 backtest_trades=cand["n_trades"],
                 is_active=False,  # STRICT INVARIANT: Always False
                 decision_threshold=0.55,
@@ -610,7 +646,7 @@ async def retrain_candidates_for_asset(
             )
             session.add(oof_rec)
             await session.commit()
-            print(f"Saved Candidate v{next_v} (Asset: {asset_name}, Variant: {cand['variant']}, PnL: {cand['total_pnl']:.2f}, Deployable: {cand['deployable']})")
+            print(f"Saved Candidate v{next_v} (Asset: {asset_name}, Variant: {cand['variant']}, PnL: {cand['net_profit']:.2f}, Deployable: {cand['deployable']})")
 
     return candidates
 
@@ -636,6 +672,7 @@ async def run_retraining(
             cands = await retrain_candidates_for_asset(session, combo, dry_run=dry_run)
             all_results[combo] = [
                 {
+                    "metrics_schema_version": c.get("metrics_schema_version", METRICS_SCHEMA_VERSION),
                     "variant": c["variant"],
                     "C": c["C"],
                     "class_weight": c["class_weight"],
@@ -645,10 +682,13 @@ async def run_retraining(
                     "val_auc": c["val_auc"],
                     "brier": c["brier"],
                     "ece": c["ece"],
-                    "total_pnl": c["total_pnl"],
+                    "net_profit": c["net_profit"],
+                    "total_pnl": c["net_profit"],
+                    "roi_pct": c["roi_pct"],
                     "n_trades": c["n_trades"],
                     "win_rate": c["win_rate"],
                     "max_drawdown": c["max_drawdown"],
+                    "max_drawdown_usdc": c["max_drawdown"],
                     "deployable": c["deployable"],
                     "rejection_reasons": c["rejection_reasons"],
                     "oot_windows": c["oot_windows"],
@@ -668,6 +708,7 @@ async def run_retraining(
     for asset_key, cands in all_results.items():
         for i, c in enumerate(cands):
             rows.append({
+                "metrics_schema_version": c.get("metrics_schema_version", METRICS_SCHEMA_VERSION),
                 "asset_phase": asset_key,
                 "rank": i + 1,
                 "variant": c["variant"],
@@ -677,13 +718,17 @@ async def run_retraining(
                 "calibration": c["calibration_method"],
                 "auc": c["val_auc"],
                 "ece": c["ece"],
-                "total_pnl": c["total_pnl"],
+                "net_profit": c["net_profit"],
+                "total_pnl": c["net_profit"],
+                "roi_pct": c["roi_pct"],
                 "n_trades": c["n_trades"],
                 "win_rate": c["win_rate"],
+                "max_drawdown": c["max_drawdown"],
+                "max_drawdown_usdc": c["max_drawdown"],
                 "deployable": c["deployable"],
-                "t1_pnl": c["oot_windows"].get("T1", {}).get("total_pnl"),
-                "t2_pnl": c["oot_windows"].get("T2", {}).get("total_pnl"),
-                "t3_pnl": c["oot_windows"].get("T3", {}).get("total_pnl"),
+                "t1_pnl": c["oot_windows"].get("T1", {}).get("net_profit") if c["oot_windows"].get("T1", {}).get("status") != "EMPTY" else None,
+                "t2_pnl": c["oot_windows"].get("T2", {}).get("net_profit") if c["oot_windows"].get("T2", {}).get("status") != "EMPTY" else None,
+                "t3_pnl": c["oot_windows"].get("T3", {}).get("net_profit") if c["oot_windows"].get("T3", {}).get("status") != "EMPTY" else None,
                 "median_window_pnl": c["oot_windows"].get("median_pnl"),
                 "rejection_reasons": "; ".join(c["rejection_reasons"]),
             })

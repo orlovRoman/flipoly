@@ -125,6 +125,8 @@ def test_aggregate_replays_trade_pnl_in_time_order():
         "win_rate": 1.0,
         "total_invested": 1.0,
         "net_profit": 0.5,
+        "roi_pct": 50.0,
+        "max_drawdown_usdc": 0.0,
         "avg_edge": 0.1,
         "avg_net_edge": 0.08,
         "avg_entry_price": 0.4,
