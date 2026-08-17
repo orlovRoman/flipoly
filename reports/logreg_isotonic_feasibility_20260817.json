@@ -1,0 +1,1894 @@
+{
+  "report_version": "logreg_isotonic_feasibility_v1",
+  "generated_at": "2026-08-17T17:50:59+07:00",
+  "candidate_id_range": [
+    820,
+    879
+  ],
+  "candidate_count_expected": 60,
+  "candidate_count_observed": 60,
+  "read_only": true,
+  "retrospective_isotonic_allowed": false,
+  "decision": "UNAVAILABLE_WITHOUT_RETRAIN",
+  "evidence_summary": "All 60 candidates (IDs 820-879) have raw_score, calibrated_score, final_outcome, and market-level close_time recovered, but lack fold_id and calibration/validation split metadata. Close time recovery does not reconstruct partition assignments. Applying isotonic calibration retrospectively without true out-of-fold/calibration splits risks in-sample leakage.",
+  "missing_required_metadata": [
+    "fold_id",
+    "train_calibration_validation_partition_metadata",
+    "temporal_split_metadata"
+  ],
+  "minimal_retrain_scope": {
+    "description": "Retrain candidates with recorded fold_id and partition definitions (train/calib/val splits) to enable valid isotonic calibration.",
+    "scope": "models 820-879",
+    "required_fields": [
+      "fold_id",
+      "calibration_partition",
+      "validation_partition"
+    ]
+  },
+  "counts": {
+    "unavailable_without_retrain": 60,
+    "available_for_retrospective_isotonic": 0
+  },
+  "candidates": [
+    {
+      "model_registry_id": 820,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 821,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 822,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 823,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 824,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 825,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 826,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 827,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 828,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 829,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 830,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 831,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 832,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 833,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 834,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 835,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 836,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 837,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 838,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 839,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 840,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 841,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 842,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 843,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 844,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 845,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 846,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 847,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 848,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 849,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 850,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 851,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 852,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 853,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 854,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 855,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 856,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 857,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 858,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 859,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 860,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 861,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 862,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 863,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 864,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 865,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 866,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 867,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 868,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 869,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 870,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 871,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 872,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 873,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 874,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 875,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 876,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 877,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 878,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    },
+    {
+      "model_registry_id": 879,
+      "status": "UNAVAILABLE_WITHOUT_RETRAIN",
+      "retrospective_isotonic_allowed": false,
+      "missing_metadata": [
+        "fold_id",
+        "train_calibration_validation_partition_metadata",
+        "temporal_split_metadata"
+      ],
+      "available_evidence": {
+        "raw_score": true,
+        "calibrated_score": true,
+        "final_outcome": true,
+        "close_time_recovered": true,
+        "artifact_frame_columns": [
+          "market_id",
+          "asset",
+          "recorded_at",
+          "time_left_min",
+          "mid_price",
+          "spread",
+          "best_bid",
+          "best_ask",
+          "yes_price",
+          "no_price",
+          "target",
+          "final_outcome"
+        ]
+      },
+      "retrain_proposal": "Full retrain with explicit out-of-fold/calibration split tracking and fold_id preservation"
+    }
+  ]
+}
