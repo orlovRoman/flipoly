@@ -1278,7 +1278,6 @@ document.addEventListener("DOMContentLoaded", () => {
                       <td><strong>${escapeHtml(m.asset)}</strong></td>
                       <td>v${m.version}</td>
                       <td title="${escapeHtml(modelTypeText)}">${escapeHtml(modelTypeText)}</td>
-                      <td title="${escapeHtml(featuresText)}" style="max-width:240px;white-space:normal;word-break:break-word;">${escapeHtml(featuresText)}</td>
                       <td>${thresholdUpText}</td>
                       <td>${thresholdDownText}</td>
                       <td>${accuracyText}<br/><small>Lift: ${liftHtml}</small></td>
