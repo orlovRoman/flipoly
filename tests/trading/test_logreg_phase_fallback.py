@@ -60,3 +60,31 @@ def test_resolve_logreg_model_never_hops_cross_phase():
     model, status, reason, model_key, ver, feats = resolve_logreg_model(cache, "ETH", "decided")
     assert model is None
     assert status == "ABSTAIN"
+
+
+def test_resolve_logreg_model_base_high_ece_ignored():
+    """Base model deployability should not depend on ECE anymore.
+    If deployable is True, ECE is ignored."""
+    cache = MagicMock()
+    cache.models = {"ETH": object()}
+    cache.versions = {"ETH": 47}
+    cache.features = {"ETH": ["f1"]}
+    cache.deployable = {"ETH": True}
+    cache.eces = {"ETH": 0.50} # High ECE
+
+    model, status, reason, model_key, ver, feats = resolve_logreg_model(cache, "ETH", "decided")
+    assert status == "FALLBACK_BASE"
+    assert model_key == "ETH"
+
+
+def test_resolve_logreg_model_missing_deployability_metadata():
+    """Missing deployability metadata should lead to ABSTAIN."""
+    cache = MagicMock()
+    cache.models = {"ETH": object()}
+    cache.versions = {"ETH": 47}
+    cache.features = {"ETH": ["f1"]}
+    cache.deployable = {} # Missing metadata
+
+    model, status, reason, model_key, ver, feats = resolve_logreg_model(cache, "ETH", "decided")
+    assert status == "ABSTAIN"
+    assert model_key is None

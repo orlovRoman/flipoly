@@ -215,8 +215,7 @@ def resolve_logreg_model(
             return False
         if hasattr(models_cache, "deployable") and key in models_cache.deployable:
             return bool(models_cache.deployable[key])
-        ece = getattr(models_cache, "eces", {}).get(key, 1.0)
-        return ece <= 0.15
+        return False
 
     # 1. Phase model
     if phase_asset in getattr(models_cache, "models", {}):
