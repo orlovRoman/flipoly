@@ -828,7 +828,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const payload = await res.json();
       rawModelsPnlData = payload.data || {};
       const entries = Object.entries(rawModelsPnlData)
-        .filter(([key, value]) => key !== "_unattributed" && value && value.asset)
+        .filter(([key, value]) =>
+          key !== "_unattributed" && value && value.asset && Number(value.total_trades) > 0,
+        )
         .sort(([, a], [, b]) =>
           String(a.asset).localeCompare(String(b.asset)) || (a.version || 0) - (b.version || 0),
         );
@@ -1484,4 +1486,5 @@ document.addEventListener("DOMContentLoaded", () => {
     loadParserStatus();
   }, 30000);
 });
+
 

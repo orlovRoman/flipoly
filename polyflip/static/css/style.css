@@ -90,6 +90,63 @@ body {
                 radial-gradient(circle at bottom left, rgba(0, 211, 149, 0.05), transparent 40%);
 }
 
+/* Dashboard cards and tables */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0 2rem;
+}
+
+.kpi-card, .table-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.25rem;
+    backdrop-filter: var(--glass-blur);
+}
+
+.kpi-title {
+    color: var(--text-muted);
+    font-size: .82rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.kpi-value {
+    margin-top: .45rem;
+    font-size: 1.6rem;
+    font-weight: 800;
+}
+
+.kpi-meta {
+    margin-top: .35rem;
+    color: var(--text-muted);
+    font-size: .82rem;
+}
+
+.card-header {
+    margin-bottom: 1rem;
+}
+
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.custom-select {
+    background: rgba(0, 0, 0, .25);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: .45rem .65rem;
+}
+
+.text-success { color: var(--poly-green); }
+.text-accent { color: var(--poly-blue); }
+.text-center { text-align: center; }
+
 .tab-pane {
     display: none;
     animation: fadeIn 0.4s ease forwards;
@@ -434,3 +491,4 @@ th.sortable.sort-desc::after {
     border-radius: 4px;
     padding: 2px 6px;
 }
+

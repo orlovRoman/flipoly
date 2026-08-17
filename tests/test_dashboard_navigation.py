@@ -33,6 +33,13 @@ def test_dashboard_models_render_all_registry_columns_and_pnl():
     assert "loadModelsPnLData" in source
     assert "kpi-total-models" in source
     assert "decision_threshold_down" in source
+    assert "Number(value.total_trades) > 0" in source
+
+
+def test_dashboard_css_has_model_cards_and_responsive_tables():
+    css = (ROOT / "polyflip" / "static" / "css" / "style.css").read_text(encoding="utf-8")
+    for selector in (".kpi-grid", ".kpi-card", ".table-card", ".table-responsive", ".custom-select"):
+        assert selector in css
 
 
 
@@ -41,4 +48,5 @@ def test_dashboard_css_shows_active_tab_panes():
     assert ".tab-pane {" in css
     assert ".tab-pane.active {" in css
     assert ".tab-content.active" not in css
+
 
