@@ -63,33 +63,44 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
     )
     total_flips = (await db.execute(flips_stmt)).scalar() or 0
 
-    # 2. Получаем текущие активные модели
-    models_stmt = select(ModelRegistry).where(ModelRegistry.is_active)
-    models = (await db.execute(models_stmt)).scalars().all()
-    
+    # Лёгкие колонки (без model_blob / model_weights — LargeBinary)
+    _LIGHT_COLS = [
+        ModelRegistry.id,
+        ModelRegistry.asset,
+        ModelRegistry.version,
+        ModelRegistry.is_active,
+        ModelRegistry.accuracy,
+        ModelRegistry.ece,
+        ModelRegistry.trained_at,
+    ]
+
+    # 2. Получаем текущие активные модели (только лёгкие поля)
+    models_stmt = select(*_LIGHT_COLS).where(ModelRegistry.is_active)
+    models_rows = (await db.execute(models_stmt)).all()
+
     active_models = {
-        m.asset: {
-            "version": m.version,
-            "accuracy": round(m.accuracy, 4),
-            "ece": round(getattr(m, 'ece', 0.0), 4) if getattr(m, 'ece', None) is not None else None,
-            "trained_at": m.trained_at.isoformat() if m.trained_at else None
+        r.asset: {
+            "version": r.version,
+            "accuracy": round(r.accuracy, 4) if r.accuracy is not None else None,
+            "ece": round(r.ece, 4) if r.ece is not None else None,
+            "trained_at": r.trained_at.isoformat() if r.trained_at else None,
         }
-        for m in models
+        for r in models_rows
     }
-    
-    # 3. История моделей для графиков
-    history_stmt = select(ModelRegistry).order_by(ModelRegistry.trained_at.asc())
-    history_rows = (await db.execute(history_stmt)).scalars().all()
-    
-    model_history = {}
+
+    # 3. История моделей для графиков (только лёгкие поля)
+    history_stmt = select(*_LIGHT_COLS).order_by(ModelRegistry.trained_at.asc())
+    history_rows = (await db.execute(history_stmt)).all()
+
+    model_history: dict = {}
     for r in history_rows:
         if r.asset not in model_history:
             model_history[r.asset] = []
         model_history[r.asset].append({
             "version": r.version,
-            "accuracy": round(r.accuracy, 4),
-            "ece": round(getattr(r, 'ece', 0.0), 4) if getattr(r, 'ece', None) is not None else None,
-            "trained_at": r.trained_at.isoformat() if r.trained_at else None
+            "accuracy": round(r.accuracy, 4) if r.accuracy is not None else None,
+            "ece": round(r.ece, 4) if r.ece is not None else None,
+            "trained_at": r.trained_at.isoformat() if r.trained_at else None,
         })
 
     out = {
@@ -99,12 +110,12 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
         "active_models": active_models,
         "model_history": model_history
     }
-    
+
     async with _summary_lock:
         if _summary_cache is None or (time.time() - _summary_cache_time) >= 60:
             _summary_cache = out
             _summary_cache_time = time.time()
-            
+
     return _summary_cache
 
 def get_model_type(asset: str) -> tuple[str, str]:
