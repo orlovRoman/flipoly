@@ -814,6 +814,81 @@ document.addEventListener("DOMContentLoaded", () => {
   let rawModelsData = [];
   let rawModelsPnlData = {};
 
+  async function loadModelsPnLData() {
+    const tbody = document.querySelector("#models-pnl-table tbody");
+    const daysSelect = document.getElementById("model-pnl-days");
+    const mode = "PAPER";
+    try {
+      const res = await fetch(
+        `${window.API_BASE}/api/dashboard/model_pnl?requested_mode=${mode}`,
+        { headers: getHeaders() },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const payload = await res.json();
+      rawModelsPnlData = payload.data || {};
+      const entries = Object.entries(rawModelsPnlData)
+        .filter(([key, value]) => key !== "_unattributed" && value && value.asset)
+        .sort(([, a], [, b]) =>
+          String(a.asset).localeCompare(String(b.asset)) || (a.version || 0) - (b.version || 0),
+        );
+
+      const totals = entries.reduce(
+        (acc, [, value]) => {
+          const trades = Number(value.total_trades) || 0;
+          acc.trades += trades;
+          acc.pnl += Number(value.pnl) || 0;
+          if (trades > 0 && value.win_rate != null) {
+            acc.wins += (Number(value.win_rate) / 100) * trades;
+          }
+          return acc;
+        },
+        { trades: 0, pnl: 0, wins: 0 },
+      );
+      const totalModels = rawModelsData.length;
+      const activeModels = rawModelsData.filter((model) => model.is_active).length;
+      const setText = (id, value) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = value;
+      };
+      setText("kpi-total-models", totalModels.toLocaleString());
+      setText("kpi-active-models-count", activeModels.toLocaleString());
+      setText("kpi-total-pnl", `${totals.pnl >= 0 ? "+" : ""}${totals.pnl.toFixed(2)} USDC`);
+      setText("kpi-total-trades", totals.trades.toLocaleString());
+      setText(
+        "kpi-avg-winrate",
+        totals.trades > 0 ? `${((totals.wins / totals.trades) * 100).toFixed(1)}%` : "—",
+      );
+
+      if (tbody) {
+        tbody.innerHTML = entries.length
+          ? entries.map(([, value]) => {
+              const pnl = Number(value.pnl) || 0;
+              const pnlColor = pnl > 0 ? "var(--poly-green)" : pnl < 0 ? "#ff3366" : "var(--text-muted)";
+              const winRate = value.win_rate == null ? "—" : `${value.win_rate.toFixed(1)}%`;
+              return `<tr>
+                <td>${escapeHtml(value.asset)}</td>
+                <td>v${value.version}</td>
+                <td>${value.total_trades || 0}</td>
+                <td>${value.exact_trades || 0}</td>
+                <td>${value.reconstructed_trades || 0}</td>
+                <td>${winRate}</td>
+                <td style="color:${pnlColor};font-weight:600;">${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} USDC</td>
+              </tr>`;
+            }).join("")
+          : '<tr><td colspan="7" class="text-center">Нет закрытых сделок по моделям</td></tr>';
+      }
+      if (daysSelect) daysSelect.title = "Период применяется сервером к доступной статистике";
+      renderModelsTable();
+    } catch (error) {
+      console.warn("Failed to load model PnL", error);
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center">Не удалось загрузить PnL: ${escapeHtml(error.message)}</td></tr>`;
+      }
+    }
+  }
+  window.loadModelsPnLData = loadModelsPnLData;
+
 
   function setupModelTypeFilter() {
     const filterContainer = document.getElementById("model-type-filter");
@@ -941,16 +1016,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-    try {
-      const resPnl = await fetch(window.API_BASE + "/api/dashboard/model_pnl", { headers: getHeaders() });
-      if (resPnl.ok) {
-        const pnlJson = await resPnl.json();
-        rawModelsPnlData = pnlJson.data || {};
-        renderModelsTable();
-      }
-    } catch (e) {
-      console.warn("Failed to parse model PnL", e);
-    }
+    await loadModelsPnLData();
   }
 
   function renderModelsTable() {
@@ -1194,17 +1260,30 @@ document.addEventListener("DOMContentLoaded", () => {
         </td>`;
       }
 
+      const modelTypeText = m.model_type || m.algorithm || "—";
+      const featuresText = m.features || "—";
+      const thresholdUpText = m.decision_threshold == null
+        ? "—"
+        : Number(m.decision_threshold).toFixed(4);
+      const thresholdDownText = m.decision_threshold_down == null
+        ? "—"
+        : Number(m.decision_threshold_down).toFixed(4);
+      const backtestTradesText = m.backtest_trades == null ? "—" : Number(m.backtest_trades).toLocaleString();
+
       rows.push(`
                   <tr>
+                      <td>${m.id == null ? "—" : escapeHtml(m.id)}</td>
                       <td><strong>${escapeHtml(m.asset)}</strong></td>
                       <td>v${m.version}</td>
-                      <td>${accuracyText} (Lift: ${liftHtml})</td>
-                      <td>${baselineText}</td>
-                      <td>${eceHtml}</td>
-                      <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>
+                      <td title="${escapeHtml(modelTypeText)}">${escapeHtml(modelTypeText)}</td>
+                      <td title="${escapeHtml(featuresText)}" style="max-width:240px;white-space:normal;word-break:break-word;">${escapeHtml(featuresText)}</td>
+                      <td>${thresholdUpText}</td>
+                      <td>${thresholdDownText}</td>
+                      <td>${accuracyText}<br/><small>Lift: ${liftHtml}</small></td>
                       ${backtestHtml}
-                      ${pnlHtml}
+                      <td>${backtestTradesText}</td>
                       <td>${statusHtml}</td>
+                      <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>
                       <td>${actionHtml}</td>
                   </tr>
               `);
@@ -1405,3 +1484,4 @@ document.addEventListener("DOMContentLoaded", () => {
     loadParserStatus();
   }, 30000);
 });
+

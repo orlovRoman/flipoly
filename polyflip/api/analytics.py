@@ -183,6 +183,7 @@ def _model_experiment_payload(model: ModelRegistry) -> dict[str, Any]:
     )
     model_type, algorithm = get_model_type(model.asset)
     return {
+        "id": model.id,
         "asset": model.asset,
         "version": model.version,
         "accuracy": round(model.accuracy, 4) if model.accuracy is not None else None,
@@ -207,6 +208,8 @@ def _model_experiment_payload(model: ModelRegistry) -> dict[str, Any]:
         "backtest_pnl": model.backtest_pnl,
         "backtest_trades": model.backtest_trades,
         "backtest_wr": model.backtest_wr,
+        "decision_threshold": model.decision_threshold,
+        "decision_threshold_down": model.decision_threshold_down,
         "is_active": model.is_active,
         "trained_at": _iso(model.trained_at),
         "model_type": model_type,
@@ -709,3 +712,4 @@ async def get_time_left_distribution(db: AsyncSession = Depends(get_db_session))
 
 
 # --- End Analytics ---
+
