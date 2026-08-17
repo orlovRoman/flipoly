@@ -1,0 +1,38 @@
+{
+  "protocol_version": "polymarket_logreg_eval_v1",
+  "strategy_branch": "COMBINED",
+  "min_edge": 0.03,
+  "fee_rate": 0.02,
+  "slippage_pct": 0.0,
+  "cost_buffer": 0.0,
+  "stake_usdc": 1.0,
+  "min_price": 0.05,
+  "max_price": 0.95,
+  "outsider_max_price": 0.45,
+  "entry_snapshot_fields": [
+    "market_id",
+    "recorded_at",
+    "yes_price",
+    "no_price",
+    "best_bid",
+    "best_ask",
+    "mid_price",
+    "final_outcome"
+  ],
+  "trade_evidence_fields": [
+    "market_id",
+    "side",
+    "price",
+    "p_win",
+    "entry_time",
+    "outcome",
+    "pnl"
+  ],
+  "determinism": {
+    "same_inputs_same_protocol": true,
+    "canonical_json_sort_keys": true,
+    "random_seed": null
+  },
+  "execution_scope": "offline_replay_only",
+  "production_activation": false
+}

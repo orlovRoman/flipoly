@@ -1,0 +1,29 @@
+{
+  "report_version": "logreg_evaluation_protocol_v1",
+  "generated_at": "2026-08-17T09:00:00Z",
+  "read_only": true,
+  "protocol_config": "polyflip/config/logreg_evaluation_protocol_v1.json",
+  "protocol": {
+    "protocol_version": "polymarket_logreg_eval_v1",
+    "strategy_branch": "COMBINED",
+    "min_edge": 0.03,
+    "fee_rate": 0.02,
+    "slippage_pct": 0.0,
+    "cost_buffer": 0.0,
+    "stake_usdc": 1.0,
+    "min_price": 0.05,
+    "max_price": 0.95,
+    "outsider_max_price": 0.45
+  },
+  "deterministic_probe": {
+    "fixture": "two_market_in_memory_replay",
+    "run_count": 2,
+    "digest_algorithm": "sha256(canonical_json_result)",
+    "run_1_sha256": "02089cdecf7c8b95fb078c1576e167a0d923038f0f687376d3f9b947ad29509a",
+    "run_2_sha256": "02089cdecf7c8b95fb078c1576e167a0d923038f0f687376d3f9b947ad29509a",
+    "equal": true
+  },
+  "execution_scope": "offline_replay_only",
+  "production_activation": false,
+  "model_execution": false
+}
