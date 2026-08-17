@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, cast, Integer, Numeric, update, delete
+from sqlalchemy import select, func, cast, Integer, Numeric, update, delete, text
 from typing import Dict, Any
 import pickle
 import pandas as pd
@@ -53,15 +53,13 @@ async def get_summary(db: AsyncSession = Depends(get_db_session)):
     if _summary_cache is not None and (now - _summary_cache_time) < 60:
         return _summary_cache
 
-    # 1. Считаем количество рынков и флипов
-    total_markets_stmt = select(func.count(MarketSnapshot.id)).where(MarketSnapshot.final_outcome != "PENDING")
-    total_markets = (await db.execute(total_markets_stmt)).scalar() or 0
-
-    flips_stmt = select(func.count(MarketSnapshot.id)).where(
-        MarketSnapshot.flip_vs_final,
-        MarketSnapshot.final_outcome != "PENDING"
+    # 1. Быстрый приближённый счётчик из статистики PostgreSQL (~мгновенно vs 10+ сек COUNT(*) на 6М строк)
+    approx_stmt = text(
+        "SELECT n_live_tup FROM pg_stat_user_tables WHERE relname = 'market_snapshots'"
     )
-    total_flips = (await db.execute(flips_stmt)).scalar() or 0
+    approx_result = (await db.execute(approx_stmt)).scalar()
+    total_markets = int(approx_result) if approx_result else 0
+    total_flips = 0  # flip_percentage не отображается в UI — не считаем
 
     # Лёгкие колонки (без model_blob / model_weights — LargeBinary)
     _LIGHT_COLS = [
