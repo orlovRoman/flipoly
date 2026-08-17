@@ -130,35 +130,58 @@ def _evaluate_quality_gate(
     features: tuple[str, ...] | list[str] | None = None,
     active_accuracy: float | None = None,
     active_version: int | None = None,
+    backtest_variants: dict[str, dict] | None = None,
+    min_trades: int = 50,
+    max_drawdown: float = 20.0,
 ) -> tuple[bool, list[str], float, float]:
-    """Validate artifact compatibility; quality metrics remain advisory diagnostics."""
+    """Validate artifact compatibility and enforce strict quality metrics."""
     reasons: list[str] = []
-    metrics = {"accuracy": val_auc, "baseline": baseline_auc, "ece": ece}
-    invalid_metrics = [name for name, value in metrics.items() if not np.isfinite(value)]
-    if invalid_metrics:
-        reasons.append(f"Advisory: Non-finite quality metrics: {', '.join(invalid_metrics)}")
-    else:
-        lift = val_auc - baseline_auc
-        if lift < QUALITY_GATE_MIN_LIFT:
-            reasons.append(
-                f"Advisory: Negative lift vs baseline: {lift:+.4f} "
-                f"(accuracy={val_auc:.4f}, baseline={baseline_auc:.4f})"
-            )
-        if ece > QUALITY_GATE_MAX_ECE:
-            reasons.append(
-                f"Advisory: Excessive ECE calibration error: {ece:.4f} > {QUALITY_GATE_MAX_ECE:.2f}"
-            )
 
-    if active_accuracy is not None:
-        if not np.isfinite(active_accuracy):
-            reasons.append("Advisory: Active model accuracy is non-finite")
-        elif np.isfinite(val_auc):
-            acc_diff = val_auc - active_accuracy
-            if acc_diff < -QUALITY_GATE_MAX_ACTIVE_DEGRADATION:
-                reasons.append(
-                    f"Advisory: Accuracy degraded vs active model v{active_version}: "
-                    f"{acc_diff:+.4f} < -{QUALITY_GATE_MAX_ACTIVE_DEGRADATION:.2f}"
-                )
+    if ece is None or not np.isfinite(ece) or ece > QUALITY_GATE_MAX_ECE:
+        reasons.append(f"ECE_TOO_HIGH: {ece:.4f} > {QUALITY_GATE_MAX_ECE:.2f}" if ece is not None and np.isfinite(ece) else "ECE_TOO_HIGH: missing or non-finite")
+
+    if backtest_variants:
+        combined = backtest_variants.get("COMBINED", {})
+
+        missing_ct = combined.get("coverage_reasons", {}).get("missing_close_time")
+        if missing_ct is not None and int(missing_ct) > 0:
+            reasons.append(f"MISSING_CLOSE_TIME: {int(missing_ct)} markets without close_time")
+
+        pnl = combined.get("net_profit")
+        if pnl is None or float(pnl) <= 0:
+            reasons.append(f"PNL_NEGATIVE: COMBINED net_profit={float(pnl):.4f}" if pnl is not None else "PNL_NEGATIVE: COMBINED net_profit is missing")
+
+        fav = backtest_variants.get("FAVORITE_ONLY", {})
+        out = backtest_variants.get("OUTSIDER_ONLY", {})
+        fav_pnl = fav.get("net_profit")
+        out_pnl = out.get("net_profit")
+        if fav_pnl is None or float(fav_pnl) < -10.0:
+            reasons.append(f"PNL_NEGATIVE: FAVORITE_ONLY net_profit={float(fav_pnl):.4f}" if fav_pnl is not None else "PNL_NEGATIVE: FAVORITE_ONLY net_profit is missing")
+        if out_pnl is None or float(out_pnl) < -10.0:
+            reasons.append(f"PNL_NEGATIVE: OUTSIDER_ONLY net_profit={float(out_pnl):.4f}" if out_pnl is not None else "PNL_NEGATIVE: OUTSIDER_ONLY net_profit is missing")
+
+        trades = combined.get("n_trades")
+        if trades is None or int(trades) < min_trades:
+            reasons.append(f"INSUFFICIENT_TRADES: {int(trades) if trades is not None else 'missing'} < {min_trades}")
+
+        dd = combined.get("max_drawdown_usdc")
+        if dd is None or float(dd) > max_drawdown:
+            reasons.append(f"MAX_DRAWDOWN_TOO_HIGH: {float(dd):.4f} > {max_drawdown:.2f}" if dd is not None else f"MAX_DRAWDOWN_TOO_HIGH: missing > {max_drawdown:.2f}")
+
+        windows = combined.get("oot_windows", [])
+        if isinstance(windows, dict):
+            windows = [v for k, v in windows.items() if k.startswith("T") and isinstance(v, dict)]
+
+        positive_windows = sum(
+            1 for w in windows
+            if isinstance(w, dict)
+            and w.get("net_profit") is not None
+            and float(w.get("net_profit")) > 0
+            and w.get("n_trades") is not None
+            and int(w.get("n_trades")) >= 10
+        )
+        if positive_windows < 2:
+            reasons.append(f"OOT_WINDOW_UNSTABLE: {positive_windows} positive OOT windows out of {len(windows)}")
 
     normalized_thresholds: list[float] = []
     for label, value in (("UP", threshold), ("DOWN", threshold_down)):
@@ -184,11 +207,8 @@ def _evaluate_quality_gate(
     if smoke_error:
         reasons.append(smoke_error)
 
-    technical_errors = [
-        reason for reason in reasons
-        if reason.startswith(("ModelCompatibilityError", "ThresholdCompatibilityError"))
-    ]
-    return not technical_errors, reasons, normalized_thresholds[0], normalized_thresholds[1]
+    passed = len(reasons) == 0
+    return passed, reasons, normalized_thresholds[0], normalized_thresholds[1]
 
 
 # Epsilon filter removed as per MARKET_WINDOW_V1 spec.
@@ -879,7 +899,7 @@ class CryptoModelTrainer:
         df_filtered = await build_market_outcome_dataset(
             self.db, symbol=symbol, interval=interval, feature_set=feature_spec.key
         )
-        
+
         # FAIL-CLOSED: Если датасет пустой — прекращаем обучение без записи моделей или обновления настроек
         if df_filtered is None or df_filtered.empty:
             logger.error(
@@ -1001,7 +1021,7 @@ class CryptoModelTrainer:
             try:
                 X_r = df_regime[available].reset_index(drop=True)
                 y_r = df_regime["target"].reset_index(drop=True)
-                
+
                 n_regime = len(df_regime)
                 adaptive_params = lgbm_params.copy()
                 if n_regime < 500:
@@ -1013,7 +1033,7 @@ class CryptoModelTrainer:
                     adaptive_params["num_leaves"] = 20
                     adaptive_params["max_depth"] = 5
                     adaptive_params["min_child_samples"] = 25
-                
+
                 logger.info("adaptive_lgbm_params", regime=regime, n_regime=n_regime, num_leaves=adaptive_params["num_leaves"])
 
                 # CPU-bound в thread, ограничиваем параллелизм через общий семафор
@@ -1159,6 +1179,7 @@ class CryptoModelTrainer:
                     features=available,
                     active_accuracy=(active_crypto_model.accuracy if active_crypto_model else None),
                     active_version=(active_crypto_model.version if active_crypto_model else None),
+                    backtest_variants=backtest_variants,
                 )
 
                 should_activate = bool(activate_after_train and passed_quality_gate)
@@ -1355,7 +1376,7 @@ class CryptoModelTrainer:
             # Инвалидируем кэш у инстансов предсказателя (но транзакция еще не закоммичена)
             from polyflip.crypto.predictor import CryptoPredictor
             CryptoPredictor.invalidate_all(symbol)
-            
+
             # Candidate experiments are committed without replacing live models.
             if not activate_after_train:
                 await self.db.commit()
@@ -1364,13 +1385,13 @@ class CryptoModelTrainer:
 
             # P0. Smoke Test: выполняем тестовый inference на свежих свечах
             try:
-                
+
                 candles = await get_recent_candles(self.db, symbol, interval="15m", limit=120)
                 if len(candles) >= 100:
                     predictor = CryptoPredictor()
                     await predictor.load(self.db, symbol)
                     signal = predictor.predict(candles, symbol)
-                    
+
                     if signal.status not in {"READY", "FUNDING_VETOED", "DEGENERATE_PREDICTION"}:
                         logger.error("smoke_test_failed", symbol=symbol, status=signal.status, reason=signal.risk_reason)
                         # Откат всей транзакции: возвращаем старые активные модели!
