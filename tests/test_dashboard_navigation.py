@@ -28,7 +28,7 @@ def test_dashboard_navigation_targets_tab_panes():
 def test_dashboard_models_render_all_registry_columns_and_pnl():
     template = (ROOT / "polyflip" / "templates" / "index.html").read_text(encoding="utf-8")
     source = (ROOT / "polyflip" / "static" / "js" / "app.js").read_text(encoding="utf-8")
-    assert "<th>Реализ. PnL (Paper)</th>" in template
+    assert 'data-sort="paper_pnl"' in template
     assert "<th>Действия</th>" in template
     assert "loadModelsPnLData" in source
     assert "kpi-total-models" in source

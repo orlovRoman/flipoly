@@ -1249,6 +1249,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const pnlB = rawModelsPnlData[keyB];
 
       switch (modelsSortField) {
+        case "id":
+          valA = a.id !== null && a.id !== undefined ? a.id : -999999;
+          valB = b.id !== null && b.id !== undefined ? b.id : -999999;
+          break;
         case "asset":
           valA = a.asset || "";
           valB = b.asset || "";
@@ -1287,6 +1291,22 @@ document.addEventListener("DOMContentLoaded", () => {
         case "backtest_pnl":
           valA = a.backtest_pnl !== null && a.backtest_pnl !== undefined ? a.backtest_pnl : -999999;
           valB = b.backtest_pnl !== null && b.backtest_pnl !== undefined ? b.backtest_pnl : -999999;
+          break;
+        case "backtest_trades":
+          valA = a.backtest_trades !== null && a.backtest_trades !== undefined ? a.backtest_trades : -999999;
+          valB = b.backtest_trades !== null && b.backtest_trades !== undefined ? b.backtest_trades : -999999;
+          break;
+        case "paper_pnl":
+          valA = (pnlA && pnlA.total_trades > 0 && pnlA.pnl !== null && pnlA.pnl !== undefined) ? pnlA.pnl : -999999;
+          valB = (pnlB && pnlB.total_trades > 0 && pnlB.pnl !== null && pnlB.pnl !== undefined) ? pnlB.pnl : -999999;
+          break;
+        case "paper_wr":
+          valA = (pnlA && pnlA.total_trades > 0 && pnlA.win_rate !== null && pnlA.win_rate !== undefined) ? pnlA.win_rate : -999999;
+          valB = (pnlB && pnlB.total_trades > 0 && pnlB.win_rate !== null && pnlB.win_rate !== undefined) ? pnlB.win_rate : -999999;
+          break;
+        case "paper_trades":
+          valA = (pnlA && pnlA.total_trades !== null && pnlA.total_trades !== undefined) ? pnlA.total_trades : -1;
+          valB = (pnlB && pnlB.total_trades !== null && pnlB.total_trades !== undefined) ? pnlB.total_trades : -1;
           break;
         case "pnl":
           valA = (pnlA && pnlA.total_trades > 0 && pnlA.pnl !== null && pnlA.pnl !== undefined) ? pnlA.pnl : -999999;
