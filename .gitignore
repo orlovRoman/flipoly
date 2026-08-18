@@ -37,3 +37,12 @@ data/*.json
 !data/example.json
 data/*.parquet
 backups/
+scratch/
+graphify-out/
+scratch_*.py
+polyflip/scratch_*.py
+analyze_*.py
+fix_tests.py
+inspect_*.py
+local_eval_*.py
+remote_eval.py
