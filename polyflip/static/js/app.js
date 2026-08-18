@@ -1419,17 +1419,40 @@ document.addEventListener("DOMContentLoaded", () => {
         : Number(m.decision_threshold_down).toFixed(4);
       const backtestTradesText = m.backtest_trades == null ? "—" : Number(m.backtest_trades).toLocaleString();
 
+      // Paper-сделки (из rawModelsPnlData)
+      let paperPnlHtml = '<td style="color: var(--text-muted);">—</td>';
+      let paperWrHtml  = '<td style="color: var(--text-muted);">—</td>';
+      let paperTradesHtml = '<td style="color: var(--text-muted);">—</td>';
+      if (pnl !== undefined) {
+        if (pnl.total_trades > 0) {
+          const pv = pnl.pnl;
+          const pc = pv > 0 ? "var(--poly-green, #4ade80)" : pv < 0 ? "#ff3366" : "var(--text-muted)";
+          const ps = pv > 0 ? "+" : "";
+          paperPnlHtml = `<td style="color:${pc}; font-weight:600; white-space:nowrap;">${ps}${pv.toFixed(2)} USDC</td>`;
+          const wrVal = pnl.win_rate !== null ? `${pnl.win_rate}%` : "—";
+          const wrColor = pnl.win_rate !== null && pnl.win_rate >= 50 ? "var(--poly-green, #4ade80)" : "#ff9f43";
+          paperWrHtml = `<td style="color:${wrColor}; font-weight:600;">${wrVal}</td>`;
+          paperTradesHtml = `<td>${pnl.total_trades.toLocaleString()}</td>`;
+        } else {
+          paperPnlHtml  = '<td style="color: var(--text-muted); font-size:0.85rem;">Нет сделок</td>';
+          paperWrHtml   = '<td style="color: var(--text-muted);">—</td>';
+          paperTradesHtml = '<td style="color: var(--text-muted);">0</td>';
+        }
+      }
+
       rows.push(`
                   <tr>
                       <td>${m.id == null ? "—" : escapeHtml(m.id)}</td>
                       <td><strong>${escapeHtml(m.asset)}</strong></td>
                       <td>v${m.version}</td>
-                      <td title="${escapeHtml(modelTypeText)}">${escapeHtml(modelTypeText)}</td>
                       <td>${thresholdUpText}</td>
                       <td>${thresholdDownText}</td>
                       <td>${accuracyText}<br/><small>Lift: ${liftHtml}</small></td>
                       ${backtestHtml}
                       <td>${backtestTradesText}</td>
+                      ${paperPnlHtml}
+                      ${paperWrHtml}
+                      ${paperTradesHtml}
                       <td>${statusHtml}</td>
                       <td>${m.trained_at ? new Date(m.trained_at).toLocaleString() : "N/A"}</td>
                       <td>${actionHtml}</td>

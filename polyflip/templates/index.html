@@ -148,47 +148,6 @@
                         </div>
                     </div>
 
-                    <!-- PnL разбивка по версиям моделей -->
-                    <div class="table-card" style="margin-bottom: 2rem;">
-                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <h3>Эффективность моделей (PnL по версиям)</h3>
-                                <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-                                    Данные агрегируются на основе закрытых сделок (TradeHistory) с привязкой к версии модели.
-                                </p>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <label style="font-size: 0.85rem; color: var(--text-muted);">Период:</label>
-                                <select id="model-pnl-days" class="custom-select" style="padding: 0.3rem 0.6rem; font-size: 0.85rem;" onchange="loadModelsPnLData()">
-                                    <option value="7">7 дней</option>
-                                    <option value="14">14 дней</option>
-                                    <option value="30" selected>30 дней</option>
-                                    <option value="90">90 дней</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="table-responsive">
-                            <table class="data-table" id="models-pnl-table">
-                                <thead>
-                                    <tr>
-                                        <th>Актив</th>
-                                        <th>Версия</th>
-                                        <th>Сделок</th>
-                                        <th>Точных привязок</th>
-                                        <th>Восстановленных</th>
-                                        <th>Винрейт</th>
-                                        <th>Реализованный PnL ($)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td colspan="7" class="text-center">Загрузка PnL моделей...</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
                     <!-- Таблица зарегистрированных моделей -->
                     <div class="table-card">
                         <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
@@ -206,12 +165,14 @@
                                         <th data-sort="id" style="cursor:pointer; user-select:none;">ID<span class="sort-icon"></span></th>
                                         <th data-sort="asset" style="cursor:pointer; user-select:none;">Актив<span class="sort-icon"></span></th>
                                         <th data-sort="version" style="cursor:pointer; user-select:none;">Версия<span class="sort-icon"></span></th>
-                                        <th>Тип модели</th>
                                         <th>Порог UP</th>
                                         <th>Порог DOWN</th>
                                         <th data-sort="accuracy" style="cursor:pointer; user-select:none;">Точность (Acc)<span class="sort-icon"></span></th>
                                         <th data-sort="backtest_pnl" style="cursor:pointer; user-select:none;">Backtest PnL<span class="sort-icon"></span></th>
-                                        <th>Сделок (Backtest)</th>
+                                        <th>Сделок (BT)</th>
+                                        <th>Реализ. PnL (Paper)</th>
+                                        <th>Винрейт (Paper)</th>
+                                        <th>Сделок (Paper)</th>
                                         <th data-sort="status" style="cursor:pointer; user-select:none;">Статус<span class="sort-icon"></span></th>
                                         <th data-sort="trained_at" style="cursor:pointer; user-select:none;">Дата создания<span class="sort-icon"></span></th>
                                         <th>Действия</th>
