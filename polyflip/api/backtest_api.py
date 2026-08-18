@@ -64,10 +64,18 @@ _MAX_CACHE_SIZE = 20  # храним последние 20 прогонов
 @router.get("/backtest")
 async def backtest_page(request: Request):
     """Страница дашборда бэктестов."""
+    from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS
+    from polyflip.api.dashboard import STATIC_VERSION
+    import time as _time
     return templates.TemplateResponse(
         request=request,
         name="backtest.html",
-        context={"request": request, "api_key": settings.API_KEY},
+        context={
+            "request": request,
+            "api_key": settings.API_KEY,
+            "assets": sorted(COMBINED_MODE_SUPPORTED_ASSETS),
+            "static_version": f"{STATIC_VERSION}_{int(_time.time())}",
+        },
     )
 
 
