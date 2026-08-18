@@ -119,31 +119,21 @@ async def get_dashboard_data(
     start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
 
     try:
-        # 1. Последние статусы парсеров (берем последнюю запись для каждого сервиса)
-        subq = (
-            select(
-                CollectorStatus.service_name,
-                func.max(CollectorStatus.timestamp).label("max_ts"),
-            )
-            .group_by(CollectorStatus.service_name)
+        # 1. Последние статусы парсеров — берём последнюю запись из collector_status
+        #    (service_name/timestamp — старые поля миграции, реально пишется run_at/status/markets_saved)
+        latest_status_subq = (
+            select(func.max(CollectorStatus.run_at).label("max_run_at"))
             .subquery()
         )
-
         statuses_query = (
             select(CollectorStatus)
-            .join(
-                subq,
-                and_(
-                    CollectorStatus.service_name == subq.c.service_name,
-                    CollectorStatus.timestamp == subq.c.max_ts,
-                ),
-            )
-            .order_by(CollectorStatus.service_name)
+            .where(CollectorStatus.run_at == latest_status_subq.c.max_run_at)
+            .limit(1)
         )
         statuses_res = await db.execute(statuses_query)
         statuses = statuses_res.scalars().all()
 
-        # 2. Активные рынки (live_markets)
+        # 2. Активные рынки (live_markets) — используем реальные заполненные поля
         markets_query = (
             select(LiveMarket)
             .where(LiveMarket.status == "ACTIVE")
@@ -153,15 +143,15 @@ async def get_dashboard_data(
         markets_res = await db.execute(markets_query)
         markets = markets_res.scalars().all()
 
-        # 3. Активность сбора данных по часам за указанный период (hours)
-        hour_trunc = func.date_trunc("hour", MarketSnapshot.market_timestamp)
+        # 3. Активность сбора данных по часам — используем recorded_at (market_timestamp не заполняется)
+        hour_trunc = func.date_trunc("hour", MarketSnapshot.recorded_at)
         snapshot_counts_query = (
             select(
                 MarketSnapshot.asset,
                 func.to_char(hour_trunc, "YYYY-MM-DD HH24:00:00").label("hour"),
                 func.count(MarketSnapshot.id).label("count"),
             )
-            .where(MarketSnapshot.market_timestamp >= start_time)
+            .where(MarketSnapshot.recorded_at >= start_time)
             .group_by(
                 MarketSnapshot.asset,
                 hour_trunc,
@@ -172,26 +162,34 @@ async def get_dashboard_data(
         counts_data = counts_res.all()
 
         # Форматируем данные для отдачи
-        services_data = [
-            {
-                "service": s.service_name,
-                "status": s.status,
-                "latency_ms": s.latency_ms,
-                "last_seen": s.timestamp.isoformat() if s.timestamp else None,
-                "details": s.details,
-            }
-            for s in statuses
-        ]
+        # Статусы парсеров — отдаём агрегированную строку из последней записи коллектора
+        if statuses:
+            last_s = statuses[0]
+            services_data = [
+                {
+                    "service": "polymarket_collector",
+                    "status": last_s.status or "UNKNOWN",
+                    "latency_ms": None,
+                    "last_seen": last_s.run_at.isoformat() if last_s.run_at else None,
+                    "details": {
+                        "markets_found": last_s.markets_found,
+                        "markets_saved": last_s.markets_saved,
+                        "duration_sec": round(last_s.duration_sec, 2) if last_s.duration_sec else None,
+                    },
+                }
+            ]
+        else:
+            services_data = []
 
         markets_data = [
             {
                 "asset": m.asset,
-                "slug": m.slug,
-                "condition_id": m.condition_id,
-                "clob_token_id": m.clob_token_id,
-                "end_date": m.end_date.isoformat() if m.end_date else None,
-                "price_up": m.current_price_up,
-                "price_down": m.current_price_down,
+                "slug": m.question or m.market_id,   # question заполнен, slug пуст
+                "condition_id": m.condition_id or m.market_id,
+                "clob_token_id": m.yes_token_id,
+                "end_date": m.end_time_est.isoformat() if m.end_time_est else None,
+                "price_up": m.current_yes_price,
+                "price_down": m.current_no_price,
             }
             for m in markets
         ]

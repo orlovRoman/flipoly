@@ -130,7 +130,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const parsersDetailsEl = document.getElementById("kpi-parsers-details");
       if (parsersStatusEl && data.services) {
         const hasServices = data.services.length > 0;
-        const allOk = hasServices && data.services.every((s) => s.status === "OK" || s.status === "RUNNING");
+        const allOk = hasServices && data.services.every((s) => s.status === "OK" || s.status === "RUNNING" || s.status === "success");
         if (allOk) {
           parsersStatusEl.innerText = "ONLINE";
           parsersStatusEl.className = "kpi-value status-ok";
@@ -199,18 +199,28 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     tbody.innerHTML = services.map((s) => {
-      const isOk = s.status === "OK" || s.status === "RUNNING";
+      const isOk = s.status === "OK" || s.status === "RUNNING" || s.status === "success";
       const statusBadge = isOk 
         ? '<span style="color: var(--poly-green); font-weight: 600;">ONLINE</span>' 
         : `<span style="color: #ff6b6b; font-weight: 600;">${escapeHtml(s.status || "ERROR")}</span>`;
       const lastSeen = s.last_seen ? new Date(s.last_seen).toLocaleTimeString() : "—";
       const latency = s.latency_ms != null ? `${s.latency_ms} мс` : "—";
+      let detailsStr = "—";
+      if (s.details && typeof s.details === "object") {
+        const parts = [];
+        if (s.details.markets_found != null) parts.push(`найдено: ${s.details.markets_found}`);
+        if (s.details.markets_saved != null) parts.push(`сохранено: ${s.details.markets_saved}`);
+        if (s.details.duration_sec != null) parts.push(`за ${s.details.duration_sec}с`);
+        detailsStr = parts.join(", ") || "—";
+      } else if (s.details) {
+        detailsStr = s.details;
+      }
       return `<tr>
         <td><strong>${escapeHtml(s.service || "")}</strong></td>
         <td>${statusBadge}</td>
         <td>${latency}</td>
         <td>${lastSeen}</td>
-        <td style="font-size: 0.85rem; color: var(--text-muted);">${escapeHtml(s.details || "—")}</td>
+        <td style="font-size: 0.85rem; color: var(--text-muted);">${escapeHtml(detailsStr)}</td>
       </tr>`;
     }).join("");
   }
