@@ -1498,10 +1498,10 @@ async def crypto_models_coverage(db: AsyncSession = Depends(get_db_session)):
         result[sym_upper] = {}
         for regime in regimes:
             asset_key = f"{sym_upper}_{regime}"
-            rows = asset_groups.get(asset_key, [])[:3]
+            all_asset_rows = asset_groups.get(asset_key, [])
             
-            active_row = next((r for r in rows if r.is_active), None)
-            all_versions = [r.version for r in rows]
+            active_row = next((r for r in all_asset_rows if r.is_active), None)
+            all_versions = [r.version for r in all_asset_rows[:3]]
 
             result[sym_upper][regime] = {
                 "active_version": active_row.version if active_row else None,
