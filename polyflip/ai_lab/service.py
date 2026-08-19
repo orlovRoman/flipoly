@@ -219,6 +219,7 @@ async def create_run(
         budget_experiments=budget_experiments,
         budget_seconds=budget_seconds,
         created_by=created_by,
+        agent_type="AI_LAB",
         agent_thread_id=agent_thread_id,
         created_at=now,
     )
