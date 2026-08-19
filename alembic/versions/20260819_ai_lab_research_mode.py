@@ -23,10 +23,14 @@ _RUN_STATUS = (
 
 
 def upgrade() -> None:
-    op.add_column(
-        "ai_optimization_runs",
-        sa.Column("mode", sa.String(length=16), nullable=False, server_default="STANDARD"),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("ai_optimization_runs")}
+    if "mode" not in columns:
+        op.add_column(
+            "ai_optimization_runs",
+            sa.Column("mode", sa.String(length=16), nullable=False, server_default="STANDARD"),
+        )
     op.execute(
         "ALTER TABLE ai_optimization_runs "
         "DROP CONSTRAINT IF EXISTS ck_ai_runs_status"
@@ -36,11 +40,16 @@ def upgrade() -> None:
         "ai_optimization_runs",
         f"status IN {_RUN_STATUS}",
     )
-    op.create_check_constraint(
-        "ck_ai_runs_mode",
-        "ai_optimization_runs",
-        "mode IN ('STANDARD', 'RESEARCH')",
-    )
+    constraints = {
+        item.get("name")
+        for item in inspector.get_check_constraints("ai_optimization_runs")
+    }
+    if "ck_ai_runs_mode" not in constraints:
+        op.create_check_constraint(
+            "ck_ai_runs_mode",
+            "ai_optimization_runs",
+            "mode IN ('STANDARD', 'RESEARCH')",
+        )
 
 
 def downgrade() -> None:
