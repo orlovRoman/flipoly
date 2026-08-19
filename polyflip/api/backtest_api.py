@@ -66,7 +66,6 @@ async def backtest_page(request: Request):
     """Страница дашборда бэктестов."""
     from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS
     from polyflip.api.dashboard import STATIC_VERSION
-    import time as _time
     return templates.TemplateResponse(
         request=request,
         name="backtest.html",
@@ -74,7 +73,7 @@ async def backtest_page(request: Request):
             "request": request,
             "api_key": settings.API_KEY,
             "assets": sorted(COMBINED_MODE_SUPPORTED_ASSETS),
-            "static_version": f"{STATIC_VERSION}_{int(_time.time())}",
+            "static_version": STATIC_VERSION,
         },
     )
 

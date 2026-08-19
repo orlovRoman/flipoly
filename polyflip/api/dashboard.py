@@ -45,7 +45,7 @@ async def get_dashboard(request: Request):
         context={
             "request": request,
             "timestamp": int(time.time()),
-            "static_version": f"{STATIC_VERSION}_{int(time.time())}",
+            "static_version": STATIC_VERSION,
             "assets": settings.asset_list,
             "root_path": request.scope.get("root_path", ""),
         },
@@ -119,19 +119,45 @@ async def get_dashboard_data(
     start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
 
     try:
-        # 1. Последние статусы парсеров — берём последнюю запись из collector_status
-        #    (service_name/timestamp — старые поля миграции, реально пишется run_at/status/markets_saved)
-        latest_status_subq = (
-            select(func.max(CollectorStatus.run_at).label("max_run_at"))
+        # 1. Последние статусы парсеров (по каждому сервису отдельно)
+        #    Используем ROW_NUMBER() over (PARTITION BY service_name ORDER BY run_at/timestamp DESC)
+        service_expr = func.coalesce(CollectorStatus.service_name, "polymarket_collector")
+        sort_time_expr = func.coalesce(CollectorStatus.run_at, CollectorStatus.timestamp)
+        rn_expr = (
+            func.row_number()
+            .over(
+                partition_by=service_expr,
+                order_by=sort_time_expr.desc(),
+            )
+            .label("rn")
+        )
+
+        ranked_subq = (
+            select(
+                CollectorStatus.id,
+                CollectorStatus.status,
+                CollectorStatus.latency_ms,
+                CollectorStatus.last_event_timestamp,
+                CollectorStatus.error_message,
+                CollectorStatus.details,
+                CollectorStatus.timestamp,
+                CollectorStatus.run_at,
+                CollectorStatus.markets_found,
+                CollectorStatus.markets_saved,
+                CollectorStatus.duration_sec,
+                service_expr.label("effective_service"),
+                rn_expr,
+            )
             .subquery()
         )
+
         statuses_query = (
-            select(CollectorStatus)
-            .where(CollectorStatus.run_at == latest_status_subq.c.max_run_at)
-            .limit(1)
+            select(ranked_subq)
+            .where(ranked_subq.c.rn == 1)
+            .order_by(ranked_subq.c.effective_service)
         )
         statuses_res = await db.execute(statuses_query)
-        statuses = statuses_res.scalars().all()
+        statuses_rows = statuses_res.all()
 
         # 2. Активные рынки (live_markets) — используем реальные заполненные поля
         markets_query = (
@@ -162,24 +188,21 @@ async def get_dashboard_data(
         counts_data = counts_res.all()
 
         # Форматируем данные для отдачи
-        # Статусы парсеров — отдаём агрегированную строку из последней записи коллектора
-        if statuses:
-            last_s = statuses[0]
-            services_data = [
-                {
-                    "service": "polymarket_collector",
-                    "status": last_s.status or "UNKNOWN",
-                    "latency_ms": None,
-                    "last_seen": last_s.run_at.isoformat() if last_s.run_at else None,
-                    "details": {
-                        "markets_found": last_s.markets_found,
-                        "markets_saved": last_s.markets_saved,
-                        "duration_sec": round(last_s.duration_sec, 2) if last_s.duration_sec else None,
-                    },
-                }
-            ]
-        else:
-            services_data = []
+        services_data = [
+            {
+                "service": row.effective_service,
+                "status": (row.status or "UNKNOWN").upper(),
+                "latency_ms": row.latency_ms,
+                "last_seen": row.run_at.isoformat() if row.run_at else (row.timestamp.isoformat() if row.timestamp else None),
+                "details": {
+                    "markets_found": row.markets_found,
+                    "markets_saved": row.markets_saved,
+                    "duration_sec": round(row.duration_sec, 2) if row.duration_sec is not None else None,
+                    "error": row.error_message,
+                },
+            }
+            for row in statuses_rows
+        ]
 
         markets_data = [
             {
