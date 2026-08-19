@@ -82,7 +82,6 @@ def upgrade() -> None:
         "UPDATE experiment_results SET legacy_config_id = config_id "
         "WHERE legacy_config_id IS NULL"
     )
-    op.execute("UPDATE experiment_results SET config_id = NULL")
 
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
@@ -91,6 +90,7 @@ def upgrade() -> None:
             "experiment_results_config_id_fkey"
         )
         op.alter_column("experiment_results", "config_id", nullable=True)
+        op.execute("UPDATE experiment_results SET config_id = NULL")
         op.create_foreign_key(
             "fk_experiment_results_ai_config",
             "experiment_results",
