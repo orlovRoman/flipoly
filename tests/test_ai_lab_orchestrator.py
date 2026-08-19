@@ -388,6 +388,100 @@ class TestAILabOrchestrator(unittest.TestCase):
         report = build_experiment_report(results, min_trades=50, min_windows=3)
         self.assertEqual(report["recommended_config_id"], 11)
 
+    def test_report_canonicalizes_three_metric_windows_and_rejects_duplicate(self):
+        result = {
+            "config_id": 11,
+            "evaluation_kind": "POLYMARKET_OOT",
+            "status": "SUCCEEDED",
+            "metrics": {
+                "oot_windows": [
+                    {
+                        "start": "2026-08-01T00:00:00Z",
+                        "end": "2026-08-05T00:00:00Z",
+                        "net_profit": 1.0,
+                        "n_trades": 20,
+                        "max_drawdown_usdc": 1.0,
+                    },
+                    {
+                        "start": "2026-08-06T00:00:00+00:00",
+                        "end": "2026-08-10T00:00:00+00:00",
+                        "net_profit": 1.2,
+                        "n_trades": 20,
+                        "max_drawdown_usdc": 1.0,
+                    },
+                    {
+                        "start": "2026-08-11",
+                        "end": "2026-08-15",
+                        "net_profit": 1.4,
+                        "n_trades": 20,
+                        "max_drawdown_usdc": 1.0,
+                    },
+                ]
+            },
+        }
+        report = build_experiment_report([result], min_trades=50, min_windows=3)
+        row = report["rows"][0]
+        self.assertEqual(row["window_count"], 3)
+        self.assertEqual(row["total_trades"], 60)
+        self.assertEqual(row["deployment_status"], "ELIGIBLE")
+
+        duplicate = dict(result)
+        duplicate["metrics"] = {
+            "oot_windows": result["metrics"]["oot_windows"]
+            + [
+                {
+                    "start": "2026-08-01",
+                    "end": "2026-08-05",
+                    "net_profit": 1.0,
+                    "n_trades": 20,
+                    "max_drawdown_usdc": 1.0,
+                }
+            ]
+        }
+        duplicate_report = build_experiment_report(
+            [duplicate], min_trades=50, min_windows=3
+        )
+        self.assertIn("INVALID_RESULT", duplicate_report["rejection_reasons"])
+        self.assertEqual(duplicate_report["rows"][0]["window_count"], 3)
+
+    def test_report_uses_legacy_config_and_metric_window_fallback(self):
+        result = {
+            "config_id": None,
+            "legacy_config_id": 42,
+            "evaluation_kind": "POLYMARKET_OOT",
+            "status": "SUCCEEDED",
+            "metrics": {
+                "windows": [
+                    {
+                        "window_start": "2026-08-01T00:00:00Z",
+                        "window_end": "2026-08-02T00:00:00Z",
+                        "net_profit": 0.2,
+                        "n_trades": 1,
+                        "max_drawdown_usdc": 0.1,
+                    },
+                    {
+                        "window_start": "2026-08-03T00:00:00Z",
+                        "window_end": "2026-08-04T00:00:00Z",
+                        "net_profit": 0.3,
+                        "n_trades": 1,
+                        "max_drawdown_usdc": 0.1,
+                    },
+                    {
+                        "window_start": "2026-08-05T00:00:00Z",
+                        "window_end": "2026-08-06T00:00:00Z",
+                        "net_profit": 0.4,
+                        "n_trades": 1,
+                        "max_drawdown_usdc": 0.1,
+                    },
+                ]
+            },
+        }
+        report = build_experiment_report([result], min_trades=1, min_windows=3)
+
+        self.assertEqual(report["recommended_config_id"], 42)
+        self.assertEqual(report["rows"][0]["window_count"], 3)
+        self.assertEqual(report["rows"][0]["evidence_status"], "SUFFICIENT")
+
 
 if __name__ == "__main__":
     unittest.main()

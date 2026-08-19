@@ -1205,8 +1205,20 @@ class ExperimentResult(Base):
     )
     config_id = Column(
         Integer,
-        ForeignKey("experiment_configs.id", ondelete="RESTRICT"),
-        nullable=False,
+        ForeignKey("ai_experiment_configs.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    # Results written before the AI Lab config split remain addressable without
+    # pretending that their legacy config ID belongs to ai_experiment_configs.
+    legacy_config_id = Column(
+        Integer,
+        ForeignKey("experiment_configs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    step_id = Column(
+        Integer,
+        ForeignKey("ai_run_steps.id", ondelete="SET NULL"),
+        nullable=True,
     )
     artifact_id = Column(
         Integer,

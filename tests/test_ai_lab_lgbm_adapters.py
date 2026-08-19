@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -6,6 +7,7 @@ import pytest
 
 from polyflip.ai_lab.executor import StepContext
 from polyflip.ai_lab import lgbm_adapters
+from polyflip.ai_lab.artifact_contracts import TrainingRows
 
 
 def _context(**overrides):
@@ -269,3 +271,101 @@ def test_training_adapter_rolls_back_active_candidate_safety_violation(monkeypat
         )
 
     assert session.rollback_count == 1
+
+
+class _ArtifactSession:
+    def __init__(self):
+        self.added = None
+
+    def add(self, value):
+        self.added = value
+        value.id = 700
+
+    async def flush(self):
+        return None
+
+
+def _bundle_row():
+    return SimpleNamespace(
+        id=55,
+        asset="BTCUSDT_low_vol",
+        version=1,
+        model_blob=b"serialized-model",
+        features="f1,f2",
+        dataset_fingerprint="fp-55",
+        training_window_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        training_window_end=datetime(2026, 8, 2, tzinfo=timezone.utc),
+        training_params={"feature_set": "B"},
+        accuracy=0.7,
+        ece=0.02,
+        brier_score=0.2,
+        train_samples=10,
+        validation_samples=4,
+        is_active=False,
+    )
+
+
+def test_lgbm_train_artifact_contains_exact_linked_bundle_contract():
+    session = _ArtifactSession()
+    context = _context(
+        input_payload={
+            "strategy_branch": "FAVORITE_ONLY",
+            "train_window": ["2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z"],
+            "oot_window": ["2026-08-03T00:00:00Z", "2026-08-04T00:00:00Z"],
+        }
+    )
+    artifact = asyncio.run(
+        lgbm_adapters._create_bundle_artifact(
+            session,
+            context,
+            [_bundle_row()],
+            {"feature_set": "B", "feature_set_version": "CRYPTO_V2"},
+        )
+    )
+
+    assert artifact.config_id == context.config_id
+    assert artifact.run_id == context.run_id
+    assert artifact.step_id == context.step_id
+    assert artifact.artifact_bytes
+    assert artifact.artifact_hash == hashlib.sha256(artifact.artifact_bytes).hexdigest()
+    assert artifact.sha256 == artifact.artifact_hash
+    assert artifact.artifact_metadata["artifact_id"] == artifact.id
+    assert artifact.artifact_metadata["provenance"]["step_id"] == context.step_id
+    assert artifact.artifact_metadata["dataset_fingerprint"] == "fp-55"
+    assert artifact.artifact_metadata["strategy_branch"] == "FAVORITE_ONLY"
+    assert artifact.artifact_metadata["target_semantics"] == "POLYMARKET_FINAL_OUTCOME"
+    assert artifact.loadability_status == "VALID"
+
+
+def test_lgbm_oot_propagates_train_artifact_and_never_calls_trainer(monkeypatch):
+    row = _bundle_row()
+    rows = TrainingRows([row])
+    rows.artifact = SimpleNamespace(
+        id=812,
+        artifact_metadata={
+            "train_window": {
+                "start": "2026-08-01T00:00:00Z",
+                "end": "2026-08-02T00:00:00Z",
+            },
+            "oot_window": {
+                "start": "2026-08-03T00:00:00Z",
+                "end": "2026-08-04T00:00:00Z",
+            },
+        },
+    )
+
+    async def load_rows(_session, _context):
+        return rows
+
+    class UnexpectedTrainer:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("OOT must not construct a trainer")
+
+    monkeypatch.setattr(lgbm_adapters, "_training_rows", load_rows)
+    monkeypatch.setattr(lgbm_adapters, "CryptoModelTrainer", UnexpectedTrainer)
+    result = asyncio.run(lgbm_adapters.run_lgbm_oot(_context(), object()))
+
+    assert result.status == "SUCCEEDED"
+    assert result.artifact_id == 812
+    assert result.train_window_start.isoformat().startswith("2026-08-01")
+    assert result.oot_window_end.isoformat().startswith("2026-08-04")

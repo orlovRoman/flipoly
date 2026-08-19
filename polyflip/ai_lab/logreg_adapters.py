@@ -21,6 +21,16 @@ from polyflip.ai_lab.executor import (
     AdapterResult,
     StepContext,
 )
+from polyflip.ai_lab.artifact_contracts import (
+    TrainingRows,
+    artifact_digest,
+    artifact_metadata,
+    bundle_bytes,
+    dataset_fingerprint,
+    datetime_window,
+    mapping,
+    resolve_window,
+)
 from polyflip.constants import resolve_binance_symbol
 from polyflip.crypto.logreg_polymarket_backtest import (
     compute_logreg_polymarket_backtest,
@@ -43,7 +53,7 @@ REGIMES = ("contested", "leaning", "decided")
 
 
 def _mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, Mapping) else {}
+    return mapping(value)
 
 
 def is_logreg_context(context: StepContext) -> bool:
@@ -66,16 +76,7 @@ def _code_sha() -> str | None:
 
 
 def _fingerprint(rows: Sequence[ModelRegistry]) -> str | None:
-    values = sorted(
-        str(row.dataset_fingerprint)
-        for row in rows
-        if row.dataset_fingerprint
-    )
-    if not values:
-        return None
-    if len(set(values)) == 1:
-        return values[0]
-    return hashlib.sha256("|".join(values).encode("utf-8")).hexdigest()[:32]
+    return dataset_fingerprint(rows)
 
 
 def _row_metrics(row: ModelRegistry) -> dict[str, Any]:
@@ -96,6 +97,34 @@ def _row_metrics(row: ModelRegistry) -> dict[str, Any]:
         "is_active": bool(row.is_active),
         "prediction_semantics": params.get("prediction_semantics"),
     }
+
+
+def _contract_windows(
+    context: StepContext,
+    rows: Sequence[ModelRegistry],
+    artifact: AIModelArtifact | None = None,
+) -> tuple[tuple[Any, Any] | None, tuple[Any, Any] | None]:
+    metadata = (
+        _mapping(getattr(artifact, "artifact_metadata", None))
+        if artifact is not None
+        else {}
+    )
+    sources = (
+        _mapping(context.input_payload),
+        context.backtest_params,
+        context.strategy_params,
+        context.model_params,
+        context.scope,
+        metadata,
+    )
+    train_window = resolve_window(sources, "train")
+    oot_window = resolve_window(sources, "oot")
+    if train_window is None:
+        train_window = (
+            min((row.training_window_start for row in rows if row.training_window_start), default=None),
+            max((row.training_window_end for row in rows if row.training_window_end), default=None),
+        )
+    return datetime_window(train_window), datetime_window(oot_window)
 
 
 async def _training_rows(
@@ -120,6 +149,16 @@ async def _training_rows(
     artifact = await session.get(AIModelArtifact, int(result.artifact_id))
     if artifact is None or artifact.loadability_status != "VALID":
         return []
+    if (
+        artifact.config_id != context.config_id
+        or artifact.run_id != context.run_id
+        or artifact.step_id is None
+        or (
+            getattr(result, "step_id", None) is not None
+            and artifact.step_id != result.step_id
+        )
+    ):
+        return []
     metadata = _mapping(artifact.artifact_metadata)
     ids = metadata.get("model_registry_ids")
     if not isinstance(ids, list) or not ids:
@@ -137,7 +176,9 @@ async def _training_rows(
         ).scalars().all()
     )
     by_id = {int(row.id): row for row in rows}
-    return [by_id[int(item)] for item in ids if int(item) in by_id]
+    rows = TrainingRows([by_id[int(item)] for item in ids if int(item) in by_id])
+    rows.artifact = artifact
+    return rows
 
 
 async def _create_bundle_artifact(
@@ -148,32 +189,66 @@ async def _create_bundle_artifact(
     for row in rows:
         if row.model_blob is None:
             raise ValueError(f"ModelRegistry {row.id} has no model_blob")
-    payload = b"".join(
-        hashlib.sha256(bytes(row.model_blob)).digest()
-        for row in sorted(rows, key=lambda item: int(item.id))
+    payload = bundle_bytes(
+        rows,
+        run_id=context.run_id,
+        config_id=context.config_id,
+        step_id=context.step_id,
+        artifact_kind="LOGREG_REGISTRY_BUNDLE",
+        target_semantics="FLIP_VS_FINAL_OUTCOME",
     )
-    digest = hashlib.sha256(payload).hexdigest()
-    existing = (
-        await session.execute(
-            select(AIModelArtifact).where(AIModelArtifact.sha256 == digest).limit(1)
+    digest = artifact_digest(payload)
+    input_payload = _mapping(context.input_payload)
+    strategy = _mapping(context.strategy_params)
+    strategy_branch = str(
+        input_payload.get("strategy_branch")
+        or strategy.get("strategy_branch")
+        or strategy.get("branch")
+        or "COMBINED"
+    ).strip().upper()
+    sources = (
+        input_payload,
+        context.backtest_params,
+        context.strategy_params,
+        context.model_params,
+        context.scope,
+    )
+    train_window = resolve_window(sources, "train")
+    oot_window = resolve_window(sources, "oot")
+    if train_window is None:
+        train_window = (
+            min((row.training_window_start for row in rows if row.training_window_start), default=None),
+            max((row.training_window_end for row in rows if row.training_window_end), default=None),
         )
-    ).scalar_one_or_none()
-    if existing is not None:
-        return existing
-    metadata = {
-        "artifact_kind": "LOGREG_REGISTRY_BUNDLE",
-        "run_id": context.run_id,
-        "config_id": context.config_id,
-        "config_hash": context.config_hash,
-        "asset": _base_asset(context),
-        "feature_set": context.feature_set,
-        "model_registry_ids": [int(row.id) for row in rows],
-        "model_versions": {str(row.asset): int(row.version) for row in rows},
-        "prediction_semantics": "FLIP_VS_FINAL_OUTCOME",
-    }
+    metadata = artifact_metadata(
+        context=context,
+        rows=rows,
+        artifact_kind="LOGREG_REGISTRY_BUNDLE",
+        feature_pipeline_version="LOGREG_FEATURES_V1",
+        target_semantics="FLIP_VS_FINAL_OUTCOME",
+        feature_semantics={
+            "feature_set": context.feature_set,
+            "features": [str(row.features or "") for row in rows],
+        },
+        train_window=train_window,
+        oot_window=oot_window,
+        strategy_branch=strategy_branch,
+    )
+    metadata.update(
+        {
+            "config_hash": context.config_hash,
+            "asset": _base_asset(context),
+            "model_versions": {str(row.asset): int(row.version) for row in rows},
+        }
+    )
     artifact = AIModelArtifact(
+        config_id=context.config_id,
+        run_id=context.run_id,
+        step_id=context.step_id,
         model_registry_id=None,
         artifact_uri=f"db://ai-lab/{context.run_id}/{context.config_id}/{digest}",
+        artifact_bytes=payload,
+        artifact_hash=digest,
         sha256=digest,
         schema_version="1",
         feature_pipeline_version="LOGREG_FEATURES_V1",
@@ -181,6 +256,10 @@ async def _create_bundle_artifact(
         loadability_status="VALID",
     )
     session.add(artifact)
+    await session.flush()
+    metadata["artifact_id"] = int(artifact.id)
+    metadata["provenance"]["artifact_id"] = int(artifact.id)
+    artifact.artifact_metadata = metadata
     await session.flush()
     return artifact
 
@@ -249,6 +328,7 @@ async def train_logreg(context: StepContext, session: AsyncSession) -> AdapterRe
             "safety violation: AI Lab LogReg training produced an active model"
         )
     artifact = await _create_bundle_artifact(session, context, rows)
+    train_window, oot_window = _contract_windows(context, rows, artifact)
     metrics = [_row_metrics(row) for row in rows]
     aucs = [item["auc"] for item in metrics if item["auc"] is not None]
     eces = [item["ece"] for item in metrics if item["ece"] is not None]
@@ -266,6 +346,10 @@ async def train_logreg(context: StepContext, session: AsyncSession) -> AdapterRe
         slices={str(row.asset): _row_metrics(row) for row in rows},
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(rows),
+        train_window_start=train_window[0] if train_window else None,
+        train_window_end=train_window[1] if train_window else None,
+        oot_window_start=oot_window[0] if oot_window else None,
+        oot_window_end=oot_window[1] if oot_window else None,
         summary=(
             f"Saved {len(rows)} inactive LogReg candidate(s) for {asset}; "
             "no active model or RuntimeSettings was changed."
@@ -284,12 +368,15 @@ async def run_logreg_oot(context: StepContext, session: AsyncSession) -> Adapter
             summary="No successful LogReg TRAIN artifact is available.",
             error_code="TRAIN_ARTIFACT_MISSING",
         )
+    artifact = getattr(rows, "artifact", None)
+    train_window, oot_window = _contract_windows(context, rows, artifact)
     metrics = [_row_metrics(row) for row in rows]
     aucs = [item["auc"] for item in metrics if item["auc"] is not None]
     eces = [item["ece"] for item in metrics if item["ece"] is not None]
     return AdapterResult(
         evaluation_kind="OOT",
         status="SUCCEEDED",
+        artifact_id=int(artifact.id) if artifact is not None else None,
         metrics={
             "model_count": len(rows),
             "auc": sum(aucs) / len(aucs) if aucs else None,
@@ -298,6 +385,10 @@ async def run_logreg_oot(context: StepContext, session: AsyncSession) -> Adapter
         slices={item["asset"]: item for item in metrics},
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(rows),
+        train_window_start=train_window[0] if train_window else None,
+        train_window_end=train_window[1] if train_window else None,
+        oot_window_start=oot_window[0] if oot_window else None,
+        oot_window_end=oot_window[1] if oot_window else None,
         summary="LogReg OOT diagnostics were read from saved registry candidates.",
     )
 
@@ -316,6 +407,7 @@ async def run_logreg_polymarket_oot(
             summary="No successful LogReg TRAIN artifact is available.",
             error_code="TRAIN_ARTIFACT_MISSING",
         )
+    artifact = getattr(rows, "artifact", None)
     input_payload = _mapping(context.input_payload)
     strategy = _mapping(context.strategy_params)
     branch = str(
@@ -329,20 +421,20 @@ async def run_logreg_polymarket_oot(
     results: list[dict[str, Any]] = []
     provenance: list[ModelRegistry] = []
     for row in rows:
-        artifact = (
+        oof_artifact = (
             await session.execute(
                 select(ModelRegistryOOFArtifact).where(
                     ModelRegistryOOFArtifact.model_registry_id == row.id
                 )
             )
         ).scalar_one_or_none()
-        if artifact is None:
+        if oof_artifact is None:
             continue
         params = _mapping(row.training_params)
         if params.get("prediction_semantics") != "FLIP_VS_FINAL_OUTCOME":
             continue
         try:
-            oof_payload = deserialize_oof_artifact(bytes(artifact.artifact_blob))
+            oof_payload = deserialize_oof_artifact(bytes(oof_artifact.artifact_blob))
             result = compute_logreg_polymarket_backtest(
                 oof_payload["frame"],
                 oof_payload["oof_scores"],
@@ -369,32 +461,46 @@ async def run_logreg_polymarket_oot(
     summary = aggregate_stored_polymarket_backtests(
         results, strategy_branch=branch
     )
+    train_window, oot_window = _contract_windows(context, rows, artifact)
+    stored_windows = [
+        window
+        for result in results
+        for window in (result.get("oot_windows") or [])
+        if isinstance(window, Mapping)
+    ]
+    metrics = {
+        key: summary.get(key)
+        for key in (
+            "strategy_branch",
+            "n_markets",
+            "n_quotes",
+            "n_oof",
+            "n_eligible",
+            "n_trades",
+            "net_profit",
+            "roi_pct",
+            "win_rate",
+            "max_drawdown_usdc",
+            "max_drawdown_pct",
+            "coverage_pct",
+        )
+    }
+    metrics["oot_windows"] = stored_windows
     return AdapterResult(
         evaluation_kind="POLYMARKET_OOT",
         status="SUCCEEDED" if summary["n_markets"] else "INSUFFICIENT_DATA",
-        metrics={
-            key: summary.get(key)
-            for key in (
-                "strategy_branch",
-                "n_markets",
-                "n_quotes",
-                "n_oof",
-                "n_eligible",
-                "n_trades",
-                "net_profit",
-                "roi_pct",
-                "win_rate",
-                "max_drawdown_usdc",
-                "max_drawdown_pct",
-                "coverage_pct",
-            )
-        },
+        metrics=metrics,
         slices={"slices": summary.get("slices", [])},
         trade_count=int(summary.get("n_trades") or 0),
         net_pnl=float(summary.get("net_profit") or 0.0),
         max_drawdown=float(summary.get("max_drawdown_usdc") or 0.0),
+        artifact_id=int(artifact.id) if artifact is not None else None,
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(provenance),
+        train_window_start=train_window[0] if train_window else None,
+        train_window_end=train_window[1] if train_window else None,
+        oot_window_start=oot_window[0] if oot_window else None,
+        oot_window_end=oot_window[1] if oot_window else None,
         summary=(
             f"LogReg Polymarket-OOT {branch}: "
             f"{int(summary.get('n_trades') or 0)} trades, "

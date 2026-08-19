@@ -63,7 +63,11 @@ def test_research_report_keeps_negative_pnl_and_separates_evidence():
     assert row["technical_valid"] is True
     assert row["evidence_sufficient"] is False
     assert row["deployment_eligible"] is False
+    assert row["candidate_status"] == "PROVISIONAL"
+    assert row["evidence_status"] == "INSUFFICIENT"
+    assert row["deployment_status"] == "PROHIBITED"
     assert report["recommendation_status"] == "RESEARCH_PROVISIONAL"
+    assert report["candidate_status"] == "PROVISIONAL"
 
 
 @pytest.mark.asyncio
