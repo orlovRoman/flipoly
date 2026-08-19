@@ -1,7 +1,0 @@
-# GEMINI.md — Workspace Rules
-
-This project follows the global 3-tier Gate Protocol defined in global `~/.gemini/GEMINI.md`.
-
-- Diagnostic questions («почему», «проверь», «как») ➡️ STRICT READ-ONLY.
-- Code modifications ➡️ Only upon explicit command («исправь», «сделай»).
-- Production Deploy ➡️ Only upon explicit command («задеплой»).

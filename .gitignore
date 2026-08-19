@@ -46,3 +46,7 @@ fix_tests.py
 inspect_*.py
 local_eval_*.py
 remote_eval.py
+
+# AI Agent Instructions (kept in local ~/.gemini/ only)
+AGENTS.md
+GEMINI.md
