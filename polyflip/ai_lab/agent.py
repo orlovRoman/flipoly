@@ -104,7 +104,8 @@ class AILabAgent:
             if s.hypothesis
         ]
 
-        remaining = max(0, run.experiment_budget - run.experiments_completed)
+        budget = int(getattr(run, "budget_experiments", 0) or getattr(run, "experiment_budget", 0) or 0)
+        remaining = max(0, budget - run.experiments_completed)
 
         return AgentContext(
             run_id=run.id,
@@ -138,7 +139,7 @@ class AILabAgent:
             return {"status": run.status, "message": f"Run is in terminal/paused state: {run.status}"}
 
         # Check budget availability
-        if run.experiment_budget > 0 and run.experiments_completed >= run.experiment_budget:
+        if budget > 0 and run.experiments_completed >= budget:
             await transition_run(
                 self.session,
                 run,
@@ -214,7 +215,7 @@ class AILabAgent:
             baseline_comparison={"score": policy_result.score},
             finalization_gate=policy_result.to_dict(),
             iteration=step_idx,
-            budget_remaining_steps=max(0, run.experiment_budget - step_idx),
+                budget_remaining_steps=max(0, budget - step_idx),
         )
         decision, dec_stats = await self.llm.analyze_experiment(analysis_ctx)
 
@@ -319,7 +320,7 @@ class AILabAgent:
         run.summary = json.dumps(summary_payload, ensure_ascii=False)
 
         if run.status == "EVALUATING":
-            if run.experiments_completed >= run.experiment_budget:
+            if run.experiments_completed >= budget:
                 await transition_run(
                     self.session,
                     run,

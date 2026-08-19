@@ -1084,7 +1084,7 @@ async def rollback_ai_deployment(
     db: AsyncSession = Depends(get_db_session),
 ):
     try:
-        restored = await rollback_deployment(
+        current_active, restored = await rollback_deployment(
             db,
             target_revision_id=payload.target_revision_id,
             actor=payload.actor,
