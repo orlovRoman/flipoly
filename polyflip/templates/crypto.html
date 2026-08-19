@@ -1320,8 +1320,14 @@
 
                 switch (currentSortField) {
                     case 'pnl':
-                        valA = a.pnlInfo.backtest_trades > 0 ? (a.pnlInfo.backtest_pnl ?? 0) : (a.pnlInfo.direction_pnl ?? 0);
-                        valB = b.pnlInfo.backtest_trades > 0 ? (b.pnlInfo.backtest_pnl ?? 0) : (b.pnlInfo.direction_pnl ?? 0);
+                        // Paper PnL: direction_pnl из реальных paper-сделок
+                        valA = (a.pnlInfo.direction_trades ?? 0) > 0 ? (a.pnlInfo.direction_pnl ?? -Infinity) : -Infinity;
+                        valB = (b.pnlInfo.direction_trades ?? 0) > 0 ? (b.pnlInfo.direction_pnl ?? -Infinity) : -Infinity;
+                        break;
+                    case 'oof_pnl':
+                        // OOF Backtest PnL: рассчитан при обучении
+                        valA = (a.pnlInfo.backtest_trades ?? 0) > 0 ? (a.pnlInfo.backtest_pnl ?? -Infinity) : -Infinity;
+                        valB = (b.pnlInfo.backtest_trades ?? 0) > 0 ? (b.pnlInfo.backtest_pnl ?? -Infinity) : -Infinity;
                         break;
                     case 'win_rate':
                         valA = a.pnlInfo.direction_win_rate ?? -1;
@@ -1413,57 +1419,47 @@
             let tbody = pageModels.map(m => {
                 const sym = m.asset;
                 const pnl = m.pnlInfo;
-                
-                // Direction PnL styling
-                let dirPnlHtml = '';
-                let dirStatsHtml = '';
 
+                // === PAPER PnL (реальные paper-сделки в боте) ===
+                let paperPnlHtml = '';
                 if (pnlData === null) {
-                    dirPnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem; font-style:italic;">Расчёт...</span>`;
-                    dirStatsHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">—</span>`;
+                    paperPnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem; font-style:italic;">Расчёт...</span>`;
                 } else if (pnlData === "ERROR") {
-                    dirPnlHtml = `<span style="color:#ff3366; font-size:0.85rem;">Ошибка аналитики</span>`;
-                    dirStatsHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">—</span>`;
-                } else if ((pnl.backtest_trades || 0) > 0) {
-                    const btTrades = pnl.backtest_trades;
-                    const btPnl = pnl.backtest_pnl || 0;
-                    const btColor = btPnl > 0 ? 'var(--poly-green)' : btPnl < 0 ? '#ff3366' : 'var(--text-muted)';
-                    const btSign = btPnl > 0 ? '+' : '';
-                    dirPnlHtml = `
-                        <div style="font-weight:700; color:${btColor}; font-size:1.05rem;">
-                            ${btSign}${btPnl.toFixed(2)} USDC
-                        </div>
-                        <div style="font-size:0.75rem; color:var(--text-muted);">OOF Polymarket</div>
-                    `;
-                    dirStatsHtml = `
-                        <div style="color:white; font-size:0.95rem;">${pnl.backtest_wr != null ? (pnl.backtest_wr * 100).toFixed(1) + '%' : '—'}</div>
-                        <div style="font-size:0.75rem; color:var(--text-muted);">${btTrades} OOF сделок</div>
-                    `;
+                    paperPnlHtml = `<span style="color:#ff3366; font-size:0.85rem;">Ошибка</span>`;
                 } else {
                     const dirTrades = pnl.direction_trades || 0;
                     if (dirTrades === 0) {
-                        dirPnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">Нет сделок</span>`;
-                        dirStatsHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">—</span>`;
+                        paperPnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">Нет сделок</span>`;
                     } else {
-                        const color = pnl.direction_pnl > 0 ? 'var(--poly-green)' 
-                                    : pnl.direction_pnl < 0 ? '#ff3366' 
+                        const color = pnl.direction_pnl > 0 ? 'var(--poly-green)'
+                                    : pnl.direction_pnl < 0 ? '#ff3366'
                                     : 'var(--text-muted)';
                         const sign = pnl.direction_pnl > 0 ? '+' : '';
                         const pf = pnl.direction_profit_factor != null ? pnl.direction_profit_factor.toFixed(2) : '—';
-                        
-                        dirPnlHtml = `
-                            <div style="font-weight:700; color:${color}; font-size:1.05rem;">
-                                ${sign}${pnl.direction_pnl.toFixed(2)}
-                            </div>
-                            <div style="font-size:0.75rem; color:var(--text-muted);">
-                                PF: <span style="color:white;">${pf}</span>
-                            </div>
-                        `;
-                        dirStatsHtml = `
-                            <div style="color:white; font-size:0.95rem;">${pnl.direction_win_rate != null ? pnl.direction_win_rate + '%' : '—'}</div>
-                            <div style="font-size:0.75rem; color:var(--text-muted);">${dirTrades} сделок</div>
+                        paperPnlHtml = `
+                            <div style="font-weight:700; color:${color}; font-size:1.05rem;">${sign}${pnl.direction_pnl.toFixed(2)}</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">PF: <span style="color:white;">${pf}</span> · ${dirTrades} сд.</div>
                         `;
                     }
+                }
+
+                // === OOF PnL (бэктест при обучении) ===
+                let oofPnlHtml = '';
+                if (pnlData === null) {
+                    oofPnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem; font-style:italic;">Расчёт...</span>`;
+                } else if (pnlData === "ERROR") {
+                    oofPnlHtml = `<span style="color:#ff3366; font-size:0.85rem;">Ошибка</span>`;
+                } else if ((pnl.backtest_trades || 0) > 0) {
+                    const btPnl = pnl.backtest_pnl || 0;
+                    const btColor = btPnl > 0 ? 'var(--poly-green)' : btPnl < 0 ? '#ff3366' : 'var(--text-muted)';
+                    const btSign = btPnl > 0 ? '+' : '';
+                    const btWr = pnl.backtest_wr != null ? (pnl.backtest_wr * 100).toFixed(1) + '%' : '—';
+                    oofPnlHtml = `
+                        <div style="font-weight:700; color:${btColor}; font-size:1.05rem;">${btSign}${btPnl.toFixed(2)}</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">WR: ${btWr} · ${pnl.backtest_trades} сд.</div>
+                    `;
+                } else {
+                    oofPnlHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">—</span>`;
                 }
 
                 let eceBadge = '—';
@@ -1527,11 +1523,12 @@
                     <td style="padding: 0.7rem 0.5rem; text-align: center; font-size:0.82rem;">
                         ${m.brier_score != null ? m.brier_score.toFixed(4) : '—'}
                     </td>
-                    <td style="padding: 0.7rem 0.5rem; text-align: right;">${dirPnlHtml}</td>
-                    <td style="padding: 0.7rem 0.5rem; text-align: right;">${dirStatsHtml}</td>
+                    <td style="padding: 0.7rem 0.5rem; text-align: right;">${paperPnlHtml}</td>
+                    <td style="padding: 0.7rem 0.5rem; text-align: right;">${oofPnlHtml}</td>
                     <td style="padding: 0.7rem 0.5rem; font-size:0.8rem; color:var(--text-muted); text-align: right; white-space: nowrap;">
-                        ${m.trained_at ? m.trained_at.slice(0,16).replace('T',' ') : '—'}
+                        ${m.trained_at ? m.trained_at.slice(0,10) : '—'}
                     </td>
+
                     <td style="padding: 0.7rem 0.5rem; width: 140px; text-align: right;">
                         <div style="display:flex; flex-direction:column; gap:0.4rem; align-items:flex-end;">
                             ${actionButtonHtml}
@@ -1556,8 +1553,8 @@
                             <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('recall')">Recall ${getSortIndicator('recall')}</button></th>
                             <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('f1')">F1 ${getSortIndicator('f1')}</button></th>
                             <th style="padding: 0.5rem; text-align: center;"><button class="table-sort" style="justify-content: center; width: 100%;" onclick="setSort('brier_score')">Brier ${getSortIndicator('brier_score')}</button></th>
-                            <th style="padding: 0.5rem; text-align: right;"><button class="table-sort" style="justify-content: flex-end; width: 100%;" onclick="setSort('pnl')">LightGBM PnL ${getSortIndicator('pnl')}</button></th>
-                            <th style="padding: 0.5rem; text-align: right;"><button class="table-sort" style="justify-content: flex-end; width: 100%;" onclick="setSort('trades')">Сделок ${getSortIndicator('trades')}</button></th>
+                            <th style="padding: 0.5rem; text-align: right;"><button class="table-sort" style="justify-content: flex-end; width: 100%;" onclick="setSort('pnl')">Paper PnL ${getSortIndicator('pnl')}</button></th>
+                            <th style="padding: 0.5rem; text-align: right;"><button class="table-sort" style="justify-content: flex-end; width: 100%;" onclick="setSort('oof_pnl')">OOF PnL ${getSortIndicator('oof_pnl')}</button></th>
                             <th style="padding: 0.5rem; text-align: right; white-space: nowrap;"><button class="table-sort" style="justify-content: flex-end; width: 100%;" onclick="setSort('trained_at')">Обучена ${getSortIndicator('trained_at')}</button></th>
                             <th style="padding: 0.5rem; width: 140px; text-align: right;"></th>
                         </tr>
