@@ -1,6 +1,6 @@
 """Complete AI Lab artifact/result contracts without discarding legacy rows.
 
-Revision ID: 20260819_ai_lab_artifact_contracts
+Revision ID: 20260819_ai_artifact_contract
 Revises: 20260819_ai_lab_research_mode
 """
 
@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20260819_ai_lab_artifact_contracts"
+revision = "20260819_ai_artifact_contract"
 down_revision = "20260819_ai_lab_research_mode"
 branch_labels = None
 depends_on = None
