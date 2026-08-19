@@ -1,6 +1,21 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from polyflip.constants import LIVE_POLL_INTERVAL_SECONDS as _DEFAULT_POLL_INTERVAL
+
+
+AI_LAB_MODES = frozenset({"STANDARD", "RESEARCH"})
+
+
+def normalize_ai_lab_mode(value: str) -> str:
+    mode = str(value).strip().upper()
+    if mode not in AI_LAB_MODES:
+        raise ValueError(
+            f"AI_LAB_MODE must be one of {sorted(AI_LAB_MODES)}, got {value!r}"
+        )
+    return mode
 
 
 class Settings(BaseSettings):
@@ -58,6 +73,26 @@ class Settings(BaseSettings):
     AI_LAB_LLM_STORE: bool = False
     AI_LAB_MAX_RUNTIME_SECONDS: int = 3600
     AI_LAB_MAX_COST_USD: float = 10.0
+    AI_LAB_MODE: str = "STANDARD"
+    # Research remains a bounded, offline schedule even when enabled through
+    # environment configuration. These values mirror the scheduler hard caps.
+    AI_LAB_RESEARCH_MAX_ITERATIONS: int = 1
+    AI_LAB_RESEARCH_MAX_STEPS: int = 1
+    AI_LAB_RESEARCH_INTERVAL_SECONDS: float = 0.0
+    AI_LAB_RESEARCH_LEASE_TTL_SECONDS: float = 120.0
+
+    @field_validator("AI_LAB_MODE")
+    @classmethod
+    def validate_ai_lab_mode(cls, value: str) -> str:
+        return normalize_ai_lab_mode(value)
+
+    @model_validator(mode="after")
+    def validate_ai_lab_safety(self) -> "Settings":
+        if self.AI_LAB_MODE == "RESEARCH" and self.TRADING_ENABLED:
+            raise ValueError(
+                "AI_LAB_MODE=RESEARCH cannot be used while TRADING_ENABLED=true"
+            )
+        return self
 
     @property
     def asset_list(self) -> List[str]:

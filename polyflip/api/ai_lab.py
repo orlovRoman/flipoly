@@ -30,6 +30,7 @@ from polyflip.ai_lab.scheduler import (
 )
 from polyflip.ai_lab.service import (
     AILabError,
+    AIResearchModeError,
     AIPermissionError,
     AIRunTransitionError,
     append_step,
@@ -113,6 +114,7 @@ class RunCreateRequest(BaseModel):
     objective: str = Field(min_length=1, max_length=4000)
     scope: dict[str, Any] = Field(default_factory=dict)
     autonomy_level: str = "EXPERIMENT"
+    mode: Literal["STANDARD", "RESEARCH"] = "STANDARD"
     budget_experiments: int = Field(default=1, ge=1, le=10000)
     budget_seconds: int = Field(default=0, ge=0, le=7 * 24 * 3600)
     created_by: str = Field(default="api", max_length=128)
@@ -236,6 +238,7 @@ def _run_payload(run: AIOptimizationRun) -> dict[str, Any]:
         "id": run.id,
         "objective": run.objective,
         "scope": run.scope,
+        "mode": run.mode,
         "autonomy_level": run.autonomy_level,
         "status": run.status,
         "agent_type": run.agent_type,
@@ -413,6 +416,7 @@ async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(ge
             objective=payload.objective,
             scope=payload.scope,
             autonomy_level=payload.autonomy_level.upper(),
+            mode=payload.mode,
             budget_experiments=payload.budget_experiments,
             budget_seconds=payload.budget_seconds,
             created_by=payload.created_by,
@@ -887,6 +891,9 @@ async def request_ai_approval(
             )
             await db.commit()
             await db.refresh(row)
+    except AIResearchModeError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except AIPermissionError as exc:
         await db.rollback()
         raise HTTPException(status_code=403, detail=str(exc)) from exc

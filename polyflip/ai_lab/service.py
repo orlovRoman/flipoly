@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
+from polyflip.config import normalize_ai_lab_mode, settings
 from polyflip.ai_lab.manifests import (
     build_deployment_manifest,
     compute_manifest_hash,
@@ -35,6 +36,7 @@ from polyflip.db.models import (
     DeploymentRevision,
     ExperimentResult,
     ModelRegistry,
+    RuntimeSettings,
 )
 
 logger = structlog.get_logger(__name__)
@@ -52,6 +54,10 @@ class AIPermissionError(AILabError):
     """Raised when an action is outside the immutable permission snapshot."""
 
 
+class AIResearchModeError(AILabError):
+    """Raised when research mode reaches a LIVE-only deployment boundary."""
+
+
 RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     "DRAFT": frozenset({"QUEUED", "PLANNING", "CANCELLED"}),
     "QUEUED": frozenset({"PLANNING", "RUNNING", "CANCELLED", "FAILED"}),
@@ -64,6 +70,9 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
             "SHADOW",
             "PENDING_APPROVAL",
             "INSUFFICIENT_DATA",
+            "RESEARCH_PROVISIONAL",
+            "INSUFFICIENT_EVIDENCE",
+            "TECHNICAL_INVALID",
             "COMPLETED",
             "FAILED",
             "CANCELLED",
@@ -74,6 +83,9 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     "SHADOW": frozenset(
         {"PENDING_APPROVAL", "REJECTED", "ROLLED_BACK", "COMPLETED"}
     ),
+    "RESEARCH_PROVISIONAL": frozenset({"SHADOW"}),
+    "INSUFFICIENT_EVIDENCE": frozenset(),
+    "TECHNICAL_INVALID": frozenset(),
     # ACTIVE is reached only by approve_and_activate_deployment after the
     # explicit human approval row-lock transaction; generic run transitions
     # must not provide a direct activation bypass.
@@ -156,8 +168,10 @@ async def create_run(
     permission: AIPermission | None,
     created_by: str = "system",
     agent_thread_id: str | None = None,
+    mode: str | None = None,
 ) -> AIOptimizationRun:
     autonomy_level = autonomy_level.upper()
+    resolved_mode = normalize_ai_lab_mode(mode or settings.AI_LAB_MODE)
     if permission is None and autonomy_level != "OBSERVE":
         raise AIPermissionError(
             "permission snapshot is required for autonomous AI Lab runs"
@@ -168,6 +182,19 @@ async def create_run(
         raise AILabError("budget_experiments must be at least 1")
     if budget_seconds < 0:
         raise AILabError("budget_seconds must be non-negative")
+    if resolved_mode == "RESEARCH":
+        trading_enabled = bool(settings.TRADING_ENABLED)
+        if hasattr(session, "execute"):
+            result = await session.execute(
+                select(RuntimeSettings).where(RuntimeSettings.key == "TRADING_ENABLED")
+            )
+            runtime_setting = result.scalar_one_or_none()
+            if runtime_setting is not None:
+                trading_enabled = str(runtime_setting.value).strip().lower() == "true"
+        if trading_enabled:
+            raise AILabError(
+                "AI_LAB_MODE=RESEARCH cannot be used while TRADING_ENABLED=true"
+            )
     if autonomy_level not in {
         "OBSERVE",
         "EXPERIMENT",
@@ -184,9 +211,11 @@ async def create_run(
     row = AIOptimizationRun(
         objective=objective,
         scope=dict(scope),
+        mode=resolved_mode,
         autonomy_level=autonomy_level,
         status="DRAFT",
         permission_id=permission.id if permission is not None else None,
+        experiment_budget=budget_experiments,
         budget_experiments=budget_experiments,
         budget_seconds=budget_seconds,
         created_by=created_by,
@@ -213,6 +242,9 @@ async def transition_run(
     if run.status in {
         "COMPLETED",
         "INSUFFICIENT_DATA",
+        "RESEARCH_PROVISIONAL",
+        "INSUFFICIENT_EVIDENCE",
+        "TECHNICAL_INVALID",
         "FAILED",
         "REJECTED",
         "CANCELLED",
@@ -593,6 +625,10 @@ async def propose_live_deployment(
     ).scalar_one_or_none()
     if run is None:
         raise AILabError(f"AI Lab run {run_id} not found")
+    if str(getattr(run, "mode", settings.AI_LAB_MODE)).upper() == "RESEARCH":
+        raise AIResearchModeError(
+            "LIVE deployment proposals are prohibited for RESEARCH runs"
+        )
     if run.status not in {"SHADOW", "PENDING_APPROVAL"}:
         raise AILabError(
             f"live deployment proposal requires run in SHADOW or PENDING_APPROVAL, got {run.status}"
@@ -745,6 +781,12 @@ async def approve_and_activate_deployment(
         )
     if approval.requested_action != "ACTIVATE" or approval.target_type != "DEPLOYMENT_REVISION":
         raise AILabError("approval request is not a deployment activation")
+    if approval.run_id:
+        approval_run = await session.get(AIOptimizationRun, approval.run_id)
+        if approval_run is not None and str(getattr(approval_run, "mode", "STANDARD")).upper() == "RESEARCH":
+            raise AIResearchModeError(
+                "LIVE activation is prohibited for RESEARCH runs"
+            )
     try:
         revision_id = int(approval.target_id)
     except (TypeError, ValueError) as exc:

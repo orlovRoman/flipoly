@@ -959,6 +959,7 @@ class AIOptimizationRun(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     objective = Column(String(4000), nullable=False)
     scope = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    mode = Column(String(16), nullable=False, server_default="STANDARD")
     autonomy_level = Column(String(32), nullable=False, server_default="EXPERIMENT")
     status = Column(String(32), nullable=False, server_default="DRAFT")
     agent_thread_id = Column(String(128), nullable=True)
@@ -985,8 +986,13 @@ class AIOptimizationRun(Base):
         CheckConstraint(
             "status IN ('DRAFT', 'QUEUED', 'PLANNING', 'RUNNING', 'EVALUATING', "
             "'PAUSED', 'SHADOW', 'PENDING_APPROVAL', 'ACTIVE', 'COMPLETED', "
-            "'INSUFFICIENT_DATA', 'FAILED', 'REJECTED', 'CANCELLED', 'ROLLED_BACK')",
+            "'INSUFFICIENT_DATA', 'RESEARCH_PROVISIONAL', 'INSUFFICIENT_EVIDENCE', "
+            "'TECHNICAL_INVALID', 'FAILED', 'REJECTED', 'CANCELLED', 'ROLLED_BACK')",
             name="ck_ai_runs_status",
+        ),
+        CheckConstraint(
+            "mode IN ('STANDARD', 'RESEARCH')",
+            name="ck_ai_runs_mode",
         ),
         CheckConstraint(
             "autonomy_level IN ('OBSERVE', 'EXPERIMENT', 'SHADOW', 'AUTONOMOUS_SHADOW', 'AUTONOMOUS_CONFIG', 'LIVE_PROPOSE', 'AUTONOMOUS_LIVE', 'DIRECTED')",
