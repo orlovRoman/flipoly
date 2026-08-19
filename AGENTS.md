@@ -1,21 +1,25 @@
-# AGY EXECUTION OVERRIDE FOR THIS FLIPOLY PROJECT
+# AGENTS.md — Agent Execution Protocol for Flipoly
 
-The user has explicitly authorized the current bounded task through Codex.
-When this task is invoked via `agy-mcp` with `mode=execute` and
-`allow_write=true`, execute the listed edits without asking for another
-interactive confirmation. This applies only to the explicitly listed files
-in this Flipoly worktree.
+This project follows the strict 3-tier Gate Protocol defined in `GEMINI.md`.
 
-# Flipoly Codex / agy-mcp execution contract
+## 1. GATING RULES (MANDATORY)
 
-When the user explicitly authorizes a bounded change in a request sent from
-Codex through `agy-mcp` with `mode=execute` and `allow_write=true`, treat that
-request as the confirmation for the listed files and worktree. Do not wait
-for a second interactive confirmation in headless mode.
+- **TYPE A: Questions / Diagnostics / Error Analysis**
+  - Triggers: words like "why", "how", "what happened", "check", "?", log inspection.
+  - Mode: **STRICT READ-ONLY**.
+  - Forbidden: Any code edits (`replace_file_content`, `write_to_file`), git operations, DB mutations, container restarts.
+  - Action: Perform read-only investigation, provide structured text analysis, and **STOP**. Never execute self-directed fixes.
 
-Work only in the provided Flipoly worktree and the explicitly listed scope.
-Preserve unrelated user changes. Do not activate models, change production,
-delete files, reset the repository, or run destructive database operations.
-Return the touched files, tests, and any remaining failure. If the request
-does not contain explicit authorization or a bounded scope, remain read-only
-and report what is missing.
+- **TYPE B: Action Commands**
+  - Triggers: Explicit imperative commands: "Fix", "Apply", "Implement", "Write code".
+  - Mode: **CODE & MODIFY ACCESS**.
+  - Action: Implement requested changes, test, and commit.
+
+- **TYPE C: Production Deploy**
+  - Triggers: Strictly requires the explicit user word "Задеплой" (or "Deploy").
+  - Mode: **DEPLOYMENT ACCESS**.
+
+## 2. PRODUCTION CONSTRAINTS
+- Production server: `agent-gemini-cli-poly`
+- Docker compose: `docker compose` (no hyphen)
+- Never activate models, modify production data, or restart containers without explicit user authorization.
