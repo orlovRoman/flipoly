@@ -104,7 +104,7 @@ async def test_live_sizing_rejection_chain(db_session):
 
 
 @pytest.mark.asyncio
-async def test_rebuild_repairs_expired_open_request_reason_and_position():
+async def test_rebuild_repairs_expired_open_request_reason_and_position(db_session):
     """A lease-expired OPEN must not remain an OPENING/blank-error trade."""
     trade = TradeHistory(
         id=1000,

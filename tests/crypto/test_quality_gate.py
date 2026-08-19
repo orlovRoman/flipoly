@@ -63,7 +63,7 @@ def test_both_decision_thresholds_are_validated_and_sanitized():
         threshold_down=1.2,
     )
 
-    assert passed is True
+    assert passed is False
     assert threshold_up == pytest.approx(0.0)
     assert threshold_down == pytest.approx(1.0)
     assert any("UP threshold" in item for item in reasons)
