@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     AI_LAB_RESEARCH_MAX_STEPS: int = 1
     AI_LAB_RESEARCH_INTERVAL_SECONDS: float = 0.0
     AI_LAB_RESEARCH_LEASE_TTL_SECONDS: float = 120.0
+    AI_LAB_SCHEDULE_ENABLED: bool = False
+    AI_LAB_SCHEDULE_CRON: str = ""
+    AI_LAB_MAX_DAILY_RUNS: int = 1
+    AI_LAB_MAX_CONCURRENT_RUNS: int = 1
 
     @field_validator("AI_LAB_MODE")
     @classmethod
@@ -92,6 +96,10 @@ class Settings(BaseSettings):
             raise ValueError(
                 "AI_LAB_MODE=RESEARCH cannot be used while TRADING_ENABLED=true"
             )
+        if self.AI_LAB_MAX_DAILY_RUNS < 1:
+            raise ValueError("AI_LAB_MAX_DAILY_RUNS must be at least 1")
+        if self.AI_LAB_MAX_CONCURRENT_RUNS < 1:
+            raise ValueError("AI_LAB_MAX_CONCURRENT_RUNS must be at least 1")
         return self
 
     @property
