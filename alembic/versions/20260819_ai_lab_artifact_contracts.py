@@ -18,66 +18,37 @@ def upgrade() -> None:
     # The first artifact migration only stored a URI/hash.  These fields are
     # nullable for historical rows, while every new AI Lab TRAIN artifact is
     # written with all links and exact bytes populated.
-    op.add_column(
-        "ai_model_artifacts",
-        sa.Column("config_id", sa.Integer(), nullable=True),
-    )
-    op.add_column(
-        "ai_model_artifacts",
-        sa.Column("run_id", sa.Integer(), nullable=True),
-    )
-    op.add_column(
-        "ai_model_artifacts",
-        sa.Column("step_id", sa.Integer(), nullable=True),
-    )
-    op.add_column(
-        "ai_model_artifacts",
-        sa.Column("artifact_bytes", sa.LargeBinary(), nullable=True),
-    )
-    op.add_column(
-        "ai_model_artifacts",
-        sa.Column("artifact_hash", sa.String(length=64), nullable=True),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    def add_if_missing(table: str, column: sa.Column) -> None:
+        existing = {item["name"] for item in inspector.get_columns(table)}
+        if column.name not in existing:
+            op.add_column(table, column)
+
+    add_if_missing("ai_model_artifacts", sa.Column("config_id", sa.Integer(), nullable=True))
+    add_if_missing("ai_model_artifacts", sa.Column("run_id", sa.Integer(), nullable=True))
+    add_if_missing("ai_model_artifacts", sa.Column("step_id", sa.Integer(), nullable=True))
+    add_if_missing("ai_model_artifacts", sa.Column("artifact_bytes", sa.LargeBinary(), nullable=True))
+    add_if_missing("ai_model_artifacts", sa.Column("artifact_hash", sa.String(length=64), nullable=True))
     op.execute(
         "UPDATE ai_model_artifacts SET artifact_hash = sha256 "
         "WHERE artifact_hash IS NULL"
     )
-    op.create_foreign_key(
-        "fk_ai_artifacts_config",
-        "ai_model_artifacts",
-        "ai_experiment_configs",
-        ["config_id"],
-        ["id"],
-        ondelete="CASCADE",
-    )
-    op.create_foreign_key(
-        "fk_ai_artifacts_run",
-        "ai_model_artifacts",
-        "ai_optimization_runs",
-        ["run_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
-    op.create_foreign_key(
-        "fk_ai_artifacts_step",
-        "ai_model_artifacts",
-        "ai_run_steps",
-        ["step_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    existing_fks = {item.get("name") for item in inspector.get_foreign_keys("ai_model_artifacts")}
+    for name, referred, column, ondelete in (
+        ("fk_ai_artifacts_config", "ai_experiment_configs", "config_id", "CASCADE"),
+        ("fk_ai_artifacts_run", "ai_optimization_runs", "run_id", "SET NULL"),
+        ("fk_ai_artifacts_step", "ai_run_steps", "step_id", "SET NULL"),
+    ):
+        if name not in existing_fks:
+            op.create_foreign_key(name, "ai_model_artifacts", referred, [column], ["id"], ondelete=ondelete)
 
     # Preserve the old experiment_configs reference before moving the active
     # config_id contract to AIExperimentConfig.  Existing result rows remain
     # queryable through legacy_config_id and are never deleted.
-    op.add_column(
-        "experiment_results",
-        sa.Column("legacy_config_id", sa.Integer(), nullable=True),
-    )
-    op.add_column(
-        "experiment_results",
-        sa.Column("step_id", sa.Integer(), nullable=True),
-    )
+    add_if_missing("experiment_results", sa.Column("legacy_config_id", sa.Integer(), nullable=True))
+    add_if_missing("experiment_results", sa.Column("step_id", sa.Integer(), nullable=True))
     op.execute(
         "UPDATE experiment_results SET legacy_config_id = config_id "
         "WHERE legacy_config_id IS NULL"
