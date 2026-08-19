@@ -269,6 +269,29 @@ async def get_model_coefficients(asset: str, version: int, db: AsyncSession = De
 @router.post("/analytics/models/{asset}/activate/{version}", dependencies=[Depends(verify_api_key)])
 async def activate_model(asset: str, version: int, db: AsyncSession = Depends(get_db_session)):
     """Смена активной модели"""
+    # Проверяем модель перед активацией
+    stmt = select(ModelRegistry).where(
+        ModelRegistry.asset == asset, ModelRegistry.version == version
+    )
+    model = (await db.execute(stmt)).scalar_one_or_none()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Валидация порогов, если они заданы
+    th_up = model.decision_threshold
+    th_down = model.decision_threshold_down
+    if th_up is not None and th_down is not None:
+        if not (0.0 <= float(th_down) < float(th_up) <= 1.0):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "INVALID_THRESHOLD_BOUNDS",
+                    "message": f"Некорректные пороги: Down ({float(th_down):.3f}) должен быть строго меньше Up ({float(th_up):.3f}) в диапазоне [0.0, 1.0]",
+                    "threshold_down": float(th_down),
+                    "threshold_up": float(th_up),
+                },
+            )
+
     # Деактивируем все модели этого актива
     await db.execute(
         update(ModelRegistry)
@@ -277,14 +300,11 @@ async def activate_model(asset: str, version: int, db: AsyncSession = Depends(ge
     )
     
     # Активируем выбранную
-    result = await db.execute(
+    await db.execute(
         update(ModelRegistry)
         .where(ModelRegistry.asset == asset, ModelRegistry.version == version)
         .values(is_active=True)
     )
-
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Model not found")
     
     await db.commit()
     invalidate_models_cache()

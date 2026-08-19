@@ -528,6 +528,13 @@ def _fit_lgbm_and_serialize(
         )
         optimal_threshold = float(threshold_audit["selected_lower_threshold"])
         optimal_threshold_up = float(threshold_audit["selected_upper_threshold"])
+        if optimal_threshold >= optimal_threshold_up:
+            logger.warning(
+                "inverted_thresholds_detected_fallback",
+                raw_down=optimal_threshold,
+                raw_up=optimal_threshold_up,
+            )
+            optimal_threshold, optimal_threshold_up = 0.45, 0.55
         threshold_sweep = list(threshold_audit.get("sweep") or [])
     else:
         valid_raw = raw_oof_scores[valid_mask]
@@ -535,7 +542,7 @@ def _fit_lgbm_and_serialize(
         optimal_threshold = float(np.quantile(valid_raw, target / 2.0)) if len(valid_raw) else 0.45
         optimal_threshold_up = float(np.quantile(valid_raw, 1.0 - target / 2.0)) if len(valid_raw) else 0.55
         if optimal_threshold >= optimal_threshold_up:
-            optimal_threshold, optimal_threshold_up = 0.49, 0.51
+            optimal_threshold, optimal_threshold_up = 0.45, 0.55
 
     # Direction precision is retained as a diagnostic only; it no longer
     # chooses either threshold.

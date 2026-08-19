@@ -1362,6 +1362,9 @@ document.addEventListener("DOMContentLoaded", () => {
     pageData.forEach((m) => {
       const isActive = m.is_active;
       const isBest = m.accuracy === bestAccuracy[m.asset];
+      const thUp = m.decision_threshold != null ? Number(m.decision_threshold) : null;
+      const thDown = m.decision_threshold_down != null ? Number(m.decision_threshold_down) : null;
+      const isInvalidThresholds = (thUp != null && thDown != null && (thDown >= thUp || thDown < 0 || thUp > 1));
       
       let statusHtml = isActive
         ? `<span style="color: var(--poly-green); font-weight: bold;">Активна</span>`
@@ -1370,16 +1373,24 @@ document.addEventListener("DOMContentLoaded", () => {
       if (isBest) {
         statusHtml += ` <span class="status-indicator online" style="font-size: 0.75rem; padding: 0.1rem 0.5rem; margin-left: 5px; background: rgba(0, 114, 245, 0.1); color: var(--poly-blue); border: 1px solid rgba(0, 114, 245, 0.3);">Самая умная</span>`;
       }
+      if (isInvalidThresholds && !isActive) {
+        statusHtml += ` <span style="font-size: 0.75rem; padding: 0.1rem 0.4rem; margin-left: 5px; background: rgba(255, 51, 102, 0.12); color: #ff3366; border: 1px solid rgba(255, 51, 102, 0.35); border-radius: 4px;" title="Порог Down (${thDown.toFixed(3)}) >= Up (${thUp.toFixed(3)}). Модель повреждена.">⚠️ Пороги инвертированы</span>`;
+      }
 
       const actionHtml = isActive
         ? `<div style="display:flex; gap:0.4rem;">
             <button class="btn btn-primary" disabled style="opacity: 0.5; padding: 0.35rem 0.6rem; font-size: 0.8rem;" title="Сначала активируйте другую версию">Текущая</button>
             <button class="btn btn-delete-polymarket-model" disabled style="opacity: 0.3; padding: 0.35rem 0.6rem; font-size: 0.8rem; background: rgba(220, 53, 69, 0.15); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.3);" title="Сначала активируйте другую версию">🗑</button>
            </div>`
-        : `<div style="display:flex; gap:0.4rem;">
-            <button class="btn btn-primary btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">Активировать</button>
-            <button class="btn btn-delete-polymarket-model" data-asset="${m.asset}" data-version="${m.version}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; background: rgba(220, 53, 69, 0.15); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.3);">🗑</button>
-           </div>`;
+        : isInvalidThresholds
+          ? `<div style="display:flex; gap:0.4rem;">
+              <button class="btn btn-primary" disabled style="opacity: 0.35; cursor: not-allowed; padding: 0.35rem 0.6rem; font-size: 0.8rem; background: #374151; border-color: #4b5563; color: #9ca3af;" title="Активация заблокирована: Down (${thDown.toFixed(3)}) >= Up (${thUp.toFixed(3)})">Заблокирована</button>
+              <button class="btn btn-delete-polymarket-model" data-asset="${m.asset}" data-version="${m.version}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; background: rgba(220, 53, 69, 0.15); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.3);">🗑</button>
+             </div>`
+          : `<div style="display:flex; gap:0.4rem;">
+              <button class="btn btn-primary btn-activate-model" data-asset="${m.asset}" data-version="${m.version}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">Активировать</button>
+              <button class="btn btn-delete-polymarket-model" data-asset="${m.asset}" data-version="${m.version}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; background: rgba(220, 53, 69, 0.15); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.3);">🗑</button>
+             </div>`;
 
       const baselineText = m.baseline != null ? (m.baseline * 100).toFixed(1) + "%" : "-";
       const accuracyText = m.accuracy != null ? (m.accuracy * 100).toFixed(1) + "%" : "-";
@@ -1441,12 +1452,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const modelTypeText = m.model_type || m.algorithm || "—";
       const featuresText = m.features || "—";
-      const thresholdUpText = m.decision_threshold == null
+      let thresholdUpText = m.decision_threshold == null
         ? "—"
         : Number(m.decision_threshold).toFixed(4);
-      const thresholdDownText = m.decision_threshold_down == null
+      let thresholdDownText = m.decision_threshold_down == null
         ? "—"
         : Number(m.decision_threshold_down).toFixed(4);
+
+      if (isInvalidThresholds) {
+        thresholdUpText = `<span style="color: #ff3366; font-weight: 600;" title="Ошибка: Down >= Up">${thresholdUpText}</span>`;
+        thresholdDownText = `<span style="color: #ff3366; font-weight: 600;" title="Ошибка: Down >= Up">${thresholdDownText} ⚠️</span>`;
+      }
       const backtestTradesText = m.backtest_trades == null ? "—" : Number(m.backtest_trades).toLocaleString();
 
       // Paper-сделки (из rawModelsPnlData)

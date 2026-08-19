@@ -1912,6 +1912,20 @@ async def activate_crypto_model(
             },
         )
 
+    # 2. Threshold bounds validation: lower threshold must be strictly below upper threshold
+    th_up = model.decision_threshold if model.decision_threshold is not None else 0.55
+    th_down = model.decision_threshold_down if model.decision_threshold_down is not None else 0.45
+    if not (0.0 <= th_down < th_up <= 1.0):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_THRESHOLD_BOUNDS",
+                "message": f"Некорректные пороги: Down ({th_down:.3f}) должен быть строго меньше Up ({th_up:.3f}) в диапазоне [0.0, 1.0]",
+                "threshold_down": th_down,
+                "threshold_up": th_up,
+            },
+        )
+
     # 3. Запоминаем предыдущую активную версию
     prev_stmt = select(ModelRegistry).where(
         ModelRegistry.asset == asset,
