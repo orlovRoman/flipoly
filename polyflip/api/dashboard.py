@@ -1098,13 +1098,18 @@ async def get_model_pnl(
     valid_sinces = [s for _, _, s, _ in periods if s is not None]
     earliest_since = min(valid_sinces) if valid_sinces else None
 
-    # 2. Выполняем точный запрос к TradeHistory
+    # 2. Выполняем точный запрос к TradeHistory.
+    # Тянем и LogReg-поля (model_key/model_version), и LGBM-поля
+    # (direction_model_key/direction_model_version), чтобы агрегировать PnL
+    # отдельно для каждого типа слотов.
     pnl_expr = func.coalesce(
         TradeHistory.realized_pnl_usdc, cast(TradeHistory.pnl, Numeric)
     )
     trades_stmt = select(
         TradeHistory.model_key,
         TradeHistory.model_version,
+        TradeHistory.direction_model_key,
+        TradeHistory.direction_model_version,
         pnl_expr.label("pnl"),
         TradeHistory.model_attribution_source,
     ).where(
@@ -1114,12 +1119,17 @@ async def get_model_pnl(
     )
     trades_rows = (await db.execute(trades_stmt)).all()
 
-    # Группируем сделки по (model_key, model_version)
     from collections import defaultdict
 
+    # Бакет 1: LogReg атрибуция — ключ (model_key, model_version)
     trades_by_model = defaultdict(list)
     exact_trades_count = defaultdict(int)
     reconstructed_trades_count = defaultdict(int)
+
+    # Бакет 2: LGBM атрибуция — ключ (direction_model_key, direction_model_version).
+    # Одна сделка может попасть в оба бакета одновременно — это корректно,
+    # т.к. они показываются в разных строках таблицы моделей.
+    lgbm_trades_by_slot: defaultdict[tuple, list] = defaultdict(list)
 
     unattributed_trades = 0
     unattributed_pnl = 0.0
@@ -1129,6 +1139,7 @@ async def get_model_pnl(
         m_key = row.model_key
         pnl_val = float(row.pnl) if row.pnl is not None else 0.0
 
+        # --- LogReg бакет ---
         if m_key is not None and attr_src in ("EXACT", "RECONSTRUCTED"):
             trades_by_model[(m_key, row.model_version)].append(pnl_val)
             if attr_src == "EXACT":
@@ -1139,27 +1150,56 @@ async def get_model_pnl(
             unattributed_trades += 1
             unattributed_pnl += pnl_val
 
-    # 3. Агрегируем результаты для каждой модели из реестра
+        # --- LGBM бакет (параллельно, независимо от LogReg) ---
+        dir_key = row.direction_model_key
+        dir_ver = row.direction_model_version
+        if dir_key is not None and dir_ver is not None:
+            lgbm_trades_by_slot[(dir_key, dir_ver)].append(pnl_val)
+
+    # Определяем, является ли слот LGBM-слотом (asset формата "SYMBOL_regime")
+    _LGBM_REGIME_SUFFIXES = ("_low_vol", "_mid_vol", "_high_vol")
+
+    def _is_lgbm_slot(asset: str) -> bool:
+        return any(asset.endswith(suffix) for suffix in _LGBM_REGIME_SUFFIXES)
+
+    # 3. Агрегируем результаты для каждой модели из реестра.
+    # Для LGBM-слотов используем lgbm_trades_by_slot, для LogReg — trades_by_model.
     result_map = {}
     for row in models_rows:
         asset = row.asset
         version = row.version
         key = f"{asset}_v{version}"
 
-        valid_trades = trades_by_model.get((asset, version), [])
-        total = len(valid_trades)
-        total_pnl = sum(valid_trades) if total > 0 else 0.0
-        wins = sum(1 for pnl in valid_trades if pnl > 0)
-
-        result_map[key] = {
-            "asset": asset,
-            "version": version,
-            "total_trades": total,
-            "pnl": round(float(total_pnl), 2),
-            "win_rate": round(wins / total * 100, 1) if total > 0 else None,
-            "exact_trades": exact_trades_count.get((asset, version), 0),
-            "reconstructed_trades": reconstructed_trades_count.get((asset, version), 0),
-        }
+        if _is_lgbm_slot(asset):
+            # LGBM-слот: берём сделки, где direction_model_key == asset И direction_model_version == version
+            valid_trades = lgbm_trades_by_slot.get((asset, version), [])
+            total = len(valid_trades)
+            total_pnl = sum(valid_trades) if total > 0 else 0.0
+            wins = sum(1 for pnl in valid_trades if pnl > 0)
+            result_map[key] = {
+                "asset": asset,
+                "version": version,
+                "total_trades": total,
+                "pnl": round(float(total_pnl), 2),
+                "win_rate": round(wins / total * 100, 1) if total > 0 else None,
+                "exact_trades": total,        # все LGBM записи — точные
+                "reconstructed_trades": 0,
+            }
+        else:
+            # LogReg-слот: старая логика без изменений
+            valid_trades = trades_by_model.get((asset, version), [])
+            total = len(valid_trades)
+            total_pnl = sum(valid_trades) if total > 0 else 0.0
+            wins = sum(1 for pnl in valid_trades if pnl > 0)
+            result_map[key] = {
+                "asset": asset,
+                "version": version,
+                "total_trades": total,
+                "pnl": round(float(total_pnl), 2),
+                "win_rate": round(wins / total * 100, 1) if total > 0 else None,
+                "exact_trades": exact_trades_count.get((asset, version), 0),
+                "reconstructed_trades": reconstructed_trades_count.get((asset, version), 0),
+            }
 
     result_map["_unattributed"] = {
         "total_trades": unattributed_trades,
