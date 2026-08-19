@@ -121,8 +121,72 @@ def upgrade() -> None:
         # retaining the old SQLite constraint avoids an unsafe table rewrite.
         pass
 
+    op.create_table(
+        "ai_shadow_observations",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("assignment_id", sa.Integer(), nullable=False),
+        sa.Column("run_id", sa.Integer(), nullable=True),
+        sa.Column("market_id", sa.String(length=128), nullable=False),
+        sa.Column("snapshot_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("active_model_key", sa.String(length=64)),
+        sa.Column("candidate_model_key", sa.String(length=64), nullable=False),
+        sa.Column("active_action", sa.String(length=32)),
+        sa.Column("candidate_action", sa.String(length=32)),
+        sa.Column("active_probability", sa.Float()),
+        sa.Column("candidate_probability", sa.Float()),
+        sa.Column("candidate_ask", sa.Float()),
+        sa.Column("active_net_edge", sa.Float()),
+        sa.Column("candidate_net_edge", sa.Float()),
+        sa.Column("market_outcome", sa.String(length=16)),
+        sa.Column("active_pnl", sa.Float()),
+        sa.Column("candidate_pnl", sa.Float()),
+        sa.Column("lr_direction_vote", sa.String(length=16)),
+        sa.Column("lgbm_direction_vote", sa.String(length=16)),
+        sa.Column("consensus_type", sa.String(length=32)),
+        sa.Column("shadow_logreg_action", sa.String(length=32)),
+        sa.Column("actual_combined_action", sa.String(length=32)),
+        sa.Column("shadow_logreg_net_edge", sa.Float()),
+        sa.Column("actual_net_edge", sa.Float()),
+        sa.Column("status", sa.String(length=24), nullable=False, server_default="PENDING"),
+        sa.Column("resolved_at", sa.DateTime(timezone=True)),
+        sa.Column("idempotency_key", sa.String(length=256), nullable=False, unique=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.ForeignKeyConstraint(["assignment_id"], ["ai_shadow_assignments.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["run_id"], ["ai_optimization_runs.id"], ondelete="SET NULL"),
+        sa.CheckConstraint("status IN ('PENDING', 'RESOLVED', 'ABSTAINED', 'INVALID')", name="ck_ai_shadow_observation_status"),
+    )
+    op.create_index("idx_ai_shadow_obs_assignment_market", "ai_shadow_observations", ["assignment_id", "market_id"])
+    op.create_index("idx_ai_shadow_obs_status", "ai_shadow_observations", ["status", "created_at"])
+    op.create_table(
+        "ai_experiment_jobs",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("run_id", sa.Integer(), nullable=False),
+        sa.Column("step_id", sa.Integer(), nullable=False),
+        sa.Column("operation", sa.String(length=64), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False, server_default="QUEUED"),
+        sa.Column("attempt", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("idempotency_key", sa.String(length=256), nullable=False, unique=True),
+        sa.Column("started_at", sa.DateTime(timezone=True)),
+        sa.Column("finished_at", sa.DateTime(timezone=True)),
+        sa.Column("heartbeat_at", sa.DateTime(timezone=True)),
+        sa.Column("error", sa.Text()),
+        sa.Column("traceback", sa.Text()),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.ForeignKeyConstraint(["run_id"], ["ai_optimization_runs.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["step_id"], ["ai_run_steps.id"], ondelete="CASCADE"),
+        sa.CheckConstraint("status IN ('QUEUED', 'RUNNING', 'RETRY_WAIT', 'SUCCEEDED', 'FAILED', 'STALE', 'CANCELLED')", name="ck_ai_experiment_jobs_status"),
+    )
+    op.create_index("idx_ai_jobs_status_heartbeat", "ai_experiment_jobs", ["status", "heartbeat_at"])
+    op.create_index("idx_ai_jobs_run_step", "ai_experiment_jobs", ["run_id", "step_id"])
+
 
 def downgrade() -> None:
+    op.drop_index("idx_ai_jobs_run_step", table_name="ai_experiment_jobs")
+    op.drop_index("idx_ai_jobs_status_heartbeat", table_name="ai_experiment_jobs")
+    op.drop_table("ai_experiment_jobs")
+    op.drop_index("idx_ai_shadow_obs_status", table_name="ai_shadow_observations")
+    op.drop_index("idx_ai_shadow_obs_assignment_market", table_name="ai_shadow_observations")
+    op.drop_table("ai_shadow_observations")
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
         for name in (
