@@ -11,6 +11,7 @@ from polyflip.ai_lab.agent_tools import expire_overlays, rollback_overlay
 from polyflip.db.models import AIConfigOverlay
 
 from datetime import datetime
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.executor import ExecutionBatchError
+from polyflip.ai_lab.manifests import compute_manifest_hash
 from polyflip.ai_lab.lgbm_worker import MAX_LGBM_WORKER_STEPS, execute_lgbm_steps
 from polyflip.ai_lab.scheduler import (
     MAX_LEASE_TTL_SECONDS,
@@ -67,6 +69,7 @@ from polyflip.db.models import (
     AIRunStep,
     DeploymentEvent,
     DeploymentRevision,
+    AIStepAuditLog,
 )
 
 router = APIRouter(
@@ -285,6 +288,92 @@ def _audit_payload(audit: Any) -> dict[str, Any]:
         "error_message": audit.error_message,
         "payload": audit.payload,
         "created_at": audit.created_at,
+    }
+
+
+# Audit responses deliberately contain a small, stable projection rather than
+# the executor payload.  In particular, executor error messages can contain a
+# traceback or an accidentally logged credential.
+_SECRET_KEY = re.compile(r"(?:secret|password|passwd|token|api[_-]?key|private[_-]?key|authorization|cookie)", re.I)
+
+
+def _safe_text(value: Any, limit: int = 1000) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    if "Traceback (most recent call last):" in text:
+        text = text.split("Traceback (most recent call last):", 1)[0].rstrip()
+    text = re.sub(
+        r"(?i)(bearer\s+|(?:api[_-]?key|secret|password|passwd|token)\s*[=:]\s*)\S+",
+        r"\1[REDACTED]",
+        text,
+    )
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+def _safe_state(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_safe_state(item) for item in value[:100]]
+    if not isinstance(value, dict):
+        return _safe_text(value, 2000)
+    return {
+        str(key): _safe_state(item)
+        for key, item in value.items()
+        if not _SECRET_KEY.search(str(key))
+    }
+
+
+def _audit_event_payload(event: Any) -> dict[str, Any]:
+    payload = event.payload if isinstance(getattr(event, "payload", None), dict) else {}
+    return {
+        "run_id": payload.get("run_id"),
+        "step_id": payload.get("step_id"),
+        "action": getattr(event, "event_type", None),
+        "reason": _safe_text(getattr(event, "reason", None)),
+        "before_state": _safe_state(payload.get("before_state")),
+        "after_state": _safe_state(payload.get("after_state")),
+        "previous_hash": getattr(event, "previous_hash", None),
+        "event_hash": getattr(event, "event_hash", None),
+        "created_at": getattr(event, "created_at", None),
+    }
+
+
+def verify_deployment_event_chain(events: list[Any]) -> dict[str, Any]:
+    """Verify one revision's chain without changing database state."""
+    previous = "0" * 64
+    broken: list[dict[str, Any]] = []
+    for event in sorted(events, key=lambda row: (getattr(row, "created_at", None), getattr(row, "id", 0))):
+        if event.previous_hash != previous:
+            broken.append({"event_id": event.id, "reason": "previous_hash_mismatch"})
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        expected = compute_manifest_hash({
+            "revision_id": event.revision_id,
+            "event_type": event.event_type,
+            "actor": event.actor,
+            "reason": event.reason,
+            "payload": payload,
+            "previous_hash": event.previous_hash,
+            "timestamp": event.created_at.isoformat() if event.created_at else None,
+        })
+        if event.event_hash != expected:
+            broken.append({"event_id": event.id, "reason": "event_hash_mismatch"})
+        previous = event.event_hash
+    return {"valid": not broken, "event_count": len(events), "broken_events": broken}
+
+
+def _step_audit_payload(audit: Any) -> dict[str, Any]:
+    payload = audit.payload if isinstance(getattr(audit, "payload", None), dict) else {}
+    return {
+        "run_id": audit.run_id,
+        "step_id": audit.step_id,
+        "action": audit.action,
+        "reason": _safe_text(payload.get("reason") or audit.error_code),
+        "before_state": _safe_state(payload.get("before_state")),
+        "after_state": _safe_state(payload.get("after_state")),
+        "previous_hash": payload.get("previous_hash"),
+        "event_hash": payload.get("event_hash"),
+        "created_at": audit.created_at,
+        "error": _safe_text(audit.error_message),
     }
 
 
@@ -1044,6 +1133,63 @@ async def list_ai_deployment_revisions(
         }
         for rev in revisions
     ]
+
+
+@router.get("/runs/{run_id}/audit")
+async def get_ai_run_audit(run_id: int, db: AsyncSession = Depends(get_db_session)):
+    """Return the safe, normalized audit projection for one run."""
+    if await db.get(AIOptimizationRun, run_id) is None:
+        raise HTTPException(status_code=404, detail="AI Lab run not found")
+    rows = (await db.execute(
+        select(AIStepAuditLog)
+        .where(AIStepAuditLog.run_id == run_id)
+        .order_by(AIStepAuditLog.created_at, AIStepAuditLog.id)
+    )).scalars().all()
+    return {"run_id": run_id, "audit": [_step_audit_payload(row) for row in rows], "count": len(rows)}
+
+
+@router.get("/runs/{run_id}/timeline")
+async def get_ai_run_timeline(run_id: int, db: AsyncSession = Depends(get_db_session)):
+    """Return a chronological, concise view of step and deployment audit records."""
+    if await db.get(AIOptimizationRun, run_id) is None:
+        raise HTTPException(status_code=404, detail="AI Lab run not found")
+    step_rows = (await db.execute(
+        select(AIStepAuditLog).where(AIStepAuditLog.run_id == run_id)
+    )).scalars().all()
+    deployment_rows = (await db.execute(
+        select(DeploymentEvent).order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+    )).scalars().all()
+    events = [_step_audit_payload(row) for row in step_rows]
+    events.extend(
+        _audit_event_payload(row) for row in deployment_rows
+        if isinstance(getattr(row, "payload", None), dict)
+        and row.payload.get("run_id") == run_id
+    )
+    events.sort(key=lambda row: (row["created_at"] is None, row["created_at"] or datetime.min))
+    return {"run_id": run_id, "timeline": events, "count": len(events)}
+
+
+@router.get("/audit/verify")
+async def verify_ai_audit(db: AsyncSession = Depends(get_db_session)):
+    """Verify every per-revision deployment event chain and return a summary."""
+    revisions = (await db.execute(select(DeploymentRevision).order_by(DeploymentRevision.id))).scalars().all()
+    results = []
+    for revision in revisions:
+        events = (await db.execute(
+            select(DeploymentEvent)
+            .where(DeploymentEvent.revision_id == revision.id)
+            .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+        )).scalars().all()
+        result = verify_deployment_event_chain(events)
+        results.append({"revision_id": revision.id, **result})
+    broken = [item for item in results if not item["valid"]]
+    return {
+        "valid": not broken,
+        "revision_count": len(results),
+        "event_count": sum(item["event_count"] for item in results),
+        "broken_revision_count": len(broken),
+        "revisions": results,
+    }
 
 
 @router.get("/deployments/revisions/{revision_id}")
