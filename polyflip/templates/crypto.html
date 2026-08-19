@@ -279,13 +279,19 @@
                         </p>
                     </div>
                     <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-                        <div class="asset-filters" style="display:flex; gap:0; margin-right: 1rem; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden;">
+                        <div class="asset-filters" style="display:flex; gap:0; margin-right: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden;">
                             <button type="button" class="asset-filter-btn active" data-asset="ALL" onclick="setAssetFilter('ALL')">Все</button>
                             <button type="button" class="asset-filter-btn" data-asset="BTC" onclick="setAssetFilter('BTC')">BTC</button>
                             <button type="button" class="asset-filter-btn" data-asset="ETH" onclick="setAssetFilter('ETH')">ETH</button>
                             <button type="button" class="asset-filter-btn" data-asset="SOL" onclick="setAssetFilter('SOL')">SOL</button>
                             <button type="button" class="asset-filter-btn" data-asset="XRP" onclick="setAssetFilter('XRP')">XRP</button>
                             <button type="button" class="asset-filter-btn" data-asset="DOGE" onclick="setAssetFilter('DOGE')">DOGE</button>
+                        </div>
+
+                        <div class="status-filters" style="display:flex; gap:0.35rem; margin-right: 1rem;">
+                            <button type="button" class="btn btn-status-filter active" data-filter="all" onclick="setStatusFilter('all')">Все</button>
+                            <button type="button" class="btn btn-status-filter" data-filter="active" onclick="setStatusFilter('active')">Только активные</button>
+                            <button type="button" class="btn btn-status-filter" data-filter="archive" onclick="setStatusFilter('archive')">Только архив</button>
                         </div>
                         
                         <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Режим:</label>
@@ -319,6 +325,9 @@
                         .asset-filter-btn:last-child { border-right: none; }
                         .asset-filter-btn:hover { background: rgba(255,255,255,0.05); color: white; }
                         .asset-filter-btn.active { background: var(--poly-green); color: #000; }
+                        .btn-status-filter { background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: var(--text-muted); padding: 0.35rem 0.8rem; border-radius: 6px; font-size: 0.82rem; cursor: pointer; transition: 0.2s; font-weight: 500; }
+                        .btn-status-filter:hover { background: rgba(255,255,255,0.1); color: white; border-color: rgba(255,255,255,0.3); }
+                        .btn-status-filter.active { background: var(--poly-blue, #2563eb) !important; color: white !important; border-color: var(--poly-blue, #2563eb) !important; font-weight: 600; }
                         </style>
                     </div>
                 </div>
@@ -715,12 +724,26 @@
         let filterFrom = '';
         let filterTo = '';
         let currentAssetFilter = 'ALL';
+        let currentStatusFilter = 'all'; // 'all' | 'active' | 'archive'
         
         function setAssetFilter(asset) {
             currentAssetFilter = asset;
             currentPage = 1;
             document.querySelectorAll('.asset-filter-btn').forEach(btn => {
                 if (btn.dataset.asset === asset) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            renderModelTable(lastModelsData, lastPnlData);
+        }
+
+        function setStatusFilter(filter) {
+            currentStatusFilter = filter;
+            currentPage = 1;
+            document.querySelectorAll('.btn-status-filter').forEach(btn => {
+                if (btn.dataset.filter === filter) {
                     btn.classList.add('active');
                 } else {
                     btn.classList.remove('active');
@@ -1268,8 +1291,15 @@
             }
 
             let modelsArray = Object.values(models).filter(m => {
-                if (currentAssetFilter === 'ALL') return true;
-                return m.asset && m.asset.startsWith(currentAssetFilter);
+                if (currentAssetFilter !== 'ALL' && (!m.asset || !m.asset.startsWith(currentAssetFilter))) {
+                    return false;
+                }
+                if (currentStatusFilter === 'active') {
+                    return !!m.is_active;
+                } else if (currentStatusFilter === 'archive') {
+                    return !m.is_active;
+                }
+                return true;
             }).map(m => {
                 const pnlKey = `${m.asset}_v${m.version}`;
                 const pnlInfo = (pnlData && typeof pnlData === 'object') ? (pnlData[pnlKey] || { 
@@ -1539,13 +1569,40 @@
             </div>
             `;
 
-            // Пагинация
+            // Пагинация (умная компактная с многоточием и стрелками)
             if (totalPages > 1) {
-                let paginationHtml = `<div style="display:flex; justify-content:center; gap:0.4rem; margin-top: 1.2rem;">`;
-                for (let i = 1; i <= totalPages; i++) {
-                    const activeStyle = i === currentPage ? 'background: var(--poly-blue, #2563eb); color: white; border-color: var(--poly-blue, #2563eb);' : 'background: rgba(255,255,255,0.05); color: var(--text-muted); border-color: var(--border-color);';
-                    paginationHtml += `<button class="btn btn-page" data-page="${i}" style="min-width: 34px; padding: 0.3rem 0.6rem; font-size: 0.82rem; ${activeStyle}">${i}</button>`;
+                let paginationHtml = `<div style="display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:0.35rem; margin-top: 1.2rem;">`;
+                
+                if (currentPage > 1) {
+                    paginationHtml += `<button class="btn btn-page" data-page="${currentPage - 1}" style="min-width: 32px; padding: 0.3rem 0.6rem; font-size: 0.82rem; background: rgba(255,255,255,0.05); color: var(--text-muted); border-color: var(--border-color);" title="Предыдущая страница">«</button>`;
                 }
+                
+                let pagesToShow = [];
+                if (totalPages <= 10) {
+                    for (let i = 1; i <= totalPages; i++) pagesToShow.push(i);
+                } else {
+                    pagesToShow.push(1);
+                    if (currentPage > 4) pagesToShow.push('...');
+                    let start = Math.max(2, currentPage - 2);
+                    let end = Math.min(totalPages - 1, currentPage + 2);
+                    for (let i = start; i <= end; i++) pagesToShow.push(i);
+                    if (currentPage < totalPages - 3) pagesToShow.push('...');
+                    pagesToShow.push(totalPages);
+                }
+
+                for (const p of pagesToShow) {
+                    if (p === '...') {
+                        paginationHtml += `<span style="color:var(--text-muted); padding:0.2rem 0.4rem; font-size:0.82rem;">...</span>`;
+                    } else {
+                        const activeStyle = p === currentPage ? 'background: var(--poly-blue, #2563eb); color: white; border-color: var(--poly-blue, #2563eb); font-weight:700;' : 'background: rgba(255,255,255,0.05); color: var(--text-muted); border-color: var(--border-color);';
+                        paginationHtml += `<button class="btn btn-page" data-page="${p}" style="min-width: 32px; padding: 0.3rem 0.6rem; font-size: 0.82rem; ${activeStyle}">${p}</button>`;
+                    }
+                }
+
+                if (currentPage < totalPages) {
+                    paginationHtml += `<button class="btn btn-page" data-page="${currentPage + 1}" style="min-width: 32px; padding: 0.3rem 0.6rem; font-size: 0.82rem; background: rgba(255,255,255,0.05); color: var(--text-muted); border-color: var(--border-color);" title="Следующая страница">»</button>`;
+                }
+
                 paginationHtml += `</div>`;
                 html += paginationHtml;
             }
