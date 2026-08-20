@@ -135,6 +135,12 @@ class AILabAgent:
         if run is None:
             raise AILabError(f"Run #{run_id} not found")
 
+        budget = int(
+            getattr(run, "budget_experiments", 0)
+            or getattr(run, "experiment_budget", 0)
+            or 0
+        )
+
         if run.status in {"COMPLETED", "FAILED", "CANCELLED", "REJECTED", "PAUSED"}:
             return {"status": run.status, "message": f"Run is in terminal/paused state: {run.status}"}
 

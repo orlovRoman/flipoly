@@ -22,6 +22,7 @@ from polyflip.ai_lab.orchestrator import (
     claim_next_step,
     record_result,
 )
+from polyflip.ai_lab.jobs import claim_job, complete_job, ensure_job
 from polyflip.ai_lab.service import AILabError, utc_now
 from polyflip.db.models import (
     AIExperimentConfig,
@@ -323,6 +324,24 @@ async def execute_next_step(
         strategy_params=dict(getattr(config, "strategy_params", None) or {}),
         backtest_params=dict(getattr(config, "backtest_params", None) or {}),
     )
+    # Create and claim a durable job for this exact step before executing the
+    # potentially long-running adapter. The run-level AIWorkerLease remains
+    # the owner lease; this job record makes restart/recovery auditable.
+    job_key = f"ai-lab:{run_id}:{step.id}:{action}"
+    job = await ensure_job(
+        session,
+        run_id=run_id,
+        step_id=step.id,
+        operation=action,
+        idempotency_key=job_key,
+    )
+    if job.status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+        await session.rollback()
+        return None
+    if await claim_job(session, job_key) is None:
+        await session.rollback()
+        return None
+
     # Do not hold the claim row lock during model training/backtesting.
     await session.commit()
 
@@ -375,9 +394,25 @@ async def execute_next_step(
             error_code=result.error_code,
             error_message=result.error_message,
         )
+        await complete_job(
+            session,
+            job.id,
+            status="SUCCEEDED" if result.status == "SUCCEEDED" else "FAILED",
+            error=result.error_message,
+        )
         await session.commit()
-    except Exception:
+    except Exception as exc:
         await session.rollback()
+        try:
+            async with session.begin():
+                await complete_job(
+                    session,
+                    job.id,
+                    status="FAILED",
+                    error=_short_error(exc),
+                )
+        except Exception:
+            await session.rollback()
         raise
 
     return ExecutionOutcome(

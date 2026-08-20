@@ -70,6 +70,8 @@ class _ShadowSession:
         return None
 
     async def get(self, _model, _ident, **_kwargs):
+        if getattr(_model, "__name__", "") == "AIRunStep":
+            return self.step
         return self.row
 
 
@@ -99,6 +101,12 @@ def test_shadow_event_duplicate_and_resolution_are_idempotent():
 class _JobSession:
     def __init__(self, row):
         self.row = row
+        self.step = SimpleNamespace(
+            status="RUNNING",
+            finished_at=datetime.now(timezone.utc),
+            error_code="OLD",
+            error_message="OLD",
+        )
 
     async def execute(self, _statement):
         row = self.row
@@ -128,11 +136,13 @@ def test_job_claim_is_idempotent_for_terminal_and_stale_recovery():
     session = _JobSession(row)
     first = asyncio.run(jobs.claim_job(session, "job-key"))
     second = asyncio.run(jobs.claim_job(session, "job-key"))
-    assert first is second
-    assert row.attempt == 2
+    assert first is not None
+    assert second is None
+    assert row.attempt == 1
     row.heartbeat_at = datetime.now(timezone.utc) - timedelta(hours=1)
     assert asyncio.run(jobs.recover_stale_jobs(session, stale_after_seconds=60)) == 1
     assert row.status == "STALE"
+    assert session.step.status == "PENDING"
     recovered = asyncio.run(jobs.claim_job(session, "job-key"))
     assert recovered is row
     assert row.status == "RUNNING"

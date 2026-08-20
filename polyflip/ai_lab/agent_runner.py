@@ -82,6 +82,18 @@ class AgentRunner:
                 if not await self.acquire_lease(heartbeat_session, run_id):
                     logger.error("ai_worker_lease_lost", run_id=run_id)
                     return
+                jobs = (
+                    await heartbeat_session.execute(
+                        select(AIExperimentJob).where(
+                            AIExperimentJob.run_id == run_id,
+                            AIExperimentJob.status == "RUNNING",
+                        )
+                    )
+                ).scalars().all()
+                now = utc_now()
+                for job in jobs:
+                    job.heartbeat_at = now
+                await heartbeat_session.commit()
 
     async def _mark_failed(self, run_id: int, exc: BaseException) -> None:
         error_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
@@ -111,6 +123,7 @@ class AgentRunner:
     async def process_one_run(self) -> bool:
         async with async_session() as session:
             await expire_overlays(session)
+            await recover_stale_jobs(session)
             await session.commit()
             run = (
                 await session.execute(
