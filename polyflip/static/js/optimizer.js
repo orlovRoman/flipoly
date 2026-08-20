@@ -6,6 +6,7 @@ let currentPendingApprovalId = null;
 let activeOptTab = "runs";
 let runsRefreshTimer = null;
 let apiKeyPromptShown = false;
+let aiLabApiKey = "";
 
 // Initialize when DOM loaded
 document.addEventListener("DOMContentLoaded", () => {
@@ -94,31 +95,20 @@ function escapeHtml(str) {
 }
 
 function getAuthHeaders() {
-  let apiKey = "";
-  try {
-    apiKey = localStorage.getItem("polyflip_api_key") || "";
-  } catch (err) {
-    console.warn("localStorage unavailable", err);
-  }
+  const apiKey = aiLabApiKey;
 
   if (!apiKey && !apiKeyPromptShown) {
     apiKeyPromptShown = true;
-    const enteredKey = window.prompt("Введите API key для AI Lab");
+    const enteredKey = window.prompt('Enter API key for AI Lab');
     if (enteredKey && enteredKey.trim()) {
-      apiKey = enteredKey.trim();
-      try {
-        localStorage.setItem("polyflip_api_key", apiKey);
-      } catch (err) {
-        console.warn("Unable to persist API key", err);
-      }
+      aiLabApiKey = enteredKey.trim();
+      apiKeyPromptShown = false;
     }
-  } else if (apiKey) {
-    apiKeyPromptShown = false;
   }
 
   return {
-    "Content-Type": "application/json",
-    "X-API-Key": apiKey,
+    'Content-Type': 'application/json',
+    'X-API-Key': aiLabApiKey,
   };
 }
 
