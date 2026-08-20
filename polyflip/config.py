@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     TRADE_NO_FLIP_THRESHOLD: float = 0.15
     DEAD_ZONE_WIDTH: float = 0.10
     TRADING_ENABLED: bool = False
+    LIVE_TRADING_ENABLED: bool = False
     TRADE_ASSETS: str = "BTC,ETH"
     INITIAL_CAPITAL: float = 1000.0
     TRADE_MIN_PRICE: float = 0.05
@@ -71,6 +72,8 @@ class Settings(BaseSettings):
     AI_LAB_MODEL_RESEARCH: str = "gpt-4o"
     AI_LAB_MODEL_SUMMARY: str = "gpt-4o-mini"
     AI_LAB_LLM_STORE: bool = False
+    # Optional Codex thread lifecycle; "none" keeps research usable without SDK.
+    AI_LAB_THREAD_PROVIDER: str = "none"
     AI_LAB_MAX_RUNTIME_SECONDS: int = 3600
     AI_LAB_MAX_COST_USD: float = 10.0
     AI_LAB_MODE: str = "STANDARD"
@@ -92,9 +95,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_ai_lab_safety(self) -> "Settings":
-        if self.AI_LAB_MODE == "RESEARCH" and self.TRADING_ENABLED:
+        # PAPER/SHADOW may run research even when the general trading switch
+        # is on; only the explicit LIVE gate blocks RESEARCH at startup.
+        if self.AI_LAB_MODE == "RESEARCH" and self.LIVE_TRADING_ENABLED:
             raise ValueError(
-                "AI_LAB_MODE=RESEARCH cannot be used while TRADING_ENABLED=true"
+                "AI_LAB_MODE=RESEARCH cannot be used while LIVE_TRADING_ENABLED=true"
             )
         if self.AI_LAB_MAX_DAILY_RUNS < 1:
             raise ValueError("AI_LAB_MAX_DAILY_RUNS must be at least 1")

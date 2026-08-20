@@ -183,17 +183,21 @@ async def create_run(
     if budget_seconds < 0:
         raise AILabError("budget_seconds must be non-negative")
     if resolved_mode == "RESEARCH":
-        trading_enabled = bool(settings.TRADING_ENABLED)
+        # Research is safe in PAPER/SHADOW. Only the explicit live gate may
+        # block it; the legacy general TRADING_ENABLED flag is not sufficient.
+        live_enabled = bool(getattr(settings, "LIVE_TRADING_ENABLED", False))
         if hasattr(session, "execute"):
             result = await session.execute(
-                select(RuntimeSettings).where(RuntimeSettings.key == "TRADING_ENABLED")
+                select(RuntimeSettings).where(
+                    RuntimeSettings.key == "LIVE_TRADING_ENABLED"
+                )
             )
-            runtime_setting = result.scalar_one_or_none()
-            if runtime_setting is not None:
-                trading_enabled = str(runtime_setting.value).strip().lower() == "true"
-        if trading_enabled:
+            runtime_live = result.scalar_one_or_none()
+            if runtime_live is not None:
+                live_enabled = str(runtime_live.value).strip().lower() == "true"
+        if live_enabled:
             raise AILabError(
-                "AI_LAB_MODE=RESEARCH cannot be used while TRADING_ENABLED=true"
+                "AI_LAB_MODE=RESEARCH cannot be used while LIVE_TRADING_ENABLED=true"
             )
     if autonomy_level not in {
         "OBSERVE",

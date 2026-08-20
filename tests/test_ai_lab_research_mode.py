@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from polyflip.ai_lab.orchestrator import build_experiment_report
+import polyflip.ai_lab.service as ai_service
 from polyflip.ai_lab.policy import evaluate_research_policy, validate_artifact_technical
 from polyflip.ai_lab.service import create_run
 
@@ -87,3 +88,33 @@ async def test_research_run_is_explicitly_marked_and_does_not_activate():
 
     assert run.mode == "RESEARCH"
     assert run.status == "DRAFT"
+
+
+@pytest.mark.asyncio
+async def test_research_allowed_in_paper_but_blocked_by_live_gate(monkeypatch):
+    session = SimpleNamespace(add=lambda row: None, flush=AsyncMock())
+    permission = SimpleNamespace(id=8, enabled=True)
+    monkeypatch.setattr(ai_service.settings, "TRADING_ENABLED", True)
+    monkeypatch.setattr(ai_service.settings, "LIVE_TRADING_ENABLED", False)
+    run = await create_run(
+        session,
+        objective="paper research",
+        scope={"asset": "BTC"},
+        autonomy_level="EXPERIMENT",
+        budget_experiments=1,
+        permission=permission,
+        mode="RESEARCH",
+    )
+    assert run.mode == "RESEARCH"
+
+    monkeypatch.setattr(ai_service.settings, "LIVE_TRADING_ENABLED", True)
+    with pytest.raises(Exception, match="LIVE_TRADING_ENABLED"):
+        await create_run(
+            session,
+            objective="live blocked research",
+            scope={"asset": "BTC"},
+            autonomy_level="EXPERIMENT",
+            budget_experiments=1,
+            permission=permission,
+            mode="RESEARCH",
+        )

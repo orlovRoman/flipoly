@@ -5,13 +5,20 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from polyflip.db.models import AIShadowObservation
+from polyflip.db.models import AIShadowAssignment, AIShadowObservation
+
+
+def _utc_snapshot(snapshot_at: datetime) -> datetime:
+    if snapshot_at.tzinfo is None:
+        return snapshot_at.replace(tzinfo=timezone.utc)
+    return snapshot_at.astimezone(timezone.utc)
 
 
 def observation_key(assignment_id: int, market_id: str, snapshot_at: datetime) -> str:
-    ts = snapshot_at.astimezone(timezone.utc).isoformat()
+    ts = _utc_snapshot(snapshot_at).isoformat()
     return f"shadow:{int(assignment_id)}:{market_id}:{ts}"
 
 
@@ -39,7 +46,7 @@ async def record_shadow_observation(
         assignment_id=assignment_id,
         run_id=run_id,
         market_id=market_id,
-        snapshot_at=snapshot_at,
+        snapshot_at=_utc_snapshot(snapshot_at),
         idempotency_key=key,
         **payload,
     )
@@ -150,3 +157,24 @@ async def record_decision_shadow(
             "actual_net_edge": active_net_edge,
         },
     )
+
+
+def counterfactual_pnl(action: str | None, market_outcome: str | None, ask: float | None) -> float | None:
+    '''Return one-share binary PnL using the recorded ask at the snapshot.'''
+    if action is None or market_outcome is None or ask is None:
+        return None
+    try:
+        price = float(ask)
+    except (TypeError, ValueError):
+        return None
+    if not 0.0 <= price <= 1.0:
+        return None
+    action_value = str(action).strip().upper()
+    outcome_value = str(market_outcome).strip().upper()
+    if action_value in {"UP", "BUY_YES", "YES"}:
+        predicted = "YES"
+    elif action_value in {"DOWN", "BUY_NO", "NO"}:
+        predicted = "NO"
+    else:
+        return None
+    return (1.0 - price) if predicted == outcome_value else -price
