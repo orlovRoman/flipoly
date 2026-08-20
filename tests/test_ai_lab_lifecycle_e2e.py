@@ -72,7 +72,9 @@ async def test_research_lifecycle_dispatches_family_and_promotes_valid_candidate
         db_session,
         name=f"e2e-{model_family.lower()}",
         asset="BTCUSDT",
-        regime="DEFAULT",
+        # LightGBM artifacts are regime-scoped; keep the generic legacy
+        # DEFAULT value only for the LogisticRegression branch.
+        regime="low_vol" if model_family == "LightGBM" else "DEFAULT",
         model_family=model_family,
         feature_set="FS_D0",
         feature_pipeline_version="1.0",
