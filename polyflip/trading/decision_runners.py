@@ -571,6 +571,53 @@ async def decide_combined_mode(
     }
     lgbm_meta = json.dumps(lgbm_meta_dict)
 
+    # Passive AI Lab shadow comparison. This is deliberately best-effort:
+    # persistence failures must never change or block the trading decision.
+    if lgbm_shadow and direction_signal and comb_res.direction_model_key:
+        try:
+            candidate_probability = (
+                direction_signal.p_up
+                if lgbm_direction_value == "UP"
+                else direction_signal.p_down
+                if lgbm_direction_value == "DOWN"
+                else None
+            )
+            candidate_ask = (
+                yes_best_ask
+                if lgbm_direction_value == "UP"
+                else no_best_ask
+                if lgbm_direction_value == "DOWN"
+                else None
+            )
+            candidate_net_edge = (
+                float(candidate_probability) - float(candidate_ask) - comb_cost_buffer
+                if candidate_probability is not None and candidate_ask is not None
+                else None
+            )
+            await record_decision_shadow(
+                db_session,
+                asset=asset_upper,
+                market_id=str(market.market_id),
+                snapshot_at=getattr(market, "updated_at", None) or datetime.now(timezone.utc),
+                run_id=None,
+                active_model_key=entry_model_key,
+                candidate_model_key=comb_res.direction_model_key,
+                active_action=comb_res.action,
+                candidate_action=lgbm_direction_value,
+                active_probability=comb_res.p_logreg_win,
+                candidate_probability=candidate_probability,
+                candidate_ask=candidate_ask,
+                active_net_edge=comb_res.net_edge,
+                candidate_net_edge=candidate_net_edge,
+                lr_direction_vote=comb_res.direction_value,
+                lgbm_direction_vote=lgbm_direction_value,
+                consensus_type=comb_res.consensus_type,
+            )
+            await db_session.commit()
+        except Exception as exc:
+            await db_session.rollback()
+            logger.warning("ai_lab_shadow_observation_failed", asset=asset_upper, error=str(exc))
+
     if comb_res.action != "SKIP":
         trade_decision = TradeDecision(
             action=comb_res.action,
