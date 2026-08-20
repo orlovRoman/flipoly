@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Sequence
 
 import numpy as np
@@ -25,6 +25,40 @@ HORIZON_24H = 96  # 24 * 4
 # Minimum candles required for a valid feature set
 # Volatility needs HORIZON_24H log-returns = HORIZON_24H+1 closes
 MIN_HISTORY_CANDLES = HORIZON_24H + 1  # 97
+
+# Maximum expected time span for MIN_HISTORY_CANDLES closed 15m candles
+# Allow 25h to tolerate minor gaps without failing
+_MAX_CANDLE_SPAN = timedelta(hours=25)
+
+
+def validate_candle_continuity(
+    open_times: Sequence[datetime],
+    expected_count: int,
+) -> tuple[bool, str]:
+    """
+    Check that candles cover the expected time range without large gaps.
+
+    Args:
+        open_times: sorted open_time of each candle (oldest first)
+        expected_count: how many candles we expect for the features
+
+    Returns:
+        (is_valid, reason). is_valid=True means no problematic gaps.
+    """
+    if len(open_times) < 2:
+        return True, "insufficient_candles_for_validation"
+
+    span = open_times[-1] - open_times[0]
+    if span > _MAX_CANDLE_SPAN:
+        return False, f"span_exceeded:{span.total_seconds()/3600:.1f}h"
+
+    # Check individual gaps > 30 minutes (allow 1 missed candle)
+    for i in range(1, len(open_times)):
+        gap = open_times[i] - open_times[i - 1]
+        if gap > timedelta(minutes=30):
+            return False, f"gap_at_index_{i}:{gap.total_seconds()/60:.0f}min"
+
+    return True, "ok"
 
 
 @dataclass(frozen=True)
@@ -127,8 +161,11 @@ def compute_asset_features(
 
     All inputs are raw numpy arrays. The caller must ensure:
     - Arrays are sorted by open_time ascending
-    - Only closed candles are included
+    - Only closed candles are included (no forming bars)
     - Arrays have the same length
+    - No lookahead: the last candle must be the most recent CLOSED bar,
+      i.e. open_time <= decision_time - 15 minutes. The caller should
+      filter at the SQL level: CryptoCandle.open_time <= market_start_time
     """
     if candle_count < MIN_HISTORY_CANDLES:
         return AssetRegimeFeatures(
