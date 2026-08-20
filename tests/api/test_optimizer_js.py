@@ -19,7 +19,7 @@ def test_optimizer_fetches_use_api_key_headers_and_api_base():
     assert "Authorization" not in source
     assert "Bearer" not in source
     assert 'localStorage.getItem("polyflip_api_key")' in source
-    assert '"X-API-Key": apiKey' in source
+    assert '"X-API-Key": aiLabApiKey' in source
     assert "Введите API key для AI Lab" in source
 
 
@@ -58,7 +58,7 @@ if (promptCalls !== 0) throw new Error("prompted despite stored key");
 context.localStorage.value = "";
 const promptedHeaders = context.getAuthHeaders();
 if (promptedHeaders["X-API-Key"] !== "entered-key") throw new Error("prompted key missing");
-if (context.localStorage.value !== "entered-key") throw new Error("prompted key was not persisted");
+if (context.localStorage.value !== "") throw new Error("prompted key was persisted");
 if (promptCalls !== 1) throw new Error("missing-key prompt count mismatch");
 """
     harness = tmp_path / "optimizer_auth_test.js"
