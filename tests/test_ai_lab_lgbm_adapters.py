@@ -382,12 +382,15 @@ def test_contract_windows_accept_iso_strings_and_ignore_missing_values():
             training_window_end="2026-08-03T00:00:00Z",
         ),
     ]
-    start, end = lgbm_adapters._contract_windows(
+    train_window, oot_window = lgbm_adapters._contract_windows(
         _context(input_payload={"train_window": {}}),
         rows,
     )
-    assert start == datetime(2026, 8, 1, tzinfo=timezone.utc)
-    assert end == datetime(2026, 8, 3, tzinfo=timezone.utc)
+    assert train_window == (
+        datetime(2026, 8, 1, tzinfo=timezone.utc),
+        datetime(2026, 8, 3, tzinfo=timezone.utc),
+    )
+    assert oot_window is None
 
 
 def test_dispatcher_selects_logreg_and_lightgbm(monkeypatch):

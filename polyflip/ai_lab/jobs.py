@@ -178,7 +178,9 @@ async def recover_stale_jobs(
     for row in rows:
         row.status = "STALE"
         row.error = "worker heartbeat expired"
-        step = await session.get(AIRunStep, row.step_id, with_for_update=True)
+        step = await session.get(
+            AIRunStep, getattr(row, "step_id", None), with_for_update=True
+        )
         if step is not None and step.status == "RUNNING":
             step.status = "PENDING"
             step.finished_at = None

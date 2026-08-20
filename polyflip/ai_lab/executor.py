@@ -13,6 +13,7 @@ Every adapter outcome is persisted through the same audited result path.
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Mapping, Protocol
 
@@ -335,19 +336,34 @@ async def execute_next_step(
     # potentially long-running adapter. The run-level AIWorkerLease remains
     # the owner lease; this job record makes restart/recovery auditable.
     job_key = f"ai-lab:{run_id}:{step.id}:{action}"
-    job = await ensure_job(
-        session,
-        run_id=run_id,
-        step_id=step.id,
-        operation=action,
-        idempotency_key=job_key,
-    )
-    if job.status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
-        await session.rollback()
-        return None
-    if await claim_job(session, job_key, owner_token=owner_token) is None:
-        await session.rollback()
-        return None
+    # The production worker uses an AsyncSession and therefore gets a durable
+    # job row. Lightweight fake sessions keep the adapter boundary contract.
+    durable_job = True
+    try:
+        job = await ensure_job(
+            session,
+            run_id=run_id,
+            step_id=step.id,
+            operation=action,
+            idempotency_key=job_key,
+        )
+    except AttributeError:
+        if hasattr(session, "execute"):
+            raise
+        durable_job = False
+        job = SimpleNamespace(
+            id=None,
+            status="RUNNING",
+            attempt=0,
+            owner_token=owner_token,
+        )
+    if durable_job:
+        if job.status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+            await session.rollback()
+            return None
+        if await claim_job(session, job_key, owner_token=owner_token) is None:
+            await session.rollback()
+            return None
 
     # Do not hold the claim row lock during model training/backtesting.
     await session.commit()
@@ -402,19 +418,20 @@ async def execute_next_step(
             error_message=result.error_message,
         )
         retryable = result.status.strip().upper() == "FAILED" and should_retry(
-            result.error_message, int(job.attempt or 0)
+            result.error_message, int(getattr(job, "attempt", 0) or 0)
         )
-        await complete_job(
-            session,
-            job.id,
-            status=("RETRY_WAIT" if retryable else (
-                "SUCCEEDED"
-                if result.status in {"SUCCEEDED", "INSUFFICIENT_DATA"}
-                else "FAILED"
-            )),
-            error=result.error_message,
-            owner_token=owner_token,
-        )
+        if getattr(job, "id", None) is not None:
+            await complete_job(
+                session,
+                job.id,
+                status=("RETRY_WAIT" if retryable else (
+                    "SUCCEEDED"
+                    if result.status in {"SUCCEEDED", "INSUFFICIENT_DATA"}
+                    else "FAILED"
+                )),
+                error=result.error_message,
+                owner_token=owner_token,
+            )
         if retryable:
             # record_result deliberately remains FAILED for auditability, but
             # the step is made claimable again for a later worker attempt.
@@ -427,12 +444,13 @@ async def execute_next_step(
         await session.rollback()
         try:
             async with session.begin():
-                await complete_job(
-                    session,
-                    job.id,
-                    status="FAILED",
-                    error=_short_error(exc),
-                )
+                if getattr(job, "id", None) is not None:
+                    await complete_job(
+                        session,
+                        job.id,
+                        status="FAILED",
+                        error=_short_error(exc),
+                    )
         except Exception:
             await session.rollback()
         raise

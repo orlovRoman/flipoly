@@ -125,7 +125,7 @@ _SECRET_KEY = re.compile(r"(api[_-]?key|secret|token|password|private[_-]?key|da
 _RAW_TRADING_KEY = re.compile(
     r"^(?:raw[_-]?(?:trades?|orders?|fills?|positions?|executions?|data)|"
     r"(?:trade|order|fill|position|execution)[_-](?:records?|history|events?|snapshots?)|"
-    r"orderbook|market[_-]?data)$",
+    r"order(?:book)?|market[_-]?data)$",
     re.I,
 )
 _SECRET_VALUE = re.compile(r"(?i)\b(sk-[A-Za-z0-9_-]+|Bearer\s+[A-Za-z0-9._-]+)\b")

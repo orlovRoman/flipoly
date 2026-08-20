@@ -77,10 +77,13 @@ def test_logreg_contract_windows_ignore_none_and_parse_iso():
             training_window_end="2026-08-02T00:00:00+00:00",
         ),
     ]
-    start, end = logreg_adapters._contract_windows(
+    train_window, oot_window = logreg_adapters._contract_windows(
         replace(_context(), input_payload={}),
         rows,
         artifact=None,
     )
-    assert start == datetime(2026, 8, 1, tzinfo=timezone.utc)
-    assert end == datetime(2026, 8, 2, tzinfo=timezone.utc)
+    assert train_window == (
+        datetime(2026, 8, 1, tzinfo=timezone.utc),
+        datetime(2026, 8, 2, tzinfo=timezone.utc),
+    )
+    assert oot_window is None
