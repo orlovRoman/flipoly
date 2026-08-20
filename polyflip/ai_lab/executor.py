@@ -397,7 +397,11 @@ async def execute_next_step(
         await complete_job(
             session,
             job.id,
-            status="SUCCEEDED" if result.status == "SUCCEEDED" else "FAILED",
+            status=(
+                "SUCCEEDED"
+                if result.status in {"SUCCEEDED", "INSUFFICIENT_DATA"}
+                else "FAILED"
+            ),
             error=result.error_message,
         )
         await session.commit()

@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -63,3 +64,23 @@ def test_logreg_train_artifact_contains_exact_linked_bundle_contract():
     assert artifact.artifact_metadata["strategy_branch"] == "OUTSIDER_ONLY"
     assert artifact.artifact_metadata["target_semantics"] == "FLIP_VS_FINAL_OUTCOME"
     assert artifact.artifact_metadata["loadability"]["exact_bundle_bytes"] is True
+
+
+def test_logreg_contract_windows_ignore_none_and_parse_iso():
+    rows = [
+        SimpleNamespace(
+            training_window_start=None,
+            training_window_end=None,
+        ),
+        SimpleNamespace(
+            training_window_start="2026-08-01T00:00:00Z",
+            training_window_end="2026-08-02T00:00:00+00:00",
+        ),
+    ]
+    start, end = logreg_adapters._contract_windows(
+        replace(_context(), input_payload={}),
+        rows,
+        artifact=None,
+    )
+    assert start == datetime(2026, 8, 1, tzinfo=timezone.utc)
+    assert end == datetime(2026, 8, 2, tzinfo=timezone.utc)

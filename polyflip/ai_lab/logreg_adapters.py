@@ -10,7 +10,7 @@ import hashlib
 import json
 import os
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -75,6 +75,33 @@ def _code_sha() -> str | None:
     return value.strip()[:64] if value and value.strip() else None
 
 
+def _dt(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return (
+                parsed.replace(tzinfo=timezone.utc)
+                if parsed.tzinfo is None
+                else parsed
+            )
+        except ValueError:
+            return None
+    return None
+
+
+def _window_bound(rows: Sequence[ModelRegistry], field: str, *, latest: bool) -> datetime | None:
+    values = [
+        parsed
+        for row in rows
+        if (parsed := _dt(getattr(row, field, None))) is not None
+    ]
+    if not values:
+        return None
+    return max(values) if latest else min(values)
+
+
 def _fingerprint(rows: Sequence[ModelRegistry]) -> str | None:
     return dataset_fingerprint(rows)
 
@@ -121,8 +148,8 @@ def _contract_windows(
     oot_window = resolve_window(sources, "oot")
     if train_window is None:
         train_window = (
-            min((row.training_window_start for row in rows if row.training_window_start), default=None),
-            max((row.training_window_end for row in rows if row.training_window_end), default=None),
+            _window_bound(rows, "training_window_start", latest=False),
+            _window_bound(rows, "training_window_end", latest=True),
         )
     return datetime_window(train_window), datetime_window(oot_window)
 
@@ -490,7 +517,7 @@ async def run_logreg_polymarket_oot(
         evaluation_kind="POLYMARKET_OOT",
         status="SUCCEEDED" if summary["n_markets"] else "INSUFFICIENT_DATA",
         metrics=metrics,
-        slices={"slices": summary.get("slices", [])},
+        slices={"slices": summary.get("slices", []), "oot_windows": stored_windows},
         trade_count=int(summary.get("n_trades") or 0),
         net_pnl=float(summary.get("net_profit") or 0.0),
         max_drawdown=float(summary.get("max_drawdown_usdc") or 0.0),

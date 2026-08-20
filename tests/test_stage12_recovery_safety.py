@@ -125,6 +125,8 @@ class _JobSession:
         return Result()
 
     async def get(self, _model, _ident, **_kwargs):
+        if getattr(_model, "__name__", "") == "AIRunStep":
+            return self.step
         return self.row
 
     async def flush(self):
@@ -229,3 +231,10 @@ def test_predictor_boundary_rejects_missing_feature_and_nan_prediction(monkeypat
 
 def test_rollback_api_returns_current_and_restored_tuple_without_live_fixture():
     assert rollback_deployment.__annotations__["return"]
+
+
+def test_counterfactual_pnl_uses_recorded_ask_and_handles_abstain():
+    assert shadow.counterfactual_pnl("UP", "YES", 0.40) == pytest.approx(0.60)
+    assert shadow.counterfactual_pnl("DOWN", "YES", 0.40) == pytest.approx(-0.40)
+    assert shadow.counterfactual_pnl("NONE", "YES", 0.40) is None
+    assert shadow.counterfactual_pnl("UP", "YES", None) is None

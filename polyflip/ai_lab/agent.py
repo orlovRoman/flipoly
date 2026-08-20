@@ -40,7 +40,13 @@ from polyflip.ai_lab.orchestrator import (
 )
 from polyflip.ai_lab.policy import (
     evaluate_candidate_policy,
+    evaluate_research_policy,
     validate_agent_action_autonomy,
+)
+from polyflip.ai_lab.thread_provider import (
+    ThreadProviderStatus,
+    ensure_agent_thread,
+    get_thread_provider,
 )
 from polyflip.ai_lab.service import (
     AILabError,
@@ -49,6 +55,7 @@ from polyflip.ai_lab.service import (
     transition_run,
     utc_now,
 )
+from polyflip.config import settings
 from polyflip.db.models import (
     AIApprovalRequest,
     AIConfigOverlay,
@@ -154,7 +161,27 @@ class AILabAgent:
             )
             return {"status": "COMPLETED", "message": "Experiment budget reached"}
 
-        # 1. Build Context & Propose Hypothesis
+        # 1. Keep the optional Codex thread lifecycle explicit. A missing
+        # official SDK is recorded as NOT_CONFIGURED; it never silently
+        # changes the configured LLM provider or sends secrets to the thread.
+        thread_provider = get_thread_provider(
+            getattr(settings, "AI_LAB_THREAD_PROVIDER", "none")
+        )
+        thread_result = await ensure_agent_thread(
+            self.session,
+            run,
+            thread_provider,
+            str(run.objective or "AI Lab research iteration"),
+        )
+        if thread_result.status is not ThreadProviderStatus.OK:
+            logger.info(
+                "ai_lab_thread_not_configured",
+                run_id=run.id,
+                status=thread_result.status.value,
+                error=thread_result.error,
+            )
+
+        # 2. Build Context & Propose Hypothesis
         context = await self.build_agent_context(run)
         proposal, prop_stats = await self.llm.propose_hypothesis(context)
 
@@ -209,8 +236,17 @@ class AILabAgent:
                 "windows_count": 0,
             }
 
-        # 6. Evaluate Quantitative Policy Rules
-        policy_result = evaluate_candidate_policy(metrics)
+        # 6. Evaluate Quantitative Policy Rules. RESEARCH deliberately
+        # separates technical validity from evidence volume: a weak but
+        # loadable candidate must remain available for shadow observation.
+        research_mode = str(
+            getattr(run, "mode", "STANDARD") or "STANDARD"
+        ).upper() == "RESEARCH"
+        policy_result = (
+            evaluate_research_policy(metrics)
+            if research_mode
+            else evaluate_candidate_policy(metrics)
+        )
 
         # 7. LLM Post-Experiment Analysis & Decision
         analysis_ctx = AnalysisContext(
@@ -257,11 +293,15 @@ class AILabAgent:
             )
         ).scalar_one_or_none()
 
-        if (
-            policy_result.gate_passed
-            and artifact
+        shadow_eligible = bool(
+            artifact
+            and (
+                policy_result.gate_passed
+                or (research_mode and policy_result.technical_valid)
+            )
             and decision.action == "RECOMMEND_SHADOW"
-        ):
+        )
+        if shadow_eligible:
             # Validate Autonomy level for SHADOW assignment
             try:
                 validate_agent_action_autonomy("ASSIGN_SHADOW", run.autonomy_level)
@@ -322,6 +362,8 @@ class AILabAgent:
             "applied_overlay": applied_overlay,
             "proposed_live": proposed_live,
             "winner_artifact_id": artifact.id if artifact else None,
+            "agent_thread_status": thread_result.status.value,
+            "agent_thread_id": run.agent_thread_id,
         }
         run.summary = json.dumps(summary_payload, ensure_ascii=False)
 

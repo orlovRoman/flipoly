@@ -12,7 +12,7 @@ import hashlib
 import json
 import os
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -103,7 +103,12 @@ def _dt(value: Any) -> datetime | None:
         return value
     if isinstance(value, str):
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return (
+                parsed.replace(tzinfo=timezone.utc)
+                if parsed.tzinfo is None
+                else parsed
+            )
         except ValueError:
             return None
     return None
@@ -622,7 +627,7 @@ async def run_lgbm_polymarket_oot(
         evaluation_kind="POLYMARKET_OOT",
         status="SUCCEEDED",
         metrics=metrics,
-        slices={"slices": summary.get("slices", [])},
+        slices={"slices": summary.get("slices", []), "oot_windows": stored_windows},
         trade_count=int(summary.get("n_trades") or 0),
         net_pnl=float(summary.get("net_profit") or 0.0),
         max_drawdown=float(summary.get("max_drawdown_usdc") or 0.0),

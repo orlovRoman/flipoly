@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.service import utc_now
@@ -39,7 +40,19 @@ async def ensure_job(
         status="QUEUED",
     )
     session.add(row)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        row = (
+            await session.execute(
+                select(AIExperimentJob).where(
+                    AIExperimentJob.idempotency_key == idempotency_key
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise
     return row
 
 

@@ -17,9 +17,10 @@ import structlog
 
 from polyflip.ai_lab.agent import AILabAgent
 from polyflip.ai_lab.agent_tools import expire_overlays
+from polyflip.ai_lab.jobs import recover_stale_jobs
 from polyflip.ai_lab.service import transition_run, utc_now
 from polyflip.db.connection import async_session
-from polyflip.db.models import AIOptimizationRun, AIWorkerLease
+from polyflip.db.models import AIExperimentJob, AIOptimizationRun, AIWorkerLease
 
 logger = structlog.get_logger("polyflip.ai_lab.agent_runner")
 
