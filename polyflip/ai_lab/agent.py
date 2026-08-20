@@ -79,9 +79,11 @@ class AILabAgent:
         self,
         session: AsyncSession,
         llm_provider: LLMProvider | None = None,
+        owner_token: str | None = None,
     ) -> None:
         self.session = session
         self.llm = llm_provider or get_llm_provider()
+        self.owner_token = owner_token
 
     async def build_agent_context(self, run: AIOptimizationRun) -> AgentContext:
         """Construct a comprehensive context snapshot for LLM hypothesis generation."""
@@ -221,6 +223,7 @@ class AILabAgent:
                 self.session,
                 run.id,
                 max_steps=min(len(planned_steps), 10),
+                owner_token=self.owner_token,
             )
 
         # 5. Evaluate Run results

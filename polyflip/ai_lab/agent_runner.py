@@ -148,7 +148,10 @@ class AgentRunner:
                 return False
             heartbeat_task = asyncio.create_task(self._heartbeat_loop(run_id))
             try:
-                result = await AILabAgent(session).execute_iteration(run_id)
+                result = await AILabAgent(
+                    session,
+                    owner_token=self.worker_id,
+                ).execute_iteration(run_id)
                 logger.info("iteration_completed", run_id=run_id, result=result)
                 return True
             except Exception as exc:

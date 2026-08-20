@@ -161,6 +161,22 @@ def test_job_claim_is_idempotent_for_terminal_and_stale_recovery():
     assert row.status == "RUNNING"
 
 
+def test_job_claim_records_owner_and_transient_errors_are_retryable():
+    row = SimpleNamespace(
+        status="QUEUED",
+        attempt=0,
+        started_at=None,
+        heartbeat_at=None,
+        owner_token=None,
+    )
+    session = _JobSession(row)
+    claimed = asyncio.run(jobs.claim_job(session, "job-key", owner_token="worker-a"))
+    assert claimed is row
+    assert row.owner_token == "worker-a"
+    assert jobs.is_retryable_error("Polymarket request timed out") is True
+    assert jobs.is_retryable_error("invalid feature column") is False
+
+
 def test_lost_lease_does_not_renew_or_run_more_work(monkeypatch):
     from polyflip.ai_lab import scheduler
 

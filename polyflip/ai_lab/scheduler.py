@@ -205,6 +205,7 @@ async def run_lgbm_scheduler(
                 session,
                 run_id,
                 max_steps=max_steps,
+                owner_token=token,
             )
             outcomes.extend(batch)
             if not batch:

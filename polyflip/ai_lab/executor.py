@@ -22,7 +22,12 @@ from polyflip.ai_lab.orchestrator import (
     claim_next_step,
     record_result,
 )
-from polyflip.ai_lab.jobs import claim_job, complete_job, ensure_job
+from polyflip.ai_lab.jobs import (
+    claim_job,
+    complete_job,
+    ensure_job,
+    is_retryable_error,
+)
 from polyflip.ai_lab.service import AILabError, utc_now
 from polyflip.db.models import (
     AIExperimentConfig,
@@ -234,6 +239,8 @@ async def execute_next_step(
     session: AsyncSession,
     run_id: int,
     registry: AdapterRegistry,
+    *,
+    owner_token: str | None = None,
 ) -> ExecutionOutcome | None:
     """Claim and execute one offline step.
 
@@ -338,7 +345,7 @@ async def execute_next_step(
     if job.status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
         await session.rollback()
         return None
-    if await claim_job(session, job_key) is None:
+    if await claim_job(session, job_key, owner_token=owner_token) is None:
         await session.rollback()
         return None
 
@@ -394,16 +401,27 @@ async def execute_next_step(
             error_code=result.error_code,
             error_message=result.error_message,
         )
+        retryable = result.status.strip().upper() == "FAILED" and is_retryable_error(
+            result.error_message
+        )
         await complete_job(
             session,
             job.id,
-            status=(
+            status=("RETRY_WAIT" if retryable else (
                 "SUCCEEDED"
                 if result.status in {"SUCCEEDED", "INSUFFICIENT_DATA"}
                 else "FAILED"
-            ),
+            )),
             error=result.error_message,
+            owner_token=owner_token,
         )
+        if retryable:
+            # record_result deliberately remains FAILED for auditability, but
+            # the step is made claimable again for a later worker attempt.
+            step.status = "PENDING"
+            step.finished_at = None
+            step.error_code = None
+            step.error_message = None
         await session.commit()
     except Exception as exc:
         await session.rollback()
@@ -437,6 +455,7 @@ async def execute_steps(
     registry: AdapterRegistry,
     *,
     max_steps: int = 1,
+    owner_token: str | None = None,
 ) -> list[ExecutionOutcome]:
     """Drain at most max_steps; the bound prevents an unbounded worker loop."""
 
@@ -445,7 +464,12 @@ async def execute_steps(
     outcomes: list[ExecutionOutcome] = []
     for _ in range(max_steps):
         try:
-            outcome = await execute_next_step(session, run_id, registry)
+            outcome = await execute_next_step(
+                session,
+                run_id,
+                registry,
+                owner_token=owner_token,
+            )
         except Exception as exc:
             # execute_next_step already rolls back its failed result write.
             # Preserve earlier committed outcomes for the worker/agent instead

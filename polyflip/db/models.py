@@ -1411,6 +1411,10 @@ class AIExperimentJob(Base):
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
     heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    # Token of the worker that owns the current attempt.  Keeping this on the
+    # job (in addition to the run-level lease) makes stale/retry transitions
+    # auditable and prevents a different worker from completing an old claim.
+    owner_token = Column(String(128), nullable=True)
     error = Column(Text, nullable=True)
     traceback = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

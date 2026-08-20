@@ -12,6 +12,33 @@ from polyflip.db.models import AIExperimentJob, AIRunStep
 
 TERMINAL_JOB_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 CLAIMABLE_JOB_STATUSES = {"QUEUED", "RETRY_WAIT", "STALE"}
+RETRYABLE_ERROR_MARKERS = (
+    "timeout",
+    "timed out",
+    "connection",
+    "temporarily",
+    "temporary",
+    "429",
+    "502",
+    "503",
+    "504",
+    "rate limit",
+    "deadlock",
+    "too many connections",
+    "service unavailable",
+)
+
+
+def is_retryable_error(error: BaseException | str | None) -> bool:
+    """Return whether an adapter failure is safe to retry automatically.
+
+    This intentionally uses a conservative marker list.  Unknown failures
+    remain permanent so malformed data or code errors are not retried forever.
+    """
+    if error is None:
+        return False
+    text = str(error).strip().lower()
+    return any(marker in text for marker in RETRYABLE_ERROR_MARKERS)
 
 
 async def ensure_job(
@@ -62,6 +89,8 @@ async def ensure_job(
 async def claim_job(
     session: AsyncSession,
     idempotency_key: str,
+    *,
+    owner_token: str | None = None,
 ) -> AIExperimentJob | None:
     row = (
         await session.execute(
@@ -77,6 +106,7 @@ async def claim_job(
     row.attempt = int(row.attempt or 0) + 1
     row.started_at = row.started_at or now
     row.heartbeat_at = now
+    row.owner_token = owner_token
     row.error = None
     row.traceback = None
     await session.flush()
@@ -90,10 +120,13 @@ async def complete_job(
     status: str,
     error: str | None = None,
     traceback: str | None = None,
+    owner_token: str | None = None,
 ) -> AIExperimentJob:
     row = await session.get(AIExperimentJob, job_id, with_for_update=True)
     if row is None:
         raise ValueError(f"job {job_id} not found")
+    if owner_token is not None and row.owner_token not in {None, owner_token}:
+        raise ValueError("job is owned by another worker")
     normalized = status.strip().upper()
     if normalized not in {"SUCCEEDED", "FAILED", "RETRY_WAIT", "CANCELLED"}:
         raise ValueError(f"unsupported terminal job status: {normalized}")
@@ -106,10 +139,17 @@ async def complete_job(
     return row
 
 
-async def heartbeat_job(session: AsyncSession, job_id: int) -> AIExperimentJob:
+async def heartbeat_job(
+    session: AsyncSession,
+    job_id: int,
+    *,
+    owner_token: str | None = None,
+) -> AIExperimentJob:
     row = await session.get(AIExperimentJob, job_id, with_for_update=True)
     if row is None or row.status != "RUNNING":
         raise ValueError("job is not running")
+    if owner_token is not None and row.owner_token != owner_token:
+        raise ValueError("job is owned by another worker")
     row.heartbeat_at = utc_now()
     await session.flush()
     return row
