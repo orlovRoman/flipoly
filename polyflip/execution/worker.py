@@ -1,3 +1,4 @@
+-NoNewline
 import asyncio
 import argparse
 import sys
@@ -1661,4 +1662,3 @@ if __name__ == "__main__":
         ]
     )
     asyncio.run(execution_worker_loop())
-
