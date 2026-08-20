@@ -72,6 +72,14 @@ from polyflip.db.models import (
 logger = structlog.get_logger("polyflip.ai_lab.agent")
 
 
+def _completed_experiments(run: Any) -> int:
+    """Normalize nullable/legacy experiment counters to a safe integer."""
+    try:
+        return max(0, int(getattr(run, "experiments_completed", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 class AILabAgent:
     """Autonomous quantitative researcher agent driving iterative optimization."""
 
@@ -113,8 +121,13 @@ class AILabAgent:
             if s.hypothesis
         ]
 
-        budget = int(getattr(run, "budget_experiments", 0) or getattr(run, "experiment_budget", 0) or 0)
-        remaining = max(0, budget - run.experiments_completed)
+        budget = int(
+            getattr(run, "budget_experiments", 0)
+            or getattr(run, "experiment_budget", 0)
+            or 0
+        )
+        completed = _completed_experiments(run)
+        remaining = max(0, budget - completed)
 
         return AgentContext(
             run_id=run.id,
@@ -153,8 +166,10 @@ class AILabAgent:
         if run.status in {"COMPLETED", "FAILED", "CANCELLED", "REJECTED", "PAUSED"}:
             return {"status": run.status, "message": f"Run is in terminal/paused state: {run.status}"}
 
-        # Check budget availability
-        if budget > 0 and run.experiments_completed >= budget:
+        completed = _completed_experiments(run)
+
+        # Check budget availability. Legacy rows may contain NULL counters.
+        if budget > 0 and completed >= budget:
             await transition_run(
                 self.session,
                 run,
@@ -187,7 +202,7 @@ class AILabAgent:
         context = await self.build_agent_context(run)
         proposal, prop_stats = await self.llm.propose_hypothesis(context)
 
-        step_idx = run.experiments_completed + 1
+        step_idx = completed + 1
         existing_indices = (
             await self.session.execute(
                 select(AIRunStep.step_index).where(AIRunStep.run_id == run.id)
@@ -353,7 +368,7 @@ class AILabAgent:
                 logger.info("overlay_skipped_by_autonomy", reason=str(e))
 
         # 9. Update Run Counters & Summary
-        run.experiments_completed += 1
+        run.experiments_completed = completed + 1
         summary_payload = {
             "last_iteration": step_idx,
             "last_hypothesis": proposal.hypothesis,
@@ -371,7 +386,7 @@ class AILabAgent:
         run.summary = json.dumps(summary_payload, ensure_ascii=False)
 
         if run.status == "EVALUATING":
-            if run.experiments_completed >= budget:
+            if budget > 0 and _completed_experiments(run) >= budget:
                 await transition_run(
                     self.session,
                     run,
