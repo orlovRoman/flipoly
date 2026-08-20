@@ -334,6 +334,28 @@ async def create_experiment_config(
     created_by: str = "system",
     parent_id: int | None = None,
 ) -> AIExperimentConfig:
+    if str(model_family).strip().upper() in {"LGBM", "LIGHTGBM", "CRYPTO_LGBM"}:
+        feature_aliases = {
+            "FS_D0": "A",
+            "FS_D1": "B",
+            "FS_D2": "C",
+            "FS_D3": "C",
+            "FS_D4": "C",
+            "FS_D5": "C",
+            "DEFAULT": "A",
+        }
+        requested_feature_set = str(feature_set or "A").strip().upper()
+        feature_set = feature_aliases.get(requested_feature_set, requested_feature_set)
+        from polyflip.crypto.feature_sets import normalize_feature_set
+        try:
+            feature_set = normalize_feature_set(feature_set)
+        except ValueError as exc:
+            raise AILabError(str(exc)) from exc
+        requested_regime = str(regime or "").strip().lower()
+        if requested_regime and requested_regime not in {"low_vol", "mid_vol", "high_vol"}:
+            raise AILabError(
+                "LightGBM regime must be low_vol, mid_vol or high_vol"
+            )
     payload = {
         "name": name,
         "asset": asset,
