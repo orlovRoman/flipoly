@@ -232,12 +232,14 @@ class FinalizeRunRequest(BaseModel):
 
 
 def _run_payload(run: AIOptimizationRun) -> dict[str, Any]:
+    from polyflip.config import settings
     return {
         "id": run.id,
         "objective": run.objective,
         "scope": run.scope,
         "autonomy_level": run.autonomy_level,
         "status": run.status,
+        "ai_lab_mode": getattr(settings, "AI_LAB_MODE", "STANDARD"),
         "agent_type": run.agent_type,
         "budget_experiments": run.budget_experiments,
         "budget_seconds": run.budget_seconds,

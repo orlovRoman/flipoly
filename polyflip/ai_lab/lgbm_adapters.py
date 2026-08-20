@@ -31,6 +31,7 @@ from polyflip.crypto.polymarket_backtest import (
 from polyflip.crypto.trainer import CryptoModelTrainer
 from polyflip.constants import resolve_binance_symbol
 from polyflip.ai_lab.logreg_adapters import LOGREG_MODEL_FAMILIES
+from polyflip.ai_lab.manifests import build_experiment_manifest
 from polyflip.db.models import (
     AIModelArtifact,
     ExperimentResult,
@@ -88,7 +89,21 @@ def _code_sha() -> str | None:
 
 
 def _dt(value: Any) -> datetime | None:
-    return value if isinstance(value, datetime) else None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text.endswith(("Z", "z")):
+            text = text[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    return None
+
+def _iso_dt(value: Any) -> str | None:
+    parsed = _dt(value)
+    return parsed.isoformat() if parsed is not None else None
 
 
 def _fingerprint(rows: Sequence[ModelRegistry]) -> str | None:
@@ -204,6 +219,42 @@ async def _training_rows(
     return await _registry_rows(session, context, ids=[int(item) for item in ids])
 
 
+async def _training_artifact_id(
+    session: AsyncSession,
+    context: StepContext,
+) -> int | None:
+    # Unit-level adapter tests may use a sentinel session while exercising
+    # persisted ModelRegistry summaries. Production always supplies AsyncSession.
+    if not isinstance(session, AsyncSession):
+        return None
+    result = (
+        await session.execute(
+            select(ExperimentResult.artifact_id)
+            .where(
+                ExperimentResult.run_id == context.run_id,
+                ExperimentResult.config_id == context.config_id,
+                ExperimentResult.evaluation_kind == "TRAIN",
+                ExperimentResult.status == "SUCCEEDED",
+                ExperimentResult.artifact_id.is_not(None),
+            )
+            .order_by(ExperimentResult.created_at.desc(), ExperimentResult.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return int(result) if result is not None else None
+
+
+async def _flushed_training_artifact_id(
+    session: AsyncSession,
+    context: StepContext,
+) -> int | None:
+    """Flush the TRAIN result before linking it from a later OOT result."""
+    if not isinstance(session, AsyncSession):
+        return None
+    await session.flush()
+    return await _training_artifact_id(session, context)
+
+
 async def _create_bundle_artifact(
     session: AsyncSession,
     context: StepContext,
@@ -225,8 +276,29 @@ async def _create_bundle_artifact(
             existing.loadability_status = "VALID"
         return existing
 
+    manifest = build_experiment_manifest(
+        {
+            "code_sha": _code_sha() or "unknown",
+            "dataset_fingerprint": _fingerprint(rows) or "unknown",
+            "feature_pipeline_version": (
+                config.get("feature_pipeline_version")
+                or DEFAULT_FEATURE_PIPELINE_VERSION
+            ),
+            "train_window": {
+                "start": min((dt for row in rows if (dt := _dt(row.training_window_start)) is not None), default=None),
+                "end": max((dt for row in rows if (dt := _dt(row.training_window_end)) is not None), default=None),
+            },
+            "oot_window": _json_mapping(context.backtest_params).get("oot_window")
+            or {"start": None, "end": None},
+            "seed": _json_mapping(context.model_params).get("seed", 0),
+            "model_params": _json_mapping(context.model_params),
+            "strategy_params": _json_mapping(context.strategy_params),
+            "backtest_params": _json_mapping(context.backtest_params),
+        }
+    )
     metadata = {
         "artifact_kind": "LIGHTGBM_REGISTRY_BUNDLE",
+        "experiment_manifest": manifest,
         "run_id": context.run_id,
         "config_id": context.config_id,
         "config_hash": context.config_hash,
@@ -242,10 +314,8 @@ async def _create_bundle_artifact(
         },
         "training_windows": {
             str(row.asset): {
-                "start": row.training_window_start.isoformat()
-                if row.training_window_start else None,
-                "end": row.training_window_end.isoformat()
-                if row.training_window_end else None,
+                "start": _iso_dt(row.training_window_start),
+                "end": _iso_dt(row.training_window_end),
             }
             for row in rows
         },
@@ -366,11 +436,19 @@ async def train_lgbm(context: StepContext, session: AsyncSession) -> AdapterResu
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(rows),
         train_window_start=min(
-            (_dt(row.training_window_start) for row in rows),
+            (
+                dt
+                for row in rows
+                if (dt := _dt(row.training_window_start)) is not None
+            ),
             default=None,
         ),
         train_window_end=max(
-            (_dt(row.training_window_end) for row in rows),
+            (
+                dt
+                for row in rows
+                if (dt := _dt(row.training_window_end)) is not None
+            ),
             default=None,
         ),
         summary=(
@@ -395,10 +473,11 @@ async def run_lgbm_oot(context: StepContext, session: AsyncSession) -> AdapterRe
     finite_auc = [item["auc"] for item in metrics if item["auc"] is not None]
     finite_ece = [item["ece"] for item in metrics if item["ece"] is not None]
     finite_brier = [item["brier"] for item in metrics if item["brier"] is not None]
+    training_artifact_id = await _flushed_training_artifact_id(session, context)
     return AdapterResult(
         evaluation_kind="OOT",
         status="SUCCEEDED",
-        artifact_id=None,
+        artifact_id=training_artifact_id,
         metrics={
             "model_count": len(metrics),
             "auc": sum(finite_auc) / len(finite_auc) if finite_auc else None,
@@ -410,11 +489,19 @@ async def run_lgbm_oot(context: StepContext, session: AsyncSession) -> AdapterRe
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(rows),
         train_window_start=min(
-            (_dt(row.training_window_start) for row in rows),
+            (
+                dt
+                for row in rows
+                if (dt := _dt(row.training_window_start)) is not None
+            ),
             default=None,
         ),
         train_window_end=max(
-            (_dt(row.training_window_end) for row in rows),
+            (
+                dt
+                for row in rows
+                if (dt := _dt(row.training_window_end)) is not None
+            ),
             default=None,
         ),
         summary=(
@@ -509,25 +596,40 @@ async def run_lgbm_polymarket_oot(
             "profit_factor",
             "max_drawdown_usdc",
             "max_drawdown_pct",
+            "window_count",
+            "median_oot_pnl",
+            "median_oot_drawdown",
         )
     }
+    training_artifact_id = await _flushed_training_artifact_id(session, context)
     return AdapterResult(
         evaluation_kind="POLYMARKET_OOT",
         status="SUCCEEDED",
         metrics=metrics,
-        slices={"slices": summary.get("slices", [])},
+        slices={
+            "slices": summary.get("slices", []),
+            "oot_windows": summary.get("oot_windows", []),
+        },
         trade_count=int(summary.get("n_trades") or 0),
         net_pnl=float(summary.get("net_profit") or 0.0),
         max_drawdown=float(summary.get("max_drawdown_usdc") or 0.0),
-        artifact_id=None,
+        artifact_id=training_artifact_id,
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(provenance_rows),
         train_window_start=min(
-            (_dt(row.training_window_start) for row in provenance_rows),
+            (
+                dt
+                for row in provenance_rows
+                if (dt := _dt(row.training_window_start)) is not None
+            ),
             default=None,
         ),
         train_window_end=max(
-            (_dt(row.training_window_end) for row in provenance_rows),
+            (
+                dt
+                for row in provenance_rows
+                if (dt := _dt(row.training_window_end)) is not None
+            ),
             default=None,
         ),
         summary=(

@@ -86,9 +86,17 @@ def evaluate_candidate_policy(
     min_trades: int = MIN_MANDATORY_TRADES,
     min_windows: int = MIN_MANDATORY_WINDOWS,
     max_drawdown_limit: float = MAX_ALLOWED_DRAWDOWN,
+    mode: str | None = None,
 ) -> PolicyEvaluationResult:
-    """Evaluate experiment metrics against non-negotiable policy constraints."""
+    """Evaluate metrics, optionally retaining technically valid candidates in RESEARCH mode.
+
+    RESEARCH relaxes only evidence requirements (trade count, windows and positive
+    PnL). Non-finite values, malformed counts and excessive drawdown remain hard
+    failures, so this mode cannot turn an invalid result into a candidate.
+    """
     rejection_reasons: list[str] = []
+    from polyflip.config import settings
+    research_mode = str(mode or getattr(settings, "AI_LAB_MODE", "STANDARD")).upper() == "RESEARCH"
 
     median_pnl = metrics.get("median_pnl", metrics.get("median_oot_pnl", 0.0))
     max_dd = metrics.get(
@@ -134,6 +142,8 @@ def evaluate_candidate_policy(
         rejection_reasons.append("INVALID_WINDOW_COUNT")
 
     # 2. Trade volume and independent window checks.
+    if trades_num == 0 and windows_num == 0:
+        rejection_reasons.append("NO_PNL_SAMPLE")
     effective_min_trades = max(MIN_MANDATORY_TRADES, min_trades)
     if trades_num < effective_min_trades:
         rejection_reasons.append(
@@ -157,7 +167,21 @@ def evaluate_candidate_policy(
             f"EXCESSIVE_DRAWDOWN: max drawdown {dd_num:.2f} exceeds limit {max_drawdown_limit:.2f}"
         )
 
-    gate_passed = len(rejection_reasons) == 0
+    hard_reasons = {
+        "NON_FINITE_VALUE: median_pnl",
+        "NON_FINITE_VALUE: max_drawdown",
+        "INVALID_TRADE_COUNT",
+        "INVALID_WINDOW_COUNT",
+        "INVALID_DRAWDOWN",
+        "NO_PNL_SAMPLE",
+    }
+    if research_mode:
+        gate_passed = not any(
+            reason in hard_reasons or reason.startswith("EXCESSIVE_DRAWDOWN:")
+            for reason in rejection_reasons
+        )
+    else:
+        gate_passed = len(rejection_reasons) == 0
     score = score_candidate(
         median_pnl=pnl_num,
         max_drawdown=dd_num,
@@ -176,7 +200,7 @@ def evaluate_candidate_policy(
         trade_count=trades_num,
         windows_count=windows_num,
         rejection_reasons=rejection_reasons,
-        diagnostics={"auc": auc, "brier": brier},
+        diagnostics={"auc": auc, "brier": brier, "mode": "RESEARCH" if research_mode else "STANDARD", "provisional": bool(research_mode and gate_passed and rejection_reasons)},
     )
 
 

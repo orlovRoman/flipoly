@@ -80,25 +80,45 @@ def _median(values: Sequence[Any]) -> float | None:
 
 
 def _oot_window_key(result: Any) -> tuple[str, str] | None:
+    """Return a stable key for one persisted OOT window."""
     raw_metrics = _value(result, "metrics", {}) or {}
     metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
-    start = _value(
-        result,
-        "oot_window_start",
-        metrics.get("oot_window_start", metrics.get("window_start")),
-    )
-    end = _value(
-        result,
-        "oot_window_end",
-        metrics.get("oot_window_end", metrics.get("window_end")),
-    )
-    if start is None or end is None:
+
+    def _first(item: Any, *names: str) -> Any:
+        for name in names:
+            value = _value(item, name)
+            if value is not None:
+                return value
         return None
-    start_text = str(start).strip()
-    end_text = str(end).strip()
-    if not start_text or not end_text or start_text == end_text:
-        return None
-    return (start_text, end_text)
+
+    start = _first(result, "oot_window_start", "window_start", "start")
+    end = _first(result, "oot_window_end", "window_end", "end")
+    if start is None:
+        start = _first(metrics, "oot_window_start", "window_start", "start")
+    if end is None:
+        end = _first(metrics, "oot_window_end", "window_end", "end")
+    if start is not None and end is not None:
+        start_text = str(start).strip()
+        end_text = str(end).strip()
+        if start_text and end_text and start_text != end_text:
+            return ("timestamp", f"{start_text}/{end_text}")
+    ordinal = _value(result, "window")
+    if ordinal is not None:
+        source = _value(result, "source")
+        token = f"{source}:{ordinal}" if source is not None else str(ordinal)
+        return ("ordinal", token)
+    return None
+
+
+def _result_oot_windows(result: Any) -> list[Mapping[str, Any]]:
+    """Extract per-window summaries persisted in slices or metrics."""
+    for field in ("slices", "metrics"):
+        raw = _value(result, field, {}) or {}
+        if isinstance(raw, Mapping):
+            windows = raw.get("oot_windows")
+            if isinstance(windows, list):
+                return [item for item in windows if isinstance(item, Mapping)]
+    return [result] if _oot_window_key(result) is not None else []
 
 
 def default_plan_steps(config_ids: Sequence[int]) -> list[dict[str, Any]]:
@@ -125,8 +145,11 @@ def evaluate_finalization_gate(
     *,
     min_trades: int = MIN_TOTAL_TRADES,
     min_windows: int = MIN_WINDOWS,
+    mode: str | None = None,
 ) -> dict[str, Any]:
-    """Evaluate whether a candidate config passes strict finalization gates."""
+    """Evaluate finalization gates; RESEARCH keeps valid low-evidence rows provisional."""
+    from polyflip.config import settings
+    research_mode = str(mode or getattr(settings, "AI_LAB_MODE", "STANDARD")).upper() == "RESEARCH"
     polymarket_count = int(_finite(row.get("polymarket_oot_evaluation_count")) or 0)
     window_count = int(_finite(row.get("window_count")) or 0)
     total_trades = int(_finite(row.get("total_trades")) or 0)
@@ -169,9 +192,15 @@ def evaluate_finalization_gate(
         rejection_reasons.append("INSUFFICIENT_WINDOWS")
 
     reasons = list(dict.fromkeys(rejection_reasons))
-    status = "READY_FOR_SHADOW" if not reasons else reasons[0]
+    hard_reasons = {"INVALID_RESULT", "EXCESSIVE_DRAWDOWN"}
+    if research_mode and not any(reason in hard_reasons for reason in reasons):
+        status = "READY_FOR_SHADOW" if not reasons else "RESEARCH_PROVISIONAL"
+        eligible = True
+    else:
+        status = "READY_FOR_SHADOW" if not reasons else reasons[0]
+        eligible = not reasons
     return {
-        "eligible": not reasons,
+        "eligible": eligible,
         "recommendation_status": status,
         "rejection_reasons": reasons,
         "window_count": window_count,
@@ -185,6 +214,7 @@ def build_experiment_report(
     *,
     min_trades: int = MIN_TOTAL_TRADES,
     min_windows: int = MIN_WINDOWS,
+    mode: str | None = None,
 ) -> dict[str, Any]:
     """Aggregate per-config metrics across training, OOT backtests, and Polymarket OOT.
 
@@ -243,63 +273,87 @@ def build_experiment_report(
                 artifact_ids.add(int(artifact_id))
 
         invalid_result_count = 0
-        for result in polymarket_results:
-            raw_metrics = _value(result, "metrics", {}) or {}
-            metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
-            w_key = _oot_window_key(result)
-            if w_key is None:
+        for result_index, result in enumerate(polymarket_results):
+            windows = _result_oot_windows(result)
+            if not windows:
                 invalid_result_count += 1
                 continue
-            if w_key in unique_windows:
-                # A retry/duplicate for the same OOT interval must not inflate
-                # total trades or median samples.
-                invalid_result_count += 1
-                continue
-            unique_windows.add(w_key)
-            res_pnl = _value(result, "net_pnl", metrics.get("net_pnl"))
-            res_trades = _value(result, "trade_count", metrics.get("n_trades"))
-            res_dd = _value(result, "max_drawdown", metrics.get("max_drawdown"))
-            pnl_num = _finite(res_pnl)
-            trades_num = _finite(res_trades)
-            dd_num = _finite(res_dd) if res_dd is not None else None
-            if res_pnl is None or pnl_num is None:
-                invalid_result_count += 1
-            if (
-                res_trades is None
-                or trades_num is None
-                or trades_num < 0
-                or not trades_num.is_integer()
-            ):
-                invalid_result_count += 1
-            if res_dd is not None and dd_num is None:
-                invalid_result_count += 1
+            for window in windows:
+                window_data = window if isinstance(window, Mapping) else {}
+                w_key = _oot_window_key(window_data) or _oot_window_key(result)
+                if w_key is None:
+                    invalid_result_count += 1
+                    continue
+                if w_key in unique_windows:
+                    # A retry/duplicate for the same OOT interval must not
+                    # inflate total trades or median samples.
+                    invalid_result_count += 1
+                    continue
+                unique_windows.add(w_key)
 
-            if pnl_num is not None:
-                pnl_values.append(pnl_num)
-            if (
-                trades_num is not None
-                and trades_num >= 0
-                and trades_num.is_integer()
-            ):
-                trade_values.append(trades_num)
-            if dd_num is not None:
-                drawdown_values.append(dd_num)
+                raw_metrics = _value(result, "metrics", {}) or {}
+                result_metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
+                res_pnl = _value(
+                    window_data,
+                    "net_pnl",
+                    window_data.get("net_profit", window_data.get("pnl")),
+                )
+                if res_pnl is None:
+                    res_pnl = _value(result, "net_pnl", result_metrics.get("net_pnl"))
+                res_trades = _value(
+                    window_data,
+                    "trade_count",
+                    window_data.get("n_trades"),
+                )
+                if res_trades is None:
+                    res_trades = _value(result, "trade_count", result_metrics.get("n_trades"))
+                res_dd = _value(
+                    window_data,
+                    "max_drawdown",
+                    window_data.get("max_drawdown_usdc"),
+                )
+                if res_dd is None:
+                    res_dd = _value(result, "max_drawdown", result_metrics.get("max_drawdown"))
+                pnl_num = _finite(res_pnl)
+                trades_num = _finite(res_trades)
+                dd_num = _finite(res_dd) if res_dd is not None else None
+                if res_pnl is None or pnl_num is None:
+                    invalid_result_count += 1
+                if (
+                    res_trades is None
+                    or trades_num is None
+                    or trades_num < 0
+                    or not trades_num.is_integer()
+                ):
+                    invalid_result_count += 1
+                if res_dd is not None and dd_num is None:
+                    invalid_result_count += 1
 
-            window_details.append(
-                {
-                    "oot_window_start": w_key[0],
-                    "oot_window_end": w_key[1],
-                    "net_pnl": pnl_num,
-                    "trade_count": (
-                        int(trades_num)
-                        if trades_num is not None
-                        and trades_num >= 0
-                        and trades_num.is_integer()
-                        else 0
-                    ),
-                    "max_drawdown": dd_num,
-                }
-            )
+                if pnl_num is not None:
+                    pnl_values.append(pnl_num)
+                if (
+                    trades_num is not None
+                    and trades_num >= 0
+                    and trades_num.is_integer()
+                ):
+                    trade_values.append(trades_num)
+                if dd_num is not None:
+                    drawdown_values.append(dd_num)
+
+                window_details.append(
+                    {
+                        "window_key": f"{w_key[0]}:{w_key[1]}",
+                        "net_pnl": pnl_num,
+                        "trade_count": (
+                            int(trades_num)
+                            if trades_num is not None
+                            and trades_num >= 0
+                            and trades_num.is_integer()
+                            else 0
+                        ),
+                        "max_drawdown": dd_num,
+                    }
+                )
 
         median_pnl = _median(pnl_values)
 
@@ -332,7 +386,7 @@ def build_experiment_report(
         }
 
         gate_res = evaluate_finalization_gate(
-            row, min_trades=min_trades, min_windows=min_windows
+            row, min_trades=min_trades, min_windows=min_windows, mode=mode
         )
         row["eligible_for_shadow"] = gate_res["eligible"]
         row["recommendation_status"] = gate_res["recommendation_status"]
@@ -354,7 +408,7 @@ def build_experiment_report(
     )
 
     if winner:
-        status = "READY_FOR_SHADOW"
+        status = winner.get("recommendation_status", "READY_FOR_SHADOW")
         rejection_reasons: list[str] = []
         reason = (
             "Highest median Polymarket-OOT net PnL among candidates meeting the "
@@ -690,7 +744,7 @@ async def finalize_run(
     """
     report = await evaluate_run(session, run_id)
     assignment: AIShadowAssignment | None = None
-    if auto_shadow and report["recommendation_status"] == "READY_FOR_SHADOW":
+    if auto_shadow and report["recommendation_status"] in {"READY_FOR_SHADOW", "RESEARCH_PROVISIONAL"}:
         config_id = report["recommended_config_id"]
         config = await session.get(AIExperimentConfig, config_id)
         if config is None:
@@ -726,7 +780,7 @@ async def finalize_run(
             session_run.summary = json.dumps(
                 {
                     "report": report,
-                    "status": "READY_FOR_SHADOW",
+                    "status": report.get("recommendation_status"),
                     "shadow_assignment": {
                         "assignment_id": assignment.id,
                         "candidate_artifact_id": assignment.candidate_artifact_id,

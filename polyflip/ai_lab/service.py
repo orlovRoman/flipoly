@@ -35,9 +35,27 @@ from polyflip.db.models import (
     DeploymentRevision,
     ExperimentResult,
     ModelRegistry,
+    RuntimeSettings,
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _live_trading_enabled(enabled_rows: Any) -> bool:
+    """Return whether the explicit real-money switch is enabled.
+
+    TRADING_ENABLED also controls PAPER processing, so it must not block
+    research runs. Only LIVE_TRADING_ENABLED is a real-money safety gate.
+    """
+    for key, value in enabled_rows:
+        if str(key) == "LIVE_TRADING_ENABLED" and str(value).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return True
+    return False
 
 
 class AILabError(ValueError):
@@ -168,6 +186,24 @@ async def create_run(
         raise AILabError("budget_experiments must be at least 1")
     if budget_seconds < 0:
         raise AILabError("budget_seconds must be non-negative")
+    from polyflip.config import settings
+    ai_lab_mode = str(getattr(settings, "AI_LAB_MODE", "STANDARD") or "STANDARD").strip().upper()
+    if ai_lab_mode not in {"STANDARD", "RESEARCH"}:
+        raise AILabError(f"unsupported AI_LAB_MODE: {ai_lab_mode}")
+    if ai_lab_mode == "RESEARCH":
+        enabled_rows = (
+            await session.execute(
+                select(RuntimeSettings.key, RuntimeSettings.value).where(
+                    RuntimeSettings.key == "LIVE_TRADING_ENABLED"
+                )
+            )
+        ).all()
+        # PAPER may keep the general trading switch enabled. Only the explicit
+        # real-money kill switch must be off for research runs.
+        if _live_trading_enabled(enabled_rows):
+            raise AILabError(
+                "AI_LAB_MODE=RESEARCH requires LIVE_TRADING_ENABLED=false"
+            )
     if autonomy_level not in {
         "OBSERVE",
         "EXPERIMENT",

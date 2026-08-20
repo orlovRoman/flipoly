@@ -571,10 +571,28 @@ class OpenAIResponsesProvider:
                 },
             )
         except Exception as exc:
-            logger.warning("openai_summary_failed", error=str(exc))
-            return (
-                f"Шаг {step_name} завершён. Статус: {details.get('status', 'OK')}",
-                LLMUsageStats(provider="fallback", model=self.model_summary),
+            logger.error("openai_summary_failed", error=str(exc), step=step_name)
+            # Summary is auxiliary telemetry: a provider timeout or rate limit
+            # must not abort the durable experiment loop. Return a deterministic
+            # status-only note and preserve the failure in structured logs.
+            status = str(details.get("status") or "результат сохранён")
+            fallback = (
+                f"Шаг {step_name}: {status}. "
+                "LLM-саммаризация недоступна, использовано базовое описание."
+            )
+            latency_ms = int((time.time() - started) * 1000)
+            return fallback, self._stats(
+                model=self.model_summary,
+                prompt={"step": step_name, "details": dict(details)},
+                usage={
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "latency_ms": latency_ms,
+                    "response_hash": hashlib.sha256(
+                        fallback.encode("utf-8")
+                    ).hexdigest(),
+                },
             )
 
 def get_llm_provider(
@@ -586,7 +604,9 @@ def get_llm_provider(
     """Factory to instantiate the configured LLM provider."""
     from polyflip.config import settings
 
-    provider = (provider_name or settings.AI_LAB_LLM_PROVIDER or "mock").lower()
+    provider = (provider_name or getattr(settings, "AI_LAB_LLM_PROVIDER", "")).strip().lower()
+    if not provider:
+        raise RuntimeError("AI_LAB_LLM_PROVIDER must be explicitly configured (openai or mock)")
     key = api_key or getattr(settings, "OPENAI_API_KEY", "")
 
     if provider == "mock":

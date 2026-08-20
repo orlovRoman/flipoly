@@ -62,7 +62,7 @@ class TestAILabAgentPhase10(unittest.TestCase):
         with self.assertRaises(ValidationError):
             HypothesisProposal(
                 hypothesis="Test unlisted penny token",
-                asset="DOGE",
+                asset="PENNY",
                 model_family="LOGREG",
                 feature_set="FS_D0",
             )

@@ -61,8 +61,9 @@ function formatStatusBadge(status) {
   const s = (status || "").toUpperCase();
   let badgeClass = "badge-neutral";
   if (s === "ACTIVE" || s === "COMPLETED" || s === "APPROVED") badgeClass = "badge-success";
-  else if (s === "RUNNING" || s === "SHADOW" || s === "PLANNING" || s === "TRAINING" || s === "EVALUATING")
+  else if (s === "RUNNING" || s === "SHADOW" || s === "PLANNING" || s === "TRAINING" || s === "EVALUATING" || s === "RESEARCH")
     badgeClass = "badge-running";
+  else if (s === "RESEARCH_PROVISIONAL" || s === "INSUFFICIENT_DATA") badgeClass = "badge-pending";
   else if (s === "PENDING_APPROVAL") badgeClass = "badge-pending";
   else if (s === "FAILED" || s === "CANCELLED" || s === "REJECTED") badgeClass = "badge-danger";
   else if (s === "SUPERSEDED" || s === "ROLLED_BACK") badgeClass = "badge-neutral";
@@ -81,10 +82,10 @@ function escapeHtml(str) {
 }
 
 function getAuthHeaders() {
-  const token = localStorage.getItem("token") || "";
+  const apiKey = localStorage.getItem("polyflip_api_key") || "test-key";
   return {
     "Content-Type": "application/json",
-    Authorization: token ? `Bearer ${token}` : "",
+    ...(apiKey ? { "X-API-Key": apiKey } : {}),
   };
 }
 
@@ -99,7 +100,10 @@ async function loadOptimizationRuns(silent = false) {
     const res = await fetch(`${window.API_BASE}/api/ai-lab/runs?limit=50`, {
       headers: getAuthHeaders(),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      if (res.status === 401) throw new Error("HTTP 401: укажите API key в localStorage.polyflip_api_key");
+      throw new Error(`HTTP ${res.status}`);
+    }
     const data = await res.json();
     const runs = data.runs || [];
 
@@ -176,6 +180,7 @@ async function loadRunDetail(runId) {
           <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem;">Запуск #${run.id}: ${escapeHtml(run.objective)}</h3>
           <div style="color: var(--text-muted); font-size: 0.85rem;">
             Создан: <strong>${created}</strong> | Завершён: <strong>${completed}</strong> | Инициатор: <strong>${escapeHtml(run.created_by || "system")}</strong>
+            <br>Контур: <strong>${escapeHtml(run.ai_lab_mode || "STANDARD")}</strong>
           </div>
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -717,12 +722,15 @@ async function executeCreateRun() {
 async function triggerRunIterate() {
   if (!currentRunId) return;
   const btn = document.getElementById("btn-run-iterate");
-  if (btn) { btn.disabled = true; btn.textContent = "⚡ Выполняется..."; }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⚡ Выполняется...";
+  }
   try {
-    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/iterate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" }
-    });
+    const resp = await fetch(
+      `${window.API_BASE}/api/ai-lab/runs/${currentRunId}/iterate`,
+      { method: "POST", headers: getAuthHeaders() }
+    );
     if (!resp.ok) {
       const err = await resp.json();
       throw new Error(err.detail || "Iteration failed");
@@ -733,14 +741,20 @@ async function triggerRunIterate() {
   } catch (e) {
     showToast("Ошибка шага агента: " + e.message, "danger");
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "⚡ Шаг агента"; }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "⚡ Шаг агента";
+    }
   }
 }
 
 async function pauseRun() {
   if (!currentRunId) return;
   try {
-    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/pause`, { method: "POST" });
+    const resp = await fetch(
+      `${window.API_BASE}/api/ai-lab/runs/${currentRunId}/pause`,
+      { method: "POST", headers: getAuthHeaders() }
+    );
     if (!resp.ok) throw new Error("Pause failed");
     showToast("Запуск приостановлен", "info");
     await loadRunDetail(currentRunId);
@@ -752,7 +766,10 @@ async function pauseRun() {
 async function resumeRun() {
   if (!currentRunId) return;
   try {
-    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/resume`, { method: "POST" });
+    const resp = await fetch(
+      `${window.API_BASE}/api/ai-lab/runs/${currentRunId}/resume`,
+      { method: "POST", headers: getAuthHeaders() }
+    );
     if (!resp.ok) throw new Error("Resume failed");
     showToast("Запуск возобновлен", "success");
     await loadRunDetail(currentRunId);
@@ -765,7 +782,10 @@ async function cancelRun() {
   if (!currentRunId) return;
   if (!confirm("Вы уверены, что хотите отменить запуск #" + currentRunId + "?")) return;
   try {
-    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/cancel`, { method: "POST" });
+    const resp = await fetch(
+      `${window.API_BASE}/api/ai-lab/runs/${currentRunId}/cancel`,
+      { method: "POST", headers: getAuthHeaders() }
+    );
     if (!resp.ok) throw new Error("Cancel failed");
     showToast("Запуск отменен", "warning");
     await loadRunDetail(currentRunId);
