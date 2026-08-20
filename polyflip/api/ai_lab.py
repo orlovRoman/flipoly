@@ -10,7 +10,7 @@ from polyflip.ai_lab.agent import AILabAgent
 from polyflip.ai_lab.agent_tools import expire_overlays, rollback_overlay
 from polyflip.db.models import AIConfigOverlay
 
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 from typing import Any, Literal
 
@@ -1157,15 +1157,23 @@ async def get_ai_run_timeline(run_id: int, db: AsyncSession = Depends(get_db_ses
         select(AIStepAuditLog).where(AIStepAuditLog.run_id == run_id)
     )).scalars().all()
     deployment_rows = (await db.execute(
-        select(DeploymentEvent).order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+        select(DeploymentEvent)
+        .where(DeploymentEvent.payload["run_id"].as_string() == str(run_id))
+        .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
     )).scalars().all()
     events = [_step_audit_payload(row) for row in step_rows]
     events.extend(
         _audit_event_payload(row) for row in deployment_rows
-        if isinstance(getattr(row, "payload", None), dict)
-        and row.payload.get("run_id") == run_id
     )
-    events.sort(key=lambda row: (row["created_at"] is None, row["created_at"] or datetime.min))
+
+    def timeline_time(value: Any) -> datetime:
+        if value is None:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    events.sort(key=lambda row: (row["created_at"] is None, timeline_time(row["created_at"])))
     return {"run_id": run_id, "timeline": events, "count": len(events)}
 
 

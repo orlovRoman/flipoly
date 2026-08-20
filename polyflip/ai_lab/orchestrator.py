@@ -544,6 +544,10 @@ def build_experiment_report(
             {
                 "candidate_status": winner["candidate_status"],
                 "evidence_status": winner["evidence_status"],
+                # In RESEARCH a technically valid candidate may be sent to
+                # SHADOW before evidence is sufficient. Keep the top-level
+                # promotion status distinct from the winner's evidence label.
+                "winner_recommendation_status": winner["recommendation_status"],
                 "deployment_status": winner["deployment_status"],
             }
         )

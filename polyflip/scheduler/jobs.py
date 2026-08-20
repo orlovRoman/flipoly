@@ -307,12 +307,12 @@ async def resolve_trades_job():
                 raw_outcome = market_outcomes.get(observation.market_id)
                 if not raw_outcome:
                     continue
-                ask = observation.candidate_ask
+                candidate_ask = observation.candidate_ask
                 candidate_pnl = counterfactual_pnl(
-                    observation.candidate_action, raw_outcome, ask
+                    observation.candidate_action, raw_outcome, candidate_ask
                 )
                 active_pnl = counterfactual_pnl(
-                    observation.active_action, raw_outcome, ask
+                    observation.active_action, raw_outcome, observation.active_ask
                 )
                 await resolve_shadow_observation(
                     session,

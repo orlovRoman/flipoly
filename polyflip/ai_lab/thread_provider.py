@@ -120,7 +120,14 @@ def get_thread_provider(provider_name: str | None = None) -> AgentThreadProvider
 
 
 _SECRET_KEY = re.compile(r"(api[_-]?key|secret|token|password|private[_-]?key|database[_-]?url|credential)", re.I)
-_RAW_TRADING_KEY = re.compile(r"(trade|order|fill|position|execution|orderbook|market[_-]?data|raw[_-]?data)", re.I)
+# Only raw event collections are sensitive.  Do not redact aggregate research
+# metrics such as ``trade_count`` or ``total_trades`` from the agent context.
+_RAW_TRADING_KEY = re.compile(
+    r"^(?:raw[_-]?(?:trades?|orders?|fills?|positions?|executions?|data)|"
+    r"(?:trade|order|fill|position|execution)[_-](?:records?|history|events?|snapshots?)|"
+    r"orderbook|market[_-]?data)$",
+    re.I,
+)
 _SECRET_VALUE = re.compile(r"(?i)\b(sk-[A-Za-z0-9_-]+|Bearer\s+[A-Za-z0-9._-]+)\b")
 
 

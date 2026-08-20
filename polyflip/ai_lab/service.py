@@ -256,6 +256,10 @@ async def transition_run(
         "ROLLED_BACK",
     }:
         run.finished_at = now
+    elif run.status == "SHADOW":
+        # A provisional research result may be promoted into SHADOW. It is
+        # no longer a finished run once passive observation starts.
+        run.finished_at = None
     if reason:
         existing = run.summary or ""
         run.summary = (

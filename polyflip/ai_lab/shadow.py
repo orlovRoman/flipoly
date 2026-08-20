@@ -50,11 +50,14 @@ async def record_shadow_observation(
         idempotency_key=key,
         **payload,
     )
-    session.add(row)
     try:
-        await session.flush()
+        # Concurrent duplicate observations are expected. A savepoint keeps
+        # the surrounding decision transaction intact while the unique-key
+        # winner is read back below.
+        async with session.begin_nested():
+            session.add(row)
+            await session.flush()
     except IntegrityError:
-        await session.rollback()
         existing = (
             await session.execute(
                 select(AIShadowObservation).where(
@@ -103,6 +106,7 @@ async def record_decision_shadow(
     candidate_action: str | None,
     active_probability: float | None,
     candidate_probability: float | None,
+    active_ask: float | None,
     candidate_ask: float | None,
     active_net_edge: float | None,
     candidate_net_edge: float | None,
@@ -145,6 +149,7 @@ async def record_decision_shadow(
             "candidate_action": candidate_action,
             "active_probability": active_probability,
             "candidate_probability": candidate_probability,
+            "active_ask": active_ask,
             "candidate_ask": candidate_ask,
             "active_net_edge": active_net_edge,
             "candidate_net_edge": candidate_net_edge,

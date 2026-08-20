@@ -1367,6 +1367,7 @@ class AIShadowObservation(Base):
     candidate_action = Column(String(32), nullable=True)
     active_probability = Column(Float, nullable=True)
     candidate_probability = Column(Float, nullable=True)
+    active_ask = Column(Float, nullable=True)
     candidate_ask = Column(Float, nullable=True)
     active_net_edge = Column(Float, nullable=True)
     candidate_net_edge = Column(Float, nullable=True)

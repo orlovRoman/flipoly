@@ -39,11 +39,14 @@ async def ensure_job(
         idempotency_key=idempotency_key,
         status="QUEUED",
     )
-    session.add(row)
     try:
-        await session.flush()
+        # A uniqueness race must not roll back the caller's transaction
+        # (claim_next_step may already have marked the step RUNNING). Keep
+        # the speculative insert inside a savepoint and re-read the winner.
+        async with session.begin_nested():
+            session.add(row)
+            await session.flush()
     except IntegrityError:
-        await session.rollback()
         row = (
             await session.execute(
                 select(AIExperimentJob).where(

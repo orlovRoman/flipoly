@@ -14,9 +14,10 @@ import pytest
 
 from polyflip.ai_lab import jobs, shadow
 from polyflip.ai_lab.orchestrator import build_experiment_report, claim_next_step
-from polyflip.ai_lab.service import rollback_deployment
+from polyflip.ai_lab.service import rollback_deployment, transition_run
 from polyflip.crypto.oof_artifact import deserialize_oof_artifact
 from polyflip.crypto.predictor import CryptoPredictor
+from polyflip.ai_lab.thread_provider import redact_prompt
 
 
 def test_malformed_and_broken_oof_artifacts_are_rejected():
@@ -68,6 +69,16 @@ class _ShadowSession:
 
     async def flush(self):
         return None
+
+    class _Nested:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return False
+
+    def begin_nested(self):
+        return self._Nested()
 
     async def get(self, _model, _ident, **_kwargs):
         if getattr(_model, "__name__", "") == "AIRunStep":
@@ -236,5 +247,40 @@ def test_rollback_api_returns_current_and_restored_tuple_without_live_fixture():
 def test_counterfactual_pnl_uses_recorded_ask_and_handles_abstain():
     assert shadow.counterfactual_pnl("UP", "YES", 0.40) == pytest.approx(0.60)
     assert shadow.counterfactual_pnl("DOWN", "YES", 0.40) == pytest.approx(-0.40)
+    assert shadow.counterfactual_pnl("UP", "YES", 0.65) == pytest.approx(0.35)
     assert shadow.counterfactual_pnl("NONE", "YES", 0.40) is None
     assert shadow.counterfactual_pnl("UP", "YES", None) is None
+
+
+def test_research_provisional_shadow_transition_clears_finished_at():
+    class Session:
+        def add(self, _row):
+            return None
+
+        async def flush(self):
+            return None
+
+    run = SimpleNamespace(
+        status="RESEARCH_PROVISIONAL",
+        finished_at=datetime.now(timezone.utc),
+        started_at=datetime.now(timezone.utc),
+        summary="candidate retained",
+    )
+    transitioned = asyncio.run(transition_run(Session(), run, "SHADOW"))
+    assert transitioned.status == "SHADOW"
+    assert transitioned.finished_at is None
+
+
+def test_prompt_redacts_raw_events_but_preserves_aggregate_trade_metrics():
+    safe = redact_prompt(
+        {
+            "trade_count": 12,
+            "total_trades": 12,
+            "raw_trades": [{"price": 0.4}],
+            "order_history": [{"side": "BUY"}],
+        }
+    )
+    assert safe["trade_count"] == 12
+    assert safe["total_trades"] == 12
+    assert safe["raw_trades"] == "[REDACTED_TRADING_DATA]"
+    assert safe["order_history"] == "[REDACTED_TRADING_DATA]"
