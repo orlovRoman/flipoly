@@ -905,7 +905,11 @@ async def rebuild_trade_accounting(session, trade_id: int) -> Optional[TradeHist
     ):
         failed_req = max(
             failed_open_requests,
-            key=lambda item: item.updated_at or item.created_at or datetime.min.replace(tzinfo=timezone.utc),
+            key=lambda item: (
+                item.updated_at
+                or item.created_at
+                or datetime.min.replace(tzinfo=timezone.utc)
+            ),
         )
         trade.status = "FAILED"
         trade.position_status = "ENTRY_FAILED"
@@ -1657,3 +1661,4 @@ if __name__ == "__main__":
         ]
     )
     asyncio.run(execution_worker_loop())
+
