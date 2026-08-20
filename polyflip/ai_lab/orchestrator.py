@@ -971,7 +971,7 @@ async def finalize_run(
             session_run.summary = json.dumps(
                 {
                     "report": report,
-                    "status": "READY_FOR_SHADOW",
+                    "status": shadow_status or "READY_FOR_SHADOW",
                     "shadow_assignment": {
                         "assignment_id": assignment.id,
                         "candidate_artifact_id": assignment.candidate_artifact_id,
