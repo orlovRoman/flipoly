@@ -419,3 +419,52 @@ def test_dispatcher_selects_logreg_and_lightgbm(monkeypatch):
         )
     )
     assert calls == ["logreg", "lgbm"]
+
+
+@pytest.mark.parametrize(
+    ("action", "dispatch_name", "family", "expected_kind"),
+    [
+        ("TRAIN_MODEL", "_train_dispatch", "LOGREG", "TRAIN"),
+        ("TRAIN_MODEL", "_train_dispatch", "LIGHTGBM", "TRAIN"),
+        ("RUN_OOT_BACKTEST", "_oot_dispatch", "LOGREG", "OOT"),
+        ("RUN_OOT_BACKTEST", "_oot_dispatch", "LIGHTGBM", "OOT"),
+        ("RUN_POLYMARKET_OOT", "_polymarket_oot_dispatch", "LOGREG", "POLYMARKET_OOT"),
+        ("RUN_POLYMARKET_OOT", "_polymarket_oot_dispatch", "LIGHTGBM", "POLYMARKET_OOT"),
+    ],
+)
+def test_all_offline_actions_dispatch_by_model_family(
+    monkeypatch, action, dispatch_name, family, expected_kind
+):
+    import polyflip.ai_lab.logreg_adapters as logreg_adapters
+
+    calls = []
+
+    async def fake_logreg(_context, _session):
+        calls.append("logreg")
+        return lgbm_adapters.AdapterResult(evaluation_kind=expected_kind)
+
+    async def fake_lgbm(_context, _session):
+        calls.append("lgbm")
+        return lgbm_adapters.AdapterResult(evaluation_kind=expected_kind)
+
+    suffix = {
+        "TRAIN_MODEL": "train_logreg",
+        "RUN_OOT_BACKTEST": "run_logreg_oot",
+        "RUN_POLYMARKET_OOT": "run_logreg_polymarket_oot",
+    }[action]
+    monkeypatch.setattr(logreg_adapters, suffix, fake_logreg)
+    monkeypatch.setattr(
+        lgbm_adapters,
+        {
+            "TRAIN_MODEL": "train_lgbm",
+            "RUN_OOT_BACKTEST": "run_lgbm_oot",
+            "RUN_POLYMARKET_OOT": "run_lgbm_polymarket_oot",
+        }[action],
+        fake_lgbm,
+    )
+
+    context = _context(action=action, model_family=family)
+    result = asyncio.run(getattr(lgbm_adapters, dispatch_name)(context, object()))
+
+    assert result.evaluation_kind == expected_kind
+    assert calls == ["logreg" if family == "LOGREG" else "lgbm"]
