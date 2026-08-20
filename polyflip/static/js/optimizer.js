@@ -95,13 +95,16 @@ function escapeHtml(str) {
 }
 
 function getAuthHeaders() {
-  let apiKey = aiLabApiKey;
-  if (!apiKey) {
-    try {
-      apiKey = localStorage.getItem("polyflip_api_key") || "";
-    } catch (err) {
-      console.warn("localStorage unavailable", err);
-    }
+  let apiKey = "";
+  let storageRead = false;
+  try {
+    apiKey = localStorage.getItem("polyflip_api_key") || "";
+    storageRead = true;
+  } catch (err) {
+    console.warn("localStorage unavailable", err);
+  }
+  if (!storageRead && !apiKey) {
+    apiKey = aiLabApiKey;
   }
 
   if (!apiKey && !apiKeyPromptShown) {
