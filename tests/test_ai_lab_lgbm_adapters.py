@@ -471,3 +471,21 @@ def test_all_offline_actions_dispatch_by_model_family(
 
     assert result.evaluation_kind == expected_kind
     assert calls == ["logreg" if family == "LOGREG" else "lgbm"]
+
+def test_oot_window_summaries_preserve_real_boundaries():
+    from datetime import datetime, timezone
+
+    from polyflip.crypto.polymarket_backtest import _oot_window_summaries
+
+    trades = [
+        {"entry_time": datetime(2026, 8, 18, 3, 30, tzinfo=timezone.utc), "pnl": 1.0},
+        {"entry_time": datetime(2026, 8, 18, 4, 0, tzinfo=timezone.utc), "pnl": -0.5},
+        {"entry_time": datetime(2026, 8, 19, 3, 0, tzinfo=timezone.utc), "pnl": 0.25},
+    ]
+
+    windows = _oot_window_summaries(trades, stake_usdc=1.0)
+
+    assert len(windows) == 3
+    assert windows[0]["start"].startswith("2026-08-18T03:30:00")
+    assert windows[0]["end"].startswith("2026-08-18T03:30:00")
+    assert windows[-1]["start"].startswith("2026-08-19T03:00:00")
