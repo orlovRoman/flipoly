@@ -99,7 +99,25 @@ def _code_sha() -> str | None:
 
 
 def _dt(value: Any) -> datetime | None:
-    return value if isinstance(value, datetime) else None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
+
+def _window_bound(rows: Sequence[ModelRegistry], field: str, *, latest: bool) -> datetime | None:
+    values = [
+        parsed
+        for row in rows
+        if (parsed := _dt(getattr(row, field, None))) is not None
+    ]
+    if not values:
+        return None
+    return max(values) if latest else min(values)
 
 
 def _contract_windows(
@@ -124,8 +142,8 @@ def _contract_windows(
     oot_window = resolve_window(sources, "oot")
     if train_window is None:
         train_window = (
-            min((_dt(row.training_window_start) for row in rows), default=None),
-            max((_dt(row.training_window_end) for row in rows), default=None),
+            _window_bound(rows, "training_window_start", latest=False),
+            _window_bound(rows, "training_window_end", latest=True),
         )
     return datetime_window(train_window), datetime_window(oot_window)
 
@@ -282,8 +300,8 @@ async def _create_bundle_artifact(
     oot_window = resolve_window(sources, "oot")
     if train_window is None:
         train_window = (
-            min((_dt(row.training_window_start) for row in rows), default=None),
-            max((_dt(row.training_window_end) for row in rows), default=None),
+            _window_bound(rows, "training_window_start", latest=False),
+            _window_bound(rows, "training_window_end", latest=True),
         )
     metadata = artifact_metadata(
         context=context,

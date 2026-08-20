@@ -369,3 +369,53 @@ def test_lgbm_oot_propagates_train_artifact_and_never_calls_trainer(monkeypatch)
     assert result.artifact_id == 812
     assert result.train_window_start.isoformat().startswith("2026-08-01")
     assert result.oot_window_end.isoformat().startswith("2026-08-04")
+
+
+def test_contract_windows_accept_iso_strings_and_ignore_missing_values():
+    rows = [
+        SimpleNamespace(
+            training_window_start=None,
+            training_window_end=None,
+        ),
+        SimpleNamespace(
+            training_window_start="2026-08-01T00:00:00+00:00",
+            training_window_end="2026-08-03T00:00:00Z",
+        ),
+    ]
+    start, end = lgbm_adapters._contract_windows(
+        _context(input_payload={"train_window": {}}),
+        rows,
+    )
+    assert start == datetime(2026, 8, 1, tzinfo=timezone.utc)
+    assert end == datetime(2026, 8, 3, tzinfo=timezone.utc)
+
+
+def test_dispatcher_selects_logreg_and_lightgbm(monkeypatch):
+    calls = []
+
+    async def fake_logreg(_context, _session):
+        calls.append("logreg")
+        return object()
+
+    async def fake_lgbm(_context, _session):
+        calls.append("lgbm")
+        return object()
+
+    import polyflip.ai_lab.logreg_adapters as logreg_adapters
+
+    monkeypatch.setattr(logreg_adapters, "train_logreg", fake_logreg)
+    monkeypatch.setattr(lgbm_adapters, "train_lgbm", fake_lgbm)
+
+    asyncio.run(
+        lgbm_adapters._train_dispatch(
+            _context(model_family="LOGREG", action="TRAIN_MODEL"),
+            object(),
+        )
+    )
+    asyncio.run(
+        lgbm_adapters._train_dispatch(
+            _context(model_family="LIGHTGBM", action="TRAIN_MODEL"),
+            object(),
+        )
+    )
+    assert calls == ["logreg", "lgbm"]
