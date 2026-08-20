@@ -504,12 +504,19 @@ def build_experiment_report(
         else None
     )
 
+    shadow_status: str | None = None
     if winner:
-        status = "RESEARCH_PROVISIONAL" if str(mode).upper() == "RESEARCH" else "READY_FOR_SHADOW"
+        status = str(winner["recommendation_status"])
+        shadow_status = (
+            "RESEARCH_PROVISIONAL"
+            if str(mode).upper() == "RESEARCH" and winner["technical_valid"]
+            else "READY_FOR_SHADOW"
+        )
         rejection_reasons: list[str] = []
         reason = (
-            "Highest median Polymarket-OOT net PnL among candidates meeting the "
-            "minimum trade count and window criteria; verify in SHADOW before any human activation."
+            "Highest median Polymarket-OOT net PnL among candidates; "
+            "the row status reports evidence quality and the shadow status "
+            "reports whether passive observation is allowed."
         )
     elif rows:
         rejection_reasons = list(
@@ -533,6 +540,8 @@ def build_experiment_report(
         "status": status,
         "recommended_config_id": winner["config_id"] if winner else None,
         "recommendation_status": status,
+        "shadow_recommendation_status": shadow_status,
+        "eligible_for_shadow": bool(winner),
         "reason": reason,
         "rejection_reasons": rejection_reasons,
         "evaluated_config_count": len(rows),
@@ -895,11 +904,37 @@ async def finalize_run(
     """
     report = await evaluate_run(session, run_id)
     assignment: AIShadowAssignment | None = None
-    if auto_shadow and report["recommendation_status"] in {
-        "READY_FOR_SHADOW",
-        "RESEARCH_PROVISIONAL",
-    }:
-        config_id = report["recommended_config_id"]
+    shadow_status = report.get(
+        "shadow_recommendation_status",
+        report.get("recommendation_status"),
+    )
+    config_id = report.get("recommended_config_id")
+    winner_row = next(
+        (
+            row
+            for row in report.get("rows", [])
+            if row.get("config_id") == config_id
+        ),
+        None,
+    )
+    eligible_for_shadow = report.get("eligible_for_shadow")
+    if eligible_for_shadow is None and winner_row is not None:
+        # Keep compatibility with reports produced before the top-level
+        # eligibility flag was added; the winning row remains authoritative.
+        eligible_for_shadow = bool(winner_row.get("eligible_for_shadow"))
+    if (
+        auto_shadow
+        and eligible_for_shadow
+        and shadow_status
+        in {
+            "READY_FOR_SHADOW",
+            "RESEARCH_PROVISIONAL",
+        }
+    ):
+        if config_id is None:
+            raise AILabError(
+                "recommended experiment config is required for SHADOW assignment"
+            )
         config = await session.get(AIExperimentConfig, config_id)
         if config is None:
             raise AILabError(
@@ -911,9 +946,11 @@ async def finalize_run(
                 "asset is required for automatic SHADOW assignment when the "
                 "experiment config has no asset"
             )
-        winner = next(
-            row for row in report["rows"] if row["config_id"] == config_id
-        )
+        winner = winner_row
+        if winner is None:
+            raise AILabError(
+                f"recommended experiment config {config_id} is missing from report"
+            )
         resolved_artifact = candidate_artifact_id
         if resolved_artifact is None and winner["artifact_ids"]:
             resolved_artifact = int(winner["artifact_ids"][0])
@@ -1016,5 +1053,44 @@ async def finalize_run(
             )
             session.add(audit_entry)
             await session.flush()
+
+    # Never leave a finalized run in EVALUATING. Research candidates that are
+    # technically valid but lack evidence remain RESEARCH_PROVISIONAL so a
+    # later operator/agent can promote them to SHADOW; invalid/no-data runs
+    # receive a terminal status.
+    if assignment is None:
+        session_run = await session.get(AIOptimizationRun, run_id)
+        if session_run is not None and getattr(session_run, "status", None) == "EVALUATING":
+            report_status = str(
+                report.get("recommendation_status") or "REJECTED"
+            ).upper()
+            if (
+                str(report.get("mode", "")).upper() == "RESEARCH"
+                and eligible_for_shadow
+                and report_status in {"INSUFFICIENT_EVIDENCE", "RESEARCH_PROVISIONAL"}
+            ):
+                final_status = "RESEARCH_PROVISIONAL"
+            elif report_status == "NO_PNL_SAMPLE" or report_status.startswith(
+                "INSUFFICIENT_"
+            ):
+                final_status = "INSUFFICIENT_DATA"
+            elif report_status == "READY_FOR_SHADOW":
+                final_status = "PENDING_APPROVAL"
+            elif report_status not in {
+                "INSUFFICIENT_DATA",
+                "TECHNICAL_INVALID",
+                "REJECTED",
+                "FAILED",
+                "CANCELLED",
+            }:
+                final_status = "REJECTED"
+            else:
+                final_status = report_status
+            await transition_run(
+                session,
+                session_run,
+                final_status,
+                reason=f"finalization status: {final_status}",
+            )
 
     return {"report": report, "assignment": assignment}

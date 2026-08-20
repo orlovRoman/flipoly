@@ -67,7 +67,9 @@ def test_research_report_keeps_negative_pnl_and_separates_evidence():
     assert row["candidate_status"] == "PROVISIONAL"
     assert row["evidence_status"] == "INSUFFICIENT"
     assert row["deployment_status"] == "PROHIBITED"
-    assert report["recommendation_status"] == "RESEARCH_PROVISIONAL"
+    assert report["recommendation_status"] == "INSUFFICIENT_EVIDENCE"
+    assert report["shadow_recommendation_status"] == "RESEARCH_PROVISIONAL"
+    assert report["eligible_for_shadow"] is True
     assert report["candidate_status"] == "PROVISIONAL"
 
 
