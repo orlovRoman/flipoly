@@ -175,6 +175,8 @@ def test_job_claim_records_owner_and_transient_errors_are_retryable():
     assert row.owner_token == "worker-a"
     assert jobs.is_retryable_error("Polymarket request timed out") is True
     assert jobs.is_retryable_error("invalid feature column") is False
+    assert jobs.should_retry("HTTP 503", 2) is True
+    assert jobs.should_retry("HTTP 503", 3) is False
 
 
 def test_lost_lease_does_not_renew_or_run_more_work(monkeypatch):

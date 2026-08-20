@@ -12,6 +12,7 @@ from polyflip.db.models import AIExperimentJob, AIRunStep
 
 TERMINAL_JOB_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 CLAIMABLE_JOB_STATUSES = {"QUEUED", "RETRY_WAIT", "STALE"}
+MAX_RETRY_ATTEMPTS = 3
 RETRYABLE_ERROR_MARKERS = (
     "timeout",
     "timed out",
@@ -39,6 +40,11 @@ def is_retryable_error(error: BaseException | str | None) -> bool:
         return False
     text = str(error).strip().lower()
     return any(marker in text for marker in RETRYABLE_ERROR_MARKERS)
+
+
+def should_retry(error: BaseException | str | None, attempt: int) -> bool:
+    """Return whether a transient failure still has retry budget."""
+    return attempt < MAX_RETRY_ATTEMPTS and is_retryable_error(error)
 
 
 async def ensure_job(

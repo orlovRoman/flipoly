@@ -26,7 +26,7 @@ from polyflip.ai_lab.jobs import (
     claim_job,
     complete_job,
     ensure_job,
-    is_retryable_error,
+    should_retry,
 )
 from polyflip.ai_lab.service import AILabError, utc_now
 from polyflip.db.models import (
@@ -401,8 +401,8 @@ async def execute_next_step(
             error_code=result.error_code,
             error_message=result.error_message,
         )
-        retryable = result.status.strip().upper() == "FAILED" and is_retryable_error(
-            result.error_message
+        retryable = result.status.strip().upper() == "FAILED" and should_retry(
+            result.error_message, int(job.attempt or 0)
         )
         await complete_job(
             session,
