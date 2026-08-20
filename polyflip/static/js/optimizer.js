@@ -95,20 +95,31 @@ function escapeHtml(str) {
 }
 
 function getAuthHeaders() {
-  const apiKey = aiLabApiKey;
-
-  if (!apiKey && !apiKeyPromptShown) {
-    apiKeyPromptShown = true;
-    const enteredKey = window.prompt('Enter API key for AI Lab');
-    if (enteredKey && enteredKey.trim()) {
-      aiLabApiKey = enteredKey.trim();
-      apiKeyPromptShown = false;
+  let apiKey = aiLabApiKey;
+  if (!apiKey) {
+    try {
+      apiKey = localStorage.getItem("polyflip_api_key") || "";
+    } catch (err) {
+      console.warn("localStorage unavailable", err);
     }
   }
 
+  if (!apiKey && !apiKeyPromptShown) {
+    apiKeyPromptShown = true;
+    const enteredKey = window.prompt("Введите API key для AI Lab");
+    if (enteredKey && enteredKey.trim()) {
+      aiLabApiKey = enteredKey.trim();
+      apiKey = aiLabApiKey;
+      apiKeyPromptShown = false;
+    }
+  } else if (apiKey) {
+    aiLabApiKey = apiKey;
+    apiKeyPromptShown = false;
+  }
+
   return {
-    'Content-Type': 'application/json',
-    'X-API-Key': aiLabApiKey,
+    "Content-Type": "application/json",
+    "X-API-Key": aiLabApiKey,
   };
 }
 
