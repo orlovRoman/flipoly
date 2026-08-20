@@ -464,12 +464,17 @@ async def execute_steps(
     outcomes: list[ExecutionOutcome] = []
     for _ in range(max_steps):
         try:
-            outcome = await execute_next_step(
-                session,
-                run_id,
-                registry,
-                owner_token=owner_token,
-            )
+            if owner_token is None:
+                # Preserve the legacy callable shape for integrations that
+                # wrap or monkeypatch execute_next_step.
+                outcome = await execute_next_step(session, run_id, registry)
+            else:
+                outcome = await execute_next_step(
+                    session,
+                    run_id,
+                    registry,
+                    owner_token=owner_token,
+                )
         except Exception as exc:
             # execute_next_step already rolls back its failed result write.
             # Preserve earlier committed outcomes for the worker/agent instead
