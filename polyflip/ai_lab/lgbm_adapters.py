@@ -12,7 +12,7 @@ import hashlib
 import json
 import os
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -23,6 +23,17 @@ from polyflip.ai_lab.executor import (
     AdapterRegistry,
     AdapterResult,
     StepContext,
+)
+from polyflip.ai_lab.artifact_contracts import (
+    TrainingRows,
+    artifact_digest,
+    artifact_metadata,
+    bundle_bytes,
+    dataset_fingerprint,
+    datetime_window,
+    mapping,
+    resolve_window,
+    resolve_windows,
 )
 from polyflip.crypto.experiment_configs import normalize_experiment_config
 from polyflip.crypto.polymarket_backtest import (
@@ -45,7 +56,7 @@ DEFAULT_FEATURE_PIPELINE_VERSION = "CRYPTO_FEATURES_V2"
 
 
 def _json_mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, Mapping) else {}
+    return mapping(value)
 
 
 def _model_family_ok(context: StepContext) -> bool:
@@ -88,20 +99,62 @@ def _code_sha() -> str | None:
 
 
 def _dt(value: Any) -> datetime | None:
-    return value if isinstance(value, datetime) else None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return (
+                parsed.replace(tzinfo=timezone.utc)
+                if parsed.tzinfo is None
+                else parsed
+            )
+        except ValueError:
+            return None
+    return None
+
+
+def _window_bound(rows: Sequence[ModelRegistry], field: str, *, latest: bool) -> datetime | None:
+    values = [
+        parsed
+        for row in rows
+        if (parsed := _dt(getattr(row, field, None))) is not None
+    ]
+    if not values:
+        return None
+    return max(values) if latest else min(values)
+
+
+def _contract_windows(
+    context: StepContext,
+    rows: Sequence[ModelRegistry],
+    artifact: AIModelArtifact | None = None,
+) -> tuple[tuple[Any, Any] | None, tuple[Any, Any] | None]:
+    metadata = (
+        _json_mapping(getattr(artifact, "artifact_metadata", None))
+        if artifact is not None
+        else {}
+    )
+    sources = (
+        _json_mapping(context.input_payload),
+        context.backtest_params,
+        context.strategy_params,
+        context.model_params,
+        context.scope,
+        metadata,
+    )
+    train_window = resolve_window(sources, "train")
+    oot_window = resolve_window(sources, "oot")
+    if train_window is None:
+        train_window = (
+            _window_bound(rows, "training_window_start", latest=False),
+            _window_bound(rows, "training_window_end", latest=True),
+        )
+    return datetime_window(train_window), datetime_window(oot_window)
 
 
 def _fingerprint(rows: Sequence[ModelRegistry]) -> str | None:
-    values = sorted(
-        str(row.dataset_fingerprint)
-        for row in rows
-        if row.dataset_fingerprint
-    )
-    if not values:
-        return None
-    if len(set(values)) == 1:
-        return values[0]
-    return hashlib.sha256("|".join(values).encode("utf-8")).hexdigest()[:32]
+    return dataset_fingerprint(rows)
 
 
 def _row_metrics(row: ModelRegistry) -> dict[str, Any]:
@@ -178,7 +231,7 @@ async def _training_rows(
     session: AsyncSession,
     context: StepContext,
 ) -> list[ModelRegistry]:
-    """Load the rows recorded by this run's successful TRAIN result."""
+    """Load rows from this run/config's exact successful TRAIN artifact."""
     result = (
         await session.execute(
             select(ExperimentResult)
@@ -197,11 +250,25 @@ async def _training_rows(
     artifact = await session.get(AIModelArtifact, int(result.artifact_id))
     if artifact is None or artifact.loadability_status != "VALID":
         return []
+    if (
+        artifact.config_id != context.config_id
+        or artifact.run_id != context.run_id
+        or artifact.step_id is None
+        or (
+            getattr(result, "step_id", None) is not None
+            and artifact.step_id != result.step_id
+        )
+    ):
+        return []
     metadata = _json_mapping(artifact.artifact_metadata)
     ids = metadata.get("model_registry_ids")
     if not isinstance(ids, list) or not ids:
         return []
-    return await _registry_rows(session, context, ids=[int(item) for item in ids])
+    rows = TrainingRows(
+        await _registry_rows(session, context, ids=[int(item) for item in ids])
+    )
+    rows.artifact = artifact
+    return rows
 
 
 async def _create_bundle_artifact(
@@ -210,52 +277,72 @@ async def _create_bundle_artifact(
     rows: Sequence[ModelRegistry],
     config: Mapping[str, Any],
 ) -> AIModelArtifact:
-    payload = b"".join(
-        hashlib.sha256(bytes(row.model_blob or b"")).digest()
-        for row in sorted(rows, key=lambda item: int(item.id))
+    payload = bundle_bytes(
+        rows,
+        run_id=context.run_id,
+        config_id=context.config_id,
+        step_id=context.step_id,
+        artifact_kind="LIGHTGBM_REGISTRY_BUNDLE",
+        target_semantics=CANONICAL_TARGET_SOURCE,
     )
-    digest = hashlib.sha256(payload).hexdigest()
-    existing = (
-        await session.execute(
-            select(AIModelArtifact).where(AIModelArtifact.sha256 == digest).limit(1)
+    digest = artifact_digest(payload)
+    strategy = _json_mapping(context.strategy_params)
+    input_payload = _json_mapping(context.input_payload)
+    strategy_branch = str(
+        input_payload.get("strategy_branch")
+        or strategy.get("strategy_branch")
+        or strategy.get("branch")
+        or "COMBINED"
+    ).strip().upper()
+    sources = (
+        input_payload,
+        config,
+        context.backtest_params,
+        context.strategy_params,
+        context.scope,
+    )
+    train_window = resolve_window(sources, "train")
+    oot_window = resolve_window(sources, "oot")
+    if train_window is None:
+        train_window = (
+            _window_bound(rows, "training_window_start", latest=False),
+            _window_bound(rows, "training_window_end", latest=True),
         )
-    ).scalar_one_or_none()
-    if existing is not None:
-        if existing.loadability_status != "VALID":
-            existing.loadability_status = "VALID"
-        return existing
-
-    metadata = {
-        "artifact_kind": "LIGHTGBM_REGISTRY_BUNDLE",
-        "run_id": context.run_id,
-        "config_id": context.config_id,
-        "config_hash": context.config_hash,
-        "symbol": _canonical_symbol(context),
-        "feature_set": config["feature_set"],
-        "feature_set_version": config["feature_set_version"],
-        "model_registry_ids": [int(row.id) for row in rows],
-        "model_versions": {
-            str(row.asset): int(row.version) for row in rows
+    metadata = artifact_metadata(
+        context=context,
+        rows=rows,
+        artifact_kind="LIGHTGBM_REGISTRY_BUNDLE",
+        feature_pipeline_version=(
+            config.get("feature_pipeline_version") or DEFAULT_FEATURE_PIPELINE_VERSION
+        ),
+        target_semantics=CANONICAL_TARGET_SOURCE,
+        feature_semantics={
+            "feature_set": config["feature_set"],
+            "feature_set_version": config["feature_set_version"],
+            "features": [str(getattr(row, "features", "") or "") for row in rows],
         },
-        "dataset_fingerprints": {
-            str(row.asset): row.dataset_fingerprint for row in rows
-        },
-        "training_windows": {
-            str(row.asset): {
-                "start": row.training_window_start.isoformat()
-                if row.training_window_start else None,
-                "end": row.training_window_end.isoformat()
-                if row.training_window_end else None,
-            }
-            for row in rows
-        },
-    }
+        train_window=train_window,
+        oot_window=oot_window,
+        strategy_branch=strategy_branch,
+    )
+    metadata.update(
+        {
+            "config_hash": context.config_hash,
+            "symbol": _canonical_symbol(context),
+            "model_versions": {str(row.asset): int(row.version) for row in rows},
+        }
+    )
     artifact = AIModelArtifact(
+        config_id=context.config_id,
+        run_id=context.run_id,
+        step_id=context.step_id,
         model_registry_id=None,
         artifact_uri=(
             f"db://ai-lab/{context.run_id}/{context.config_id}/"
             f"{digest}"
         ),
+        artifact_bytes=payload,
+        artifact_hash=digest,
         sha256=digest,
         schema_version="1",
         feature_pipeline_version=(
@@ -266,6 +353,10 @@ async def _create_bundle_artifact(
         loadability_status="VALID",
     )
     session.add(artifact)
+    await session.flush()
+    metadata["artifact_id"] = int(artifact.id)
+    metadata["provenance"]["artifact_id"] = int(artifact.id)
+    artifact.artifact_metadata = metadata
     await session.flush()
     return artifact
 
@@ -342,6 +433,7 @@ async def train_lgbm(context: StepContext, session: AsyncSession) -> AdapterResu
         )
     rows = _deduplicate_rows(rows, assets=sorted({str(row.asset) for row in rows}))
     artifact = await _create_bundle_artifact(session, context, rows, config)
+    train_window, oot_window = _contract_windows(context, rows, artifact)
     aucs = [float(row.accuracy) for row in rows if row.accuracy is not None]
     eces = [float(row.ece) for row in rows if row.ece is not None]
     return AdapterResult(
@@ -365,14 +457,10 @@ async def train_lgbm(context: StepContext, session: AsyncSession) -> AdapterResu
         },
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(rows),
-        train_window_start=min(
-            (_dt(row.training_window_start) for row in rows),
-            default=None,
-        ),
-        train_window_end=max(
-            (_dt(row.training_window_end) for row in rows),
-            default=None,
-        ),
+        train_window_start=train_window[0] if train_window else None,
+        train_window_end=train_window[1] if train_window else None,
+        oot_window_start=oot_window[0] if oot_window else None,
+        oot_window_end=oot_window[1] if oot_window else None,
         summary=(
             f"Saved {len(rows)} inactive LightGBM candidate(s) for {symbol}; "
             "no live settings or active model was changed."
@@ -391,6 +479,8 @@ async def run_lgbm_oot(context: StepContext, session: AsyncSession) -> AdapterRe
             summary="No successful LightGBM TRAIN artifact is available for this config.",
             error_code="TRAIN_ARTIFACT_MISSING",
         )
+    artifact = getattr(rows, "artifact", None)
+    train_window, oot_window = _contract_windows(context, rows, artifact)
     metrics = [_row_metrics(row) for row in rows]
     finite_auc = [item["auc"] for item in metrics if item["auc"] is not None]
     finite_ece = [item["ece"] for item in metrics if item["ece"] is not None]
@@ -398,7 +488,7 @@ async def run_lgbm_oot(context: StepContext, session: AsyncSession) -> AdapterRe
     return AdapterResult(
         evaluation_kind="OOT",
         status="SUCCEEDED",
-        artifact_id=None,
+        artifact_id=int(artifact.id) if artifact is not None else None,
         metrics={
             "model_count": len(metrics),
             "auc": sum(finite_auc) / len(finite_auc) if finite_auc else None,
@@ -409,14 +499,10 @@ async def run_lgbm_oot(context: StepContext, session: AsyncSession) -> AdapterRe
         slices={item["asset"]: item for item in metrics},
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(rows),
-        train_window_start=min(
-            (_dt(row.training_window_start) for row in rows),
-            default=None,
-        ),
-        train_window_end=max(
-            (_dt(row.training_window_end) for row in rows),
-            default=None,
-        ),
+        train_window_start=train_window[0] if train_window else None,
+        train_window_end=train_window[1] if train_window else None,
+        oot_window_start=oot_window[0] if oot_window else None,
+        oot_window_end=oot_window[1] if oot_window else None,
         summary=(
             "OOT diagnostics were read from the saved ModelRegistry candidates; "
             "the models were not retrained."
@@ -491,6 +577,27 @@ async def run_lgbm_polymarket_oot(
             summary=f"Polymarket-OOT has no markets for branch {branch}.",
             error_code="POLYMARKET_OOT_EMPTY",
         )
+    stored_windows = [
+        window
+        for result in regime_results
+        for window in (result.get("oot_windows") or [])
+        if isinstance(window, Mapping)
+    ]
+    stored_windows = [dict(window) for window in stored_windows]
+    configured_windows = resolve_windows(
+        (
+            payload,
+            context.backtest_params,
+            context.strategy_params,
+            context.model_params,
+            context.scope,
+        ),
+        "oot",
+    )
+    for index, window in enumerate(stored_windows):
+        if index < len(configured_windows):
+            window.setdefault("start", configured_windows[index][0])
+            window.setdefault("end", configured_windows[index][1])
     metrics = {
         key: summary.get(key)
         for key in (
@@ -511,25 +618,26 @@ async def run_lgbm_polymarket_oot(
             "max_drawdown_pct",
         )
     }
+    metrics["n_trades"] = int(summary.get("n_trades") or 0)
+    metrics["net_pnl"] = float(summary.get("net_profit") or 0.0)
+    metrics["oot_windows"] = stored_windows
+    artifact = getattr(rows, "artifact", None)
+    train_window, oot_window = _contract_windows(context, rows, artifact)
     return AdapterResult(
         evaluation_kind="POLYMARKET_OOT",
         status="SUCCEEDED",
         metrics=metrics,
-        slices={"slices": summary.get("slices", [])},
+        slices={"slices": summary.get("slices", []), "oot_windows": stored_windows},
         trade_count=int(summary.get("n_trades") or 0),
         net_pnl=float(summary.get("net_profit") or 0.0),
         max_drawdown=float(summary.get("max_drawdown_usdc") or 0.0),
-        artifact_id=None,
+        artifact_id=int(artifact.id) if artifact is not None else None,
         code_sha=_code_sha(),
         dataset_fingerprint=_fingerprint(provenance_rows),
-        train_window_start=min(
-            (_dt(row.training_window_start) for row in provenance_rows),
-            default=None,
-        ),
-        train_window_end=max(
-            (_dt(row.training_window_end) for row in provenance_rows),
-            default=None,
-        ),
+        train_window_start=train_window[0] if train_window else None,
+        train_window_end=train_window[1] if train_window else None,
+        oot_window_start=oot_window[0] if oot_window else None,
+        oot_window_end=oot_window[1] if oot_window else None,
         summary=(
             f"Polymarket-OOT {branch}: {int(summary.get('n_trades') or 0)} "
             f"trades, net PnL {float(summary.get('net_profit') or 0.0):.6f} USDC."

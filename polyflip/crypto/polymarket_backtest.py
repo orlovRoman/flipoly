@@ -158,8 +158,23 @@ def _oot_window_summaries(trades: list[dict[str, Any]], stake_usdc: float) -> li
         peak = np.maximum.accumulate(np.maximum(cumulative, 0.0))
         drawdown = float(np.max(np.maximum(0.0, peak - cumulative)))
         window_invested = stake_usdc * len(indices)
+        window_trades = [trades[int(i)] for i in indices]
+        raw_start = window_trades[0].get("entry_time")
+        raw_end = window_trades[-1].get("entry_time")
+        try:
+            start_timestamp = pd.Timestamp(raw_start) if raw_start is not None else None
+            end_timestamp = pd.Timestamp(raw_end) if raw_end is not None else None
+            if start_timestamp is not None and start_timestamp == end_timestamp:
+                end_timestamp = end_timestamp + pd.Timedelta(microseconds=1)
+            window_start = start_timestamp.isoformat() if start_timestamp is not None else None
+            window_end = end_timestamp.isoformat() if end_timestamp is not None else None
+        except (TypeError, ValueError):
+            window_start = str(raw_start) if raw_start is not None else None
+            window_end = str(raw_end) if raw_end is not None else None
         summaries.append({
             "window": index,
+            "start": window_start,
+            "end": window_end,
             "n_trades": int(len(indices)),
             "net_profit": float(pnl.sum()),
             "max_drawdown_usdc": drawdown,

@@ -362,9 +362,7 @@ async def finalize_request(
         error.strip()
         if isinstance(error, str) and error.strip()
         else (
-            f"Execution request {state}"
-            if state in FAILURE_TERMINAL_STATES
-            else error
+            f"Execution request {state}" if state in FAILURE_TERMINAL_STATES else error
         )
     )
     req.state = state

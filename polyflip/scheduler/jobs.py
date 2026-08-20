@@ -30,9 +30,48 @@ from polyflip.crypto.historical_loader import load_history_all
 
 from polyflip.crypto.predictor import CryptoPredictor
 from polyflip.constants import COMBINED_BINANCE_SYMBOLS
+from polyflip.ai_lab.schedule import create_scheduled_research_run
 
 
 logger = structlog.get_logger(__name__)
+
+async def ai_lab_research_schedule_job():
+    '''Queue at most one bounded PAPER/RESEARCH run per scheduler day.'''
+    if not settings.AI_LAB_SCHEDULE_ENABLED:
+        return
+    try:
+        async with async_session() as session:
+            assets_setting = (
+                await session.execute(
+                    select(RuntimeSettings).where(RuntimeSettings.key == "TRADE_ASSETS")
+                )
+            ).scalar_one_or_none()
+            raw_assets = (
+                assets_setting.value
+                if assets_setting is not None and assets_setting.value
+                else settings.TRADE_ASSETS
+            )
+            assets = [item.strip().upper() for item in str(raw_assets).split(",") if item.strip()]
+            decision = await create_scheduled_research_run(
+                session,
+                enabled=settings.AI_LAB_SCHEDULE_ENABLED,
+                mode=settings.AI_LAB_MODE,
+                trading_enabled=settings.LIVE_TRADING_ENABLED,
+                objective="Scheduled bounded AI Lab research",
+                scope={"assets": assets, "asset": assets[0] if assets else "BTC"},
+                budget_experiments=settings.AI_LAB_RESEARCH_MAX_ITERATIONS,
+                max_concurrent_runs=settings.AI_LAB_MAX_CONCURRENT_RUNS,
+                max_daily_runs=settings.AI_LAB_MAX_DAILY_RUNS,
+            )
+            logger.info(
+                "ai_lab_research_schedule_checked",
+                allowed=decision.allowed,
+                reason=decision.reason,
+                run_id=decision.run_id,
+            )
+    except Exception as exc:
+        logger.exception("ai_lab_research_schedule_failed", error=str(exc))
+
 
 async def refresh_predictor_params_job():
     logger.info("starting_refresh_predictor_params_job")
@@ -212,6 +251,8 @@ async def resolve_trades_job():
         from decimal import Decimal
         from polyflip.execution.settlement_service import settle_resolved_position
         from polyflip.execution.states import ACTIVE_POSITION_STATES
+        from polyflip.ai_lab.shadow import counterfactual_pnl, resolve_shadow_observation
+        from polyflip.db.models import AIShadowObservation
 
         async with async_session() as session:
             # Только PAPER и SHADOW закрываются scheduler-ом автоматически.
@@ -238,8 +279,9 @@ async def resolve_trades_job():
             )
             live_trades = (await session.execute(live_stmt)).scalars().all()
 
+            shadow_observations = (await session.execute(select(AIShadowObservation).where(AIShadowObservation.status == "PENDING"))).scalars().all()
             all_trade_market_ids = list(
-                {t.market_id for t in trades} | {t.market_id for t in live_trades}
+                {t.market_id for t in trades} | {t.market_id for t in live_trades} | {row.market_id for row in shadow_observations}
             )
 
             if not all_trade_market_ids:
@@ -257,6 +299,29 @@ async def resolve_trades_job():
             market_outcomes = {r.market_id: r.final_outcome for r in outcomes}
 
             resolved_count = 0
+            shadow_resolved = 0
+
+            # Resolve passive same-snapshot observations independently from
+            # TradeHistory so a shadow-only market is never skipped.
+            for observation in shadow_observations:
+                raw_outcome = market_outcomes.get(observation.market_id)
+                if not raw_outcome:
+                    continue
+                candidate_ask = observation.candidate_ask
+                candidate_pnl = counterfactual_pnl(
+                    observation.candidate_action, raw_outcome, candidate_ask
+                )
+                active_pnl = counterfactual_pnl(
+                    observation.active_action, raw_outcome, observation.active_ask
+                )
+                await resolve_shadow_observation(
+                    session,
+                    int(observation.id),
+                    market_outcome=str(raw_outcome),
+                    active_pnl=active_pnl,
+                    candidate_pnl=candidate_pnl,
+                )
+                shadow_resolved += 1
 
             # PAPER/SHADOW: полное закрытие через settle_resolved_position
             for t in trades:
@@ -316,7 +381,7 @@ async def resolve_trades_job():
                     resolved_count += 1
 
             await session.commit()
-            logger.info("finished_resolve_trades_job", resolved=resolved_count)
+            logger.info("finished_resolve_trades_job", resolved=resolved_count, shadow_resolved=shadow_resolved)
     except Exception as e:
         logger.exception("resolve_trades_job_error", error=str(e))
 
@@ -561,6 +626,21 @@ async def main():
     )
     
     # Ежедневно переобучаем модели (раз в 24 часа) - ОТКЛЮЧЕНО в пользу ручного обучения
+    # Optional bounded AI Lab research scheduler. Disabled by default and
+    # never registered without an explicit positive interval.
+    research_interval = float(getattr(settings, "AI_LAB_RESEARCH_INTERVAL_SECONDS", 0.0) or 0.0)
+    if settings.AI_LAB_SCHEDULE_ENABLED and research_interval > 0:
+        scheduler.add_job(
+            ai_lab_research_schedule_job,
+            trigger=IntervalTrigger(seconds=max(60.0, research_interval)),
+            id="ai_lab_research_schedule",
+            next_run_time=now,
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+            misfire_grace_time=60,
+        )
+
     # scheduler.add_job(
     #     retrain_job,
     #     trigger=IntervalTrigger(hours=settings.RETRAIN_INTERVAL_HOURS),

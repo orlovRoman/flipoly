@@ -19,6 +19,7 @@ async def execute_lgbm_steps(
     run_id: int,
     *,
     max_steps: int = 1,
+    owner_token: str | None = None,
 ) -> list[ExecutionOutcome]:
     """Execute a bounded batch of queued LightGBM experiment steps.
 
@@ -29,4 +30,10 @@ async def execute_lgbm_steps(
             f"max_steps must be between 1 and {MAX_LGBM_WORKER_STEPS}"
         )
     registry = build_lgbm_adapter_registry(session)
-    return await execute_steps(session, run_id, registry, max_steps=max_steps)
+    return await execute_steps(
+        session,
+        run_id,
+        registry,
+        max_steps=max_steps,
+        owner_token=owner_token,
+    )

@@ -43,7 +43,9 @@ def _to_crypto_signal(row: MarketDirectionSignal) -> CryptoSignal:
         inverted=row.inverted,
         p_up_raw=row.p_up_raw,
         p_down_raw=row.p_down_raw,
-        raw_opinion="UP" if row.p_up_raw >= 0.5 else "DOWN",
+            raw_opinion=(
+                "UP" if (row.p_up_raw if row.p_up_raw is not None else row.p_up) >= 0.5 else "DOWN"
+            ),
     )
 
 

@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from typing import Any
 import structlog
 
+from polyflip.config import normalize_ai_lab_mode
 from polyflip.ai_lab.service import AILabError
 
 logger = structlog.get_logger("polyflip.ai_lab.policy")
@@ -35,9 +36,19 @@ class PolicyEvaluationResult:
         windows_count: int,
         rejection_reasons: list[str] | None = None,
         diagnostics: Mapping[str, Any] | None = None,
+        technical_valid: bool = True,
+        evidence_sufficient: bool = True,
+        deployment_eligible: bool | None = None,
+        recommendation_status: str | None = None,
     ) -> None:
         self.is_eligible = is_eligible
         self.gate_passed = gate_passed
+        self.technical_valid = technical_valid
+        self.evidence_sufficient = evidence_sufficient
+        self.deployment_eligible = (
+            gate_passed if deployment_eligible is None else deployment_eligible
+        )
+        self.recommendation_status = recommendation_status
         self.score = score
         self.median_pnl = median_pnl
         self.max_drawdown = max_drawdown
@@ -50,6 +61,10 @@ class PolicyEvaluationResult:
         return {
             "is_eligible": self.is_eligible,
             "gate_passed": self.gate_passed,
+            "technical_valid": self.technical_valid,
+            "evidence_sufficient": self.evidence_sufficient,
+            "deployment_eligible": self.deployment_eligible,
+            "recommendation_status": self.recommendation_status,
             "score": round(self.score, 4),
             "median_pnl": round(self.median_pnl, 4),
             "max_drawdown": round(self.max_drawdown, 4),
@@ -177,6 +192,131 @@ def evaluate_candidate_policy(
         windows_count=windows_num,
         rejection_reasons=rejection_reasons,
         diagnostics={"auc": auc, "brier": brier},
+        technical_valid=not any(
+            reason.startswith(("NON_FINITE_VALUE", "INVALID_"))
+            for reason in rejection_reasons
+        ),
+        evidence_sufficient=(
+            trades_num >= effective_min_trades and windows_num >= effective_min_windows
+        ),
+        deployment_eligible=gate_passed,
+        recommendation_status="READY_FOR_SHADOW" if gate_passed else rejection_reasons[0],
+    )
+
+
+def validate_artifact_technical(
+    artifact: Any,
+    *,
+    expected_config_id: int | None = None,
+) -> tuple[bool, list[str]]:
+    """Validate only the artifact contract; this never changes artifact state."""
+    reasons: list[str] = []
+    if artifact is None:
+        return False, ["MISSING_ARTIFACT"]
+    if str(getattr(artifact, "loadability_status", "")).upper() != "VALID":
+        reasons.append("INVALID_ARTIFACT_LOADABILITY")
+    metadata = getattr(artifact, "artifact_metadata", None)
+    if not isinstance(metadata, Mapping):
+        reasons.append("MALFORMED_ARTIFACT_METADATA")
+    elif expected_config_id is not None and metadata.get("config_id") is not None:
+        try:
+            if int(metadata["config_id"]) != int(expected_config_id):
+                reasons.append("ARTIFACT_CONFIG_MISMATCH")
+        except (TypeError, ValueError):
+            reasons.append("MALFORMED_ARTIFACT_CONFIG_ID")
+    return not reasons, reasons
+
+
+def evaluate_research_policy(
+    metrics: Mapping[str, Any],
+    *,
+    technical_valid: bool = True,
+    technical_reasons: list[str] | None = None,
+    min_trades: int = MIN_MANDATORY_TRADES,
+    min_windows: int = MIN_MANDATORY_WINDOWS,
+    max_drawdown_limit: float = MAX_ALLOWED_DRAWDOWN,
+) -> PolicyEvaluationResult:
+    """Separate technical validity, evidence volume and deployment eligibility.
+
+    Research can retain technically valid candidates for SHADOW regardless of
+    sample size or PnL. It deliberately never produces a deployment-eligible
+    candidate; LIVE activation is a separate human-controlled boundary.
+    """
+    if min_trades < 0 or min_windows < 0:
+        raise AILabError("research policy minimums must be non-negative")
+
+    reasons = list(technical_reasons or [])
+
+    def finite(value: Any, name: str) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            reasons.append(f"INVALID_{name.upper()}")
+            return None
+        if not math.isfinite(number):
+            reasons.append(f"NON_FINITE_VALUE: {name}")
+            return None
+        return number
+
+    pnl = finite(metrics.get("median_pnl", metrics.get("median_oot_pnl", 0.0)), "median_pnl")
+    drawdown = finite(
+        metrics.get(
+            "max_drawdown_usdc",
+            metrics.get("max_drawdown", metrics.get("median_oot_drawdown", 0.0)),
+        ),
+        "max_drawdown",
+    )
+    try:
+        trades = int(metrics.get("total_trades", metrics.get("trade_count", 0)))
+        if trades < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        trades = 0
+        reasons.append("INVALID_TRADE_COUNT")
+    try:
+        windows = int(metrics.get("window_count", metrics.get("windows_count", 0)))
+        if windows < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        windows = 0
+        reasons.append("INVALID_WINDOW_COUNT")
+
+    if drawdown is not None and drawdown < 0:
+        reasons.append("INVALID_DRAWDOWN")
+
+    reasons = list(dict.fromkeys(reasons))
+    technical_ok = bool(technical_valid and not reasons)
+    evidence_sufficient = technical_ok and trades >= min_trades and windows >= min_windows
+    recommendation_status = (
+        "TECHNICAL_INVALID"
+        if not technical_ok
+        else "RESEARCH_PROVISIONAL"
+        if evidence_sufficient
+        else "INSUFFICIENT_EVIDENCE"
+    )
+    score = score_candidate(
+        median_pnl=pnl if pnl is not None else 0.0,
+        max_drawdown=drawdown if drawdown is not None else 0.0,
+        trade_count=trades,
+        windows_count=windows,
+    )
+    return PolicyEvaluationResult(
+        is_eligible=technical_ok,
+        gate_passed=False,
+        score=score,
+        median_pnl=pnl if pnl is not None else 0.0,
+        max_drawdown=drawdown if drawdown is not None else 0.0,
+        trade_count=trades,
+        windows_count=windows,
+        rejection_reasons=reasons,
+        diagnostics={
+            "mode": normalize_ai_lab_mode("RESEARCH"),
+            "max_drawdown_limit": max_drawdown_limit,
+        },
+        technical_valid=technical_ok,
+        evidence_sufficient=evidence_sufficient,
+        deployment_eligible=False,
+        recommendation_status=recommendation_status,
     )
 
 

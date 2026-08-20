@@ -959,6 +959,7 @@ class AIOptimizationRun(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     objective = Column(String(4000), nullable=False)
     scope = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    mode = Column(String(16), nullable=False, server_default="STANDARD")
     autonomy_level = Column(String(32), nullable=False, server_default="EXPERIMENT")
     status = Column(String(32), nullable=False, server_default="DRAFT")
     agent_thread_id = Column(String(128), nullable=True)
@@ -985,8 +986,13 @@ class AIOptimizationRun(Base):
         CheckConstraint(
             "status IN ('DRAFT', 'QUEUED', 'PLANNING', 'RUNNING', 'EVALUATING', "
             "'PAUSED', 'SHADOW', 'PENDING_APPROVAL', 'ACTIVE', 'COMPLETED', "
-            "'INSUFFICIENT_DATA', 'FAILED', 'REJECTED', 'CANCELLED', 'ROLLED_BACK')",
+            "'INSUFFICIENT_DATA', 'RESEARCH_PROVISIONAL', 'INSUFFICIENT_EVIDENCE', "
+            "'TECHNICAL_INVALID', 'FAILED', 'REJECTED', 'CANCELLED', 'ROLLED_BACK')",
             name="ck_ai_runs_status",
+        ),
+        CheckConstraint(
+            "mode IN ('STANDARD', 'RESEARCH')",
+            name="ck_ai_runs_mode",
         ),
         CheckConstraint(
             "autonomy_level IN ('OBSERVE', 'EXPERIMENT', 'SHADOW', 'AUTONOMOUS_SHADOW', 'AUTONOMOUS_CONFIG', 'LIVE_PROPOSE', 'AUTONOMOUS_LIVE', 'DIRECTED')",
@@ -1199,8 +1205,20 @@ class ExperimentResult(Base):
     )
     config_id = Column(
         Integer,
-        ForeignKey("experiment_configs.id", ondelete="RESTRICT"),
-        nullable=False,
+        ForeignKey("ai_experiment_configs.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    # Results written before the AI Lab config split remain addressable without
+    # pretending that their legacy config ID belongs to ai_experiment_configs.
+    legacy_config_id = Column(
+        Integer,
+        ForeignKey("experiment_configs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    step_id = Column(
+        Integer,
+        ForeignKey("ai_run_steps.id", ondelete="SET NULL"),
+        nullable=True,
     )
     artifact_id = Column(
         Integer,
@@ -1329,6 +1347,84 @@ class AIShadowAssignment(Base):
         CheckConstraint(
             "status IN ('PENDING', 'RUNNING', 'COMPLETED', 'STOPPED', 'FAILED')",
             name="ck_ai_shadow_status",
+        ),
+    )
+
+
+class AIShadowObservation(Base):
+    """Same-snapshot active/candidate shadow comparison and counterfactual PnL."""
+
+    __tablename__ = "ai_shadow_observations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    assignment_id = Column(Integer, ForeignKey("ai_shadow_assignments.id", ondelete="CASCADE"), nullable=False)
+    run_id = Column(Integer, ForeignKey("ai_optimization_runs.id", ondelete="SET NULL"), nullable=True)
+    market_id = Column(String(128), nullable=False)
+    snapshot_at = Column(DateTime(timezone=True), nullable=False)
+    active_model_key = Column(String(64), nullable=True)
+    candidate_model_key = Column(String(64), nullable=False)
+    active_action = Column(String(32), nullable=True)
+    candidate_action = Column(String(32), nullable=True)
+    active_probability = Column(Float, nullable=True)
+    candidate_probability = Column(Float, nullable=True)
+    active_ask = Column(Float, nullable=True)
+    candidate_ask = Column(Float, nullable=True)
+    active_net_edge = Column(Float, nullable=True)
+    candidate_net_edge = Column(Float, nullable=True)
+    market_outcome = Column(String(16), nullable=True)
+    active_pnl = Column(Float, nullable=True)
+    candidate_pnl = Column(Float, nullable=True)
+    lr_direction_vote = Column(String(16), nullable=True)
+    lgbm_direction_vote = Column(String(16), nullable=True)
+    consensus_type = Column(String(32), nullable=True)
+    shadow_logreg_action = Column(String(32), nullable=True)
+    actual_combined_action = Column(String(32), nullable=True)
+    shadow_logreg_net_edge = Column(Float, nullable=True)
+    actual_net_edge = Column(Float, nullable=True)
+    status = Column(String(24), nullable=False, server_default="PENDING")
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    idempotency_key = Column(String(256), nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_ai_shadow_obs_assignment_market", "assignment_id", "market_id"),
+        Index("idx_ai_shadow_obs_status", "status", "created_at"),
+        CheckConstraint(
+            "status IN ('PENDING', 'RESOLVED', 'ABSTAINED', 'INVALID')",
+            name="ck_ai_shadow_observation_status",
+        ),
+    )
+
+
+class AIExperimentJob(Base):
+    """Durable idempotent job record for restart-safe AI Lab execution."""
+
+    __tablename__ = "ai_experiment_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, ForeignKey("ai_optimization_runs.id", ondelete="CASCADE"), nullable=False)
+    step_id = Column(Integer, ForeignKey("ai_run_steps.id", ondelete="CASCADE"), nullable=False)
+    operation = Column(String(64), nullable=False)
+    status = Column(String(16), nullable=False, server_default="QUEUED")
+    attempt = Column(Integer, nullable=False, server_default="0")
+    idempotency_key = Column(String(256), nullable=False, unique=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    # Token of the worker that owns the current attempt.  Keeping this on the
+    # job (in addition to the run-level lease) makes stale/retry transitions
+    # auditable and prevents a different worker from completing an old claim.
+    owner_token = Column(String(128), nullable=True)
+    error = Column(Text, nullable=True)
+    traceback = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_ai_jobs_status_heartbeat", "status", "heartbeat_at"),
+        Index("idx_ai_jobs_run_step", "run_id", "step_id"),
+        CheckConstraint(
+            "status IN ('QUEUED', 'RUNNING', 'RETRY_WAIT', 'SUCCEEDED', 'FAILED', 'STALE', 'CANCELLED')",
+            name="ck_ai_experiment_jobs_status",
         ),
     )
 

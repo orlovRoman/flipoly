@@ -196,6 +196,25 @@ class TestAILabFinalization(unittest.IsolatedAsyncioTestCase):
             orchestrator.evaluate_run = orig_eval
             orchestrator.promote_to_shadow = orig_promote
 
+    async def test_finalize_closes_evaluating_run_after_gate_rejection(self):
+        run = SimpleNamespace(status="EVALUATING", summary=None)
+        step = SimpleNamespace(id=11, step_index=2)
+        session = _Session(run=run, step=step)
+        report = _rejected_report(status="INSUFFICIENT_TRADES")
+
+        async def fake_evaluate(db, run_id):
+            return report
+
+        orig_eval = orchestrator.evaluate_run
+        try:
+            orchestrator.evaluate_run = fake_evaluate
+            await orchestrator.finalize_run(session, 7, auto_shadow=False)
+        finally:
+            orchestrator.evaluate_run = orig_eval
+
+        self.assertEqual(run.status, "INSUFFICIENT_DATA")
+        self.assertIsNotNone(run.finished_at)
+
     async def test_finalize_records_audit_log_and_summary_on_gate_rejection(self):
         run = SimpleNamespace(summary=None)
         step = SimpleNamespace(id=10, step_index=2)

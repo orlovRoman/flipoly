@@ -79,6 +79,7 @@ async def test_trainer_creates_each_phase_model(db_session, phase, mid_price):
     stmt = select(ModelRegistry).where(ModelRegistry.asset == f"BTC_{phase}")
     phase_model = (await db_session.execute(stmt)).scalar_one()
     assert phase_model.asset == f"BTC_{phase}"
+    assert phase_model.model_type == "logreg"
     assert phase_model.is_active is True
     assert phase_model.model_blob is not None
 

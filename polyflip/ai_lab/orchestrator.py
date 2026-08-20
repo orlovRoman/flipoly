@@ -21,6 +21,8 @@ from polyflip.ai_lab.service import (
     transition_run,
     utc_now,
 )
+from polyflip.ai_lab.policy import evaluate_research_policy
+from polyflip.ai_lab.artifact_contracts import canonical_window_value
 from polyflip.db.models import (
     AIExperimentConfig,
     AIModelArtifact,
@@ -79,26 +81,106 @@ def _median(values: Sequence[Any]) -> float | None:
     return float((numbers[middle - 1] + numbers[middle]) / 2)
 
 
+def _result_config_id(result: Any) -> Any:
+    config_id = _value(result, "config_id")
+    return config_id if config_id is not None else _value(result, "legacy_config_id")
+
+
+def _mapping_value(source: Any, names: Sequence[str]) -> Any:
+    payload = source if isinstance(source, Mapping) else {}
+    for name in names:
+        value = payload.get(name)
+        if value is not None:
+            return value
+    return None
+
+
+def _window_pair(source: Any) -> tuple[Any, Any] | None:
+    if not isinstance(source, Mapping):
+        return None
+    start = _mapping_value(
+        source, ("oot_window_start", "window_start", "start", "from")
+    )
+    end = _mapping_value(
+        source, ("oot_window_end", "window_end", "end", "to")
+    )
+    if start is None and end is None:
+        value = source.get("oot_window", source.get("window"))
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            if len(value) >= 2:
+                start, end = value[0], value[1]
+        elif isinstance(value, Mapping):
+            return _window_pair(value)
+    return (start, end) if start is not None or end is not None else None
+
+
+def _window_entries(result: Any) -> list[tuple[tuple[str, str] | None, Mapping[str, Any]]]:
+    """Read current and legacy OOT window shapes without double-counting them."""
+    metrics = _value(result, "metrics", {})
+    slices = _value(result, "slices", {})
+    containers = [item for item in (metrics, slices) if isinstance(item, Mapping)]
+    for container in containers:
+        for name in ("oot_windows", "windows"):
+            values = container.get(name)
+            if isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
+                entries = []
+                for item in values:
+                    if isinstance(item, Mapping):
+                        pair = _window_pair(item)
+                        if pair is not None:
+                            entries.append((
+                                _canonical_window_key(pair),
+                                item,
+                            ))
+                if entries:
+                    return entries
+
+    explicit = _window_pair(
+        {
+            "oot_window_start": _value(result, "oot_window_start"),
+            "oot_window_end": _value(result, "oot_window_end"),
+        }
+    )
+    if explicit is None:
+        for container in containers:
+            explicit = _window_pair(container)
+            if explicit is not None:
+                break
+    return [(_canonical_window_key(explicit), {})]
+
+
+def _canonical_window_key(window: tuple[Any, Any] | None) -> tuple[str, str] | None:
+    if window is None:
+        return None
+    start = canonical_window_value(window[0])
+    end = canonical_window_value(window[1])
+    if start is None or end is None or start == end:
+        return None
+    return start, end
+
+
+def _result_metric(
+    result: Any,
+    names: Sequence[str],
+    window: Mapping[str, Any] | None = None,
+) -> Any:
+    if window:
+        value = _mapping_value(window, names)
+        if value is not None:
+            return value
+    value = _value(result, names[0])
+    if value is not None:
+        return value
+    for container_name in ("metrics", "slices"):
+        container = _value(result, container_name, {})
+        value = _mapping_value(container, names)
+        if value is not None:
+            return value
+    return None
+
+
 def _oot_window_key(result: Any) -> tuple[str, str] | None:
-    raw_metrics = _value(result, "metrics", {}) or {}
-    metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
-    start = _value(
-        result,
-        "oot_window_start",
-        metrics.get("oot_window_start", metrics.get("window_start")),
-    )
-    end = _value(
-        result,
-        "oot_window_end",
-        metrics.get("oot_window_end", metrics.get("window_end")),
-    )
-    if start is None or end is None:
-        return None
-    start_text = str(start).strip()
-    end_text = str(end).strip()
-    if not start_text or not end_text or start_text == end_text:
-        return None
-    return (start_text, end_text)
+    return _window_entries(result)[0][0]
 
 
 def default_plan_steps(config_ids: Sequence[int]) -> list[dict[str, Any]]:
@@ -185,6 +267,7 @@ def build_experiment_report(
     *,
     min_trades: int = MIN_TOTAL_TRADES,
     min_windows: int = MIN_WINDOWS,
+    mode: str = "STANDARD",
 ) -> dict[str, Any]:
     """Aggregate per-config metrics across training, OOT backtests, and Polymarket OOT.
 
@@ -208,7 +291,7 @@ def build_experiment_report(
     for result in results:
         kind = str(_value(result, "evaluation_kind", "")).upper()
         if kind in {"OOT", "POLYMARKET_OOT"}:
-            config_id = _value(result, "config_id")
+            config_id = _result_config_id(result)
             if config_id is not None:
                 grouped[int(config_id)][kind].append(result)
 
@@ -237,8 +320,10 @@ def build_experiment_report(
             raw_metrics = _value(result, "metrics", {}) or {}
             metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
             for metric_name in ("auc", "ece", "brier", "log_loss", "win_rate"):
-                metric_values[metric_name].append(metrics.get(metric_name))
-            artifact_id = _value(result, "artifact_id")
+                metric_values[metric_name].append(
+                    _result_metric(result, (metric_name,))
+                )
+            artifact_id = _value(result, "artifact_id") or metrics.get("artifact_id")
             if artifact_id is not None:
                 artifact_ids.add(int(artifact_id))
 
@@ -246,60 +331,72 @@ def build_experiment_report(
         for result in polymarket_results:
             raw_metrics = _value(result, "metrics", {}) or {}
             metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
-            w_key = _oot_window_key(result)
-            if w_key is None:
+            entries = _window_entries(result)
+            if not entries or all(window_key is None for window_key, _ in entries):
                 invalid_result_count += 1
                 continue
-            if w_key in unique_windows:
-                # A retry/duplicate for the same OOT interval must not inflate
-                # total trades or median samples.
-                invalid_result_count += 1
-                continue
-            unique_windows.add(w_key)
-            res_pnl = _value(result, "net_pnl", metrics.get("net_pnl"))
-            res_trades = _value(result, "trade_count", metrics.get("n_trades"))
-            res_dd = _value(result, "max_drawdown", metrics.get("max_drawdown"))
-            pnl_num = _finite(res_pnl)
-            trades_num = _finite(res_trades)
-            dd_num = _finite(res_dd) if res_dd is not None else None
-            if res_pnl is None or pnl_num is None:
-                invalid_result_count += 1
-            if (
-                res_trades is None
-                or trades_num is None
-                or trades_num < 0
-                or not trades_num.is_integer()
-            ):
-                invalid_result_count += 1
-            if res_dd is not None and dd_num is None:
-                invalid_result_count += 1
+            for w_key, window in entries:
+                if w_key is None:
+                    invalid_result_count += 1
+                    continue
+                if w_key in unique_windows:
+                    # A retry/duplicate for the same OOT interval must not
+                    # inflate total trades or median samples.
+                    invalid_result_count += 1
+                    continue
+                unique_windows.add(w_key)
+                res_pnl = _result_metric(
+                    result, ("net_pnl", "net_profit", "pnl"), window
+                )
+                res_trades = _result_metric(
+                    result, ("trade_count", "n_trades", "trades"), window
+                )
+                res_dd = _result_metric(
+                    result,
+                    ("max_drawdown", "max_drawdown_usdc", "drawdown"),
+                    window,
+                )
+                pnl_num = _finite(res_pnl)
+                trades_num = _finite(res_trades)
+                dd_num = _finite(res_dd) if res_dd is not None else None
+                if res_pnl is None or pnl_num is None:
+                    invalid_result_count += 1
+                if (
+                    res_trades is None
+                    or trades_num is None
+                    or trades_num < 0
+                    or not trades_num.is_integer()
+                ):
+                    invalid_result_count += 1
+                if res_dd is not None and dd_num is None:
+                    invalid_result_count += 1
 
-            if pnl_num is not None:
-                pnl_values.append(pnl_num)
-            if (
-                trades_num is not None
-                and trades_num >= 0
-                and trades_num.is_integer()
-            ):
-                trade_values.append(trades_num)
-            if dd_num is not None:
-                drawdown_values.append(dd_num)
+                if pnl_num is not None:
+                    pnl_values.append(pnl_num)
+                if (
+                    trades_num is not None
+                    and trades_num >= 0
+                    and trades_num.is_integer()
+                ):
+                    trade_values.append(trades_num)
+                if dd_num is not None:
+                    drawdown_values.append(dd_num)
 
-            window_details.append(
-                {
-                    "oot_window_start": w_key[0],
-                    "oot_window_end": w_key[1],
-                    "net_pnl": pnl_num,
-                    "trade_count": (
-                        int(trades_num)
-                        if trades_num is not None
-                        and trades_num >= 0
-                        and trades_num.is_integer()
-                        else 0
-                    ),
-                    "max_drawdown": dd_num,
-                }
-            )
+                window_details.append(
+                    {
+                        "oot_window_start": w_key[0],
+                        "oot_window_end": w_key[1],
+                        "net_pnl": pnl_num,
+                        "trade_count": (
+                            int(trades_num)
+                            if trades_num is not None
+                            and trades_num >= 0
+                            and trades_num.is_integer()
+                            else 0
+                        ),
+                        "max_drawdown": dd_num,
+                    }
+                )
 
         median_pnl = _median(pnl_values)
 
@@ -331,15 +428,69 @@ def build_experiment_report(
             "win_rate": _median(metric_values["win_rate"]),
         }
 
-        gate_res = evaluate_finalization_gate(
-            row, min_trades=min_trades, min_windows=min_windows
-        )
-        row["eligible_for_shadow"] = gate_res["eligible"]
-        row["recommendation_status"] = gate_res["recommendation_status"]
-        row["rejection_reasons"] = gate_res["rejection_reasons"]
+        if str(mode).upper() == "RESEARCH":
+            research_res = evaluate_research_policy(
+                row,
+                technical_valid=invalid_result_count == 0,
+                technical_reasons=(
+                    ["INVALID_RESULT"] if invalid_result_count > 0 else []
+                ),
+                min_trades=min_trades,
+                min_windows=min_windows,
+            ).to_dict()
+            row["technical_valid"] = research_res["technical_valid"]
+            row["evidence_sufficient"] = research_res["evidence_sufficient"]
+            row["deployment_eligible"] = False
+            row["eligible_for_shadow"] = research_res["technical_valid"]
+            row["recommendation_status"] = research_res["recommendation_status"]
+            row["rejection_reasons"] = research_res["rejection_reasons"]
+            row["candidate_status"] = (
+                "TECHNICAL_INVALID"
+                if not research_res["technical_valid"]
+                else "PROVISIONAL"
+            )
+            row["evidence_status"] = (
+                "SUFFICIENT"
+                if research_res["evidence_sufficient"]
+                else "INSUFFICIENT"
+            )
+            row["deployment_status"] = "PROHIBITED"
+        else:
+            gate_res = evaluate_finalization_gate(
+                row, min_trades=min_trades, min_windows=min_windows
+            )
+            row["technical_valid"] = not any(
+                reason == "INVALID_RESULT" for reason in gate_res["rejection_reasons"]
+            )
+            row["evidence_sufficient"] = (
+                row["total_trades"] >= min_trades
+                and row["window_count"] >= min_windows
+            )
+            row["deployment_eligible"] = gate_res["eligible"]
+            row["eligible_for_shadow"] = gate_res["eligible"]
+            row["recommendation_status"] = gate_res["recommendation_status"]
+            row["rejection_reasons"] = gate_res["rejection_reasons"]
+            row["candidate_status"] = (
+                "NO_CANDIDATE"
+                if not polymarket_results
+                else "VALID"
+                if row["technical_valid"]
+                else "TECHNICAL_INVALID"
+            )
+            row["evidence_status"] = (
+                "SUFFICIENT" if row["evidence_sufficient"] else "INSUFFICIENT"
+            )
+            row["deployment_status"] = (
+                "ELIGIBLE" if row["deployment_eligible"] else "INELIGIBLE"
+            )
         rows.append(row)
 
-    eligible = [row for row in rows if row["eligible_for_shadow"]]
+    eligible = [
+        row
+        for row in rows
+        if row["eligible_for_shadow"]
+        and (str(mode).upper() == "RESEARCH" or row["deployment_eligible"])
+    ]
     winner = (
         max(
             eligible,
@@ -353,12 +504,19 @@ def build_experiment_report(
         else None
     )
 
+    shadow_status: str | None = None
     if winner:
-        status = "READY_FOR_SHADOW"
+        status = str(winner["recommendation_status"])
+        shadow_status = (
+            "RESEARCH_PROVISIONAL"
+            if str(mode).upper() == "RESEARCH" and winner["technical_valid"]
+            else "READY_FOR_SHADOW"
+        )
         rejection_reasons: list[str] = []
         reason = (
-            "Highest median Polymarket-OOT net PnL among candidates meeting the "
-            "minimum trade count and window criteria; verify in SHADOW before any human activation."
+            "Highest median Polymarket-OOT net PnL among candidates; "
+            "the row status reports evidence quality and the shadow status "
+            "reports whether passive observation is allowed."
         )
     elif rows:
         rejection_reasons = list(
@@ -378,15 +536,52 @@ def build_experiment_report(
         reason = "No OOT evaluations found for any configuration."
 
     summary = {
+        "mode": str(mode).upper(),
         "status": status,
         "recommended_config_id": winner["config_id"] if winner else None,
         "recommendation_status": status,
+        "shadow_recommendation_status": shadow_status,
+        "eligible_for_shadow": bool(winner),
         "reason": reason,
         "rejection_reasons": rejection_reasons,
         "evaluated_config_count": len(rows),
         "eligible_candidate_count": len(eligible),
         "rows": rows,
     }
+    if winner:
+        summary.update(
+            {
+                "candidate_status": winner["candidate_status"],
+                "evidence_status": winner["evidence_status"],
+                # In RESEARCH a technically valid candidate may be sent to
+                # SHADOW before evidence is sufficient. Keep the top-level
+                # promotion status distinct from the winner's evidence label.
+                "winner_recommendation_status": winner["recommendation_status"],
+                "deployment_status": winner["deployment_status"],
+            }
+        )
+    elif rows:
+        summary.update(
+            {
+                "candidate_status": "REJECTED",
+                "evidence_status": (
+                    "INSUFFICIENT"
+                    if any(row["evidence_status"] == "INSUFFICIENT" for row in rows)
+                    else "INVALID"
+                ),
+                "deployment_status": (
+                    "PROHIBITED" if str(mode).upper() == "RESEARCH" else "INELIGIBLE"
+                ),
+            }
+        )
+    else:
+        summary.update(
+            {
+                "candidate_status": "NO_CANDIDATE",
+                "evidence_status": "NONE",
+                "deployment_status": "INELIGIBLE",
+            }
+        )
     if winner:
         summary.update(
             {
@@ -535,8 +730,20 @@ async def record_result(
     config = await session.get(AIExperimentConfig, config_id)
     if config is None:
         raise AILabError(f"experiment config {config_id} not found")
-    if artifact_id is not None and await session.get(AIModelArtifact, artifact_id) is None:
-        raise AILabError(f"model artifact {artifact_id} not found")
+    artifact = None
+    if artifact_id is not None:
+        artifact = await session.get(AIModelArtifact, artifact_id)
+        if artifact is None:
+            raise AILabError(f"model artifact {artifact_id} not found")
+        if (
+            artifact.config_id != config_id
+            or artifact.run_id != run_id
+            or artifact.step_id is None
+        ):
+            raise AILabError(
+                f"model artifact {artifact_id} is not linked to run {run_id}, "
+                f"config {config_id}, and a training step"
+            )
 
     step = None
     if step_id is not None:
@@ -554,6 +761,7 @@ async def record_result(
     result = ExperimentResult(
         run_id=run_id,
         config_id=config_id,
+        step_id=step_id,
         artifact_id=artifact_id,
         evaluation_kind=kind,
         status=status,
@@ -607,7 +815,13 @@ async def evaluate_run(
             select(ExperimentResult).where(ExperimentResult.run_id == run_id)
         )
     ).scalars().all()
-    report = build_experiment_report(results)
+    scope = run.scope if isinstance(run.scope, Mapping) else {}
+    report = build_experiment_report(
+        results,
+        mode=getattr(run, "mode", "STANDARD"),
+        min_trades=int(scope.get("min_trades", MIN_TOTAL_TRADES)),
+        min_windows=int(scope.get("min_windows", MIN_WINDOWS)),
+    )
     run.summary = json.dumps(
         {
             "report": report,
@@ -690,8 +904,37 @@ async def finalize_run(
     """
     report = await evaluate_run(session, run_id)
     assignment: AIShadowAssignment | None = None
-    if auto_shadow and report["recommendation_status"] == "READY_FOR_SHADOW":
-        config_id = report["recommended_config_id"]
+    shadow_status = report.get(
+        "shadow_recommendation_status",
+        report.get("recommendation_status"),
+    )
+    config_id = report.get("recommended_config_id")
+    winner_row = next(
+        (
+            row
+            for row in report.get("rows", [])
+            if row.get("config_id") == config_id
+        ),
+        None,
+    )
+    eligible_for_shadow = report.get("eligible_for_shadow")
+    if eligible_for_shadow is None and winner_row is not None:
+        # Keep compatibility with reports produced before the top-level
+        # eligibility flag was added; the winning row remains authoritative.
+        eligible_for_shadow = bool(winner_row.get("eligible_for_shadow"))
+    if (
+        auto_shadow
+        and eligible_for_shadow
+        and shadow_status
+        in {
+            "READY_FOR_SHADOW",
+            "RESEARCH_PROVISIONAL",
+        }
+    ):
+        if config_id is None:
+            raise AILabError(
+                "recommended experiment config is required for SHADOW assignment"
+            )
         config = await session.get(AIExperimentConfig, config_id)
         if config is None:
             raise AILabError(
@@ -703,9 +946,11 @@ async def finalize_run(
                 "asset is required for automatic SHADOW assignment when the "
                 "experiment config has no asset"
             )
-        winner = next(
-            row for row in report["rows"] if row["config_id"] == config_id
-        )
+        winner = winner_row
+        if winner is None:
+            raise AILabError(
+                f"recommended experiment config {config_id} is missing from report"
+            )
         resolved_artifact = candidate_artifact_id
         if resolved_artifact is None and winner["artifact_ids"]:
             resolved_artifact = int(winner["artifact_ids"][0])
@@ -726,7 +971,7 @@ async def finalize_run(
             session_run.summary = json.dumps(
                 {
                     "report": report,
-                    "status": "READY_FOR_SHADOW",
+                    "status": shadow_status or "READY_FOR_SHADOW",
                     "shadow_assignment": {
                         "assignment_id": assignment.id,
                         "candidate_artifact_id": assignment.candidate_artifact_id,
@@ -808,5 +1053,44 @@ async def finalize_run(
             )
             session.add(audit_entry)
             await session.flush()
+
+    # Never leave a finalized run in EVALUATING. Research candidates that are
+    # technically valid but lack evidence remain RESEARCH_PROVISIONAL so a
+    # later operator/agent can promote them to SHADOW; invalid/no-data runs
+    # receive a terminal status.
+    if assignment is None:
+        session_run = await session.get(AIOptimizationRun, run_id)
+        if session_run is not None and getattr(session_run, "status", None) == "EVALUATING":
+            report_status = str(
+                report.get("recommendation_status") or "REJECTED"
+            ).upper()
+            if (
+                str(report.get("mode", "")).upper() == "RESEARCH"
+                and eligible_for_shadow
+                and report_status in {"INSUFFICIENT_EVIDENCE", "RESEARCH_PROVISIONAL"}
+            ):
+                final_status = "RESEARCH_PROVISIONAL"
+            elif report_status == "NO_PNL_SAMPLE" or report_status.startswith(
+                "INSUFFICIENT_"
+            ):
+                final_status = "INSUFFICIENT_DATA"
+            elif report_status == "READY_FOR_SHADOW":
+                final_status = "PENDING_APPROVAL"
+            elif report_status not in {
+                "INSUFFICIENT_DATA",
+                "TECHNICAL_INVALID",
+                "REJECTED",
+                "FAILED",
+                "CANCELLED",
+            }:
+                final_status = "REJECTED"
+            else:
+                final_status = report_status
+            await transition_run(
+                session,
+                session_run,
+                final_status,
+                reason=f"finalization status: {final_status}",
+            )
 
     return {"report": report, "assignment": assignment}

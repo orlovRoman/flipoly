@@ -204,6 +204,33 @@ async def get_polymarket_oot_history(session: AsyncSession, asset: str, limit: i
 # ---------------------------------------------------------------------------
 # Experiment Mutation & Creation Tools
 # ---------------------------------------------------------------------------
+# The LLM research vocabulary is richer than the production trainer's
+# persisted A/B/C/AUTO contract. Keep the requested alias in strategy_params
+# for provenance, but always pass a canonical key to the trainer.
+FEATURE_SET_ALIASES: dict[str, str] = {
+    "FS_D0": "A",
+    "FS_D1": "B",
+    "FS_D2": "C",
+    "FS_D3": "C",
+    "FS_D4": "C",
+    "FS_D5": "C",
+    "DEFAULT": "AUTO",
+}
+
+
+def canonical_feature_set(value: str | None) -> str:
+    requested = str(value or "AUTO").strip().upper()
+    if requested in {"AUTO", "A", "B", "C"}:
+        return requested
+    try:
+        return FEATURE_SET_ALIASES[requested]
+    except KeyError as exc:
+        raise AILabError(
+            f"unsupported research feature set {requested!r}; "
+            "use FS_D0..FS_D5 or AUTO/A/B/C"
+        ) from exc
+
+
 def compute_config_hash(
     asset: str,
     regime: str,
@@ -240,10 +267,12 @@ async def create_experiment_config_from_proposal(
     asset = proposal.asset
     regime = "DEFAULT"
     model_family = proposal.model_family
-    feature_set = proposal.feature_set
+    requested_feature_set = str(proposal.feature_set or "AUTO").strip().upper()
+    feature_set = canonical_feature_set(requested_feature_set)
     feature_pipeline_version = "1.0"
     model_params = dict(proposal.parameter_changes or {})
     strategy_params = dict(proposal.strategy_parameter_changes or {})
+    strategy_params.setdefault("requested_feature_set", requested_feature_set)
     backtest_params = dict(proposal.test_plan or {})
 
     config_hash = compute_config_hash(

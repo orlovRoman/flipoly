@@ -1,0 +1,185 @@
+"""Persistence helpers for same-snapshot passive shadow observations."""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Mapping
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from polyflip.db.models import AIShadowAssignment, AIShadowObservation
+
+
+def _utc_snapshot(snapshot_at: datetime) -> datetime:
+    if snapshot_at.tzinfo is None:
+        return snapshot_at.replace(tzinfo=timezone.utc)
+    return snapshot_at.astimezone(timezone.utc)
+
+
+def observation_key(assignment_id: int, market_id: str, snapshot_at: datetime) -> str:
+    ts = _utc_snapshot(snapshot_at).isoformat()
+    return f"shadow:{int(assignment_id)}:{market_id}:{ts}"
+
+
+async def record_shadow_observation(
+    session: AsyncSession,
+    *,
+    assignment_id: int,
+    run_id: int | None,
+    market_id: str,
+    snapshot_at: datetime,
+    values: Mapping[str, Any],
+) -> AIShadowObservation:
+    """Insert one observation or return the existing idempotent row."""
+    key = observation_key(assignment_id, market_id, snapshot_at)
+    existing = (
+        await session.execute(
+            select(AIShadowObservation).where(AIShadowObservation.idempotency_key == key)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    allowed = {column.name for column in AIShadowObservation.__table__.columns}
+    payload = {key: value for key, value in values.items() if key in allowed}
+    row = AIShadowObservation(
+        assignment_id=assignment_id,
+        run_id=run_id,
+        market_id=market_id,
+        snapshot_at=_utc_snapshot(snapshot_at),
+        idempotency_key=key,
+        **payload,
+    )
+    try:
+        # Concurrent duplicate observations are expected. A savepoint keeps
+        # the surrounding decision transaction intact while the unique-key
+        # winner is read back below.
+        async with session.begin_nested():
+            session.add(row)
+            await session.flush()
+    except IntegrityError:
+        existing = (
+            await session.execute(
+                select(AIShadowObservation).where(
+                    AIShadowObservation.idempotency_key == key
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            raise
+        return existing
+    return row
+
+
+async def resolve_shadow_observation(
+    session: AsyncSession,
+    observation_id: int,
+    *,
+    market_outcome: str,
+    active_pnl: float | None,
+    candidate_pnl: float | None,
+) -> AIShadowObservation:
+    row = await session.get(AIShadowObservation, observation_id, with_for_update=True)
+    if row is None:
+        raise ValueError(f"shadow observation {observation_id} not found")
+    if row.status == "RESOLVED":
+        return row
+    row.market_outcome = market_outcome
+    row.active_pnl = active_pnl
+    row.candidate_pnl = candidate_pnl
+    row.status = "RESOLVED"
+    row.resolved_at = datetime.now(timezone.utc)
+    await session.flush()
+    return row
+
+
+async def record_decision_shadow(
+    session: AsyncSession,
+    *,
+    asset: str,
+    market_id: str,
+    snapshot_at: datetime,
+    run_id: int | None,
+    active_model_key: str | None,
+    candidate_model_key: str | None,
+    active_action: str | None,
+    candidate_action: str | None,
+    active_probability: float | None,
+    candidate_probability: float | None,
+    active_ask: float | None,
+    candidate_ask: float | None,
+    active_net_edge: float | None,
+    candidate_net_edge: float | None,
+    lr_direction_vote: str | None,
+    lgbm_direction_vote: str | None,
+    consensus_type: str | None,
+) -> AIShadowObservation | None:
+    """Persist one passive same-snapshot candidate-vs-active observation.
+
+    Missing assignments or candidate model keys are normal and return None.
+    This helper never changes an execution decision; callers should catch
+    unexpected persistence errors at the decision boundary.
+    """
+    normalized = str(asset or "").strip().upper()
+    assignment = (
+        await session.execute(
+            select(AIShadowAssignment)
+            .where(
+                AIShadowAssignment.asset.in_(
+                    [normalized, normalized.removesuffix("USDT") + "USDT"]
+                ),
+                AIShadowAssignment.status == "RUNNING",
+            )
+            .order_by(AIShadowAssignment.created_at.desc(), AIShadowAssignment.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if assignment is None or not candidate_model_key:
+        return None
+    return await record_shadow_observation(
+        session,
+        assignment_id=int(assignment.id),
+        run_id=run_id or assignment.run_id,
+        market_id=str(market_id),
+        snapshot_at=snapshot_at,
+        values={
+            "active_model_key": active_model_key,
+            "candidate_model_key": candidate_model_key,
+            "active_action": active_action,
+            "candidate_action": candidate_action,
+            "active_probability": active_probability,
+            "candidate_probability": candidate_probability,
+            "active_ask": active_ask,
+            "candidate_ask": candidate_ask,
+            "active_net_edge": active_net_edge,
+            "candidate_net_edge": candidate_net_edge,
+            "lr_direction_vote": lr_direction_vote,
+            "lgbm_direction_vote": lgbm_direction_vote,
+            "consensus_type": consensus_type,
+            "shadow_logreg_action": active_action,
+            "actual_combined_action": active_action,
+            "shadow_logreg_net_edge": active_net_edge,
+            "actual_net_edge": active_net_edge,
+        },
+    )
+
+
+def counterfactual_pnl(action: str | None, market_outcome: str | None, ask: float | None) -> float | None:
+    '''Return one-share binary PnL using the recorded ask at the snapshot.'''
+    if action is None or market_outcome is None or ask is None:
+        return None
+    try:
+        price = float(ask)
+    except (TypeError, ValueError):
+        return None
+    if not 0.0 <= price <= 1.0:
+        return None
+    action_value = str(action).strip().upper()
+    outcome_value = str(market_outcome).strip().upper()
+    if action_value in {"UP", "BUY_YES", "YES"}:
+        predicted = "YES"
+    elif action_value in {"DOWN", "BUY_NO", "NO"}:
+        predicted = "NO"
+    else:
+        return None
+    return (1.0 - price) if predicted == outcome_value else -price

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -6,6 +7,7 @@ import pytest
 
 from polyflip.ai_lab.executor import StepContext
 from polyflip.ai_lab import lgbm_adapters
+from polyflip.ai_lab.artifact_contracts import TrainingRows
 
 
 def _context(**overrides):
@@ -269,3 +271,221 @@ def test_training_adapter_rolls_back_active_candidate_safety_violation(monkeypat
         )
 
     assert session.rollback_count == 1
+
+
+class _ArtifactSession:
+    def __init__(self):
+        self.added = None
+
+    def add(self, value):
+        self.added = value
+        value.id = 700
+
+    async def flush(self):
+        return None
+
+
+def _bundle_row():
+    return SimpleNamespace(
+        id=55,
+        asset="BTCUSDT_low_vol",
+        version=1,
+        model_blob=b"serialized-model",
+        features="f1,f2",
+        dataset_fingerprint="fp-55",
+        training_window_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        training_window_end=datetime(2026, 8, 2, tzinfo=timezone.utc),
+        training_params={"feature_set": "B"},
+        accuracy=0.7,
+        ece=0.02,
+        brier_score=0.2,
+        train_samples=10,
+        validation_samples=4,
+        is_active=False,
+    )
+
+
+def test_lgbm_train_artifact_contains_exact_linked_bundle_contract():
+    session = _ArtifactSession()
+    context = _context(
+        input_payload={
+            "strategy_branch": "FAVORITE_ONLY",
+            "train_window": ["2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z"],
+            "oot_window": ["2026-08-03T00:00:00Z", "2026-08-04T00:00:00Z"],
+        }
+    )
+    artifact = asyncio.run(
+        lgbm_adapters._create_bundle_artifact(
+            session,
+            context,
+            [_bundle_row()],
+            {"feature_set": "B", "feature_set_version": "CRYPTO_V2"},
+        )
+    )
+
+    assert artifact.config_id == context.config_id
+    assert artifact.run_id == context.run_id
+    assert artifact.step_id == context.step_id
+    assert artifact.artifact_bytes
+    assert artifact.artifact_hash == hashlib.sha256(artifact.artifact_bytes).hexdigest()
+    assert artifact.sha256 == artifact.artifact_hash
+    assert artifact.artifact_metadata["artifact_id"] == artifact.id
+    assert artifact.artifact_metadata["provenance"]["step_id"] == context.step_id
+    assert artifact.artifact_metadata["dataset_fingerprint"] == "fp-55"
+    assert artifact.artifact_metadata["strategy_branch"] == "FAVORITE_ONLY"
+    assert artifact.artifact_metadata["target_semantics"] == "POLYMARKET_FINAL_OUTCOME"
+    assert artifact.loadability_status == "VALID"
+
+
+def test_lgbm_oot_propagates_train_artifact_and_never_calls_trainer(monkeypatch):
+    row = _bundle_row()
+    rows = TrainingRows([row])
+    rows.artifact = SimpleNamespace(
+        id=812,
+        artifact_metadata={
+            "train_window": {
+                "start": "2026-08-01T00:00:00Z",
+                "end": "2026-08-02T00:00:00Z",
+            },
+            "oot_window": {
+                "start": "2026-08-03T00:00:00Z",
+                "end": "2026-08-04T00:00:00Z",
+            },
+        },
+    )
+
+    async def load_rows(_session, _context):
+        return rows
+
+    class UnexpectedTrainer:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("OOT must not construct a trainer")
+
+    monkeypatch.setattr(lgbm_adapters, "_training_rows", load_rows)
+    monkeypatch.setattr(lgbm_adapters, "CryptoModelTrainer", UnexpectedTrainer)
+    result = asyncio.run(lgbm_adapters.run_lgbm_oot(_context(), object()))
+
+    assert result.status == "SUCCEEDED"
+    assert result.artifact_id == 812
+    assert result.train_window_start.isoformat().startswith("2026-08-01")
+    assert result.oot_window_end.isoformat().startswith("2026-08-04")
+
+
+def test_contract_windows_accept_iso_strings_and_ignore_missing_values():
+    rows = [
+        SimpleNamespace(
+            training_window_start=None,
+            training_window_end=None,
+        ),
+        SimpleNamespace(
+            training_window_start="2026-08-01T00:00:00+00:00",
+            training_window_end="2026-08-03T00:00:00Z",
+        ),
+    ]
+    train_window, oot_window = lgbm_adapters._contract_windows(
+        _context(input_payload={"train_window": {}}),
+        rows,
+    )
+    assert train_window == (
+        datetime(2026, 8, 1, tzinfo=timezone.utc),
+        datetime(2026, 8, 3, tzinfo=timezone.utc),
+    )
+    assert oot_window is None
+
+
+def test_dispatcher_selects_logreg_and_lightgbm(monkeypatch):
+    calls = []
+
+    async def fake_logreg(_context, _session):
+        calls.append("logreg")
+        return object()
+
+    async def fake_lgbm(_context, _session):
+        calls.append("lgbm")
+        return object()
+
+    import polyflip.ai_lab.logreg_adapters as logreg_adapters
+
+    monkeypatch.setattr(logreg_adapters, "train_logreg", fake_logreg)
+    monkeypatch.setattr(lgbm_adapters, "train_lgbm", fake_lgbm)
+
+    asyncio.run(
+        lgbm_adapters._train_dispatch(
+            _context(model_family="LOGREG", action="TRAIN_MODEL"),
+            object(),
+        )
+    )
+    asyncio.run(
+        lgbm_adapters._train_dispatch(
+            _context(model_family="LIGHTGBM", action="TRAIN_MODEL"),
+            object(),
+        )
+    )
+    assert calls == ["logreg", "lgbm"]
+
+
+@pytest.mark.parametrize(
+    ("action", "dispatch_name", "family", "expected_kind"),
+    [
+        ("TRAIN_MODEL", "_train_dispatch", "LOGREG", "TRAIN"),
+        ("TRAIN_MODEL", "_train_dispatch", "LIGHTGBM", "TRAIN"),
+        ("RUN_OOT_BACKTEST", "_oot_dispatch", "LOGREG", "OOT"),
+        ("RUN_OOT_BACKTEST", "_oot_dispatch", "LIGHTGBM", "OOT"),
+        ("RUN_POLYMARKET_OOT", "_polymarket_oot_dispatch", "LOGREG", "POLYMARKET_OOT"),
+        ("RUN_POLYMARKET_OOT", "_polymarket_oot_dispatch", "LIGHTGBM", "POLYMARKET_OOT"),
+    ],
+)
+def test_all_offline_actions_dispatch_by_model_family(
+    monkeypatch, action, dispatch_name, family, expected_kind
+):
+    import polyflip.ai_lab.logreg_adapters as logreg_adapters
+
+    calls = []
+
+    async def fake_logreg(_context, _session):
+        calls.append("logreg")
+        return lgbm_adapters.AdapterResult(evaluation_kind=expected_kind)
+
+    async def fake_lgbm(_context, _session):
+        calls.append("lgbm")
+        return lgbm_adapters.AdapterResult(evaluation_kind=expected_kind)
+
+    suffix = {
+        "TRAIN_MODEL": "train_logreg",
+        "RUN_OOT_BACKTEST": "run_logreg_oot",
+        "RUN_POLYMARKET_OOT": "run_logreg_polymarket_oot",
+    }[action]
+    monkeypatch.setattr(logreg_adapters, suffix, fake_logreg)
+    monkeypatch.setattr(
+        lgbm_adapters,
+        {
+            "TRAIN_MODEL": "train_lgbm",
+            "RUN_OOT_BACKTEST": "run_lgbm_oot",
+            "RUN_POLYMARKET_OOT": "run_lgbm_polymarket_oot",
+        }[action],
+        fake_lgbm,
+    )
+
+    context = _context(action=action, model_family=family)
+    result = asyncio.run(getattr(lgbm_adapters, dispatch_name)(context, object()))
+
+    assert result.evaluation_kind == expected_kind
+    assert calls == ["logreg" if family == "LOGREG" else "lgbm"]
+
+def test_oot_window_summaries_preserve_real_boundaries():
+    from datetime import datetime, timezone
+
+    from polyflip.crypto.polymarket_backtest import _oot_window_summaries
+
+    trades = [
+        {"entry_time": datetime(2026, 8, 18, 3, 30, tzinfo=timezone.utc), "pnl": 1.0},
+        {"entry_time": datetime(2026, 8, 18, 4, 0, tzinfo=timezone.utc), "pnl": -0.5},
+        {"entry_time": datetime(2026, 8, 19, 3, 0, tzinfo=timezone.utc), "pnl": 0.25},
+    ]
+
+    windows = _oot_window_summaries(trades, stake_usdc=1.0)
+
+    assert len(windows) == 3
+    assert windows[0]["start"].startswith("2026-08-18T03:30:00")
+    assert windows[0]["end"].startswith("2026-08-18T03:30:00")
+    assert windows[-1]["start"].startswith("2026-08-19T03:00:00")

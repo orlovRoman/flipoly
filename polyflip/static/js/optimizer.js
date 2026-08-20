@@ -5,6 +5,8 @@ let currentSelectedRunId = null;
 let currentPendingApprovalId = null;
 let activeOptTab = "runs";
 let runsRefreshTimer = null;
+let apiKeyPromptShown = false;
+let aiLabApiKey = "";
 
 // Initialize when DOM loaded
 document.addEventListener("DOMContentLoaded", () => {
@@ -15,6 +17,8 @@ function initOptimizerPage() {
   bindTabs();
   loadOptimizationRuns();
   loadRevisions();
+  loadPermissions();
+  switchOptTab("runs");
 
   // Auto-refresh every 10s if on runs tab
   if (runsRefreshTimer) clearInterval(runsRefreshTimer);
@@ -32,7 +36,8 @@ function bindTabs() {
   const tabs = document.querySelectorAll(".opt-tab-btn");
   tabs.forEach((btn) => {
     btn.addEventListener("click", () => {
-      const target = btn.dataset.target;
+      const target = btn.dataset.tab || btn.dataset.target;
+      if (!target) return;
       switchOptTab(target);
     });
   });
@@ -41,18 +46,22 @@ function bindTabs() {
 function switchOptTab(tabId) {
   activeOptTab = tabId;
   document.querySelectorAll(".opt-tab-btn").forEach((b) => {
-    b.classList.toggle("active", b.dataset.target === tabId);
+    b.classList.toggle("active", (b.dataset.tab || b.dataset.target) === tabId);
   });
-  document.querySelectorAll(".opt-tab-pane").forEach((p) => {
-    p.classList.toggle("active", p.id === `tab-${tabId}`);
+  document.querySelectorAll(".tab-pane").forEach((p) => {
+    p.style.display = p.id === `tab-${tabId}` ? "block" : "none";
   });
 
-  if (tabId === "detail" && currentSelectedRunId) {
+  if ((tabId === "detail" || tabId === "timeline" || tabId === "candidates" || tabId === "shadow" || tabId === "errors" || tabId === "audit") && currentSelectedRunId) {
     loadRunDetail(currentSelectedRunId);
   } else if (tabId === "approval" && currentSelectedRunId) {
     loadApprovalView(currentSelectedRunId);
   } else if (tabId === "revisions") {
     loadRevisions();
+  } else if (tabId === "deployments") {
+    loadRevisions();
+  } else if (tabId === "permissions") {
+    loadPermissions();
   }
 }
 
@@ -70,6 +79,11 @@ function formatStatusBadge(status) {
   return `<span class="badge ${badgeClass}">${escapeHtml(s)}</span>`;
 }
 
+// Compatibility aliases for the existing template contract. Stage 9 keeps
+// these read-only and deliberately does not expose deployment mutations.
+function loadRuns(silent = false) { return loadOptimizationRuns(silent); }
+function closeModal(id) { const modal = document.getElementById(id); if (modal) modal.classList.remove("show"); }
+
 function escapeHtml(str) {
   if (str === null || str === undefined) return "";
   return String(str)
@@ -81,10 +95,34 @@ function escapeHtml(str) {
 }
 
 function getAuthHeaders() {
-  const token = localStorage.getItem("token") || "";
+  let apiKey = "";
+  let storageRead = false;
+  try {
+    apiKey = localStorage.getItem("polyflip_api_key") || "";
+    storageRead = true;
+  } catch (err) {
+    console.warn("localStorage unavailable", err);
+  }
+  if (!storageRead && !apiKey) {
+    apiKey = aiLabApiKey;
+  }
+
+  if (!apiKey && !apiKeyPromptShown) {
+    apiKeyPromptShown = true;
+    const enteredKey = window.prompt("Введите API key для AI Lab");
+    if (enteredKey && enteredKey.trim()) {
+      aiLabApiKey = enteredKey.trim();
+      apiKey = aiLabApiKey;
+      apiKeyPromptShown = false;
+    }
+  } else if (apiKey) {
+    aiLabApiKey = apiKey;
+    apiKeyPromptShown = false;
+  }
+
   return {
     "Content-Type": "application/json",
-    Authorization: token ? `Bearer ${token}` : "",
+    "X-API-Key": aiLabApiKey,
   };
 }
 
@@ -141,7 +179,7 @@ async function loadOptimizationRuns(silent = false) {
 async function selectRun(runId) {
   currentSelectedRunId = runId;
   currentPendingApprovalId = null; // Сброс ID согласования предыдущего запуска
-  switchOptTab("detail");
+  switchOptTab("timeline");
   await loadRunDetail(runId);
 }
 
@@ -149,10 +187,11 @@ async function selectRun(runId) {
 async function loadRunDetail(runId) {
   if (!runId) return;
 
-  const headerEl = document.getElementById("detail-run-header");
+  const headerEl = document.getElementById("detail-run-header") || document.getElementById("detail-run-objective");
   const scopeEl = document.getElementById("detail-run-scope");
-  const stepsEl = document.getElementById("detail-run-steps");
-  const auditsEl = document.getElementById("detail-run-audits");
+  const stepsEl = document.getElementById("detail-run-steps") || document.getElementById("steps-timeline");
+  const auditsEl = document.getElementById("detail-run-audits") || document.getElementById("stage9-audit");
+  if (!headerEl || !stepsEl || !auditsEl) return;
 
   headerEl.innerHTML = `<div style="color: var(--text-muted);">Загрузка деталей запуска #${runId}...</div>`;
 
@@ -165,6 +204,7 @@ async function loadRunDetail(runId) {
     const run = data.run;
     const steps = data.steps || [];
     const audits = data.audits || [];
+    renderStage9Detail(run, steps, data.results || [], audits);
 
     // Header Info
     const created = run.created_at ? new Date(run.created_at).toLocaleString("ru-RU") : "—";
@@ -180,13 +220,13 @@ async function loadRunDetail(runId) {
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
           ${formatStatusBadge(run.status)}
-          <button class="btn btn-warning btn-sm" onclick="switchOptTab('approval')">⚖️ Visual Diff / Approval</button>
+          <button class="btn btn-warning btn-sm" onclick="switchOptTab('approval')">⚖️ Visual Diff / Audit</button>
         </div>
       </div>
     `;
 
     // Scope & Settings
-    scopeEl.innerHTML = `
+    if (scopeEl) scopeEl.innerHTML = `
       <pre style="background: var(--bg-primary); padding: 1rem; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; overflow-x: auto; color: var(--text-secondary); border: 1px solid var(--border-color);">${escapeHtml(JSON.stringify(run.scope || {}, null, 2))}</pre>
     `;
 
@@ -261,6 +301,33 @@ async function loadRunDetail(runId) {
   }
 }
 
+function renderStage9Detail(run, steps, results, audits) {
+  const timeline = document.getElementById("stage9-timeline");
+  const candidates = document.getElementById("stage9-candidates");
+  const shadow = document.getElementById("stage9-shadow");
+  const errors = document.getElementById("stage9-errors");
+  const audit = document.getElementById("stage9-audit");
+  const items = steps || [];
+  if (timeline) timeline.innerHTML = items.length ? items.map((step) => `<div class="timeline-item"><div class="timeline-content"><strong>#${escapeHtml(step.step_index)} ${escapeHtml(step.step_type)}</strong> ${formatStatusBadge(step.status)}<div class="diff-label">${escapeHtml(step.summary || step.hypothesis || "—")}</div></div></div>`).join("") : '<div class="unavailable">Шаги отсутствуют.</div>';
+  if (candidates) candidates.innerHTML = results.length ? `<table class="opt-table"><thead><tr><th>Config</th><th>Type</th><th>Status</th><th>Trades</th><th>Net PnL</th><th>Drawdown</th></tr></thead><tbody>${results.map((r) => `<tr><td>#${escapeHtml(r.config_id)}</td><td>${escapeHtml(r.evaluation_kind)}</td><td>${formatStatusBadge(r.status)}</td><td>${escapeHtml(r.trade_count ?? "—")}</td><td>${escapeHtml(r.net_pnl ?? "—")}</td><td>${escapeHtml(r.max_drawdown ?? "—")}</td></tr>`).join("")}</tbody></table>` : '<div class="unavailable">Результаты отсутствуют.</div>';
+  if (shadow) shadow.innerHTML = String(run.status).toUpperCase() === "SHADOW" ? '<div class="status-badge badge-shadow">SHADOW</div><p>Пассивное наблюдение. LIVE-активация отключена.</p>' : `<div class="unavailable">Текущий статус: ${escapeHtml(run.status)}. SHADOW assignment не найден.</div>`;
+  const failed = [...items.filter((s) => ["FAILED", "ERROR"].includes(String(s.status).toUpperCase())), ...(audits || []).filter((a) => a.error_code || a.error_message)];
+  if (errors) errors.innerHTML = failed.length ? failed.map((e) => `<div class="timeline-content"><strong>${escapeHtml(e.error_code || e.status || "ERROR")}</strong><div>${escapeHtml(e.error_message || e.error || "—")}</div></div>`).join("") : '<div class="unavailable">Ошибок не найдено.</div>';
+  if (audit) audit.innerHTML = audits.length ? audits.map((a) => `<div class="timeline-content"><strong>${escapeHtml(a.action || "AUDIT")}</strong><div>${escapeHtml(a.created_at || "—")} — ${escapeHtml(a.error_message || a.reason || "OK")}</div></div>`).join("") : '<div class="unavailable">Аудит пуст.</div>';
+}
+
+async function loadPermissions() {
+  const target = document.getElementById("stage9-permissions");
+  if (!target) return;
+  try {
+    const res = await fetch(`${window.API_BASE}/api/ai-lab/permissions`, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const rows = data.permissions || [];
+    target.innerHTML = rows.length ? `<table class="opt-table"><thead><tr><th>Profile</th><th>Version</th><th>Enabled</th><th>Allowed actions</th></tr></thead><tbody>${rows.map((p) => `<tr><td>${escapeHtml(p.profile_name)}</td><td>${escapeHtml(p.version)}</td><td>${p.enabled ? "yes" : "no"}</td><td>${escapeHtml((p.allowed_actions || []).join(", ") || "—")}</td></tr>`).join("")}</tbody></table>` : '<div class="unavailable">Разрешения отсутствуют.</div>';
+  } catch (err) { target.innerHTML = `<div class="unavailable">Permissions недоступны: ${escapeHtml(err.message)}</div>`; }
+}
+
 // 4. Approval & Visual Diff
 async function loadApprovalView(runId) {
   if (!runId) return;
@@ -295,12 +362,9 @@ async function loadApprovalView(runId) {
           <div>
             <strong>Модель находится в пассивном режиме SHADOW</strong>
             <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-              Вы можете запросить серверный расчёт diff и создать ревизию для согласования перед переводом в LIVE.
+               Deployment actions are disabled in this research dashboard. Only read-only diff and audit inspection is available.
             </div>
           </div>
-          <button class="btn btn-warning" onclick="proposeLiveApproval(${run.id})">
-            📝 Запросить допуск в LIVE (Request Approval)
-          </button>
         </div>
       `;
       decisionBox.style.display = "none";
@@ -315,11 +379,11 @@ async function loadApprovalView(runId) {
           </div>
         </div>
       `;
-      decisionBox.style.display = "block";
+       decisionBox.style.display = "none";
     } else if (run.status === "ACTIVE") {
       bannerEl.innerHTML = `
         <div style="color: var(--poly-green); font-weight: 700;">
-          ✅ Ревизия данного запуска утверждена и активна в LIVE
+           Deployment revision is recorded; LIVE activation is disabled in this dashboard.
         </div>
       `;
       decisionBox.style.display = "none";
@@ -349,7 +413,7 @@ function renderDiffTables(diff) {
   const baseEl = document.getElementById("diff-baseline-content");
 
   if (!diff || !diff.candidate) {
-    const emptyMsg = `<div style="color: var(--text-muted); padding: 1.5rem; text-align: center;">Серверный diff еще не сформирован для данного запуска. Нажмите «Запросить допуск в LIVE» для генерации.</div>`;
+     const emptyMsg = `<div style="color: var(--text-muted); padding: 1.5rem; text-align: center;">Серверный diff еще не сформирован. Deployment actions are disabled in RESEARCH.</div>`;
     candEl.innerHTML = emptyMsg;
     baseEl.innerHTML = emptyMsg;
     return;
@@ -388,125 +452,6 @@ function renderDiffTables(diff) {
   `;
 }
 
-// Propose Live Activation
-async function proposeLiveApproval(runId) {
-  if (!confirm(`Создать запрос на согласование LIVE активации для запуска #${runId}?`)) return;
-
-  try {
-    const res = await fetch(`${window.API_BASE}/api/ai-lab/runs/${runId}/approval`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        requested_action: "ACTIVATE",
-        actor: "operator",
-        reason: "Manual proposal from Web UI",
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      alert(`Ошибка создания запроса: ${err.detail || res.statusText}`);
-      return;
-    }
-
-    const data = await res.json();
-    alert(`Запрос на согласование #${data.id} успешно создан!`);
-    loadApprovalView(runId);
-  } catch (e) {
-    alert(`Ошибка: ${e.message}`);
-  }
-}
-
-// Approve Live Activation Modal Trigger
-function openApproveModal() {
-  if (!currentPendingApprovalId) {
-    alert("Нет активного запроса на согласование для данного запуска.");
-    return;
-  }
-  document.getElementById("approve-modal").style.display = "flex";
-}
-
-function closeApproveModal() {
-  document.getElementById("approve-modal").style.display = "none";
-}
-
-async function executeApproveLive() {
-  const reason = document.getElementById("approve-reason-input").value.trim();
-  const actor = document.getElementById("approve-actor-input").value.trim() || "admin";
-
-  try {
-    const res = await fetch(`${window.API_BASE}/api/ai-lab/approvals/${currentPendingApprovalId}/approve`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        actor: actor,
-        reason: reason || "Manual operator approval via Web UI",
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      alert(`Ошибка утверждения: ${err.detail || res.statusText}`);
-      return;
-    }
-
-    const data = await res.json();
-    alert(`✅ Ревизия успешно утверждена и активирована в LIVE!\nRevision Key: ${data.revision_key}`);
-    closeApproveModal();
-    loadApprovalView(currentSelectedRunId);
-    loadOptimizationRuns(true);
-  } catch (e) {
-    alert(`Ошибка утверждения: ${e.message}`);
-  }
-}
-
-// Reject Approval Modal Trigger
-function openRejectModal() {
-  if (!currentPendingApprovalId) {
-    alert("Нет активного запроса на согласование для данного запуска.");
-    return;
-  }
-  document.getElementById("reject-modal").style.display = "flex";
-}
-
-function closeRejectModal() {
-  document.getElementById("reject-modal").style.display = "none";
-}
-
-async function executeRejectApproval() {
-  const reason = document.getElementById("reject-reason-input").value.trim();
-  const actor = document.getElementById("reject-actor-input").value.trim() || "admin";
-
-  if (!reason) {
-    alert("Пожалуйста, укажите причину отклонения предложения.");
-    return;
-  }
-
-  try {
-    const res = await fetch(`${window.API_BASE}/api/ai-lab/approvals/${currentPendingApprovalId}/reject`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        actor: actor,
-        reason: reason,
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      alert(`Ошибка отклонения: ${err.detail || res.statusText}`);
-      return;
-    }
-
-    alert(`❌ Предложение активации отклонено.`);
-    closeRejectModal();
-    loadApprovalView(currentSelectedRunId);
-    loadOptimizationRuns(true);
-  } catch (e) {
-    alert(`Ошибка: ${e.message}`);
-  }
-}
-
 // 5. Deployment Revisions & Hash Chain Rollback
 async function loadRevisions(silent = false) {
   const tbody = document.getElementById("revisions-table-body");
@@ -520,7 +465,9 @@ async function loadRevisions(silent = false) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    const revs = data.revisions || [];
+    const revs = Array.isArray(data) ? data : (data.revisions || []);
+    const stageDeployments = document.getElementById("stage9-deployments");
+    if (stageDeployments) stageDeployments.innerHTML = revs.length ? `<table class="opt-table"><thead><tr><th>ID</th><th>Key</th><th>Status</th><th>Created</th></tr></thead><tbody>${revs.map((r) => `<tr><td>#${escapeHtml(r.id)}</td><td>${escapeHtml(r.revision_key || "—")}</td><td>${formatStatusBadge(r.status)}</td><td>${escapeHtml(r.created_at || "—")}</td></tr>`).join("")}</tbody></table>` : '<div class="unavailable">Ревизии отсутствуют.</div>';
 
     if (revs.length === 0) {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Ревизий развертывания пока нет.</td></tr>`;
@@ -536,10 +483,8 @@ async function loadRevisions(silent = false) {
         const shortKey = escapeHtml(r.revision_key || `rev-${r.id}`);
 
         let rollbackBtn = "";
-        if (r.status === "SUPERSEDED") {
-          rollbackBtn = `<button class="btn btn-danger btn-sm" onclick="openRollbackModal(${r.id}, '${shortKey}')">⏪ Откатить к этой</button>`;
-        } else if (r.status === "ACTIVE") {
-          rollbackBtn = `<span style="color: var(--poly-green); font-weight: 700; font-size: 0.85rem;">Текущая LIVE</span>`;
+        if (r.status === "ACTIVE") {
+          rollbackBtn = `<span style="color: var(--poly-green); font-weight: 700; font-size: 0.85rem;">Recorded active revision</span>`;
         }
 
         return `
@@ -618,50 +563,6 @@ function closeEventsModal() {
   document.getElementById("events-modal").style.display = "none";
 }
 
-// Rollback Modal Trigger
-let currentRollbackTargetId = null;
-function openRollbackModal(revId, revKey) {
-  currentRollbackTargetId = revId;
-  document.getElementById("rollback-target-label").innerText = `#${revId} (${revKey})`;
-  document.getElementById("rollback-modal").style.display = "flex";
-}
-
-function closeRollbackModal() {
-  document.getElementById("rollback-modal").style.display = "none";
-}
-
-async function executeRollback() {
-  if (!currentRollbackTargetId) return;
-
-  const actor = document.getElementById("rollback-actor-input").value.trim() || "admin";
-  const reason = document.getElementById("rollback-reason-input").value.trim() || "Emergency Operator Rollback";
-
-  try {
-    const res = await fetch(`${window.API_BASE}/api/ai-lab/deployments/rollback`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        target_revision_id: currentRollbackTargetId,
-        actor: actor,
-        reason: reason,
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      alert(`Ошибка отката: ${err.detail || res.statusText}`);
-      return;
-    }
-
-    const data = await res.json();
-    alert(`⏪ Откат успешно выполнен!\nВосстановлена ревизия: ${data.restored_revision_key}\nСтатус: ACTIVE\nБиржевые позиции сохранены.`);
-    closeRollbackModal();
-    loadRevisions();
-  } catch (e) {
-    alert(`Ошибка отката: ${e.message}`);
-  }
-}
-
 // 6. Modal: Create New Experiment Run
 function openNewRunModal() {
   document.getElementById("new-run-modal").style.display = "flex";
@@ -719,9 +620,9 @@ async function triggerRunIterate() {
   const btn = document.getElementById("btn-run-iterate");
   if (btn) { btn.disabled = true; btn.textContent = "⚡ Выполняется..."; }
   try {
-    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/iterate`, {
+    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${currentRunId}/iterate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" }
+      headers: getAuthHeaders(),
     });
     if (!resp.ok) {
       const err = await resp.json();
@@ -740,7 +641,10 @@ async function triggerRunIterate() {
 async function pauseRun() {
   if (!currentRunId) return;
   try {
-    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/pause`, { method: "POST" });
+    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${currentRunId}/pause`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
     if (!resp.ok) throw new Error("Pause failed");
     showToast("Запуск приостановлен", "info");
     await loadRunDetail(currentRunId);
@@ -752,7 +656,10 @@ async function pauseRun() {
 async function resumeRun() {
   if (!currentRunId) return;
   try {
-    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/resume`, { method: "POST" });
+    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${currentRunId}/resume`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
     if (!resp.ok) throw new Error("Resume failed");
     showToast("Запуск возобновлен", "success");
     await loadRunDetail(currentRunId);
@@ -765,7 +672,10 @@ async function cancelRun() {
   if (!currentRunId) return;
   if (!confirm("Вы уверены, что хотите отменить запуск #" + currentRunId + "?")) return;
   try {
-    const resp = await fetch(`/api/ai-lab/runs/${currentRunId}/cancel`, { method: "POST" });
+    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${currentRunId}/cancel`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
     if (!resp.ok) throw new Error("Cancel failed");
     showToast("Запуск отменен", "warning");
     await loadRunDetail(currentRunId);
