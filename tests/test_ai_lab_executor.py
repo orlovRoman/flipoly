@@ -146,6 +146,67 @@ def test_adapter_runs_after_claim_commit_and_persists_result(monkeypatch):
     assert session.commits == 2
 
 
+def test_transient_adapter_failure_returns_retry_wait_and_reopens_step(monkeypatch):
+    step = SimpleNamespace(
+        id=45,
+        action="TRAIN_MODEL",
+        input_payload={"config_id": 10},
+        status="RUNNING",
+        finished_at=None,
+        summary=None,
+        error_code=None,
+        error_message=None,
+    )
+    run = SimpleNamespace(objective="retry transient failure", scope={})
+    config = SimpleNamespace(config_hash="hash-10")
+    session = _FakeSession(run, config)
+    job = SimpleNamespace(id=77, status="QUEUED", owner_token="worker-a")
+    completed = {}
+
+    async def claim(_session, _run_id):
+        return step
+
+    async def ensure(_session, **_kwargs):
+        return job
+
+    async def claim_job(_session, _key, **_kwargs):
+        job.status = "RUNNING"
+        return job
+
+    async def record(_session, **kwargs):
+        return SimpleNamespace(id=101, **{key: kwargs.get(key) for key in ()})
+
+    async def complete(_session, _job_id, **kwargs):
+        completed.update(kwargs)
+        job.status = kwargs["status"]
+        return job
+
+    async def adapter(_context):
+        raise RuntimeError("HTTP 503 service unavailable")
+
+    monkeypatch.setattr(executor, "claim_next_step", claim)
+    monkeypatch.setattr(executor, "ensure_job", ensure)
+    monkeypatch.setattr(executor, "claim_job", claim_job)
+    monkeypatch.setattr(executor, "record_result", record)
+    monkeypatch.setattr(executor, "complete_job", complete)
+
+    registry = executor.AdapterRegistry().register("TRAIN_MODEL", adapter)
+    outcome = asyncio.run(
+        executor.execute_next_step(
+            session,
+            7,
+            registry,
+            owner_token="worker-a",
+        )
+    )
+
+    assert outcome is not None
+    assert outcome.status == "FAILED"
+    assert completed["status"] == "RETRY_WAIT"
+    assert job.status == "RETRY_WAIT"
+    assert step.status == "PENDING"
+
+
 def test_unknown_claimed_action_is_closed_without_key_error(monkeypatch):
     step = SimpleNamespace(
         id=43,
