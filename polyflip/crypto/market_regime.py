@@ -48,6 +48,20 @@ def validate_candle_continuity(
     if len(open_times) < 2:
         return True, "insufficient_candles_for_validation"
 
+    # Check for duplicates
+    unique_times = set(open_times)
+    if len(unique_times) != len(open_times):
+        return False, f"duplicates:{len(open_times) - len(unique_times)}"
+
+    # Check count matches
+    if expected_count > 0 and len(open_times) < expected_count:
+        return False, f"count_mismatch:{len(open_times)}/{expected_count}"
+
+    # Check monotonic ordering
+    for i in range(1, len(open_times)):
+        if open_times[i] <= open_times[i - 1]:
+            return False, f"not_sorted_at_{i}"
+
     span = open_times[-1] - open_times[0]
     if span > _MAX_CANDLE_SPAN:
         return False, f"span_exceeded:{span.total_seconds()/3600:.1f}h"
@@ -118,10 +132,11 @@ class MarketRegimeSnapshot:
 
 
 def _log_returns(closes: np.ndarray, periods: int) -> float:
-    """Log return over `periods` candles. Returns 0.0 if insufficient data."""
-    if len(closes) < periods:
+    """Log return over `periods` intervals (requires periods+1 closes)."""
+    if len(closes) < periods + 1:
         return 0.0
-    r = math.log(closes[-1] / closes[-periods]) if closes[-periods] > 0 else 0.0
+    base = closes[-periods - 1]
+    r = math.log(closes[-1] / base) if base > 0 else 0.0
     return r if math.isfinite(r) else 0.0
 
 
@@ -167,10 +182,10 @@ def compute_asset_features(
       i.e. open_time <= decision_time - 15 minutes. The caller should
       filter at the SQL level: CryptoCandle.open_time <= market_start_time
     """
-    if candle_count < MIN_HISTORY_CANDLES:
+    if len(closes) < MIN_HISTORY_CANDLES or candle_count < MIN_HISTORY_CANDLES:
         return AssetRegimeFeatures(
             symbol=symbol,
-            candle_count=candle_count,
+            candle_count=min(len(closes), candle_count),
             history_ready=False,
         )
 
@@ -273,6 +288,7 @@ def compute_basket_features(
 def build_regime_snapshot(
     candle_data: dict[str, dict[str, np.ndarray]],
     as_of: datetime | None = None,
+    max_open_time: datetime | None = None,
 ) -> MarketRegimeSnapshot:
     """
     Build a complete regime snapshot from candle data.
@@ -290,6 +306,9 @@ def build_regime_snapshot(
     elif as_of.tzinfo is None:
         as_of = as_of.replace(tzinfo=timezone.utc)
 
+    # max_open_time guard: reject candles opened after decision time
+    cutoff = max_open_time or as_of
+
     reason_codes: list[str] = []
     assets: dict[str, AssetRegimeFeatures] = {}
 
@@ -298,7 +317,18 @@ def build_regime_snapshot(
         highs = np.asarray(data["highs"], dtype=np.float64)
         lows = np.asarray(data["lows"], dtype=np.float64)
         opens = np.asarray(data["opens"], dtype=np.float64)
+        open_times = data.get("open_times")
         count = int(data.get("count", len(closes)))
+
+        # Trim future candles if open_times provided
+        if open_times is not None and len(open_times) == len(closes):
+            mask = np.array([t <= cutoff for t in open_times])
+            if not mask.all():
+                closes = closes[mask]
+                highs = highs[mask]
+                lows = lows[mask]
+                opens = opens[mask]
+                count = int(len(closes))
 
         asset_feat = compute_asset_features(symbol, closes, highs, lows, opens, count)
         assets[symbol] = asset_feat

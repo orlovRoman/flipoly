@@ -16,6 +16,9 @@ from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.trading.utils import compute_dead_zone
 from polyflip.trading.funnel_logger import log_funnel
+from polyflip.crypto.market_regime_integration import build_snapshot_from_candles
+from polyflip.crypto.market_regime_apply import apply_regime_policy
+from polyflip.crypto.market_regime_classifier import Regime
 
 logger = structlog.get_logger(__name__)
 
@@ -194,6 +197,79 @@ async def _fetch_lgbm_signal(
             features_ok=False, risk_vetoed=False, regime="UNKNOWN",
             status="INFERENCE_FAILED", risk_reason=str(exc), model_key=""
         )
+
+
+
+async def _apply_mrf_filter(
+    db_session,
+    cfg,
+    asset_upper: str,
+    binance_symbol: str,
+    start_time,
+    candidate_side: str | None,
+    fresh_yes_price: float,
+    bet_size_usdc: float,
+    action: str,
+    decision_run_id: str = "",
+):
+    """Apply MRF filter to a decision. Returns (adjusted_action, adjusted_bet_size, mrf_audit)."""
+    if cfg.mrf_mode == "OFF":
+        return action, bet_size_usdc, None
+
+    try:
+        from polyflip.crypto.candle_repository import get_recent_candles
+        from polyflip.constants import resolve_binance_symbol
+
+        # Fetch candles for this asset
+        candles = await get_recent_candles(
+            db_session, binance_symbol, "15m", limit=cfg.mrf_min_history + 10,
+        )
+
+        if not candles:
+            logger.warning("mrf_no_candles", asset=asset_upper)
+            return action, bet_size_usdc, None
+
+        # Build snapshot (lookahead-safe: build_snapshot_from_candles filters by as_of)
+        snapshot = build_snapshot_from_candles(candles, asset_upper, as_of=start_time)
+
+        if not snapshot.basket.history_ready:
+            logger.info("mrf_history_not_ready", asset=asset_upper,
+                        reason_codes=snapshot.reason_codes)
+            return action, bet_size_usdc, None
+
+        # Apply regime policy
+        outcome = apply_regime_policy(
+            cfg=cfg,
+            snapshot=snapshot,
+            candidate_side=candidate_side,
+            fresh_yes_price=fresh_yes_price,
+            lgbm_applied=False,
+            bet_size_usdc=bet_size_usdc,
+            action=action,
+            decision_run_id=decision_run_id,
+        )
+
+        # Log MRF result
+        regime = "UNKNOWN"
+        if outcome.policy_result:
+            regime = outcome.policy_result.regime.value if outcome.policy_result.regime else "UNKNOWN"
+        logger.info(
+            "mrf_applied",
+            asset=asset_upper,
+            mode=cfg.mrf_mode,
+            regime=regime,
+            original_action=action,
+            adjusted_action=outcome.adjusted_action,
+            original_bet=bet_size_usdc,
+            adjusted_bet=outcome.adjusted_bet_size,
+            applied=outcome.applied,
+        )
+
+        return outcome.adjusted_action, outcome.adjusted_bet_size, outcome.audit_dict
+
+    except Exception as exc:
+        logger.error("mrf_error", asset=asset_upper, error=str(exc))
+        return action, bet_size_usdc, None
 
 async def decide_combined_mode(
     db_session: AsyncSession,
@@ -702,6 +778,49 @@ async def decide_combined_mode(
         final_action=comb_res.action,
         skip_reason=comb_res.reason if comb_res.action == "SKIP" else None,
     )
+
+    # ── MRF: apply regime filter to decision ──────────────────────────────
+    mrf_adjusted_action = comb_res.action
+    mrf_adjusted_bet = comb_res.bet_size_usdc
+    mrf_audit = None
+
+    if comb_res.action in ("BUY_YES", "BUY_NO") and cfg.mrf_mode != "OFF":
+        mrf_adjusted_action, mrf_adjusted_bet, mrf_audit = await _apply_mrf_filter(
+            db_session=db_session,
+            cfg=cfg,
+            asset_upper=asset_upper,
+            binance_symbol=binance_symbol or "",
+            start_time=start_time,
+            candidate_side=comb_res.candidate_side,
+            fresh_yes_price=fresh_yes_price,
+            bet_size_usdc=comb_res.bet_size_usdc,
+            action=comb_res.action,
+            decision_run_id=decision_run_id,
+        )
+
+    # Update trade_decision if MRF adjusted
+    if mrf_adjusted_action != comb_res.action:
+        logger.info(
+            "mrf_decision_override",
+            asset=asset_upper,
+            original=comb_res.action,
+            adjusted=mrf_adjusted_action,
+            regime=mrf_audit.get("regime", "UNKNOWN") if mrf_audit else "UNKNOWN",
+        )
+        trade_decision = TradeDecision(
+            action=mrf_adjusted_action,
+            buy_price=trade_decision.buy_price,
+            bet_size_usdc=mrf_adjusted_bet,
+            reason=f"MRF:{mrf_audit.get('regime', 'UNKNOWN') if mrf_audit else 'UNKNOWN'}",
+            strategy_type=trade_decision.strategy_type,
+            p_flip=trade_decision.p_flip,
+            p_up=trade_decision.p_up,
+            strike=trade_decision.strike,
+            edge=trade_decision.edge,
+            p_win_effective=trade_decision.p_win_effective,
+            p_win_raw=trade_decision.p_win_raw,
+            decision_details=trade_decision.decision_details,
+        )
 
     return DecisionResult(
         decision_obj=trade_decision,
