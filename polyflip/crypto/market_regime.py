@@ -241,6 +241,7 @@ def compute_asset_features(
     up_ratio_24h = float(np.mean(directions[-HORIZON_24H:])) if n >= HORIZON_24H else 0.5
 
     strength = compute_asset_strength(ret_4h, ret_12h, ret_24h, efficiency_24h)
+    strength = min(1.0, max(0.0, strength))
 
     return AssetRegimeFeatures(
         symbol=symbol,
@@ -291,10 +292,11 @@ def compute_basket_features(
     dispersion_4h = float(np.std(rets_4h, ddof=1)) if ready_count > 1 else 0.0
     dispersion_24h = float(np.std(rets_24h, ddof=1)) if ready_count > 1 else 0.0
 
-    # Market efficiency: |median_ret| / median_vol
+    # Market efficiency: |median_ret| / median_vol, clamped to [0,1]
     median_ret_24h = float(np.median(rets_24h))
     median_vol_24h = float(np.median(vols_24h))
-    market_efficiency_24h = abs(median_ret_24h) / median_vol_24h if median_vol_24h > 1e-10 else 0.0
+    raw_eff = abs(median_ret_24h) / median_vol_24h if median_vol_24h > 1e-10 else 0.0
+    market_efficiency_24h = min(1.0, max(0.0, raw_eff))
 
     # Compute global strength from basket medians
     b_strength = compute_asset_strength(

@@ -83,11 +83,13 @@ def _determine_strategy_type(
 def _build_regime_config(cfg: TradingConfig) -> RegimeConfig:
     """
     Build RegimeConfig from TradingConfig, passing through UI thresholds.
+    MRF-FIX-06: wire ALL thresholds from UI to classifier.
     """
     return RegimeConfig(
         trend_efficiency_min=cfg.mrf_efficiency_threshold,
         breadth_strong_threshold=cfg.mrf_breadth_threshold,
-        # Other thresholds use defaults for now; can be extended
+        breadth_weak_threshold=1.0 - cfg.mrf_breadth_threshold,
+        ret_norm_cap=cfg.mrf_efficiency_threshold,
     )
 
 
@@ -100,6 +102,7 @@ def apply_regime_policy(
     bet_size_usdc: float,
     action: str,
     decision_run_id: str = "",
+    asset_symbol: str = "",
 ) -> RegimeDecisionOutcome:
     """
     Apply regime policy to a decision.
@@ -139,17 +142,13 @@ def apply_regime_policy(
         snapshot, strategy_type, direction, mode, config=policy_cfg,
     )
 
-    # Get asset phase for the current decision
+    # Get asset phase for the current decision (MRF-FIX-07: use explicit asset_symbol)
     asset_phase_str = "UNKNOWN"
-    if candidate_side and fresh_yes_price > 0:
-        # Find the asset in snapshot
-        asset_upper = decision_run_id.split("_")[0] if "_" in decision_run_id else ""
-        for sym, feat in snapshot.assets.items():
-            if feat.history_ready:
-                asset_cls = classify_asset_regime(feat, regime_cfg)
-                if sym == asset_upper or not asset_upper:
-                    asset_phase_str = asset_cls.phase.value
-                    break
+    if asset_symbol and snapshot.assets:
+        asset_feat = snapshot.assets.get(asset_symbol)
+        if asset_feat and asset_feat.history_ready:
+            asset_cls = classify_asset_regime(asset_feat, regime_cfg)
+            asset_phase_str = asset_cls.phase.value
 
     # Compute adjusted bet size
     adjusted_bet_size = bet_size_usdc * policy_result.stake_multiplier

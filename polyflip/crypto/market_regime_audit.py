@@ -76,6 +76,7 @@ def serialize_regime_audit(
         "version": mrf_version,
         "as_of": snapshot.as_of.isoformat(),
         "global_phase": global_phase.value,
+        "global_regime": global_phase.value,  # backward compat alias
         "global_confidence": round(global_confidence, 4),
         "global_strength": round(global_strength, 4),
         "strategy_type": strategy_type,

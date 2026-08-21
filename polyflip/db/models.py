@@ -746,6 +746,15 @@ class DecisionFunnelLog(Base):
     mrf_confidence = Column(Float, nullable=True)       # global confidence (0-1)
     mrf_multiplier = Column(Float, nullable=True)       # policy stake multiplier
     mrf_applied = Column(Boolean, nullable=True)        # whether filter actually applied
+    # MRF v2 expanded audit (MRF-FIX-03)
+    mrf_evaluated = Column(Boolean, nullable=True)      # whether MRF was invoked
+    mrf_as_of = Column(DateTime(timezone=True), nullable=True)  # snapshot timestamp
+    mrf_failure_reason = Column(String(256), nullable=True)     # why MRF didn't apply
+    mrf_audit_json = Column(Text, nullable=True)        # full audit JSON
+    mrf_original_action = Column(String(16), nullable=True)    # action before MRF
+    mrf_original_bet = Column(Float, nullable=True)     # bet_size before MRF
+    mrf_final_action = Column(String(16), nullable=True)       # action after MRF
+    mrf_final_bet = Column(Float, nullable=True)        # bet_size after MRF
 
 
 class Binance15mBar(Base):

@@ -101,6 +101,15 @@ async def log_funnel(
     mrf_confidence: Optional[float] = None,
     mrf_multiplier: Optional[float] = None,
     mrf_applied: Optional[bool] = None,
+    # MRF v2 expanded audit (MRF-FIX-03)
+    mrf_evaluated: Optional[bool] = None,
+    mrf_as_of: Optional[datetime] = None,
+    mrf_failure_reason: Optional[str] = None,
+    mrf_audit_json: Optional[str] = None,
+    mrf_original_action: Optional[str] = None,
+    mrf_original_bet: Optional[float] = None,
+    mrf_final_action: Optional[str] = None,
+    mrf_final_bet: Optional[float] = None,
 
     # Итог
     final_action: str = "SKIP",
@@ -185,6 +194,14 @@ async def log_funnel(
             mrf_confidence=mrf_confidence,
             mrf_multiplier=mrf_multiplier,
             mrf_applied=mrf_applied,
+            mrf_evaluated=mrf_evaluated,
+            mrf_as_of=mrf_as_of,
+            mrf_failure_reason=mrf_failure_reason,
+            mrf_audit_json=mrf_audit_json,
+            mrf_original_action=mrf_original_action,
+            mrf_original_bet=mrf_original_bet,
+            mrf_final_action=mrf_final_action,
+            mrf_final_bet=mrf_final_bet,
 
             final_action=final_action,
             skip_reason=skip_reason[:256] if skip_reason else None,

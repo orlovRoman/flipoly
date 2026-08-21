@@ -261,6 +261,7 @@ async def _apply_mrf_filter(
             bet_size_usdc=bet_size_usdc,
             action=action,
             decision_run_id=decision_run_id,
+            asset_symbol=asset_upper,
         )
 
         logger.info(
@@ -715,6 +716,84 @@ async def decide_combined_mode(
     confirm_passed = (comb_res.direction_status == "READY") if lgbm_applied else None
     final_dir_status = "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if lgbm_mode == "OFF" else comb_res.direction_status)
 
+    # ── MRF: apply regime filter BEFORE funnel logging (MRF-FIX-08) ──────
+    original_action = comb_res.action
+    original_bet = comb_res.bet_size_usdc
+    mrf_adjusted_action = comb_res.action
+    mrf_adjusted_bet = comb_res.bet_size_usdc
+    mrf_audit = None
+    mrf_outcome = None
+    mrf_failure_reason = None
+
+    if comb_res.action in ("BUY_YES", "BUY_NO") and cfg.mrf_mode != "OFF":
+        mrf_adjusted_action, mrf_adjusted_bet, mrf_audit, mrf_outcome = await _apply_mrf_filter(
+            db_session=db_session,
+            cfg=cfg,
+            asset_upper=asset_upper,
+            binance_symbol=binance_symbol or "",
+            start_time=start_time,
+            candidate_side=comb_res.candidate_side,
+            fresh_yes_price=fresh_yes_price,
+            bet_size_usdc=comb_res.bet_size_usdc,
+            action=comb_res.action,
+            decision_run_id=decision_run_id,
+            lgbm_applied=lgbm_applied,  # MRF-FIX-07: real lgbm flag from lgbm_mode == "ACTIVE"
+        )
+        if mrf_outcome and mrf_outcome.skip_reason:
+            mrf_failure_reason = mrf_outcome.skip_reason
+
+    # Update trade_decision if MRF changed action OR bet size
+    mrf_phase = "UNKNOWN"
+    mrf_asset_phase_str = "UNKNOWN"
+    mrf_strength_val = 0.0
+    mrf_confidence_val = 0.0
+    mrf_multiplier_val = None
+
+    if mrf_outcome:
+        mrf_phase = mrf_outcome.global_phase or "UNKNOWN"
+        mrf_asset_phase_str = mrf_outcome.asset_phase or "UNKNOWN"
+        if mrf_outcome.policy_result:
+            mrf_strength_val = mrf_outcome.policy_result.global_strength
+            mrf_confidence_val = mrf_outcome.policy_result.global_confidence
+            mrf_multiplier_val = mrf_outcome.policy_result.stake_multiplier
+    elif mrf_audit and isinstance(mrf_audit, dict):
+        mrf_phase = mrf_audit.get("global_phase", "UNKNOWN")
+
+    if mrf_adjusted_action != comb_res.action or mrf_adjusted_bet != comb_res.bet_size_usdc:
+        skip_reason = mrf_outcome.skip_reason if mrf_outcome and mrf_outcome.skip_reason else f"MRF:{mrf_phase}"
+        logger.info(
+            "mrf_decision_override",
+            asset=asset_upper,
+            original=comb_res.action,
+            adjusted=mrf_adjusted_action,
+            original_bet=comb_res.bet_size_usdc,
+            adjusted_bet=mrf_adjusted_bet,
+            phase=mrf_phase,
+        )
+        trade_decision = TradeDecision(
+            action=mrf_adjusted_action,
+            buy_price=trade_decision.buy_price,
+            bet_size_usdc=mrf_adjusted_bet,
+            reason=skip_reason if mrf_adjusted_action == "SKIP" else trade_decision.reason,
+            strategy_type=trade_decision.strategy_type,
+            p_flip=trade_decision.p_flip,
+            p_up=trade_decision.p_up,
+            strike=trade_decision.strike,
+            edge=trade_decision.edge,
+            p_win_effective=trade_decision.p_win_effective,
+            p_win_raw=trade_decision.p_win_raw,
+            decision_details=trade_decision.decision_details,
+        )
+
+    # Build MRF audit JSON for funnel
+    mrf_audit_json = None
+    if mrf_audit and isinstance(mrf_audit, dict):
+        import json as _json
+        mrf_audit_json = _json.dumps(mrf_audit, ensure_ascii=False, default=str)
+
+    # ── Log funnel (MRF-FIX-08: now includes MRF results) ─────────────────
+    mrf_evaluated = cfg.mrf_mode != "OFF" and comb_res.action in ("BUY_YES", "BUY_NO")
+
     await log_funnel(
         db_session,
         market_id=market.market_id,
@@ -746,7 +825,7 @@ async def decide_combined_mode(
         proposed_amount_usdc=comb_res.bet_size_usdc if comb_res.action != "SKIP" else 0.0,
         confirm_direction=lgbm_direction_value,
         confirm_passed=confirm_passed,
-        
+
         # Новая телеметрия
         direction_status=final_dir_status,
         direction_model_key=lgbm_attribution["funnel_model_key"],
@@ -786,62 +865,26 @@ async def decide_combined_mode(
         p_flip_raw=comb_res.p_flip_raw,
         entry_model_ece=comb_res.entry_model_ece,
 
-        final_action=comb_res.action,
-        skip_reason=comb_res.reason if comb_res.action == "SKIP" else None,
+        # MRF telemetry (MRF-FIX-03 + MRF-FIX-08)
+        mrf_mode=cfg.mrf_mode,
+        mrf_phase=mrf_phase,
+        mrf_asset_phase=mrf_asset_phase_str,
+        mrf_strength=mrf_strength_val,
+        mrf_confidence=mrf_confidence_val,
+        mrf_multiplier=mrf_multiplier_val,
+        mrf_applied=mrf_adjusted_action != original_action or mrf_adjusted_bet != original_bet,
+        mrf_evaluated=mrf_evaluated,
+        mrf_as_of=start_time,
+        mrf_failure_reason=mrf_failure_reason,
+        mrf_audit_json=mrf_audit_json,
+        mrf_original_action=original_action,
+        mrf_original_bet=original_bet,
+        mrf_final_action=mrf_adjusted_action,
+        mrf_final_bet=mrf_adjusted_bet,
+
+        final_action=mrf_adjusted_action,
+        skip_reason=trade_decision.reason if trade_decision.action == "SKIP" else None,
     )
-
-    # ── MRF: apply regime filter to decision ──────────────────────────────
-    mrf_adjusted_action = comb_res.action
-    mrf_adjusted_bet = comb_res.bet_size_usdc
-    mrf_audit = None
-    mrf_outcome = None
-
-    if comb_res.action in ("BUY_YES", "BUY_NO") and cfg.mrf_mode != "OFF":
-        mrf_adjusted_action, mrf_adjusted_bet, mrf_audit, mrf_outcome = await _apply_mrf_filter(
-            db_session=db_session,
-            cfg=cfg,
-            asset_upper=asset_upper,
-            binance_symbol=binance_symbol or "",
-            start_time=start_time,
-            candidate_side=comb_res.candidate_side,
-            fresh_yes_price=fresh_yes_price,
-            bet_size_usdc=comb_res.bet_size_usdc,
-            action=comb_res.action,
-            decision_run_id=decision_run_id,
-            lgbm_applied=bool(entry_model_phase and entry_model_phase != "FAILED"),
-        )
-
-    # Update trade_decision if MRF changed action OR bet size
-    if mrf_adjusted_action != comb_res.action or mrf_adjusted_bet != comb_res.bet_size_usdc:
-        mrf_phase = "UNKNOWN"
-        if mrf_outcome and mrf_outcome.global_phase:
-            mrf_phase = mrf_outcome.global_phase
-        elif mrf_audit and isinstance(mrf_audit, dict):
-            mrf_phase = mrf_audit.get("global_phase", "UNKNOWN")
-        skip_reason = mrf_outcome.skip_reason if mrf_outcome and mrf_outcome.skip_reason else f"MRF:{mrf_phase}"
-        logger.info(
-            "mrf_decision_override",
-            asset=asset_upper,
-            original=comb_res.action,
-            adjusted=mrf_adjusted_action,
-            original_bet=comb_res.bet_size_usdc,
-            adjusted_bet=mrf_adjusted_bet,
-            phase=mrf_phase,
-        )
-        trade_decision = TradeDecision(
-            action=mrf_adjusted_action,
-            buy_price=trade_decision.buy_price,
-            bet_size_usdc=mrf_adjusted_bet,
-            reason=skip_reason if mrf_adjusted_action == "SKIP" else trade_decision.reason,
-            strategy_type=trade_decision.strategy_type,
-            p_flip=trade_decision.p_flip,
-            p_up=trade_decision.p_up,
-            strike=trade_decision.strike,
-            edge=trade_decision.edge,
-            p_win_effective=trade_decision.p_win_effective,
-            p_win_raw=trade_decision.p_win_raw,
-            decision_details=trade_decision.decision_details,
-        )
 
     # Build MRF audit for caller
     mrf_audit_dict = None
