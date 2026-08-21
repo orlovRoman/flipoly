@@ -172,7 +172,34 @@
             position: relative;
             width: 100%;
         }
-    </style>    
+    
+        .mrf-asset-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.35rem 0.5rem;
+            margin-bottom: 0.25rem;
+            border-radius: 6px;
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(71, 85, 105, 0.3);
+            font-size: 0.8rem;
+        }
+        .mrf-asset-card .asset-name {
+            font-weight: 600;
+            color: #e2e8f0;
+            min-width: 40px;
+        }
+        .mrf-asset-card .asset-phase {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .mrf-asset-card .asset-strength {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+        }
+
+</style>    
     <script>
         window.API_BASE = "{{ root_path }}";
     </script>
