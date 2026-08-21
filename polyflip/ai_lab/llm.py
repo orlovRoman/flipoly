@@ -25,6 +25,110 @@ ALLOWED_ASSETS = {
 
 
 # ---------------------------------------------------------------------------
+LLM_PROVIDERS = ("mock", "openai", "opencode")
+DEFAULT_OPENCODE_ENDPOINT = "https://opencode.ai/zen/v1/responses"
+DEFAULT_OPENCODE_MODELS = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+
+
+def _csv_values(value: Any) -> list[str]:
+    """Return a normalized comma-separated list without exposing secrets."""
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _settings_value(settings_obj: Any, name: str, default: Any = "") -> Any:
+    return getattr(settings_obj, name, default)
+
+
+def llm_provider_configured(provider_name: str, settings_obj: Any | None = None) -> bool:
+    """Report whether a provider has credentials configured, never returning them."""
+    if settings_obj is None:
+        from polyflip.config import settings as settings_obj
+    provider = str(provider_name or "").strip().lower()
+    if provider == "mock":
+        return True
+    return bool(str(_settings_value(
+        settings_obj,
+        "AI_LAB_LLM_API_KEY",
+        _settings_value(settings_obj, "OPENAI_API_KEY", ""),
+    ) or "").strip())
+
+
+def get_llm_model_catalog(provider_name: str | None = None) -> dict[str, Any]:
+    """Return the safe provider/model catalog used by the AI Lab UI."""
+    from polyflip.config import settings
+
+    selected = str(provider_name or "").strip().lower() or None
+    configured_models = _csv_values(_settings_value(settings, "AI_LAB_ALLOWED_MODELS", ""))
+    research_default = str(_settings_value(settings, "AI_LAB_MODEL_RESEARCH", "gpt-5.6"))
+    summary_default = str(_settings_value(settings, "AI_LAB_MODEL_SUMMARY", "gpt-5.6-mini"))
+    available = [p.lower() for p in _csv_values(
+        _settings_value(settings, "AI_LAB_LLM_AVAILABLE_PROVIDERS", ",".join(LLM_PROVIDERS))
+    )]
+    available = [p for p in available if p in LLM_PROVIDERS] or ["mock"]
+
+    def models_for(provider: str) -> list[str]:
+        if provider == "mock":
+            return ["mock-gpt-5"]
+        if provider == "opencode":
+            models = list(DEFAULT_OPENCODE_MODELS)
+            if configured_models:
+                models = [m for m in configured_models if m in models] or configured_models
+            return models
+        models = [research_default, summary_default]
+        if configured_models:
+            models = [m for m in configured_models if m] or models
+        return list(dict.fromkeys(models))
+
+    providers = [{
+        "id": provider,
+        "label": {"mock": "Mock (offline)", "openai": "OpenAI", "opencode": "OpenCode"}[provider],
+        "configured": llm_provider_configured(provider, settings),
+    } for provider in available]
+    if selected and selected not in available:
+        raise ValueError(f"Unsupported or disabled AI Lab provider: {selected}")
+    target = selected or str(_settings_value(settings, "AI_LAB_LLM_PROVIDER", "mock")).lower()
+    if target not in available:
+        target = available[0]
+    models = models_for(target)
+    return {
+        "provider": target,
+        "providers": providers,
+        "models": [{
+            "id": model,
+            "label": model,
+            "supports_structured_output": True,
+            "default_research": model == research_default,
+            "default_summary": model == summary_default,
+        } for model in models],
+        "defaults": {
+            "research_model": research_default if target not in {"mock", "opencode"} else models[0],
+            "summary_model": summary_default if target not in {"mock", "opencode"} else models[-1],
+        },
+    }
+
+
+def normalize_llm_selection(
+    provider_name: str | None,
+    model_research: str | None,
+    model_summary: str | None,
+) -> tuple[str, str, str]:
+    """Validate and fill a run's immutable provider/model selection."""
+    catalog = get_llm_model_catalog(provider_name)
+    provider = catalog["provider"]
+    allowed = {str(item["id"]) for item in catalog["models"]}
+    defaults = catalog["defaults"]
+    research = str(model_research or defaults["research_model"])
+    summary = str(model_summary or defaults["summary_model"])
+    if research not in allowed or summary not in allowed:
+        raise ValueError(
+            f"Unknown model for provider {provider}: research={research!r}, summary={summary!r}"
+        )
+    return provider, research, summary
+
 # Structured Output Schemas
 # ---------------------------------------------------------------------------
 class HypothesisProposal(BaseModel):
@@ -311,12 +415,16 @@ class OpenAIResponsesProvider:
         model_summary: str = "gpt-5.6-mini",
         store: bool = False,
         timeout_seconds: float = 60.0,
+        endpoint_url: str = "https://api.openai.com/v1/responses",
+        provider_name: str = "openai",
     ) -> None:
         self.api_key = api_key
         self.model_research = model_research
         self.model_summary = model_summary
         self.store = store
         self.timeout_seconds = timeout_seconds
+        self.endpoint_url = endpoint_url
+        self.provider_name = provider_name
 
     def _compute_cost(self, prompt_tokens: int, completion_tokens: int, model: str) -> float:
         # Approximate pricing per 1M tokens
@@ -446,7 +554,7 @@ class OpenAIResponsesProvider:
         started = time.time()
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.post(
-                "https://api.openai.com/v1/responses",
+                self.endpoint_url,
                 headers=headers,
                 json=body,
             )
@@ -484,7 +592,7 @@ class OpenAIResponsesProvider:
             total_tokens=int(usage.get("total_tokens", prompt_tokens + completion_tokens)),
             estimated_cost_usd=self._compute_cost(prompt_tokens, completion_tokens, model),
             latency_ms=int(usage.get("latency_ms", 0)),
-            provider="openai",
+            provider=self.provider_name,
             model=model,
             prompt_hash=hashlib.sha256(json.dumps(dict(prompt), sort_keys=True, default=str).encode("utf-8")).hexdigest(),
             response_hash=str(usage.get("response_hash", "")),
@@ -542,7 +650,7 @@ class OpenAIResponsesProvider:
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
-                    "https://api.openai.com/v1/responses",
+                    self.endpoint_url,
                     headers=headers,
                     json=body,
                 )
@@ -582,25 +690,29 @@ def get_llm_provider(
     api_key: str | None = None,
     model_research: str | None = None,
     model_summary: str | None = None,
+    endpoint_url: str | None = None,
 ) -> LLMProvider:
-    """Factory to instantiate the configured LLM provider."""
+    """Factory for Mock, OpenAI and OpenCode-compatible Responses providers."""
     from polyflip.config import settings
 
     provider = (provider_name or settings.AI_LAB_LLM_PROVIDER or "mock").lower()
-    key = api_key or getattr(settings, "OPENAI_API_KEY", "")
-
+    key = api_key or getattr(settings, "AI_LAB_LLM_API_KEY", "") or getattr(settings, "OPENAI_API_KEY", "")
     if provider == "mock":
         return MockLLMProvider(model_name=model_research or "mock-gpt-5")
-    if provider == "openai":
+    if provider in {"openai", "opencode"}:
         if not key:
+            key_name = "AI_LAB_LLM_API_KEY" if provider == "opencode" else "OPENAI_API_KEY"
             raise RuntimeError(
-                "AI_LAB_LLM_PROVIDER=openai requires OPENAI_API_KEY; "
+                f"AI_LAB_LLM_PROVIDER={provider} requires {key_name}; "
                 "set AI_LAB_LLM_PROVIDER=mock explicitly for offline tests"
             )
+        default_endpoint = "https://api.openai.com/v1/responses" if provider == "openai" else DEFAULT_OPENCODE_ENDPOINT
         return OpenAIResponsesProvider(
             api_key=key,
             model_research=model_research or getattr(settings, "AI_LAB_MODEL_RESEARCH", "gpt-5.6"),
             model_summary=model_summary or getattr(settings, "AI_LAB_MODEL_SUMMARY", "gpt-5.6-mini"),
             store=False,
+            endpoint_url=endpoint_url or getattr(settings, "AI_LAB_LLM_ENDPOINT", "") or default_endpoint,
+            provider_name=provider,
         )
     raise ValueError(f"Unsupported AI_LAB_LLM_PROVIDER: {provider}")

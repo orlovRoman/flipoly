@@ -981,6 +981,9 @@ class AIOptimizationRun(Base):
     autonomy_level = Column(String(32), nullable=False, server_default="EXPERIMENT")
     status = Column(String(32), nullable=False, server_default="DRAFT")
     agent_thread_id = Column(String(128), nullable=True)
+    llm_provider = Column(String(32), nullable=True)
+    llm_research_model = Column(String(128), nullable=True)
+    llm_summary_model = Column(String(128), nullable=True)
     agent_type = Column(String(64), nullable=True)
     permission_id = Column(
         Integer,

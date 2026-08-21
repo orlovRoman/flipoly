@@ -159,7 +159,7 @@ async function loadOptimizationRuns(silent = false) {
           <td style="font-weight: 700;">#${r.id}</td>
           <td>
             <div>${escapeHtml(objective)}</div>
-            <small style="color: var(--text-muted);">${escapeHtml(asset)} · ${escapeHtml(r.mode || "RESEARCH")}</small>
+            <small style="color: var(--text-muted);">${escapeHtml(asset)} · ${escapeHtml(r.mode || "RESEARCH")} · ${escapeHtml(r.llm_provider || "mock")} / ${escapeHtml(r.llm_research_model || "default")}</small>
           </td>
           <td>${statusBadge}</td>
           <td><span class="badge badge-neutral" style="font-size: 0.75rem;">${escapeHtml(r.autonomy_level || "EXPERIMENT")}</span></td>
@@ -224,7 +224,7 @@ async function loadRunDetail(runId) {
         <div>
           <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem;">Запуск #${run.id}: ${escapeHtml(run.objective)}</h3>
           <div style="color: var(--text-muted); font-size: 0.85rem;">
-            Создан: <strong>${created}</strong> | Завершён: <strong>${completed}</strong> | Инициатор: <strong>${escapeHtml(run.created_by || "system")}</strong>
+            Создан: <strong>${created}</strong> | Завершён: <strong>${completed}</strong> | Инициатор: <strong>${escapeHtml(run.created_by || "system")}</strong><br>LLM: <strong>${escapeHtml(run.llm_provider || "mock")}</strong> · research <strong>${escapeHtml(run.llm_research_model || "default")}</strong> · summary <strong>${escapeHtml(run.llm_summary_model || "default")}</strong>
           </div>
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -579,7 +579,7 @@ async function loadResearchPermissions() {
   select.disabled = true;
   select.innerHTML = '<option value="">Загрузка permission-профилей...</option>';
   try {
-    const res = await fetch(window.API_BASE + "/api/ai-lab/permissions", { headers: getAuthHeaders() });
+    const res = await fetch(`${window.API_BASE}/api/ai-lab/permissions`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error(await responseError(res));
     const data = await res.json();
     const required = new Set(["CREATE_EXPERIMENT", "TRAIN_MODEL"]);
@@ -602,10 +602,47 @@ async function loadResearchPermissions() {
   }
 }
 
+async function loadLLMModels(provider = "") {
+  const providerSelect = document.getElementById("new-run-llm-provider");
+  const researchSelect = document.getElementById("new-run-research-model");
+  const summarySelect = document.getElementById("new-run-summary-model");
+  if (!providerSelect || !researchSelect || !summarySelect) return;
+  try {
+    const query = provider ? ("?provider=" + encodeURIComponent(provider)) : "";
+    const res = await fetch(`${window.API_BASE}/api/ai-lab/llm/models${query}`, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error(await responseError(res));
+    const data = await res.json();
+    if (!provider) {
+      providerSelect.innerHTML = (data.providers || []).map((item) =>
+        '<option value="' + escapeHtml(item.id) + '">' +
+        escapeHtml(item.label || item.id) + (item.configured ? "" : " (не настроен)") +
+        "</option>"
+      ).join("");
+      provider = data.provider || providerSelect.value;
+      providerSelect.value = provider;
+      return loadLLMModels(provider);
+    }
+    const models = data.models || [];
+    const defaults = data.defaults || {};
+    const options = models.map((item) =>
+      '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.label || item.id) + "</option>"
+    ).join("");
+    researchSelect.innerHTML = options || '<option value="">Нет доступных моделей</option>';
+    summarySelect.innerHTML = options || '<option value="">Нет доступных моделей</option>';
+    if (defaults.research_model) researchSelect.value = defaults.research_model;
+    if (defaults.summary_model) summarySelect.value = defaults.summary_model;
+  } catch (error) {
+    providerSelect.innerHTML = '<option value="">Ошибка загрузки провайдеров</option>';
+    researchSelect.innerHTML = '<option value="">Ошибка загрузки моделей</option>';
+    summarySelect.innerHTML = '<option value="">Ошибка загрузки моделей</option>';
+    showToast("Не удалось загрузить каталог LLM: " + error.message, "danger");
+  }
+}
 function openNewRunModal() {
   const modal = document.getElementById("modal-new-run");
   if (modal) modal.classList.add("show");
   loadResearchPermissions();
+  loadLLMModels();
 }
 
 function closeNewRunModal() {
@@ -622,6 +659,9 @@ async function submitCreateRun() {
   const budget = Number(document.getElementById("new-run-budget")?.value || 1);
   const minTrades = Number(document.getElementById("new-run-min-trades")?.value || 50);
   const maxDrawdown = Number(document.getElementById("new-run-max-dd")?.value || -5);
+  const llmProvider = document.getElementById("new-run-llm-provider")?.value || null;
+  const researchModel = document.getElementById("new-run-research-model")?.value || null;
+  const summaryModel = document.getElementById("new-run-summary-model")?.value || null;
 
   if (!objective) {
     showToast("Укажите цель исследовательского запуска.", "danger");
@@ -635,12 +675,15 @@ async function submitCreateRun() {
   const submit = document.querySelector("#modal-new-run .btn-primary:last-child");
   if (submit) { submit.disabled = true; submit.textContent = "Создание..."; }
   try {
-    const res = await fetch(window.API_BASE + "/api/ai-lab/runs", {
+    const res = await fetch(`${window.API_BASE}/api/ai-lab/runs`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({
         objective: objective,
         mode: "RESEARCH",
+        llm_provider: llmProvider,
+        research_model: researchModel,
+        summary_model: summaryModel,
         autonomy_level: autonomy,
         budget_experiments: Math.max(1, Math.min(10000, budget)),
         created_by: "optimizer-ui",
@@ -700,7 +743,7 @@ async function triggerRunIterate() {
   const btn = document.getElementById("btn-run-iterate");
   if (btn) { btn.disabled = true; btn.textContent = "⚡ Выполняется..."; }
   try {
-    const resp = await fetch(window.API_BASE + "/api/ai-lab/runs/" + runId + "/iterate", { method: "POST", headers: getAuthHeaders() });
+    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${runId}/iterate`, { method: "POST", headers: getAuthHeaders() });
     if (!resp.ok) throw new Error(await responseError(resp));
     const data = await resp.json();
     showToast("Шаг агента выполнен: " + (data.decision || "OK"), "success");
@@ -716,7 +759,7 @@ async function pauseRun() {
   const runId = currentSelectedRunId;
   if (!runId) return;
   try {
-    const resp = await fetch(window.API_BASE + "/api/ai-lab/runs/" + runId + "/pause", { method: "POST", headers: getAuthHeaders() });
+    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${runId}/pause`, { method: "POST", headers: getAuthHeaders() });
     if (!resp.ok) throw new Error(await responseError(resp));
     showToast("Запуск приостановлен", "info");
     await loadRunDetail(runId);
@@ -729,7 +772,7 @@ async function resumeRun() {
   const runId = currentSelectedRunId;
   if (!runId) return;
   try {
-    const resp = await fetch(window.API_BASE + "/api/ai-lab/runs/" + runId + "/resume", { method: "POST", headers: getAuthHeaders() });
+    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${runId}/resume`, { method: "POST", headers: getAuthHeaders() });
     if (!resp.ok) throw new Error(await responseError(resp));
     showToast("Запуск возобновлён", "success");
     await loadRunDetail(runId);
@@ -743,7 +786,7 @@ async function cancelRun() {
   if (!runId) return;
   if (!window.confirm("Отменить исследовательский запуск #" + runId + "?")) return;
   try {
-    const resp = await fetch(window.API_BASE + "/api/ai-lab/runs/" + runId + "/cancel", { method: "POST", headers: getAuthHeaders() });
+    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${runId}/cancel`, { method: "POST", headers: getAuthHeaders() });
     if (!resp.ok) throw new Error(await responseError(resp));
     showToast("Запуск отменён", "warning");
     await loadRunDetail(runId);

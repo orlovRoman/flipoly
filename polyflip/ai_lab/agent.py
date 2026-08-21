@@ -90,7 +90,8 @@ class AILabAgent:
         owner_token: str | None = None,
     ) -> None:
         self.session = session
-        self.llm = llm_provider or get_llm_provider()
+        self._llm_override = llm_provider
+        self.llm = llm_provider
         self.owner_token = owner_token
 
     async def build_agent_context(self, run: AIOptimizationRun) -> AgentContext:
@@ -157,6 +158,11 @@ class AILabAgent:
         if run is None:
             raise AILabError(f"Run #{run_id} not found")
 
+        self.llm = self._llm_override or get_llm_provider(
+            provider_name=getattr(run, "llm_provider", None),
+            model_research=getattr(run, "llm_research_model", None),
+            model_summary=getattr(run, "llm_summary_model", None),
+        )
         budget = int(
             getattr(run, "budget_experiments", 0)
             or getattr(run, "experiment_budget", 0)
@@ -275,7 +281,7 @@ class AILabAgent:
             baseline_comparison={"score": policy_result.score},
             finalization_gate=policy_result.to_dict(),
             iteration=step_idx,
-                budget_remaining_steps=max(0, budget - step_idx),
+            budget_remaining_steps=max(0, budget - step_idx),
         )
         decision, dec_stats = await self.llm.analyze_experiment(analysis_ctx)
 

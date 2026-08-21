@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from polyflip.config import normalize_ai_lab_mode, settings
+from polyflip.ai_lab.llm import normalize_llm_selection
 from polyflip.ai_lab.manifests import (
     build_deployment_manifest,
     compute_manifest_hash,
@@ -169,8 +170,17 @@ async def create_run(
     created_by: str = "system",
     agent_thread_id: str | None = None,
     mode: str | None = None,
+    llm_provider: str | None = None,
+    llm_research_model: str | None = None,
+    llm_summary_model: str | None = None,
 ) -> AIOptimizationRun:
     autonomy_level = autonomy_level.upper()
+    try:
+        resolved_provider, resolved_research_model, resolved_summary_model = normalize_llm_selection(
+            llm_provider, llm_research_model, llm_summary_model
+        )
+    except ValueError as exc:
+        raise AILabError(str(exc)) from exc
     resolved_mode = normalize_ai_lab_mode(mode or settings.AI_LAB_MODE)
     if permission is None and autonomy_level != "OBSERVE":
         raise AIPermissionError(
@@ -225,6 +235,9 @@ async def create_run(
         created_by=created_by,
         agent_type="AI_LAB",
         agent_thread_id=agent_thread_id,
+        llm_provider=resolved_provider,
+        llm_research_model=resolved_research_model,
+        llm_summary_model=resolved_summary_model,
         created_at=now,
     )
     session.add(row)

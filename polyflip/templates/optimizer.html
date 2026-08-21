@@ -771,6 +771,26 @@
             </select>
           </div>
         </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
+            <label class="form-label">LLM-провайдер</label>
+            <select class="form-select" id="new-run-llm-provider" onchange="loadLLMModels(this.value)">
+              <option value="">Загрузка провайдеров...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Модель гипотезы</label>
+            <select class="form-select" id="new-run-research-model">
+              <option value="">Загрузка моделей...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Модель саммари</label>
+            <select class="form-select" id="new-run-summary-model">
+              <option value="">Загрузка моделей...</option>
+            </select>
+          </div>
+        </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
           <div class="form-group">
             <label class="form-label">Бюджет экспериментов</label>

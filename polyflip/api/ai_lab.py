@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.executor import ExecutionBatchError
+from polyflip.ai_lab.llm import get_llm_model_catalog
 from polyflip.ai_lab.manifests import compute_manifest_hash
 from polyflip.ai_lab.lgbm_worker import MAX_LGBM_WORKER_STEPS, execute_lgbm_steps
 from polyflip.ai_lab.scheduler import (
@@ -121,6 +122,9 @@ class RunCreateRequest(BaseModel):
     budget_experiments: int = Field(default=1, ge=1, le=10000)
     budget_seconds: int = Field(default=0, ge=0, le=7 * 24 * 3600)
     created_by: str = Field(default="api", max_length=128)
+    llm_provider: str | None = Field(default=None, max_length=32)
+    research_model: str | None = Field(default=None, max_length=128)
+    summary_model: str | None = Field(default=None, max_length=128)
     permission_id: int | None = Field(
         default=None,
         description="Concrete AIPermission.id version captured as the run snapshot.",
@@ -245,6 +249,9 @@ def _run_payload(run: AIOptimizationRun) -> dict[str, Any]:
         "autonomy_level": run.autonomy_level,
         "status": run.status,
         "agent_type": run.agent_type,
+        "llm_provider": run.llm_provider,
+        "llm_research_model": run.llm_research_model,
+        "llm_summary_model": run.llm_summary_model,
         "budget_experiments": run.budget_experiments,
         "budget_seconds": run.budget_seconds,
         "created_by": run.created_by,
@@ -479,6 +486,15 @@ async def check_ai_action(
     return {"run_id": run.id, "action": payload.action.upper(), "allowed": True}
 
 
+@router.get("/llm/models")
+async def list_llm_models(provider: str | None = None):
+    """Return the configured provider/model catalog without exposing credentials."""
+    try:
+        return get_llm_model_catalog(provider)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post("/runs", status_code=201)
 async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(get_db_session)):
     permission = None
@@ -510,6 +526,9 @@ async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(ge
             budget_seconds=payload.budget_seconds,
             created_by=payload.created_by,
             permission=permission,
+            llm_provider=payload.llm_provider,
+            llm_research_model=payload.research_model,
+            llm_summary_model=payload.summary_model,
         )
         await db.commit()
         await db.refresh(run)

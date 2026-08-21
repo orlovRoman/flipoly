@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     AI_LAB_MODEL_RESEARCH: str = "gpt-4o"
     AI_LAB_MODEL_SUMMARY: str = "gpt-4o-mini"
     AI_LAB_LLM_STORE: bool = False
+    AI_LAB_LLM_API_KEY: str = ""
+    AI_LAB_LLM_ENDPOINT: str = ""
+    AI_LAB_LLM_AVAILABLE_PROVIDERS: str = "mock,openai,opencode"
+    AI_LAB_ALLOWED_MODELS: str = ""
     # Optional Codex thread lifecycle; "none" keeps research usable without SDK.
     AI_LAB_THREAD_PROVIDER: str = "none"
     AI_LAB_MAX_RUNTIME_SECONDS: int = 3600
