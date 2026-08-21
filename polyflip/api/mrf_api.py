@@ -10,6 +10,7 @@ Fixes:
 - Terminal position_status: CLOSED, RESOLVED_REDEEMABLE, RESOLVED_LOST, REDEEMED
 - Executed trades: status == SUCCESS (not SKIPPED/FAILED/CANCELLED)
 """
+import json
 import logging
 import time
 from datetime import datetime, timezone, timedelta
@@ -21,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.db.connection import get_db_session
 from polyflip.db.models import DecisionFunnelLog, RuntimeSettings, TradeHistory
+from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS
 from polyflip.api.auth import verify_api_key
 
 logger = logging.getLogger(__name__)
@@ -29,7 +31,53 @@ router = APIRouter(tags=["MRF"], dependencies=[Depends(verify_api_key)])
 
 VALID_MRF_MODES = {"OFF", "SHADOW", "ACTIVE"}
 _mode_cache: dict = {"value": "OFF", "ts": 0.0}
+
 _MODE_CACHE_TTL = 60
+
+
+def _parse_mrf_audit(value) -> dict:
+    """Decode audit JSON defensively; old rows may contain NULL or malformed text."""
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _is_known_phase(value) -> bool:
+    """Return True only for an actual classified phase, not a missing sentinel."""
+    return isinstance(value, str) and value.strip().upper() not in {"", "UNKNOWN", "NONE", "NULL"}
+
+
+def _extract_mrf_telemetry(row) -> dict:
+    """Read current MRF telemetry, preferring the complete audit payload."""
+    audit = _parse_mrf_audit(getattr(row, "mrf_audit_json", None))
+    assets = audit.get("assets") if isinstance(audit.get("assets"), dict) else {}
+
+    global_phase = (
+        audit.get("global_phase")
+        or audit.get("global_regime")
+        or getattr(row, "mrf_phase", None)
+        or "UNKNOWN"
+    )
+    global_strength = audit.get("global_strength")
+    if global_strength is None:
+        global_strength = getattr(row, "mrf_strength", None)
+    global_confidence = audit.get("global_confidence")
+    if global_confidence is None:
+        global_confidence = getattr(row, "mrf_confidence", None)
+
+    return {
+        "audit": audit,
+        "global_phase": global_phase,
+        "global_strength": global_strength,
+        "global_confidence": global_confidence,
+        "assets": assets,
+    }
 
 
 async def _get_mrf_mode(db: AsyncSession) -> str:
@@ -128,9 +176,10 @@ async def get_mrf_status(
         a = row.asset or "UNKNOWN"
         if a not in asset_stats:
             asset_stats[a] = {
-                "phase": row.mrf_asset_phase or "UNKNOWN",
-                "strength": 0.0,
-                "confidence": 0.0,
+                "phase": "UNKNOWN",
+                "strength": None,
+                "confidence": None,
+                "phase_available": False,
                 "evaluated": 0,
                 "passed": 0,
                 "blocked": 0,
@@ -145,12 +194,34 @@ async def get_mrf_status(
             }
         s = asset_stats[a]
         s["evaluated"] += 1
-        if row.mrf_strength is not None:
-            s["strength"] = row.mrf_strength
-        if row.mrf_confidence is not None:
-            s["confidence"] = row.mrf_confidence
-        if row.mrf_asset_phase:
-            s["phase"] = row.mrf_asset_phase
+
+        telemetry = _extract_mrf_telemetry(row)
+        asset_payload = telemetry["assets"].get(a)
+        if not isinstance(asset_payload, dict):
+            asset_payload = {}
+
+        candidate_phase = (
+            asset_payload.get("phase")
+            or getattr(row, "mrf_asset_phase", None)
+            or telemetry["global_phase"]
+            or "UNKNOWN"
+        )
+        candidate_strength = asset_payload.get("strength")
+        if candidate_strength is None:
+            candidate_strength = telemetry["global_strength"]
+        candidate_confidence = asset_payload.get("confidence")
+        if candidate_confidence is None:
+            candidate_confidence = telemetry["global_confidence"]
+
+        # Rows are ordered newest first. Keep the newest valid telemetry,
+        # but skip legacy UNKNOWN/zero placeholders when an older valid audit exists.
+        if not s["phase_available"] and _is_known_phase(candidate_phase):
+            s["phase"] = candidate_phase
+            s["phase_available"] = True
+        if s["strength"] is None and candidate_strength is not None:
+            s["strength"] = float(candidate_strength)
+        if s["confidence"] is None and candidate_confidence is not None:
+            s["confidence"] = float(candidate_confidence)
         if row.mrf_final_action == "SKIP" and row.mrf_original_action != "SKIP":
             s["blocked"] += 1
         elif row.mrf_multiplier is not None and row.mrf_multiplier < 1.0 and row.mrf_final_action != "SKIP":
@@ -159,6 +230,30 @@ async def get_mrf_status(
             s["passed"] += 1
         if s["last_seen"] is None or (row.created_at and row.created_at > s["last_seen"]):
             s["last_seen"] = row.created_at
+
+    # Always expose the configured basket, even when no recent MRF row exists.
+    # This keeps PnL visible while making missing regime telemetry explicit.
+    expected_dashboard_assets = set(COMBINED_MODE_SUPPORTED_ASSETS)
+    if asset:
+        expected_dashboard_assets.add(asset.upper())
+    for expected_asset in sorted(expected_dashboard_assets):
+        asset_stats.setdefault(expected_asset, {
+            "phase": "UNKNOWN",
+            "strength": None,
+            "confidence": None,
+            "phase_available": False,
+            "evaluated": 0,
+            "passed": 0,
+            "blocked": 0,
+            "reduced": 0,
+            "trades": 0,
+            "wins": 0,
+            "pnl": 0.0,
+            "win_rate_pct": 0.0,
+            "block_rate_pct": 0.0,
+            "avg_multiplier": 1.0,
+            "last_seen": None,
+        })
 
     # 5. Per-asset PnL from TradeHistory (only completed trades)
     if asset_stats:
@@ -225,6 +320,10 @@ async def get_mrf_status(
             if row.asset == a and row.mrf_multiplier is not None:
                 multipliers.append(row.mrf_multiplier)
         s["avg_multiplier"] = round(sum(multipliers) / len(multipliers), 4) if multipliers else 1.0
+        if s["strength"] is None:
+            s["strength"] = 0.0
+        if s["confidence"] is None:
+            s["confidence"] = 0.0
         if isinstance(s["last_seen"], datetime):
             s["last_seen"] = s["last_seen"].isoformat()
 
@@ -233,12 +332,24 @@ async def get_mrf_status(
     latest_asset = None
     latest_strength = 0.0
     latest_confidence = 0.0
-    if mrf_rows:
+    latest_audit = {}
+    # Prefer the newest row with an actual phase. A legacy UNKNOWN row must not
+    # hide a valid evaluation that is only a few rows older.
+    latest = None
+    for candidate_row in mrf_rows:
+        candidate_telemetry = _extract_mrf_telemetry(candidate_row)
+        if _is_known_phase(candidate_telemetry["global_phase"]):
+            latest = candidate_row
+            latest_audit = candidate_telemetry
+            break
+    if latest is None and mrf_rows:
         latest = mrf_rows[0]
+        latest_audit = _extract_mrf_telemetry(latest)
+    if latest is not None:
         latest_asset = latest.asset
-        latest_regime = latest.mrf_phase or "UNKNOWN"
-        latest_strength = latest.mrf_strength or 0.0
-        latest_confidence = latest.mrf_confidence or 0.0
+        latest_regime = latest_audit.get("global_phase") or "UNKNOWN"
+        latest_strength = latest_audit.get("global_strength") or 0.0
+        latest_confidence = latest_audit.get("global_confidence") or 0.0
 
     # 7. Average multiplier
     multipliers = [r.mrf_multiplier for r in mrf_rows if r.mrf_multiplier is not None]
@@ -250,6 +361,7 @@ async def get_mrf_status(
         "latest_asset": latest_asset,
         "latest_strength": round(latest_strength, 4),
         "latest_confidence": round(latest_confidence, 4),
+        "phase_available": _is_known_phase(latest_regime),
         "total_evaluated": total_evaluated,
         "total_blocked": total_blocked,
         "total_passed": mrf_passed,
