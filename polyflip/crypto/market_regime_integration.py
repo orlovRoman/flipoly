@@ -26,6 +26,33 @@ from polyflip.crypto.market_regime_classifier import classify_global_regime, cla
 from polyflip.crypto.market_regime import AssetRegimeFeatures
 
 
+def _prepare_closed_candles(
+    candles: Sequence[Any],
+    as_of: datetime,
+) -> tuple[list[Any], list[datetime]]:
+    """Return closed, non-future candles in deterministic ASC time order."""
+    prepared: list[tuple[datetime, Any]] = []
+    for candle in candles:
+        # Test doubles may omit is_closed; real ORM rows must be explicitly
+        # closed before entering a regime calculation.
+        if getattr(candle, "is_closed", True) is not True:
+            continue
+        open_time = getattr(candle, "open_time", None)
+        if open_time is None:
+            continue
+        if open_time.tzinfo is None:
+            open_time = open_time.replace(tzinfo=timezone.utc)
+        if open_time > as_of:
+            continue
+        prepared.append((open_time, candle))
+
+    prepared.sort(key=lambda item: item[0])
+    return (
+        [candle for _, candle in prepared],
+        [open_time for open_time, _ in prepared],
+    )
+
+
 def build_snapshot_from_candles(
     candles: Sequence[Any],
     symbol: str,
@@ -41,20 +68,7 @@ def build_snapshot_from_candles(
     if as_of.tzinfo is None:
         as_of = as_of.replace(tzinfo=timezone.utc)
 
-    open_times = []
-    filtered = []
-    for c in candles:
-        # Only use closed candles
-        if getattr(c, "is_closed", None) is not True:
-            continue
-        ot = getattr(c, "open_time", None)
-        if ot is not None:
-            if ot.tzinfo is None:
-                ot = ot.replace(tzinfo=timezone.utc)
-            if ot > as_of:
-                continue
-            open_times.append(ot)
-        filtered.append(c)
+    filtered, open_times = _prepare_closed_candles(candles, as_of)
 
     if not filtered:
         return build_regime_snapshot({}, as_of=as_of)
@@ -80,7 +94,11 @@ def build_snapshot_from_candles(
     )
 
     if open_times:
-        is_valid, reason = validate_candle_continuity(open_times, len(filtered))
+        # Validate the feature window, not the extra fetch buffer.
+        validation_times = open_times[-MIN_HISTORY_CANDLES:]
+        is_valid, reason = validate_candle_continuity(
+            validation_times, MIN_HISTORY_CANDLES,
+        )
         if not is_valid:
             snapshot.reason_codes.append(f"candle_continuity:{reason}")
 
@@ -120,17 +138,7 @@ def build_snapshot_from_multi_asset_candles(
             asset_failure_reasons[symbol] = "no_candles"
             continue
 
-        open_times = []
-        filtered = []
-        for c in candles:
-            ot = getattr(c, "open_time", None)
-            if ot is not None:
-                if ot.tzinfo is None:
-                    ot = ot.replace(tzinfo=timezone.utc)
-                if ot > as_of:
-                    continue
-                open_times.append(ot)
-            filtered.append(c)
+        filtered, open_times = _prepare_closed_candles(candles, as_of)
 
         if not filtered:
             reason_codes.append(f"no_valid_candles:{symbol}")
@@ -144,7 +152,12 @@ def build_snapshot_from_multi_asset_candles(
 
         # Validate continuity
         if open_times:
-            is_valid, reason = validate_candle_continuity(open_times, len(filtered))
+            # get_recent_candles includes a small buffer beyond the feature
+            # window; continuity applies only to the final 97 closes.
+            validation_times = open_times[-MIN_HISTORY_CANDLES:]
+            is_valid, reason = validate_candle_continuity(
+                validation_times, MIN_HISTORY_CANDLES,
+            )
             if not is_valid:
                 reason_codes.append(f"candle_continuity:{symbol}:{reason}")
                 asset_failure_reasons[symbol] = f"candle_continuity:{reason}"

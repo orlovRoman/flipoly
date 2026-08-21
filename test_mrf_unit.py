@@ -5,7 +5,7 @@ Tests for classifier, policy, strength, audit, and apply modules.
 Run: python -m pytest test_mrf_unit.py -v
 """
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -20,6 +20,7 @@ from polyflip.crypto.market_regime_classifier import (
     MarketPhase,
 )
 from polyflip.crypto.market_regime import MarketRegimeSnapshot, BasketRegimeFeatures
+from polyflip.crypto.market_regime_integration import build_snapshot_from_multi_asset_candles
 from polyflip.crypto.market_regime_policy import (
     evaluate_policy,
     PolicyResult,
@@ -606,6 +607,67 @@ class Test24hWindow:
         ret = _log_returns(closes, 96)
         expected = math.log(200.0 / 100.0)  # ln(2)
         assert abs(ret - expected) < 1e-6
+
+
+
+@dataclass
+class _IntegrationCandle:
+    open_time: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    is_closed: bool = True
+
+
+class TestCandleWindowValidation:
+    def test_extra_fetch_buffer_does_not_invalidate_97_candle_tail(self):
+        """107 fetched candles must validate the final 97-candle feature window."""
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        candles = [
+            _IntegrationCandle(
+                open_time=start + timedelta(minutes=15 * index),
+                open=100.0 + index,
+                high=101.0 + index,
+                low=99.0 + index,
+                close=100.5 + index,
+            )
+            for index in range(107)
+        ]
+        assets = {asset: list(candles) for asset in ("BTC", "ETH", "SOL", "DOGE", "XRP")}
+
+        snapshot = build_snapshot_from_multi_asset_candles(
+            assets,
+            as_of=candles[-1].open_time,
+            expected_assets=list(assets),
+        )
+
+        assert snapshot.basket.history_ready is True
+        assert not any("span_exceeded" in reason for reason in snapshot.reason_codes)
+
+    def test_future_candles_are_excluded_before_window_validation(self):
+        """A candle after as_of must not affect continuity or feature readiness."""
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        candles = [
+            _IntegrationCandle(
+                open_time=start + timedelta(minutes=15 * index),
+                open=100.0,
+                high=101.0,
+                low=99.0,
+                close=100.5,
+            )
+            for index in range(108)
+        ]
+        as_of = candles[106].open_time
+        assets = {asset: list(candles) for asset in ("BTC", "ETH", "SOL", "DOGE", "XRP")}
+
+        snapshot = build_snapshot_from_multi_asset_candles(
+            assets,
+            as_of=as_of,
+            expected_assets=list(assets),
+        )
+
+        assert snapshot.basket.history_ready is True
 
 
 # ── Step 5: Failure reason tests ──────────────────────────────────

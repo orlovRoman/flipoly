@@ -52,6 +52,27 @@ def _is_known_phase(value) -> bool:
     """Return True only for an actual classified phase, not a missing sentinel."""
     return isinstance(value, str) and value.strip().upper() not in {"", "UNKNOWN", "NONE", "NULL"}
 
+_NOT_READY_FAILURE_PREFIXES = (
+    "not_ready",
+    "missing_asset",
+    "insufficient_history",
+    "candle_error",
+    "continuity_error",
+)
+
+
+def _is_not_ready_failure(value) -> bool:
+    reason = str(value or "").strip().lower()
+    return any(
+        reason == prefix or reason.startswith(prefix + ":")
+        for prefix in _NOT_READY_FAILURE_PREFIXES
+    )
+
+
+def _is_mrf_error(value) -> bool:
+    reason = str(value or "").strip().lower()
+    return reason.startswith(("runtime_error", "mrf_error"))
+
 
 def _extract_mrf_telemetry(row) -> dict:
     """Read current MRF telemetry, preferring the complete audit payload."""
@@ -117,10 +138,16 @@ async def get_mrf_status(
     mode = await _get_mrf_mode(db)
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-    # 1. Get entries where MRF was actually evaluated
+    # 1. Get MRF attempts, including not-ready/error rows. These rows are
+    # needed to explain UNKNOWN instead of silently reporting zero failures.
     filters = [
         DecisionFunnelLog.created_at >= since,
-        DecisionFunnelLog.mrf_evaluated == True,
+        DecisionFunnelLog.mrf_mode.in_(("SHADOW", "ACTIVE")),
+        or_(
+            DecisionFunnelLog.mrf_evaluated == True,
+            DecisionFunnelLog.mrf_failure_reason.isnot(None),
+            DecisionFunnelLog.mrf_audit_json.isnot(None),
+        ),
     ]
     if asset:
         filters.append(DecisionFunnelLog.asset == asset.upper())
@@ -143,9 +170,9 @@ async def get_mrf_status(
     mrf_error = 0
 
     for row in mrf_rows:
-        if row.mrf_failure_reason and "not_ready" in (row.mrf_failure_reason or "").lower():
+        if _is_not_ready_failure(row.mrf_failure_reason):
             mrf_not_ready += 1
-        elif row.mrf_failure_reason and row.mrf_failure_reason.startswith("mrf_error"):
+        elif _is_mrf_error(row.mrf_failure_reason):
             mrf_error += 1
         elif row.mrf_final_action == "SKIP" and row.mrf_original_action != "SKIP":
             mrf_blocked += 1
@@ -184,6 +211,7 @@ async def get_mrf_status(
                 "passed": 0,
                 "blocked": 0,
                 "reduced": 0,
+                "not_ready": 0,
                 "trades": 0,
                 "wins": 0,
                 "pnl": 0.0,
@@ -222,7 +250,9 @@ async def get_mrf_status(
             s["strength"] = float(candidate_strength)
         if s["confidence"] is None and candidate_confidence is not None:
             s["confidence"] = float(candidate_confidence)
-        if row.mrf_final_action == "SKIP" and row.mrf_original_action != "SKIP":
+        if _is_not_ready_failure(row.mrf_failure_reason) or _is_mrf_error(row.mrf_failure_reason):
+            s["not_ready"] += 1
+        elif row.mrf_final_action == "SKIP" and row.mrf_original_action != "SKIP":
             s["blocked"] += 1
         elif row.mrf_multiplier is not None and row.mrf_multiplier < 1.0 and row.mrf_final_action != "SKIP":
             s["reduced"] += 1
@@ -246,6 +276,7 @@ async def get_mrf_status(
             "passed": 0,
             "blocked": 0,
             "reduced": 0,
+            "not_ready": 0,
             "trades": 0,
             "wins": 0,
             "pnl": 0.0,

@@ -200,6 +200,30 @@ async def _fetch_lgbm_signal(
 
 
 
+def _build_mrf_failure_audit(
+    cfg,
+    failure_reason: str,
+    reason_codes: list[str] | None = None,
+    as_of=None,
+) -> dict:
+    """Build a serializable audit for attempts that could not classify MRF."""
+    return {
+        "mode": getattr(cfg, "mrf_mode", "UNKNOWN"),
+        "version": getattr(cfg, "mrf_version", 2),
+        "global_phase": "UNKNOWN",
+        "global_regime": "UNKNOWN",
+        "asset_phase": "UNKNOWN",
+        "asset_regime": "UNKNOWN",
+        "global_strength": 0.0,
+        "global_confidence": 0.0,
+        "applied": False,
+        "history_ready": False,
+        "failure_reason": failure_reason,
+        "reason_codes": list(reason_codes or []),
+        "as_of": as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of),
+    }
+
+
 async def _apply_mrf_filter(
     db_session,
     cfg,
@@ -245,7 +269,14 @@ async def _apply_mrf_filter(
 
         if not candles_by_asset:
             logger.warning("mrf_no_candles_any_asset")
-            return action, bet_size_usdc, None, None, "candle_error:no_candles"
+            failure = "candle_error:no_candles"
+            return (
+                action,
+                bet_size_usdc,
+                _build_mrf_failure_audit(cfg, failure, as_of=start_time),
+                None,
+                failure,
+            )
 
         snapshot = build_snapshot_from_multi_asset_candles(
             candles_by_asset,
@@ -273,7 +304,15 @@ async def _apply_mrf_filter(
                 fail = "not_ready"
             logger.info("mrf_history_not_ready", asset=asset_upper,
                         reason_codes=reason_codes, failure_reason=fail)
-            return action, bet_size_usdc, None, None, fail
+            return (
+                action,
+                bet_size_usdc,
+                _build_mrf_failure_audit(
+                    cfg, fail, reason_codes=reason_codes, as_of=start_time,
+                ),
+                None,
+                fail,
+            )
 
         outcome = apply_regime_policy(
             cfg=cfg,
@@ -304,7 +343,14 @@ async def _apply_mrf_filter(
 
     except Exception as exc:
         logger.error("mrf_error", asset=asset_upper, error=str(exc))
-        return action, bet_size_usdc, None, None, f"runtime_error:{type(exc).__name__}"
+        failure = f"runtime_error:{type(exc).__name__}"
+        return (
+            action,
+            bet_size_usdc,
+            _build_mrf_failure_audit(cfg, failure, as_of=start_time),
+            None,
+            failure,
+        )
 
 async def decide_combined_mode(
     db_session: AsyncSession,
@@ -765,7 +811,8 @@ async def decide_combined_mode(
         if mrf_outcome and mrf_outcome.skip_reason:
             mrf_failure_reason = mrf_outcome.skip_reason
         elif mrf_pre_outcome_reason:
-            mrf_failure_reason = mrf_pre_outcome_reason
+            # DecisionFunnelLog.mrf_failure_reason is VARCHAR(256).
+            mrf_failure_reason = str(mrf_pre_outcome_reason)[:256]
 
     # Update trade_decision if MRF changed action OR bet size
     mrf_phase = "UNKNOWN"
