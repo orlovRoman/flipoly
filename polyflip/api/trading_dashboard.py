@@ -331,12 +331,45 @@ async def get_funnel_stats(
     asset_rows = (await db.execute(asset_q)).all()
     by_asset = {r.asset: {"total": r.total, "traded": r.traded} for r in asset_rows}
 
+    # MRF summary (MRF-FIX-11): counts by mrf_mode
+    mrf_q = (
+        select(
+            func.count().label("total"),
+            func.count(
+                sa_case(
+                    (DecisionFunnelLog.mrf_applied == True, 1),  # noqa: E712
+                    else_=None,
+                )
+            ).label("applied"),
+            func.count(
+                sa_case(
+                    (DecisionFunnelLog.mrf_applied == False, 1),  # noqa: E712
+                    else_=None,
+                )
+            ).label("not_applied"),
+            func.count(
+                sa_case(
+                    (DecisionFunnelLog.mrf_final_action == "SKIP", 1),
+                    else_=None,
+                )
+            ).label("blocked"),
+        )
+        .where(and_(*base_filter))
+    )
+    mrf_row = (await db.execute(mrf_q)).one()
+
     return {
         "total": total,
         "traded": row.traded,
         "hours": hours,
         "by_gate": by_gate,
         "by_asset": by_asset,
+        "mrf": {
+            "evaluated": mrf_row.total,
+            "applied": mrf_row.applied,
+            "not_applied": mrf_row.not_applied,
+            "blocked": mrf_row.blocked,
+        },
     }
 
 
@@ -384,6 +417,21 @@ async def get_funnel_detail(
                 "g6_price_range": r.g6_price_range,
                 "g7_crypto_confirm": r.g7_crypto_confirm,
                 "g8_combined_vote": r.g8_combined_vote,
+            },
+            "mrf": {
+                "evaluated": r.mrf_evaluated,
+                "mode": r.mrf_mode,
+                "phase": r.mrf_phase,
+                "asset_phase": r.mrf_asset_phase,
+                "strength": r.mrf_strength,
+                "confidence": r.mrf_confidence,
+                "multiplier": r.mrf_multiplier,
+                "applied": r.mrf_applied,
+                "failure_reason": r.mrf_failure_reason,
+                "original_action": r.mrf_original_action,
+                "original_bet": r.mrf_original_bet,
+                "final_action": r.mrf_final_action,
+                "final_bet": r.mrf_final_bet,
             },
             "final_action": r.final_action,
             "skip_reason": r.skip_reason,
