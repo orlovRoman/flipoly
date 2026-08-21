@@ -1,0 +1,29 @@
+{
+  "created_at": "2026-08-19",
+  "branch": "feat/ai-lab-completion",
+  "base_commit": "faf5ec4",
+  "base_ref": "origin/main",
+  "alembic_head": "20260815_funnel_raw_opinion",
+  "working_tree_clean": true,
+  "api_health": {
+    "endpoint": "/health",
+    "status": "ok"
+  },
+  "runtime_safety": {
+    "trading_enabled": false,
+    "execution_mode": "PAPER"
+  },
+  "active_model_snapshot": {
+    "active_model_count": 35,
+    "active_model_snapshot_md5": "e590a0f017c60cb245b084ee056a1648"
+  },
+  "database_backups_seen": [
+    "flipoly-release-010a751/backups/backup_polyflip_20260818_130602.sql",
+    "flipoly-release-010a751/backups/backup_polyflip_20260817_095637.sql",
+    "flipoly/backups/flipoly_20260812_092532.dump"
+  ],
+  "notes": [
+    "Created in a clean worktree separate from the pre-existing dirty logreg worktree.",
+    "No active model, runtime limit, trade history, or server code was changed during Stage 0."
+  ]
+}

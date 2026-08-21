@@ -291,6 +291,22 @@ REGISTRY: list[SettingDef] = [
                description="L2 регуляризация LightGBM"),
     SettingDef("LGBM_EPSILON_QUANTILE", "0.70",
                description="Квантиль epsilon-фильтра таргета. 0.70 = учимся на топ-30% движений"),
+
+    # --- Market Regime Filter (MRF) ---
+    SettingDef("MARKET_REGIME_FILTER_MODE", "OFF",
+               description="Режим MRF: OFF (выключен) | SHADOW (запись логов) | ACTIVE (торговый фильтр)"),
+    SettingDef("MARKET_REGIME_FILTER_VERSION", "1",
+               description="Версия MRF для сопоставления телеметрии с экспериментами"),
+    SettingDef("MARKET_REGIME_MIN_HISTORY", "97",
+               description="Минимальное количество 15-мин свечей для построения снапшота (≈24ч)"),
+    SettingDef("MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER", "0.0",
+               description="Мультипликатор размера ставки на аутсайдера в TREND (0.0 = не менять)"),
+    SettingDef("MARKET_REGIME_UNKNOWN_MULTIPLIER", "0.8",
+               description="Мультипликатор размера ставки при UNKNOWN регионе (0.8 = снижение на 20%)"),
+    SettingDef("MARKET_REGIME_BREADTH_THRESHOLD", "0.65",
+               description="Порог breadth (доля активов с ret>0) для определения TREND (0.65 = 65% активов растут)"),
+    SettingDef("MARKET_REGIME_EFFICIENCY_THRESHOLD", "0.40",
+               description="Порог рыночной эффективности (efficiency = mean_abs_ret / volatility). 0.40 = 40% эффективности"),
 ]
 
 

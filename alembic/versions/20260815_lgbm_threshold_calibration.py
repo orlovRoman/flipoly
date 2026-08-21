@@ -11,21 +11,26 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "lgbm_experiment_configs",
-        sa.Column("threshold_params", sa.JSON(), nullable=True),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("lgbm_experiment_configs")}
+    if "threshold_params" not in columns:
+        op.add_column(
+            "lgbm_experiment_configs",
+            sa.Column("threshold_params", sa.JSON(), nullable=True),
+        )
     op.execute(
         "UPDATE lgbm_experiment_configs "
         "SET threshold_params = '{}' "
         "WHERE threshold_params IS NULL"
     )
-    op.alter_column(
-        "lgbm_experiment_configs",
-        "threshold_params",
-        existing_type=sa.JSON(),
-        nullable=False,
-    )
+    if "threshold_params" not in columns:
+        op.alter_column(
+            "lgbm_experiment_configs",
+            "threshold_params",
+            existing_type=sa.JSON(),
+            nullable=False,
+        )
 
 
 def downgrade() -> None:

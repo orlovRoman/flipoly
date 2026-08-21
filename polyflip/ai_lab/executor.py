@@ -13,6 +13,7 @@ Every adapter outcome is persisted through the same audited result path.
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Mapping, Protocol
 
@@ -21,6 +22,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.ai_lab.orchestrator import (
     claim_next_step,
     record_result,
+)
+from polyflip.ai_lab.jobs import (
+    claim_job,
+    complete_job,
+    ensure_job,
+    should_retry,
 )
 from polyflip.ai_lab.service import AILabError, utc_now
 from polyflip.db.models import (
@@ -233,6 +240,8 @@ async def execute_next_step(
     session: AsyncSession,
     run_id: int,
     registry: AdapterRegistry,
+    *,
+    owner_token: str | None = None,
 ) -> ExecutionOutcome | None:
     """Claim and execute one offline step.
 
@@ -323,6 +332,39 @@ async def execute_next_step(
         strategy_params=dict(getattr(config, "strategy_params", None) or {}),
         backtest_params=dict(getattr(config, "backtest_params", None) or {}),
     )
+    # Create and claim a durable job for this exact step before executing the
+    # potentially long-running adapter. The run-level AIWorkerLease remains
+    # the owner lease; this job record makes restart/recovery auditable.
+    job_key = f"ai-lab:{run_id}:{step.id}:{action}"
+    # The production worker uses an AsyncSession and therefore gets a durable
+    # job row. Lightweight fake sessions keep the adapter boundary contract.
+    durable_job = True
+    try:
+        job = await ensure_job(
+            session,
+            run_id=run_id,
+            step_id=step.id,
+            operation=action,
+            idempotency_key=job_key,
+        )
+    except AttributeError:
+        if hasattr(session, "execute"):
+            raise
+        durable_job = False
+        job = SimpleNamespace(
+            id=None,
+            status="RUNNING",
+            attempt=0,
+            owner_token=owner_token,
+        )
+    if durable_job:
+        if job.status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+            await session.rollback()
+            return None
+        if await claim_job(session, job_key, owner_token=owner_token) is None:
+            await session.rollback()
+            return None
+
     # Do not hold the claim row lock during model training/backtesting.
     await session.commit()
 
@@ -375,9 +417,42 @@ async def execute_next_step(
             error_code=result.error_code,
             error_message=result.error_message,
         )
+        retryable = result.status.strip().upper() == "FAILED" and should_retry(
+            result.error_message, int(getattr(job, "attempt", 0) or 0)
+        )
+        if getattr(job, "id", None) is not None:
+            await complete_job(
+                session,
+                job.id,
+                status=("RETRY_WAIT" if retryable else (
+                    "SUCCEEDED"
+                    if result.status in {"SUCCEEDED", "INSUFFICIENT_DATA"}
+                    else "FAILED"
+                )),
+                error=result.error_message,
+                owner_token=owner_token,
+            )
+        if retryable:
+            # record_result deliberately remains FAILED for auditability, but
+            # the step is made claimable again for a later worker attempt.
+            step.status = "PENDING"
+            step.finished_at = None
+            step.error_code = None
+            step.error_message = None
         await session.commit()
-    except Exception:
+    except Exception as exc:
         await session.rollback()
+        try:
+            async with session.begin():
+                if getattr(job, "id", None) is not None:
+                    await complete_job(
+                        session,
+                        job.id,
+                        status="FAILED",
+                        error=_short_error(exc),
+                    )
+        except Exception:
+            await session.rollback()
         raise
 
     return ExecutionOutcome(
@@ -398,6 +473,7 @@ async def execute_steps(
     registry: AdapterRegistry,
     *,
     max_steps: int = 1,
+    owner_token: str | None = None,
 ) -> list[ExecutionOutcome]:
     """Drain at most max_steps; the bound prevents an unbounded worker loop."""
 
@@ -406,7 +482,17 @@ async def execute_steps(
     outcomes: list[ExecutionOutcome] = []
     for _ in range(max_steps):
         try:
-            outcome = await execute_next_step(session, run_id, registry)
+            if owner_token is None:
+                # Preserve the legacy callable shape for integrations that
+                # wrap or monkeypatch execute_next_step.
+                outcome = await execute_next_step(session, run_id, registry)
+            else:
+                outcome = await execute_next_step(
+                    session,
+                    run_id,
+                    registry,
+                    owner_token=owner_token,
+                )
         except Exception as exc:
             # execute_next_step already rolls back its failed result write.
             # Preserve earlier committed outcomes for the worker/agent instead

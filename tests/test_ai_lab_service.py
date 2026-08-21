@@ -63,6 +63,7 @@ async def test_create_run_persists_permission_snapshot_without_live_side_effects
     assert run.status == "DRAFT"
     assert run.permission_id == 7
     assert run.autonomy_level == "EXPERIMENT"
+    assert run.agent_type == "AI_LAB"
     session.flush.assert_awaited_once()
 
 

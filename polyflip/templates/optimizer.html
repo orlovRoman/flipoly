@@ -96,6 +96,21 @@
       align-items: center;
     }
 
+    .mode-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 1.1rem;
+      border: 1px solid rgba(245, 166, 35, 0.45);
+      border-radius: 10px;
+      background: rgba(245, 166, 35, 0.12);
+      color: #fbbf24;
+      font-weight: 700;
+    }
+    .mode-banner .mode-label { font-family: var(--font-mono); letter-spacing: .08em; }
+    .unavailable { color: var(--text-muted); padding: 1rem; text-align: center; }
+
     /* Navigation Tabs */
     .opt-tabs {
       display: flex;
@@ -392,6 +407,16 @@
       box-shadow: 0 0 0 2px rgba(0, 114, 245, 0.2);
     }
 
+    /* Keep native dropdown menus readable in light browser themes. */
+    .form-select {
+      color-scheme: dark;
+    }
+
+    .form-select option {
+      background: #101623;
+      color: #f3f6fb;
+    }
+
     .mono-hash {
       font-family: var(--font-mono);
       color: var(--poly-green);
@@ -426,38 +451,75 @@
     <main class="main-content">
       <div class="opt-container">
         
-        <!-- Active Live Revision Hero Banner -->
+        <!-- Read-only mode banner: this page never activates or deploys models. -->
+        <div class="mode-banner" role="status" aria-live="polite">
+          <span class="mode-label" id="ai-lab-mode-label">RESEARCH / PAPER</span>
+          <span>RESEARCH/PAPER: LIVE-активация отключена</span>
+        </div>
+
+        <!-- Read-only revision summary -->
         <div class="hero-banner" id="active-revision-banner">
           <div class="hero-left">
             <div class="hero-icon">⚡</div>
             <div>
-              <div class="hero-title">Активная ревизия в LIVE</div>
+              <div class="hero-title">Активная ревизия (read-only)</div>
               <div class="hero-value" id="hero-active-title">Загрузка ревизии...</div>
               <div class="hero-meta" id="hero-active-meta">—</div>
             </div>
           </div>
-          <div class="hero-right">
-            <button class="btn btn-warning" id="btn-emergency-rollback" onclick="openRollbackModal()">
-              ⏮ Аварийный откат (Rollback)
-            </button>
-          </div>
+          <div class="hero-right"><span class="status-badge badge-shadow">READ-ONLY</span></div>
         </div>
 
         <!-- Navigation Tabs -->
         <div class="opt-tabs">
           <button class="opt-tab-btn active" data-tab="runs" onclick="switchOptTab('runs')">
-            📋 Запуски оптимизации
+             📋 Runs
           </button>
-          <button class="opt-tab-btn" data-tab="detail" onclick="switchOptTab('detail')">
-            🔬 Детали и Таймлайн
+          <button class="opt-tab-btn" data-tab="timeline" onclick="switchOptTab('timeline')">
+             🔬 Steps/Timeline
           </button>
-          <button class="opt-tab-btn" data-tab="approval" onclick="switchOptTab('approval')">
-            ⚖️ Согласование и Visual Diff
+          <button class="opt-tab-btn" data-tab="candidates" onclick="switchOptTab('candidates')">
+             📊 Candidates/results
           </button>
-          <button class="opt-tab-btn" data-tab="revisions" onclick="switchOptTab('revisions')">
-            📜 Ревизии и Аудит-цепочка
+          <button class="opt-tab-btn" data-tab="shadow" onclick="switchOptTab('shadow')">🌘 SHADOW</button>
+          <button class="opt-tab-btn" data-tab="deployments" onclick="switchOptTab('deployments')">🚚 Deployments</button>
+          <button class="opt-tab-btn" data-tab="permissions" onclick="switchOptTab('permissions')">🔐 Permissions</button>
+          <button class="opt-tab-btn" data-tab="errors" onclick="switchOptTab('errors')">⚠️ Errors</button>
+          <button class="opt-tab-btn" data-tab="audit" onclick="switchOptTab('audit')">🧾 Audit</button>
+          <button class="opt-tab-btn" data-tab="detail" onclick="switchOptTab('detail')" style="display:none" aria-hidden="true">
+             Детали
+          </button>
+          <button class="opt-tab-btn" data-tab="approval" onclick="switchOptTab('approval')" style="display:none" aria-hidden="true">
+             Approval
+          </button>
+          <button class="opt-tab-btn" data-tab="revisions" onclick="switchOptTab('revisions')" style="display:none" aria-hidden="true">
+             Revisions
           </button>
         </div>
+
+        <!-- Stage 9 read-only sections. Data is populated from existing API payloads. -->
+        <div id="tab-timeline" class="tab-pane" style="display:none">
+          <div class="opt-panel">
+            <div class="panel-header">
+              <div class="panel-title">Steps / Timeline</div>
+              <div id="timeline-selected-run" style="color: var(--text-muted);">Выберите запуск</div>
+                            <div id="run-control-actions" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                <button class="btn btn-primary btn-sm" id="btn-run-iterate" type="button" onclick="triggerRunIterate()" style="display:none;">⚡ Шаг агента</button>
+                <button class="btn btn-outline btn-sm" id="btn-run-pause" type="button" onclick="pauseRun()" style="display:none;">⏸ Пауза</button>
+                <button class="btn btn-outline btn-sm" id="btn-run-resume" type="button" onclick="resumeRun()" style="display:none;">▶ Возобновить</button>
+                <button class="btn btn-warning btn-sm" id="btn-run-cancel" type="button" onclick="cancelRun()" style="display:none;">✕ Отменить</button>
+              </div>
+
+            </div>
+            <div id="stage9-timeline" class="timeline"><div class="unavailable">Выберите запуск.</div></div>
+          </div>
+        </div>
+        <div id="tab-candidates" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Candidates / results</div><div id="stage9-candidates"><div class="unavailable">Выберите запуск.</div></div></div></div>
+        <div id="tab-shadow" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">SHADOW</div><div id="stage9-shadow"><div class="unavailable">SHADOW assignment data is unavailable.</div></div></div></div>
+        <div id="tab-deployments" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Deployments</div><div id="stage9-deployments"><div class="unavailable">Загрузка ревизий...</div></div></div></div>
+        <div id="tab-permissions" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Permissions</div><div id="stage9-permissions"><div class="unavailable">Загрузка разрешений...</div></div></div></div>
+        <div id="tab-errors" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Errors</div><div id="stage9-errors"><div class="unavailable">Ошибок не найдено.</div></div></div></div>
+        <div id="tab-audit" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Audit</div><div id="stage9-audit"><div class="unavailable">Загрузка аудита...</div></div></div></div>
 
         <!-- TAB 1: RUNS LIST -->
         <div id="tab-runs" class="tab-pane">
@@ -477,7 +539,8 @@
                   <option value="REJECTED">REJECTED</option>
                   <option value="FAILED">FAILED</option>
                 </select>
-                <button class="btn btn-primary" onclick="openNewRunModal()">+ Новый запуск</button>
+                <button class="btn btn-primary btn-sm" id="btn-new-run" type="button" onclick="openNewRunModal()">＋ Новый PAPER/RESEARCH запуск</button>
+                <span class="status-badge badge-shadow" title="Исследования не меняют активные модели">LIVE-активация отключена</span>
               </div>
             </div>
 
@@ -624,8 +687,7 @@
                 </div>
               </div>
               <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                <button class="btn btn-danger" onclick="executeRejectApproval()">❌ Отклонить (Reject)</button>
-                <button class="btn btn-success" onclick="executeApproveLive()">✅ Утвердить и Активировать в LIVE</button>
+                <span class="status-badge badge-shadow">LIVE-решения отключены: доступен только просмотр diff</span>
               </div>
             </div>
           </div>
@@ -679,7 +741,7 @@
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title">Создать новый запуск оптимизации</div>
-        <button class="btn btn-outline" onclick="closeModal('modal-new-run')">✕</button>
+        <button class="btn btn-outline" onclick="closeNewRunModal()">✕</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -696,8 +758,23 @@
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
           <div class="form-group">
+            <label class="form-label">Семейство модели</label>
+            <select class="form-select" id="new-run-family">
+              <option value="LOGREG" selected>LogReg</option>
+              <option value="LIGHTGBM">LightGBM</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Permission-профиль</label>
+            <select class="form-select" id="new-run-permission" required>
+              <option value="">Загрузка профилей...</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
             <label class="form-label">Бюджет экспериментов</label>
-            <input type="number" class="form-input" id="new-run-budget" value="10" min="1" max="100">
+            <input type="number" class="form-input" id="new-run-budget" value="1" min="1" max="10">
           </div>
           <div class="form-group">
             <label class="form-label">Уровень автономии</label>
@@ -706,8 +783,7 @@
               <option value="EXPERIMENT" selected>EXPERIMENT (Обучение и OOT-оценка)</option>
               <option value="AUTONOMOUS_SHADOW">AUTONOMOUS_SHADOW (Авто-продвижение в SHADOW)</option>
               <option value="AUTONOMOUS_CONFIG">AUTONOMOUS_CONFIG (Наложение безопасных оверлеев)</option>
-              <option value="LIVE_PROPOSE">LIVE_PROPOSE (Запрос на утверждение LIVE)</option>
-              <option value="DIRECTED">DIRECTED (Управляемый режим)</option>
+              <option value="DIRECTED">DIRECTED (Управляемый research режим)</option>
             </select>
           </div>
         </div>
@@ -723,42 +799,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-outline" onclick="closeModal('modal-new-run')">Отмена</button>
+        <button class="btn btn-outline" onclick="closeNewRunModal()">Отмена</button>
         <button class="btn btn-primary" onclick="submitCreateRun()">🚀 Запустить</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal: Rollback Confirmation -->
-  <div class="modal-backdrop" id="modal-rollback">
-    <div class="modal-card">
-      <div class="modal-header">
-        <div class="modal-title">⚠️ Подтверждение отката (Emergency Rollback)</div>
-        <button class="btn btn-outline" onclick="closeModal('modal-rollback')">✕</button>
-      </div>
-      <div class="modal-body">
-        <p style="margin-bottom: 1rem; color: #FBBF24;">
-          Внимание: Аварийный откат мгновенно переключит указатели активной модели в <code>ModelRegistry</code> на предыдущую стабильную ревизию.
-        </p>
-        <p style="margin-bottom: 1rem; font-size: 0.85rem; color: var(--text-muted);">
-          ℹ️ Открытые биржевые позиции и ордера <strong>не будут затронуты или ликвидированы</strong>.
-        </p>
-        <div class="form-group">
-          <label class="form-label">Целевой ID ревизии (оставьте пустым для авто-выбора родительской)</label>
-          <input type="number" class="form-input" id="rollback-target-id" placeholder="Автоматически (parent_id)">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Имя актора</label>
-          <input type="text" class="form-input" id="rollback-actor" value="admin">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Причина отката</label>
-          <input type="text" class="form-input" id="rollback-reason" placeholder="Например: Аномалия на рынке / резкий рост просадки">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-outline" onclick="closeModal('modal-rollback')">Отмена</button>
-        <button class="btn btn-warning" onclick="submitRollback()">⏮ Подтвердить откат</button>
       </div>
     </div>
   </div>

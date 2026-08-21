@@ -11,18 +11,20 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "decision_funnel_log",
-        sa.Column("direction_raw_opinion", sa.String(length=16), nullable=True),
-    )
-    op.add_column(
-        "decision_funnel_log",
-        sa.Column("direction_p_up_raw", sa.Float(), nullable=True),
-    )
-    op.add_column(
-        "decision_funnel_log",
-        sa.Column("direction_p_down_raw", sa.Float(), nullable=True),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("decision_funnel_log")}
+    additions = {
+        "direction_raw_opinion": sa.String(length=16),
+        "direction_p_up_raw": sa.Float(),
+        "direction_p_down_raw": sa.Float(),
+    }
+    for name, column_type in additions.items():
+        if name not in columns:
+            op.add_column(
+                "decision_funnel_log",
+                sa.Column(name, column_type, nullable=True),
+            )
 
 
 def downgrade() -> None:

@@ -1410,6 +1410,7 @@ class ModelTrainer:
 
             phase_model = ModelRegistry(
                 asset=phase_asset, version=(last_v_p or 0) + 1,
+                model_type="logreg",
                 model_blob=model_bytes_p, accuracy=val_acc_p,
                 baseline=baseline_acc_p, features=",".join(active_features),
                 ece=ece_p, is_active=bool(activate_after_train), interval="15m",

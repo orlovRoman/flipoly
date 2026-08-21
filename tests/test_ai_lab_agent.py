@@ -8,8 +8,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import ValidationError
 
+from polyflip.ai_lab.agent import _completed_experiments
 from polyflip.ai_lab.agent_tools import (
     ALLOWED_OVERLAY_KEYS,
+    canonical_feature_set,
     OVERLAY_BOUNDS,
     generate_feature_patch,
     validate_overlay_changes,
@@ -62,7 +64,7 @@ class TestAILabAgentPhase10(unittest.TestCase):
         with self.assertRaises(ValidationError):
             HypothesisProposal(
                 hypothesis="Test unlisted penny token",
-                asset="DOGE",
+                asset="ADA",
                 model_family="LOGREG",
                 feature_set="FS_D0",
             )
@@ -164,6 +166,19 @@ class TestAILabAgentPhase10(unittest.TestCase):
         # LIVE_PROPOSE cannot activate LIVE directly
         with self.assertRaises(AILabError):
             validate_agent_action_autonomy("ACTIVATE_LIVE_DEPLOYMENT", "LIVE_PROPOSE")
+
+    def test_research_feature_set_aliases_are_trainer_compatible(self):
+        self.assertEqual(canonical_feature_set("FS_D0"), "A")
+        self.assertEqual(canonical_feature_set("FS_D1"), "B")
+        self.assertEqual(canonical_feature_set("FS_D2"), "C")
+        self.assertEqual(canonical_feature_set("DEFAULT"), "AUTO")
+        with self.assertRaises(AILabError):
+            canonical_feature_set("FS_UNKNOWN")
+
+    def test_nullable_experiment_counter_is_normalized(self):
+        self.assertEqual(_completed_experiments(type("Run", (), {"experiments_completed": None})()), 0)
+        self.assertEqual(_completed_experiments(type("Run", (), {"experiments_completed": "2"})()), 2)
+        self.assertEqual(_completed_experiments(type("Run", (), {"experiments_completed": -1})()), 0)
 
     def test_mock_llm_propose_and_analyze(self):
         async def run_async():

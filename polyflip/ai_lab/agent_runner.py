@@ -17,9 +17,10 @@ import structlog
 
 from polyflip.ai_lab.agent import AILabAgent
 from polyflip.ai_lab.agent_tools import expire_overlays
+from polyflip.ai_lab.jobs import recover_stale_jobs
 from polyflip.ai_lab.service import transition_run, utc_now
 from polyflip.db.connection import async_session
-from polyflip.db.models import AIOptimizationRun, AIWorkerLease
+from polyflip.db.models import AIExperimentJob, AIOptimizationRun, AIWorkerLease
 
 logger = structlog.get_logger("polyflip.ai_lab.agent_runner")
 
@@ -82,6 +83,18 @@ class AgentRunner:
                 if not await self.acquire_lease(heartbeat_session, run_id):
                     logger.error("ai_worker_lease_lost", run_id=run_id)
                     return
+                jobs = (
+                    await heartbeat_session.execute(
+                        select(AIExperimentJob).where(
+                            AIExperimentJob.run_id == run_id,
+                            AIExperimentJob.status == "RUNNING",
+                        )
+                    )
+                ).scalars().all()
+                now = utc_now()
+                for job in jobs:
+                    job.heartbeat_at = now
+                await heartbeat_session.commit()
 
     async def _mark_failed(self, run_id: int, exc: BaseException) -> None:
         error_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
@@ -111,6 +124,7 @@ class AgentRunner:
     async def process_one_run(self) -> bool:
         async with async_session() as session:
             await expire_overlays(session)
+            await recover_stale_jobs(session)
             await session.commit()
             run = (
                 await session.execute(
@@ -134,7 +148,10 @@ class AgentRunner:
                 return False
             heartbeat_task = asyncio.create_task(self._heartbeat_loop(run_id))
             try:
-                result = await AILabAgent(session).execute_iteration(run_id)
+                result = await AILabAgent(
+                    session,
+                    owner_token=self.worker_id,
+                ).execute_iteration(run_id)
                 logger.info("iteration_completed", run_id=run_id, result=result)
                 return True
             except Exception as exc:

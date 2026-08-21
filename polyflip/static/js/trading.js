@@ -322,6 +322,23 @@ document.addEventListener("DOMContentLoaded", () => {
     maxPriceDrift: document.getElementById("MAX_PRICE_DRIFT"),
     combinedModeSettings: document.getElementById('combined-mode-settings'),
 
+    // MRF (Market Regime Filter)
+    mrfModeRadios: document.querySelectorAll('input[name="mrf_mode"]'),
+    mrfModeBadge: document.getElementById('mrf-mode-badge'),
+    mrfEfficiencyThreshold: document.getElementById('MARKET_REGIME_EFFICIENCY_THRESHOLD'),
+    mrfBreadthThreshold: document.getElementById('MARKET_REGIME_BREADTH_THRESHOLD'),
+    mrfMinHistory: document.getElementById('MARKET_REGIME_MIN_HISTORY'),
+    mrfUnknownMultiplier: document.getElementById('MARKET_REGIME_UNKNOWN_MULTIPLIER'),
+    mrfOutsiderTrendMultiplier: document.getElementById('MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER'),
+    mrfFilterVersion: document.getElementById('MARKET_REGIME_FILTER_VERSION'),
+    mrfStatusPanel: document.getElementById('mrf-status-panel'),
+    mrfCurrentRegime: document.getElementById('mrf-current-regime'),
+    mrfStatusDetails: document.getElementById('mrf-status-details'),
+    mrfStatEvaluated: document.getElementById('mrf-stat-evaluated'),
+    mrfStatBlocked: document.getElementById('mrf-stat-blocked'),
+    mrfStatMultiplier: document.getElementById('mrf-stat-multiplier'),
+    mrfStatStrength: document.getElementById('mrf-stat-strength'),
+    mrfPerAssetCards: document.getElementById('mrf-per-asset-cards'),
   };
 
   function updateDeadZoneInfo() {}
@@ -425,6 +442,97 @@ document.addEventListener("DOMContentLoaded", () => {
       settingsElements.tradingModeBadge.className = `mode-badge mode-combined`;
     }
   }
+
+  
+  // ── MRF Mode Change Handler ──
+  function updateMrfModeBadge() {
+    const badge = settingsElements.mrfModeBadge;
+    if (!badge) return;
+    const checked = document.querySelector('input[name="mrf_mode"]:checked');
+    const mode = checked ? checked.value : 'OFF';
+    badge.textContent = mode;
+    badge.className = 'mrf-regime-badge mrf-regime-' + (mode === 'ACTIVE' ? 'TREND' : mode === 'SHADOW' ? 'MIXED' : 'UNKNOWN');
+    // Show/hide status panel
+    if (settingsElements.mrfStatusPanel) {
+      settingsElements.mrfStatusPanel.style.display = mode !== 'OFF' ? 'block' : 'none';
+    }
+  }
+
+  if (settingsElements.mrfModeRadios) {
+    settingsElements.mrfModeRadios.forEach(radio => {
+      radio.addEventListener('change', () => {
+        updateMrfModeBadge();
+        loadMrfStatus();
+      });
+    });
+    updateMrfModeBadge();
+  }
+
+  // ── MRF Live Status Polling ──
+  async function loadMrfStatus() {
+    try {
+      const checked = document.querySelector('input[name="mrf_mode"]:checked');
+      const mode = checked ? checked.value : 'OFF';
+      if (mode === 'OFF') return;
+
+      const res = await fetch(window.API_BASE + '/api/mrf/status?hours=24', {
+        headers: { 'X-API-Key': apiKey }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      if (settingsElements.mrfCurrentRegime) {
+        const regime = data.latest_regime || 'UNKNOWN';
+        settingsElements.mrfCurrentRegime.textContent = regime;
+        settingsElements.mrfCurrentRegime.className = 'mrf-regime-badge mrf-regime-' + regime;
+      }
+      if (settingsElements.mrfStatusDetails) {
+        const parts = [];
+        if (data.latest_asset) parts.push(data.latest_asset);
+        if (data.latest_strength > 0) parts.push('сила: ' + (data.latest_strength * 100).toFixed(0) + '%');
+        if (data.latest_confidence > 0) parts.push('увер: ' + (data.latest_confidence * 100).toFixed(0) + '%');
+        settingsElements.mrfStatusDetails.textContent = parts.length
+          ? parts.join(' · ') + ' (' + data.hours + 'ч окно)'
+          : 'Нет данных за выбранный период';
+      }
+      if (settingsElements.mrfStatEvaluated) {
+        settingsElements.mrfStatEvaluated.textContent = data.total_evaluated != null ? data.total_evaluated : '—';
+      }
+      if (settingsElements.mrfStatBlocked) {
+        settingsElements.mrfStatBlocked.textContent = data.total_blocked != null ? data.total_blocked : '—';
+      }
+      if (settingsElements.mrfStatMultiplier) {
+        const m = data.avg_multiplier != null ? data.avg_multiplier : 1.0;
+        settingsElements.mrfStatMultiplier.textContent = '×' + m.toFixed(2);
+      }
+      if (settingsElements.mrfStatStrength) {
+        const s = data.latest_strength != null ? (data.latest_strength * 100).toFixed(0) + '%' : '—';
+        settingsElements.mrfStatStrength.textContent = s;
+      }
+      if (settingsElements.mrfPerAssetCards && data.per_asset) {
+        const container = settingsElements.mrfPerAssetCards;
+        container.innerHTML = '';
+        const assets = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP'];
+        for (const asset of assets) {
+          const info = data.per_asset[asset];
+          const card = document.createElement('div');
+          card.className = 'mrf-asset-card';
+          const phase = info ? (Object.keys(info.phases || {}).sort((a,b) => (info.phases[b]||0) - (info.phases[a]||0))[0] || 'UNKNOWN') : 'UNKNOWN';
+          const strength = info ? (info.blocked > 0 ? ' (забл.)' : '') : ' (нет данных)';
+          card.innerHTML = '<span class="asset-name">' + asset + '</span>' +
+            '<span class="asset-phase mrf-regime-badge mrf-regime-' + phase + '">' + phase + '</span>' +
+            '<span class="asset-strength">' + (info ? info.evaluated + ' оценок' : '—') + strength + '</span>';
+          container.appendChild(card);
+        }
+      }
+    } catch (e) {
+      console.warn('MRF status load failed:', e);
+    }
+  }
+
+  loadMrfStatus();
+  setInterval(loadMrfStatus, 30000);
+
 
   if (settingsElements.tradingModeRadios) {
     settingsElements.tradingModeRadios.forEach(radio => {
@@ -656,6 +764,27 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.combinedCostBuffer.value = isNaN(val) ? "0.020" : val.toFixed(3);
       }
 
+
+      // MRF settings
+      if (settingsElements.mrfEfficiencyThreshold && data.MARKET_REGIME_EFFICIENCY_THRESHOLD !== undefined)
+        settingsElements.mrfEfficiencyThreshold.value = data.MARKET_REGIME_EFFICIENCY_THRESHOLD;
+      if (settingsElements.mrfBreadthThreshold && data.MARKET_REGIME_BREADTH_THRESHOLD !== undefined)
+        settingsElements.mrfBreadthThreshold.value = data.MARKET_REGIME_BREADTH_THRESHOLD;
+      if (settingsElements.mrfMinHistory && data.MARKET_REGIME_MIN_HISTORY !== undefined)
+        settingsElements.mrfMinHistory.value = data.MARKET_REGIME_MIN_HISTORY;
+      if (settingsElements.mrfUnknownMultiplier && data.MARKET_REGIME_UNKNOWN_MULTIPLIER !== undefined)
+        settingsElements.mrfUnknownMultiplier.value = data.MARKET_REGIME_UNKNOWN_MULTIPLIER;
+      if (settingsElements.mrfOutsiderTrendMultiplier && data.MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER !== undefined)
+        settingsElements.mrfOutsiderTrendMultiplier.value = data.MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER;
+      if (settingsElements.mrfFilterVersion && data.MARKET_REGIME_FILTER_VERSION !== undefined)
+        settingsElements.mrfFilterVersion.value = data.MARKET_REGIME_FILTER_VERSION;
+      if (data.MARKET_REGIME_FILTER_MODE) {
+        const mode = data.MARKET_REGIME_FILTER_MODE.toUpperCase();
+        const radio = document.querySelector('input[name="mrf_mode"][value="' + mode + '"]');
+        if (radio) radio.checked = true;
+        updateMrfModeBadge();
+      }
+
       if (data.TRADING_MODE) {
         const mode = data.TRADING_MODE;
         const radio = document.querySelector(`input[name="trading_mode"][value="${mode}"]`);
@@ -815,6 +944,17 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.combinedFallbackToMlOnNone) {
       }
       settingsToSave.TRADE_ASSETS = tradeAssets;
+
+      // MRF settings
+      if (settingsElements.mrfEfficiencyThreshold) settingsToSave.MARKET_REGIME_EFFICIENCY_THRESHOLD = parseFloat(settingsElements.mrfEfficiencyThreshold.value);
+      if (settingsElements.mrfBreadthThreshold) settingsToSave.MARKET_REGIME_BREADTH_THRESHOLD = parseFloat(settingsElements.mrfBreadthThreshold.value);
+      if (settingsElements.mrfMinHistory) settingsToSave.MARKET_REGIME_MIN_HISTORY = parseInt(settingsElements.mrfMinHistory.value);
+      if (settingsElements.mrfUnknownMultiplier) settingsToSave.MARKET_REGIME_UNKNOWN_MULTIPLIER = parseFloat(settingsElements.mrfUnknownMultiplier.value);
+      if (settingsElements.mrfOutsiderTrendMultiplier) settingsToSave.MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER = parseFloat(settingsElements.mrfOutsiderTrendMultiplier.value);
+      if (settingsElements.mrfFilterVersion) settingsToSave.MARKET_REGIME_FILTER_VERSION = parseInt(settingsElements.mrfFilterVersion.value);
+      const mrfModeChecked = document.querySelector('input[name="mrf_mode"]:checked');
+      if (mrfModeChecked) settingsToSave.MARKET_REGIME_FILTER_MODE = mrfModeChecked.value;
+
 
       // Считываем индивидуальные настройки по активам
       const perAssetNames = getPerAssetFields();

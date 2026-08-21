@@ -40,7 +40,13 @@ from polyflip.ai_lab.orchestrator import (
 )
 from polyflip.ai_lab.policy import (
     evaluate_candidate_policy,
+    evaluate_research_policy,
     validate_agent_action_autonomy,
+)
+from polyflip.ai_lab.thread_provider import (
+    ThreadProviderStatus,
+    ensure_agent_thread,
+    get_thread_provider,
 )
 from polyflip.ai_lab.service import (
     AILabError,
@@ -49,6 +55,7 @@ from polyflip.ai_lab.service import (
     transition_run,
     utc_now,
 )
+from polyflip.config import settings
 from polyflip.db.models import (
     AIApprovalRequest,
     AIConfigOverlay,
@@ -65,6 +72,14 @@ from polyflip.db.models import (
 logger = structlog.get_logger("polyflip.ai_lab.agent")
 
 
+def _completed_experiments(run: Any) -> int:
+    """Normalize nullable/legacy experiment counters to a safe integer."""
+    try:
+        return max(0, int(getattr(run, "experiments_completed", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 class AILabAgent:
     """Autonomous quantitative researcher agent driving iterative optimization."""
 
@@ -72,9 +87,11 @@ class AILabAgent:
         self,
         session: AsyncSession,
         llm_provider: LLMProvider | None = None,
+        owner_token: str | None = None,
     ) -> None:
         self.session = session
         self.llm = llm_provider or get_llm_provider()
+        self.owner_token = owner_token
 
     async def build_agent_context(self, run: AIOptimizationRun) -> AgentContext:
         """Construct a comprehensive context snapshot for LLM hypothesis generation."""
@@ -104,7 +121,13 @@ class AILabAgent:
             if s.hypothesis
         ]
 
-        remaining = max(0, run.experiment_budget - run.experiments_completed)
+        budget = int(
+            getattr(run, "budget_experiments", 0)
+            or getattr(run, "experiment_budget", 0)
+            or 0
+        )
+        completed = _completed_experiments(run)
+        remaining = max(0, budget - completed)
 
         return AgentContext(
             run_id=run.id,
@@ -134,11 +157,19 @@ class AILabAgent:
         if run is None:
             raise AILabError(f"Run #{run_id} not found")
 
+        budget = int(
+            getattr(run, "budget_experiments", 0)
+            or getattr(run, "experiment_budget", 0)
+            or 0
+        )
+
         if run.status in {"COMPLETED", "FAILED", "CANCELLED", "REJECTED", "PAUSED"}:
             return {"status": run.status, "message": f"Run is in terminal/paused state: {run.status}"}
 
-        # Check budget availability
-        if run.experiment_budget > 0 and run.experiments_completed >= run.experiment_budget:
+        completed = _completed_experiments(run)
+
+        # Check budget availability. Legacy rows may contain NULL counters.
+        if budget > 0 and completed >= budget:
             await transition_run(
                 self.session,
                 run,
@@ -147,11 +178,31 @@ class AILabAgent:
             )
             return {"status": "COMPLETED", "message": "Experiment budget reached"}
 
-        # 1. Build Context & Propose Hypothesis
+        # 1. Keep the optional Codex thread lifecycle explicit. A missing
+        # official SDK is recorded as NOT_CONFIGURED; it never silently
+        # changes the configured LLM provider or sends secrets to the thread.
+        thread_provider = get_thread_provider(
+            getattr(settings, "AI_LAB_THREAD_PROVIDER", "none")
+        )
+        thread_result = await ensure_agent_thread(
+            self.session,
+            run,
+            thread_provider,
+            str(run.objective or "AI Lab research iteration"),
+        )
+        if thread_result.status is not ThreadProviderStatus.OK:
+            logger.info(
+                "ai_lab_thread_not_configured",
+                run_id=run.id,
+                status=thread_result.status.value,
+                error=thread_result.error,
+            )
+
+        # 2. Build Context & Propose Hypothesis
         context = await self.build_agent_context(run)
         proposal, prop_stats = await self.llm.propose_hypothesis(context)
 
-        step_idx = run.experiments_completed + 1
+        step_idx = completed + 1
         existing_indices = (
             await self.session.execute(
                 select(AIRunStep.step_index).where(AIRunStep.run_id == run.id)
@@ -187,6 +238,7 @@ class AILabAgent:
                 self.session,
                 run.id,
                 max_steps=min(len(planned_steps), 10),
+                owner_token=self.owner_token,
             )
 
         # 5. Evaluate Run results
@@ -202,8 +254,17 @@ class AILabAgent:
                 "windows_count": 0,
             }
 
-        # 6. Evaluate Quantitative Policy Rules
-        policy_result = evaluate_candidate_policy(metrics)
+        # 6. Evaluate Quantitative Policy Rules. RESEARCH deliberately
+        # separates technical validity from evidence volume: a weak but
+        # loadable candidate must remain available for shadow observation.
+        research_mode = str(
+            getattr(run, "mode", "STANDARD") or "STANDARD"
+        ).upper() == "RESEARCH"
+        policy_result = (
+            evaluate_research_policy(metrics)
+            if research_mode
+            else evaluate_candidate_policy(metrics)
+        )
 
         # 7. LLM Post-Experiment Analysis & Decision
         analysis_ctx = AnalysisContext(
@@ -214,7 +275,7 @@ class AILabAgent:
             baseline_comparison={"score": policy_result.score},
             finalization_gate=policy_result.to_dict(),
             iteration=step_idx,
-            budget_remaining_steps=max(0, run.experiment_budget - step_idx),
+                budget_remaining_steps=max(0, budget - step_idx),
         )
         decision, dec_stats = await self.llm.analyze_experiment(analysis_ctx)
 
@@ -250,11 +311,15 @@ class AILabAgent:
             )
         ).scalar_one_or_none()
 
-        if (
-            policy_result.gate_passed
-            and artifact
+        shadow_eligible = bool(
+            artifact
+            and (
+                policy_result.gate_passed
+                or (research_mode and policy_result.technical_valid)
+            )
             and decision.action == "RECOMMEND_SHADOW"
-        ):
+        )
+        if shadow_eligible:
             # Validate Autonomy level for SHADOW assignment
             try:
                 validate_agent_action_autonomy("ASSIGN_SHADOW", run.autonomy_level)
@@ -303,7 +368,7 @@ class AILabAgent:
                 logger.info("overlay_skipped_by_autonomy", reason=str(e))
 
         # 9. Update Run Counters & Summary
-        run.experiments_completed += 1
+        run.experiments_completed = completed + 1
         summary_payload = {
             "last_iteration": step_idx,
             "last_hypothesis": proposal.hypothesis,
@@ -315,11 +380,13 @@ class AILabAgent:
             "applied_overlay": applied_overlay,
             "proposed_live": proposed_live,
             "winner_artifact_id": artifact.id if artifact else None,
+            "agent_thread_status": thread_result.status.value,
+            "agent_thread_id": run.agent_thread_id,
         }
         run.summary = json.dumps(summary_payload, ensure_ascii=False)
 
         if run.status == "EVALUATING":
-            if run.experiments_completed >= run.experiment_budget:
+            if budget > 0 and _completed_experiments(run) >= budget:
                 await transition_run(
                     self.session,
                     run,

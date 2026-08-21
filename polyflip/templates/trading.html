@@ -124,6 +124,53 @@
         .group-bounds .settings-section-title {
             color: #22d3ee;
         }
+        .group-mrf {
+            border-left: 4px solid #00e5ff;
+            background: linear-gradient(135deg, rgba(0, 229, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
+        }
+        .group-mrf .settings-section-title {
+            color: #22d3ee;
+        }
+        .mrf-status-card {
+            margin-top: 1rem;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            background: rgba(0, 229, 255, 0.04);
+            border: 1px solid rgba(0, 229, 255, 0.15);
+        }
+        .mrf-regime-badge {
+            display: inline-block;
+            font-size: 0.8rem;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+        .mrf-regime-STRONG_UP     { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.4); color: #10b981; }
+        .mrf-regime-WEAK_UP       { background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.25); color: #34d399; }
+        .mrf-regime-SIDEWAYS      { background: rgba(148,163,184,0.10); border: 1px solid rgba(148,163,184,0.25); color: #94a3b8; }
+        .mrf-regime-WEAK_DOWN     { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); color: #fbbf24; }
+        .mrf-regime-STRONG_DOWN   { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #f87171; }
+        .mrf-regime-HIGH_VOL_CHOP { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); color: #ef4444; }
+        .mrf-regime-MIXED         { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); color: #f59e0b; }
+        .mrf-regime-UNKNOWN       { background: rgba(148,163,184,0.12); border: 1px solid rgba(148,163,184,0.3); color: #94a3b8; }
+        .mrf-regime-STABLE  { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); color: #34d399; }
+        .mrf-regime-TREND   { background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.3); color: #60a5fa; }
+        .mrf-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.75rem;
+            margin-top: 0.75rem;
+        }
+        .mrf-stat-item {
+            text-align: center;
+            padding: 0.5rem;
+            background: rgba(0,0,0,0.2);
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .mrf-stat-item .label { font-size: 0.75rem; color: var(--text-muted); }
+        .mrf-stat-item .value { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
+
         .group-strategies {
             border-left: 4px solid #ec4899;
             background: linear-gradient(135deg, rgba(236, 72, 153, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
@@ -828,7 +875,91 @@
                         <!-- 6. Стратегии Фаворита и Аутсайдера -->
                             </div> <!-- /RIGHT COLUMN -->
 
-                        </div> <!-- /2-column layout container -->
+                        
+                            <!-- MRF: Market Regime Filter -->
+                            <div class="settings-section-card group-mrf">
+                                <div class="settings-section-header">
+                                    <h4 class="settings-section-title">🌊 Market Regime Filter (MRF)</h4>
+                                    <span id="mrf-mode-badge" class="mrf-regime-badge mrf-regime-UNKNOWN">OFF</span>
+                                </div>
+
+                                <!-- Mode Switcher -->
+                                <div class="form-group" style="margin-bottom: 1rem;">
+                                    <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Режим MRF</label>
+                                    <div class="radio-group" style="flex-wrap: wrap; gap: 1.5rem;">
+                                        <label class="radio-option">
+                                            <input type="radio" name="mrf_mode" value="OFF" id="mrf-mode-off" checked>
+                                            <span>🔒 OFF — выключен</span>
+                                        </label>
+                                        <label class="radio-option">
+                                            <input type="radio" name="mrf_mode" value="SHADOW" id="mrf-mode-shadow">
+                                            <span>👁 SHADOW — тень (логи без фильтрации)</span>
+                                        </label>
+                                        <label class="radio-option">
+                                            <input type="radio" name="mrf_mode" value="ACTIVE" id="mrf-mode-active">
+                                            <span>⚡ ACTIVE — торговый фильтр</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Thresholds -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                                    <div class="form-group">
+                                        <label for="MARKET_REGIME_EFFICIENCY_THRESHOLD" title="Порог эффективности рынка (efficiency = mean_abs_ret / volatility). Чем выше, тем строже фильтр.">Эффективность (порог, 0.0–1.0)</label>
+                                        <input type="number" step="0.05" min="0" max="1" id="MARKET_REGIME_EFFICIENCY_THRESHOLD" value="0.40">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MARKET_REGIME_BREADTH_THRESHOLD" title="Порог breadth — доля активов с ret>0 для определения TREND (0.65 = 65%).">Breadth (порог, 0.5–1.0)</label>
+                                        <input type="number" step="0.05" min="0.5" max="1" id="MARKET_REGIME_BREADTH_THRESHOLD" value="0.65">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MARKET_REGIME_MIN_HISTORY" title="Минимальное количество 15-мин свечей (≈24ч = 96). Ниже — MRF пропускает.">Мин. история (свечи)</label>
+                                        <input type="number" step="1" min="20" max="500" id="MARKET_REGIME_MIN_HISTORY" value="97">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MARKET_REGIME_UNKNOWN_MULTIPLIER" title="Мультипликатор ставки при UNKNOWN регионе (0.8 = снижение на 20%).">Мультипликатор UNKNOWN (0.0–1.0)</label>
+                                        <input type="number" step="0.05" min="0" max="1" id="MARKET_REGIME_UNKNOWN_MULTIPLIER" value="0.8">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER" title="Мультипликатор ставки на аутсайдера в TREND (0.0 = не менять).">Мультипликатор аутсайдера в TREND</label>
+                                        <input type="number" step="0.1" min="0" max="2" id="MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER" value="0.0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MARKET_REGIME_FILTER_VERSION" title="Версия MRF для сопоставления телеметрии с экспериментами.">Версия MRF</label>
+                                        <input type="number" step="1" min="1" max="99" id="MARKET_REGIME_FILTER_VERSION" value="1">
+                                    </div>
+                                </div>
+
+                                <!-- Live Status Panel v2 -->
+                                <div id="mrf-status-panel" class="mrf-status-card" style="display: none;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                        <span style="font-weight: 600; color: #22d3ee;">Глобальный фаза:</span>
+                                        <span id="mrf-current-regime" class="mrf-regime-badge mrf-regime-UNKNOWN">—</span>
+                                    </div>
+                                    <div id="mrf-status-details" style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.5rem;"></div>
+                                    <div class="mrf-stat-grid">
+                                        <div class="mrf-stat-item">
+                                            <div class="label">Оценок</div>
+                                            <div class="value" id="mrf-stat-evaluated">—</div>
+                                        </div>
+                                        <div class="mrf-stat-item">
+                                            <div class="label">Заблокировано</div>
+                                            <div class="value" id="mrf-stat-blocked">—</div>
+                                        </div>
+                                        <div class="mrf-stat-item">
+                                            <div class="label">Мультипликатор</div>
+                                            <div class="value" id="mrf-stat-multiplier">×1.0</div>
+                                        </div>
+                                        <div class="mrf-stat-item">
+                                            <div class="label">Сила</div>
+                                            <div class="value" id="mrf-stat-strength">—</div>
+                                        </div>
+                                    </div>
+                                    <div id="mrf-per-asset-cards" style="margin-top: 0.75rem;"></div>
+                                </div>
+                            </div> <!-- /mrf -->
+
+</div> <!-- /2-column layout container -->
 
                     </form>
                 </div> <!-- /stat-card -->

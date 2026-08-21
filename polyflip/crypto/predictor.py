@@ -517,6 +517,13 @@ class CryptoPredictor:
             p_down_calibrated = 1.0 - p_up_calibrated
             p_down_score = 1.0 - p_up_score
 
+            # Adapter boundary: a broken model must fail closed rather than
+            # allowing NaN/Inf to reach direction, edge, or risk decisions.
+            if not np.isfinite(
+                [p_up_calibrated, p_down_calibrated, p_up_score, p_down_score]
+            ).all():
+                raise ValueError("PREDICTION_NON_FINITE")
+
             if invert_lgbm_signal:
                 p_up = p_down_calibrated
                 p_down = p_up_calibrated

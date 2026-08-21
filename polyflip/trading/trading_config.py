@@ -181,7 +181,7 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         # ── Market Regime Filter (MRF-T09) ──────────────────────
         mrf_mode=(
             raw.get("MARKET_REGIME_FILTER_MODE", "OFF").strip().upper()
-            if raw.get("MARKET_REGIME_FILTER_MODE", "OFF").strip().upper() in {"OFF", "SHADOW"}
+            if raw.get("MARKET_REGIME_FILTER_MODE", "OFF").strip().upper() in {"OFF", "SHADOW", "ACTIVE"}
             else "OFF"
         ),
         mrf_version=_parse_int(raw.get("MARKET_REGIME_FILTER_VERSION"), 1),
