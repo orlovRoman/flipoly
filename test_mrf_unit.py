@@ -677,3 +677,34 @@ class TestFailureReasons:
         elif mrf_pre_outcome_reason:
             mrf_failure_reason = mrf_pre_outcome_reason
         assert mrf_failure_reason == "MRF:HIGH_VOL_CHOP:blocked"
+
+
+# ── Dashboard MRF telemetry regression tests ───────────────────────
+
+
+class TestDashboardMrfTelemetry:
+    def test_audit_json_is_used_when_scalar_columns_are_empty(self):
+        from polyflip.api.mrf_api import _extract_mrf_telemetry
+
+        class Row:
+            mrf_audit_json = (
+                '{"global_phase":"WEAK_UP","global_strength":0.42,'
+                '"global_confidence":0.67,"assets":{"BTC":{"phase":"STRONG_UP",'
+                '"strength":0.81,"confidence":0.91}}}'
+            )
+            mrf_phase = "UNKNOWN"
+            mrf_strength = 0.0
+            mrf_confidence = 0.0
+            mrf_asset_phase = "UNKNOWN"
+
+        telemetry = _extract_mrf_telemetry(Row())
+        assert telemetry["global_phase"] == "WEAK_UP"
+        assert telemetry["global_strength"] == 0.42
+        assert telemetry["assets"]["BTC"]["phase"] == "STRONG_UP"
+
+    def test_unknown_phase_is_not_treated_as_available(self):
+        from polyflip.api.mrf_api import _is_known_phase
+
+        assert _is_known_phase("STRONG_UP") is True
+        assert _is_known_phase("UNKNOWN") is False
+        assert _is_known_phase(None) is False
