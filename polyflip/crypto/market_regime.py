@@ -228,8 +228,8 @@ def compute_asset_features(
     vol_24h = _volatility(log_ret_1[-HORIZON_24H:]) if len(log_ret_1) >= HORIZON_24H else 0.0
     vol_ratio = vol_4h / vol_24h if vol_24h > 1e-10 else 0.0
 
-    # Trend efficiency (24h)
-    eff_closes = closes[-HORIZON_24H:] if n >= HORIZON_24H else closes
+    # Trend efficiency (24h) — needs HORIZON_24H+1 closes for HORIZON_24H intervals
+    eff_closes = closes[-(HORIZON_24H + 1):] if n >= MIN_HISTORY_CANDLES else closes
     efficiency_24h = _efficiency_ratio(eff_closes)
 
     # Range ratio (24h average)

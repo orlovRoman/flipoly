@@ -432,6 +432,7 @@ async def get_funnel_detail(
                 "original_bet": r.mrf_original_bet,
                 "final_action": r.mrf_final_action,
                 "final_bet": r.mrf_final_bet,
+                "audit_json": r.mrf_audit_json,
             },
             "final_action": r.final_action,
             "skip_reason": r.skip_reason,

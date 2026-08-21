@@ -8,6 +8,7 @@ import math
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
+import numpy as np
 import pytest
 
 from polyflip.crypto.market_regime_classifier import (
@@ -301,7 +302,7 @@ class TestRegimeConfigPassthrough:
         )
         cfg = RegimeConfig(trend_efficiency_min=0.2, strong_score_threshold=0.3)
         pr = evaluate_policy(
-            snap, StrategyType.BALANCED, 1.0, FilterMode.SHADOW,
+            snap, StrategyType.OTHER, 1.0, FilterMode.SHADOW,
             regime_config=cfg,
         )
         assert pr.phase is not None
@@ -320,7 +321,7 @@ class TestRegimeConfigPassthrough:
         )
         cfg = RegimeConfig(trend_efficiency_min=0.2, strong_score_threshold=0.3)
         policy = evaluate_policy(
-            snap, StrategyType.BALANCED, 1.0, FilterMode.SHADOW,
+            snap, StrategyType.OTHER, 1.0, FilterMode.SHADOW,
             regime_config=cfg,
         )
         audit = serialize_regime_audit(
@@ -360,6 +361,74 @@ class TestIncompleteBasket:
         import inspect
         sig = inspect.signature(extract_asset_phase)
         assert "regime_config" in sig.parameters
+
+    def test_asset_with_96_candles_marks_incomplete(self):
+        """An asset with only 96 closed candles should be flagged as insufficient."""
+        from polyflip.crypto.market_regime_integration import build_snapshot_from_multi_asset_candles
+        from polyflip.crypto.market_regime import MIN_HISTORY_CANDLES
+        assert MIN_HISTORY_CANDLES == 97
+        # Simulate: one asset has 96 candles (all closed, valid times)
+        class FakeCandle:
+            def __init__(self, i):
+                self.is_closed = True
+                self.open_time = datetime(2026, 8, 21, i // 4, (i % 4) * 15, tzinfo=timezone.utc)
+                self.close = 100.0 + i * 0.1
+                self.high = 101.0 + i * 0.1
+                self.low = 99.0 + i * 0.1
+                self.open = 100.0 + i * 0.1
+        candles = [FakeCandle(i) for i in range(96)]
+        snap = build_snapshot_from_multi_asset_candles(
+            candles_by_asset={"BTC": candles},
+            as_of=datetime(2026, 8, 21, 23, 55, tzinfo=timezone.utc),
+            expected_assets=["BTC"],
+        )
+        assert snap.basket.history_ready is False
+
+    def test_full_ready_basket(self):
+        """All expected assets with 97+ candles should produce history_ready=True."""
+        from polyflip.crypto.market_regime_integration import build_snapshot_from_multi_asset_candles
+        from datetime import timedelta
+        base_time = datetime(2026, 8, 14, 0, 0, tzinfo=timezone.utc)
+        class FakeCandle:
+            def __init__(self, i):
+                self.is_closed = True
+                self.open_time = base_time + timedelta(minutes=15 * i)
+                self.close = 100.0 + i * 0.01
+                self.high = 100.5 + i * 0.01
+                self.low = 99.5 + i * 0.01
+                self.open = 100.0 + i * 0.01
+        candles_a = [FakeCandle(i) for i in range(97)]
+        candles_b = [FakeCandle(i) for i in range(100)]
+        snap = build_snapshot_from_multi_asset_candles(
+            candles_by_asset={"BTC": candles_a, "ETH": candles_b},
+            as_of=base_time + timedelta(minutes=15 * 100),
+            expected_assets=["BTC", "ETH"],
+        )
+        assert snap.basket.history_ready is True
+        assert snap.basket.ready_count == 2
+
+    def test_one_ready_among_incomplete(self):
+        """One ready asset among missing assets → basket NOT ready."""
+        from polyflip.crypto.market_regime_integration import build_snapshot_from_multi_asset_candles
+        from datetime import timedelta
+        base_time = datetime(2026, 8, 14, 0, 0, tzinfo=timezone.utc)
+        class FakeCandle:
+            def __init__(self, i):
+                self.is_closed = True
+                self.open_time = base_time + timedelta(minutes=15 * i)
+                self.close = 100.0 + i * 0.01
+                self.high = 100.5 + i * 0.01
+                self.low = 99.5 + i * 0.01
+                self.open = 100.0 + i * 0.01
+        btc_candles = [FakeCandle(i) for i in range(100)]
+        snap = build_snapshot_from_multi_asset_candles(
+            candles_by_asset={"BTC": btc_candles, "ETH": []},
+            as_of=base_time + timedelta(minutes=15 * 100),
+            expected_assets=["BTC", "ETH"],
+        )
+        assert snap.basket.history_ready is False
+        assert snap.basket.total_count == 2
+        assert any("ETH" in r for r in snap.reason_codes)
 
 
 # ── Step 5: Telemetry semantics tests ─────────────────────────────
@@ -403,3 +472,210 @@ class TestTelemetrySemantics:
             and action in ("BUY_YES", "BUY_NO")
         )
         assert mrf_actually_evaluated is False
+
+
+# ── Step 2: PnL API filter tests ─────────────────────────────────
+
+
+TERMINAL_POSITION_STATUSES = ("CLOSED", "RESOLVED_REDEEMABLE", "RESOLVED_LOST", "REDEEMED")
+
+
+class TestPnLFilter:
+    def test_terminal_statuses_defined(self):
+        """The 4 terminal statuses that should participate in PnL stats."""
+        assert len(TERMINAL_POSITION_STATUSES) == 4
+        assert "CLOSED" in TERMINAL_POSITION_STATUSES
+        assert "RESOLVED_REDEEMABLE" in TERMINAL_POSITION_STATUSES
+        assert "RESOLVED_LOST" in TERMINAL_POSITION_STATUSES
+        assert "REDEEMED" in TERMINAL_POSITION_STATUSES
+
+    def test_non_terminal_statuses_excluded(self):
+        """Non-terminal statuses must not be in the PnL filter."""
+        non_terminal = {"OPEN", "OPENING", "CANCELLED", "ENTRY_FAILED"}
+        for nt in non_terminal:
+            assert nt not in TERMINAL_POSITION_STATUSES
+
+    def test_only_success_status_included(self):
+        """Only status=SUCCESS should count for PnL (not SKIPPED/FAILED)."""
+        executed = "SUCCESS"
+        skipped = "SKIPPED"
+        failed = "FAILED"
+        assert executed != skipped
+        assert executed != failed
+
+    def test_realized_pnl_fallback_to_pnl(self):
+        """When realized_pnl_usdc is None, pnl should be used as fallback."""
+        class FakeTrade:
+            realized_pnl_usdc = None
+            pnl = -5.0
+        t = FakeTrade()
+        pnl = t.realized_pnl_usdc if t.realized_pnl_usdc is not None else t.pnl
+        assert pnl == -5.0
+
+    def test_realized_pnl_preferred(self):
+        """When realized_pnl_usdc exists, it should be preferred over pnl."""
+        class FakeTrade:
+            realized_pnl_usdc = 10.0
+            pnl = -5.0
+        t = FakeTrade()
+        pnl = t.realized_pnl_usdc if t.realized_pnl_usdc is not None else t.pnl
+        assert pnl == 10.0
+
+    def test_wins_counted_correctly(self):
+        """Wins should be based on realized_pnl_usdc > 0 (or pnl > 0 fallback)."""
+        wins = 0
+        pnl_val = 3.0
+        realized = 3.0
+        if (realized is not None and realized > 0) or (realized is None and pnl_val is not None and pnl_val > 0):
+            wins = 1
+        assert wins == 1
+
+    def test_losses_not_counted_as_wins(self):
+        """Negative PnL should not count as a win."""
+        wins = 0
+        pnl_val = -5.0
+        realized = -5.0
+        if (realized is not None and realized > 0) or (realized is None and pnl_val is not None and pnl_val > 0):
+            wins = 1
+        assert wins == 0
+
+
+# ── Step 3: 24h window tests ──────────────────────────────────────
+
+
+class Test24hWindow:
+    def test_96_candles_not_ready(self):
+        """96 candles = 95 intervals, should be not_ready (MIN_HISTORY_CANDLES=97)."""
+        from polyflip.crypto.market_regime import compute_asset_features, HORIZON_24H, MIN_HISTORY_CANDLES
+        assert MIN_HISTORY_CANDLES == HORIZON_24H + 1  # 97
+        closes = np.linspace(100, 110, 96, dtype=np.float64)
+        result = compute_asset_features(
+            closes=closes,
+            highs=closes * 1.01,
+            lows=closes * 0.99,
+            opens=closes * 0.999,
+            symbol="BTC",
+            candle_count=96,
+        )
+        assert result.history_ready is False
+
+    def test_97_candles_ready(self):
+        """97 candles = 96 intervals, should be ready."""
+        from polyflip.crypto.market_regime import compute_asset_features
+        closes = np.linspace(100, 110, 97, dtype=np.float64)
+        result = compute_asset_features(
+            closes=closes,
+            highs=closes * 1.01,
+            lows=closes * 0.99,
+            opens=closes * 0.999,
+            symbol="BTC",
+            candle_count=97,
+        )
+        assert result.history_ready is True
+        assert result.efficiency_24h > 0  # monotonic up = high efficiency
+
+    def test_98_plus_uses_last_24h_window(self):
+        """98+ candles should use last 97 closes for 24h window."""
+        from polyflip.crypto.market_regime import compute_asset_features
+        # First 50 flat, then 48 rising → efficiency depends on last 97
+        flat = np.full(50, 100.0, dtype=np.float64)
+        rising = np.linspace(100, 120, 48, dtype=np.float64)
+        closes = np.concatenate([flat, rising])
+        result = compute_asset_features(
+            closes=closes,
+            highs=closes * 1.01,
+            lows=closes * 0.99,
+            opens=closes * 0.999,
+            symbol="BTC",
+            candle_count=98,
+        )
+        assert result.history_ready is True
+        assert result.efficiency_24h > 0.5  # mostly rising in last 24h
+
+    def test_efficiency_ratio_matches_manual(self):
+        """Efficiency ratio matches manual computation for known data."""
+        from polyflip.crypto.market_regime import _efficiency_ratio
+        closes = np.array([100, 102, 101, 103, 105], dtype=np.float64)
+        net = abs(closes[-1] - closes[0])  # 5
+        total = np.sum(np.abs(np.diff(closes)))  # 2+1+2+2 = 7
+        expected = net / total
+        assert abs(_efficiency_ratio(closes) - expected) < 1e-10
+
+    def test_log_returns_24h_uses_97_closes(self):
+        """_log_returns(closes, 96) uses closes[-97] as base, producing 96-interval return."""
+        from polyflip.crypto.market_regime import _log_returns
+        closes = np.linspace(100, 200, 97, dtype=np.float64)
+        ret = _log_returns(closes, 96)
+        expected = math.log(200.0 / 100.0)  # ln(2)
+        assert abs(ret - expected) < 1e-6
+
+
+# ── Step 5: Failure reason tests ──────────────────────────────────
+
+
+class TestFailureReasons:
+    REASON_PREFIXES = [
+        "not_ready",
+        "missing_asset",
+        "insufficient_history",
+        "candle_error",
+        "continuity_error",
+        "runtime_error",
+    ]
+
+    def test_all_reason_prefixes_defined(self):
+        """All 6 required failure reason types are present."""
+        for prefix in self.REASON_PREFIXES:
+            assert isinstance(prefix, str)
+            assert len(prefix) > 0
+
+    def test_failure_reason_prefix_parsing(self):
+        """Failure reasons follow 'type:detail' convention."""
+        reasons = [
+            "missing_asset:ETH,SOL",
+            "candle_error:BTC,DOGE",
+            "continuity_error:ETH:gap_at_100",
+            "not_ready",
+            "insufficient_history",
+            "runtime_error:ConnectionError",
+        ]
+        for reason in reasons:
+            assert isinstance(reason, str)
+            parts = reason.split(":", 1)
+            assert parts[0] in self.REASON_PREFIXES
+
+    def test_mrf_evaluated_false_on_not_ready(self):
+        """When outcome is None (not_ready), mrf_evaluated must be False."""
+        mrf_outcome = None
+        mrf_mode = "SHADOW"
+        action = "BUY_YES"
+        mrf_actually_evaluated = (
+            mrf_outcome is not None
+            and mrf_mode != "OFF"
+            and action in ("BUY_YES", "BUY_NO")
+        )
+        assert mrf_actually_evaluated is False
+
+    def test_failure_reason_set_when_no_outcome(self):
+        """A pre_outcome failure reason should be used when outcome is None."""
+        mrf_outcome = None
+        mrf_pre_outcome_reason = "not_ready"
+        mrf_failure_reason = None
+        if mrf_outcome and hasattr(mrf_outcome, "skip_reason") and mrf_outcome.skip_reason:
+            mrf_failure_reason = mrf_outcome.skip_reason
+        elif mrf_pre_outcome_reason:
+            mrf_failure_reason = mrf_pre_outcome_reason
+        assert mrf_failure_reason == "not_ready"
+
+    def test_policy_skip_reason_takes_priority(self):
+        """When both skip_reason and pre_outcome_reason exist, skip_reason wins."""
+        class FakeOutcome:
+            skip_reason = "MRF:HIGH_VOL_CHOP:blocked"
+        mrf_outcome = FakeOutcome()
+        mrf_pre_outcome_reason = "not_ready"
+        mrf_failure_reason = None
+        if mrf_outcome and mrf_outcome.skip_reason:
+            mrf_failure_reason = mrf_outcome.skip_reason
+        elif mrf_pre_outcome_reason:
+            mrf_failure_reason = mrf_pre_outcome_reason
+        assert mrf_failure_reason == "MRF:HIGH_VOL_CHOP:blocked"

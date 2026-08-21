@@ -7,7 +7,8 @@ from DecisionFunnelLog. Per-asset PnL from TradeHistory.
 Fixes:
 - Uses realized_pnl_usdc with fallback to pnl for legacy rows
 - Uses sqlalchemy.case (not func.case)
-- Only counts completed trades (position_status=CLOSED, status=FILLED)
+- Terminal position_status: CLOSED, RESOLVED_REDEEMABLE, RESOLVED_LOST, REDEEMED
+- Executed trades: status == SUCCESS (not SKIPPED/FAILED/CANCELLED)
 """
 import logging
 import time
@@ -186,6 +187,7 @@ async def get_mrf_status(
             ),
             else_=0,
         )
+        TERMINAL_POSITION_STATUSES = ("CLOSED", "RESOLVED_REDEEMABLE", "RESOLVED_LOST", "REDEEMED")
         th_q = (
             select(
                 TradeHistory.asset,
@@ -197,8 +199,8 @@ async def get_mrf_status(
                 and_(
                     TradeHistory.created_at >= since,
                     TradeHistory.asset.in_(asset_names),
-                    TradeHistory.position_status == "CLOSED",
-                    TradeHistory.status == "FILLED",
+                    TradeHistory.position_status.in_(TERMINAL_POSITION_STATUSES),
+                    TradeHistory.status == "SUCCESS",
                 )
             )
             .group_by(TradeHistory.asset)

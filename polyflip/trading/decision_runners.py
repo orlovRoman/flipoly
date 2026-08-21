@@ -213,9 +213,9 @@ async def _apply_mrf_filter(
     decision_run_id: str = "",
     lgbm_applied: bool = False,
 ):
-    """Apply MRF filter. Returns (adjusted_action, adjusted_bet_size, mrf_audit, outcome)."""
+    """Apply MRF filter. Returns (adjusted_action, adjusted_bet_size, mrf_audit, outcome, failure_reason)."""
     if cfg.mrf_mode == "OFF":
-        return action, bet_size_usdc, None, None
+        return action, bet_size_usdc, None, None, None
 
     try:
         import asyncio
@@ -234,16 +234,18 @@ async def _apply_mrf_filter(
 
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         candles_by_asset = {}
+        fetch_errors = []
         for asset_name, result in zip(tasks.keys(), results):
             if isinstance(result, Exception):
                 logger.warning("mrf_candle_fetch_error", asset=asset_name, error=str(result))
+                fetch_errors.append(asset_name)
                 continue
             if result:
                 candles_by_asset[asset_name] = result
 
         if not candles_by_asset:
             logger.warning("mrf_no_candles_any_asset")
-            return action, bet_size_usdc, None, None
+            return action, bet_size_usdc, None, None, "candle_error:no_candles"
 
         snapshot = build_snapshot_from_multi_asset_candles(
             candles_by_asset,
@@ -252,10 +254,26 @@ async def _apply_mrf_filter(
         )
 
         if not snapshot.basket.history_ready:
+            reason_codes = snapshot.reason_codes or []
+            if any("asset_missing" in r for r in reason_codes):
+                fail = "missing_asset:" + ",".join(
+                    r.split(":", 1)[1] for r in reason_codes if "asset_missing" in r
+                )
+            elif any("no_candles" in r for r in reason_codes):
+                fail = "candle_error:" + ",".join(
+                    r.split(":", 1)[1] for r in reason_codes if "no_candles" in r
+                )
+            elif any("candle_continuity" in r for r in reason_codes):
+                fail = "continuity_error:" + ",".join(
+                    r.split(":", 1)[1] for r in reason_codes if "candle_continuity" in r
+                )
+            elif any("insufficient_history" in r for r in reason_codes):
+                fail = "insufficient_history"
+            else:
+                fail = "not_ready"
             logger.info("mrf_history_not_ready", asset=asset_upper,
-                        reason_codes=snapshot.reason_codes)
-            # Step 5: Return outcome=None so mrf_evaluated=false is set
-            return action, bet_size_usdc, None, None
+                        reason_codes=reason_codes, failure_reason=fail)
+            return action, bet_size_usdc, None, None, fail
 
         outcome = apply_regime_policy(
             cfg=cfg,
@@ -282,11 +300,11 @@ async def _apply_mrf_filter(
             applied=outcome.applied,
         )
 
-        return outcome.adjusted_action, outcome.adjusted_bet_size, outcome.audit_dict, outcome
+        return outcome.adjusted_action, outcome.adjusted_bet_size, outcome.audit_dict, outcome, None
 
     except Exception as exc:
         logger.error("mrf_error", asset=asset_upper, error=str(exc))
-        return action, bet_size_usdc, None, None
+        return action, bet_size_usdc, None, None, f"runtime_error:{type(exc).__name__}"
 
 async def decide_combined_mode(
     db_session: AsyncSession,
@@ -731,7 +749,7 @@ async def decide_combined_mode(
     mrf_failure_reason = None
 
     if comb_res.action in ("BUY_YES", "BUY_NO") and cfg.mrf_mode != "OFF":
-        mrf_adjusted_action, mrf_adjusted_bet, mrf_audit, mrf_outcome = await _apply_mrf_filter(
+        mrf_adjusted_action, mrf_adjusted_bet, mrf_audit, mrf_outcome, mrf_pre_outcome_reason = await _apply_mrf_filter(
             db_session=db_session,
             cfg=cfg,
             asset_upper=asset_upper,
@@ -746,6 +764,8 @@ async def decide_combined_mode(
         )
         if mrf_outcome and mrf_outcome.skip_reason:
             mrf_failure_reason = mrf_outcome.skip_reason
+        elif mrf_pre_outcome_reason:
+            mrf_failure_reason = mrf_pre_outcome_reason
 
     # Update trade_decision if MRF changed action OR bet size
     mrf_phase = "UNKNOWN"
