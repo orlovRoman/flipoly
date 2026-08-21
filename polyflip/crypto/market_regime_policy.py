@@ -14,6 +14,7 @@ from polyflip.crypto.market_regime import MarketRegimeSnapshot
 from polyflip.crypto.market_regime_classifier import (
     MarketPhase,
     RegimeClassification,
+    RegimeConfig,
 )
 
 
@@ -79,11 +80,14 @@ class PolicyConfig:
 DEFAULT_POLICY_CONFIG = PolicyConfig()
 
 
-def _get_global_regime(snapshot: MarketRegimeSnapshot) -> tuple[MarketPhase, float, float]:
+def _get_global_regime(
+    snapshot: MarketRegimeSnapshot,
+    regime_config: RegimeConfig | None = None,
+) -> tuple[MarketPhase, float, float]:
     """Extract global phase, confidence, and strength from snapshot."""
     if snapshot.basket.history_ready:
         from polyflip.crypto.market_regime_classifier import classify_global_regime
-        cls = classify_global_regime(snapshot)
+        cls = classify_global_regime(snapshot, config=regime_config)
         return cls.phase, cls.confidence, cls.strength
     return MarketPhase.UNKNOWN, 0.0, 0.0
 
@@ -111,12 +115,14 @@ def evaluate_policy(
     direction: float,
     mode: FilterMode = FilterMode.SHADOW,
     config: PolicyConfig | None = None,
+    regime_config: RegimeConfig | None = None,
 ) -> PolicyResult:
     """
     Evaluate regime-based policy for a given strategy and direction.
+    regime_config is passed through to the global classifier.
     """
     cfg = config or DEFAULT_POLICY_CONFIG
-    phase, confidence, strength = _get_global_regime(snapshot)
+    phase, confidence, strength = _get_global_regime(snapshot, regime_config=regime_config)
 
     if mode == FilterMode.OFF:
         return PolicyResult(

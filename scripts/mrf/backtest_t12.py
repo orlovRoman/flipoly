@@ -5,6 +5,7 @@ Fetches real 15m candles from Binance, builds regime features, evaluates policy 
 import sys
 import os
 import json
+import hashlib
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -109,7 +110,7 @@ def run_backtest():
             regime_counts[regime.value] = regime_counts.get(regime.value, 0) + 1
             asset_regimes[regime.value] = asset_regimes.get(regime.value, 0) + 1
 
-            mock_price = 0.3 + (hash(f"{asset}_{i}") % 100) / 100.0 * 0.4
+            mock_price = 0.3 + (int(hashlib.sha256(f"{asset}_{i}".encode()).hexdigest(), 16) % 100) / 100.0 * 0.4
             is_fav = mock_price > 0.5
             action = "BUY_YES" if is_fav else "BUY_NO"
             strategy = StrategyType.OUTSIDER
@@ -117,7 +118,7 @@ def run_backtest():
 
             # Baseline
             results["baseline"]["trades"] += 1
-            won = hash(f"base_{asset}_{i}") % 100 < 55
+            won = int(hashlib.sha256(f"base_{asset}_{i}".encode()).hexdigest(), 16) % 100 < 55
             if won:
                 results["baseline"]["wins"] += 1
                 results["baseline"]["pnl"] += 0.5

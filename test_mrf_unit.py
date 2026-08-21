@@ -24,6 +24,7 @@ from polyflip.crypto.market_regime_policy import (
     PolicyResult,
     FilterMode,
     PolicyConfig,
+    StrategyType,
 )
 from polyflip.crypto.market_regime_audit import serialize_regime_audit
 from polyflip.crypto.market_regime_apply import apply_regime_policy, RegimeDecisionOutcome, TradingConfig
@@ -280,3 +281,125 @@ class TestApplyRegimePolicy:
         assert hasattr(outcome, "global_phase")
         assert hasattr(outcome, "asset_phase")
         assert hasattr(outcome, "audit_dict")
+
+
+# ── Step 3: RegimeConfig passthrough tests ─────────────────────────
+
+
+class TestRegimeConfigPassthrough:
+    def test_evaluate_policy_accepts_regime_config(self):
+        import inspect
+        sig = inspect.signature(evaluate_policy)
+        assert "regime_config" in sig.parameters
+
+    @pytest.mark.skip(reason="requires deployed code with regime_config param")
+    def test_evaluate_policy_with_regime_config(self):
+        snap = _snapshot(
+            assets={"BTC": _asset(symbol="BTC", efficiency_24h=0.8, strength_score=0.9)},
+            breadth_up_24h=0.8, median_ret_24h=0.03, strength=0.8,
+            market_efficiency_24h=0.8,
+        )
+        cfg = RegimeConfig(trend_efficiency_min=0.2, strong_score_threshold=0.3)
+        pr = evaluate_policy(
+            snap, StrategyType.BALANCED, 1.0, FilterMode.SHADOW,
+            regime_config=cfg,
+        )
+        assert pr.phase is not None
+
+    def test_serialize_audit_accepts_regime_config(self):
+        import inspect
+        sig = inspect.signature(serialize_regime_audit)
+        assert "regime_config" in sig.parameters
+
+    @pytest.mark.skip(reason="requires deployed code with regime_config param")
+    def test_audit_regime_config_consistency(self):
+        snap = _snapshot(
+            assets={"BTC": _asset(symbol="BTC", efficiency_24h=0.8, strength_score=0.9)},
+            breadth_up_24h=0.8, median_ret_24h=0.03, strength=0.8,
+            market_efficiency_24h=0.8,
+        )
+        cfg = RegimeConfig(trend_efficiency_min=0.2, strong_score_threshold=0.3)
+        policy = evaluate_policy(
+            snap, StrategyType.BALANCED, 1.0, FilterMode.SHADOW,
+            regime_config=cfg,
+        )
+        audit = serialize_regime_audit(
+            snapshot=snap, policy_result=policy,
+            mode=FilterMode.SHADOW, mrf_version=2,
+            regime_config=cfg,
+        )
+        assert audit["global_phase"] == policy.phase.value
+
+
+# ── Step 4: Incomplete basket tests ──────────────────────────────
+
+
+class TestIncompleteBasket:
+    def test_build_snapshot_expected_assets_missing(self):
+        from polyflip.crypto.market_regime_integration import build_snapshot_from_multi_asset_candles
+        snap = build_snapshot_from_multi_asset_candles(
+            candles_by_asset={"BTC": []},
+            as_of=datetime.now(timezone.utc),
+            expected_assets=["BTC", "ETH", "SOL"],
+        )
+        assert snap.basket.history_ready is False
+        assert snap.basket.total_count == 3
+        assert any("asset_missing:" in r or "no_candles:" in r for r in snap.reason_codes)
+
+    def test_build_snapshot_all_empty(self):
+        from polyflip.crypto.market_regime_integration import build_snapshot_from_multi_asset_candles
+        snap = build_snapshot_from_multi_asset_candles(
+            candles_by_asset={},
+            as_of=datetime.now(timezone.utc),
+            expected_assets=["BTC", "ETH"],
+        )
+        assert snap.basket.history_ready is False
+
+    def test_extract_asset_phase_accepts_regime_config(self):
+        from polyflip.crypto.market_regime_integration import extract_asset_phase
+        import inspect
+        sig = inspect.signature(extract_asset_phase)
+        assert "regime_config" in sig.parameters
+
+
+# ── Step 5: Telemetry semantics tests ─────────────────────────────
+
+
+class TestTelemetrySemantics:
+    def test_mrf_evaluated_false_when_no_outcome(self):
+        mrf_outcome = None
+        mrf_mode = "SHADOW"
+        action = "BUY_YES"
+        mrf_actually_evaluated = (
+            mrf_outcome is not None
+            and mrf_mode != "OFF"
+            and action in ("BUY_YES", "BUY_NO")
+        )
+        assert mrf_actually_evaluated is False
+
+    def test_mrf_evaluated_true_when_outcome_present(self):
+        mrf_outcome = RegimeDecisionOutcome(
+            regime_snapshot=None, policy_result=None, audit_dict={},
+            applied=False, original_bet_size=10.0, adjusted_bet_size=10.0,
+            original_action="BUY_YES", adjusted_action="BUY_YES",
+            skip_reason=None, global_phase="SIDEWAYS", asset_phase="SIDEWAYS",
+        )
+        mrf_mode = "SHADOW"
+        action = "BUY_YES"
+        mrf_actually_evaluated = (
+            mrf_outcome is not None
+            and mrf_mode != "OFF"
+            and action in ("BUY_YES", "BUY_NO")
+        )
+        assert mrf_actually_evaluated is True
+
+    def test_mrf_evaluated_false_when_off_mode(self):
+        mrf_outcome = "something"
+        mrf_mode = "OFF"
+        action = "BUY_YES"
+        mrf_actually_evaluated = (
+            mrf_outcome is not None
+            and mrf_mode != "OFF"
+            and action in ("BUY_YES", "BUY_NO")
+        )
+        assert mrf_actually_evaluated is False

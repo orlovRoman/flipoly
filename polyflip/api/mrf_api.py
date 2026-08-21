@@ -1,8 +1,13 @@
 """
-MRF status API endpoint v2.
+MRF status API endpoint v3.
 
 Uses MRF telemetry columns (mrf_evaluated, mrf_mode, mrf_phase, etc.)
 from DecisionFunnelLog. Per-asset PnL from TradeHistory.
+
+Fixes:
+- Uses realized_pnl_usdc with fallback to pnl for legacy rows
+- Uses sqlalchemy.case (not func.case)
+- Only counts completed trades (position_status=CLOSED, status=FILLED)
 """
 import logging
 import time
@@ -10,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, desc, and_, or_
+from sqlalchemy import select, func, case, desc, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.db.connection import get_db_session
@@ -57,7 +62,8 @@ async def get_mrf_status(
 ):
     """
     Return current MRF regime status + statistics.
-    MRF-FIX-09: only count mrf_evaluated=true entries, per-asset PnL from TradeHistory.
+    Only counts entries where mrf_evaluated=true.
+    Per-asset PnL from TradeHistory (realized_pnl_usdc, fallback to pnl).
     """
     mode = await _get_mrf_mode(db)
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -153,20 +159,46 @@ async def get_mrf_status(
         if s["last_seen"] is None or (row.created_at and row.created_at > s["last_seen"]):
             s["last_seen"] = row.created_at
 
-    # 5. Per-asset PnL from TradeHistory (only for assets with MRF data)
+    # 5. Per-asset PnL from TradeHistory (only completed trades)
     if asset_stats:
         asset_names = list(asset_stats.keys())
+        # Use realized_pnl_usdc with fallback to pnl for legacy rows.
+        # Only count trades that are closed and filled.
+        pnl_col = case(
+            (TradeHistory.realized_pnl_usdc.isnot(None), TradeHistory.realized_pnl_usdc),
+            else_=TradeHistory.pnl,
+        )
+        wins_col = case(
+            (
+                and_(
+                    TradeHistory.realized_pnl_usdc.isnot(None),
+                    TradeHistory.realized_pnl_usdc > 0,
+                ),
+                1,
+            ),
+            (
+                and_(
+                    TradeHistory.realized_pnl_usdc.is_(None),
+                    TradeHistory.pnl.isnot(None),
+                    TradeHistory.pnl > 0,
+                ),
+                1,
+            ),
+            else_=0,
+        )
         th_q = (
             select(
                 TradeHistory.asset,
                 func.count(TradeHistory.id).label("trades"),
-                func.sum(TradeHistory.pnl_usdc).label("pnl"),
-                func.sum(func.case((TradeHistory.pnl_usdc > 0, 1), else_=0)).label("wins"),
+                func.sum(pnl_col).label("pnl"),
+                func.sum(wins_col).label("wins"),
             )
             .where(
                 and_(
                     TradeHistory.created_at >= since,
                     TradeHistory.asset.in_(asset_names),
+                    TradeHistory.position_status == "CLOSED",
+                    TradeHistory.status == "FILLED",
                 )
             )
             .group_by(TradeHistory.asset)

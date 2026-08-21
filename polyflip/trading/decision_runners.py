@@ -19,7 +19,6 @@ from polyflip.trading.funnel_logger import log_funnel
 from polyflip.crypto.market_regime_integration import build_snapshot_from_candles
 from polyflip.crypto.market_regime_apply import apply_regime_policy
 from polyflip.crypto.market_regime_classifier import Regime
-from polyflip.ai_lab.shadow import record_decision_shadow
 
 logger = structlog.get_logger(__name__)
 
@@ -246,11 +245,16 @@ async def _apply_mrf_filter(
             logger.warning("mrf_no_candles_any_asset")
             return action, bet_size_usdc, None, None
 
-        snapshot = build_snapshot_from_multi_asset_candles(candles_by_asset, as_of=start_time)
+        snapshot = build_snapshot_from_multi_asset_candles(
+            candles_by_asset,
+            as_of=start_time,
+            expected_assets=list(COMBINED_MODE_SUPPORTED_ASSETS),
+        )
 
         if not snapshot.basket.history_ready:
             logger.info("mrf_history_not_ready", asset=asset_upper,
                         reason_codes=snapshot.reason_codes)
+            # Step 5: Return outcome=None so mrf_evaluated=false is set
             return action, bet_size_usdc, None, None
 
         outcome = apply_regime_policy(
@@ -660,63 +664,6 @@ async def decide_combined_mode(
     }
     lgbm_meta = json.dumps(lgbm_meta_dict)
 
-    # Passive AI Lab shadow comparison. This is deliberately best-effort:
-    # persistence failures must never change or block the trading decision.
-    if lgbm_shadow and direction_signal and comb_res.direction_model_key:
-        try:
-            candidate_probability = (
-                direction_signal.p_up
-                if lgbm_direction_value == "UP"
-                else direction_signal.p_down
-                if lgbm_direction_value == "DOWN"
-                else None
-            )
-            candidate_ask = (
-                yes_best_ask
-                if lgbm_direction_value == "UP"
-                else no_best_ask
-                if lgbm_direction_value == "DOWN"
-                else None
-            )
-            active_ask = (
-                yes_best_ask
-                if comb_res.action in {"BUY_YES", "YES", "UP"}
-                else no_best_ask
-                if comb_res.action in {"BUY_NO", "NO", "DOWN"}
-                else None
-            )
-            candidate_net_edge = (
-                float(candidate_probability) - float(candidate_ask) - comb_cost_buffer
-                if candidate_probability is not None and candidate_ask is not None
-                else None
-            )
-            # Shadow persistence is observational. Keep it in a savepoint so
-            # it cannot commit or roll back the caller's decision/order
-            # transaction.
-            async with db_session.begin_nested():
-                await record_decision_shadow(
-                    db_session,
-                    asset=asset_upper,
-                    market_id=str(market.market_id),
-                    snapshot_at=getattr(market, "updated_at", None) or datetime.now(timezone.utc),
-                    run_id=None,
-                    active_model_key=entry_model_key,
-                    candidate_model_key=comb_res.direction_model_key,
-                    active_action=comb_res.action,
-                    candidate_action=lgbm_direction_value,
-                    active_probability=comb_res.p_logreg_win,
-                    candidate_probability=candidate_probability,
-                    active_ask=active_ask,
-                    candidate_ask=candidate_ask,
-                    active_net_edge=comb_res.net_edge,
-                    candidate_net_edge=candidate_net_edge,
-                    lr_direction_vote=comb_res.direction_value,
-                    lgbm_direction_vote=lgbm_direction_value,
-                    consensus_type=comb_res.consensus_type,
-                )
-        except Exception as exc:
-            logger.warning("ai_lab_shadow_observation_failed", asset=asset_upper, error=str(exc))
-
     if comb_res.action != "SKIP":
         trade_decision = TradeDecision(
             action=comb_res.action,
@@ -850,7 +797,15 @@ async def decide_combined_mode(
         mrf_audit_json = _json.dumps(mrf_audit, ensure_ascii=False, default=str)
 
     # ── Log funnel (MRF-FIX-08: now includes MRF results) ─────────────────
-    mrf_evaluated = cfg.mrf_mode != "OFF" and comb_res.action in ("BUY_YES", "BUY_NO")
+    # Step 5: mrf_evaluated=true ONLY if MRF actually classified and evaluated.
+    # If _apply_mrf_filter returned None outcome (candle error, not_ready, etc),
+    # mrf_evaluated should be false — it was attempted but not truly evaluated.
+    mrf_actually_evaluated = (
+        mrf_outcome is not None
+        and cfg.mrf_mode != "OFF"
+        and comb_res.action in ("BUY_YES", "BUY_NO")
+    )
+    mrf_evaluated = mrf_actually_evaluated
 
     await log_funnel(
         db_session,

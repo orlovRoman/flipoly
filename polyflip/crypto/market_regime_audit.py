@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from polyflip.crypto.market_regime import MarketRegimeSnapshot, MIN_HISTORY_CANDLES
-from polyflip.crypto.market_regime_classifier import MarketPhase, classify_global_regime, classify_asset_regime
+from polyflip.crypto.market_regime_classifier import MarketPhase, classify_global_regime, classify_asset_regime, RegimeConfig
 from polyflip.crypto.market_regime_policy import FilterMode, PolicyResult
 
 
@@ -23,20 +23,22 @@ def serialize_regime_audit(
     strategy_type: str = "",
     applied: bool = False,
     failure_reason: str | None = None,
+    regime_config: RegimeConfig | None = None,
 ) -> dict[str, Any]:
     """
     Build a compact audit dict for the decision funnel.
 
     Includes both global phase and per-asset phases.
+    Uses the same RegimeConfig as the classifier for consistency.
     """
-    global_phase, global_confidence = _extract_global_phase(snapshot)
+    global_phase, global_confidence = _extract_global_phase(snapshot, regime_config=regime_config)
     global_strength = snapshot.basket.strength if snapshot.basket.history_ready else 0.0
 
-    # Per-asset phases
+    # Per-asset phases (using same RegimeConfig)
     assets_phases = {}
     for sym, feat in snapshot.assets.items():
         if feat.history_ready:
-            cls = classify_asset_regime(feat)
+            cls = classify_asset_regime(feat, config=regime_config)
             assets_phases[sym] = {
                 "phase": cls.phase.value,
                 "strength": round(cls.strength, 4),
@@ -99,18 +101,22 @@ def serialize_regime_audit_json(
     strategy_type: str = "",
     applied: bool = False,
     failure_reason: str | None = None,
+    regime_config: RegimeConfig | None = None,
 ) -> str:
     """Serialize audit to JSON string."""
     audit = serialize_regime_audit(
         snapshot, policy_result, mode, mrf_version,
-        strategy_type, applied, failure_reason,
+        strategy_type, applied, failure_reason, regime_config=regime_config,
     )
     return json.dumps(audit, ensure_ascii=False, separators=(",", ":"))
 
 
-def _extract_global_phase(snapshot: MarketRegimeSnapshot) -> tuple[MarketPhase, float]:
+def _extract_global_phase(
+    snapshot: MarketRegimeSnapshot,
+    regime_config: RegimeConfig | None = None,
+) -> tuple[MarketPhase, float]:
     """Extract global phase and confidence from snapshot."""
     if snapshot.basket.history_ready:
-        cls = classify_global_regime(snapshot)
+        cls = classify_global_regime(snapshot, config=regime_config)
         return cls.phase, cls.confidence
     return MarketPhase.UNKNOWN, 0.0

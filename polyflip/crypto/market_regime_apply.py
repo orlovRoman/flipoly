@@ -83,13 +83,13 @@ def _determine_strategy_type(
 def _build_regime_config(cfg: TradingConfig) -> RegimeConfig:
     """
     Build RegimeConfig from TradingConfig, passing through UI thresholds.
-    MRF-FIX-06: wire ALL thresholds from UI to classifier.
+    MRF-FIX-06 + Step 3: wire thresholds, but keep ret_norm_cap separate from
+    trend_efficiency_min (they serve different purposes).
     """
     return RegimeConfig(
         trend_efficiency_min=cfg.mrf_efficiency_threshold,
         breadth_strong_threshold=cfg.mrf_breadth_threshold,
         breadth_weak_threshold=1.0 - cfg.mrf_breadth_threshold,
-        ret_norm_cap=cfg.mrf_efficiency_threshold,
     )
 
 
@@ -140,6 +140,7 @@ def apply_regime_policy(
 
     policy_result = evaluate_policy(
         snapshot, strategy_type, direction, mode, config=policy_cfg,
+        regime_config=regime_cfg,
     )
 
     # Get asset phase for the current decision (MRF-FIX-07: use explicit asset_symbol)
@@ -168,12 +169,13 @@ def apply_regime_policy(
             original_action=action,
         )
 
-    # Audit (always, regardless of mode)
+    # Audit (always, regardless of mode) — uses same RegimeConfig for consistency
     applied = (mode == FilterMode.ACTIVE and policy_result.stake_multiplier != 1.0)
     audit_dict = serialize_regime_audit(
         snapshot, policy_result, mode, cfg.mrf_version,
         strategy_type=strategy_type.value,
         applied=applied,
+        regime_config=regime_cfg,
     )
 
     if mode == FilterMode.SHADOW:
