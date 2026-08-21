@@ -293,7 +293,6 @@ class TestRegimeConfigPassthrough:
         sig = inspect.signature(evaluate_policy)
         assert "regime_config" in sig.parameters
 
-    @pytest.mark.skip(reason="requires deployed code with regime_config param")
     def test_evaluate_policy_with_regime_config(self):
         snap = _snapshot(
             assets={"BTC": _asset(symbol="BTC", efficiency_24h=0.8, strength_score=0.9)},
@@ -312,7 +311,6 @@ class TestRegimeConfigPassthrough:
         sig = inspect.signature(serialize_regime_audit)
         assert "regime_config" in sig.parameters
 
-    @pytest.mark.skip(reason="requires deployed code with regime_config param")
     def test_audit_regime_config_consistency(self):
         snap = _snapshot(
             assets={"BTC": _asset(symbol="BTC", efficiency_24h=0.8, strength_score=0.9)},
