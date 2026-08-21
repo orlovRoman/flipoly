@@ -407,6 +407,16 @@
       box-shadow: 0 0 0 2px rgba(0, 114, 245, 0.2);
     }
 
+    /* Keep native dropdown menus readable in light browser themes. */
+    .form-select {
+      color-scheme: dark;
+    }
+
+    .form-select option {
+      background: #101623;
+      color: #f3f6fb;
+    }
+
     .mono-hash {
       font-family: var(--font-mono);
       color: var(--poly-green);
@@ -443,8 +453,8 @@
         
         <!-- Read-only mode banner: this page never activates or deploys models. -->
         <div class="mode-banner" role="status" aria-live="polite">
-          <span class="mode-label">STANDARD</span>
-          <span>RESEARCH: LIVE-активация отключена</span>
+          <span class="mode-label" id="ai-lab-mode-label">RESEARCH / PAPER</span>
+          <span>RESEARCH/PAPER: LIVE-активация отключена</span>
         </div>
 
         <!-- Read-only revision summary -->
@@ -488,7 +498,22 @@
         </div>
 
         <!-- Stage 9 read-only sections. Data is populated from existing API payloads. -->
-        <div id="tab-timeline" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Steps / Timeline</div><div id="stage9-timeline" class="timeline"><div class="unavailable">Выберите запуск.</div></div></div></div>
+        <div id="tab-timeline" class="tab-pane" style="display:none">
+          <div class="opt-panel">
+            <div class="panel-header">
+              <div class="panel-title">Steps / Timeline</div>
+              <div id="timeline-selected-run" style="color: var(--text-muted);">Выберите запуск</div>
+                            <div id="run-control-actions" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                <button class="btn btn-primary btn-sm" id="btn-run-iterate" type="button" onclick="triggerRunIterate()" style="display:none;">⚡ Шаг агента</button>
+                <button class="btn btn-outline btn-sm" id="btn-run-pause" type="button" onclick="pauseRun()" style="display:none;">⏸ Пауза</button>
+                <button class="btn btn-outline btn-sm" id="btn-run-resume" type="button" onclick="resumeRun()" style="display:none;">▶ Возобновить</button>
+                <button class="btn btn-warning btn-sm" id="btn-run-cancel" type="button" onclick="cancelRun()" style="display:none;">✕ Отменить</button>
+              </div>
+
+            </div>
+            <div id="stage9-timeline" class="timeline"><div class="unavailable">Выберите запуск.</div></div>
+          </div>
+        </div>
         <div id="tab-candidates" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Candidates / results</div><div id="stage9-candidates"><div class="unavailable">Выберите запуск.</div></div></div></div>
         <div id="tab-shadow" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">SHADOW</div><div id="stage9-shadow"><div class="unavailable">SHADOW assignment data is unavailable.</div></div></div></div>
         <div id="tab-deployments" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Deployments</div><div id="stage9-deployments"><div class="unavailable">Загрузка ревизий...</div></div></div></div>
@@ -514,7 +539,8 @@
                   <option value="REJECTED">REJECTED</option>
                   <option value="FAILED">FAILED</option>
                 </select>
-                <span class="status-badge badge-shadow" title="Stage 9 is read-only">READ-ONLY: создание отключено</span>
+                <button class="btn btn-primary btn-sm" id="btn-new-run" type="button" onclick="openNewRunModal()">＋ Новый PAPER/RESEARCH запуск</button>
+                <span class="status-badge badge-shadow" title="Исследования не меняют активные модели">LIVE-активация отключена</span>
               </div>
             </div>
 
@@ -661,7 +687,7 @@
                 </div>
               </div>
               <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                <span class="status-badge badge-shadow">READ-ONLY: решения отключены</span>
+                <span class="status-badge badge-shadow">LIVE-решения отключены: доступен только просмотр diff</span>
               </div>
             </div>
           </div>
@@ -715,7 +741,7 @@
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title">Создать новый запуск оптимизации</div>
-        <button class="btn btn-outline" onclick="closeModal('modal-new-run')">✕</button>
+        <button class="btn btn-outline" onclick="closeNewRunModal()">✕</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -732,8 +758,23 @@
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
           <div class="form-group">
+            <label class="form-label">Семейство модели</label>
+            <select class="form-select" id="new-run-family">
+              <option value="LOGREG" selected>LogReg</option>
+              <option value="LIGHTGBM">LightGBM</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Permission-профиль</label>
+            <select class="form-select" id="new-run-permission" required>
+              <option value="">Загрузка профилей...</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
             <label class="form-label">Бюджет экспериментов</label>
-            <input type="number" class="form-input" id="new-run-budget" value="10" min="1" max="100">
+            <input type="number" class="form-input" id="new-run-budget" value="1" min="1" max="10">
           </div>
           <div class="form-group">
             <label class="form-label">Уровень автономии</label>
@@ -758,7 +799,7 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-outline" onclick="closeModal('modal-new-run')">Отмена</button>
+        <button class="btn btn-outline" onclick="closeNewRunModal()">Отмена</button>
         <button class="btn btn-primary" onclick="submitCreateRun()">🚀 Запустить</button>
       </div>
     </div>

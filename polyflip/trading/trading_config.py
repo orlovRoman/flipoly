@@ -69,6 +69,14 @@ class TradingConfig:
     lgbm_unavailable_policy: str = "SKIP"
     lightgbm_decision_mode: str = "SHADOW"
     enable_ece_correction: bool = True
+    # ── Market Regime Filter (MRF-T09) ──────────────────────
+    mrf_mode: str = "OFF"                 # OFF|SHADOW|ACTIVE
+    mrf_version: int = 1
+    mrf_min_history: int = 97             # candles
+    mrf_outsider_trend_multiplier: float = 0.0
+    mrf_unknown_multiplier: float = 0.8
+    mrf_breadth_threshold: float = 0.65
+    mrf_efficiency_threshold: float = 0.4
 
     def get_min_edge(self, is_outsider: bool) -> float:
         """Единый источник правды для минимального Edge."""
@@ -170,4 +178,16 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
             else "SHADOW"
         ),
         enable_ece_correction=_parse_bool(raw.get("ENABLE_ECE_CORRECTION"), getattr(settings, "ENABLE_ECE_CORRECTION", True)),
+        # ── Market Regime Filter (MRF-T09) ──────────────────────
+        mrf_mode=(
+            raw.get("MARKET_REGIME_FILTER_MODE", "OFF").strip().upper()
+            if raw.get("MARKET_REGIME_FILTER_MODE", "OFF").strip().upper() in {"OFF", "SHADOW", "ACTIVE"}
+            else "OFF"
+        ),
+        mrf_version=_parse_int(raw.get("MARKET_REGIME_FILTER_VERSION"), 1),
+        mrf_min_history=_parse_int(raw.get("MARKET_REGIME_MIN_HISTORY"), 97),
+        mrf_outsider_trend_multiplier=parse_float_setting(raw, "MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER", 0.0),
+        mrf_unknown_multiplier=parse_float_setting(raw, "MARKET_REGIME_UNKNOWN_MULTIPLIER", 0.8),
+        mrf_breadth_threshold=parse_float_setting(raw, "MARKET_REGIME_BREADTH_THRESHOLD", 0.65),
+        mrf_efficiency_threshold=parse_float_setting(raw, "MARKET_REGIME_EFFICIENCY_THRESHOLD", 0.4),
     )

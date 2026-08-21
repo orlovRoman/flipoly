@@ -130,7 +130,7 @@ function getAuthHeaders() {
 async function loadOptimizationRuns(silent = false) {
   const tbody = document.getElementById("runs-table-body");
   if (!silent) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Загрузка запусков оптимизатора...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Загрузка запусков оптимизатора...</td></tr>`;
   }
 
   try {
@@ -142,7 +142,7 @@ async function loadOptimizationRuns(silent = false) {
     const runs = data.runs || [];
 
     if (runs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Запусков оптимизатора не найдено. Нажмите «Запустить новый поиск» для старта.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Запусков оптимизатора не найдено. Нажмите «Новый PAPER/RESEARCH запуск» для старта.</td></tr>`;
       return;
     }
 
@@ -157,11 +157,15 @@ async function loadOptimizationRuns(silent = false) {
         return `
         <tr class="run-row ${currentSelectedRunId === r.id ? "selected-row" : ""}" onclick="selectRun(${r.id})">
           <td style="font-weight: 700;">#${r.id}</td>
-          <td>${created}</td>
-          <td><span style="font-weight: 600; color: var(--poly-green);">${escapeHtml(asset)}</span></td>
-          <td>${escapeHtml(objective)}</td>
-          <td><span class="badge badge-neutral" style="font-size: 0.75rem;">${escapeHtml(r.autonomy_level || "AUTONOMOUS_SHADOW")}</span></td>
+          <td>
+            <div>${escapeHtml(objective)}</div>
+            <small style="color: var(--text-muted);">${escapeHtml(asset)} · ${escapeHtml(r.mode || "RESEARCH")}</small>
+          </td>
           <td>${statusBadge}</td>
+          <td><span class="badge badge-neutral" style="font-size: 0.75rem;">${escapeHtml(r.autonomy_level || "EXPERIMENT")}</span></td>
+          <td>${escapeHtml(r.budget_experiments ?? "—")}</td>
+          <td style="font-family: var(--font-mono); font-size: 0.8rem;">${escapeHtml(r.agent_thread_id || "—")}</td>
+          <td>${created}</td>
           <td>${actionBtn}</td>
         </tr>
       `;
@@ -170,7 +174,7 @@ async function loadOptimizationRuns(silent = false) {
   } catch (err) {
     console.error("loadOptimizationRuns error:", err);
     if (!silent) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--color-failed); padding: 2rem;">Ошибка загрузки запусков: ${escapeHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--color-failed); padding: 2rem;">Ошибка загрузки запусков: ${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
@@ -205,6 +209,11 @@ async function loadRunDetail(runId) {
     const steps = data.steps || [];
     const audits = data.audits || [];
     renderStage9Detail(run, steps, data.results || [], audits);
+    updateRunControls(run);
+    const timelineRun = document.getElementById("timeline-selected-run");
+    if (timelineRun) {
+      timelineRun.textContent = "#" + run.id + " · " + String(run.status || "DRAFT");
+    }
 
     // Header Info
     const created = run.created_at ? new Date(run.created_at).toLocaleString("ru-RU") : "—";
@@ -563,123 +572,182 @@ function closeEventsModal() {
   document.getElementById("events-modal").style.display = "none";
 }
 
-// 6. Modal: Create New Experiment Run
+// 6. Modal: Create New PAPER/RESEARCH Run
+async function loadResearchPermissions() {
+  const select = document.getElementById("new-run-permission");
+  if (!select) return;
+  select.disabled = true;
+  select.innerHTML = '<option value="">Загрузка permission-профилей...</option>';
+  try {
+    const res = await fetch(window.API_BASE + "/api/ai-lab/permissions", { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error(await responseError(res));
+    const data = await res.json();
+    const required = new Set(["CREATE_EXPERIMENT", "TRAIN_MODEL"]);
+    const profiles = (data.permissions || []).filter((profile) => {
+      const actions = new Set((profile.allowed_actions || []).map((item) => String(item).toUpperCase()));
+      return profile.enabled && [...required].every((action) => actions.has(action));
+    });
+    if (!profiles.length) {
+      select.innerHTML = '<option value="">Нет включённого research permission-профиля</option>';
+      return;
+    }
+    select.innerHTML = profiles.map((profile) =>
+      '<option value="' + escapeHtml(profile.id) + '">' +
+      escapeHtml(profile.profile_name) + ' v' + escapeHtml(profile.version) + '</option>'
+    ).join("");
+    select.disabled = false;
+  } catch (error) {
+    select.innerHTML = '<option value="">Ошибка загрузки профилей</option>';
+    showToast("Не удалось загрузить permission-профили: " + error.message, "danger");
+  }
+}
+
 function openNewRunModal() {
-  document.getElementById("new-run-modal").style.display = "flex";
+  const modal = document.getElementById("modal-new-run");
+  if (modal) modal.classList.add("show");
+  loadResearchPermissions();
 }
 
 function closeNewRunModal() {
-  document.getElementById("new-run-modal").style.display = "none";
+  const modal = document.getElementById("modal-new-run");
+  if (modal) modal.classList.remove("show");
 }
 
-async function executeCreateRun() {
-  const objective = document.getElementById("run-objective-input").value.trim();
-  const asset = document.getElementById("run-asset-select").value;
-  const family = document.getElementById("run-family-select").value;
-  const autonomy = document.getElementById("run-autonomy-select").value;
+async function submitCreateRun() {
+  const objective = document.getElementById("new-run-objective")?.value.trim();
+  const asset = document.getElementById("new-run-asset")?.value;
+  const family = document.getElementById("new-run-family")?.value || "LOGREG";
+  const autonomy = document.getElementById("new-run-autonomy")?.value || "EXPERIMENT";
+  const permissionId = Number(document.getElementById("new-run-permission")?.value || 0);
+  const budget = Number(document.getElementById("new-run-budget")?.value || 1);
+  const minTrades = Number(document.getElementById("new-run-min-trades")?.value || 50);
+  const maxDrawdown = Number(document.getElementById("new-run-max-dd")?.value || -5);
 
   if (!objective) {
-    alert("Пожалуйста, опишите цель оптимизационного запуска.");
+    showToast("Укажите цель исследовательского запуска.", "danger");
+    return;
+  }
+  if (!permissionId) {
+    showToast("Выберите включённый research permission-профиль.", "danger");
     return;
   }
 
+  const submit = document.querySelector("#modal-new-run .btn-primary:last-child");
+  if (submit) { submit.disabled = true; submit.textContent = "Создание..."; }
   try {
-    const res = await fetch(`${window.API_BASE}/api/ai-lab/runs`, {
+    const res = await fetch(window.API_BASE + "/api/ai-lab/runs", {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({
         objective: objective,
+        mode: "RESEARCH",
         autonomy_level: autonomy,
+        budget_experiments: Math.max(1, Math.min(10000, budget)),
+        created_by: "optimizer-ui",
+        permission_id: permissionId,
         scope: {
           asset: asset,
           model_family: family,
+          environment: "PAPER",
+          min_trades: minTrades,
+          max_drawdown_pct: maxDrawdown,
         },
       }),
     });
-
-    if (!res.ok) {
-      const err = await res.json();
-      alert(`Ошибка создания запуска: ${err.detail || res.statusText}`);
-      return;
-    }
-
+    if (!res.ok) throw new Error(await responseError(res));
     const data = await res.json();
-    alert(`🚀 Оптимизационный запуск #${data.id} успешно инициализирован!`);
     closeNewRunModal();
-    loadOptimizationRuns();
-  } catch (e) {
-    alert(`Ошибка: ${e.message}`);
+    await loadOptimizationRuns();
+    const runId = data.id || data.run_id;
+    if (runId) await selectRun(runId);
+    showToast("Исследовательский запуск #" + (runId || "создан") + " создан. LIVE не затрагивается.", "success");
+  } catch (error) {
+    showToast("Ошибка создания запуска: " + error.message, "danger");
+  } finally {
+    if (submit) { submit.disabled = false; submit.textContent = "🚀 Запустить"; }
   }
 }
 
-/* -------------------------------------------------------------------------
- * Phase 10: Autonomous Agent Controls & Overlays
- * ------------------------------------------------------------------------- */
+function responseError(response) {
+  return response.json()
+    .then((payload) => payload.detail || payload.message || response.statusText)
+    .catch(() => response.statusText);
+}
+
+function showToast(message, level = "info") {
+  const prefix = level === "danger" ? "Ошибка: " : "";
+  window.alert(prefix + message);
+}
+
+function updateRunControls(run) {
+  const status = String(run?.status || "").toUpperCase();
+  const terminal = new Set(["COMPLETED", "INSUFFICIENT_DATA", "INSUFFICIENT_EVIDENCE", "TECHNICAL_INVALID", "FAILED", "REJECTED", "CANCELLED", "ROLLED_BACK", "ACTIVE"]);
+  const iterate = document.getElementById("btn-run-iterate");
+  const pause = document.getElementById("btn-run-pause");
+  const resume = document.getElementById("btn-run-resume");
+  const cancel = document.getElementById("btn-run-cancel");
+  // Queueing is valid only for a fresh draft or an evaluating run.
+  // Never expose it while the worker already owns the run.
+  if (iterate) iterate.style.display = ["DRAFT", "EVALUATING"].includes(status) ? "inline-flex" : "none";
+  if (pause) pause.style.display = ["PLANNING", "RUNNING", "EVALUATING", "SHADOW"].includes(status) ? "inline-flex" : "none";
+  if (resume) resume.style.display = status === "PAUSED" ? "inline-flex" : "none";
+  if (cancel) cancel.style.display = terminal.has(status) ? "none" : "inline-flex";
+}
+
 async function triggerRunIterate() {
-  if (!currentRunId) return;
+  const runId = currentSelectedRunId;
+  if (!runId) return;
   const btn = document.getElementById("btn-run-iterate");
   if (btn) { btn.disabled = true; btn.textContent = "⚡ Выполняется..."; }
   try {
-    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${currentRunId}/iterate`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-    });
-    if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.detail || "Iteration failed");
-    }
+    const resp = await fetch(window.API_BASE + "/api/ai-lab/runs/" + runId + "/iterate", { method: "POST", headers: getAuthHeaders() });
+    if (!resp.ok) throw new Error(await responseError(resp));
     const data = await resp.json();
-    showToast("Шаг агента успешно выполнен: " + (data.decision || "OK"), "success");
-    await loadRunDetail(currentRunId);
-  } catch (e) {
-    showToast("Ошибка шага агента: " + e.message, "danger");
+    showToast("Шаг агента выполнен: " + (data.decision || "OK"), "success");
+    await loadRunDetail(runId);
+  } catch (error) {
+    showToast("Ошибка шага агента: " + error.message, "danger");
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "⚡ Шаг агента"; }
   }
 }
 
 async function pauseRun() {
-  if (!currentRunId) return;
+  const runId = currentSelectedRunId;
+  if (!runId) return;
   try {
-    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${currentRunId}/pause`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-    });
-    if (!resp.ok) throw new Error("Pause failed");
+    const resp = await fetch(window.API_BASE + "/api/ai-lab/runs/" + runId + "/pause", { method: "POST", headers: getAuthHeaders() });
+    if (!resp.ok) throw new Error(await responseError(resp));
     showToast("Запуск приостановлен", "info");
-    await loadRunDetail(currentRunId);
-  } catch (e) {
-    showToast("Ошибка паузы: " + e.message, "danger");
+    await loadRunDetail(runId);
+  } catch (error) {
+    showToast("Ошибка паузы: " + error.message, "danger");
   }
 }
 
 async function resumeRun() {
-  if (!currentRunId) return;
+  const runId = currentSelectedRunId;
+  if (!runId) return;
   try {
-    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${currentRunId}/resume`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-    });
-    if (!resp.ok) throw new Error("Resume failed");
-    showToast("Запуск возобновлен", "success");
-    await loadRunDetail(currentRunId);
-  } catch (e) {
-    showToast("Ошибка возобновления: " + e.message, "danger");
+    const resp = await fetch(window.API_BASE + "/api/ai-lab/runs/" + runId + "/resume", { method: "POST", headers: getAuthHeaders() });
+    if (!resp.ok) throw new Error(await responseError(resp));
+    showToast("Запуск возобновлён", "success");
+    await loadRunDetail(runId);
+  } catch (error) {
+    showToast("Ошибка возобновления: " + error.message, "danger");
   }
 }
 
 async function cancelRun() {
-  if (!currentRunId) return;
-  if (!confirm("Вы уверены, что хотите отменить запуск #" + currentRunId + "?")) return;
+  const runId = currentSelectedRunId;
+  if (!runId) return;
+  if (!window.confirm("Отменить исследовательский запуск #" + runId + "?")) return;
   try {
-    const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${currentRunId}/cancel`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-    });
-    if (!resp.ok) throw new Error("Cancel failed");
-    showToast("Запуск отменен", "warning");
-    await loadRunDetail(currentRunId);
-  } catch (e) {
-    showToast("Ошибка отмены: " + e.message, "danger");
+    const resp = await fetch(window.API_BASE + "/api/ai-lab/runs/" + runId + "/cancel", { method: "POST", headers: getAuthHeaders() });
+    if (!resp.ok) throw new Error(await responseError(resp));
+    showToast("Запуск отменён", "warning");
+    await loadRunDetail(runId);
+  } catch (error) {
+    showToast("Ошибка отмены: " + error.message, "danger");
   }
 }

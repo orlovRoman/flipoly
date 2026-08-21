@@ -93,6 +93,15 @@ async def log_funnel(
     p_flip_raw: Optional[float] = None,
     entry_model_ece: Optional[float] = None,
 
+    # MRF telemetry
+    mrf_mode: Optional[str] = None,
+    mrf_phase: Optional[str] = None,
+    mrf_asset_phase: Optional[str] = None,
+    mrf_strength: Optional[float] = None,
+    mrf_confidence: Optional[float] = None,
+    mrf_multiplier: Optional[float] = None,
+    mrf_applied: Optional[bool] = None,
+
     # Итог
     final_action: str = "SKIP",
     skip_reason: Optional[str] = None,
@@ -168,6 +177,14 @@ async def log_funnel(
             underlying_price=underlying_price,
             distance_to_strike_pct=distance_to_strike_pct,
             direction_error_detail=direction_error_detail[:512] if direction_error_detail else None,
+
+            mrf_mode=mrf_mode,
+            mrf_phase=mrf_phase,
+            mrf_asset_phase=mrf_asset_phase,
+            mrf_strength=mrf_strength,
+            mrf_confidence=mrf_confidence,
+            mrf_multiplier=mrf_multiplier,
+            mrf_applied=mrf_applied,
 
             final_action=final_action,
             skip_reason=skip_reason[:256] if skip_reason else None,
