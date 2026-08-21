@@ -481,19 +481,28 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!res.ok) return;
       const data = await res.json();
 
+      const globalPhaseKnown =
+        data.phase_available === true ||
+        (data.phase_available === undefined &&
+          data.latest_regime &&
+          data.latest_regime !== 'UNKNOWN');
       if (settingsElements.mrfCurrentRegime) {
-        const regime = data.latest_regime || 'UNKNOWN';
-        settingsElements.mrfCurrentRegime.textContent = regime;
+        const regime = globalPhaseKnown ? data.latest_regime : 'UNKNOWN';
+        settingsElements.mrfCurrentRegime.textContent = globalPhaseKnown ? regime : 'НЕТ ДАННЫХ';
         settingsElements.mrfCurrentRegime.className = 'mrf-regime-badge mrf-regime-' + regime;
       }
       if (settingsElements.mrfStatusDetails) {
-        const parts = [];
-        if (data.latest_asset) parts.push(data.latest_asset);
-        if (data.latest_strength > 0) parts.push('сила: ' + (data.latest_strength * 100).toFixed(0) + '%');
-        if (data.latest_confidence > 0) parts.push('увер: ' + (data.latest_confidence * 100).toFixed(0) + '%');
-        settingsElements.mrfStatusDetails.textContent = parts.length
-          ? parts.join(' · ') + ' (' + data.hours + 'ч окно)'
-          : 'Нет данных за выбранный период';
+        if (!globalPhaseKnown) {
+          settingsElements.mrfStatusDetails.textContent =
+            'Нет актуальной MRF-оценки за выбранный период (' + data.hours + 'ч окно)';
+        } else {
+          const parts = [];
+          if (data.latest_asset) parts.push(data.latest_asset);
+          if (data.latest_strength != null) parts.push('сила: ' + (data.latest_strength * 100).toFixed(0) + '%');
+          if (data.latest_confidence != null) parts.push('увер: ' + (data.latest_confidence * 100).toFixed(0) + '%');
+          settingsElements.mrfStatusDetails.textContent =
+            parts.join(' · ') + ' (' + data.hours + 'ч окно)';
+        }
       }
       if (settingsElements.mrfStatEvaluated) {
         settingsElements.mrfStatEvaluated.textContent = data.total_evaluated != null ? data.total_evaluated : '—';
@@ -506,7 +515,9 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.mrfStatMultiplier.textContent = '×' + m.toFixed(2);
       }
       if (settingsElements.mrfStatStrength) {
-        const s = data.latest_strength != null ? (data.latest_strength * 100).toFixed(0) + '%' : '—';
+        const s = globalPhaseKnown && data.latest_strength != null
+          ? (data.latest_strength * 100).toFixed(0) + '%'
+          : '—';
         settingsElements.mrfStatStrength.textContent = s;
       }
       if (settingsElements.mrfPerAssetCards && data.per_asset) {
@@ -517,18 +528,23 @@ document.addEventListener("DOMContentLoaded", () => {
           const info = data.per_asset[asset];
           const card = document.createElement('div');
           card.className = 'mrf-asset-card';
-          const phase = info ? (info.phase || 'UNKNOWN') : 'UNKNOWN';
+          const phaseKnown = !!info && (
+            info.phase_available === true ||
+            (info.phase_available === undefined && info.phase && info.phase !== 'UNKNOWN')
+          );
+          const phase = phaseKnown ? info.phase : 'UNKNOWN';
+          const phaseLabel = phaseKnown ? phase : 'НЕТ ДАННЫХ';
           const strength = info ? (info.blocked > 0 ? ' (забл.)' : '') : ' (нет данных)';
-          const strengthVal = info ? (info.strength * 100).toFixed(0) + '%' : '—';
-          const confVal = info ? (info.confidence * 100).toFixed(0) + '%' : '—';
+          const strengthVal = phaseKnown && info.strength != null ? (info.strength * 100).toFixed(0) + '%' : '—';
+          const confVal = phaseKnown && info.confidence != null ? (info.confidence * 100).toFixed(0) + '%' : '—';
           const pnl = info && info.pnl != null ? (info.pnl >= 0 ? '+' : '') + info.pnl.toFixed(2) : '—';
           const winRate = info ? info.win_rate_pct.toFixed(0) + '%' : '—';
-          const mult = info && info.avg_multiplier != null ? '\u00d7' + info.avg_multiplier.toFixed(2) : '—';
+          const mult = phaseKnown && info.avg_multiplier != null ? '\u00d7' + info.avg_multiplier.toFixed(2) : '—';
           card.innerHTML =
             '<div style="display:flex;justify-content:space-between;align-items:center;">' +
               '<span class="asset-name">' + asset + '</span>' +
-              '<span class="asset-phase mrf-regime-badge mrf-regime-' + phase + '">' + phase + '</span>' +
-            '</div>' +
+              '<span class="asset-phase mrf-regime-badge mrf-regime-' + phase + '">' + phaseLabel + '</span>' +
+            '</div>' +            '</div>' +
             '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;">' +
               '<span>\u0441\u0438\u043b\u0430: ' + strengthVal + '</span>' +
               '<span>\u0443\u0432\u0435\u0440: ' + confVal + '</span>' +
