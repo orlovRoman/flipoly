@@ -544,7 +544,7 @@ document.addEventListener("DOMContentLoaded", () => {
             '<div style="display:flex;justify-content:space-between;align-items:center;">' +
               '<span class="asset-name">' + asset + '</span>' +
               '<span class="asset-phase mrf-regime-badge mrf-regime-' + phase + '">' + phaseLabel + '</span>' +
-            '</div>' +            '</div>' +
+            '</div>' +
             '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;">' +
               '<span>\u0441\u0438\u043b\u0430: ' + strengthVal + '</span>' +
               '<span>\u0443\u0432\u0435\u0440: ' + confVal + '</span>' +
