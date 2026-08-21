@@ -1,8 +1,8 @@
 """
-Market regime audit / telemetry serialization (T10 of MRF plan).
+Market regime audit / telemetry serialization v2.
 
-Produces a compact JSON-safe dict for the decision funnel metadata namespace.
-Does not touch lgbm_metadata — writes to a separate "mrf" key.
+Produces compact JSON-safe dict for the decision funnel metadata.
+Uses MarketPhase (global_phase + per-asset phases).
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from polyflip.crypto.market_regime import MarketRegimeSnapshot, MIN_HISTORY_CANDLES
-from polyflip.crypto.market_regime_classifier import Regime, classify_global_regime
+from polyflip.crypto.market_regime_classifier import MarketPhase, classify_global_regime, classify_asset_regime
 from polyflip.crypto.market_regime_policy import FilterMode, PolicyResult
 
 
@@ -27,26 +27,29 @@ def serialize_regime_audit(
     """
     Build a compact audit dict for the decision funnel.
 
-    Returns a JSON-serializable dict suitable for storage in
-    DecisionFunnelLog.market_regime_audit or a metadata namespace.
-
-    Keys:
-        mode, version, as_of, global_regime, global_confidence,
-        assets (per-asset summary), basket (cross-asset summary),
-        policy (allow/multiplier/reason), applied, failure_reason, reason_codes
+    Includes both global phase and per-asset phases.
     """
-    global_regime, global_confidence = _extract_global_regime(snapshot)
+    global_phase, global_confidence = _extract_global_phase(snapshot)
+    global_strength = snapshot.basket.strength if snapshot.basket.history_ready else 0.0
 
-    assets_summary = {}
+    # Per-asset phases
+    assets_phases = {}
     for sym, feat in snapshot.assets.items():
-        assets_summary[sym] = {
-            "ret_24h": round(feat.ret_24h, 6),
-            "efficiency": round(feat.efficiency_24h, 4),
-            "vol_ratio": round(feat.vol_ratio, 4),
-            "up_ratio": round(feat.up_ratio_24h, 4),
-            "ready": feat.history_ready,
-            "candles": feat.candle_count,
-        }
+        if feat.history_ready:
+            cls = classify_asset_regime(feat)
+            assets_phases[sym] = {
+                "phase": cls.phase.value,
+                "strength": round(cls.strength, 4),
+                "confidence": round(cls.confidence, 4),
+                "direction": round(cls.direction, 4),
+            }
+        else:
+            assets_phases[sym] = {
+                "phase": "UNKNOWN",
+                "strength": 0.0,
+                "confidence": 0.0,
+                "direction": 0.0,
+            }
 
     basket_summary = {}
     if snapshot.basket.history_ready:
@@ -65,17 +68,18 @@ def serialize_regime_audit(
             "allow": policy_result.allow,
             "multiplier": round(policy_result.stake_multiplier, 4),
             "reason": policy_result.reason,
-            "regime": policy_result.regime.value,
+            "phase": policy_result.phase.value,
         }
 
     audit = {
         "mode": mode.value,
         "version": mrf_version,
         "as_of": snapshot.as_of.isoformat(),
-        "global_regime": global_regime.value,
+        "global_phase": global_phase.value,
         "global_confidence": round(global_confidence, 4),
+        "global_strength": round(global_strength, 4),
         "strategy_type": strategy_type,
-        "assets": assets_summary,
+        "assets": assets_phases,
         "basket": basket_summary,
         "policy": policy_summary,
         "applied": applied,
@@ -95,7 +99,7 @@ def serialize_regime_audit_json(
     applied: bool = False,
     failure_reason: str | None = None,
 ) -> str:
-    """Serialize audit to JSON string for direct storage."""
+    """Serialize audit to JSON string."""
     audit = serialize_regime_audit(
         snapshot, policy_result, mode, mrf_version,
         strategy_type, applied, failure_reason,
@@ -103,9 +107,9 @@ def serialize_regime_audit_json(
     return json.dumps(audit, ensure_ascii=False, separators=(",", ":"))
 
 
-def _extract_global_regime(snapshot: MarketRegimeSnapshot) -> tuple[Regime, float]:
-    """Extract global regime and confidence from snapshot."""
+def _extract_global_phase(snapshot: MarketRegimeSnapshot) -> tuple[MarketPhase, float]:
+    """Extract global phase and confidence from snapshot."""
     if snapshot.basket.history_ready:
         cls = classify_global_regime(snapshot)
-        return cls.regime, cls.confidence
-    return Regime.UNKNOWN, 0.0
+        return cls.phase, cls.confidence
+    return MarketPhase.UNKNOWN, 0.0

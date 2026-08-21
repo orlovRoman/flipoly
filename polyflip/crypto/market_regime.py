@@ -97,6 +97,8 @@ class AssetRegimeFeatures:
     candle_count: int = 0
     # Whether this asset has enough history
     history_ready: bool = False
+    # Computed strength (0.0-1.0)
+    strength_score: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -120,6 +122,8 @@ class BasketRegimeFeatures:
     total_count: int = 0
     # Overall history readiness
     history_ready: bool = False
+    # Computed global strength
+    strength: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -161,6 +165,26 @@ def _efficiency_ratio(closes: np.ndarray) -> float:
         return 0.0
     r = net / total
     return r if math.isfinite(r) else 0.0
+
+
+def compute_asset_strength(
+    ret_4h: float,
+    ret_12h: float,
+    ret_24h: float,
+    efficiency_24h: float,
+    ret_norm_cap: float = 0.10,
+) -> float:
+    """Compute strength score for an asset (0.0-1.0)."""
+    def _norm(r, cap):
+        if cap <= 0:
+            return 0.0
+        return math.tanh(abs(r) / cap)
+    magnitude = 0.50 * _norm(ret_4h, ret_norm_cap) + 0.30 * _norm(ret_12h, ret_norm_cap) + 0.20 * _norm(ret_24h, ret_norm_cap)
+    rets = [ret_4h, ret_12h, ret_24h]
+    n_pos = sum(1 for r in rets if r > 0)
+    n_neg = sum(1 for r in rets if r < 0)
+    consistency = max(n_pos, n_neg) / len(rets)
+    return magnitude * (0.5 + 0.5 * efficiency_24h) * consistency
 
 
 def compute_asset_features(
@@ -216,6 +240,8 @@ def compute_asset_features(
     directions = (closes >= opens).astype(float)
     up_ratio_24h = float(np.mean(directions[-HORIZON_24H:])) if n >= HORIZON_24H else 0.5
 
+    strength = compute_asset_strength(ret_4h, ret_12h, ret_24h, efficiency_24h)
+
     return AssetRegimeFeatures(
         symbol=symbol,
         ret_4h=ret_4h,
@@ -229,6 +255,7 @@ def compute_asset_features(
         up_ratio_24h=up_ratio_24h,
         candle_count=candle_count,
         history_ready=True,
+        strength_score=strength,
     )
 
 
@@ -269,6 +296,12 @@ def compute_basket_features(
     median_vol_24h = float(np.median(vols_24h))
     market_efficiency_24h = abs(median_ret_24h) / median_vol_24h if median_vol_24h > 1e-10 else 0.0
 
+    # Compute global strength from basket medians
+    b_strength = compute_asset_strength(
+        float(np.median(rets_4h)), float(np.median(rets_12h)),
+        float(np.median(rets_24h)), market_efficiency_24h,
+    )
+
     return BasketRegimeFeatures(
         median_ret_4h=float(np.median(rets_4h)),
         median_ret_12h=float(np.median(rets_12h)),
@@ -282,6 +315,7 @@ def compute_basket_features(
         ready_count=ready_count,
         total_count=total_count,
         history_ready=True,
+        strength=b_strength,
     )
 
 

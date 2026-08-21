@@ -1,8 +1,8 @@
 """
-Strategic policy function for market regime filter (T07 of MRF plan).
+Strategic policy function v2 — uses MarketPhase (STRONG_UP..UNKNOWN).
 
-Takes a snapshot, strategy type, and filter mode. Returns allow/deny,
-stake multiplier, and reason. Pure, no DB reads.
+Takes a snapshot, strategy type, direction, and filter mode.
+Returns allow/deny, stake multiplier, and reason.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Optional
 
 from polyflip.crypto.market_regime import MarketRegimeSnapshot
 from polyflip.crypto.market_regime_classifier import (
-    Regime,
+    MarketPhase,
     RegimeClassification,
 )
 
@@ -37,142 +37,141 @@ class PolicyResult:
     allow: bool
     stake_multiplier: float  # 0.0 = blocked, 1.0 = normal, <1 = reduced
     reason: str
-    regime: Regime
+    phase: MarketPhase
     global_confidence: float
+    global_strength: float = 0.0
 
 
 @dataclass(frozen=True)
 class PolicyConfig:
     """Configurable thresholds for policy decisions."""
-    outsider_trend_multiplier: float = 0.0  # blocked in trend
+    outsider_trend_multiplier: float = 0.0
     outsider_sideways_multiplier: float = 1.0
     outsider_high_vol_multiplier: float = 0.5
     outsider_mixed_multiplier: float = 0.5
     outsider_unknown_multiplier: float = 0.8
 
-    mltrend_favor_multiplier: float = 1.0   # align with regime
-    mltrend_fade_multiplier: float = 0.8     # fade: allow but reduce
-    mltrend_against_multiplier: float = 0.0  # blocked
+    mltrend_favor_multiplier: float = 1.0
+    mltrend_fade_multiplier: float = 0.8
+    mltrend_against_multiplier: float = 0.0
     mltrend_high_vol_multiplier: float = 0.5
     mltrend_mixed_multiplier: float = 0.5
     mltrend_unknown_multiplier: float = 0.8
+    mltrend_sideways_multiplier: float = 0.8
 
     favorite_follow_multiplier: float = 1.0
     favorite_against_multiplier: float = 0.0
     favorite_unknown_multiplier: float = 0.8
 
-    unknown_multiplier: float = 0.8  # default for unknown regime
+    unknown_multiplier: float = 0.8
 
 
 DEFAULT_POLICY_CONFIG = PolicyConfig()
 
 
-def _get_global_regime(snapshot: MarketRegimeSnapshot) -> tuple[Regime, float]:
-    """Extract global regime and confidence from snapshot."""
-    # Use basket global regime if available
+def _get_global_regime(snapshot: MarketRegimeSnapshot) -> tuple[MarketPhase, float, float]:
+    """Extract global phase, confidence, and strength from snapshot."""
     if snapshot.basket.history_ready:
         from polyflip.crypto.market_regime_classifier import classify_global_regime
         cls = classify_global_regime(snapshot)
-        return cls.regime, cls.confidence
-    return Regime.UNKNOWN, 0.0
+        return cls.phase, cls.confidence, cls.strength
+    return MarketPhase.UNKNOWN, 0.0, 0.0
+
+
+def _is_trending(phase: MarketPhase) -> bool:
+    """Check if phase is a directional trend."""
+    return phase in (
+        MarketPhase.STRONG_UP, MarketPhase.WEAK_UP,
+        MarketPhase.STRONG_DOWN, MarketPhase.WEAK_DOWN,
+    )
+
+
+def _phase_direction(phase: MarketPhase) -> float:
+    """Get direction from phase: +1 up, -1 down, 0 neutral."""
+    if phase in (MarketPhase.STRONG_UP, MarketPhase.WEAK_UP):
+        return 1.0
+    if phase in (MarketPhase.STRONG_DOWN, MarketPhase.WEAK_DOWN):
+        return -1.0
+    return 0.0
 
 
 def evaluate_policy(
     snapshot: MarketRegimeSnapshot,
     strategy: StrategyType,
-    direction: float,  # +1 = bullish, -1 = bearish (predicted by ML)
+    direction: float,
     mode: FilterMode = FilterMode.SHADOW,
     config: PolicyConfig | None = None,
 ) -> PolicyResult:
     """
     Evaluate regime-based policy for a given strategy and direction.
-
-    Args:
-        snapshot: market regime snapshot
-        strategy: which strategy is being evaluated
-        direction: ML-predicted direction (+1/-1)
-        mode: filter mode (OFF/SHADOW/ACTIVE)
-        config: policy thresholds
-
-    Returns:
-        PolicyResult with allow, multiplier, reason
     """
     cfg = config or DEFAULT_POLICY_CONFIG
-    global_regime, confidence = _get_global_regime(snapshot)
+    phase, confidence, strength = _get_global_regime(snapshot)
 
     if mode == FilterMode.OFF:
         return PolicyResult(
             allow=True,
             stake_multiplier=1.0,
             reason="filter_off",
-            regime=global_regime,
+            phase=phase,
             global_confidence=confidence,
+            global_strength=strength,
         )
 
-    # ── OUTSIDER strategy ─────────────────────────────────────
+    regime_direction = _phase_direction(phase)
+
+    # ── OUTSIDER strategy ──
     if strategy == StrategyType.OUTSIDER:
-        if global_regime == Regime.SIDEWAYS:
+        if phase == MarketPhase.SIDEWAYS:
             return PolicyResult(
                 allow=True,
                 stake_multiplier=cfg.outsider_sideways_multiplier,
                 reason="outsider_in_sideways",
-                regime=global_regime,
-                global_confidence=confidence,
+                phase=phase, global_confidence=confidence, global_strength=strength,
             )
-        if global_regime in (Regime.TREND_UP, Regime.TREND_DOWN):
+        if _is_trending(phase):
             return PolicyResult(
                 allow=cfg.outsider_trend_multiplier > 0,
                 stake_multiplier=cfg.outsider_trend_multiplier,
                 reason="outsider_blocked_in_trend",
-                regime=global_regime,
-                global_confidence=confidence,
+                phase=phase, global_confidence=confidence, global_strength=strength,
             )
-        if global_regime == Regime.HIGH_VOL_CHOP:
+        if phase == MarketPhase.HIGH_VOL_CHOP:
             return PolicyResult(
                 allow=True,
                 stake_multiplier=cfg.outsider_high_vol_multiplier,
                 reason="outsider_reduced_in_high_vol",
-                regime=global_regime,
-                global_confidence=confidence,
+                phase=phase, global_confidence=confidence, global_strength=strength,
             )
-        if global_regime == Regime.MIXED:
+        if phase == MarketPhase.MIXED:
             return PolicyResult(
                 allow=True,
                 stake_multiplier=cfg.outsider_mixed_multiplier,
                 reason="outsider_reduced_in_mixed",
-                regime=global_regime,
-                global_confidence=confidence,
+                phase=phase, global_confidence=confidence, global_strength=strength,
             )
-        # UNKNOWN
         return PolicyResult(
             allow=True,
             stake_multiplier=cfg.outsider_unknown_multiplier,
             reason="outsider_reduced_in_unknown",
-            regime=global_regime,
-            global_confidence=confidence,
+            phase=phase, global_confidence=confidence, global_strength=strength,
         )
 
-    # ── ML_TREND strategies ───────────────────────────────────
+    # ── ML_TREND strategies ──
     if strategy in (StrategyType.ML_TREND_FOLLOW, StrategyType.ML_TREND_FADE):
-        # Check if ML direction aligns with regime
-        regime_direction = 1.0 if global_regime == Regime.TREND_UP else (
-            -1.0 if global_regime == Regime.TREND_DOWN else 0.0
-        )
-
         aligns = (direction * regime_direction > 0) if regime_direction != 0 else False
 
-        if global_regime == Regime.HIGH_VOL_CHOP:
+        if phase == MarketPhase.HIGH_VOL_CHOP:
             mult = cfg.mltrend_high_vol_multiplier
             reason = "mltrend_reduced_high_vol"
-        elif global_regime == Regime.MIXED:
+        elif phase == MarketPhase.MIXED:
             mult = cfg.mltrend_mixed_multiplier
             reason = "mltrend_reduced_mixed"
-        elif global_regime == Regime.UNKNOWN:
+        elif phase == MarketPhase.UNKNOWN:
             mult = cfg.mltrend_unknown_multiplier
             reason = "mltrend_reduced_unknown"
-        elif global_regime == Regime.SIDEWAYS:
-            # In sideways, ML trend is less reliable
-            mult = cfg.mltrend_mixed_multiplier
+        elif phase == MarketPhase.SIDEWAYS:
+            mult = cfg.mltrend_sideways_multiplier
             reason = "mltrend_reduced_sideways"
         elif aligns:
             mult = cfg.mltrend_favor_multiplier
@@ -185,18 +184,14 @@ def evaluate_policy(
             allow=mult > 0,
             stake_multiplier=mult,
             reason=reason,
-            regime=global_regime,
-            global_confidence=confidence,
+            phase=phase, global_confidence=confidence, global_strength=strength,
         )
 
-    # ── ML_FAVORITE strategy ──────────────────────────────────
+    # ── ML_FAVORITE strategy ──
     if strategy == StrategyType.ML_FAVORITE:
-        regime_direction = 1.0 if global_regime == Regime.TREND_UP else (
-            -1.0 if global_regime == Regime.TREND_DOWN else 0.0
-        )
         aligns = (direction * regime_direction > 0) if regime_direction != 0 else False
 
-        if global_regime == Regime.UNKNOWN:
+        if phase == MarketPhase.UNKNOWN:
             mult = cfg.favorite_unknown_multiplier
             reason = "favorite_reduced_unknown"
         elif aligns:
@@ -210,15 +205,13 @@ def evaluate_policy(
             allow=mult > 0,
             stake_multiplier=mult,
             reason=reason,
-            regime=global_regime,
-            global_confidence=confidence,
+            phase=phase, global_confidence=confidence, global_strength=strength,
         )
 
-    # ── OTHER: no regime policy ───────────────────────────────
+    # ── OTHER ──
     return PolicyResult(
         allow=True,
         stake_multiplier=1.0,
         reason="unknown_strategy_no_policy",
-        regime=global_regime,
-        global_confidence=confidence,
+        phase=phase, global_confidence=confidence, global_strength=strength,
     )

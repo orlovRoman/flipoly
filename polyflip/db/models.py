@@ -738,6 +738,15 @@ class DecisionFunnelLog(Base):
     max_acceptable_price = Column(Float, nullable=True)
     direction_error_detail = Column(String(512), nullable=True)
 
+    # MRF telemetry (added in v2)
+    mrf_mode = Column(String(16), nullable=True)        # OFF / SHADOW / ACTIVE
+    mrf_phase = Column(String(32), nullable=True)       # global MarketPhase
+    mrf_asset_phase = Column(String(32), nullable=True) # per-asset MarketPhase
+    mrf_strength = Column(Float, nullable=True)         # global strength (0-1)
+    mrf_confidence = Column(Float, nullable=True)       # global confidence (0-1)
+    mrf_multiplier = Column(Float, nullable=True)       # policy stake multiplier
+    mrf_applied = Column(Boolean, nullable=True)        # whether filter actually applied
+
 
 class Binance15mBar(Base):
     """
