@@ -261,6 +261,16 @@ class PolymarketExecutionGateway:
                 "connecterror",
                 "connection reset",
             ]
+            post_only_cross_markers = ("invalid post-only order", "post-only order", "post_only order", "crosses book", "cross the book", "would take liquidity")
+
+            if order.post_only and any(marker in err_lower for marker in post_only_cross_markers):
+                return SubmissionResult(
+                    accepted=False,
+                    provider_status="POST_ONLY_REJECTED",
+                    rejection_code="POST_ONLY_REJECTED",
+                    error_message=f"POST_ONLY_REJECTED: {e}",
+                )
+
             fak_no_liquidity_markers = (
                 "no orders found to match with fak order",
                 "there are no matching orders",

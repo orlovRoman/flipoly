@@ -312,10 +312,13 @@ async def toggle_ignore_edge_decay(
 
 
 class SwitchOrderModeRequest(BaseModel):
-    mode: Literal["FAK", "GTC_TTL", "FAK_RETRY"]
+    mode: Literal["FAK", "GTC_TTL", "GTD", "FAK_RETRY"]
     gtc_ttl_seconds: Optional[float] = Field(None, ge=1.0, le=60.0)
     fak_retry_max_attempts: Optional[int] = Field(None, ge=1, le=10)
     fak_retry_delay_sec: Optional[float] = Field(None, ge=0.1, le=5.0)
+    maker_reprice_on_cross: Optional[bool] = None
+    maker_reprice_max_retries: Optional[int] = Field(None, ge=0, le=1)
+    maker_tick_size: Optional[float] = Field(None, gt=0.0, le=0.1)
 
 
 @router.get("/order-mode", summary="Получить режим и параметры исполнения ордеров")
@@ -324,11 +327,20 @@ async def get_order_mode(db: AsyncSession = Depends(get_db_session)):
     gtc_ttl = await _get_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", default="5.0")
     retry_attempts = await _get_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", default="3")
     retry_delay = await _get_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", default="0.75")
+    maker_reprice = await _get_runtime_flag(db, "LIVE_MAKER_REPRICE_ON_CROSS", default="true")
+    maker_retries = await _get_runtime_flag(db, "LIVE_MAKER_REPRICE_MAX_RETRIES", default="1")
+    maker_tick = await _get_runtime_flag(db, "LIVE_MAKER_TICK_SIZE", default="0.01")
+    normalized_mode = mode.strip().upper()
+    if normalized_mode in {"MAKER_TTL", "LIMIT_TTL"}:
+        normalized_mode = "GTC_TTL"
     return {
-        "mode": mode.upper(),
+        "mode": normalized_mode,
         "gtc_ttl_seconds": float(gtc_ttl),
         "fak_retry_max_attempts": int(retry_attempts),
         "fak_retry_delay_sec": float(retry_delay),
+        "maker_reprice_on_cross": maker_reprice.strip().lower() == "true",
+        "maker_reprice_max_retries": int(maker_retries),
+        "maker_tick_size": float(maker_tick),
     }
 
 
@@ -348,6 +360,12 @@ async def set_order_mode(
         await _set_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", str(payload.fak_retry_max_attempts))
     if payload.fak_retry_delay_sec is not None:
         await _set_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", str(payload.fak_retry_delay_sec))
+    if payload.maker_reprice_on_cross is not None:
+        await _set_runtime_flag(db, "LIVE_MAKER_REPRICE_ON_CROSS", str(payload.maker_reprice_on_cross).lower())
+    if payload.maker_reprice_max_retries is not None:
+        await _set_runtime_flag(db, "LIVE_MAKER_REPRICE_MAX_RETRIES", str(payload.maker_reprice_max_retries))
+    if payload.maker_tick_size is not None:
+        await _set_runtime_flag(db, "LIVE_MAKER_TICK_SIZE", str(payload.maker_tick_size))
 
     logger.info(
         "order_mode_changed",
@@ -365,6 +383,9 @@ async def set_order_mode(
         "gtc_ttl_seconds": payload.gtc_ttl_seconds or float(await _get_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", default="5.0")),
         "fak_retry_max_attempts": payload.fak_retry_max_attempts or int(await _get_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", default="3")),
         "fak_retry_delay_sec": payload.fak_retry_delay_sec or float(await _get_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", default="0.75")),
+        "maker_reprice_on_cross": payload.maker_reprice_on_cross if payload.maker_reprice_on_cross is not None else (await _get_runtime_flag(db, "LIVE_MAKER_REPRICE_ON_CROSS", default="true")).strip().lower() == "true",
+        "maker_reprice_max_retries": payload.maker_reprice_max_retries if payload.maker_reprice_max_retries is not None else int(await _get_runtime_flag(db, "LIVE_MAKER_REPRICE_MAX_RETRIES", default="1")),
+        "maker_tick_size": payload.maker_tick_size if payload.maker_tick_size is not None else float(await _get_runtime_flag(db, "LIVE_MAKER_TICK_SIZE", default="0.01")),
     }
 
 
@@ -1656,6 +1677,11 @@ async def get_live_dashboard(
         }
         action_reasons = {}
 
+    order_mode_raw = (await _get_runtime_flag(db, "LIVE_ORDER_MODE", default="MAKER_TTL")).strip().upper()
+    normalized_order_mode = "GTC_TTL" if order_mode_raw in {"MAKER_TTL", "LIMIT_TTL"} else order_mode_raw
+    maker_reprice_on_cross = (await _get_runtime_flag(db, "LIVE_MAKER_REPRICE_ON_CROSS", default="true")).strip().lower() == "true"
+    maker_reprice_max_retries = int(await _get_runtime_flag(db, "LIVE_MAKER_REPRICE_MAX_RETRIES", default="1"))
+    maker_tick_size = float(await _get_runtime_flag(db, "LIVE_MAKER_TICK_SIZE", default="0.01"))
     return {
         "available_actions": available_actions,
         "action_reasons": action_reasons,
@@ -1671,10 +1697,13 @@ async def get_live_dashboard(
         ),
         "ignore_edge_decay": (await _get_runtime_flag(db, "LIVE_IGNORE_EDGE_DECAY")).lower() == "true",
         "order_mode_config": {
-            "mode": (await _get_runtime_flag(db, "LIVE_ORDER_MODE", default="FAK")).upper(),
+            "mode": normalized_order_mode,
             "gtc_ttl_seconds": float(await _get_runtime_flag(db, "LIVE_GTC_TTL_SECONDS", default="5.0")),
             "fak_retry_max_attempts": int(await _get_runtime_flag(db, "LIVE_FAK_RETRY_MAX_ATTEMPTS", default="3")),
             "fak_retry_delay_sec": float(await _get_runtime_flag(db, "LIVE_FAK_RETRY_DELAY_SEC", default="0.75")),
+            "maker_reprice_on_cross": maker_reprice_on_cross,
+            "maker_reprice_max_retries": maker_reprice_max_retries,
+            "maker_tick_size": maker_tick_size,
         },
         "session": (
             serialize_live_session_dto(active_session, budget_snap)

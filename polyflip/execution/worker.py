@@ -22,7 +22,7 @@ from polyflip.db.execution_models import (
     ExecutionWorkerStatus,
 )
 from polyflip.db.models import LiveMarket, TradeHistory, RuntimeSettings
-from polyflip.execution.order_strategies import execute_gtc_ttl, execute_fak_retry
+from polyflip.execution.order_strategies import execute_gtc_ttl, execute_fak_retry, execute_maker_limit
 from polyflip.execution.config import ExecutionSettings
 from polyflip.execution.gateways.factory import build_execution_gateway
 from polyflip.execution.contracts import GatewayOrder, GatewayUnavailable
@@ -490,6 +490,18 @@ async def process_ready_requests():
                     await session.commit()
                     return
 
+            # CLOSE/TAKE_PROFIT requests do not use the OPEN price guard, but
+            # maker reprice still needs the same live quote client after a
+            # post-only cross.
+            if req.requested_mode == "LIVE" and api_client is None:
+                try:
+                    from polyflip.collector.client import PolymarketClient
+                    api_client = PolymarketClient()
+                except Exception as client_err:
+                    logger.warning("worker_maker_quote_client_unavailable", error=str(client_err))
+            req.submit_quote_price = executable_price
+            req.submit_quote_at = datetime.now(timezone.utc)
+
             if req.max_acceptable_price is not None and executable_price > float(
                 req.max_acceptable_price
             ):
@@ -586,6 +598,9 @@ async def process_ready_requests():
                                     "LIVE_GTC_TTL_SECONDS",
                                     "LIVE_FAK_RETRY_MAX_ATTEMPTS",
                                     "LIVE_FAK_RETRY_DELAY_SEC",
+                                    "LIVE_MAKER_REPRICE_ON_CROSS",
+                                    "LIVE_MAKER_REPRICE_MAX_RETRIES",
+                                    "LIVE_MAKER_TICK_SIZE",
                                     "TAKE_PROFIT_ORDER_MODE",
                                 ]
                             )
@@ -620,6 +635,23 @@ async def process_ready_requests():
                         "order_mode_settings_read_failed", error=str(setting_err)
                     )
 
+            if order_mode in {"MAKER_TTL", "LIMIT_TTL"}:
+                order_mode = "GTC_TTL"
+            maker_reprice_enabled = str(settings_dict.get("LIVE_MAKER_REPRICE_ON_CROSS", "true")).strip().lower() in {"1", "true", "yes", "on"}
+            try:
+                maker_reprice_attempts = min(1, max(0, int(settings_dict.get("LIVE_MAKER_REPRICE_MAX_RETRIES", "1"))))
+            except (TypeError, ValueError):
+                maker_reprice_attempts = 1
+            try:
+                maker_tick_size = Decimal(str(settings_dict.get("LIVE_MAKER_TICK_SIZE", "0.01")))
+                if maker_tick_size <= 0:
+                    raise ValueError
+            except (ArithmeticError, TypeError, ValueError):
+                maker_tick_size = Decimal("0.01")
+            req.execution_order_mode = order_mode
+            req.post_only = order_mode in {"GTC_TTL", "GTD"}
+            order = order.model_copy(update={"post_only": req.post_only})
+
             is_gtd_take_profit = (
                 req.intent == "CLOSE"
                 and req.trigger_reason == "TAKE_PROFIT"
@@ -631,11 +663,30 @@ async def process_ready_requests():
             )
             if is_gtd_take_profit:
                 order_mode = "GTD"
+                req.execution_order_mode = order_mode
+                req.post_only = True
+                order = order.model_copy(update={"post_only": True})
 
             if order_mode == "GTC_TTL":
-                sub_res = await execute_gtc_ttl(gateway, order, ttl_seconds=gtc_ttl_sec)
+                sub_res = await execute_gtc_ttl(
+                    gateway,
+                    order,
+                    ttl_seconds=gtc_ttl_sec,
+                    api_client=api_client,
+                    max_acceptable_price=req.max_acceptable_price,
+                    max_reprice_attempts=(maker_reprice_attempts if maker_reprice_enabled else 0),
+                    tick_size=maker_tick_size,
+                )
             elif order_mode == "GTD":
-                sub_res = await gateway.submit(order, order_type="GTD")
+                sub_res = await execute_maker_limit(
+                    gateway,
+                    order,
+                    order_type="GTD",
+                    api_client=api_client,
+                    max_acceptable_price=req.max_acceptable_price,
+                    max_reprice_attempts=(maker_reprice_attempts if maker_reprice_enabled else 0),
+                    tick_size=maker_tick_size,
+                )
             elif order_mode == "FAK_RETRY":
                 api_client_retry = api_client if api_client else None
                 sub_res = await execute_fak_retry(
@@ -654,6 +705,18 @@ async def process_ready_requests():
             attempt.provider_trade_ids = list(sub_res.provider_trade_ids)
             attempt.transaction_hashes = list(sub_res.transaction_hashes)
             attempt.settlement_state = sub_res.settlement_state
+            req.submitted_limit_price = float(sub_res.submitted_limit_price or order.limit_price)
+            if sub_res.submitted_requested_shares:
+                req.requested_shares = sub_res.submitted_requested_shares
+            maker_telemetry = {
+                "maker_status": sub_res.maker_status,
+                "maker_attempts": sub_res.maker_attempts,
+                "maker_best_bid": (str(sub_res.maker_best_bid) if sub_res.maker_best_bid is not None else None),
+                "maker_best_ask": (str(sub_res.maker_best_ask) if sub_res.maker_best_ask is not None else None),
+                "submitted_limit_price": str(req.submitted_limit_price),
+            }
+            existing_response = attempt.raw_response if isinstance(attempt.raw_response, dict) else {}
+            attempt.raw_response = {**existing_response, "maker_telemetry": maker_telemetry}
 
             if not sub_res.accepted or sub_res.provider_status in ("REJECTED", "ERROR"):
                 attempt.status = "FAILED"
@@ -1255,7 +1318,6 @@ async def reconcile_active_requests():
                 attempt.provider_status = sub_res.provider_status
                 if sub_res.settlement_state:
                     attempt.settlement_state = sub_res.settlement_state
-
                 PENDING_ORDER_STATUSES = frozenset(
                     {"ACCEPTED", "UNKNOWN", "PENDING", "LIVE", "DELAYED"}
                 )

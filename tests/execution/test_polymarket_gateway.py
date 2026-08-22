@@ -315,3 +315,30 @@ async def test_gateway_routes_gtd_to_limit_order_with_expiration():
     assert kwargs["expiration"] == gtd_expiration
     client.place_market_order.assert_not_awaited()
 
+
+@pytest.mark.asyncio
+async def test_gateway_normalizes_post_only_cross_rejection():
+    gateway = PolymarketExecutionGateway(
+        private_key=KNOWN_PRIVATE_KEY,
+        wallet_address="0xDummyAddress",
+        relayer_api_key="relayer-key",
+        relayer_api_key_address=KNOWN_SIGNER_ADDRESS,
+    )
+    client = AsyncMock()
+    client.place_limit_order.side_effect = Exception(
+        "invalid post-only order: order crosses book"
+    )
+    gateway.get_client = AsyncMock(return_value=client)
+
+    order = GatewayOrder(
+        attempt_id=uuid4(), market_id="market-cross", asset="BTC",
+        outcome_to_buy="YES", token_id="token-yes", side="BUY",
+        requested_shares=Decimal("2"), limit_price=Decimal("0.8"),
+        post_only=True,
+    )
+    submission = await gateway.submit(order, order_type="GTC")
+
+    assert submission.accepted is False
+    assert submission.provider_status == "POST_ONLY_REJECTED"
+    assert submission.rejection_code == "POST_ONLY_REJECTED"
+    assert "POST_ONLY_REJECTED" in (submission.error_message or "")
