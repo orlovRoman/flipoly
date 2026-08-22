@@ -41,6 +41,16 @@ class PolicyResult:
     global_confidence: float
     global_strength: float = 0.0
 
+    @property
+    def regime(self) -> MarketPhase:
+        """Deprecated: use .phase instead."""
+        return self.phase
+
+    @property
+    def global_regime(self) -> MarketPhase:
+        """Deprecated: use .phase instead."""
+        return self.phase
+
 
 @dataclass(frozen=True)
 class PolicyConfig:

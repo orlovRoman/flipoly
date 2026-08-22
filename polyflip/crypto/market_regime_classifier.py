@@ -33,6 +33,15 @@ class MarketPhase(str, Enum):
 Regime = MarketPhase
 Regime.TREND_UP = MarketPhase.STRONG_UP  # type: ignore[attr-defined]
 Regime.TREND_DOWN = MarketPhase.STRONG_DOWN  # type: ignore[attr-defined]
+# Mapping from old regime names to new MarketPhase values
+REGIME_COMPAT_MAP = {
+    "TREND_UP": "STRONG_UP",
+    "TREND_DOWN": "STRONG_DOWN",
+    "TREND_UP_STRONG": "STRONG_UP",
+    "TREND_UP_WEAK": "WEAK_UP",
+    "TREND_DOWN_STRONG": "STRONG_DOWN",
+    "TREND_DOWN_WEAK": "WEAK_DOWN",
+}
 
 
 @dataclass(frozen=True)
@@ -43,6 +52,16 @@ class RegimeClassification:
     confidence: float  # 0.0 .. 1.0
     direction: float   # -1.0 .. +1.0
     reason_codes: list[str]
+
+    @property
+    def regime(self) -> MarketPhase:
+        """Deprecated: use .phase instead."""
+        return self.phase
+
+    @property
+    def regime_value(self) -> str:
+        """Deprecated: use .phase.value instead."""
+        return self.phase.value
 
 
 @dataclass(frozen=True)
@@ -159,10 +178,11 @@ def classify_asset_regime(
     n_neg = sum(1 for r in rets if r < 0)
     consistency = max(n_pos, n_neg) / len(rets)
 
-    if n_pos == 3 and consistency >= 2 / 3 and strength >= cfg.strong_score_threshold:
+    if n_pos == 3 and consistency >= 2 / 3 and strength >= cfg.strong_score_threshold and eff >= cfg.trend_efficiency_min:
         reasons.append(f"ret_24h:{ret_24h:.4f}")
         reasons.append(f"strength:{strength:.2f}")
         reasons.append(f"consistency:{consistency:.2f}")
+        reasons.append(f"efficiency:{eff:.2f}")
         return RegimeClassification(
             phase=MarketPhase.STRONG_UP,
             strength=strength,
@@ -171,7 +191,7 @@ def classify_asset_regime(
             reason_codes=reasons,
         )
 
-    if n_neg == 3 and consistency >= 2 / 3 and strength >= cfg.strong_score_threshold:
+    if n_neg == 3 and consistency >= 2 / 3 and strength >= cfg.strong_score_threshold and eff >= cfg.trend_efficiency_min:
         reasons.append(f"ret_24h:{ret_24h:.4f}")
         reasons.append(f"strength:{strength:.2f}")
         reasons.append(f"consistency:{consistency:.2f}")
@@ -319,10 +339,11 @@ def classify_global_regime(
     consistency = max(n_pos, n_neg) / len(rets) if rets else 0.0
 
     if (n_pos == 3 and consistency >= 2 / 3 and strength >= cfg.strong_score_threshold
-            and breadth > cfg.breadth_strong_threshold):
+            and breadth > cfg.breadth_strong_threshold and eff >= cfg.trend_efficiency_min):
         reasons.append(f"median_ret:{ret:.4f}")
         reasons.append(f"strength:{strength:.2f}")
         reasons.append(f"breadth:{breadth:.2f}")
+        reasons.append(f"efficiency:{eff:.2f}")
         return RegimeClassification(
             phase=MarketPhase.STRONG_UP,
             strength=strength,
@@ -333,7 +354,7 @@ def classify_global_regime(
 
     # ── STRONG_DOWN ──
     if (n_neg == 3 and consistency >= 2 / 3 and strength >= cfg.strong_score_threshold
-            and breadth < cfg.breadth_weak_threshold):
+            and breadth < cfg.breadth_weak_threshold and eff >= cfg.trend_efficiency_min):
         reasons.append(f"median_ret:{ret:.4f}")
         reasons.append(f"strength:{strength:.2f}")
         reasons.append(f"breadth:{breadth:.2f}")

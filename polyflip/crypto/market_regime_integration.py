@@ -35,9 +35,15 @@ def build_snapshot_from_candles(
     if not candles:
         return build_regime_snapshot({}, as_of=as_of)
 
+    if as_of.tzinfo is None:
+        as_of = as_of.replace(tzinfo=timezone.utc)
+
     open_times = []
     filtered = []
     for c in candles:
+        # Only use closed candles
+        if getattr(c, "is_closed", None) is not True:
+            continue
         ot = getattr(c, "open_time", None)
         if ot is not None:
             if ot.tzinfo is None:
@@ -130,6 +136,8 @@ def build_snapshot_from_multi_asset_candles(
             is_valid, reason = validate_candle_continuity(open_times, len(filtered))
             if not is_valid:
                 reason_codes.append(f"candle_continuity:{symbol}:{reason}")
+                # Mark asset as invalid — continuity failures block MRF for this asset
+                continue
 
         candle_data[symbol] = {
             "closes": closes,
