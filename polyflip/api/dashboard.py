@@ -35,6 +35,67 @@ base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 templates = Jinja2Templates(directory=os.path.join(base_dir, "templates"))
 
 
+def _mrf_audit_payload(funnel) -> dict | None:
+    """Return a JSON-safe MRF payload for a trade-log row.
+
+    The detailed audit is stored in ``mrf_audit_json``. Older rows and rows
+    where the classifier was not ready only have scalar telemetry columns;
+    expose those as a compatibility payload instead of dropping MRF from the
+    dashboard response.
+    """
+    if funnel is None:
+        return None
+
+    raw = getattr(funnel, "mrf_audit_json", None)
+    payload: dict = {}
+    if raw:
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(parsed, dict):
+                payload = parsed
+        except (TypeError, ValueError):
+            logger.warning("invalid_mrf_audit_json", funnel_id=getattr(funnel, "id", None))
+
+    telemetry_names = (
+        "mrf_mode",
+        "mrf_evaluated",
+        "mrf_phase",
+        "mrf_asset_phase",
+        "mrf_strength",
+        "mrf_confidence",
+        "mrf_multiplier",
+        "mrf_applied",
+        "mrf_failure_reason",
+        "mrf_final_action",
+    )
+    has_telemetry = any(
+        getattr(funnel, name, None) is not None for name in telemetry_names
+    )
+    if not payload and not has_telemetry:
+        return None
+
+    payload.setdefault("mode", getattr(funnel, "mrf_mode", None))
+    payload.setdefault("evaluated", getattr(funnel, "mrf_evaluated", None))
+    payload.setdefault("global_phase", getattr(funnel, "mrf_phase", None))
+    payload.setdefault("asset_phase", getattr(funnel, "mrf_asset_phase", None))
+    payload.setdefault("global_strength", getattr(funnel, "mrf_strength", None))
+    payload.setdefault("global_confidence", getattr(funnel, "mrf_confidence", None))
+    payload.setdefault("applied", getattr(funnel, "mrf_applied", None))
+    payload.setdefault("failure_reason", getattr(funnel, "mrf_failure_reason", None))
+
+    policy = payload.get("policy")
+    if not isinstance(policy, dict):
+        policy = {}
+        payload["policy"] = policy
+    policy.setdefault("multiplier", getattr(funnel, "mrf_multiplier", None))
+    if "allow" not in policy:
+        final_action = getattr(funnel, "mrf_final_action", None)
+        if final_action is not None:
+            policy["allow"] = final_action != "SKIP"
+
+    return payload
+
+
 @router.get("/dashboard")
 async def get_dashboard(request: Request):
     """Отдает главную страницу дашборда"""
@@ -737,6 +798,7 @@ async def get_trade_logs(
             }
         
         if funnel:
+            mrf_audit = _mrf_audit_payload(funnel)
             item["funnel_log"] = {
                 "direction_model_key": funnel.direction_model_key,
                 "direction_model_version": funnel.direction_model_version,
@@ -775,6 +837,8 @@ async def get_trade_logs(
                 },
                 "fallback_reason": funnel.fallback_reason,
                 "reason": funnel.skip_reason,
+                "mrf_audit": mrf_audit,
+                "mrf": mrf_audit,
             }
             
         item["direction_display"] = direction_display_value(

@@ -1277,13 +1277,15 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="padding: 8px;">${
                           (() => {
                             const fl = log.funnel_log;
-                            if (!fl || !fl.mrf_audit) return '<span style="color:var(--text-muted);">—</span>';
-                            const a = fl.mrf_audit;
+                            const a = fl && (fl.mrf_audit || fl.mrf);
+                            if (!a) return '<span style="color:var(--text-muted);">—</span>';
                             const p = a.global_phase || a.global_regime || 'UNKNOWN';
                             const pol = a.policy || {};
+                            const multiplier = pol.multiplier ?? a.multiplier;
                             const dotColor = pol.allow === false ? '#ff3366' : pol.allow === true ? '#00ff88' : '#ffb020';
-                            return `<span class="mrf-regime-badge mrf-regime-${p}" style="font-size:0.78rem;">${p}</span>` +
-                              (pol.multiplier != null && pol.multiplier !== 1.0 ? `<br><span style="font-size:0.75rem;color:${dotColor};">x${Number(pol.multiplier).toFixed(2)}</span>` : '');
+                            const title = a.failure_reason ? ` title="${escapeHtml(a.failure_reason)}"` : '';
+                            return `<span class="mrf-regime-badge mrf-regime-${p}" style="font-size:0.78rem;"${title}>${escapeHtml(p)}</span>` +
+                              (multiplier != null && Number(multiplier) !== 1.0 ? `<br><span style="font-size:0.75rem;color:${dotColor};">x${Number(multiplier).toFixed(2)}</span>` : '');
                           })()
                         }</td>
                         <td style="padding: 8px;">${reasonHtml}</td>
