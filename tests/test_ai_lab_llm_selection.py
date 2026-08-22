@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from polyflip.ai_lab.llm import (
+    DEFAULT_OPENCODE_CHAT_ENDPOINT,
     DEFAULT_OPENCODE_ENDPOINT,
     OpenAIResponsesProvider,
     get_llm_model_catalog,
@@ -30,8 +31,13 @@ def test_catalog_contains_safe_provider_metadata(monkeypatch):
     catalog = get_llm_model_catalog()
     assert catalog["provider"] == "opencode"
     assert {item["id"] for item in catalog["models"]} == {
-        "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"
+        "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+        "muse-spark-1.2-contributor-free", "big-pickle", "nemotron-3-ultra-free",
     }
+    labels = {item["id"]: item["label"] for item in catalog["models"]}
+    assert labels["big-pickle"] == "Big Pickle"
+    assert labels["muse-spark-1.2-contributor-free"] == "Muse Spark 1.2 Free"
+    assert labels["nemotron-3-ultra-free"] == "Nemotron 3 Ultra Free"
     assert catalog["providers"][-1]["configured"] is True
     assert "secret-value" not in str(catalog)
 
@@ -76,8 +82,10 @@ def test_opencode_factory_uses_compatible_responses_endpoint(monkeypatch):
     assert isinstance(provider, OpenAIResponsesProvider)
     assert provider.provider_name == "opencode"
     assert provider.endpoint_url == DEFAULT_OPENCODE_ENDPOINT
+    assert provider.route_opencode_models is True
     assert provider.model_research == "gpt-5.6-sol"
-
+    assert provider._endpoint_for_model("gpt-5.6-sol") == DEFAULT_OPENCODE_ENDPOINT
+    assert provider._endpoint_for_model("big-pickle") == DEFAULT_OPENCODE_CHAT_ENDPOINT
 
 def test_opencode_factory_requires_key(monkeypatch):
     import polyflip.config as config

@@ -27,7 +27,15 @@ ALLOWED_ASSETS = {
 # ---------------------------------------------------------------------------
 LLM_PROVIDERS = ("mock", "openai", "opencode")
 DEFAULT_OPENCODE_ENDPOINT = "https://opencode.ai/zen/v1/responses"
-DEFAULT_OPENCODE_MODELS = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+DEFAULT_OPENCODE_CHAT_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
+DEFAULT_OPENCODE_RESPONSES_MODELS = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "muse-spark-1.2-contributor-free")
+DEFAULT_OPENCODE_CHAT_MODELS = ("big-pickle", "nemotron-3-ultra-free")
+DEFAULT_OPENCODE_MODELS = DEFAULT_OPENCODE_RESPONSES_MODELS + DEFAULT_OPENCODE_CHAT_MODELS
+OPENCODE_MODEL_LABELS = {
+    "big-pickle": "Big Pickle",
+    "muse-spark-1.2-contributor-free": "Muse Spark 1.2 Free",
+    "nemotron-3-ultra-free": "Nemotron 3 Ultra Free",
+}
 
 
 def _csv_values(value: Any) -> list[str]:
@@ -99,7 +107,7 @@ def get_llm_model_catalog(provider_name: str | None = None) -> dict[str, Any]:
         "providers": providers,
         "models": [{
             "id": model,
-            "label": model,
+            "label": OPENCODE_MODEL_LABELS.get(model, model) if target == "opencode" else model,
             "supports_structured_output": True,
             "default_research": model == research_default,
             "default_summary": model == summary_default,
@@ -417,6 +425,7 @@ class OpenAIResponsesProvider:
         timeout_seconds: float = 60.0,
         endpoint_url: str = "https://api.openai.com/v1/responses",
         provider_name: str = "openai",
+        route_opencode_models: bool = False,
     ) -> None:
         self.api_key = api_key
         self.model_research = model_research
@@ -425,6 +434,7 @@ class OpenAIResponsesProvider:
         self.timeout_seconds = timeout_seconds
         self.endpoint_url = endpoint_url
         self.provider_name = provider_name
+        self.route_opencode_models = route_opencode_models
 
     def _compute_cost(self, prompt_tokens: int, completion_tokens: int, model: str) -> float:
         # Approximate pricing per 1M tokens
@@ -520,6 +530,64 @@ class OpenAIResponsesProvider:
                 }
         return result
 
+    def _endpoint_for_model(self, model: str) -> str:
+        """Select the OpenCode transport required by the selected model.
+
+        The default OpenCode catalog contains both Responses and Chat Completions
+        models. A custom endpoint is always respected and is never rewritten.
+        """
+        if (
+            self.route_opencode_models
+            and self.provider_name == "opencode"
+            and model in DEFAULT_OPENCODE_CHAT_MODELS
+            and self.endpoint_url == DEFAULT_OPENCODE_ENDPOINT
+        ):
+            return DEFAULT_OPENCODE_CHAT_ENDPOINT
+        return self.endpoint_url
+
+    @staticmethod
+    def _chat_content_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, Mapping):
+                    value = item.get("text") or item.get("content") or item.get("value")
+                    if value:
+                        parts.append(str(value))
+            return "".join(parts)
+        if isinstance(content, Mapping):
+            value = content.get("text") or content.get("content") or content.get("value")
+            return str(value) if value else ""
+        return ""
+
+    @classmethod
+    def _response_text(cls, data: Mapping[str, Any], *, is_chat_completion: bool) -> str:
+        if is_chat_completion:
+            choices = data.get("choices") or []
+            if choices and isinstance(choices[0], Mapping):
+                message = choices[0].get("message") or {}
+                if isinstance(message, Mapping):
+                    return cls._chat_content_text(message.get("content"))
+            return ""
+        raw = data.get("output_text") or ""
+        if raw:
+            return str(raw)
+        for item in data.get("output", []):
+            if not isinstance(item, Mapping):
+                continue
+            for content in item.get("content", []):
+                if not isinstance(content, Mapping):
+                    continue
+                if content.get("type") in {"output_text", "text"}:
+                    raw = content.get("text") or content.get("value")
+                    if raw:
+                        return str(raw)
+        return ""
+
     async def _responses_json(
         self,
         *,
@@ -532,46 +600,57 @@ class OpenAIResponsesProvider:
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         import httpx
 
-        body: dict[str, Any] = {
-            "model": model,
-            "input": [
-                {"role": "system", "content": instructions},
-                {"role": "user", "content": json.dumps(dict(context), indent=2, default=str)},
-            ],
-            "text": {
-                "format": {
+        request_endpoint = self._endpoint_for_model(model)
+        is_chat_completion = request_endpoint.rstrip("/").endswith("/chat/completions")
+        if is_chat_completion:
+            body: dict[str, Any] = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": instructions},
+                    {"role": "user", "content": json.dumps(dict(context), indent=2, default=str)},
+                ],
+                "response_format": {
                     "type": "json_schema",
-                    "name": schema_name,
-                    "strict": True,
-                    "schema": schema,
-                }
-            },
-            "store": False,
-        }
+                    "json_schema": {
+                        "name": schema_name,
+                        "strict": True,
+                        "schema": schema,
+                    },
+                },
+            }
+        else:
+            body = {
+                "model": model,
+                "input": [
+                    {"role": "system", "content": instructions},
+                    {"role": "user", "content": json.dumps(dict(context), indent=2, default=str)},
+                ],
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": schema_name,
+                        "strict": True,
+                        "schema": schema,
+                    }
+                },
+                "store": False,
+            }
         if temperature is not None and not model.lower().startswith("gpt-5"):
             body["temperature"] = temperature
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         started = time.time()
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.post(
-                self.endpoint_url,
+                request_endpoint,
                 headers=headers,
                 json=body,
             )
             response.raise_for_status()
             data = response.json()
-        raw = data.get("output_text")
+        raw = self._response_text(data, is_chat_completion=is_chat_completion)
         if not raw:
-            for item in data.get("output", []):
-                for content in item.get("content", []):
-                    if content.get("type") in {"output_text", "text"}:
-                        raw = content.get("text") or content.get("value")
-                        if raw:
-                            break
-                if raw:
-                    break
-        if not raw:
-            raise ValueError("OpenAI Responses API returned no structured output")
+            provider_api = "Chat Completions" if is_chat_completion else "Responses"
+            raise ValueError(f"OpenCode {provider_api} API returned no structured output")
         usage = data.get("usage") or {}
         prompt_tokens = int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)
         completion_tokens = int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)
@@ -637,53 +716,60 @@ class OpenAIResponsesProvider:
     async def summarize_step(self, step_name: str, details: Mapping[str, Any]) -> tuple[str, LLMUsageStats]:
         import httpx
 
-        body = {
-            "model": self.model_summary,
-            "input": [
-                {"role": "system", "content": "Summarize one execution step in 1-2 concise Russian sentences. Do not invent metrics."},
-                {"role": "user", "content": f"Step: {step_name}\nDetails: {json.dumps(dict(details), default=str)}"},
-            ],
-            "store": False,
-        }
+        request_endpoint = self._endpoint_for_model(self.model_summary)
+        is_chat_completion = request_endpoint.rstrip("/").endswith("/chat/completions")
+        system_prompt = "Summarize one execution step in 1-2 concise Russian sentences. Do not invent metrics."
+        user_prompt = f"Step: {step_name}\nDetails: {json.dumps(dict(details), default=str)}"
+        if is_chat_completion:
+            body: dict[str, Any] = {
+                "model": self.model_summary,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            }
+        else:
+            body = {
+                "model": self.model_summary,
+                "input": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "store": False,
+            }
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         started = time.time()
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
-                    self.endpoint_url,
+                    request_endpoint,
                     headers=headers,
                     json=body,
                 )
                 response.raise_for_status()
                 data = response.json()
-            text = data.get("output_text") or ""
-            if not text:
-                for item in data.get("output", []):
-                    for content in item.get("content", []):
-                        if content.get("type") in {"output_text", "text"}:
-                            text = content.get("text") or content.get("value") or ""
-                            if text:
-                                break
-                    if text:
-                        break
+            text = self._response_text(data, is_chat_completion=is_chat_completion).strip()
             usage = data.get("usage") or {}
-            return text.strip() or f"Шаг {step_name} завершён.", self._stats(
+            prompt_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
+            completion_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
+            return text or f"Шаг {step_name} завершён.", self._stats(
                 model=self.model_summary,
                 prompt={"step": step_name, "details": dict(details)},
                 usage={
-                    "prompt_tokens": usage.get("input_tokens", 0),
-                    "completion_tokens": usage.get("output_tokens", 0),
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
                     "total_tokens": usage.get("total_tokens", 0),
                     "latency_ms": int((time.time() - started) * 1000),
                     "response_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 },
             )
         except Exception as exc:
-            logger.warning("openai_summary_failed", error=str(exc))
+            logger.warning("llm_summary_failed", provider=self.provider_name, error=str(exc))
             return (
                 f"Шаг {step_name} завершён. Статус: {details.get('status', 'OK')}",
                 LLMUsageStats(provider="fallback", model=self.model_summary),
             )
+
 
 def get_llm_provider(
     provider_name: str | None = None,
@@ -707,12 +793,14 @@ def get_llm_provider(
                 "set AI_LAB_LLM_PROVIDER=mock explicitly for offline tests"
             )
         default_endpoint = "https://api.openai.com/v1/responses" if provider == "openai" else DEFAULT_OPENCODE_ENDPOINT
+        configured_endpoint = endpoint_url or getattr(settings, "AI_LAB_LLM_ENDPOINT", "") or ""
         return OpenAIResponsesProvider(
             api_key=key,
             model_research=model_research or getattr(settings, "AI_LAB_MODEL_RESEARCH", "gpt-5.6"),
             model_summary=model_summary or getattr(settings, "AI_LAB_MODEL_SUMMARY", "gpt-5.6-mini"),
             store=False,
-            endpoint_url=endpoint_url or getattr(settings, "AI_LAB_LLM_ENDPOINT", "") or default_endpoint,
+            endpoint_url=configured_endpoint or default_endpoint,
             provider_name=provider,
+            route_opencode_models=(provider == "opencode" and not configured_endpoint),
         )
     raise ValueError(f"Unsupported AI_LAB_LLM_PROVIDER: {provider}")
