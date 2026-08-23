@@ -226,6 +226,7 @@ async def execute_gtc_ttl(
     provider_order_id = sub_res.provider_order_id
     token_id = maker_order.token_id
     filled = False
+    matched_pending = False
     try:
         loop = asyncio.get_running_loop()
         start_time = loop.time()
@@ -244,12 +245,52 @@ async def execute_gtc_ttl(
                 await gateway.cancel_order(provider_order_id)
             except Exception as cancel_err:
                 logger.warning("gtc_ttl_cancel_failed", order_id=provider_order_id, error=str(cancel_err))
+
     if hasattr(gateway, "fetch_order_fills"):
         try:
             if await gateway.fetch_order_fills(provider_order_id, token_id):
                 return sub_res.model_copy(update={"maker_status": "FILLED"})
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "gtc_ttl_final_fill_lookup_failed",
+                order_id=provider_order_id,
+                error=str(exc),
+            )
+
+    # Polymarket can report an order as MATCHED before its trade appears in
+    # list_account_trades (and before settlement is CONFIRMED).  Treating that
+    # short interval as a timeout loses a real fill: the worker then marks the
+    # request REJECTED and never gets a chance to reconcile the provider order.
+    # Keep the request in RECONCILING until the fill endpoint catches up.
+    if hasattr(gateway, "get_order"):
+        try:
+            order_state = await gateway.get_order(provider_order_id)
+            provider_status = str(order_state.provider_status or "").upper()
+            matched_pending = provider_status in {
+                "MATCHED",
+                "PARTIALLY_MATCHED",
+                "PARTIALLY_FILLED",
+            }
+        except Exception as exc:
+            logger.warning(
+                "gtc_ttl_final_order_lookup_failed",
+                order_id=provider_order_id,
+                error=str(exc),
+            )
+
+    if matched_pending:
+        return sub_res.model_copy(
+            update={
+                "accepted": True,
+                "provider_status": "MATCHED",
+                "settlement_state": "PENDING",
+                "maker_status": "MATCHED_PENDING_SETTLEMENT",
+                "error_message": (
+                    "GTC order matched; awaiting provider fill/settlement reconciliation"
+                ),
+            }
+        )
+
     return sub_res.model_copy(update={
         "accepted": False, "provider_status": "NO_LIQUIDITY_TTL_EXPIRED",
         "maker_status": "TIMEOUT",

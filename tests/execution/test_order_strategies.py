@@ -158,3 +158,47 @@ async def test_maker_cross_retry_is_capped_at_one_attempt():
 def test_terminal_codes_keep_manual_review_separate_from_network_errors():
     assert _terminal_code("MANUAL_REVIEW_FAILED", None) == "MANUAL_REJECTED"
     assert _terminal_code("REJECTED", "POST_ONLY_REJECTED: would take") == "POST_ONLY_REJECTED"
+
+
+@pytest.mark.asyncio
+async def test_gtc_ttl_keeps_matched_order_for_reconciliation_when_fill_lags():
+    """A MATCHED order must not be converted into a false TTL rejection."""
+
+    class _MatchedGateway:
+        submit = AsyncMock(
+            return_value=SubmissionResult(
+                accepted=True,
+                provider_order_id="provider-order-1",
+                provider_status="OPEN",
+            )
+        )
+        cancel_order = AsyncMock(return_value=True)
+        fetch_order_fills = AsyncMock(return_value=())
+        get_order = AsyncMock(
+            return_value=SubmissionResult(
+                accepted=True,
+                provider_order_id="provider-order-1",
+                provider_status="MATCHED",
+                settlement_state="PENDING",
+            )
+        )
+
+    gateway = _MatchedGateway()
+    order = GatewayOrder(
+        attempt_id=uuid4(),
+        market_id="market-1",
+        asset="BTC",
+        outcome_to_buy="YES",
+        token_id="token-1",
+        side="BUY",
+        limit_price="0.19",
+        requested_shares="5.78",
+    )
+
+    result = await execute_gtc_ttl(gateway, order, ttl_seconds=0.01)
+
+    assert result.accepted is True
+    assert result.provider_status == "MATCHED"
+    assert result.settlement_state == "PENDING"
+    assert result.maker_status == "MATCHED_PENDING_SETTLEMENT"
+    gateway.get_order.assert_awaited_once_with("provider-order-1")
