@@ -24,6 +24,10 @@ services:
     restart: always
     depends_on:
       - db
+    # Optional locally; present on the production server for LIVE readiness checks.
+    env_file:
+      - path: ${POLYMARKET_CREDENTIALS_FILE:-/home/orlovrp/.flipoly-live-v2.env}
+        required: false
     ports:
       - "8001:8001"
     environment:
@@ -227,16 +231,16 @@ services:
     container_name: flipoly-execution_worker_live-1
     restart: unless-stopped
     profiles: ["live-v2"]
+    # Credentials stay outside the repository and are injected only into the LIVE worker.
+    env_file:
+      - path: ${POLYMARKET_CREDENTIALS_FILE:-/home/orlovrp/.flipoly-live-v2.env}
+        required: false
     depends_on:
       - db
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - EXECUTION_MODE=LIVE
       - LIVE_TRADING_ENABLED=${LIVE_TRADING_ENABLED:-false}
-      - POLYGON_PRIVATE_KEY=${POLYGON_PRIVATE_KEY:-}
-      - POLYGON_ADDRESS=${POLYGON_ADDRESS:-}
-      - POLYMARKET_RELAYER_API_KEY=${POLYMARKET_RELAYER_API_KEY:-}
-      - POLYMARKET_RELAYER_API_KEY_ADDRESS=${POLYMARKET_RELAYER_API_KEY_ADDRESS:-}
     volumes:
       - ./polyflip:/app/polyflip
       - ./scripts:/app/scripts
@@ -245,7 +249,6 @@ services:
       resources:
         limits:
           memory: 512M
-
   execution_worker_shadow:
     build: .
     container_name: polyflip_execution_worker_shadow
