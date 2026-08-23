@@ -22,7 +22,7 @@ class ExecutionSettings(BaseSettings):
     # The live worker is intentionally kept alive in deployments where the
     # global kill switch is OFF and credentials are not mounted.  Keep this
     # optional so local/tests without the setting retain strict validation.
-    live_trading_enabled: bool | None = None
+    live_trading_enabled: bool = False
     polymarket_host: str = "https://clob.polymarket.com"
     polygon_private_key: str | None = None
     polygon_address: str | None = None

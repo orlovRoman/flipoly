@@ -312,6 +312,7 @@ def test_live_mode_requires_relayer_credentials(monkeypatch):
     from polyflip.execution.config import ExecutionSettings
 
     monkeypatch.setenv("EXECUTION_MODE", "LIVE")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
     monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0xprivate")
     monkeypatch.setenv("POLYGON_ADDRESS", "0xwallet")
     monkeypatch.delenv("POLYMARKET_RELAYER_API_KEY", raising=False)
