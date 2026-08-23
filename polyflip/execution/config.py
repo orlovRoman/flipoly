@@ -4,6 +4,12 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LIVE_MIN_GROSS_BUY_USDC = Decimal("1.10")
+# Polymarket CLOB rejects orders smaller than five outcome tokens.  Keep this
+# as a gateway-level invariant so both FAK and resting-limit submissions fail
+# locally instead of consuming an API request and being reported as an
+# opaque provider error.  The value is deliberately expressed in shares, not
+# USDC: the required notional therefore depends on the current limit price.
+POLYMARKET_MIN_ORDER_SHARES = Decimal("5")
 
 
 class ExecutionMode(StrEnum):

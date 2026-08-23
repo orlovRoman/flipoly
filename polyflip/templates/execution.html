@@ -596,7 +596,7 @@ if (typeof translateError === 'undefined') {
                         err = String(err);
                         if (err.includes("insufficient funds")) return "Недостаточно средств";
                         if (err.includes("invalid amount")) return "Некорректная сумма (invalid amount)";
-                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum")) return "Сумма меньше минимальной";
+                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum") || err.includes("lower than the minimum")) return "Сумма меньше минимальной";
                         if (err.includes("validation error") || err.includes("invalid price") || err.includes("bad request")) return "Ошибка валидации ордера";
                         if (err.includes("Cannot verify allowance")) return "Ошибка проверки allowance";
                         return escapeHtml(err);
@@ -1240,7 +1240,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         err = String(err);
                         if (err.includes("insufficient funds")) return "Недостаточно средств";
                         if (err.includes("invalid amount")) return "Некорректная сумма (invalid amount)";
-                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum")) return "Сумма меньше минимальной";
+                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum") || err.includes("lower than the minimum")) return "Сумма меньше минимальной";
                         if (err.includes("validation error") || err.includes("invalid price") || err.includes("bad request")) return "Ошибка валидации ордера";
                         if (err.includes("Cannot verify allowance")) return "Ошибка проверки allowance";
                         return escapeHtml(err);
@@ -1579,7 +1579,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         err = String(err);
                         if (err.includes("insufficient funds")) return "Недостаточно средств";
                         if (err.includes("invalid amount")) return "Некорректная сумма (invalid amount)";
-                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum")) return "Сумма меньше минимальной";
+                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum") || err.includes("lower than the minimum")) return "Сумма меньше минимальной";
                         if (err.includes("validation error") || err.includes("invalid price") || err.includes("bad request")) return "Ошибка валидации ордера";
                         if (err.includes("Cannot verify allowance")) return "Ошибка проверки allowance";
                         return escapeHtml(err);
