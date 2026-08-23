@@ -24,10 +24,6 @@ services:
     restart: always
     depends_on:
       - db
-    # Optional locally; present on the production server for LIVE readiness checks.
-    env_file:
-      - path: ${POLYMARKET_CREDENTIALS_FILE:-/home/orlovrp/.flipoly-live-v2.env}
-        required: false
     ports:
       - "8001:8001"
     environment:
