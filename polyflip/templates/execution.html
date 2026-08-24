@@ -261,6 +261,10 @@
                         <button id="btn-mode-fak" class="btn-action" style="background: #4a5568; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('FAK')">FAK (Быстрый)</button>
                         <button id="btn-mode-gtc-ttl" class="btn-action" style="background: #4a5568; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('GTC_TTL')">GTC / GTD (Ожидание) ⚠️</button>
                         <button id="btn-mode-fak-retry" class="btn-action" style="background: #3182ce; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('FAK_RETRY')">FAK Retry (Повторы) ✓</button>
+                        <button id="btn-mode-smart-maker" class="btn-action" style="background: #4a5568; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('SMART_MAKER')">SMART (AUTO) ✨</button>
+                    </div>
+                    <div id="smart-maker-hint" style="display:none; font-size:0.75rem; color:#68d391; margin-top:4px;">
+                        ≥ 5 акций → GTC (Maker) &nbsp;|&nbsp; &lt; 5 акций → FAK-Retry
                     </div>
 
                     <!-- Dynamic parameter inputs for selected mode -->
@@ -290,7 +294,8 @@
                     <div style="font-size: 0.75rem; color: #718096; margin-top: 4px;">
                         • <b>FAK</b>: Мгновенно исполняет или гасит заявку.<br>
                         • <b>GTC/GTD</b>: Ордер висит в стакане N секунд, потенциальный риск токсичного исполнения при скачке цены.<br>
-                        • <b>FAK Retry</b>: До N повторных попыток FAK с обновлением цены стакана и паузой. Рекомендуется.
+                        • <b>FAK Retry</b>: До N повторных попыток FAK с обновлением цены стакана и паузой. Рекомендуется.<br>
+                        • <b>SMART (AUTO)</b>: Если объём ≥ 5 акций → Maker (GTC), иначе → FAK-Retry. Автовыбор.
                     </div>
                 </div>
 
@@ -1363,18 +1368,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const btnFak = document.getElementById('btn-mode-fak');
             const btnGtc = document.getElementById('btn-mode-gtc-ttl');
             const btnRetry = document.getElementById('btn-mode-fak-retry');
+            const btnSmart = document.getElementById('btn-mode-smart-maker');
+            const smartHint = document.getElementById('smart-maker-hint');
 
             if (btnFak) btnFak.style.background = (currentOrderMode === 'FAK') ? '#3182ce' : '#4a5568';
             if (btnGtc) btnGtc.style.background = (currentOrderMode === 'GTC_TTL' || currentOrderMode === 'GTD') ? '#d69e2e' : '#4a5568';
             if (btnRetry) btnRetry.style.background = (currentOrderMode === 'FAK_RETRY') ? '#3182ce' : '#4a5568';
+            if (btnSmart) btnSmart.style.background = (currentOrderMode === 'SMART_MAKER') ? '#38a169' : '#4a5568';
 
             const gtcBlock = document.getElementById('param-gtc-ttl-block');
             const retryBlock = document.getElementById('param-fak-retry-block');
             const makerBlock = document.getElementById('param-maker-block');
 
-            if (gtcBlock) gtcBlock.style.display = (currentOrderMode === 'GTC_TTL') ? 'flex' : 'none';
+            const _isGtcLike = currentOrderMode === 'GTC_TTL' || currentOrderMode === 'SMART_MAKER';
+            if (gtcBlock) gtcBlock.style.display = _isGtcLike ? 'flex' : 'none';
             if (retryBlock) retryBlock.style.display = (currentOrderMode === 'FAK_RETRY') ? 'flex' : 'none';
-            if (makerBlock) makerBlock.style.display = (currentOrderMode === 'GTC_TTL' || currentOrderMode === 'GTD') ? 'flex' : 'none';
+            if (makerBlock) makerBlock.style.display = (_isGtcLike || currentOrderMode === 'GTD') ? 'flex' : 'none';
+            if (smartHint) smartHint.style.display = (currentOrderMode === 'SMART_MAKER') ? 'block' : 'none';
 
             if (cfg.gtc_ttl_seconds) {
                 const el = document.getElementById('input-gtc-ttl-sec');

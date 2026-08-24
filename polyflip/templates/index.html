@@ -120,6 +120,26 @@
 
                 <!-- ВКЛАДКА 2: МОДЕЛИ (ModelRegistry) -->
                 <section id="models-tab" class="tab-pane">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+                        <div>
+                            <h2 style="margin:0 0 .3rem 0;">Управление моделями Polymarket (LogReg)</h2>
+                            <p style="margin:0;color:var(--text-muted);font-size:.85rem;">Ручное обучение LogReg по выбранному активу. Новые модели сохраняются в реестре как кандидаты.</p>
+                        </div>
+                        <div id="train-buttons-container" style="display:flex;gap:.45rem;flex-wrap:wrap;justify-content:flex-end;">
+                            {% for asset in assets %}
+                            <button class="btn primary-btn btn-train-asset" data-asset="{{ asset }}">Обучить {{ asset }} (LogReg)</button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;padding:.7rem .9rem;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:8px;">
+                        <span style="color:var(--text-muted);font-size:.85rem;">Актив:</span>
+                        <div id="model-asset-filter" style="display:flex;gap:.4rem;flex-wrap:wrap;">
+                            <button class="btn btn-model-asset-filter active" data-asset="all" style="padding:.3rem .7rem;font-size:.82rem;background:var(--poly-blue,#2563eb);color:#fff;">Все</button>
+                            {% for asset in assets %}
+                            <button class="btn btn-model-asset-filter" data-asset="{{ asset|upper }}" style="padding:.3rem .7rem;font-size:.82rem;">{{ asset|upper }}</button>
+                            {% endfor %}
+                        </div>
+                    </div>
                     <div style="display:flex;justify-content:flex-end;align-items:center;gap:.5rem;margin-bottom:1rem;">
                         <label for="logreg-feature-set" style="font-size:.85rem;color:var(--text-muted);">LogReg feature set:</label>
                         <select id="logreg-feature-set" title="Use the same variant across assets for comparable OOT experiments" class="custom-select">

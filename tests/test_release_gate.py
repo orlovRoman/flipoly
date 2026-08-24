@@ -615,7 +615,7 @@ async def test_two_release_gates_cannot_exceed_total_exposure(mock_client_class,
 async def test_one_dollar_paper_becomes_1_10_live(mock_client_class, db_session):
     mock_client = mock_client_class.return_value
     mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
-    """PAPER заявка на 1.00 USDC превращается в LIVE на 1.10 USDC."""
+    """PAPER заявка на 1.00 USDC превращается в LIVE-заявку на 1.10 USDC."""
     from polyflip.execution.release_gate import release_candidate_by_id
     from polyflip.db.execution_models import LiveTradingSession, ExposureReservation, ExecutionWorkerStatus
     from polyflip.db.models import RuntimeSettings

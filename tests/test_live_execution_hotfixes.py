@@ -423,7 +423,7 @@ async def test_mark_failed_no_fill_forbidden_if_provider_order_id(db_session):
 
 @pytest.mark.asyncio
 async def test_minimum_live_order_amount_validation():
-    """Валидатор release_gate отклоняет LIVE ордер меньше 1.10 USDC."""
+    """Валидатор release_gate сохраняет фиксированную сумму LIVE 1.10 USDC."""
     trade_id = 999
     req_id = uuid.uuid4()
 

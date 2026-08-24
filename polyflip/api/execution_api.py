@@ -312,7 +312,7 @@ async def toggle_ignore_edge_decay(
 
 
 class SwitchOrderModeRequest(BaseModel):
-    mode: Literal["FAK", "GTC_TTL", "GTD", "FAK_RETRY"]
+    mode: Literal["FAK", "GTC_TTL", "GTD", "FAK_RETRY", "SMART_MAKER"]
     gtc_ttl_seconds: Optional[float] = Field(None, ge=1.0, le=60.0)
     fak_retry_max_attempts: Optional[int] = Field(None, ge=1, le=10)
     fak_retry_delay_sec: Optional[float] = Field(None, ge=0.1, le=5.0)
@@ -333,6 +333,7 @@ async def get_order_mode(db: AsyncSession = Depends(get_db_session)):
     normalized_mode = mode.strip().upper()
     if normalized_mode in {"MAKER_TTL", "LIMIT_TTL"}:
         normalized_mode = "GTC_TTL"
+    # SMART_MAKER is returned as-is to the UI
     return {
         "mode": normalized_mode,
         "gtc_ttl_seconds": float(gtc_ttl),
@@ -840,13 +841,14 @@ class CreateLiveSessionRequest(BaseModel):
     @model_validator(mode="after")
     def validate_limits(self):
         from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
+        minimum_live = f"{LIVE_MIN_GROSS_BUY_USDC:.2f}"
 
         if self.budget_usdc <= 0:
             raise ValueError("Бюджет должен быть больше нуля")
 
         if self.max_single_order_usdc < LIVE_MIN_GROSS_BUY_USDC:
             raise ValueError(
-                "Максимальная LIVE-ставка должна быть " "не меньше 1.10 USDC"
+                f"Максимальная LIVE-ставка должна быть не меньше {minimum_live} USDC"
             )
 
         if self.max_single_order_usdc > self.budget_usdc:
@@ -860,7 +862,9 @@ class CreateLiveSessionRequest(BaseModel):
 
         if self.order_amount_usdc is not None:
             if self.order_amount_usdc < LIVE_MIN_GROSS_BUY_USDC:
-                raise ValueError("Размер LIVE-заявки не может быть меньше 1.10 USDC")
+                raise ValueError(
+                    f"Размер LIVE-заявки не может быть меньше {minimum_live} USDC"
+                )
             if self.order_amount_usdc > self.max_single_order_usdc:
                 raise ValueError(
                     "Размер LIVE-заявки не может превышать лимит максимальной ставки"
@@ -984,11 +988,12 @@ async def update_live_session_limits(
         raise HTTPException(422, detail="Максимальная ставка должна быть больше нуля")
 
     from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
+    minimum_live = f"{LIVE_MIN_GROSS_BUY_USDC:.2f}"
 
     if new_max_order < LIVE_MIN_GROSS_BUY_USDC:
         raise HTTPException(
             status_code=422,
-            detail="Максимальная ставка должна быть не меньше 1.10 USDC",
+            detail=f"Максимальная ставка должна быть не меньше {minimum_live} USDC",
         )
 
     if new_max_order > new_budget:
@@ -1011,7 +1016,7 @@ async def update_live_session_limits(
         if new_order_amount < LIVE_MIN_GROSS_BUY_USDC:
             raise HTTPException(
                 status_code=422,
-                detail="Размер LIVE-заявки не может быть меньше 1.10 USDC",
+                detail=f"Размер LIVE-заявки не может быть меньше {minimum_live} USDC",
             )
         if new_order_amount > new_max_order:
             raise HTTPException(
@@ -1678,7 +1683,7 @@ async def get_live_dashboard(
         action_reasons = {}
 
     order_mode_raw = (await _get_runtime_flag(db, "LIVE_ORDER_MODE", default="MAKER_TTL")).strip().upper()
-    normalized_order_mode = "GTC_TTL" if order_mode_raw in {"MAKER_TTL", "LIMIT_TTL"} else order_mode_raw
+    normalized_order_mode = "GTC_TTL" if order_mode_raw in {"MAKER_TTL", "LIMIT_TTL"} else order_mode_raw  # SMART_MAKER kept as-is
     maker_reprice_on_cross = (await _get_runtime_flag(db, "LIVE_MAKER_REPRICE_ON_CROSS", default="true")).strip().lower() == "true"
     maker_reprice_max_retries = int(await _get_runtime_flag(db, "LIVE_MAKER_REPRICE_MAX_RETRIES", default="1"))
     maker_tick_size = float(await _get_runtime_flag(db, "LIVE_MAKER_TICK_SIZE", default="0.01"))

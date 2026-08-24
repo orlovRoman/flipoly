@@ -38,8 +38,8 @@ def _parse_error(error_reason: str | None) -> dict:
         return {
             "error_code": "ORDER_BELOW_MINIMUM",
             "error_message_ru": (
-                "Количество токенов меньше минимума Polymarket (5). "
-                "Для текущей цены нужен больший бюджет."
+                "Polymarket отклонил заявку из-за минимального или "
+                "некорректного размера для конкретного рынка."
             ),
         }
     if "max_slippage" in normalized or "slippage" in normalized:

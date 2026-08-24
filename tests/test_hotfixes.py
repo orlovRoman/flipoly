@@ -19,7 +19,7 @@ async def test_draft_readiness_without_live_worker_returns_result(db_session):
         budget_usdc=Decimal("10.00"),
         reserved_usdc=Decimal("0.00"),
         filled_usdc=Decimal("0.00"),
-        max_single_order_usdc=Decimal("1.00"),
+        max_single_order_usdc=Decimal("1.10"),
         max_total_exposure_usdc=Decimal("5.00"),
         max_open_positions=5,
     )

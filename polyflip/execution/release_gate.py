@@ -576,11 +576,15 @@ async def validate_live_release(
         if end_time <= now:
             raise ReleaseRejected("Market is already closed")
 
-    # 4.1 Проверка минимального размера ордера
-    order_amount = Decimal(str(paper_request.target_amount_usdc or 0))
-    if order_amount < Decimal("1.00"):
+    # 4.1 Проверка минимального размера исходной заявки.
+    # Для LIVE нельзя проверять PAPER-сумму здесь: LIVE может использовать
+    # отдельный размер active_session.order_amount_usdc (например, 1.10).
+    # LIVE-проверка выполняется сразу после calculate_live_order_amount().
+    paper_order_amount = Decimal(str(paper_request.target_amount_usdc or 0))
+    if target_mode != "LIVE" and paper_order_amount < LIVE_MIN_GROSS_BUY_USDC:
         raise ReleaseRejected(
-            f"Сумма ордера {order_amount} USDC ниже минимальной суммы Polymarket 1.00 USDC"
+            f"Сумма ордера {paper_order_amount} USDC ниже минимальной суммы "
+            f"Polymarket {LIVE_MIN_GROSS_BUY_USDC:.2f} USDC"
         )
 
     # 4.2 Проверка источника модели (только PHASE для COMBINED)
@@ -703,8 +707,15 @@ async def validate_live_release(
             raise ReleaseDeferred("No active LIVE trading session")
 
         # 5.2 Проверка стоимости ордера max(target_amount_usdc, max_spend_usdc)
+        # Сначала применяем размер LIVE-сессии, затем проверяем Polymarket minimum.
         live_amount = calculate_live_order_amount(paper_request, active_session)
         order_amount = live_amount
+        if order_amount < LIVE_MIN_GROSS_BUY_USDC:
+            raise ReleaseRejected(
+                f"Сумма LIVE-ордера {order_amount} USDC ниже минимальной суммы "
+                f"Polymarket {LIVE_MIN_GROSS_BUY_USDC:.2f} USDC"
+            )
+
 
         # Лимит бюджета сессии через SessionBudgetSnapshot
         from polyflip.execution.live_session_service import get_session_budget_snapshot
