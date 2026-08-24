@@ -635,6 +635,19 @@ async def process_ready_requests():
                         "order_mode_settings_read_failed", error=str(setting_err)
                     )
 
+            # SMART_MAKER: auto-select GTC_TTL if shares >= CLOB minimum, else FAK_RETRY
+            _CLOB_MIN_SHARES = Decimal("5")
+            if order_mode == "SMART_MAKER":
+                _effective_shares = _resolve_shares(
+                    req.requested_shares, req.max_spend_usdc, req.limit_price, req.side
+                )
+                if _effective_shares >= _CLOB_MIN_SHARES:
+                    order_mode = "GTC_TTL"
+                    logger.info("smart_maker_chose_gtc", shares=str(_effective_shares))
+                else:
+                    order_mode = "FAK_RETRY"
+                    logger.info("smart_maker_chose_fak_retry", shares=str(_effective_shares))
+
             if order_mode in {"MAKER_TTL", "LIMIT_TTL"}:
                 order_mode = "GTC_TTL"
             maker_reprice_enabled = str(settings_dict.get("LIVE_MAKER_REPRICE_ON_CROSS", "true")).strip().lower() in {"1", "true", "yes", "on"}

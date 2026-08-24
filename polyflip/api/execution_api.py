@@ -312,7 +312,7 @@ async def toggle_ignore_edge_decay(
 
 
 class SwitchOrderModeRequest(BaseModel):
-    mode: Literal["FAK", "GTC_TTL", "GTD", "FAK_RETRY"]
+    mode: Literal["FAK", "GTC_TTL", "GTD", "FAK_RETRY", "SMART_MAKER"]
     gtc_ttl_seconds: Optional[float] = Field(None, ge=1.0, le=60.0)
     fak_retry_max_attempts: Optional[int] = Field(None, ge=1, le=10)
     fak_retry_delay_sec: Optional[float] = Field(None, ge=0.1, le=5.0)
@@ -333,6 +333,7 @@ async def get_order_mode(db: AsyncSession = Depends(get_db_session)):
     normalized_mode = mode.strip().upper()
     if normalized_mode in {"MAKER_TTL", "LIMIT_TTL"}:
         normalized_mode = "GTC_TTL"
+    # SMART_MAKER is returned as-is to the UI
     return {
         "mode": normalized_mode,
         "gtc_ttl_seconds": float(gtc_ttl),
@@ -1682,7 +1683,7 @@ async def get_live_dashboard(
         action_reasons = {}
 
     order_mode_raw = (await _get_runtime_flag(db, "LIVE_ORDER_MODE", default="MAKER_TTL")).strip().upper()
-    normalized_order_mode = "GTC_TTL" if order_mode_raw in {"MAKER_TTL", "LIMIT_TTL"} else order_mode_raw
+    normalized_order_mode = "GTC_TTL" if order_mode_raw in {"MAKER_TTL", "LIMIT_TTL"} else order_mode_raw  # SMART_MAKER kept as-is
     maker_reprice_on_cross = (await _get_runtime_flag(db, "LIVE_MAKER_REPRICE_ON_CROSS", default="true")).strip().lower() == "true"
     maker_reprice_max_retries = int(await _get_runtime_flag(db, "LIVE_MAKER_REPRICE_MAX_RETRIES", default="1"))
     maker_tick_size = float(await _get_runtime_flag(db, "LIVE_MAKER_TICK_SIZE", default="0.01"))
