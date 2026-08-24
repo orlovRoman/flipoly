@@ -4,7 +4,9 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LIVE_MIN_GROSS_BUY_USDC = Decimal("1.10")
-
+# PAPER parity mirrors the Polymarket CLOB minimum outcome-token size.
+# Keep this independent from the LIVE dollar-budget migration.
+POLYMARKET_MIN_ORDER_SHARES = Decimal("5")
 
 class ExecutionMode(StrEnum):
     PAPER = "PAPER"
