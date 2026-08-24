@@ -91,8 +91,11 @@ REGISTRY: list[SettingDef] = [
     SettingDef("LIVE_MAKER_TICK_SIZE", "0.01", description="Price tick used for passive maker repricing"),
     SettingDef("LIVE_FAK_RETRY_MAX_ATTEMPTS", "3", description="Maximum retries for transient FAK errors"),
     SettingDef("LIVE_FAK_RETRY_DELAY_SEC", "0.75", description="Delay between transient order retries"),
-    SettingDef("PAPER_EXECUTION_PROFILE", "INSTANT", description="PAPER execution: INSTANT or LIVE_PARITY"),
+    SettingDef("PAPER_EXECUTION_PROFILE", "LIVE_PARITY", description="PAPER execution: LIVE_PARITY models delay, depth, slippage, fees and minimum size; INSTANT is test-only"),
     SettingDef("PAPER_LIVE_DELAY_SEC", "2.0", description="Simulated PAPER to LIVE submission delay"),
+    SettingDef("PAPER_SLIPPAGE_PCT", "0.5", description="PAPER adverse execution slippage in percent"),
+    SettingDef("PAPER_FEE_RATE", "0.002", description="PAPER fee rate applied to every fill"),
+    SettingDef("PAPER_MIN_ORDER_SHARES", "5", description="PAPER minimum outcome-token size"),
     SettingDef("MIRROR_MAX_BACKOFF_SECONDS", "30", description="Maximum retry backoff for the PAPER to LIVE mirror worker"),
 
     SettingDef("FAVOR_MIN_TIME_LEFT_SEC", "60",

@@ -339,6 +339,39 @@ async def claim_one(session, worker_mode: str) -> ExecutionRequest | None:
     return None
 
 
+async def _load_paper_execution_config(session, settings: ExecutionSettings) -> dict[str, str]:
+    """Read PAPER parity knobs without changing the request transaction."""
+    keys = (
+        "PAPER_EXECUTION_PROFILE",
+        "PAPER_LIVE_DELAY_SEC",
+        "PAPER_SLIPPAGE_PCT",
+        "PAPER_FEE_RATE",
+        "PAPER_MIN_ORDER_SHARES",
+    )
+    try:
+        result = await session.execute(
+            select(RuntimeSettings.key, RuntimeSettings.value, RuntimeSettings.updated_by).where(
+                RuntimeSettings.key.in_(keys)
+            )
+        )
+        rows = result.all()
+    except Exception as exc:
+        logger.warning("paper_execution_settings_read_failed", error=str(exc))
+        return {}
+    values = {row.key: row.value for row in rows}
+    owner_by_key = {row.key: row.updated_by for row in rows}
+    profile = str(values.get("PAPER_EXECUTION_PROFILE", settings.paper_execution_profile)).strip().upper()
+    if profile == "INSTANT" and str(owner_by_key.get("PAPER_EXECUTION_PROFILE", "")).strip().lower() in {"", "system"}:
+        profile = "LIVE_PARITY"
+    return {
+        "profile": profile,
+        "delay_sec": str(values.get("PAPER_LIVE_DELAY_SEC", settings.paper_live_delay_sec)),
+        "slippage_pct": str(values.get("PAPER_SLIPPAGE_PCT", settings.paper_slippage_pct)),
+        "fee_rate": str(values.get("PAPER_FEE_RATE", settings.paper_fee_rate)),
+        "min_order_shares": str(values.get("PAPER_MIN_ORDER_SHARES", settings.paper_min_order_shares)),
+    }
+
+
 async def process_ready_requests():
     settings = ExecutionSettings()
     worker_mode = settings.execution_mode.value
@@ -359,7 +392,8 @@ async def process_ready_requests():
         # Kill-switch для LIVE OPEN полностью обрабатывается внутри
         # check_risk_limits() — единая точка проверки без двойного SELECT.
 
-        gateway = build_execution_gateway(settings)
+        paper_config = await _load_paper_execution_config(session, settings) if req.requested_mode == "PAPER" else None
+        gateway = build_execution_gateway(settings, paper_config=paper_config)
 
         if req.requested_mode == "LIVE" and gateway.name == "FAKE":
             await finalize_request(
@@ -708,6 +742,12 @@ async def process_ready_requests():
             req.submitted_limit_price = float(sub_res.submitted_limit_price or order.limit_price)
             if sub_res.submitted_requested_shares:
                 req.requested_shares = sub_res.submitted_requested_shares
+            if sub_res.paper_quote_price is not None:
+                # The quote belongs to the parity gateway snapshot, not to the
+                # original release decision. Keep its timestamp beside the
+                # price so PAPER/LIVE latency analysis remains meaningful.
+                req.submit_quote_price = float(sub_res.paper_quote_price)
+                req.submit_quote_at = datetime.now(timezone.utc)
             maker_telemetry = {
                 "maker_status": sub_res.maker_status,
                 "maker_attempts": sub_res.maker_attempts,
@@ -716,7 +756,32 @@ async def process_ready_requests():
                 "submitted_limit_price": str(req.submitted_limit_price),
             }
             existing_response = attempt.raw_response if isinstance(attempt.raw_response, dict) else {}
-            attempt.raw_response = {**existing_response, "maker_telemetry": maker_telemetry}
+            paper_telemetry = {
+                "profile": getattr(gateway, "profile", None),
+                "quote_price": (str(sub_res.paper_quote_price) if sub_res.paper_quote_price is not None else None),
+                "quote_at": (req.submit_quote_at.isoformat() if req.submit_quote_at is not None else None),
+                "available_shares": (str(sub_res.paper_available_shares) if sub_res.paper_available_shares is not None else None),
+                "delay_seconds": sub_res.paper_delay_seconds,
+                "slippage_usdc": (str(sub_res.paper_slippage_usdc) if sub_res.paper_slippage_usdc is not None else None),
+                "fee_usdc": (str(sub_res.paper_fee_usdc) if sub_res.paper_fee_usdc is not None else None),
+                "provider_status": sub_res.provider_status,
+                "fills": [
+                    {
+                        "provider_trade_id": fill.provider_trade_id,
+                        "price": str(fill.price),
+                        "shares": str(fill.shares),
+                        "gross_quote_usdc": str(fill.gross_quote_usdc),
+                        "fee_usdc": str(fill.fee_usdc),
+                        "matched_at": fill.matched_at.isoformat(),
+                    }
+                    for fill in sub_res.fills
+                ],
+            }
+            attempt.raw_response = {
+                **existing_response,
+                "maker_telemetry": maker_telemetry,
+                "paper_telemetry": paper_telemetry,
+            }
 
             if not sub_res.accepted or sub_res.provider_status in ("REJECTED", "ERROR"):
                 attempt.status = "FAILED"

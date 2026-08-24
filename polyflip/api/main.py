@@ -73,7 +73,7 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
         return response
 
 from polyflip.db.connection import async_session
-from polyflip.db.init_runtime_settings import seed_runtime_settings, migrate_auto_dead_zone_width, migrate_stop_loss_pct, migrate_crypto_to_lightgbm
+from polyflip.db.init_runtime_settings import seed_runtime_settings, migrate_auto_dead_zone_width, migrate_stop_loss_pct, migrate_crypto_to_lightgbm, migrate_paper_execution_profile
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -90,6 +90,8 @@ async def lifespan(app: FastAPI):
         await migrate_crypto_to_lightgbm(session)
         # Потом посев дефолтов для новых ключей
         await seed_runtime_settings(session)
+        # Старый system-default INSTANT заменяем на честный LIVE_PARITY.
+        await migrate_paper_execution_profile(session)
         
     async def _async_warmup():
         try:

@@ -98,6 +98,25 @@ async def migrate_crypto_to_lightgbm(session: AsyncSession):
     if updated:
         await session.commit()
 
+async def migrate_paper_execution_profile(session: AsyncSession):
+    """Upgrade the old system default without overriding an explicit choice.
+
+    Earlier deployments seeded ``INSTANT``.  Only rows still owned by the
+    bootstrapper are migrated; a user-selected INSTANT profile remains a
+    deliberate test override.
+    """
+    row = await session.scalar(
+        select(RuntimeSettings).where(RuntimeSettings.key == "PAPER_EXECUTION_PROFILE")
+    )
+    if not row or str(row.value or "").strip().upper() != "INSTANT":
+        return
+    if str(row.updated_by or "").strip().lower() not in {"", "system"}:
+        return
+    row.value = "LIVE_PARITY"
+    row.updated_by = "migration_paper_live_parity"
+    row.updated_at = datetime.now(timezone.utc)
+
+    await session.commit()
 
 async def seed_runtime_settings(session: AsyncSession):
     """Заполняет отсутствующие ключи дефолтами при старте."""

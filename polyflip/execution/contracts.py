@@ -117,6 +117,12 @@ class SubmissionResult(BaseModel):
     maker_attempts: int = 1
     maker_best_bid: Decimal | None = None
     maker_best_ask: Decimal | None = None
+    paper_quote_price: Decimal | None = None
+    paper_available_shares: Decimal | None = None
+    paper_delay_seconds: float | None = None
+    paper_slippage_usdc: Decimal | None = None
+    paper_fee_usdc: Decimal | None = None
+
 
 
 class ExecutionGateway(Protocol):

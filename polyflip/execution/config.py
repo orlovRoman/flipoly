@@ -35,6 +35,13 @@ class ExecutionSettings(BaseSettings):
     polymarket_relayer_api_key: str | None = None
     polymarket_relayer_api_key_address: str | None = None
 
+    paper_execution_profile: str = "LIVE_PARITY"
+    paper_live_delay_sec: float = 2.0
+    paper_slippage_pct: float = 0.5
+    paper_fee_rate: float = 0.002
+
+    paper_min_order_shares: Decimal = POLYMARKET_MIN_ORDER_SHARES
+
     @model_validator(mode="after")
     def validate_live_credentials(self):
         if self.execution_mode == ExecutionMode.LIVE and self.live_trading_enabled is not False:
