@@ -274,7 +274,7 @@ async def test_gateway_routes_gtc_to_limit_order():
 
 
 @pytest.mark.asyncio
-async def test_gateway_rejects_below_polymarket_minimum_before_submission():
+async def test_gateway_rejects_below_market_minimum_before_submission():
     from polyflip.execution.gateways.exceptions import GatewayOrderRejected
 
     gateway = PolymarketExecutionGateway(
@@ -298,6 +298,7 @@ async def test_gateway_rejects_below_polymarket_minimum_before_submission():
         max_spend_usdc=Decimal("1.10"),
         limit_price=Decimal("0.30"),
         post_only=True,
+        minimum_shares=Decimal("5"),
     )
 
     with pytest.raises(GatewayOrderRejected, match="ORDER_SIZE_BELOW_MINIMUM"):

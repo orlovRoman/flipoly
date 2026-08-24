@@ -612,10 +612,10 @@ async def test_two_release_gates_cannot_exceed_total_exposure(mock_client_class,
 
 @pytest.mark.asyncio
 @patch('polyflip.collector.client.PolymarketClient')
-async def test_one_dollar_paper_becomes_1_10_live(mock_client_class, db_session):
+async def test_one_dollar_paper_stays_1_00_live(mock_client_class, db_session):
     mock_client = mock_client_class.return_value
     mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
-    """PAPER заявка на 1.00 USDC превращается в LIVE на 1.10 USDC."""
+    """PAPER заявка на 1.00 USDC остаётся LIVE-заявкой на 1.00 USDC."""
     from polyflip.execution.release_gate import release_candidate_by_id
     from polyflip.db.execution_models import LiveTradingSession, ExposureReservation, ExecutionWorkerStatus
     from polyflip.db.models import RuntimeSettings
@@ -649,7 +649,7 @@ async def test_one_dollar_paper_becomes_1_10_live(mock_client_class, db_session)
     session_obj = LiveTradingSession(
         status="ACTIVE",
         budget_usdc=Decimal("10.0"),
-        max_single_order_usdc=Decimal("1.10"),
+        max_single_order_usdc=Decimal("1.00"),
         max_open_positions=5,
         max_total_exposure_usdc=Decimal("10.0"),
         reserved_usdc=Decimal("0"),
@@ -689,10 +689,10 @@ async def test_one_dollar_paper_becomes_1_10_live(mock_client_class, db_session)
     )
 
     # Проверки по заданию
-    assert Decimal(str(round(live_req.target_amount_usdc, 2))) == Decimal("1.10")
-    assert Decimal(str(round(live_req.max_spend_usdc, 2))) == Decimal("1.10")
-    assert Decimal(str(round(live_trade.amount_usdc, 2))) == Decimal("1.10")
-    assert Decimal(str(round(reservation.amount_usdc, 2))) == Decimal("1.10")
+    assert Decimal(str(round(live_req.target_amount_usdc, 2))) == Decimal("1.00")
+    assert Decimal(str(round(live_req.max_spend_usdc, 2))) == Decimal("1.00")
+    assert Decimal(str(round(live_trade.amount_usdc, 2))) == Decimal("1.00")
+    assert Decimal(str(round(reservation.amount_usdc, 2))) == Decimal("1.00")
 
     # PAPER не изменён
     await db_session.refresh(req)

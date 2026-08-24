@@ -578,9 +578,10 @@ async def validate_live_release(
 
     # 4.1 Проверка минимального размера ордера
     order_amount = Decimal(str(paper_request.target_amount_usdc or 0))
-    if order_amount < Decimal("1.00"):
+    if order_amount < LIVE_MIN_GROSS_BUY_USDC:
         raise ReleaseRejected(
-            f"Сумма ордера {order_amount} USDC ниже минимальной суммы Polymarket 1.00 USDC"
+            f"Сумма ордера {order_amount} USDC ниже минимальной суммы "
+            f"Polymarket {LIVE_MIN_GROSS_BUY_USDC:.2f} USDC"
         )
 
     # 4.2 Проверка источника модели (только PHASE для COMBINED)
@@ -705,6 +706,41 @@ async def validate_live_release(
         # 5.2 Проверка стоимости ордера max(target_amount_usdc, max_spend_usdc)
         live_amount = calculate_live_order_amount(paper_request, active_session)
         order_amount = live_amount
+
+        # Fixed $1 budget must not be silently topped up to satisfy a
+        # market-specific token minimum. Reject the candidate before creating
+        # LIVE TradeHistory/ExecutionRequest when the fresh quote proves that
+        # this market cannot accept the requested budget.
+        market_min_order_size = None
+        raw_min_order_size = (fresh_prices or {}).get("min_order_size")
+        if raw_min_order_size is not None:
+            try:
+                parsed_min_order_size = Decimal(str(raw_min_order_size))
+                if parsed_min_order_size.is_finite() and parsed_min_order_size > 0:
+                    market_min_order_size = parsed_min_order_size
+            except (TypeError, ValueError, ArithmeticError):
+                logger.warning(
+                    "release_gate_invalid_market_min_order_size",
+                    market_id=paper_request.market_id,
+                    value=str(raw_min_order_size),
+                )
+
+        if (
+            market_min_order_size is not None
+            and release_entry_price is not None
+            and release_entry_price > 0
+        ):
+            release_price = Decimal(str(release_entry_price))
+            requested_shares = order_amount / release_price
+            if requested_shares < market_min_order_size:
+                required_budget = release_price * market_min_order_size
+                raise ReleaseRejected(
+                    "LIVE_FIXED_BUDGET_BELOW_MARKET_MINIMUM: "
+                    f"budget={order_amount:.2f} USDC "
+                    f"required_budget={required_budget:.4f} USDC "
+                    f"requested_shares={requested_shares} "
+                    f"minimum_shares={market_min_order_size}"
+                )
 
         # Лимит бюджета сессии через SessionBudgetSnapshot
         from polyflip.execution.live_session_service import get_session_budget_snapshot
