@@ -391,7 +391,7 @@ async def test_calculate_live_order_amount():
     req.target_amount_usdc = Decimal("0.50")
     req.max_spend_usdc = Decimal("0.50")
     amt3 = calculate_live_order_amount(req, session)
-    assert amt3 == Decimal("1.00")  # Minimum from config
+    assert amt3 == Decimal("1.10")  # Minimum from config
 
     # Exceeds max_single_order_usdc
     session.order_amount_usdc = Decimal("15.00")

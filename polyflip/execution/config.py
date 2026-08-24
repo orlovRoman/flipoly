@@ -3,7 +3,7 @@ from enum import StrEnum
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-LIVE_MIN_GROSS_BUY_USDC = Decimal("1.00")
+LIVE_MIN_GROSS_BUY_USDC = Decimal("1.10")
 
 
 class ExecutionMode(StrEnum):
