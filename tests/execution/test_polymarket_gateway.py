@@ -304,7 +304,6 @@ async def test_gateway_does_not_apply_market_minimum_locally():
         max_spend_usdc=Decimal("1.10"),
         limit_price=Decimal("0.30"),
         post_only=True,
-        minimum_shares=Decimal("5"),
     )
 
     submission = await gateway.submit(order, order_type="GTC")

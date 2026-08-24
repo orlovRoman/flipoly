@@ -751,3 +751,21 @@ async def test_quote_unavailable_is_deferred(mock_client_class, db_session):
     # Кандидат не должен быть отклонен (REJECTED), он остается NEW/ELIGIBLE
     await db_session.refresh(candidate)
     assert candidate.state != "REJECTED"
+
+
+@pytest.mark.asyncio
+@patch('polyflip.collector.client.PolymarketClient')
+async def test_shadow_release_allows_one_dollar_source_trade(mock_client_class, db_session):
+    """SHADOW mirrors must not inherit the LIVE $1.10 session minimum."""
+    mock_client = mock_client_class.return_value
+    mock_client.get_market_prices = AsyncMock(return_value={"best_ask": 0.5, "best_bid": 0.5})
+    await _set_release_mode(db_session, "AUTO")
+    trade = await _make_paper_trade(db_session, market_id="MKT-SHADOW-ONE-DOLLAR")
+    req = await _make_paper_request(db_session, trade, amount_usdc=Decimal("1.00"))
+    candidate = await _make_candidate(db_session, req, trade, state="ELIGIBLE", target_mode="SHADOW")
+
+    released = await release_batch(db_session, "SHADOW")
+
+    assert released == 1
+    await db_session.refresh(candidate)
+    assert candidate.state == "RELEASED"

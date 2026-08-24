@@ -37,3 +37,9 @@ def _set_constraint(minimum: str) -> None:
 
 def upgrade() -> None:
     _set_constraint("1.10")
+
+
+def downgrade() -> None:
+    # Revert only this migration; the previous revision intentionally allows
+    # the one-dollar minimum.
+    _set_constraint("1.00")

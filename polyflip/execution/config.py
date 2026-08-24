@@ -8,6 +8,7 @@ LIVE_MIN_GROSS_BUY_USDC = Decimal("1.10")
 # Keep this independent from the LIVE dollar-budget migration.
 POLYMARKET_MIN_ORDER_SHARES = Decimal("5")
 
+
 class ExecutionMode(StrEnum):
     PAPER = "PAPER"
     SHADOW = "SHADOW"

@@ -576,18 +576,17 @@ async def validate_live_release(
         if end_time <= now:
             raise ReleaseRejected("Market is already closed")
 
-    # 4.1 Проверка минимального размера исходной заявки.
-    # Для LIVE нельзя проверять PAPER-сумму здесь: LIVE может использовать
-    # отдельный размер active_session.order_amount_usdc (например, 1.10).
-    # LIVE-проверка выполняется сразу после calculate_live_order_amount().
-    paper_order_amount = Decimal(str(paper_request.target_amount_usdc or 0))
-    if target_mode != "LIVE" and paper_order_amount < LIVE_MIN_GROSS_BUY_USDC:
-        raise ReleaseRejected(
-            f"Сумма ордера {paper_order_amount} USDC ниже минимальной суммы "
-            f"Polymarket {LIVE_MIN_GROSS_BUY_USDC:.2f} USDC"
-        )
+    # The source PAPER amount is not a LIVE dollar-budget contract.  In
+    # particular, SHADOW mirrors must be allowed to evaluate a $1.00 source
+    # trade; LIVE amount validation is performed below from the active session.
 
-    # 4.2 Проверка источника модели (только PHASE для COMBINED)
+    # Non-LIVE mirrors retain the source PAPER budget for risk accounting.
+    # LIVE overwrites this value from the active session below.
+    order_amount = Decimal(
+        str(paper_request.target_amount_usdc or paper_request.max_spend_usdc or 0)
+    )
+
+    # 4.1 Проверка источника модели (только PHASE для COMBINED)
     active_features = str(paper_trade.active_features or "").upper()
     if "COMBINED" in active_features:
         if paper_trade.entry_model_source != "PHASE":

@@ -23,7 +23,10 @@ from polyflip.db.execution_models import (
 )
 from polyflip.db.models import LiveMarket, TradeHistory, RuntimeSettings
 from polyflip.execution.order_strategies import execute_gtc_ttl, execute_fak_retry, execute_maker_limit
-from polyflip.execution.config import ExecutionSettings
+from polyflip.execution.config import (
+    POLYMARKET_MIN_ORDER_SHARES,
+    ExecutionSettings,
+)
 from polyflip.execution.gateways.factory import build_execution_gateway
 from polyflip.execution.contracts import GatewayOrder, GatewayUnavailable
 from polyflip.execution.gateways.exceptions import (
@@ -669,13 +672,17 @@ async def process_ready_requests():
                         "order_mode_settings_read_failed", error=str(setting_err)
                     )
 
-            # SMART_MAKER: auto-select GTC_TTL if shares >= CLOB minimum, else FAK_RETRY
-            _CLOB_MIN_SHARES = Decimal("5")
+            # SMART_MAKER: auto-select GTC_TTL if shares >= CLOB minimum, else FAK_RETRY.
+            # Keep the threshold in execution.config so PAPER and LIVE use the
+            # same venue contract and there is no second hard-coded value.
             if order_mode == "SMART_MAKER":
-                _effective_shares = _resolve_shares(
-                    req.requested_shares, req.max_spend_usdc, req.limit_price, req.side
+                _effective_shares = _resolve_requested_shares(
+                    requested_shares=req.requested_shares,
+                    max_spend_usdc=req.max_spend_usdc,
+                    limit_price=req.limit_price,
+                    side=req.side,
                 )
-                if _effective_shares >= _CLOB_MIN_SHARES:
+                if _effective_shares >= POLYMARKET_MIN_ORDER_SHARES:
                     order_mode = "GTC_TTL"
                     logger.info("smart_maker_chose_gtc", shares=str(_effective_shares))
                 else:
