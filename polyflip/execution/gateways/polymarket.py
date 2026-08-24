@@ -144,31 +144,6 @@ class PolymarketExecutionGateway:
             normalized_order_type = order_type.upper()
             side = order.side.upper()
 
-            # The market-specific minimum comes from fresh CLOB metadata.
-            # If metadata is unavailable, the provider remains the authority.
-            if normalized_order_type in {"GTC", "GTD", "GTC_TTL", "FAK", "FOK"}:
-                minimum_shares = order.minimum_shares
-                if (
-                    minimum_shares is not None
-                    and minimum_shares > 0
-                    and order.requested_shares < minimum_shares
-                ):
-                    required_notional = (
-                        order.limit_price * minimum_shares
-                        if side == "BUY"
-                        else None
-                    )
-                    notional_suffix = (
-                        f" required_budget_usdc={required_notional:.4f}"
-                        if required_notional is not None
-                        else ""
-                    )
-                    raise GatewayOrderRejected(
-                        "ORDER_SIZE_BELOW_MINIMUM: "
-                        f"requested_shares={order.requested_shares} "
-                        f"minimum_shares={minimum_shares}{notional_suffix}"
-                    )
-
             if normalized_order_type in {"GTC", "GTD", "GTC_TTL"}:
                 if order.requested_shares <= 0:
                     raise GatewayOrderRejected(

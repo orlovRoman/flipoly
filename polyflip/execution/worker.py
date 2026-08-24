@@ -461,7 +461,6 @@ async def process_ready_requests():
 
         # --- Проверка цены перед попыткой исполнения ---
         api_client = None
-        market_min_order_size: Decimal | None = None
         executable_price = float(limit_price)
         if req.intent == "OPEN":
             if req.requested_mode == "LIVE":
@@ -475,23 +474,6 @@ async def process_ready_requests():
                     )
                     if prices and prices.get("best_ask") is not None:
                         executable_price = float(prices["best_ask"])
-                        raw_min_order_size = prices.get("min_order_size")
-                        if raw_min_order_size is not None:
-                            try:
-                                parsed_min_order_size = Decimal(
-                                    str(raw_min_order_size)
-                                )
-                                if (
-                                    parsed_min_order_size.is_finite()
-                                    and parsed_min_order_size > 0
-                                ):
-                                    market_min_order_size = parsed_min_order_size
-                            except (TypeError, ValueError, ArithmeticError):
-                                logger.warning(
-                                    "worker_invalid_market_min_order_size",
-                                    request_id=str(req.id),
-                                    value=str(raw_min_order_size),
-                                )
                     else:
                         fresh_quote_unavailable = True
                 except Exception as e:
@@ -593,7 +575,6 @@ async def process_ready_requests():
                 side=side,
                 limit_price=limit_price,
                 requested_shares=resolved_requested_shares,
-                minimum_shares=market_min_order_size,
                 max_spend_usdc=max_spend_usdc,
                 expiration=(
                     int(request_expiration.timestamp())

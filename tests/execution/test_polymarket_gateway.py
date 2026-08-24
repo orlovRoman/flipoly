@@ -274,7 +274,7 @@ async def test_gateway_routes_gtc_to_limit_order():
 
 
 @pytest.mark.asyncio
-async def test_gateway_rejects_below_market_minimum_before_submission():
+async def test_gateway_does_not_apply_market_minimum_locally():
     from polyflip.execution.gateways.exceptions import GatewayOrderRejected
 
     gateway = PolymarketExecutionGateway(
@@ -285,6 +285,12 @@ async def test_gateway_rejects_below_market_minimum_before_submission():
         host="https://clob.polymarket.com",
     )
     client = AsyncMock()
+    client.place_limit_order.return_value = MagicMock(
+        ok=True,
+        order_id="small-order-1",
+        status="LIVE",
+        trade_ids=[],
+    )
     gateway.get_client = AsyncMock(return_value=client)
 
     order = GatewayOrder(
@@ -301,10 +307,18 @@ async def test_gateway_rejects_below_market_minimum_before_submission():
         minimum_shares=Decimal("5"),
     )
 
-    with pytest.raises(GatewayOrderRejected, match="ORDER_SIZE_BELOW_MINIMUM"):
-        await gateway.submit(order, order_type="GTC")
+    submission = await gateway.submit(order, order_type="GTC")
 
-    client.place_limit_order.assert_not_awaited()
+    assert submission.accepted is True
+    assert submission.provider_order_id == "small-order-1"
+    client.place_limit_order.assert_awaited_once_with(
+        token_id="token-no",
+        price="0.30",
+        size="3.66",
+        side="BUY",
+        post_only=True,
+        expiration=None,
+    )
 
 @pytest.mark.asyncio
 async def test_gateway_routes_gtd_to_limit_order_with_expiration():
