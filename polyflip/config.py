@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     AI_LAB_OPENCODE_MODELS_ENDPOINT: str = ""
     AI_LAB_OPENCODE_CATALOG_TTL_SECONDS: int = 3600
     AI_LAB_OPENCODE_MODELS_FALLBACK: str = ""
+    # External ai_research_agent container authentication (falls back to API_KEY).
+    AI_LAB_AGENT_TOKEN: str = ""
+    AI_LAB_AGENT_LEASE_TTL_SECONDS: int = 120
 
     @field_validator("AI_LAB_MODE")
     @classmethod
