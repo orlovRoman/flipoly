@@ -116,7 +116,7 @@ async def test_paper_live_parity_returns_partial_fill_when_depth_is_short():
 
 
 @pytest.mark.asyncio
-async def test_paper_live_parity_rejects_below_polymarket_minimum_without_quote():
+async def test_paper_live_parity_rejects_small_resting_order_before_quote():
     quote_calls = []
 
     async def quote_provider(token_id):
@@ -124,11 +124,31 @@ async def test_paper_live_parity_rejects_below_polymarket_minimum_without_quote(
         return {}
 
     gateway = FakeExecutionGateway(profile="LIVE_PARITY", quote_provider=quote_provider)
-    result = await gateway.submit(_parity_order(shares="4"))
+    result = await gateway.submit(_parity_order(shares="4"), order_type="GTC")
 
     assert result.accepted is False
     assert result.rejection_code == "PAPER_MIN_ORDER_SHARES"
     assert quote_calls == []
+
+
+@pytest.mark.asyncio
+async def test_paper_live_parity_allows_small_fak_retry_order():
+    async def quote_provider(token_id):
+        return {
+            "best_bid": 0.29,
+            "best_ask": 0.30,
+            "asks": [{"price": 0.30, "size": 4}],
+            "bids": [{"price": 0.29, "size": 10}],
+        }
+
+    gateway = FakeExecutionGateway(
+        profile="LIVE_PARITY", quote_provider=quote_provider, slippage_pct=0, fee_rate=0
+    )
+    result = await gateway.submit(_parity_order(shares="4"), order_type="FAK")
+
+    assert result.accepted is True
+    assert result.provider_status == "FILLED"
+    assert sum((fill.shares for fill in result.fills), Decimal("0")) == Decimal("4")
 
 
 @pytest.mark.asyncio

@@ -21,8 +21,9 @@ class FakeExecutionGateway:
     ``INSTANT`` is retained for focused unit tests and legacy callers.  The
     factory uses ``LIVE_PARITY`` in production PAPER mode: it waits for a
     configurable submission delay, consumes the supplied order-book levels,
-    enforces the venue minimum size, applies slippage and fees, and returns
-    partial fills when available depth is insufficient.
+    enforces the venue minimum size for resting maker orders, applies
+    slippage and fees, and returns partial fills when available depth is
+    insufficient.
     """
 
     name = "FAKE"
@@ -148,7 +149,13 @@ class FakeExecutionGateway:
         if self.profile == "INSTANT":
             return self._instant_result(order)
 
-        if order.requested_shares < self.min_order_shares:
+        normalized_order_type = str(order_type or "FAK").upper()
+        is_resting = (
+            normalized_order_type in {"GTC", "GTD", "GTC_TTL"} or order.post_only
+        )
+        # The CLOB minimum applies to resting maker orders only. SMART_MAKER
+        # deliberately routes smaller requests through FAK/FAK_RETRY.
+        if is_resting and order.requested_shares < self.min_order_shares:
             return self._rejected(
                 order,
                 "PAPER_MIN_ORDER_SHARES",
@@ -201,7 +208,7 @@ class FakeExecutionGateway:
         crosses = (
             side == "BUY" and order.limit_price >= quote_price
         ) or (side == "SELL" and order.limit_price <= quote_price)
-        is_resting = str(order_type or "FAK").upper() in {"GTC", "GTD", "GTC_TTL"} or order.post_only
+
         if is_resting and crosses:
             return self._rejected(
                 order,

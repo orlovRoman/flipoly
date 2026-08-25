@@ -256,7 +256,7 @@
 
                 <!-- Order Execution Mode Selector & Parameter Settings -->
                 <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
-                    <div style="font-size: 0.9rem; font-weight: 600; margin-bottom: 8px;">Режим и параметры исполнения ордера (Polymarket CLOB)</div>
+                    <div style="font-size: 0.9rem; font-weight: 600; margin-bottom: 8px;">Режим и параметры исполнения ордера (Polymarket CLOB: LIVE и PAPER)</div>
                     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                         <button id="btn-mode-fak" class="btn-action" style="background: #4a5568; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('FAK')">FAK (Быстрый)</button>
                         <button id="btn-mode-gtc-ttl" class="btn-action" style="background: #4a5568; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('GTC_TTL')">GTC / GTD (Ожидание) ⚠️</button>
@@ -264,7 +264,7 @@
                         <button id="btn-mode-smart-maker" class="btn-action" style="background: #4a5568; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('SMART_MAKER')">SMART (AUTO) ✨</button>
                     </div>
                     <div id="smart-maker-hint" style="display:none; font-size:0.75rem; color:#68d391; margin-top:4px;">
-                        ≥ 5 акций → GTC (Maker) &nbsp;|&nbsp; &lt; 5 акций → FAK-Retry
+                        ≥ 5 акций → GTC (Maker) &nbsp;|&nbsp; &lt; 5 акций → FAK-Retry (одинаково в LIVE и PAPER)
                     </div>
 
                     <!-- Dynamic parameter inputs for selected mode -->

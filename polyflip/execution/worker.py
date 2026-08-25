@@ -77,6 +77,20 @@ def _resolve_requested_shares(
     return Decimal("0")
 
 
+def _smart_maker_order_mode(effective_shares: Decimal) -> str:
+    """Choose the venue-safe route for SMART_MAKER.
+
+    Post-only GTC/GTD orders must satisfy Polymarket's minimum token size.
+    Smaller PAPER/LIVE requests use FAK_RETRY instead, which has no maker
+    minimum and therefore follows the same routing contract as LIVE.
+    """
+    return (
+        "GTC_TTL"
+        if effective_shares >= POLYMARKET_MIN_ORDER_SHARES
+        else "FAK_RETRY"
+    )
+
+
 # Через сколько секунд неопределённого состояния переходим в MANUAL_REVIEW_REQUIRED
 async def _enqueue_gtd_take_profit_after_fill(session, req) -> None:
     """Place a native GTD TP order after a LIVE BUY is fully filled.
@@ -363,8 +377,18 @@ async def _load_paper_execution_config(session, settings: ExecutionSettings) -> 
         return {}
     values = {row.key: row.value for row in rows}
     owner_by_key = {row.key: row.updated_by for row in rows}
-    profile = str(values.get("PAPER_EXECUTION_PROFILE", settings.paper_execution_profile)).strip().upper()
-    if profile == "INSTANT" and str(owner_by_key.get("PAPER_EXECUTION_PROFILE", "")).strip().lower() in {"", "system"}:
+    env_profile = os.getenv("PAPER_EXECUTION_PROFILE")
+    profile = str(
+        env_profile
+        if env_profile is not None
+        else values.get("PAPER_EXECUTION_PROFILE", settings.paper_execution_profile)
+    ).strip().upper()
+    if (
+        env_profile is None
+        and profile == "INSTANT"
+        and str(owner_by_key.get("PAPER_EXECUTION_PROFILE", "")).strip().lower()
+        in {"", "system"}
+    ):
         profile = "LIVE_PARITY"
     return {
         "profile": profile,
@@ -625,7 +649,10 @@ async def process_ready_requests():
             retry_delay = 0.75
             settings_dict = {}
 
-            if req.requested_mode == "LIVE":
+            # The dashboard stores one CLOB policy in LIVE_* settings. PAPER
+            # must replay that same policy so SMART_MAKER chooses GTC_TTL for
+            # >=5 shares and FAK_RETRY below the venue maker minimum.
+            if req.requested_mode in {"LIVE", "PAPER"}:
                 try:
                     settings_res = await session.execute(
                         select(RuntimeSettings.key, RuntimeSettings.value).where(
@@ -682,12 +709,15 @@ async def process_ready_requests():
                     limit_price=req.limit_price,
                     side=req.side,
                 )
-                if _effective_shares >= POLYMARKET_MIN_ORDER_SHARES:
-                    order_mode = "GTC_TTL"
-                    logger.info("smart_maker_chose_gtc", shares=str(_effective_shares))
-                else:
-                    order_mode = "FAK_RETRY"
-                    logger.info("smart_maker_chose_fak_retry", shares=str(_effective_shares))
+                selected_mode = _smart_maker_order_mode(_effective_shares)
+                order_mode = selected_mode
+                logger.info(
+                    "smart_maker_route_selected",
+                    requested_mode=req.requested_mode,
+                    selected_mode=selected_mode,
+                    shares=str(_effective_shares),
+                    minimum_shares=str(POLYMARKET_MIN_ORDER_SHARES),
+                )
 
             if order_mode in {"MAKER_TTL", "LIMIT_TTL"}:
                 order_mode = "GTC_TTL"
