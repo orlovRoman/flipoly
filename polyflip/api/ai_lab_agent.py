@@ -397,29 +397,64 @@ async def get_agent_latest_result(
 ):
     await _require_run(db, run_id)
     await _verify_lease(db, run_id, lease_token)
-    row = (
+    # Only terminal POLYMARKET_OOT results are exposed.
+    term = (
         await db.execute(
             select(ExperimentResult)
-            .where(ExperimentResult.run_id == run_id)
+            .where(
+                ExperimentResult.run_id == run_id,
+                ExperimentResult.evaluation_kind == "POLYMARKET_OOT",
+                ExperimentResult.status == "SUCCEEDED",
+            )
             .order_by(ExperimentResult.id.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
-    if row is None:
-        return {"result": None}
+    if term is None:
+        # Check for a terminal FAILED OOT to surface FAILED state.
+        failed = (
+            await db.execute(
+                select(ExperimentResult)
+                .where(
+                    ExperimentResult.run_id == run_id,
+                    ExperimentResult.evaluation_kind == "POLYMARKET_OOT",
+                    ExperimentResult.status.in_(["FAILED", "INSUFFICIENT_DATA"]),
+                )
+                .order_by(ExperimentResult.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if failed is not None:
+            return {
+                "state": "FAILED",
+                "result": {
+                    "result_id": failed.id,
+                    "config_id": failed.config_id,
+                    "evaluation_kind": failed.evaluation_kind,
+                    "status": failed.status,
+                    "metrics": failed.metrics or {},
+                    "net_pnl": failed.net_pnl,
+                    "trade_count": failed.trade_count,
+                    "max_drawdown": failed.max_drawdown,
+                    "artifact_id": failed.artifact_id,
+                    "summary": failed.summary,
+                },
+            }
+        return {"state": "PENDING", "result": None}
     return {
+        "state": "READY",
         "result": {
-            "result_id": row.id,
-            "config_id": row.config_id,
-            "evaluation_kind": row.evaluation_kind,
-            "status": row.status,
-            "metrics": row.metrics or {},
-            "net_pnl": row.net_pnl,
-            "trade_count": row.trade_count,
-            "max_drawdown": row.max_drawdown,
-            "artifact_id": row.artifact_id,
-            "summary": row.summary,
-        }
+            "result_id": term.id,
+            "config_id": term.config_id,
+            "evaluation_kind": term.evaluation_kind,
+            "status": term.status,
+            "metrics": term.metrics or {},
+            "net_pnl": term.net_pnl,
+            "trade_count": term.trade_count,
+            "max_drawdown": term.max_drawdown,
+            "artifact_id": term.artifact_id,
+            "summary": term.summary,
+        },
     }
 
 
@@ -512,6 +547,7 @@ async def submit_agent_proposal(
         except Exception:
             cfg_id_int = None
         # Collect all steps belonging to this proposal iteration.
+        existing_id = int(existing.id)
         all_steps = (
             await db.execute(
                 select(AIRunStep)
@@ -527,10 +563,10 @@ async def submit_agent_proposal(
                 step_ids.append(int(s.id))
         # Fallback: at least return the proposal step itself.
         if not step_ids:
-            step_ids = [int(existing.id)]
+            step_ids = [existing_id]
         # Do not create anything; just return previous result.
         await db.rollback()
-        return {"config_id": int(cfg_id_int) if cfg_id_int is not None else int(existing.id), "step_ids": step_ids}
+        return {"config_id": int(cfg_id_int) if cfg_id_int is not None else existing_id, "step_ids": step_ids}
     proposal = payload.proposal
     config = await create_agent_config(db, run=run, proposal=proposal)
     # Compute next_index via func.max to avoid races on step_index.
@@ -585,6 +621,7 @@ async def create_agent_config(
 
 class DecisionRequest(BaseModel):
     lease_token: str
+    client_request_id: str = Field(min_length=8, max_length=64)
     decision: AgentDecision
 
     @field_validator("decision", mode="before")
@@ -603,29 +640,118 @@ async def submit_agent_decision(
     payload: DecisionRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
-    run = await _require_run(db, run_id)
-    await _verify_lease(db, run_id, payload.lease_token)
-    decision = payload.decision
-    latest_step = (
+    # Lock run row for decision serialization.
+    locked_run = (
         await db.execute(
-            select(AIRunStep.step_index)
-            .where(AIRunStep.run_id == run_id)
-            .order_by(AIRunStep.step_index.desc())
+            select(AIOptimizationRun)
+            .where(AIOptimizationRun.id == run_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked_run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    run = locked_run
+    await _verify_lease(db, run_id, payload.lease_token)
+    # Idempotency: same client_request_id returns previous decision.
+    existing = (
+        await db.execute(
+            select(AIRunStep).where(
+                AIRunStep.run_id == run_id,
+                AIRunStep.client_request_id == payload.client_request_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        existing_id = int(existing.id)
+        existing_action = str(existing.action or payload.decision.action)
+        await db.rollback()
+        return {
+            "accepted": True,
+            "step_id": existing_id,
+            "action": existing_action,
+        }
+    # Gate: only terminal POLYMARKET_OOT READY may be decided upon.
+    term = (
+        await db.execute(
+            select(ExperimentResult)
+            .where(
+                ExperimentResult.run_id == run_id,
+                ExperimentResult.evaluation_kind == "POLYMARKET_OOT",
+                ExperimentResult.status == "SUCCEEDED",
+            )
+            .order_by(ExperimentResult.id.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
+    if term is None:
+        raise HTTPException(status_code=409, detail="RESULT_NOT_READY")
+    # Verify result belongs to run (already filtered) and recommended_config_id belongs.
+    decision = payload.decision
+    rec_id = decision.recommended_config_id
+    if rec_id is not None:
+        cfg = await db.get(AIExperimentConfig, int(rec_id))
+        if cfg is None:
+            raise HTTPException(status_code=422, detail="unknown recommended_config_id")
+        # Verify the config was proposed for this run (via steps or results).
+        has_result = (
+            await db.execute(
+                select(ExperimentResult).where(
+                    ExperimentResult.run_id == run_id,
+                    ExperimentResult.config_id == int(rec_id),
+                )
+            )
+        ).scalar_one_or_none()
+        belongs_via_step = False
+        if has_result is None:
+            all_steps = (
+                await db.execute(select(AIRunStep).where(AIRunStep.run_id == run_id))
+            ).scalars().all()
+            for s in all_steps:
+                if isinstance(s.input_payload, dict) and s.input_payload.get("config_id") == int(rec_id):
+                    belongs_via_step = True
+                    break
+                if isinstance(s.output_payload, dict) and s.output_payload.get("config_id") == int(rec_id):
+                    belongs_via_step = True
+                    break
+            if not belongs_via_step:
+                raise HTTPException(status_code=422, detail="recommended_config_id does not belong to run")
+        # Also ensure the recommended config matches the terminal result when possible.
+        # We allow any belonging config, but if term exists, we at least ensure term belongs.
+        if term.run_id != run_id:
+            raise HTTPException(status_code=422, detail="result does not belong to run")
+    # Compute next index via func.max.
+    max_index = (
+        await db.execute(select(func.max(AIRunStep.step_index)).where(AIRunStep.run_id == run_id))
+    ).scalar_one_or_none()
+    next_index = int(max_index) + 1 if max_index is not None else 0
     step = await append_step(
         db,
         run_id,
-        step_index=(latest_step + 1) if latest_step is not None else 0,
+        step_index=next_index,
         step_type="DECISION",
         status="SUCCEEDED",
         action=decision.action,
-        input_payload={"decision": payload.decision.model_dump(mode="json")},
-        output_payload={"recommended_config_id": decision.recommended_config_id},
+        input_payload={
+            "decision": payload.decision.model_dump(mode="json"),
+            "result_id": term.id,
+        },
+        output_payload={
+            "recommended_config_id": rec_id,
+            "result_id": term.id,
+            "config_id": rec_id,
+        },
         summary=decision.rationale[:400],
     )
+    step.client_request_id = payload.client_request_id  # type: ignore[attr-defined]
+    await db.flush()
+    # Increment experiments_completed exactly once per successful decision.
     run.experiments_completed = (run.experiments_completed or 0) + 1
+    # Transition to EVALUATING if still RUNNING.
+    if run.status == "RUNNING":
+        try:
+            await transition_run(db, run, "EVALUATING", reason="agent decision")
+        except Exception:
+            pass
     await db.commit()
     return {
         "accepted": True,
@@ -661,7 +787,9 @@ async def complete_agent_run(
             await _release_lease(db, run_id)
     if payload.action == "COMPLETED":
         # Canonical state machine: RUNNING -> EVALUATING -> COMPLETED.
-        await transition_run(db, run, "EVALUATING", reason="agent finalizing")
+        # Decision already transitions to EVALUATING, so handle idempotent case.
+        if run.status != "EVALUATING":
+            await transition_run(db, run, "EVALUATING", reason="agent finalizing")
         await transition_run(db, run, "COMPLETED", reason=payload.reason or "agent complete")
     elif payload.action == "FAILED":
         await transition_run(db, run, "FAILED", reason=payload.reason or "agent failed")

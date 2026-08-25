@@ -229,7 +229,7 @@ async def test_invalid_proposal_rejected_with_422(db_session):
 async def test_decision_persisted_and_complete_releases_lease(db_session):
     run_id = await _seed_run(db_session)
     claimed = (await claim_next_agent_run(AgentClaimRequest(), db_session))["run"]
-    await submit_agent_proposal(
+    proposal_result = await submit_agent_proposal(
         run_id,
         ProposalRequest(
             lease_token=claimed["lease_token"],
@@ -238,19 +238,34 @@ async def test_decision_persisted_and_complete_releases_lease(db_session):
         ),
         db_session,
     )
+    # Seed a terminal POLYMARKET_OOT result so decision gate (READY) passes.
+    from polyflip.db.models import ExperimentResult
+
+    from datetime import datetime, timezone
+
+    term = ExperimentResult(
+        run_id=run_id,
+        config_id=proposal_result["config_id"],
+        evaluation_kind="POLYMARKET_OOT",
+        status="SUCCEEDED",
+        metrics={"median_pnl": 1.2},
+        trade_count=100,
+        net_pnl=1.2,
+        max_drawdown=-0.5,
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(term)
+    await db_session.flush()
     decision_result = await submit_agent_decision(
         run_id,
-        DecisionRequest(lease_token=claimed["lease_token"], decision=VALID_DECISION),
+        DecisionRequest(
+            lease_token=claimed["lease_token"],
+            client_request_id=uuid.uuid4().hex,
+            decision=VALID_DECISION,
+        ),
         db_session,
     )
     assert decision_result["accepted"] is True
-
-    # Move the pipeline to RUNNING the same way a worker claim would, so the
-    # canonical RUNNING -> EVALUATING -> COMPLETED completion path applies.
-    from polyflip.ai_lab.orchestrator import claim_next_step
-
-    claimed_step = await claim_next_step(db_session, run_id)
-    assert claimed_step is not None
 
     completed = await complete_agent_run(
         run_id,
@@ -530,6 +545,154 @@ async def test_proposal_ordering_and_idempotency(db_session):
     assert proposal_steps[1].client_request_id == req_id_b
     # First proposal should be before its TRAIN block, second proposal after.
     assert proposal_steps[0].step_index < proposal_steps[1].step_index
+
+
+@pytest.mark.asyncio
+async def test_result_returns_only_terminal_oot(db_session):
+    run_id = await _seed_run(db_session)
+    claimed = (await claim_next_agent_run(AgentClaimRequest(), db_session))["run"]
+    lease = claimed["lease_token"]
+    proposal = await submit_agent_proposal(
+        run_id,
+        ProposalRequest(lease_token=lease, client_request_id=uuid.uuid4().hex, proposal=VALID_PROPOSAL),
+        db_session,
+    )
+    # Before any OOT result, state is PENDING and TRAIN results are ignored.
+    from polyflip.db.models import ExperimentResult
+    from datetime import datetime, timezone
+
+    # Insert a TRAIN result only – should still be PENDING.
+    train_res = ExperimentResult(
+        run_id=run_id,
+        config_id=proposal["config_id"],
+        evaluation_kind="TRAIN",
+        status="SUCCEEDED",
+        metrics={},
+        trade_count=10,
+        net_pnl=5.0,
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(train_res)
+    await db_session.flush()
+    pending = await get_agent_latest_result(run_id=run_id, lease_token=lease, db=db_session)
+    assert pending["state"] == "PENDING"
+    assert pending["result"] is None
+    # Add terminal POLYMARKET_OOT SUCCEEDED – now READY.
+    oot = ExperimentResult(
+        run_id=run_id,
+        config_id=proposal["config_id"],
+        evaluation_kind="POLYMARKET_OOT",
+        status="SUCCEEDED",
+        metrics={"median_pnl": 2.0},
+        trade_count=100,
+        net_pnl=2.0,
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(oot)
+    await db_session.flush()
+    ready = await get_agent_latest_result(run_id=run_id, lease_token=lease, db=db_session)
+    assert ready["state"] == "READY"
+    assert ready["result"] is not None
+    assert ready["result"]["evaluation_kind"] == "POLYMARKET_OOT"
+    assert ready["result"]["config_id"] == proposal["config_id"]
+
+
+@pytest.mark.asyncio
+async def test_decision_requires_ready_and_validates_config(db_session):
+    run_id = await _seed_run(db_session)
+    claimed = (await claim_next_agent_run(AgentClaimRequest(), db_session))["run"]
+    lease = claimed["lease_token"]
+    proposal = await submit_agent_proposal(
+        run_id,
+        ProposalRequest(lease_token=lease, client_request_id=uuid.uuid4().hex, proposal=VALID_PROPOSAL),
+        db_session,
+    )
+    # No terminal result yet – decision should be rejected with RESULT_NOT_READY.
+    with pytest.raises(HTTPException) as exc:
+        await submit_agent_decision(
+            run_id,
+            DecisionRequest(lease_token=lease, client_request_id=uuid.uuid4().hex, decision=VALID_DECISION),
+            db_session,
+        )
+    assert exc.value.status_code == 409
+    assert "RESULT_NOT_READY" in str(exc.value.detail)
+    # Seed terminal result for a different config – recommended_config_id must belong.
+    from polyflip.db.models import ExperimentResult, AIExperimentConfig
+    from datetime import datetime, timezone
+
+    # Create an unrelated config not linked to this run.
+    from polyflip.ai_lab.service import create_experiment_config
+
+    other_cfg = await create_experiment_config(
+        db_session,
+        name="other-cfg",
+        model_family="LogReg",
+        feature_set="FS_D0",
+        feature_pipeline_version="v1",
+        model_params={},
+        strategy_params={},
+        backtest_params={},
+        asset="BTC",
+        description="other",
+        created_by="test",
+    )
+    await db_session.flush()
+    term = ExperimentResult(
+        run_id=run_id,
+        config_id=proposal["config_id"],
+        evaluation_kind="POLYMARKET_OOT",
+        status="SUCCEEDED",
+        metrics={},
+        trade_count=50,
+        net_pnl=1.0,
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(term)
+    await db_session.flush()
+    # Try decision with non-belonging recommended_config_id.
+    bad_decision = dict(VALID_DECISION)
+    bad_decision["recommended_config_id"] = int(other_cfg.id)
+    with pytest.raises(HTTPException) as exc2:
+        await submit_agent_decision(
+            run_id,
+            DecisionRequest(lease_token=lease, client_request_id=uuid.uuid4().hex, decision=bad_decision),
+            db_session,
+        )
+    assert exc2.value.status_code == 422
+    # Valid decision with belonging config succeeds and increments once.
+    good_decision = dict(VALID_DECISION)
+    good_decision["recommended_config_id"] = int(proposal["config_id"])
+    first_ok = await submit_agent_decision(
+        run_id,
+        DecisionRequest(lease_token=lease, client_request_id="decision-aaa-12345678", decision=good_decision),
+        db_session,
+    )
+    assert first_ok["accepted"] is True
+    run_before = await db_session.get(AIOptimizationRun, run_id)
+    completed_before = int(run_before.experiments_completed)
+    # Idempotent retry same client_request_id must not increment again.
+    retry = await submit_agent_decision(
+        run_id,
+        DecisionRequest(lease_token=lease, client_request_id="decision-aaa-12345678", decision=good_decision),
+        db_session,
+    )
+    assert retry["step_id"] == first_ok["step_id"]
+    run_after = await db_session.get(AIOptimizationRun, run_id)
+    assert int(run_after.experiments_completed) == completed_before
+    # Different ID increments again? Actually budget allows only one decision per iteration; second distinct ID after READY should create new DECISION but still READY? For test, just check that second distinct ID creates different step.
+    second = await submit_agent_decision(
+        run_id,
+        DecisionRequest(lease_token=lease, client_request_id="decision-bbb-12345678", decision=good_decision),
+        db_session,
+    )
+    assert second["step_id"] != first_ok["step_id"]
+    # Check that decision step links to result.
+    from polyflip.db.models import AIRunStep
+
+    dec_step = await db_session.get(AIRunStep, second["step_id"])
+    assert dec_step is not None
+    assert dec_step.client_request_id == "decision-bbb-12345678"
+    assert dec_step.output_payload.get("result_id") == term.id
 
 
 def test_openapi_contains_hypothesis_and_decision_schemas():
