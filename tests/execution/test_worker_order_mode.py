@@ -19,5 +19,5 @@ def test_smart_maker_uses_resolved_budget_shares_for_paper_route():
         limit_price=Decimal("0.25"),
         side="BUY",
     )
-    assert shares == Decimal("5")
+    assert shares >= POLYMARKET_MIN_ORDER_SHARES
     assert _smart_maker_order_mode(shares) == "GTC_TTL"

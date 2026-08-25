@@ -378,6 +378,8 @@ async def _load_paper_execution_config(session, settings: ExecutionSettings) -> 
     values = {row.key: row.value for row in rows}
     owner_by_key = {row.key: row.updated_by for row in rows}
     env_profile = os.getenv("PAPER_EXECUTION_PROFILE")
+    if env_profile is not None and not env_profile.strip():
+        env_profile = None
     profile = str(
         env_profile
         if env_profile is not None
