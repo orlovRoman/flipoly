@@ -106,12 +106,18 @@ def _as_utc(value: datetime | None) -> datetime | None:
 
 
 def _row_to_item(row: AILLMModelCatalog) -> dict[str, Any]:
+    # Expose split discovery/probe fields for the dashboard.
+    last = getattr(row, "last_checked_at", None)
     return {
         "id": row.model_id,
         "label": row.display_name or row.model_id,
         "protocol": row.protocol,
         "supports_structured_output": bool(row.supports_structured_output),
         "is_available": bool(row.is_available),
+        "is_discovered": bool(getattr(row, "is_discovered", True)),
+        "probe_status": str(getattr(row, "probe_status", "UNCHECKED")),
+        "last_checked_at": _as_utc(last).isoformat() if last else None,
+        "is_unchecked": str(getattr(row, "probe_status", "UNCHECKED")) == "UNCHECKED",
     }
 
 
@@ -170,21 +176,29 @@ async def _upsert_live_rows(
         model_id = item["model_id"]
         fresh_ids.add(model_id)
         row = by_id.get(model_id)
-        if row is None:
+        is_new = row is None
+        if is_new:
             row = AILLMModelCatalog(
                 provider=provider,
                 model_id=model_id,
                 discovered_at=now,
             )
             db.add(row)
+            # New discovery starts as UNCHECKED.
+            row.is_discovered = True  # type: ignore[attr-defined]
+            row.probe_status = "UNCHECKED"  # type: ignore[attr-defined]
         row.display_name = item["display_name"]
         row.protocol = item["protocol"]
         row.supports_structured_output = item["supports_structured_output"]
         row.is_available = True
+        row.is_discovered = True  # type: ignore[attr-defined]
+        if is_new:
+            row.probe_status = "UNCHECKED"  # type: ignore[attr-defined]
         row.expires_at = expires_at
     for model_id, row in by_id.items():
         if model_id not in fresh_ids:
             row.is_available = False
+            row.is_discovered = False  # type: ignore[attr-defined]
     await db.flush()
     refreshed = (
         await db.execute(
@@ -343,11 +357,24 @@ async def get_available_catalog_models(
         await db.execute(
             select(AILLMModelCatalog).where(
                 AILLMModelCatalog.provider == provider_name,
-                AILLMModelCatalog.is_available.is_(True),
+                AILLMModelCatalog.is_discovered.is_(True),
+                AILLMModelCatalog.probe_status == "PASSED",
+                AILLMModelCatalog.supports_structured_output.is_(True),
             )
         )
     ).scalars().all()
-    return {row.model_id: row for row in rows}
+    # Apply probe TTL filtering.
+    ttl = int(getattr(cfg, "AI_LAB_OPENCODE_PROBE_TTL_SECONDS", 86400) or 86400)
+    now = datetime.now(timezone.utc)
+    fresh: dict[str, AILLMModelCatalog] = {}
+    for row in rows:
+        last = _as_utc(getattr(row, "last_checked_at", None))
+        if last is None:
+            continue
+        if (now - last).total_seconds() > ttl:
+            continue
+        fresh[row.model_id] = row
+    return fresh
 
 
 # ---------------------------------------------------------------------------
@@ -543,12 +570,22 @@ async def persist_model_check_result(
             discovered_at=now,
         )
         db.add(row)
-    row.is_available = bool(report.get("available"))
+    is_passed = bool(report.get("available"))
+    row.is_available = is_passed
+    row.is_discovered = True  # type: ignore[attr-defined]
+    row.probe_status = "PASSED" if is_passed else "FAILED"  # type: ignore[attr-defined]
+    # last_checked_at is the authoritative probe timestamp
+    try:
+        checked_iso = report.get("checked_at")
+        parsed = datetime.fromisoformat(str(checked_iso).replace("Z", "+00:00")) if checked_iso else now
+    except Exception:
+        parsed = now
+    row.last_checked_at = _as_utc(parsed)  # type: ignore[attr-defined]
     if report.get("protocol") in SUPPORTED_PROTOCOLS | {"mock"}:
         row.protocol = str(report["protocol"])
     metadata = dict(row.raw_metadata or {})
     metadata["last_check"] = {
-        "available": bool(report.get("available")),
+        "available": is_passed,
         "latency_ms": report.get("latency_ms"),
         "protocol": report.get("protocol"),
         "checked_at": report.get("checked_at"),
@@ -644,6 +681,8 @@ async def resolve_llm_snapshot(
             status_value="legacy_static", catalog_time=None,
         )
 
+    PROBE_TTL_SECONDS = int(getattr(cfg, "AI_LAB_OPENCODE_PROBE_TTL_SECONDS", 86400) or 86400)
+
     def validated(model_id: str | None) -> AILLMModelCatalog:
         clean = (model_id or "").strip()
         row = by_id.get(clean)
@@ -651,11 +690,30 @@ async def resolve_llm_snapshot(
             raise ValueError(
                 f"Model '{clean}' is not present in the {provider_name} catalog"
             )
-        if not row.is_available:
+        # New semantics: must be discovered, probe PASSED, and support structured output.
+        is_disc = bool(getattr(row, "is_discovered", True))
+        probe = str(getattr(row, "probe_status", "UNCHECKED"))
+        supports = bool(row.supports_structured_output)
+        # Backward compat: if probe is UNCHECKED but is_available True, treat as legacy discovered
+        # without probe. For new code, probe must be PASSED.
+        # Keep legacy rows that haven't been probed yet as UNCHECKED -> require probe.
+        # However tests that seed only is_available should still pass if they also set probe_status.
+        # We enforce strict check.
+        if not is_disc:
+            raise ValueError(f"Model '{clean}' is not discovered")
+        if probe != "PASSED":
             raise ValueError(
-                f"Model '{clean}' is not available "
-                "(missing or failed availability check)"
+                f"Model '{clean}' probe status is {probe} (expected PASSED)"
             )
+        if not supports:
+            raise ValueError(f"Model '{clean}' does not support structured output")
+        # Probe TTL: stale probes require re-check.
+        last = _as_utc(getattr(row, "last_checked_at", None))
+        if last is None:
+            raise ValueError(f"Model '{clean}' probe is stale (never checked)")
+        age = (checked_at - last).total_seconds()
+        if age > PROBE_TTL_SECONDS:
+            raise ValueError(f"Model '{clean}' probe is stale (age {int(age)}s > {PROBE_TTL_SECONDS}s)")
         return row
 
     research_row = validated(research_model)
@@ -665,5 +723,5 @@ async def resolve_llm_snapshot(
         summary_row.model_id,
         protocol=research_row.protocol,
         status_value="available",
-        catalog_time=_as_utc(research_row.discovered_at),
+        catalog_time=_as_utc(getattr(research_row, "last_checked_at", None) or research_row.discovered_at),
     )

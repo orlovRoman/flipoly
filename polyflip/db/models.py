@@ -1781,6 +1781,9 @@ class AILLMModelCatalog(Base):
         Boolean, nullable=False, server_default="true"
     )
     is_available = Column(Boolean, nullable=False, server_default="true")
+    is_discovered = Column(Boolean, nullable=False, server_default="true")
+    probe_status = Column(String(16), nullable=False, server_default="UNCHECKED")
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
     discovered_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
