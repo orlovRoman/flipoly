@@ -707,9 +707,9 @@ async def process_ready_requests():
             if order_mode == "SMART_MAKER":
                 _effective_shares = _resolve_requested_shares(
                     requested_shares=req.requested_shares,
-                    max_spend_usdc=req.max_spend_usdc,
-                    limit_price=req.limit_price,
-                    side=req.side,
+                    max_spend_usdc=max_spend_usdc,
+                    limit_price=limit_price,
+                    side=side,
                 )
                 selected_mode = _smart_maker_order_mode(_effective_shares)
                 order_mode = selected_mode
