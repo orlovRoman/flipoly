@@ -779,6 +779,19 @@
             </select>
           </div>
           <div class="form-group">
+            <label class="form-label">Поиск модели (ID / название)</label>
+            <input type="text" class="form-input" id="new-run-model-search" placeholder="Например: gpt-5.6" oninput="filterLLMModels()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">&nbsp;</label>
+            <div style="display: flex; gap: 0.5rem;">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="refreshLLMCatalog()">Обновить каталог</button>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="checkSelectedLLMModel()">Проверить модель</button>
+            </div>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
             <label class="form-label">Модель гипотезы</label>
             <select class="form-select" id="new-run-research-model">
               <option value="">Загрузка моделей...</option>
@@ -790,6 +803,9 @@
               <option value="">Загрузка моделей...</option>
             </select>
           </div>
+        </div>
+        <div class="form-group">
+          <small id="llm-catalog-meta" style="color: var(--color-text-muted);"></small>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
           <div class="form-group">

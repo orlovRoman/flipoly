@@ -602,13 +602,63 @@ async function loadResearchPermissions() {
   }
 }
 
-async function loadLLMModels(provider = "") {
+let llmCatalogCache = null;
+
+function renderLLMModelOptions() {
+  const researchSelect = document.getElementById("new-run-research-model");
+  const summarySelect = document.getElementById("new-run-summary-model");
+  const metaEl = document.getElementById("llm-catalog-meta");
+  if (!researchSelect || !summarySelect || !llmCatalogCache) return;
+  const search = (document.getElementById("new-run-model-search")?.value || "").trim().toLowerCase();
+  const models = (llmCatalogCache.models || []).filter((item) => {
+    if (!search) return true;
+    return String(item.id).toLowerCase().includes(search)
+      || String(item.label || "").toLowerCase().includes(search);
+  });
+  const options = models.map((item) => {
+    const available = item.is_available !== false;
+    const checked = item.last_check;
+    let badge = available ? "✔" : "✖ unavailable";
+    if (checked && checked.available) {
+      badge = `✔ ${checked.latency_ms}ms`;
+    } else if (checked && checked.available === false) {
+      badge = "✖ check failed";
+    }
+    return '<option value="' + escapeHtml(item.id) + '"' + (available ? "" : " disabled") + '>'
+      + escapeHtml(item.label || item.id) + " · " + escapeHtml(badge) + "</option>";
+  }).join("");
+  const emptyHtml = '<option value="">Нет доступных моделей</option>';
+  const previousResearch = researchSelect.value;
+  const previousSummary = summarySelect.value;
+  researchSelect.innerHTML = options || emptyHtml;
+  summarySelect.innerHTML = options || emptyHtml;
+  if (previousResearch && models.some((item) => item.id === previousResearch)) {
+    researchSelect.value = previousResearch;
+  }
+  if (previousSummary && models.some((item) => item.id === previousSummary)) {
+    summarySelect.value = previousSummary;
+  }
+  if (metaEl) {
+    const parts = [];
+    if (llmCatalogCache.checked_at) {
+      parts.push("Каталог обновлён: " + escapeHtml(String(llmCatalogCache.checked_at).replace("T", " ").slice(0, 19)));
+    }
+    if (llmCatalogCache.source) parts.push("источник: " + escapeHtml(llmCatalogCache.source));
+    if (llmCatalogCache.stale) parts.push("⚠ STALE (endpoint недоступен)");
+    metaEl.textContent = parts.join(" • ");
+  }
+}
+
+async function loadLLMModels(provider = "", refresh = false) {
   const providerSelect = document.getElementById("new-run-llm-provider");
   const researchSelect = document.getElementById("new-run-research-model");
   const summarySelect = document.getElementById("new-run-summary-model");
   if (!providerSelect || !researchSelect || !summarySelect) return;
   try {
-    const query = provider ? ("?provider=" + encodeURIComponent(provider)) : "";
+    const params = new URLSearchParams();
+    if (provider) params.set("provider", provider);
+    if (refresh) params.set("refresh", "true");
+    const query = params.toString() ? ("?" + params.toString()) : "";
     const res = await fetch(`${window.API_BASE}/api/ai-lab/llm/models${query}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error(await responseError(res));
     const data = await res.json();
@@ -620,23 +670,74 @@ async function loadLLMModels(provider = "") {
       ).join("");
       provider = data.provider || providerSelect.value;
       providerSelect.value = provider;
-      return loadLLMModels(provider);
+      return loadLLMModels(provider, refresh);
     }
-    const models = data.models || [];
+    llmCatalogCache = {
+      provider: data.provider,
+      models: data.models || [],
+      checked_at: data.checked_at,
+      source: data.source,
+      stale: !!data.stale,
+      error: data.error,
+    };
+    renderLLMModelOptions();
     const defaults = data.defaults || {};
-    const options = models.map((item) =>
-      '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.label || item.id) + "</option>"
-    ).join("");
-    researchSelect.innerHTML = options || '<option value="">Нет доступных моделей</option>';
-    summarySelect.innerHTML = options || '<option value="">Нет доступных моделей</option>';
-    if (defaults.research_model) researchSelect.value = defaults.research_model;
-    if (defaults.summary_model) summarySelect.value = defaults.summary_model;
+    if (!researchSelect.value && defaults.research_model) researchSelect.value = defaults.research_model;
+    if (!summarySelect.value && defaults.summary_model) summarySelect.value = defaults.summary_model;
   } catch (error) {
     providerSelect.innerHTML = '<option value="">Ошибка загрузки провайдеров</option>';
     researchSelect.innerHTML = '<option value="">Ошибка загрузки моделей</option>';
     summarySelect.innerHTML = '<option value="">Ошибка загрузки моделей</option>';
     showToast("Не удалось загрузить каталог LLM: " + error.message, "danger");
   }
+}
+
+async function refreshLLMCatalog() {
+  const providerSelect = document.getElementById("new-run-llm-provider");
+  const provider = providerSelect?.value || llmCatalogCache?.provider || "";
+  await loadLLMModels(provider, true);
+}
+
+async function checkSelectedLLMModel() {
+  const providerSelect = document.getElementById("new-run-llm-provider");
+  const researchSelect = document.getElementById("new-run-research-model");
+  const modelId = researchSelect?.value;
+  const provider = providerSelect?.value || llmCatalogCache?.provider || "";
+  if (!modelId) {
+    showToast("Выберите модель для проверки.", "warning");
+    return;
+  }
+  try {
+    const url = `${window.API_BASE}/api/ai-lab/llm/models/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/check`;
+    const res = await fetch(url, { method: "POST", headers: getAuthHeaders() });
+    if (!res.ok) throw new Error(await responseError(res));
+    const data = await res.json();
+    if (llmCatalogCache) {
+      const entry = (llmCatalogCache.models || []).find((item) => item.id === data.model_id);
+      if (entry) {
+        entry.is_available = data.available;
+        entry.last_check = {
+          available: data.available,
+          latency_ms: data.latency_ms,
+          protocol: data.protocol,
+          error: data.error,
+        };
+      }
+      renderLLMModelOptions();
+      researchSelect.value = data.model_id;
+    }
+    if (data.available) {
+      showToast(`Модель ${data.model_id} доступна (${data.protocol}, ${data.latency_ms}ms).`, "success");
+    } else {
+      showToast(`Модель ${data.model_id} недоступна: ${data.error || "нет ответа"}`, "danger");
+    }
+  } catch (error) {
+    showToast("Проверка модели не удалась: " + error.message, "danger");
+  }
+}
+
+function filterLLMModels() {
+  renderLLMModelOptions();
 }
 function openNewRunModal() {
   const modal = document.getElementById("modal-new-run");
