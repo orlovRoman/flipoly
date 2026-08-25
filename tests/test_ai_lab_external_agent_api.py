@@ -100,11 +100,11 @@ async def test_claim_transitions_to_running_and_returns_lease(db_session):
     result = await claim_next_agent_run(AgentClaimRequest(), db_session)
     claimed = result["run"]
     assert claimed["id"] == run_id
-    assert claimed["status"] == "QUEUED"
+    assert claimed["status"] == "RUNNING"
     assert claimed["lease_token"]
 
     stored = await db_session.get(AIOptimizationRun, run_id)
-    assert stored.status == "QUEUED"
+    assert stored.status == "RUNNING"
     lease = (
         await db_session.execute(sa.select(AIWorkerLease))
     ).scalar_one()
@@ -282,3 +282,184 @@ def test_verify_agent_token_falls_back_to_api_key():
         verify_agent_token(authorization=f"Bearer {token}", x_api_key=None)
     )
     assert ok is None
+
+
+@pytest.mark.asyncio
+async def test_agent_api_requires_token_via_http(db_session):
+    from httpx import ASGITransport, AsyncClient
+
+    from polyflip.api.main import app
+    from polyflip.db.connection import get_db_session
+
+    async def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/api/ai-lab/agent/claim", json={})
+        assert response.status_code == 401
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_agent_api_wrong_token_rejected(db_session):
+    from httpx import ASGITransport, AsyncClient
+
+    from polyflip.api.main import app
+    from polyflip.db.connection import get_db_session
+
+    async def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/ai-lab/agent/claim",
+                headers={"Authorization": "Bearer wrong-token"},
+                json={},
+            )
+        assert response.status_code == 401
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_agent_token_allows_access(db_session, monkeypatch):
+    from httpx import ASGITransport, AsyncClient
+
+    from polyflip.api.main import app
+    from polyflip.config import settings as cfg
+    from polyflip.db.connection import get_db_session
+
+    monkeypatch.setattr(cfg, "AI_LAB_AGENT_TOKEN", "agent-secret")
+    monkeypatch.setattr(cfg, "API_KEY", "other-key")
+
+    async def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/ai-lab/agent/claim",
+                headers={"Authorization": "Bearer agent-secret"},
+                json={},
+            )
+        assert response.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_fallback_api_key_when_agent_token_not_set(db_session, monkeypatch):
+    from httpx import ASGITransport, AsyncClient
+
+    from polyflip.api.main import app
+    from polyflip.config import settings as cfg
+    from polyflip.db.connection import get_db_session
+
+    monkeypatch.setattr(cfg, "AI_LAB_AGENT_TOKEN", "")
+    async def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/ai-lab/agent/claim",
+                headers={"X-API-Key": cfg.API_KEY},
+                json={},
+            )
+        assert response.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_invalid_proposal_422_via_http(db_session, monkeypatch):
+    from httpx import ASGITransport, AsyncClient
+
+    from polyflip.api.main import app
+    from polyflip.config import settings as cfg
+    from polyflip.db.connection import get_db_session
+
+    monkeypatch.setattr(cfg, "AI_LAB_AGENT_TOKEN", "agent-secret")
+    run_id = await _seed_run(db_session)
+    async def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    bad = dict(VALID_PROPOSAL)
+    bad["hypothesis"] = "short"
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            claim = await client.post(
+                "/api/ai-lab/agent/claim",
+                headers={"Authorization": "Bearer agent-secret"},
+                json={"worker_id": "agent-1"},
+            )
+            assert claim.status_code == 200
+            lease = claim.json()["run"]["lease_token"]
+            response = await client.post(
+                f"/api/ai-lab/agent/runs/{run_id}/proposal",
+                headers={"Authorization": "Bearer agent-secret"},
+                json={"lease_token": lease, "proposal": bad},
+            )
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_invalid_decision_422_via_http(db_session, monkeypatch):
+    from httpx import ASGITransport, AsyncClient
+
+    from polyflip.api.main import app
+    from polyflip.config import settings as cfg
+    from polyflip.db.connection import get_db_session
+
+    monkeypatch.setattr(cfg, "AI_LAB_AGENT_TOKEN", "agent-secret")
+    run_id = await _seed_run(db_session)
+    async def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            claim = await client.post(
+                "/api/ai-lab/agent/claim",
+                headers={"Authorization": "Bearer agent-secret"},
+                json={"worker_id": "agent-1"},
+            )
+            lease = claim.json()["run"]["lease_token"]
+            await client.post(
+                f"/api/ai-lab/agent/runs/{run_id}/proposal",
+                headers={"Authorization": "Bearer agent-secret"},
+                json={"lease_token": lease, "proposal": VALID_PROPOSAL},
+            )
+            response = await client.post(
+                f"/api/ai-lab/agent/runs/{run_id}/decision",
+                headers={"Authorization": "Bearer agent-secret"},
+                json={"lease_token": lease, "decision": {"action": "UNKNOWN"}},
+            )
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+def test_openapi_contains_hypothesis_and_decision_schemas():
+    from polyflip.api.main import app
+
+    openapi = app.openapi()
+    schemas = openapi.get("components", {}).get("schemas", {})
+    assert "HypothesisProposal" in schemas
+    assert "AgentDecision" in schemas

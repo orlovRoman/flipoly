@@ -8,11 +8,11 @@ from __future__ import annotations
 import hmac
 import uuid
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,16 +35,8 @@ from polyflip.db.models import (
     TradeHistory,
 )
 
-router = APIRouter(
-    prefix="/api/ai-lab/agent",
-    tags=["ai-lab-agent"],
-)
-
-logger = structlog.get_logger("polyflip.api.ai_lab_agent")
-
-
 # ---------------------------------------------------------------------------
-# Authentication (T07): dedicated agent token with API-key bootstrap fallback
+# Authentication: dedicated agent token with API-key bootstrap fallback
 # ---------------------------------------------------------------------------
 async def verify_agent_token(
     authorization: str | None = Header(default=None),
@@ -63,7 +55,13 @@ async def verify_agent_token(
         raise HTTPException(status_code=401, detail="invalid agent token")
 
 
-lease_dependency = Depends(get_db_session)
+router = APIRouter(
+    prefix="/api/ai-lab/agent",
+    tags=["ai-lab-agent"],
+    dependencies=[Depends(verify_agent_token)],
+)
+
+logger = structlog.get_logger("polyflip.api.ai_lab_agent")
 
 
 class AgentClaimRequest(BaseModel):
@@ -208,9 +206,7 @@ async def claim_next_agent_run(
                 AIOptimizationRun.id == run_id,
                 AIOptimizationRun.status == "QUEUED",
             )
-            # QUEUED -> PLANNING is the canonical first transition; plan_run
-            # then moves the run to RUNNING when the experiment starts.
-            .values(status="PLANNING", started_at=utc_now(), agent_type="EXTERNAL_AGENT")
+            .values(status="RUNNING", started_at=utc_now(), agent_type="EXTERNAL_AGENT")
         )
         if result.rowcount != 1:
             await db.rollback()
@@ -386,10 +382,55 @@ async def get_agent_latest_result(
 
 class ProposalRequest(BaseModel):
     lease_token: str
-    proposal: dict[str, Any]
+    proposal: HypothesisProposal
+
+    @field_validator("proposal", mode="before")
+    @classmethod
+    def normalize_proposal(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return OpenAIResponsesProvider._coerce_payload(dict(value))
+        return value
 
 
-@router.post("/runs/{run_id}/proposal")
+class ProposalResponse(BaseModel):
+    config_id: int
+    step_ids: list[int]
+
+
+class AgentHeartbeatResponse(BaseModel):
+    run_id: int
+    leased_until: str
+
+
+class AgentContextResponse(BaseModel):
+    run: dict[str, Any]
+    active_models: list[dict[str, Any]]
+    recent_trade_statistics: dict[str, Any]
+    prior_experiments: list[dict[str, Any]]
+    available_feature_sets: list[str]
+    quality_gate: dict[str, Any]
+
+
+class AgentResultResponse(BaseModel):
+    result: dict[str, Any] | None = None
+
+
+class DecisionResponse(BaseModel):
+    accepted: bool
+    step_id: int
+    action: str
+
+
+class AgentCompleteResponse(BaseModel):
+    run_id: int
+    status: str
+
+
+class AgentClaimResponse(BaseModel):
+    run: dict[str, Any] | None = None
+
+
+@router.post("/runs/{run_id}/proposal", response_model=ProposalResponse)
 async def submit_agent_proposal(
     run_id: int,
     payload: ProposalRequest,
@@ -397,12 +438,7 @@ async def submit_agent_proposal(
 ):
     run = await _require_run(db, run_id)
     await _verify_lease(db, run_id, payload.lease_token)
-    # LLM transports may emit key/value lists for mapping fields; normalize
-    # exactly like the platform-side provider does before validation.
-    normalized_proposal = OpenAIResponsesProvider._coerce_payload(
-        dict(payload.proposal)
-    )
-    proposal = HypothesisProposal.model_validate(normalized_proposal)
+    proposal = payload.proposal
     config = await create_agent_config(db, run=run, proposal=proposal)
     steps = await plan_run(db, run.id, [config.id])
     step_index = len(steps)
@@ -414,7 +450,7 @@ async def submit_agent_proposal(
         status="SUCCEEDED",
         hypothesis=proposal.hypothesis[:2000],
         action="CREATE_EXPERIMENT",
-        input_payload={"proposal": payload.proposal},
+        input_payload={"proposal": payload.proposal.model_dump(mode="json")},
         output_payload={"config_id": config.id},
         summary=f"External agent hypothesis for {proposal.asset}",
     )
@@ -449,10 +485,19 @@ async def create_agent_config(
 
 class DecisionRequest(BaseModel):
     lease_token: str
-    decision: dict[str, Any]
+    decision: AgentDecision
+
+    @field_validator("decision", mode="before")
+    @classmethod
+    def normalize_decision(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return OpenAIResponsesProvider._coerce_payload(dict(value))
+        return value
 
 
-@router.post("/runs/{run_id}/decision")
+@router.post(
+    "/runs/{run_id}/decision", response_model=DecisionResponse
+)
 async def submit_agent_decision(
     run_id: int,
     payload: DecisionRequest,
@@ -460,7 +505,7 @@ async def submit_agent_decision(
 ):
     run = await _require_run(db, run_id)
     await _verify_lease(db, run_id, payload.lease_token)
-    decision = AgentDecision.model_validate(payload.decision)
+    decision = payload.decision
     latest_step = (
         await db.execute(
             select(AIRunStep.step_index)
@@ -476,7 +521,7 @@ async def submit_agent_decision(
         step_type="DECISION",
         status="SUCCEEDED",
         action=decision.action,
-        input_payload={"decision": payload.decision},
+        input_payload={"decision": payload.decision.model_dump(mode="json")},
         output_payload={"recommended_config_id": decision.recommended_config_id},
         summary=decision.rationale[:400],
     )
@@ -490,7 +535,7 @@ async def submit_agent_decision(
 
 
 class CompleteRequest(BaseModel):
-    action: str = Field(pattern="^(COMPLETED|FAILED|REQUEUE)$")
+    action: Literal["COMPLETED", "FAILED", "REQUEUE"]
     reason: str = Field(default="", max_length=2000)
     lease_token: str | None = None
 
