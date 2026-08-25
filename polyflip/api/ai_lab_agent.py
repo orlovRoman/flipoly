@@ -95,6 +95,7 @@ async def _acquire_lease(
     if lease is None:
         db.add(AIWorkerLease(
             run_id=run_id,
+            worker_id=worker_id,
             owner_token=token,
             acquired_at=now,
             heartbeat_at=now,
@@ -104,6 +105,7 @@ async def _acquire_lease(
         return token
     if _as_utc(lease.expires_at) > now:
         return None  # actively held by another worker
+    lease.worker_id = worker_id
     lease.owner_token = token
     lease.acquired_at = now
     lease.heartbeat_at = now
@@ -188,6 +190,25 @@ async def claim_next_agent_run(
     db: AsyncSession = Depends(get_db_session),
 ):
     worker_id = (payload.worker_id if payload else None) or "external-ai-research-agent"
+    # Idempotent: active lease held by this worker is returned as-is.
+    now = utc_now()
+    existing_lease = (
+        await db.execute(
+            select(AIWorkerLease).where(
+                AIWorkerLease.worker_id == worker_id,
+                AIWorkerLease.expires_at > now,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing_lease is not None:
+        run = await db.get(AIOptimizationRun, existing_lease.run_id)
+        if run is not None and run.status in {
+            "QUEUED",
+            "PLANNING",
+            "RUNNING",
+            "EVALUATING",
+        }:
+            return {"run": _claimed_run_payload(run, existing_lease.owner_token)}
     candidate_ids = (
         await db.execute(
             select(AIOptimizationRun.id)

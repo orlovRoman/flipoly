@@ -64,7 +64,13 @@ class AILabApiClient:
 
     # --- lifecycle -------------------------------------------------------
     async def claim(self) -> ClaimedRun | None:
-        payload = await self._request("POST", "/api/ai-lab/agent/claim", json_body={})
+        import os
+        import socket
+
+        worker_id = os.getenv("AI_LAB_AGENT_WORKER_ID") or socket.gethostname()
+        payload = await self._request(
+            "POST", "/api/ai-lab/agent/claim", json_body={"worker_id": worker_id}
+        )
         run = (payload or {}).get("run")
         if not run:
             return None
