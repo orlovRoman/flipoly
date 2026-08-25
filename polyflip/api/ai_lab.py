@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.executor import ExecutionBatchError
-from polyflip.ai_lab.llm import get_llm_model_catalog
+from polyflip.ai_lab.llm_catalog import refresh_model_catalog
 from polyflip.ai_lab.manifests import compute_manifest_hash
 from polyflip.ai_lab.lgbm_worker import MAX_LGBM_WORKER_STEPS, execute_lgbm_steps
 from polyflip.ai_lab.scheduler import (
@@ -487,11 +487,23 @@ async def check_ai_action(
 
 
 @router.get("/llm/models")
-async def list_llm_models(provider: str | None = None):
-    """Return the configured provider/model catalog without exposing credentials."""
+async def list_llm_models(
+    provider: str | None = None,
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Return the provider/model catalog without exposing credentials.
+
+    For ``opencode`` this reflects the dynamic discovery cache; pass
+    ``refresh=true`` to force a live fetch (falls back to the last cached
+    catalog with ``stale=true`` when the endpoint is unreachable).
+    """
     try:
-        return get_llm_model_catalog(provider)
+        catalog = await refresh_model_catalog(db, provider=provider, refresh=refresh)
+        await db.commit()
+        return catalog
     except ValueError as exc:
+        await db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 

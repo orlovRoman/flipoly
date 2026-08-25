@@ -1747,3 +1747,40 @@ class AIConfigOverlay(Base):
             name="ck_ai_config_overlays_status",
         ),
     )
+
+
+class AILLMModelCatalog(Base):
+    """Cached snapshot of one provider's LLM models discovered dynamically.
+
+    The dashboard must offer every model the configured provider actually
+    returns, so this table caches discovery results per ``(provider,
+    model_id)`` and keeps serving the last known catalog when the provider
+    endpoint is temporarily unreachable (``is_available``/``expires_at``
+    drive staleness).
+    """
+
+    __tablename__ = "ai_llm_model_catalog"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    provider = Column(String(32), nullable=False)
+    model_id = Column(String(128), nullable=False)
+    display_name = Column(String(256), nullable=True)
+    protocol = Column(String(32), nullable=False, server_default="responses")
+    supports_structured_output = Column(
+        Boolean, nullable=False, server_default="true"
+    )
+    is_available = Column(Boolean, nullable=False, server_default="true")
+    discovered_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    raw_metadata = Column(
+        "metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "provider", "model_id", name="uix_ai_llm_catalog_provider_model"
+        ),
+        Index("idx_ai_llm_catalog_provider", "provider"),
+    )

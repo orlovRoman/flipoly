@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     AI_LAB_SCHEDULE_CRON: str = ""
     AI_LAB_MAX_DAILY_RUNS: int = 1
     AI_LAB_MAX_CONCURRENT_RUNS: int = 1
+    # Dynamic OpenCode model discovery for the independent research agent.
+    AI_LAB_OPENCODE_MODELS_ENDPOINT: str = ""
+    AI_LAB_OPENCODE_CATALOG_TTL_SECONDS: int = 3600
+    AI_LAB_OPENCODE_MODELS_FALLBACK: str = ""
 
     @field_validator("AI_LAB_MODE")
     @classmethod
