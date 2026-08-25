@@ -124,6 +124,13 @@ class SubmissionResult(BaseModel):
     paper_delay_seconds: float | None = None
     paper_slippage_usdc: Decimal | None = None
     paper_fee_usdc: Decimal | None = None
+    # FAK_RETRY can re-evaluate the saved model probability against a fresh
+    # order-book price.  Keep the calculation with the attempt for audit.
+    fak_retry_dynamic_edge_checked: bool = False
+    fak_retry_dynamic_net_edge: Decimal | None = None
+    fak_retry_dynamic_min_edge: Decimal | None = None
+    fak_retry_dynamic_probability: Decimal | None = None
+    fak_retry_dynamic_max_price: Decimal | None = None
 
 
 

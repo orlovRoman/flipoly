@@ -22,7 +22,13 @@ from polyflip.db.execution_models import (
     ExecutionWorkerStatus,
 )
 from polyflip.db.models import LiveMarket, TradeHistory, RuntimeSettings
-from polyflip.execution.order_strategies import execute_gtc_ttl, execute_fak_retry, execute_maker_limit
+from polyflip.execution.order_strategies import (
+    FAKRetryEdgePolicy,
+    evaluate_fak_retry_buy_price,
+    execute_gtc_ttl,
+    execute_fak_retry,
+    execute_maker_limit,
+)
 from polyflip.execution.config import (
     POLYMARKET_MIN_ORDER_SHARES,
     ExecutionSettings,
@@ -40,6 +46,7 @@ from polyflip.execution.states import (
     RECONCILABLE_REQUEST_STATES,
 )
 from polyflip.execution.risk_checks import check_risk_limits
+from polyflip.trading.trading_config import parse_trading_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -51,6 +58,26 @@ _MODE_LOCK_KEYS = {
     "LIVE": 3,
 }
 _ADVISORY_LOCK_NAMESPACE = 2001
+
+
+_EXECUTION_RUNTIME_SETTING_KEYS = (
+    "LIVE_ORDER_MODE",
+    "LIVE_GTC_TTL_SECONDS",
+    "LIVE_FAK_RETRY_MAX_ATTEMPTS",
+    "LIVE_FAK_RETRY_DELAY_SEC",
+    "LIVE_MAKER_REPRICE_ON_CROSS",
+    "LIVE_MAKER_REPRICE_MAX_RETRIES",
+    "LIVE_MAKER_TICK_SIZE",
+    "TAKE_PROFIT_ORDER_MODE",
+    "OUTS_MIN_EDGE",
+    "FAVORITE_MIN_EDGE",
+    "COMBINED_COST_BUFFER",
+    "TRADE_MIN_PRICE",
+    "TRADE_MAX_PRICE",
+    "FAVORITE_MIN_PRICE",
+    "FAVORITE_MAX_PRICE",
+    "OUTSIDER_MAX_PRICE",
+)
 
 
 def _resolve_requested_shares(
@@ -88,6 +115,94 @@ def _smart_maker_order_mode(effective_shares: Decimal) -> str:
         "GTC_TTL"
         if effective_shares >= POLYMARKET_MIN_ORDER_SHARES
         else "FAK_RETRY"
+    )
+
+
+def _finite_decimal(value: object) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (ArithmeticError, TypeError, ValueError):
+        return None
+    return parsed if parsed.is_finite() else None
+
+
+async def _load_execution_runtime_settings(
+    session: AsyncSession,
+) -> dict[str, str]:
+    result = await session.execute(
+        select(RuntimeSettings.key, RuntimeSettings.value).where(
+            RuntimeSettings.key.in_(_EXECUTION_RUNTIME_SETTING_KEYS)
+        )
+    )
+    return {row.key: row.value for row in result.all()}
+
+
+def _configured_order_mode(values: dict[str, str]) -> str:
+    return str(values.get("LIVE_ORDER_MODE") or "FAK").strip().upper()
+
+
+def _build_fak_retry_edge_policy(
+    trade: TradeHistory | None,
+    runtime_values: dict[str, str],
+) -> FAKRetryEdgePolicy | None:
+    """Return the saved prediction + current bounds required for revalidation."""
+
+    if trade is None:
+        return None
+    probability = _finite_decimal(
+        trade.p_candidate_win
+        if trade.p_candidate_win is not None
+        else trade.p_win_effective
+    )
+    if probability is None or not Decimal("0") <= probability <= Decimal("1"):
+        logger.info(
+            "fak_retry_dynamic_edge_policy_unavailable",
+            trade_id=trade.id,
+            reason="missing_or_invalid_probability",
+        )
+        return None
+    runtime_cfg = parse_trading_settings(runtime_values)
+    role = str(trade.market_role or "").strip().upper()
+    if role not in {"FAVORITE", "OUTSIDER"}:
+        logger.info(
+            "fak_retry_dynamic_edge_policy_unavailable",
+            trade_id=trade.id,
+            reason="missing_or_invalid_market_role",
+            market_role=trade.market_role,
+        )
+        return None
+    cost_buffer = _finite_decimal(
+        trade.cost_buffer
+        if trade.cost_buffer is not None
+        else runtime_cfg.combined_cost_buffer
+    )
+    values = {
+        "cost_buffer": cost_buffer,
+        "trade_min_price": _finite_decimal(runtime_cfg.trade_min_price),
+        "trade_max_price": _finite_decimal(runtime_cfg.trade_max_price),
+        "favorite_min_price": _finite_decimal(runtime_cfg.favorite_min_price),
+        "favorite_max_price": _finite_decimal(runtime_cfg.favorite_max_price),
+        "outsider_max_price": _finite_decimal(runtime_cfg.outsider_max_price),
+        "min_net_edge": _finite_decimal(
+            runtime_cfg.outs_min_edge
+            if role == "OUTSIDER"
+            else runtime_cfg.favorite_min_edge
+        ),
+    }
+    if any(value is None for value in values.values()):
+        logger.warning(
+            "fak_retry_dynamic_edge_policy_unavailable",
+            trade_id=trade.id,
+            reason="invalid_runtime_bounds",
+        )
+        return None
+    assert all(value is not None for value in values.values())
+    return FAKRetryEdgePolicy(
+        p_candidate_win=probability,
+        market_role=role,
+        **values,
     )
 
 
@@ -451,6 +566,40 @@ async def process_ready_requests():
 
         limit_price = req.limit_price or Decimal("0")
         max_spend_usdc = req.max_spend_usdc or Decimal("0")
+        runtime_execution_settings: dict[str, str] = {}
+        if req.requested_mode in {"LIVE", "PAPER"}:
+            try:
+                runtime_execution_settings = (
+                    await _load_execution_runtime_settings(session)
+                )
+            except Exception as setting_err:
+                logger.warning(
+                    "order_mode_settings_read_failed",
+                    error=str(setting_err),
+                )
+
+        configured_order_mode = _configured_order_mode(
+            runtime_execution_settings
+        )
+        # A SMART_MAKER request can become a sub-minimum FAK_RETRY after the
+        # quote moves, so both FAK_RETRY and SMART_MAKER may revalidate price.
+        is_dynamic_revalidation_route = configured_order_mode in {
+            "FAK_RETRY", "SMART_MAKER"
+        }
+        fak_retry_edge_policy: FAKRetryEdgePolicy | None = None
+        if req.intent == "OPEN" and is_dynamic_revalidation_route:
+            trade_for_edge = await session.get(TradeHistory, req.trade_history_id)
+            fak_retry_edge_policy = _build_fak_retry_edge_policy(
+                trade_for_edge,
+                runtime_execution_settings,
+            )
+
+        # These values are only relaxed after the saved probability is
+        # revalidated against a fresh quote.  The persisted request continues
+        # to keep its original decision-time limit for provenance.
+        execution_limit_price = limit_price
+        execution_max_acceptable_price = req.max_acceptable_price
+        initial_dynamic_edge: dict[str, str] | None = None
 
         # --- Advisory lock на режим (глобальный) ---
         await _acquire_mode_lock(session, req.requested_mode)
@@ -565,24 +714,92 @@ async def process_ready_requests():
             req.submit_quote_price = executable_price
             req.submit_quote_at = datetime.now(timezone.utc)
 
-            if req.max_acceptable_price is not None and executable_price > float(
-                req.max_acceptable_price
+            old_price_cap = _finite_decimal(req.max_acceptable_price)
+            fresh_execution_price = _finite_decimal(executable_price)
+            if (
+                old_price_cap is not None
+                and fresh_execution_price is not None
+                and fresh_execution_price > old_price_cap
             ):
-                logger.warning(
-                    "max_acceptable_price_exceeded",
-                    request_id=str(req.id),
-                    limit_price=float(limit_price),
-                    executable_price=executable_price,
-                    max_price=float(req.max_acceptable_price),
-                )
-                await finalize_request(
-                    session,
-                    req,
-                    state="REJECTED",
-                    error="MAX_ACCEPTABLE_PRICE_EXCEEDED",
-                )
-                await session.commit()
-                return
+                if (
+                    is_dynamic_revalidation_route
+                    and fak_retry_edge_policy is not None
+                ):
+                    (
+                        edge_ok,
+                        net_edge,
+                        edge_error,
+                    ) = evaluate_fak_retry_buy_price(
+                        fak_retry_edge_policy,
+                        fresh_execution_price,
+                    )
+                    if edge_ok:
+                        execution_limit_price = fresh_execution_price
+                        execution_max_acceptable_price = (
+                            fak_retry_edge_policy.max_permitted_price
+                        )
+                        initial_dynamic_edge = {
+                            "checked": "true",
+                            "accepted": "true",
+                            "fresh_price": str(fresh_execution_price),
+                            "net_edge": str(net_edge),
+                            "min_net_edge": str(
+                                fak_retry_edge_policy.min_net_edge
+                            ),
+                            "old_max_acceptable_price": str(old_price_cap),
+                            "dynamic_max_acceptable_price": str(
+                                execution_max_acceptable_price
+                            ),
+                        }
+                        logger.info(
+                            "fak_retry_initial_dynamic_edge_accepted",
+                            request_id=str(req.id),
+                            fresh_price=str(fresh_execution_price),
+                            net_edge=str(net_edge),
+                            min_net_edge=str(
+                                fak_retry_edge_policy.min_net_edge
+                            ),
+                            original_max_acceptable_price=str(old_price_cap),
+                            dynamic_max_acceptable_price=str(
+                                execution_max_acceptable_price
+                            ),
+                        )
+                    else:
+                        error = edge_error or "DYNAMIC_EDGE_REJECTED"
+                        logger.info(
+                            "fak_retry_initial_dynamic_edge_rejected",
+                            request_id=str(req.id),
+                            fresh_price=str(fresh_execution_price),
+                            net_edge=(str(net_edge) if net_edge is not None else None),
+                            min_net_edge=str(
+                                fak_retry_edge_policy.min_net_edge
+                            ),
+                            reason=error,
+                        )
+                        await finalize_request(
+                            session,
+                            req,
+                            state="REJECTED",
+                            error=f"DYNAMIC_EDGE_REJECTED: {error}",
+                        )
+                        await session.commit()
+                        return
+                else:
+                    logger.warning(
+                        "max_acceptable_price_exceeded",
+                        request_id=str(req.id),
+                        limit_price=float(limit_price),
+                        executable_price=executable_price,
+                        max_price=float(req.max_acceptable_price),
+                    )
+                    await finalize_request(
+                        session,
+                        req,
+                        state="REJECTED",
+                        error="MAX_ACCEPTABLE_PRICE_EXCEEDED",
+                    )
+                    await session.commit()
+                    return
 
         submission_key = f"{req.idempotency_key}:{attempt_no}"
 
@@ -604,22 +821,37 @@ async def process_ready_requests():
         requested_mode = req.requested_mode
 
         try:
+            limit_price = execution_limit_price
             # Конструирование заказа тоже должно находиться внутри try.
             # Иначе Pydantic ValidationError оставляет заявку в SUBMITTING.
-            resolved_requested_shares = _resolve_requested_shares(
-                requested_shares=req.requested_shares,
-                max_spend_usdc=max_spend_usdc,
-                limit_price=limit_price,
-                side=side,
+            recalculate_for_dynamic_quote = (
+                initial_dynamic_edge is not None
+                and side.upper() == "BUY"
+                and max_spend_usdc > 0
             )
+            if recalculate_for_dynamic_quote:
+                resolved_requested_shares = max_spend_usdc / limit_price
+            else:
+                resolved_requested_shares = _resolve_requested_shares(
+                    requested_shares=req.requested_shares,
+                    max_spend_usdc=max_spend_usdc,
+                    limit_price=limit_price,
+                    side=side,
+                )
             if (
-                req.requested_shares is None or req.requested_shares <= 0
+                recalculate_for_dynamic_quote
+                or req.requested_shares is None
+                or req.requested_shares <= 0
             ) and resolved_requested_shares > 0:
                 req.requested_shares = resolved_requested_shares
                 req.updated_at = datetime.now(timezone.utc)
                 await session.flush()
                 logger.info(
-                    "requested_shares_derived_from_budget",
+                    (
+                        "requested_shares_recalculated_for_fresh_quote"
+                        if recalculate_for_dynamic_quote
+                        else "requested_shares_derived_from_budget"
+                    ),
                     request_id=str(req.id),
                     max_spend_usdc=str(max_spend_usdc),
                     limit_price=str(limit_price),
@@ -639,68 +871,26 @@ async def process_ready_requests():
                 limit_price=limit_price,
                 requested_shares=resolved_requested_shares,
                 max_spend_usdc=max_spend_usdc,
-                max_acceptable_price=req.max_acceptable_price,
+                max_acceptable_price=execution_max_acceptable_price,
                 expiration=(
                     int(request_expiration.timestamp())
                     if req.trigger_reason == "TAKE_PROFIT" and request_expiration
                     else None
                 ),
             )
-            order_mode = "FAK"
+            order_mode = _configured_order_mode(runtime_execution_settings)
             gtc_ttl_sec = 5.0
             retry_attempts = 3
             retry_delay = 0.75
-            settings_dict = {}
-
-            # The dashboard stores one CLOB policy in LIVE_* settings. PAPER
-            # must replay that same policy so SMART_MAKER chooses GTC_TTL for
-            # >=5 shares and FAK_RETRY below the venue maker minimum.
-            if req.requested_mode in {"LIVE", "PAPER"}:
-                try:
-                    settings_res = await session.execute(
-                        select(RuntimeSettings.key, RuntimeSettings.value).where(
-                            RuntimeSettings.key.in_(
-                                [
-                                    "LIVE_ORDER_MODE",
-                                    "LIVE_GTC_TTL_SECONDS",
-                                    "LIVE_FAK_RETRY_MAX_ATTEMPTS",
-                                    "LIVE_FAK_RETRY_DELAY_SEC",
-                                    "LIVE_MAKER_REPRICE_ON_CROSS",
-                                    "LIVE_MAKER_REPRICE_MAX_RETRIES",
-                                    "LIVE_MAKER_TICK_SIZE",
-                                    "TAKE_PROFIT_ORDER_MODE",
-                                ]
-                            )
-                        )
-                    )
-                    settings_dict = {row.key: row.value for row in settings_res.all()}
-
-                    if (
-                        "LIVE_ORDER_MODE" in settings_dict
-                        and settings_dict["LIVE_ORDER_MODE"]
-                    ):
-                        order_mode = settings_dict["LIVE_ORDER_MODE"].strip().upper()
-                    if (
-                        "LIVE_GTC_TTL_SECONDS" in settings_dict
-                        and settings_dict["LIVE_GTC_TTL_SECONDS"]
-                    ):
-                        gtc_ttl_sec = float(settings_dict["LIVE_GTC_TTL_SECONDS"])
-                    if (
-                        "LIVE_FAK_RETRY_MAX_ATTEMPTS" in settings_dict
-                        and settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"]
-                    ):
-                        retry_attempts = int(
-                            settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"]
-                        )
-                    if (
-                        "LIVE_FAK_RETRY_DELAY_SEC" in settings_dict
-                        and settings_dict["LIVE_FAK_RETRY_DELAY_SEC"]
-                    ):
-                        retry_delay = float(settings_dict["LIVE_FAK_RETRY_DELAY_SEC"])
-                except Exception as setting_err:
-                    logger.warning(
-                        "order_mode_settings_read_failed", error=str(setting_err)
-                    )
+            settings_dict = runtime_execution_settings
+            if settings_dict.get("LIVE_GTC_TTL_SECONDS"):
+                gtc_ttl_sec = float(settings_dict["LIVE_GTC_TTL_SECONDS"])
+            if settings_dict.get("LIVE_FAK_RETRY_MAX_ATTEMPTS"):
+                retry_attempts = int(
+                    settings_dict["LIVE_FAK_RETRY_MAX_ATTEMPTS"]
+                )
+            if settings_dict.get("LIVE_FAK_RETRY_DELAY_SEC"):
+                retry_delay = float(settings_dict["LIVE_FAK_RETRY_DELAY_SEC"])
 
             # SMART_MAKER: auto-select GTC_TTL if shares >= CLOB minimum, else FAK_RETRY.
             # Keep the threshold in execution.config so PAPER and LIVE use the
@@ -782,7 +972,8 @@ async def process_ready_requests():
                     api_client=api_client_retry,
                     max_attempts=retry_attempts,
                     delay_seconds=retry_delay,
-                    max_acceptable_price=req.max_acceptable_price,
+                    max_acceptable_price=execution_max_acceptable_price,
+                    edge_policy=fak_retry_edge_policy,
                 )
             else:
                 sub_res = await gateway.submit(order)
@@ -831,10 +1022,35 @@ async def process_ready_requests():
                     for fill in sub_res.fills
                 ],
             }
+            fak_retry_telemetry = {
+                "dynamic_edge_checked": sub_res.fak_retry_dynamic_edge_checked,
+                "dynamic_net_edge": (
+                    str(sub_res.fak_retry_dynamic_net_edge)
+                    if sub_res.fak_retry_dynamic_net_edge is not None
+                    else None
+                ),
+                "dynamic_min_edge": (
+                    str(sub_res.fak_retry_dynamic_min_edge)
+                    if sub_res.fak_retry_dynamic_min_edge is not None
+                    else None
+                ),
+                "dynamic_probability": (
+                    str(sub_res.fak_retry_dynamic_probability)
+                    if sub_res.fak_retry_dynamic_probability is not None
+                    else None
+                ),
+                "dynamic_max_price": (
+                    str(sub_res.fak_retry_dynamic_max_price)
+                    if sub_res.fak_retry_dynamic_max_price is not None
+                    else None
+                ),
+                "initial_quote_revalidation": initial_dynamic_edge,
+            }
             attempt.raw_response = {
                 **existing_response,
                 "maker_telemetry": maker_telemetry,
                 "paper_telemetry": paper_telemetry,
+                "fak_retry_telemetry": fak_retry_telemetry,
             }
 
             if not sub_res.accepted or sub_res.provider_status in ("REJECTED", "ERROR"):

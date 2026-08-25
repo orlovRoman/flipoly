@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Optional
 import structlog
@@ -21,6 +22,32 @@ POST_ONLY_REJECT_MARKERS = (
 )
 
 
+@dataclass(frozen=True)
+class FAKRetryEdgePolicy:
+    """Saved prediction plus current strategy limits for a refreshed BUY.
+
+    The original drift cap is deliberately not included in the decision. It
+    protects the first submission, while this policy decides whether a later,
+    fresh market price remains profitable enough to trade.
+    """
+
+    p_candidate_win: Decimal
+    cost_buffer: Decimal
+    min_net_edge: Decimal
+    market_role: str
+    trade_min_price: Decimal
+    trade_max_price: Decimal
+    favorite_min_price: Decimal
+    favorite_max_price: Decimal
+    outsider_max_price: Decimal
+
+    @property
+    def max_permitted_price(self) -> Decimal:
+        if self.market_role == "OUTSIDER":
+            return min(self.trade_max_price, self.outsider_max_price)
+        return min(self.trade_max_price, self.favorite_max_price)
+
+
 
 def _decimal(value: Any) -> Decimal | None:
     if value is None or value == "":
@@ -30,6 +57,54 @@ def _decimal(value: Any) -> Decimal | None:
     except (ArithmeticError, ValueError, TypeError):
         return None
     return parsed if parsed.is_finite() else None
+
+
+def evaluate_fak_retry_buy_price(
+    policy: FAKRetryEdgePolicy,
+    fresh_price: Decimal,
+) -> tuple[bool, Decimal | None, str | None]:
+    """Re-evaluate a refreshed BUY quote without changing its strategy role."""
+
+    if fresh_price <= 0:
+        return False, None, "Fresh ask must be positive"
+    if not policy.trade_min_price <= fresh_price <= policy.trade_max_price:
+        return (
+            False,
+            None,
+            "Fresh ask "
+            f"{fresh_price} out of global bounds "
+            f"[{policy.trade_min_price}, {policy.trade_max_price}]",
+        )
+    if policy.market_role == "OUTSIDER":
+        if fresh_price > policy.outsider_max_price:
+            return (
+                False,
+                None,
+                "Fresh ask "
+                f"{fresh_price} exceeds outsider max {policy.outsider_max_price}",
+            )
+    elif policy.market_role == "FAVORITE":
+        if not policy.favorite_min_price <= fresh_price <= policy.favorite_max_price:
+            return (
+                False,
+                None,
+                "Fresh ask "
+                f"{fresh_price} out of favorite bounds "
+                f"[{policy.favorite_min_price}, {policy.favorite_max_price}]",
+            )
+    else:
+        return False, None, f"Unsupported market role {policy.market_role}"
+
+    net_edge = policy.p_candidate_win - fresh_price - policy.cost_buffer
+    if net_edge < policy.min_net_edge:
+        return (
+            False,
+            net_edge,
+            "Dynamic net edge "
+            f"{net_edge:.4f} < min {policy.min_net_edge:.4f} "
+            f"at fresh ask {fresh_price}",
+        )
+    return True, net_edge, None
 
 
 def _is_post_only_rejection(result: SubmissionResult) -> bool:
@@ -304,6 +379,7 @@ async def execute_fak_retry(
     max_attempts: int = DEFAULT_FAK_RETRY_MAX_ATTEMPTS,
     delay_seconds: float = DEFAULT_FAK_RETRY_DELAY_SEC,
     max_acceptable_price: Decimal | None = None,
+    edge_policy: FAKRetryEdgePolicy | None = None,
 ) -> SubmissionResult:
     """
     Выполняет попытки FAK-ордера. Если NO_LIQUIDITY — выдерживает паузу,
@@ -322,6 +398,27 @@ async def execute_fak_retry(
             update={"max_acceptable_price": effective_max_price}
         )
     price_cap_blocked: str | None = None
+    dynamic_edge_checked = False
+    dynamic_net_edge: Decimal | None = None
+
+    def _with_dynamic_edge_telemetry(
+        result: SubmissionResult,
+    ) -> SubmissionResult:
+        return result.model_copy(
+            update={
+                "fak_retry_dynamic_edge_checked": dynamic_edge_checked,
+                "fak_retry_dynamic_net_edge": dynamic_net_edge,
+                "fak_retry_dynamic_min_edge": (
+                    edge_policy.min_net_edge if edge_policy is not None else None
+                ),
+                "fak_retry_dynamic_probability": (
+                    edge_policy.p_candidate_win if edge_policy is not None else None
+                ),
+                "fak_retry_dynamic_max_price": (
+                    edge_policy.max_permitted_price if edge_policy is not None else None
+                ),
+            }
+        )
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -330,12 +427,12 @@ async def execute_fak_retry(
             logger.warning("fak_retry_submit_exception", attempt=attempt, error=str(e))
             if attempt == max_attempts:
                 if last_result:
-                    return last_result
-                return SubmissionResult(
+                    return _with_dynamic_edge_telemetry(last_result)
+                return _with_dynamic_edge_telemetry(SubmissionResult(
                     accepted=False,
                     provider_status="NETWORK_ERROR",
                     error_message=str(e),
-                )
+                ))
             await asyncio.sleep(delay_seconds)
             continue
 
@@ -369,7 +466,7 @@ async def execute_fak_retry(
                 attempt=attempt,
                 order_id=str(current_order.attempt_id),
             )
-            return sub_res
+            return _with_dynamic_edge_telemetry(sub_res)
 
         if is_no_liquidity or is_transient or not sub_res.accepted:
             if attempt < max_attempts:
@@ -420,11 +517,72 @@ async def execute_fak_retry(
                     new_price = _decimal(prices.get(quote_key))
                     cap = effective_max_price
                     if new_price is not None and new_price > 0:
-                        if (
+                        price_exceeds_stale_cap = (
                             current_order.side.upper() == "BUY"
                             and cap is not None
                             and new_price > cap
+                        )
+                        if (
+                            current_order.side.upper() == "BUY"
+                            and edge_policy is not None
                         ):
+                            dynamic_edge_checked = True
+                            (
+                                edge_ok,
+                                dynamic_net_edge,
+                                edge_error,
+                            ) = evaluate_fak_retry_buy_price(
+                                edge_policy,
+                                new_price,
+                            )
+                            if edge_ok:
+                                effective_max_price = edge_policy.max_permitted_price
+                                updates: dict[str, Any] = {
+                                    "limit_price": new_price,
+                                    "max_acceptable_price": effective_max_price,
+                                }
+                                if current_order.max_spend_usdc is not None:
+                                    updates["requested_shares"] = (
+                                        current_order.max_spend_usdc / new_price
+                                    )
+                                current_order = current_order.model_copy(
+                                    update=updates
+                                )
+                                price_cap_blocked = None
+                                logger.info(
+                                    "fak_retry_dynamic_edge_accepted",
+                                    attempt=attempt,
+                                    fresh_price=str(new_price),
+                                    net_edge=str(dynamic_net_edge),
+                                    min_net_edge=str(edge_policy.min_net_edge),
+                                    original_max_acceptable_price=str(cap),
+                                    dynamic_max_acceptable_price=str(
+                                        effective_max_price
+                                    ),
+                                )
+                            else:
+                                logger.info(
+                                    "fak_retry_dynamic_edge_rejected",
+                                    attempt=attempt,
+                                    fresh_price=str(new_price),
+                                    net_edge=(
+                                        str(dynamic_net_edge)
+                                        if dynamic_net_edge is not None
+                                        else None
+                                    ),
+                                    min_net_edge=str(edge_policy.min_net_edge),
+                                    reason=edge_error,
+                                )
+                                return _with_dynamic_edge_telemetry(
+                                    last_result.model_copy(
+                                        update={
+                                            "provider_status": "PRICE_MOVED",
+                                            "rejection_code": "DYNAMIC_EDGE_REJECTED",
+                                            "error_message": edge_error,
+                                        }
+                                    )
+                                )
+                        elif price_exceeds_stale_cap:
                             price_cap_blocked = (
                                 f"Fresh ask {new_price} exceeds max acceptable "
                                 f"price {cap}"
@@ -468,15 +626,19 @@ async def execute_fak_retry(
         error=last_result.error_message if last_result else None,
     )
     if price_cap_blocked and last_result:
-        return last_result.model_copy(
+        return _with_dynamic_edge_telemetry(last_result.model_copy(
             update={
                 "provider_status": "PRICE_MOVED",
-                "rejection_code": "MAX_ACCEPTABLE_PRICE_EXCEEDED",
+                "rejection_code": (
+                    "DYNAMIC_EDGE_REJECTED"
+                    if dynamic_edge_checked
+                    else "MAX_ACCEPTABLE_PRICE_EXCEEDED"
+                ),
                 "error_message": price_cap_blocked,
             }
-        )
-    return last_result or SubmissionResult(
+        ))
+    return _with_dynamic_edge_telemetry(last_result or SubmissionResult(
         accepted=False,
         provider_status="NO_LIQUIDITY_FAK",
         error_message=f"FAK retry exhausted after {max_attempts} attempts",
-    )
+    ))
