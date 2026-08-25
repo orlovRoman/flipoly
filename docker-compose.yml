@@ -125,6 +125,22 @@ services:
           memory: 384M
           cpus: "0.50"
 
+  ai_research_agent:
+    build:
+      context: .
+      dockerfile: services/ai_research_agent/Dockerfile
+    container_name: polyflip_ai_research_agent
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - AI_LAB_API_BASE_URL=${AI_LAB_API_BASE_URL:-http://api:8001}
+      - AI_LAB_AGENT_TOKEN=${AI_LAB_AGENT_TOKEN}
+      - AI_LAB_LLM_PROVIDER=${AI_LAB_LLM_PROVIDER:-opencode}
+      - AI_LAB_LLM_API_KEY=${AI_LAB_LLM_API_KEY:-}
+      - AI_LAB_POLL_SECONDS=${AI_LAB_POLL_SECONDS:-10}
+
   scheduler:
     build: .
     container_name: polyflip_scheduler
