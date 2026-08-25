@@ -641,9 +641,14 @@ async def plan_run(
         session.add(step)
         created_steps.append(step)
 
-    await transition_run(
-        session, run, "PLANNING", reason="planned experiment steps generated"
-    )
+    if run.status in {"DRAFT", "QUEUED"}:
+        await transition_run(
+            session, run, "PLANNING", reason="planned experiment steps generated"
+        )
+    elif run.status in {"PLANNING", "RUNNING"}:
+        pass
+    else:
+        raise AILabError(f"cannot plan run in {run.status}")
     await session.flush()
     return created_steps
 
