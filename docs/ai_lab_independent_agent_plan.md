@@ -98,3 +98,68 @@ Every artifact is referenced by id (`run_id`, `config_id`, `result_id`,
 | T12 | Test suite + switch from legacy runner |
 
 Each step lands as its own commit with targeted tests and `git diff --check`.
+
+## T01 — External agent API contract
+
+All endpoints live under `/api/ai-lab/agent/*`, authenticate with
+`Authorization: Bearer <AI_LAB_AGENT_TOKEN>` (fallback: global API key while
+bootstrapping) and exchange JSON only. The external agent **never** opens a
+DB connection, never imports SQLAlchemy models, never executes shell or docker
+commands: every write happens inside the API process.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/ai-lab/agent/claim` | Atomically claim one queued research run (idempotent via `AIWorkerLease`). |
+| `POST /api/ai-lab/agent/heartbeat` | Prove liveness for the leased run and renew the lease. |
+| `GET /api/ai-lab/agent/runs/{id}/context` | Fetch the aggregated, safe context snapshot for the leased run. |
+| `POST /api/ai-lab/agent/runs/{id}/proposal` | Submit one validated `HypothesisProposal` (creates config + step). |
+| `POST /api/ai-lab/agent/runs/{id}/decision` | Submit one validated `AgentDecision` after OOT results exist. |
+| `POST /api/ai-lab/agent/runs/{id}/complete` | Finish the run (`COMPLETED`/`FAILED`) or return it to the queue. |
+
+### State machine
+
+```
+QUEUED --claim--> RUNNING --proposal--> RUNNING(step TRAIN/OOT/POLYMARKET_OOT)
+RUNNING --results ready--> EVALUATING --decision--> RUNNING | COMPLETED | FAILED
+RUNNING --complete{action:"requeue"}--> QUEUED   (lease released)
+heartbeat failure / TTL expiry ------------------> lease reclaimable by any agent
+```
+
+### Payload sketches
+
+```jsonc
+// POST /claim  {}
+// -> {"run": null} or:
+{"run": {"id": 41, "status": "RUNNING", "objective": "...", "scope": {"asset": "BTC"},
+          "autonomy_level": "EXPERIMENT", "budget_experiments": 3, "budget_seconds": 3600,
+          "lease_token": "<opaque>", "llm_provider": "opencode",
+          "llm_research_model": "...", "llm_summary_model": "..."}}
+
+// POST /heartbeat {"run_id": 41, "lease_token": "<opaque>"}
+// -> {"run_id": 41, "leased_until": "2026-08-19T12:00:00Z"}
+
+// GET /runs/41/context ->
+{"run": {"id": 41, "iteration": 1, "budget_remaining_steps": 2},
+ "active_models": [{"asset": "BTC", "version": 51, "model_type": "logreg",
+                     "accuracy": 0.64, "ece": 0.03, "quality_gate_passed": true}],
+ "recent_trade_statistics": {"trades_24h": 120, "win_rate": 0.53, "net_pnl_24h": 4.2},
+ "prior_experiments": [{"config_id": 77, "median_oot_pnl": -1.2,
+                         "verdict": "REJECTED", "reason": "negative pnl"}],
+ "available_feature_sets": ["FS_D0", "FS_D1", "FS_D2"],
+ "quality_gate": {"min_trades": 30, "max_ece": 0.15,
+                   "min_positive_oot_windows": 2}}
+
+// POST /runs/41/proposal  -> HypothesisProposal (validated pydantic schema)
+// -> {"config_id": 91, "step_id": 501}
+
+// POST /runs/41/decision   -> AgentDecision (validated pydantic schema)
+// -> {"accepted": true, "assignment_id": null, "overlay_id": null}
+
+// POST /runs/41/complete {"action": "COMPLETED"|"FAILED"|"REQUEUE",
+//                          "reason": "..."}
+// -> {"run_id": 41, "status": "COMPLETED"}
+```
+
+Error envelope: `{"detail": "<machine-readable reason>"}` with HTTP 401/404/
+409/422. A lost lease yields `409 LEASE_LOST` and the agent must drop the run.
+
