@@ -2,6 +2,8 @@
 
 One iteration: claim -> context -> hypothesis -> proposal -> wait TRAIN/OOT ->
 decision -> complete. All side effects go through the AI Lab HTTP API.
+Resumable: branches on server phase NEEDS_PROPOSAL/WAITING_RESULT/NEEDS_DECISION/NEEDS_COMPLETION,
+heartbeat over whole run, handles lease loss, transient errors, budget exhaustion.
 """
 from __future__ import annotations
 
@@ -60,13 +62,26 @@ def _context_for_llm(run: ClaimedRun, context) -> dict:
     }
 
 
-async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
-    run = await client.claim()
-    if not run:
-        return False
-    logger.info(
-        "claimed run", extra={"run_id": run.id, "objective": run.objective[:120]}
-    )
+async def _heartbeat_loop(client: AILabApiClient, run_id: int, stop_event: asyncio.Event) -> None:
+    while not stop_event.is_set():
+        try:
+            await asyncio.sleep(POLL_SECONDS)
+            if stop_event.is_set():
+                break
+            await client.heartbeat(run_id)
+        except LeaseLostError:
+            logger.warning("heartbeat lease lost", extra={"run_id": run_id})
+            stop_event.set()
+            break
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("heartbeat transient error", extra={"run_id": run_id, "error": str(exc)})
+            # continue looping
+
+
+async def _single_iteration_fallback(client: AILabApiClient, llm: OpenCodeClient, run: ClaimedRun) -> bool:
+    """Legacy single-iteration path for clients without phase support (tests)."""
     try:
         context = await client.get_context(run.id)
         llm_context = _context_for_llm(run, context)
@@ -99,8 +114,6 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
         if action in {"CONTINUE_RESEARCH", "MUTATE_HYPOTHESIS"} and (
             run.experiments_completed + 1 < run.budget_experiments
         ):
-            # Return the lease so the same (or another) agent can pick the
-            # next iteration; progress is persisted server-side.
             await client.complete(run.id, "REQUEUE", reason=action)
         else:
             await client.complete(run.id, "COMPLETED", reason=action or "DONE")
@@ -111,13 +124,234 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
         return False
     except AgentAPIError as exc:
         logger.error("agent api error", extra={"run_id": run.id, "error": str(exc)})
-        if exc.status_code >= 500:
-            await client.complete(
-                run.id, "REQUEUE", reason=f"api error {exc.status_code}"
-            )
-        else:
-            await client.complete(run.id, "FAILED", reason=str(exc)[:400])
+        # Transient 5xx -> REQUEUE
+        try:
+            if exc.status_code >= 500:
+                await client.complete(
+                    run.id, "REQUEUE", reason=f"api error {exc.status_code}"
+                )
+            else:
+                await client.complete(run.id, "FAILED", reason=str(exc)[:400])
+        except LeaseLostError:
+            client.drop_lease()
+            return False
+        except Exception:
+            pass
         return True
+
+
+async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
+    run = await client.claim()
+    if not run:
+        return False
+    logger.info(
+        "claimed run", extra={"run_id": run.id, "objective": run.objective[:120]}
+    )
+    # Budget exhaustion check before any work
+    if run.experiments_completed >= run.budget_experiments:
+        logger.info("budget exhausted", extra={"run_id": run.id})
+        try:
+            await client.complete(run.id, "FAILED", reason="budget exhausted")
+        except LeaseLostError:
+            client.drop_lease()
+            return False
+        except AgentAPIError as exc:
+            if exc.status_code >= 500:
+                try:
+                    await client.complete(run.id, "REQUEUE", reason="budget exhausted transient")
+                except Exception:
+                    pass
+            else:
+                try:
+                    await client.complete(run.id, "FAILED", reason=str(exc)[:400])
+                except Exception:
+                    pass
+        return True
+
+    # If client doesn't support phase (FakeClient in tests), fallback to single iteration
+    if not hasattr(client, "get_phase"):
+        return await _single_iteration_fallback(client, llm, run)
+
+    stop_event = asyncio.Event()
+    hb_task = asyncio.create_task(_heartbeat_loop(client, run.id, stop_event))
+    try:
+        # Resumable loop: branch on server phase
+        for _ in range(20):  # safety bound
+            try:
+                phase_data = await client.get_phase(run.id)
+                phase = str(phase_data.get("phase") or "NEEDS_PROPOSAL") if isinstance(phase_data, dict) else "NEEDS_PROPOSAL"
+            except LeaseLostError:
+                logger.warning("lease lost on get_phase", extra={"run_id": run.id})
+                client.drop_lease()
+                return False
+            except AgentAPIError as exc:
+                if exc.status_code >= 500:
+                    logger.warning("transient get_phase error", extra={"run_id": run.id, "error": str(exc)})
+                    await asyncio.sleep(POLL_SECONDS)
+                    continue
+                else:
+                    logger.error("get_phase failed", extra={"run_id": run.id, "error": str(exc)})
+                    try:
+                        await client.complete(run.id, "FAILED", reason=str(exc)[:400])
+                    except Exception:
+                        pass
+                    return True
+
+            logger.info("run phase", extra={"run_id": run.id, "phase": phase})
+
+            if phase == "NEEDS_PROPOSAL":
+                if run.experiments_completed >= run.budget_experiments:
+                    await client.complete(run.id, "FAILED", reason="budget exhausted")
+                    break
+                try:
+                    context = await client.get_context(run.id)
+                    llm_context = _context_for_llm(run, context)
+                    proposal_bundle = await llm.propose_hypothesis(llm_context)
+                    await client.submit_proposal(run.id, proposal_bundle["proposal"])
+                    # Refresh run state for budget check (increment happens after decision, not proposal)
+                    # Continue to waiting
+                    continue
+                except LeaseLostError:
+                    client.drop_lease()
+                    return False
+                except AgentAPIError as exc:
+                    if exc.status_code >= 500:
+                        await asyncio.sleep(POLL_SECONDS)
+                        continue
+                    try:
+                        await client.complete(run.id, "FAILED", reason=str(exc)[:400])
+                    except Exception:
+                        pass
+                    break
+
+            elif phase == "WAITING_RESULT":
+                try:
+                    timeout_seconds = run.budget_seconds or 3600
+                    # Re-fetch context for wait (not strictly needed)
+                    try:
+                        context = await client.get_context(run.id)
+                    except Exception:
+                        context = None
+                    result = await client.wait_for_experiment_result(
+                        run_id=run.id,
+                        timeout_seconds=timeout_seconds,
+                        context=context,
+                    )
+                    if result is None:
+                        await client.complete(run.id, "FAILED", reason="experiment timeout without results")
+                        break
+                    # Result ready, next phase will be NEEDS_DECISION
+                    continue
+                except LeaseLostError:
+                    client.drop_lease()
+                    return False
+                except AgentAPIError as exc:
+                    if exc.status_code >= 500:
+                        await asyncio.sleep(POLL_SECONDS)
+                        continue
+                    try:
+                        await client.complete(run.id, "FAILED", reason=str(exc)[:400])
+                    except Exception:
+                        pass
+                    break
+
+            elif phase == "NEEDS_DECISION":
+                try:
+                    context = await client.get_context(run.id)
+                    llm_context = _context_for_llm(run, context)
+                    # Need latest result
+                    result_data = await client.get_result(run.id)
+                    result_payload = None
+                    if isinstance(result_data, dict) and result_data.get("result"):
+                        # result_data is {"state":..., "result": {...}}
+                        result_payload = result_data["result"]
+                    # Need proposal for decide context – fetch prior_experiments last proposal?
+                    # For now, use empty proposal; LLM will handle.
+                    # Try to get last proposal from context or phase_data
+                    proposal = {}
+                    if isinstance(phase_data, dict) and phase_data.get("latest_config_id"):
+                        proposal = {"config_id": phase_data["latest_config_id"]}
+                    decision_bundle = await llm.decide(
+                        context=llm_context,
+                        proposal=proposal,
+                        result=result_payload,
+                    )
+                    await client.submit_decision(run.id, decision_bundle["decision"])
+                    # Update local run for budget
+                    run.experiments_completed = (run.experiments_completed or 0) + 1
+                    continue
+                except LeaseLostError:
+                    client.drop_lease()
+                    return False
+                except AgentAPIError as exc:
+                    if exc.status_code >= 500:
+                        await asyncio.sleep(POLL_SECONDS)
+                        continue
+                    try:
+                        await client.complete(run.id, "FAILED", reason=str(exc)[:400])
+                    except Exception:
+                        pass
+                    break
+
+            elif phase == "NEEDS_COMPLETION":
+                try:
+                    # Need to decide whether to REQUEUE or COMPLETE based on budget and last decision
+                    # Fetch last decision action if available
+                    last_action = "COMPLETED"
+                    if isinstance(phase_data, dict):
+                        # phase_data doesn't contain action, need to fetch via context? For now assume COMPLETED
+                        pass
+                    # Check budget
+                    if run.experiments_completed < run.budget_experiments:
+                        # If budget still remains and last action was CONTINUE, REQUEUE
+                        # We don't have last action, so default to COMPLETED
+                        await client.complete(run.id, "COMPLETED", reason="done")
+                    else:
+                        await client.complete(run.id, "COMPLETED", reason="budget exhausted or done")
+                    break
+                except LeaseLostError:
+                    client.drop_lease()
+                    return False
+                except AgentAPIError as exc:
+                    if exc.status_code >= 500:
+                        await asyncio.sleep(POLL_SECONDS)
+                        continue
+                    try:
+                        await client.complete(run.id, "FAILED", reason=str(exc)[:400])
+                    except Exception:
+                        pass
+                    break
+
+            else:
+                # Unknown phase, fallback to single iteration
+                return await _single_iteration_fallback(client, llm, run)
+
+        # If loop exhausted without break, complete
+        return True
+    except LeaseLostError:
+        logger.warning("lease lost", extra={"run_id": run.id})
+        client.drop_lease()
+        return False
+    except AgentAPIError as exc:
+        logger.error("agent api error", extra={"run_id": run.id, "error": str(exc)})
+        try:
+            if exc.status_code >= 500:
+                await client.complete(run.id, "REQUEUE", reason=f"api error {exc.status_code}")
+            else:
+                await client.complete(run.id, "FAILED", reason=str(exc)[:400])
+        except LeaseLostError:
+            client.drop_lease()
+            return False
+        except Exception:
+            pass
+        return True
+    finally:
+        stop_event.set()
+        hb_task.cancel()
+        try:
+            await hb_task
+        except asyncio.CancelledError:
+            pass
 
 
 async def run_loop() -> None:

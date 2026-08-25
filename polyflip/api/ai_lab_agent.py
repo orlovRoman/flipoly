@@ -200,6 +200,17 @@ async def _agent_phase(db, run_id: int) -> dict[str, Any]:
     return {"phase": phase, "latest_config_id": latest_cfg, "latest_result_id": term.id if term else None, "latest_decision": has_decision}
 
 
+@router.get("/runs/{run_id}/phase")
+async def get_agent_phase(
+    run_id: int,
+    lease_token: str,
+    db: AsyncSession = Depends(get_db_session),
+):
+    await _require_run(db, run_id)
+    await _verify_lease(db, run_id, lease_token)
+    return await _agent_phase(db, run_id)
+
+
 def _claimed_run_payload(run: AIOptimizationRun, lease_token: str) -> dict[str, Any]:
     snap = run.llm_snapshot if isinstance(getattr(run, "llm_snapshot", None), dict) else {}
     # Normalize to new per-model snapshot shape.

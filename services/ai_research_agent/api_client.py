@@ -113,6 +113,22 @@ class AILabApiClient:
         )
         return AgentContext.model_validate(data or {})
 
+    async def get_phase(self, run_id: int) -> dict[str, Any]:
+        data = await self._request(
+            "GET",
+            f"/api/ai-lab/agent/runs/{run_id}/phase",
+            params={"lease_token": self._lease_token},
+        )
+        return data or {}
+
+    async def get_result(self, run_id: int) -> dict[str, Any] | None:
+        data = await self._request(
+            "GET",
+            f"/api/ai-lab/agent/runs/{run_id}/result",
+            params={"lease_token": self._lease_token},
+        )
+        return data
+
     async def submit_proposal(self, run_id: int, proposal: dict[str, Any]) -> dict:
         self.require_lease()
         import uuid
