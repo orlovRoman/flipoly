@@ -21,7 +21,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.executor import ExecutionBatchError
-from polyflip.ai_lab.llm_catalog import refresh_model_catalog
+from polyflip.ai_lab.llm_catalog import (
+    check_model_availability,
+    persist_model_check_result,
+    refresh_model_catalog,
+)
 from polyflip.ai_lab.manifests import compute_manifest_hash
 from polyflip.ai_lab.lgbm_worker import MAX_LGBM_WORKER_STEPS, execute_lgbm_steps
 from polyflip.ai_lab.scheduler import (
@@ -505,6 +509,37 @@ async def list_llm_models(
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/llm/models/{provider}/{model_id}/check")
+async def check_llm_model(
+    provider: str,
+    model_id: str,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Probe one model with a tiny structured request and persist the result.
+
+    The dashboard must not allow a research run with a model that has not
+    passed this check; the persisted ``is_available`` flag is the gate input.
+    """
+    try:
+        report = await check_model_availability(provider, model_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row = await persist_model_check_result(
+        db, provider=provider.strip().lower(), model_id=model_id.strip(), report=report
+    )
+    await db.commit()
+    return {
+        "provider": provider.strip().lower(),
+        "model_id": model_id.strip(),
+        "available": bool(report.get("available")),
+        "protocol": report.get("protocol"),
+        "latency_ms": report.get("latency_ms"),
+        "checked_at": report.get("checked_at"),
+        "error": report.get("error"),
+        "is_available": bool(row.is_available),
+    }
 
 
 @router.post("/runs", status_code=201)

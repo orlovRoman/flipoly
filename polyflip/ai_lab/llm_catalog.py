@@ -4,18 +4,27 @@ The dashboard and the independent research agent must be able to select any
 model the configured OpenCode endpoint actually exposes.  Discovery results
 are normalized, cached in ``ai_llm_model_catalog`` and served from cache with
 ``stale=true`` when the provider endpoint is unreachable.
+
+It also owns the lightweight availability probe used before a model may be
+attached to a research run (no trading data ever leaves the process).
 """
 from __future__ import annotations
 
+import json
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from polyflip.ai_lab.llm import get_llm_model_catalog
+from polyflip.ai_lab.llm import (
+    DEFAULT_OPENCODE_CHAT_ENDPOINT,
+    DEFAULT_OPENCODE_ENDPOINT,
+    get_llm_model_catalog,
+)
 from polyflip.config import settings as default_settings
 from polyflip.db.models import AILLMModelCatalog
 
@@ -338,3 +347,212 @@ async def get_available_catalog_models(
         )
     ).scalars().all()
     return {row.model_id: row for row in rows}
+
+
+# ---------------------------------------------------------------------------
+# Availability probe (T03)
+# ---------------------------------------------------------------------------
+PROBE_INSTRUCTIONS = "Return JSON only"
+PROBE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"ok": {"type": "boolean"}},
+    "required": ["ok"],
+    "additionalProperties": False,
+}
+ProbeSender = Callable[..., Awaitable[Any]]
+
+
+def _probe_body(protocol: str, model_id: str) -> dict[str, Any]:
+    if protocol == "chat_completions":
+        return {
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": PROBE_INSTRUCTIONS},
+                {"role": "user", "content": json.dumps({
+                    "task": PROBE_INSTRUCTIONS,
+                    "schema": {"ok": "boolean"},
+                })},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "model_probe",
+                    "strict": True,
+                    "schema": PROBE_SCHEMA,
+                },
+            },
+        }
+    return {
+        "model": model_id,
+        "input": [
+            {"role": "system", "content": PROBE_INSTRUCTIONS},
+            {"role": "user", "content": json.dumps({
+                "task": PROBE_INSTRUCTIONS,
+                "schema": {"ok": "boolean"},
+            })},
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "model_probe",
+                "strict": True,
+                "schema": PROBE_SCHEMA,
+            }
+        },
+        "store": False,
+    }
+
+
+def _probe_candidates(provider_name: str, settings_obj: Any) -> list[dict[str, Any]]:
+    """Ordered probe targets; a custom endpoint override always wins."""
+    override = str(getattr(settings_obj, "AI_LAB_LLM_ENDPOINT", "") or "").strip()
+    if override:
+        protocol = (
+            "chat_completions"
+            if override.rstrip("/").endswith("/chat/completions")
+            else "responses"
+        )
+        return [{"url": override.rstrip("/"), "protocol": protocol}]
+    if provider_name == "openai":
+        return [
+            {
+                "url": "https://api.openai.com/v1/responses",
+                "protocol": "responses",
+            }
+        ]
+    return [
+        {"url": DEFAULT_OPENCODE_ENDPOINT, "protocol": "responses"},
+        {"url": DEFAULT_OPENCODE_CHAT_ENDPOINT, "protocol": "chat_completions"},
+    ]
+
+
+async def _default_probe_sender(url: str, headers: dict[str, str], body: dict[str, Any]) -> Any:
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(url, headers=headers, json=body)
+        response.raise_for_status()
+        return response.json()
+
+
+def _extract_output_text(data: Any, *, is_chat_completion: bool) -> str:
+    from polyflip.ai_lab.llm import OpenAIResponsesProvider
+
+    if not isinstance(data, dict):
+        return ""
+    return OpenAIResponsesProvider._response_text(
+        data, is_chat_completion=is_chat_completion
+    )
+
+
+async def check_model_availability(
+    provider_name: str,
+    model_id: str,
+    *,
+    settings_obj: Any | None = None,
+    sender: ProbeSender | None = None,
+) -> dict[str, Any]:
+    """Probe one model with a tiny structured request (no trading data).
+
+    A model counts as available only when some supported transport returns
+    valid JSON matching ``{"ok": bool}``.
+    """
+    cfg = settings_obj or default_settings
+    provider = (provider_name or "").strip().lower()
+    model = (model_id or "").strip()
+    checked_at = datetime.now(timezone.utc)
+    report: dict[str, Any] = {
+        "provider": provider,
+        "model_id": model,
+        "available": False,
+        "protocol": None,
+        "latency_ms": None,
+        "checked_at": checked_at.isoformat(),
+        "error": None,
+    }
+    if provider == "mock":
+        report.update({"available": True, "protocol": "mock", "latency_ms": 0})
+        return report
+    if provider not in {"openai", "opencode"}:
+        raise ValueError(f"Unsupported AI Lab LLM provider: {provider}")
+    api_key = str(
+        getattr(cfg, "AI_LAB_LLM_API_KEY", "")
+        or getattr(cfg, "OPENAI_API_KEY", "")
+        or ""
+    )
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    send = sender or _default_probe_sender
+    last_error = "no candidate endpoint responded"
+    for candidate in _probe_candidates(provider, cfg):
+        started = time.monotonic()
+        try:
+            data = await send(
+                url=candidate["url"],
+                headers=headers,
+                body=_probe_body(candidate["protocol"], model),
+            )
+            raw_text = _extract_output_text(
+                data, is_chat_completion=candidate["protocol"] == "chat_completions"
+            ).strip()
+            payload = json.loads(raw_text)
+            if not (
+                isinstance(payload, dict)
+                and payload.get("ok") is True
+                and len(payload) >= 1
+            ):
+                last_error = "structured output did not match {\"ok\": true}"
+                continue
+            latency_ms = int((time.monotonic() - started) * 1000)
+            report.update({
+                "available": True,
+                "protocol": candidate["protocol"],
+                "latency_ms": latency_ms,
+                "error": None,
+            })
+            return report
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+    report["error"] = last_error[:500]
+    return report
+
+
+async def persist_model_check_result(
+    db: AsyncSession,
+    *,
+    provider: str,
+    model_id: str,
+    report: dict[str, Any],
+) -> AILLMModelCatalog:
+    """Store the probe outcome on the catalog row (creating it if needed)."""
+    now = datetime.now(timezone.utc)
+    row = (
+        await db.execute(
+            select(AILLMModelCatalog).where(
+                AILLMModelCatalog.provider == provider,
+                AILLMModelCatalog.model_id == model_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = AILLMModelCatalog(
+            provider=provider,
+            model_id=model_id,
+            display_name=model_id,
+            discovered_at=now,
+        )
+        db.add(row)
+    row.is_available = bool(report.get("available"))
+    if report.get("protocol") in SUPPORTED_PROTOCOLS | {"mock"}:
+        row.protocol = str(report["protocol"])
+    metadata = dict(row.raw_metadata or {})
+    metadata["last_check"] = {
+        "available": bool(report.get("available")),
+        "latency_ms": report.get("latency_ms"),
+        "protocol": report.get("protocol"),
+        "checked_at": report.get("checked_at"),
+        "error": report.get("error"),
+    }
+    row.raw_metadata = metadata
+    await db.flush()
+    return row
