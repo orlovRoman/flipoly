@@ -623,26 +623,34 @@ async def resolve_llm_snapshot(
         research: str,
         summary: str,
         *,
-        protocol: str | None,
+        research_protocol: str | None = None,
+        summary_protocol: str | None = None,
+        protocol: str | None = None,
         status_value: str,
         catalog_time: datetime | None,
     ) -> dict[str, Any]:
+        # Per-model protocol snapshot (new) with legacy flat fields for compat.
+        rp = research_protocol or protocol or "responses"
+        sp = summary_protocol or protocol or "responses"
         return {
             "provider": provider_name,
-            "research_model": research,
-            "summary_model": summary,
+            "research": {"model_id": research, "protocol": rp},
+            "summary": {"model_id": summary, "protocol": sp},
             "catalog_checked_at": (
                 catalog_time.isoformat() if catalog_time else None
             ),
             "catalog_model_status": status_value,
-            "protocol": protocol,
+            # legacy flat fields
+            "research_model": research,
+            "summary_model": summary,
+            "protocol": rp,
         }
 
     if provider_name == "mock":
         research = (research_model or "").strip() or "mock-gpt-5"
         summary = (summary_model or "").strip() or "mock-gpt-5"
         return snapshot(
-            research, summary, protocol="mock", status_value="available",
+            research, summary, research_protocol="mock", summary_protocol="mock", status_value="available",
             catalog_time=checked_at,
         )
 
@@ -670,14 +678,14 @@ async def resolve_llm_snapshot(
                 f"Unknown model for provider {provider_name}: "
                 f"research={research!r}, summary={summary!r}"
             )
-        protocol = (
-            "chat_completions"
-            if provider_name == "opencode"
-            and research in set(DEFAULT_OPENCODE_CHAT_MODELS)
-            else "responses"
-        )
+        # Determine per-model protocol for legacy static catalog.
+        def _legacy_protocol(model_id: str) -> str:
+            if provider_name == "opencode" and model_id in set(DEFAULT_OPENCODE_CHAT_MODELS):
+                return "chat_completions"
+            return "responses"
+
         return snapshot(
-            research, summary, protocol=protocol,
+            research, summary, research_protocol=_legacy_protocol(research), summary_protocol=_legacy_protocol(summary),
             status_value="legacy_static", catalog_time=None,
         )
 
@@ -721,7 +729,8 @@ async def resolve_llm_snapshot(
     return snapshot(
         research_row.model_id,
         summary_row.model_id,
-        protocol=research_row.protocol,
+        research_protocol=research_row.protocol,
+        summary_protocol=summary_row.protocol,
         status_value="available",
         catalog_time=_as_utc(getattr(research_row, "last_checked_at", None) or research_row.discovered_at),
     )

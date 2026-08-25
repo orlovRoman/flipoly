@@ -26,6 +26,9 @@ class ClaimedRun(BaseModel):
     llm_provider: str | None = None
     llm_research_model: str | None = None
     llm_summary_model: str | None = None
+    llm_snapshot: dict[str, Any] | None = None
+    llm_research: dict[str, Any] | None = None
+    llm_summary: dict[str, Any] | None = None
 
 
 class AgentContext(BaseModel):

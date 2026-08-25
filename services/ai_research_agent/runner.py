@@ -20,6 +20,25 @@ IDLE_SLEEP_SECONDS = max(POLL_SECONDS, 2.0)
 
 
 def _context_for_llm(run: ClaimedRun, context) -> dict:
+    # New snapshot shape: run.llm_snapshot contains per-model protocol.
+    snap = getattr(run, "llm_snapshot", None) or {}
+    research = getattr(run, "llm_research", None)
+    summary = getattr(run, "llm_summary", None)
+    if not isinstance(research, dict):
+        research = snap.get("research") if isinstance(snap.get("research"), dict) else None
+    if not isinstance(summary, dict):
+        summary = snap.get("summary") if isinstance(snap.get("summary"), dict) else None
+    # Fallback to flat fields with protocol from snapshot.
+    if not isinstance(research, dict):
+        research = {
+            "model_id": run.llm_research_model or "",
+            "protocol": (snap.get("protocol") if isinstance(snap, dict) else "") or "responses",
+        }
+    if not isinstance(summary, dict):
+        summary = {
+            "model_id": run.llm_summary_model or "",
+            "protocol": (snap.get("protocol") if isinstance(snap, dict) else "") or "responses",
+        }
     return {
         "run_id": run.id,
         "objective": run.objective,
@@ -28,8 +47,11 @@ def _context_for_llm(run: ClaimedRun, context) -> dict:
         "budget_remaining_steps": max(
             run.budget_experiments - run.experiments_completed, 0
         ),
-        "research_model": run.llm_research_model or "",
-        "summary_model": run.llm_summary_model or "",
+        "research_model": research.get("model_id") or run.llm_research_model or "",
+        "research": research,
+        "summary_model": summary.get("model_id") or run.llm_summary_model or "",
+        "summary": summary,
+        "llm_snapshot": snap,
         "active_models": context.active_models,
         "recent_trade_statistics": context.recent_trade_statistics,
         "prior_experiments": context.prior_experiments,

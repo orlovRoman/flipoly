@@ -248,3 +248,49 @@ def test_runner_uses_drop_lease_not_direct_assignment():
     src = p.read_text()
     assert "client._lease_token = None" not in src
     assert "drop_lease" in src
+
+
+def test_opencode_client_uses_explicit_protocol():
+    import httpx
+    from opencode_client import OpenCodeClient
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        # Return minimal structured output
+        if "chat/completions" in captured["url"]:
+            return httpx.Response(200, json={"choices": [{"message": {"content": '{"hypothesis": "h", "asset": "BTC", "market_role": "ALL", "model_family": "LOGREG", "feature_set": "FS_D0", "parameter_changes": [], "strategy_parameter_changes": [], "expected_effect": {"metric": "median_oot_pnl", "direction": "increase", "target_gain": null}, "reasoning": [], "risks": [], "test_plan": {"oot_windows": 3, "min_markets": 50, "execution_mode": "PAPER_REALISTIC"}}'}}]})
+        else:
+            return httpx.Response(200, json={"output_text": '{"hypothesis": "h", "asset": "BTC", "market_role": "ALL", "model_family": "LOGREG", "feature_set": "FS_D0", "parameter_changes": [], "strategy_parameter_changes": [], "expected_effect": {"metric": "median_oot_pnl", "direction": "increase", "target_gain": null}, "reasoning": [], "risks": [], "test_plan": {"oot_windows": 3, "min_markets": 50, "execution_mode": "PAPER_REALISTIC"}}'})
+
+    # Patch httpx.AsyncClient to use mock transport
+    original = httpx.AsyncClient
+    transport = httpx.MockTransport(handler)
+
+    class PatchedAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            super().__init__(*args, **kwargs)
+
+    import opencode_client as oc_mod
+    oc_mod.httpx.AsyncClient = PatchedAsyncClient
+    try:
+        client = OpenCodeClient()
+        # Case 1: explicit chat_completions protocol should hit chat endpoint
+        ctx_chat = {"research": {"model_id": "any-model", "protocol": "chat_completions"}, "research_model": "any-model"}
+        captured.clear()
+        _run(client.propose_hypothesis(ctx_chat))
+        assert "chat/completions" in captured["url"]
+        # Case 2: explicit responses protocol should hit responses endpoint
+        ctx_resp = {"research": {"model_id": "any-model", "protocol": "responses"}, "research_model": "any-model"}
+        captured.clear()
+        _run(client.propose_hypothesis(ctx_resp))
+        assert "responses" in captured["url"]
+        # Case 3: context via runner's snapshot shape
+        snap_ctx = {"research": {"model_id": "m1", "protocol": "chat_completions"}, "summary": {"model_id": "m2", "protocol": "responses"}, "research_model": "m1", "summary_model": "m2"}
+        captured.clear()
+        _run(client.propose_hypothesis(snap_ctx))
+        assert "chat/completions" in captured["url"]
+    finally:
+        oc_mod.httpx.AsyncClient = original

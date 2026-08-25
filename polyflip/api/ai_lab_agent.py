@@ -201,6 +201,15 @@ async def _agent_phase(db, run_id: int) -> dict[str, Any]:
 
 
 def _claimed_run_payload(run: AIOptimizationRun, lease_token: str) -> dict[str, Any]:
+    snap = run.llm_snapshot if isinstance(getattr(run, "llm_snapshot", None), dict) else {}
+    # Normalize to new per-model snapshot shape.
+    research = snap.get("research") if isinstance(snap.get("research"), dict) else None
+    summary = snap.get("summary") if isinstance(snap.get("summary"), dict) else None
+    if research is None:
+        # Fallback to flat fields
+        research = {"model_id": run.llm_research_model, "protocol": snap.get("protocol") or "responses"}
+    if summary is None:
+        summary = {"model_id": run.llm_summary_model, "protocol": snap.get("protocol") or "responses"}
     return {
         "id": run.id,
         "status": run.status,
@@ -214,6 +223,9 @@ def _claimed_run_payload(run: AIOptimizationRun, lease_token: str) -> dict[str, 
         "llm_provider": run.llm_provider,
         "llm_research_model": run.llm_research_model,
         "llm_summary_model": run.llm_summary_model,
+        "llm_snapshot": snap,
+        "llm_research": research,
+        "llm_summary": summary,
         "lease_token": lease_token,
     }
 

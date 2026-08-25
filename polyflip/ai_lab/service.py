@@ -185,8 +185,13 @@ async def create_run(
     except ValueError as exc:
         raise AILabError(str(exc)) from exc
     resolved_provider = str(snapshot["provider"])
-    resolved_research_model = str(snapshot["research_model"])
-    resolved_summary_model = str(snapshot["summary_model"])
+    # Support new nested snapshot {research:{model_id,protocol}, summary:{...}}
+    if isinstance(snapshot.get("research"), dict):
+        resolved_research_model = str(snapshot["research"].get("model_id") or snapshot.get("research_model"))
+        resolved_summary_model = str(snapshot["summary"].get("model_id") or snapshot.get("summary_model"))
+    else:
+        resolved_research_model = str(snapshot["research_model"])
+        resolved_summary_model = str(snapshot["summary_model"])
     resolved_mode = normalize_ai_lab_mode(mode or settings.AI_LAB_MODE)
     if permission is None and autonomy_level != "OBSERVE":
         raise AIPermissionError(

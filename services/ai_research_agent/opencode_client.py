@@ -133,6 +133,14 @@ class OpenCodeClient:
             else (self.responses_endpoint, False)
         )
 
+    def _endpoint_for_protocol(self, protocol: str | None) -> tuple[str, bool]:
+        if protocol == "chat_completions":
+            return (self.chat_endpoint, True)
+        if protocol == "responses":
+            return (self.responses_endpoint, False)
+        # Fallback to responses for unknown or mock
+        return (self.responses_endpoint, False)
+
     async def _structured_json(
         self,
         *,
@@ -141,8 +149,13 @@ class OpenCodeClient:
         context: dict[str, Any],
         schema_name: str,
         schema: dict[str, Any],
+        protocol: str | None = None,
     ) -> tuple[dict[str, Any], int]:
-        endpoint, is_chat = self._endpoint_for(model)
+        # Use explicit protocol when provided (snapshot-provided), else guess via model.
+        if protocol:
+            endpoint, is_chat = self._endpoint_for_protocol(protocol)
+        else:
+            endpoint, is_chat = self._endpoint_for(model)
         user_content = json.dumps(context, indent=2, default=str)
         if is_chat:
             body: dict[str, Any] = {
@@ -217,8 +230,20 @@ class OpenCodeClient:
         return _coerce_kv_lists(json.loads(text)), latency_ms
 
     async def propose_hypothesis(self, context: dict[str, Any]) -> dict[str, Any]:
+        # Snapshot provides explicit per-model protocol; use it when available.
+        research = context.get("research")
+        if isinstance(research, dict):
+            model = str(research.get("model_id") or context.get("research_model") or "gpt-5.6")
+            protocol = str(research.get("protocol") or "")
+            if not protocol:
+                protocol = None
+        else:
+            model = str(context.get("research_model") or "gpt-5.6")
+            protocol = str(context.get("research_protocol") or context.get("protocol") or "")
+            protocol = protocol or None
         payload, latency_ms = await self._structured_json(
-            model=str(context.get("research_model") or "gpt-5.6"),
+            model=model,
+            protocol=protocol,
             instructions=(
                 "You are an autonomous quant researcher for Polymarket crypto "
                 "binary markets. Formulate one testable hypothesis for model "
@@ -238,8 +263,18 @@ class OpenCodeClient:
         proposal: dict[str, Any],
         result: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        research = context.get("research")
+        if isinstance(research, dict):
+            model = str(research.get("model_id") or context.get("research_model") or "gpt-5.6")
+            protocol = str(research.get("protocol") or "")
+            protocol = protocol or None
+        else:
+            model = str(context.get("research_model") or "gpt-5.6")
+            protocol = str(context.get("research_protocol") or context.get("protocol") or "")
+            protocol = protocol or None
         payload, latency_ms = await self._structured_json(
-            model=str(context.get("research_model") or "gpt-5.6"),
+            model=model,
+            protocol=protocol,
             instructions=(
                 "Analyze Polymarket-OOT results versus baseline and choose one "
                 "action. Never request direct LIVE activation."

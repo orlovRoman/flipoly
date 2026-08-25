@@ -763,6 +763,41 @@ async def test_heartbeat_returns_real_expiry(db_session):
     assert leased2 >= leased_until
 
 
+@pytest.mark.asyncio
+async def test_claim_returns_snapshot_with_per_model_protocol(db_session):
+    from polyflip.db.models import AILLMModelCatalog
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    # Seed two models with distinct protocols
+    db_session.add(AILLMModelCatalog(provider="opencode", model_id="resp-model", display_name="resp", protocol="responses", is_available=True, is_discovered=True, probe_status="PASSED", last_checked_at=now, discovered_at=now, supports_structured_output=True))
+    db_session.add(AILLMModelCatalog(provider="opencode", model_id="chat-model", display_name="chat", protocol="chat_completions", is_available=True, is_discovered=True, probe_status="PASSED", last_checked_at=now, discovered_at=now, supports_structured_output=True))
+    await db_session.flush()
+    # Create run with those models
+    from polyflip.ai_lab.service import create_run
+    from polyflip.ai_lab.service import create_permission
+    from uuid import uuid4
+
+    perm = await create_permission(db_session, profile_name=f"snap-{uuid4().hex[:4]}", allowed_actions=["CREATE_EXPERIMENT"], scope={}, limits={}, updated_by="test", enabled=True)
+    run = await create_run(db_session, objective="snap test", scope={}, autonomy_level="OBSERVE", budget_experiments=1, permission=perm, llm_provider="opencode", llm_research_model="resp-model", llm_summary_model="chat-model")
+    run.status = "QUEUED"
+    await db_session.flush()
+    await db_session.commit()
+    claimed = (await claim_next_agent_run(AgentClaimRequest(), db_session))["run"]
+    assert claimed is not None
+    snap = claimed.get("llm_snapshot")
+    assert snap is not None
+    assert snap["provider"] == "opencode"
+    assert snap["research"]["model_id"] == "resp-model"
+    assert snap["research"]["protocol"] == "responses"
+    assert snap["summary"]["model_id"] == "chat-model"
+    assert snap["summary"]["protocol"] == "chat_completions"
+    assert snap["catalog_checked_at"]
+    # Also flat legacy fields still present
+    assert claimed["llm_research_model"] == "resp-model"
+    assert claimed["llm_summary_model"] == "chat-model"
+
+
 def test_openapi_contains_hypothesis_and_decision_schemas():
     from polyflip.api.main import app
 
