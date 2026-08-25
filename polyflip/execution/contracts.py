@@ -60,6 +60,8 @@ class GatewayOrder(BaseModel):
     limit_price: Decimal
     requested_shares: Decimal
     max_spend_usdc: Decimal | None = None
+    # Upper execution-price bound used when FAK_RETRY refreshes the quote.
+    max_acceptable_price: Decimal | None = None
     # Unix timestamp used by native GTD orders.  It is intentionally optional
     # so existing FAK/GTC callers keep their current contract.
     expiration: int | None = None

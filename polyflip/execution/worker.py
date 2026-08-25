@@ -639,6 +639,7 @@ async def process_ready_requests():
                 limit_price=limit_price,
                 requested_shares=resolved_requested_shares,
                 max_spend_usdc=max_spend_usdc,
+                max_acceptable_price=req.max_acceptable_price,
                 expiration=(
                     int(request_expiration.timestamp())
                     if req.trigger_reason == "TAKE_PROFIT" and request_expiration
@@ -781,6 +782,7 @@ async def process_ready_requests():
                     api_client=api_client_retry,
                     max_attempts=retry_attempts,
                     delay_seconds=retry_delay,
+                    max_acceptable_price=req.max_acceptable_price,
                 )
             else:
                 sub_res = await gateway.submit(order)

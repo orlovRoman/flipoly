@@ -255,9 +255,20 @@ class FakeExecutionGateway:
             )
             if execution_price <= 0:
                 continue
-            if side == "BUY" and execution_price > order.limit_price:
+            # Slippage is an execution-cost model.  Give a FAK order room
+            # for that synthetic cost instead of rejecting an ask equal to
+            # the submitted limit immediately.  A BUY remains bounded by
+            # max_acceptable_price when a retry supplied a fresh quote.
+            execution_limit = order.limit_price
+            if side == "BUY":
+                execution_limit *= Decimal("1") + slippage_factor
+                if order.max_acceptable_price is not None:
+                    execution_limit = min(
+                        execution_limit, order.max_acceptable_price
+                    )
+            if side == "BUY" and execution_price > execution_limit:
                 break
-            if side == "SELL" and execution_price < order.limit_price:
+            if side == "SELL" and execution_price < execution_limit:
                 break
             take = min(remaining, depth)
             if remaining_budget is not None:

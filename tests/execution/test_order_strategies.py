@@ -5,7 +5,9 @@ from uuid import uuid4
 import pytest
 
 from polyflip.execution.contracts import GatewayOrder, SubmissionResult
-from polyflip.execution.order_strategies import execute_gtc_ttl, execute_maker_limit, calculate_maker_price
+from polyflip.execution.order_strategies import (
+    calculate_maker_price, execute_fak_retry, execute_gtc_ttl, execute_maker_limit,
+)
 from polyflip.execution.outbox import _terminal_code
 
 
@@ -202,3 +204,148 @@ async def test_gtc_ttl_keeps_matched_order_for_reconciliation_when_fill_lags():
     assert result.settlement_state == "PENDING"
     assert result.maker_status == "MATCHED_PENDING_SETTLEMENT"
     gateway.get_order.assert_awaited_once_with("provider-order-1")
+
+
+@pytest.mark.asyncio
+async def test_fak_retry_refreshes_paper_ask_and_recalculates_shares():
+    from polyflip.execution.gateways.fake import FakeExecutionGateway
+
+    quotes = iter(
+        [
+            {
+                "best_bid": "0.26",
+                "best_ask": "0.30",
+                "asks": [{"price": "0.30", "size": "20"}],
+                "bids": [{"price": "0.26", "size": "20"}],
+            },
+            {
+                "best_bid": "0.27",
+                "best_ask": "0.28",
+                "asks": [{"price": "0.28", "size": "20"}],
+                "bids": [{"price": "0.27", "size": "20"}],
+            },
+            {
+                "best_bid": "0.27",
+                "best_ask": "0.28",
+                "asks": [{"price": "0.28", "size": "20"}],
+                "bids": [{"price": "0.27", "size": "20"}],
+            },
+        ]
+    )
+
+    async def quote_provider(token_id):
+        return next(quotes)
+
+    gateway = FakeExecutionGateway(
+        profile="LIVE_PARITY",
+        quote_provider=quote_provider,
+        slippage_pct="0.5",
+        fee_rate="0",
+    )
+    order = GatewayOrder(
+        attempt_id=uuid4(),
+        market_id="market-1",
+        asset="BTC",
+        outcome_to_buy="YES",
+        token_id="token-1",
+        side="BUY",
+        limit_price="0.27",
+        requested_shares=Decimal("1") / Decimal("0.27"),
+        max_spend_usdc="1",
+        max_acceptable_price="0.284",
+    )
+
+    result = await execute_fak_retry(
+        gateway,
+        order,
+        max_attempts=2,
+        delay_seconds=0,
+        max_acceptable_price=Decimal("0.284"),
+    )
+
+    assert result.accepted is True
+    assert result.provider_status == "FILLED"
+    assert result.submitted_limit_price == Decimal("0.28")
+    assert result.submitted_requested_shares == Decimal("1") / Decimal("0.28")
+
+
+@pytest.mark.asyncio
+async def test_fak_retry_does_not_reprice_above_max_acceptable_price():
+    from polyflip.execution.gateways.fake import FakeExecutionGateway
+
+    async def quote_provider(token_id):
+        return {
+            "best_bid": "0.29",
+            "best_ask": "0.30",
+            "asks": [{"price": "0.30", "size": "20"}],
+            "bids": [{"price": "0.29", "size": "20"}],
+        }
+
+    gateway = FakeExecutionGateway(
+        profile="LIVE_PARITY",
+        quote_provider=quote_provider,
+        slippage_pct="0.5",
+        fee_rate="0",
+    )
+    order = GatewayOrder(
+        attempt_id=uuid4(),
+        market_id="market-1",
+        asset="BTC",
+        outcome_to_buy="YES",
+        token_id="token-1",
+        side="BUY",
+        limit_price="0.27",
+        requested_shares="3.7",
+        max_spend_usdc="1",
+        max_acceptable_price="0.284",
+    )
+
+    result = await execute_fak_retry(
+        gateway,
+        order,
+        max_attempts=2,
+        delay_seconds=0,
+        max_acceptable_price=Decimal("0.284"),
+    )
+
+    assert result.accepted is False
+    assert result.provider_status == "PRICE_MOVED"
+    assert result.rejection_code == "MAX_ACCEPTABLE_PRICE_EXCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_fake_fak_allows_equal_ask_with_modeled_slippage():
+    from polyflip.execution.gateways.fake import FakeExecutionGateway
+
+    async def quote_provider(token_id):
+        return {
+            "best_bid": "0.26",
+            "best_ask": "0.27",
+            "asks": [{"price": "0.27", "size": "20"}],
+            "bids": [{"price": "0.26", "size": "20"}],
+        }
+
+    gateway = FakeExecutionGateway(
+        profile="LIVE_PARITY",
+        quote_provider=quote_provider,
+        slippage_pct="0.5",
+        fee_rate="0",
+    )
+    result = await gateway.submit(
+        GatewayOrder(
+            attempt_id=uuid4(),
+            market_id="market-1",
+            asset="BTC",
+            outcome_to_buy="YES",
+            token_id="token-1",
+            side="BUY",
+            limit_price="0.27",
+            requested_shares="3.7",
+            max_spend_usdc="1",
+            max_acceptable_price="0.284",
+        ),
+        order_type="FAK",
+    )
+
+    assert result.accepted is True
+    assert result.provider_status == "FILLED"

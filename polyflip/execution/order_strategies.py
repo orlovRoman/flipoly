@@ -303,6 +303,7 @@ async def execute_fak_retry(
     api_client: Any = None,
     max_attempts: int = DEFAULT_FAK_RETRY_MAX_ATTEMPTS,
     delay_seconds: float = DEFAULT_FAK_RETRY_DELAY_SEC,
+    max_acceptable_price: Decimal | None = None,
 ) -> SubmissionResult:
     """
     Выполняет попытки FAK-ордера. Если NO_LIQUIDITY — выдерживает паузу,
@@ -310,6 +311,17 @@ async def execute_fak_retry(
     """
     last_result: Optional[SubmissionResult] = None
     current_order = order
+    effective_max_price = _decimal(max_acceptable_price)
+    if effective_max_price is None:
+        effective_max_price = _decimal(order.max_acceptable_price)
+    if (
+        effective_max_price is not None
+        and order.max_acceptable_price != effective_max_price
+    ):
+        current_order = order.model_copy(
+            update={"max_acceptable_price": effective_max_price}
+        )
+    price_cap_blocked: str | None = None
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -369,30 +381,83 @@ async def execute_fak_retry(
                     order_id=str(current_order.attempt_id),
                 )
                 await asyncio.sleep(delay_seconds)
-
-                if api_client and hasattr(api_client, "get_market_prices"):
+                prices = None
+                quote_provider = getattr(gateway, "quote_provider", None)
+                if callable(quote_provider):
+                    try:
+                        prices = await asyncio.wait_for(
+                            quote_provider(current_order.token_id),
+                            timeout=2.0,
+                        )
+                    except Exception as refresh_err:
+                        logger.warning(
+                            "fak_retry_quote_provider_failed",
+                            attempt=attempt,
+                            error=str(refresh_err),
+                        )
+                if (
+                    not prices
+                    and api_client
+                    and hasattr(api_client, "get_market_prices")
+                ):
                     try:
                         prices = await asyncio.wait_for(
                             api_client.get_market_prices(current_order.token_id),
                             timeout=2.0,
                         )
-                        if prices and prices.get("best_ask"):
-                            new_price = Decimal(str(prices["best_ask"]))
-                            if new_price > 0:
-                                current_order = current_order.model_copy(
-                                    update={"limit_price": new_price}
-                                )
-                                logger.info(
-                                    "fak_retry_price_refreshed",
-                                    attempt=attempt,
-                                    new_price=float(new_price),
-                                )
                     except Exception as refresh_err:
                         logger.warning(
                             "fak_retry_price_refresh_failed",
                             attempt=attempt,
                             error=str(refresh_err),
                         )
+                if prices:
+                    quote_key = (
+                        "best_ask"
+                        if current_order.side.upper() == "BUY"
+                        else "best_bid"
+                    )
+                    new_price = _decimal(prices.get(quote_key))
+                    cap = effective_max_price
+                    if new_price is not None and new_price > 0:
+                        if (
+                            current_order.side.upper() == "BUY"
+                            and cap is not None
+                            and new_price > cap
+                        ):
+                            price_cap_blocked = (
+                                f"Fresh ask {new_price} exceeds max acceptable "
+                                f"price {cap}"
+                            )
+                            logger.info(
+                                "fak_retry_price_above_cap",
+                                attempt=attempt,
+                                fresh_price=str(new_price),
+                                max_acceptable_price=str(cap),
+                            )
+                        else:
+                            updates: dict[str, Any] = {
+                                "limit_price": new_price
+                            }
+                            if (
+                                current_order.side.upper() == "BUY"
+                                and current_order.max_spend_usdc is not None
+                            ):
+                                updates["requested_shares"] = (
+                                    current_order.max_spend_usdc / new_price
+                                )
+                            current_order = current_order.model_copy(
+                                update=updates
+                            )
+                            price_cap_blocked = None
+                            logger.info(
+                                "fak_retry_price_refreshed",
+                                attempt=attempt,
+                                new_price=str(new_price),
+                                requested_shares=str(
+                                    current_order.requested_shares
+                                ),
+                            )
                 continue
 
     logger.warning(
@@ -402,6 +467,14 @@ async def execute_fak_retry(
         last_status=last_result.provider_status if last_result else "unknown",
         error=last_result.error_message if last_result else None,
     )
+    if price_cap_blocked and last_result:
+        return last_result.model_copy(
+            update={
+                "provider_status": "PRICE_MOVED",
+                "rejection_code": "MAX_ACCEPTABLE_PRICE_EXCEEDED",
+                "error_message": price_cap_blocked,
+            }
+        )
     return last_result or SubmissionResult(
         accepted=False,
         provider_status="NO_LIQUIDITY_FAK",
