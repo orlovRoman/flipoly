@@ -6,12 +6,14 @@ the canonical ``HypothesisProposal`` / ``AgentDecision`` schemas.
 """
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ClaimedRun(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
     status: str
     objective: str = ""
@@ -24,9 +26,6 @@ class ClaimedRun(BaseModel):
     llm_provider: str | None = None
     llm_research_model: str | None = None
     llm_summary_model: str | None = None
-
-    class Config:
-        populate_by_name = True
 
 
 class AgentContext(BaseModel):
@@ -49,5 +48,4 @@ class ExperimentResult(BaseModel):
     summary: str | None = None
 
 
-class CompleteAction(str, Literal["COMPLETED", "FAILED", "REQUEUE"]):
-    ...
+CompleteAction: TypeAlias = Literal["COMPLETED", "FAILED", "REQUEUE"]

@@ -66,10 +66,11 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
             )
             return True
 
+        result_payload = result.model_dump(mode="json")
         decision_bundle = await llm.decide(
             context={**llm_context, "proposal_response": proposal_payload},
             proposal=proposal_bundle["proposal"],
-            result=result.model_dump(),
+            result=result_payload,
         )
         await client.submit_decision(run.id, decision_bundle["decision"])
         action = str(decision_bundle["decision"].get("action") or "").upper()
