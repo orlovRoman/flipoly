@@ -695,6 +695,74 @@ async def test_decision_requires_ready_and_validates_config(db_session):
     assert dec_step.output_payload.get("result_id") == term.id
 
 
+@pytest.mark.asyncio
+async def test_context_asset_filtering_and_quality_gate(db_session):
+    from polyflip.db.models import ModelRegistry, TradeHistory
+    from datetime import datetime, timedelta, timezone
+
+    # Create run with BTC asset and custom quality gate
+    run_id = await _seed_run(db_session)
+    # Update scope to BTCUSDT (should normalize to BTC) and custom gate
+    run = await db_session.get(AIOptimizationRun, run_id)
+    run.scope = {"asset": "BTCUSDT", "min_trades": 55, "max_ece": 0.12, "min_positive_oot_windows": 5}
+    await db_session.flush()
+    claimed = (await claim_next_agent_run(AgentClaimRequest(worker_id="ctx-tester"), db_session))["run"]
+    # Need to claim the existing queued run; the previous claim used external-ai-research-agent,
+    # so we force a new claim after releasing? Simpler: use the already claimed lease.
+    # Actually _seed_run created QUEUED, claim_next_agent_run with ctx-tester will claim.
+    # But we already updated scope before claim, so use that lease.
+    lease = claimed["lease_token"]
+    # Create ModelRegistry entries for BTC and ETH
+    now = datetime.now(timezone.utc)
+    btc_model = ModelRegistry(asset="BTC", version=1, is_active=True, trained_at=now, decision_threshold=0.55, accuracy=0.6, ece=0.05, quality_gate_passed=True)
+    eth_model = ModelRegistry(asset="ETH", version=1, is_active=True, trained_at=now, decision_threshold=0.55, accuracy=0.7, ece=0.04, quality_gate_passed=True)
+    db_session.add_all([btc_model, eth_model])
+    # Create TradeHistory for BTC and ETH with required fields
+    t_btc = TradeHistory(market_id="m-btc-1", asset="BTC", outcome_bought="YES", amount_usdc=10, executed_price=0.5, predicted_flip_prob=0.6, active_features="f1", status="FILLED", mode="PAPER", position_status="OPEN", pnl=1.0, timestamp=now - timedelta(hours=1), created_at=now - timedelta(hours=1))
+    t_eth = TradeHistory(market_id="m-eth-1", asset="ETH", outcome_bought="YES", amount_usdc=10, executed_price=0.5, predicted_flip_prob=0.6, active_features="f1", status="FILLED", mode="PAPER", position_status="OPEN", pnl=5.0, timestamp=now - timedelta(hours=1), created_at=now - timedelta(hours=1))
+    # Also BTCUSDT variant to test normalization
+    t_btcusdt = TradeHistory(market_id="m-btc-2", asset="BTCUSDT", outcome_bought="YES", amount_usdc=10, executed_price=0.5, predicted_flip_prob=0.6, active_features="f1", status="PAPER_FILLED", mode="PAPER", position_status="OPEN", pnl=2.0, timestamp=now - timedelta(hours=2), created_at=now - timedelta(hours=2))
+    db_session.add_all([t_btc, t_eth, t_btcusdt])
+    await db_session.flush()
+    ctx = await get_agent_context(run_id=run_id, lease_token=lease, db=db_session)
+    # Only BTC models should be returned (normalized)
+    assets = {m["asset"] for m in ctx["active_models"]}
+    assert assets == {"BTC"}
+    # Only BTC trades counted (BTC + BTCUSDT normalized to BTC = 2 trades, pnl 3.0)
+    stats = ctx["recent_trade_statistics"]
+    # trades_24h should be 2 (BTC + BTCUSDT) not ETH
+    assert stats["trades_24h"] == 2
+    assert stats["net_pnl_24h"] == 3.0
+    # Quality gate from scope, not hardcoded
+    qg = ctx["quality_gate"]
+    assert qg["min_trades"] == 55
+    assert qg["max_ece"] == 0.12
+    assert qg["min_positive_oot_windows"] == 5
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_returns_real_expiry(db_session):
+    run_id = await _seed_run(db_session)
+    claimed = (await claim_next_agent_run(AgentClaimRequest(), db_session))["run"]
+    lease = claimed["lease_token"]
+    from polyflip.api.ai_lab_agent import agent_heartbeat
+
+    first = await agent_heartbeat(HeartbeatRequest(run_id=run_id, lease_token=lease), db_session)
+    # leased_until should be future ISO timestamp
+    from datetime import datetime, timezone
+
+    leased_until = datetime.fromisoformat(first["leased_until"].replace("Z", "+00:00"))
+    now = datetime.now(timezone.utc)
+    assert leased_until > now
+    # Second heartbeat should extend expiry
+    import asyncio as _asyncio
+
+    await _asyncio.sleep(0.01)
+    second = await agent_heartbeat(HeartbeatRequest(run_id=run_id, lease_token=lease), db_session)
+    leased2 = datetime.fromisoformat(second["leased_until"].replace("Z", "+00:00"))
+    assert leased2 >= leased_until
+
+
 def test_openapi_contains_hypothesis_and_decision_schemas():
     from polyflip.api.main import app
 

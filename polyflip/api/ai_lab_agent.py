@@ -81,6 +81,20 @@ def _as_utc(value):
     return value.astimezone(__import__("datetime").timezone.utc)
 
 
+def _normalize_asset(raw: Any) -> str | None:
+    """Normalize asset symbol: strip, upper, remove USDT suffix."""
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip().upper()
+    if not s:
+        return None
+    # Handle common suffixes like BTCUSDT, BTC/USDT, BTC-USDT
+    s = s.replace("/", "").replace("-", "")
+    if s.endswith("USDT"):
+        s = s[:-4]
+    return s or None
+
+
 async def _acquire_lease(
     db: AsyncSession, run_id: int, worker_id: str
 ) -> str | None:
@@ -133,7 +147,7 @@ async def _verify_lease(
         raise HTTPException(status_code=409, detail="LEASE_LOST")
 
 
-async def _renew_lease(db: AsyncSession, run_id: int, lease_token: str | None) -> None:
+async def _renew_lease(db: AsyncSession, run_id: int, lease_token: str | None):
     await _verify_lease(db, run_id, lease_token)
     now = utc_now()
     lease = (
@@ -144,6 +158,7 @@ async def _renew_lease(db: AsyncSession, run_id: int, lease_token: str | None) -
     lease.heartbeat_at = now
     lease.expires_at = now + timedelta(seconds=_lease_ttl_seconds())
     await db.flush()
+    return _as_utc(lease.expires_at)
 
 
 async def _release_lease(db: AsyncSession, run_id: int) -> None:
@@ -271,16 +286,16 @@ class HeartbeatRequest(BaseModel):
 async def agent_heartbeat(payload: HeartbeatRequest, db: AsyncSession = Depends(get_db_session)):
     await _require_run(db, payload.run_id)
     try:
-        await _renew_lease(db, payload.run_id, payload.lease_token)
+        expires_at = await _renew_lease(db, payload.run_id, payload.lease_token)
         await db.commit()
     except HTTPException as exc:
         await db.rollback()
         raise exc
+    # Return real expiry, not now.
+    iso = expires_at.isoformat().replace("+00:00", "Z") if expires_at else utc_now().isoformat().replace("+00:00", "Z")
     return {
         "run_id": payload.run_id,
-        "leased_until": (
-            utc_now().isoformat().replace("+00:00", "Z")
-        ),
+        "leased_until": iso,
     }
 
 
@@ -293,14 +308,29 @@ async def get_agent_context(
     run = await _require_run(db, run_id)
     await _verify_lease(db, run_id, lease_token)
 
-    active_rows = (
+    # Asset-aware filtering: scope asset normalized (BTC/BTCUSDT -> BTC)
+    scope = run.scope if isinstance(run.scope, dict) else {}
+    raw_asset = scope.get("asset")
+    # Support alternative key naming
+    if raw_asset is None:
+        raw_asset = scope.get("scope_asset")
+    normalized_asset = _normalize_asset(raw_asset)
+    # ModelRegistry filtered by asset (same normalization)
+    # Fetch then filter in python to handle USDT variants robustly.
+    candidate_models = (
         await db.execute(
             select(ModelRegistry)
             .where(ModelRegistry.is_active.is_(True))
             .order_by(ModelRegistry.id.desc())
-            .limit(20)
+            .limit(50)
         )
     ).scalars().all()
+    if normalized_asset:
+        filtered_models = [r for r in candidate_models if _normalize_asset(r.asset) == normalized_asset]
+        # Keep most recent 20 after filtering
+        active_rows = filtered_models[:20]
+    else:
+        active_rows = candidate_models[:20]
     active_models = [
         {
             "asset": row.asset,
@@ -314,25 +344,40 @@ async def get_agent_context(
     ]
 
     day_ago = utc_now() - __import__("datetime").timedelta(hours=24)
-    trade_rows = (
-        await db.execute(
-            select(
-                func.count(TradeHistory.id),
-                func.coalesce(func.sum(TradeHistory.pnl), 0.0),
-                func.sum(
-                    __import__("sqlalchemy").case(
-                        (TradeHistory.pnl > 0, 1), else_=0
-                    )
-                ),
-            ).where(
-                TradeHistory.timestamp >= day_ago,
-                TradeHistory.status.in_(["FILLED", "PAPER_FILLED"]),
+    # TradeHistory filtered by asset using same normalization.
+    if normalized_asset:
+        recent_trades = (
+            await db.execute(
+                select(TradeHistory.pnl, TradeHistory.asset).where(
+                    TradeHistory.timestamp >= day_ago,
+                    TradeHistory.status.in_(["FILLED", "PAPER_FILLED"]),
+                )
             )
-        )
-    ).first()
-    trades_24h = int(trade_rows[0] or 0)
-    net_pnl_24h = float(trade_rows[1] or 0.0)
-    wins_24h = int(trade_rows[2] or 0)
+        ).all()
+        filtered = [r for r in recent_trades if _normalize_asset(r[1]) == normalized_asset]
+        trades_24h = len(filtered)
+        net_pnl_24h = float(sum(r[0] or 0.0 for r in filtered))
+        wins_24h = int(sum(1 for r in filtered if (r[0] or 0) > 0))
+    else:
+        trade_rows = (
+            await db.execute(
+                select(
+                    func.count(TradeHistory.id),
+                    func.coalesce(func.sum(TradeHistory.pnl), 0.0),
+                    func.sum(
+                        __import__("sqlalchemy").case(
+                            (TradeHistory.pnl > 0, 1), else_=0
+                        )
+                    ),
+                ).where(
+                    TradeHistory.timestamp >= day_ago,
+                    TradeHistory.status.in_(["FILLED", "PAPER_FILLED"]),
+                )
+            )
+        ).first()
+        trades_24h = int(trade_rows[0] or 0) if trade_rows else 0
+        net_pnl_24h = float(trade_rows[1] or 0.0) if trade_rows else 0.0
+        wins_24h = int(trade_rows[2] or 0) if trade_rows else 0
 
     prior_rows = (
         await db.execute(
@@ -361,6 +406,31 @@ async def get_agent_context(
 
     from polyflip.ai_lab.llm import ALLOWED_FEATURE_SETS
 
+    # Quality gate from scope/settings, not hardcoded.
+    qg: dict[str, Any] = {}
+    if isinstance(scope.get("quality_gate"), dict):
+        qg = dict(scope.get("quality_gate"))
+    # Allow flat keys in scope to override.
+    for key in ("min_trades", "max_ece", "min_positive_oot_windows"):
+        if key in scope and key not in qg:
+            qg[key] = scope[key]
+    # Fallback to settings if available (e.g., runtime settings), else defaults.
+    try:
+        from polyflip.config import settings as _cfg
+
+        qg.setdefault("min_trades", int(getattr(_cfg, "AI_LAB_QUALITY_MIN_TRADES", 30) or 30))
+        qg.setdefault("max_ece", float(getattr(_cfg, "AI_LAB_QUALITY_MAX_ECE", 0.15) or 0.15))
+        qg.setdefault("min_positive_oot_windows", int(getattr(_cfg, "AI_LAB_QUALITY_MIN_POSITIVE_WINDOWS", 2) or 2))
+    except Exception:
+        qg.setdefault("min_trades", 30)
+        qg.setdefault("max_ece", 0.15)
+        qg.setdefault("min_positive_oot_windows", 2)
+    quality_gate = {
+        "min_trades": int(qg.get("min_trades", 30)),
+        "max_ece": float(qg.get("max_ece", 0.15)),
+        "min_positive_oot_windows": int(qg.get("min_positive_oot_windows", 2)),
+    }
+
     return {
         "run": {
             "id": run.id,
@@ -381,11 +451,7 @@ async def get_agent_context(
         },
         "prior_experiments": prior_experiments,
         "available_feature_sets": sorted(ALLOWED_FEATURE_SETS - {"DEFAULT"}),
-        "quality_gate": {
-            "min_trades": 30,
-            "max_ece": 0.15,
-            "min_positive_oot_windows": 2,
-        },
+        "quality_gate": quality_gate,
     }
 
 
