@@ -103,10 +103,17 @@ class AILabApiClient:
 
     async def submit_proposal(self, run_id: int, proposal: dict[str, Any]) -> dict:
         self.require_lease()
+        import uuid
+
+        client_request_id = uuid.uuid4().hex
         return await self._request(
             "POST",
             f"/api/ai-lab/agent/runs/{run_id}/proposal",
-            json_body={"lease_token": self._lease_token, "proposal": proposal},
+            json_body={
+                "lease_token": self._lease_token,
+                "client_request_id": client_request_id,
+                "proposal": proposal,
+            },
         )
 
     async def wait_for_experiment_result(

@@ -1125,9 +1125,15 @@ class AIRunStep(Base):
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
 
+    client_request_id = Column(String(64), nullable=True)
+
     __table_args__ = (
         UniqueConstraint("run_id", "step_index", name="uix_ai_run_step_index"),
+        UniqueConstraint(
+            "run_id", "client_request_id", name="uix_ai_run_step_client_id"
+        ),
         Index("idx_ai_run_steps_run_status", "run_id", "status"),
+        Index("idx_ai_run_steps_client_id", "run_id", "client_request_id"),
         CheckConstraint(
             "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SKIPPED')",
             name="ck_ai_run_steps_status",

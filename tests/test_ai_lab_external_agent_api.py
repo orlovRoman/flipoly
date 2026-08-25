@@ -1,6 +1,7 @@
 ﻿"""External agent API behavior (T07)."""
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -179,7 +180,9 @@ async def test_proposal_creates_config_and_canonical_steps(db_session):
     result = await submit_agent_proposal(
         run_id,
         ProposalRequest(
-            lease_token=claimed["lease_token"], proposal=VALID_PROPOSAL
+            lease_token=claimed["lease_token"],
+            client_request_id=uuid.uuid4().hex,
+            proposal=VALID_PROPOSAL,
         ),
         db_session,
     )
@@ -213,7 +216,11 @@ async def test_invalid_proposal_rejected_with_422(db_session):
     with pytest.raises(Exception):
         await submit_agent_proposal(
             run_id,
-            ProposalRequest(lease_token=claimed["lease_token"], proposal=bad),
+            ProposalRequest(
+                lease_token=claimed["lease_token"],
+                client_request_id=uuid.uuid4().hex,
+                proposal=bad,
+            ),
             db_session,
         )
 
@@ -224,7 +231,11 @@ async def test_decision_persisted_and_complete_releases_lease(db_session):
     claimed = (await claim_next_agent_run(AgentClaimRequest(), db_session))["run"]
     await submit_agent_proposal(
         run_id,
-        ProposalRequest(lease_token=claimed["lease_token"], proposal=VALID_PROPOSAL),
+        ProposalRequest(
+            lease_token=claimed["lease_token"],
+            client_request_id=uuid.uuid4().hex,
+            proposal=VALID_PROPOSAL,
+        ),
         db_session,
     )
     decision_result = await submit_agent_decision(
@@ -411,7 +422,11 @@ async def test_invalid_proposal_422_via_http(db_session, monkeypatch):
             response = await client.post(
                 f"/api/ai-lab/agent/runs/{run_id}/proposal",
                 headers={"Authorization": "Bearer agent-secret"},
-                json={"lease_token": lease, "proposal": bad},
+                json={
+                    "lease_token": lease,
+                    "client_request_id": uuid.uuid4().hex,
+                    "proposal": bad,
+                },
             )
         assert response.status_code == 422
     finally:
@@ -444,7 +459,11 @@ async def test_invalid_decision_422_via_http(db_session, monkeypatch):
             await client.post(
                 f"/api/ai-lab/agent/runs/{run_id}/proposal",
                 headers={"Authorization": "Bearer agent-secret"},
-                json={"lease_token": lease, "proposal": VALID_PROPOSAL},
+                json={
+                    "lease_token": lease,
+                    "client_request_id": uuid.uuid4().hex,
+                    "proposal": VALID_PROPOSAL,
+                },
             )
             response = await client.post(
                 f"/api/ai-lab/agent/runs/{run_id}/decision",
@@ -454,6 +473,63 @@ async def test_invalid_decision_422_via_http(db_session, monkeypatch):
         assert response.status_code == 422
     finally:
         app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_proposal_ordering_and_idempotency(db_session):
+    run_id = await _seed_run(db_session)
+    claimed = (await claim_next_agent_run(AgentClaimRequest(), db_session))["run"]
+    lease = claimed["lease_token"]
+    req_id_a = uuid.uuid4().hex
+    req_id_b = uuid.uuid4().hex
+    # First proposal creates iteration.
+    first = await submit_agent_proposal(
+        run_id,
+        ProposalRequest(lease_token=lease, client_request_id=req_id_a, proposal=VALID_PROPOSAL),
+        db_session,
+    )
+    assert first["config_id"] > 0
+    assert len(first["step_ids"]) >= 4  # PROPOSAL + 3 canonical steps
+    # Idempotent retry with same client_request_id must not create a new config.
+    from polyflip.db.models import AIRunStep
+
+    steps_before = (await db_session.execute(sa.select(AIRunStep).where(AIRunStep.run_id == run_id))).scalars().all()
+    configs_before = (await db_session.execute(sa.select(AIExperimentConfig))).scalars().all()
+    retry = await submit_agent_proposal(
+        run_id,
+        ProposalRequest(lease_token=lease, client_request_id=req_id_a, proposal=VALID_PROPOSAL),
+        db_session,
+    )
+    assert retry["config_id"] == first["config_id"]
+    assert retry["step_ids"] == first["step_ids"]
+    steps_after_retry = (await db_session.execute(sa.select(AIRunStep).where(AIRunStep.run_id == run_id))).scalars().all()
+    configs_after_retry = (await db_session.execute(sa.select(AIExperimentConfig))).scalars().all()
+    assert len(steps_after_retry) == len(steps_before)
+    assert len(configs_after_retry) == len(configs_before)
+    # Different client_request_id creates a new iteration.
+    second = await submit_agent_proposal(
+        run_id,
+        ProposalRequest(lease_token=lease, client_request_id=req_id_b, proposal=VALID_PROPOSAL),
+        db_session,
+    )
+    assert second["config_id"] != first["config_id"]
+    assert second["config_id"] > 0
+    # No (run_id, step_index) conflicts and ordering is monotonic.
+    all_steps = (
+        await db_session.execute(sa.select(AIRunStep).where(AIRunStep.run_id == run_id).order_by(AIRunStep.step_index))
+    ).scalars().all()
+    indices = [s.step_index for s in all_steps]
+    assert indices == sorted(indices)
+    assert len(indices) == len(set(indices))
+    # No duplicate (run_id, step_index) pairs.
+    assert len(indices) == len(all_steps)
+    # Verify proposal steps are at correct positions.
+    proposal_steps = [s for s in all_steps if s.step_type == "PROPOSAL"]
+    assert len(proposal_steps) == 2
+    assert proposal_steps[0].client_request_id == req_id_a
+    assert proposal_steps[1].client_request_id == req_id_b
+    # First proposal should be before its TRAIN block, second proposal after.
+    assert proposal_steps[0].step_index < proposal_steps[1].step_index
 
 
 def test_openapi_contains_hypothesis_and_decision_schemas():

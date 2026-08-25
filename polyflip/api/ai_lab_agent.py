@@ -425,6 +425,7 @@ async def get_agent_latest_result(
 
 class ProposalRequest(BaseModel):
     lease_token: str
+    client_request_id: str = Field(min_length=8, max_length=64)
     proposal: HypothesisProposal
 
     @field_validator("proposal", mode="before")
@@ -479,16 +480,68 @@ async def submit_agent_proposal(
     payload: ProposalRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
-    run = await _require_run(db, run_id)
+    # Lock run row to serialize proposals for the same run.
+    locked_run = (
+        await db.execute(
+            select(AIOptimizationRun)
+            .where(AIOptimizationRun.id == run_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked_run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    run = locked_run
     await _verify_lease(db, run_id, payload.lease_token)
+    # Idempotency: same client_request_id must not create a second config.
+    existing = (
+        await db.execute(
+            select(AIRunStep).where(
+                AIRunStep.run_id == run_id,
+                AIRunStep.client_request_id == payload.client_request_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        cfg_id = None
+        if isinstance(existing.output_payload, dict):
+            cfg_id = existing.output_payload.get("config_id")
+        if cfg_id is None and isinstance(existing.input_payload, dict):
+            cfg_id = existing.input_payload.get("config_id")
+        try:
+            cfg_id_int = int(cfg_id) if cfg_id is not None else None
+        except Exception:
+            cfg_id_int = None
+        # Collect all steps belonging to this proposal iteration.
+        all_steps = (
+            await db.execute(
+                select(AIRunStep)
+                .where(AIRunStep.run_id == run_id)
+                .order_by(AIRunStep.step_index)
+            )
+        ).scalars().all()
+        step_ids: list[int] = []
+        for s in all_steps:
+            if s.client_request_id == payload.client_request_id:
+                step_ids.append(int(s.id))
+            elif cfg_id_int is not None and isinstance(s.input_payload, dict) and s.input_payload.get("config_id") == cfg_id_int:
+                step_ids.append(int(s.id))
+        # Fallback: at least return the proposal step itself.
+        if not step_ids:
+            step_ids = [int(existing.id)]
+        # Do not create anything; just return previous result.
+        await db.rollback()
+        return {"config_id": int(cfg_id_int) if cfg_id_int is not None else int(existing.id), "step_ids": step_ids}
     proposal = payload.proposal
     config = await create_agent_config(db, run=run, proposal=proposal)
-    steps = await plan_run(db, run.id, [config.id])
-    step_index = len(steps)
+    # Compute next_index via func.max to avoid races on step_index.
+    max_index = (
+        await db.execute(select(func.max(AIRunStep.step_index)).where(AIRunStep.run_id == run_id))
+    ).scalar_one_or_none()
+    next_index = int(max_index) + 1 if max_index is not None else 0
     proposal_step = await append_step(
         db,
         run.id,
-        step_index=step_index,
+        step_index=next_index,
         step_type="PROPOSAL",
         status="SUCCEEDED",
         hypothesis=proposal.hypothesis[:2000],
@@ -497,11 +550,15 @@ async def submit_agent_proposal(
         output_payload={"config_id": config.id},
         summary=f"External agent hypothesis for {proposal.asset}",
     )
-    run.experiments_completed = (run.experiments_completed or 0) + 0
+    # Persist client_request_id on the proposal step (append_step does not know it).
+    proposal_step.client_request_id = payload.client_request_id  # type: ignore[attr-defined]
+    await db.flush()
+    # Append canonical TRAIN/OOT steps after the proposal.
+    steps = await plan_run(db, run.id, [config.id])
     await db.commit()
     return {
         "config_id": config.id,
-        "step_ids": [step.id for step in steps] + [proposal_step.id],
+        "step_ids": [proposal_step.id] + [step.id for step in steps],
     }
 
 
