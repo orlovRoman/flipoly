@@ -1706,6 +1706,7 @@ class AIWorkerLease(Base):
         nullable=False,
         unique=True,
     )
+    worker_id = Column(String(128), nullable=False, server_default="external-ai-research-agent")
     owner_token = Column(String(128), nullable=False)
     acquired_at = Column(DateTime(timezone=True), nullable=False)
     heartbeat_at = Column(DateTime(timezone=True), nullable=False)
@@ -1713,6 +1714,7 @@ class AIWorkerLease(Base):
 
     __table_args__ = (
         Index("idx_ai_worker_leases_expires", "expires_at"),
+        Index("idx_ai_worker_leases_worker", "worker_id"),
     )
 
 
