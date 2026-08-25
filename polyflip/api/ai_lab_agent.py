@@ -163,6 +163,28 @@ async def _require_run(db: AsyncSession, run_id: int) -> AIOptimizationRun:
     return run
 
 
+async def _agent_phase(db, run_id: int) -> dict[str, Any]:
+    from polyflip.db.models import AIRunStep
+    steps = (await db.execute(select(AIRunStep).where(AIRunStep.run_id == run_id).order_by(AIRunStep.step_index))).scalars().all()
+    has_proposal = any(s.step_type == "PROPOSAL" for s in steps)
+    pending = any(s.status == "PENDING" and s.step_type in {"TRAIN_MODEL", "RUN_OOT_BACKTEST", "RUN_POLYMARKET_OOT"} for s in steps)
+    has_decision = any(s.step_type == "DECISION" for s in steps)
+    # terminal OOT result
+    term = (await db.execute(select(ExperimentResult).where(ExperimentResult.run_id == run_id, ExperimentResult.evaluation_kind == "POLYMARKET_OOT", ExperimentResult.status == "SUCCEEDED").order_by(ExperimentResult.id.desc()).limit(1))).scalar_one_or_none()
+    if not has_proposal:
+        phase = "NEEDS_PROPOSAL"
+    elif pending:
+        phase = "WAITING_RESULT"
+    elif term is not None and not has_decision:
+        phase = "NEEDS_DECISION"
+    elif has_decision:
+        phase = "NEEDS_COMPLETION"
+    else:
+        phase = "NEEDS_PROPOSAL"
+    latest_cfg = next((s.input_payload.get("config_id") for s in reversed(steps) if s.input_payload and s.input_payload.get("config_id")), None)
+    return {"phase": phase, "latest_config_id": latest_cfg, "latest_result_id": term.id if term else None, "latest_decision": has_decision}
+
+
 def _claimed_run_payload(run: AIOptimizationRun, lease_token: str) -> dict[str, Any]:
     return {
         "id": run.id,
