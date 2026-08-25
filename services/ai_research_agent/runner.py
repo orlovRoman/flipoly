@@ -85,7 +85,7 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
         return True
     except LeaseLostError:
         logger.warning("lease lost", extra={"run_id": run.id})
-        client._lease_token = None
+        client.drop_lease()
         return False
     except AgentAPIError as exc:
         logger.error("agent api error", extra={"run_id": run.id, "error": str(exc)})

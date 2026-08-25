@@ -25,6 +25,10 @@ class FakeClient:
         self.completed_with = None
         self.submitted_proposal = None
         self.submitted_decision = None
+        self._lease_token: str | None = "lease-token"
+
+    def drop_lease(self) -> None:
+        self._lease_token = None
 
     async def claim(self):
         self.calls.append("claim")
@@ -180,3 +184,67 @@ def test_result_serializes_to_json():
     assert payload["config_id"] == 91
     assert payload["evaluation_kind"] == "POLYMARKET_OOT"
     assert payload["metrics"]["median_pnl"] == 1.2
+
+
+def test_api_client_params_and_lease_lost_clears_token():
+    import httpx
+    from api_client import AILabApiClient, LeaseLostError
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["params"] = dict(request.url.params)
+        # Simulate LEASE_LOST for heartbeat
+        if request.url.path.endswith("/heartbeat"):
+            return httpx.Response(409, json={"detail": "LEASE_LOST"})
+        if request.url.path.endswith("/context"):
+            # Verify lease_token in query params
+            assert captured["params"].get("lease_token") == "test-lease"
+            return httpx.Response(200, json={
+                "run": {"id": 1, "status": "RUNNING", "objective": "x", "scope": {}, "autonomy_level": "EXPERIMENT", "iteration": 0, "budget_remaining_steps": 1},
+                "active_models": [], "recent_trade_statistics": {}, "prior_experiments": [], "available_feature_sets": [], "quality_gate": {}
+            })
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    client = AILabApiClient("http://test", "token")
+    client._lease_token = "test-lease"
+    # Patch httpx.AsyncClient to use mock transport
+    original_async_client = httpx.AsyncClient
+
+    class PatchedAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            super().__init__(*args, **kwargs)
+
+    import api_client as ac_module
+    ac_module.httpx.AsyncClient = PatchedAsyncClient
+    try:
+        # GET context should include lease_token in params
+        _run(client.get_context(1))
+        assert captured["params"].get("lease_token") == "test-lease"
+        # Heartbeat LEASE_LOST should clear token and raise
+        try:
+            _run(client.heartbeat(1))
+            assert False, "should have raised LeaseLostError"
+        except LeaseLostError:
+            pass
+        assert client._lease_token is None
+        # drop_lease should work
+        client._lease_token = "again"
+        client.drop_lease()
+        assert client._lease_token is None
+    finally:
+        ac_module.httpx.AsyncClient = original_async_client
+
+
+def test_runner_uses_drop_lease_not_direct_assignment():
+    # Ensure runner no longer does client._lease_token = None directly
+    import pathlib
+    import ast
+
+    p = pathlib.Path(SERVICES_DIR) / "runner.py"
+    src = p.read_text()
+    assert "client._lease_token = None" not in src
+    assert "drop_lease" in src

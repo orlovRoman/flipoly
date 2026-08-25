@@ -45,13 +45,23 @@ class AILabApiClient:
         path: str,
         *,
         json_body: Any | None = None,
+        params: dict[str, Any] | None = None,
         expected: tuple[int, ...] = (200,),
     ) -> Any:
         url = f"{self._base_url}{path}"
         async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
             response = await client.request(
-                method, url, json=json_body, headers=self._headers
+                method, url, json=json_body, params=params, headers=self._headers
             )
+        # Centralize LEASE_LOST handling: clear token and raise typed error.
+        if response.status_code == 409:
+            try:
+                detail = response.json().get("detail", response.text)
+            except Exception:
+                detail = response.text
+            if "LEASE_LOST" in str(detail):
+                self._lease_token = None
+                raise LeaseLostError()
         if response.status_code in expected:
             if not response.content:
                 return None
@@ -61,6 +71,9 @@ class AILabApiClient:
         except Exception:
             detail = response.text
         raise AgentAPIError(response.status_code, str(detail))
+
+    def drop_lease(self) -> None:
+        self._lease_token = None
 
     # --- lifecycle -------------------------------------------------------
     async def claim(self) -> ClaimedRun | None:
@@ -82,10 +95,7 @@ class AILabApiClient:
             "POST",
             "/api/ai-lab/agent/heartbeat",
             json_body={"run_id": run_id, "lease_token": self._lease_token},
-            expected=(200, 409),
         )
-        if data and data.get("detail") == "LEASE_LOST":
-            raise LeaseLostError()
         leased_until = str((data or {}).get("leased_until") or "")
         return 0.0 if not leased_until else 0.0  # server TTL drives renewal
 
@@ -97,7 +107,9 @@ class AILabApiClient:
     # --- research flow ---------------------------------------------------
     async def get_context(self, run_id: int) -> AgentContext:
         data = await self._request(
-            "GET", f"/api/ai-lab/agent/runs/{run_id}/context"
+            "GET",
+            f"/api/ai-lab/agent/runs/{run_id}/context",
+            params={"lease_token": self._lease_token},
         )
         return AgentContext.model_validate(data or {})
 
@@ -129,11 +141,12 @@ class AILabApiClient:
                 "POST",
                 "/api/ai-lab/agent/heartbeat",
                 json_body={"run_id": run_id, "lease_token": self._lease_token},
-                expected=(200, 409),
             )
             try:
                 data = await self._request(
-                    "GET", f"/api/ai-lab/agent/runs/{run_id}/result"
+                    "GET",
+                    f"/api/ai-lab/agent/runs/{run_id}/result",
+                    params={"lease_token": self._lease_token},
                 )
             except AgentAPIError as exc:
                 if exc.status_code != 404:
@@ -172,5 +185,5 @@ class AILabApiClient:
         data = await self._request(
             "POST", f"/api/ai-lab/agent/runs/{run_id}/complete", json_body=body
         )
-        self._lease_token = None
+        self.drop_lease()
         return data or {}
