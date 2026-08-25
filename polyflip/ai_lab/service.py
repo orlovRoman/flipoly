@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from polyflip.config import normalize_ai_lab_mode, settings
-from polyflip.ai_lab.llm import normalize_llm_selection
+from polyflip.ai_lab.llm_catalog import resolve_llm_snapshot
 from polyflip.ai_lab.manifests import (
     build_deployment_manifest,
     compute_manifest_hash,
@@ -176,11 +176,17 @@ async def create_run(
 ) -> AIOptimizationRun:
     autonomy_level = autonomy_level.upper()
     try:
-        resolved_provider, resolved_research_model, resolved_summary_model = normalize_llm_selection(
-            llm_provider, llm_research_model, llm_summary_model
+        snapshot = await resolve_llm_snapshot(
+            session,
+            provider=llm_provider,
+            research_model=llm_research_model,
+            summary_model=llm_summary_model,
         )
     except ValueError as exc:
         raise AILabError(str(exc)) from exc
+    resolved_provider = str(snapshot["provider"])
+    resolved_research_model = str(snapshot["research_model"])
+    resolved_summary_model = str(snapshot["summary_model"])
     resolved_mode = normalize_ai_lab_mode(mode or settings.AI_LAB_MODE)
     if permission is None and autonomy_level != "OBSERVE":
         raise AIPermissionError(
@@ -238,6 +244,7 @@ async def create_run(
         llm_provider=resolved_provider,
         llm_research_model=resolved_research_model,
         llm_summary_model=resolved_summary_model,
+        llm_snapshot=dict(snapshot),
         created_at=now,
     )
     session.add(row)

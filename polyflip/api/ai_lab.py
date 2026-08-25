@@ -256,6 +256,7 @@ def _run_payload(run: AIOptimizationRun) -> dict[str, Any]:
         "llm_provider": run.llm_provider,
         "llm_research_model": run.llm_research_model,
         "llm_summary_model": run.llm_summary_model,
+        "llm_snapshot": getattr(run, "llm_snapshot", None),
         "budget_experiments": run.budget_experiments,
         "budget_seconds": run.budget_seconds,
         "created_by": run.created_by,

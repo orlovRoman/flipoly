@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.llm import (
     DEFAULT_OPENCODE_CHAT_ENDPOINT,
+    DEFAULT_OPENCODE_CHAT_MODELS,
     DEFAULT_OPENCODE_ENDPOINT,
     get_llm_model_catalog,
 )
@@ -556,3 +557,113 @@ async def persist_model_check_result(
     row.raw_metadata = metadata
     await db.flush()
     return row
+
+
+# ---------------------------------------------------------------------------
+# Immutable run-time LLM selection snapshot (T05)
+# ---------------------------------------------------------------------------
+async def resolve_llm_snapshot(
+    db: AsyncSession,
+    *,
+    provider: str | None,
+    research_model: str | None,
+    summary_model: str | None,
+    settings_obj: Any | None = None,
+) -> dict[str, Any]:
+    """Resolve and validate the immutable LLM selection for a new run.
+
+    Raises ``ValueError`` when a dynamically known model is missing from the
+    catalog or its latest availability check failed. When no dynamic catalog
+    exists for the provider the legacy static configuration catalog is used.
+    """
+    cfg = settings_obj or default_settings
+    provider_name = (provider or "").strip().lower() or str(
+        getattr(cfg, "AI_LAB_LLM_PROVIDER", "mock")
+    ).strip().lower()
+    checked_at = datetime.now(timezone.utc)
+
+    def snapshot(
+        research: str,
+        summary: str,
+        *,
+        protocol: str | None,
+        status_value: str,
+        catalog_time: datetime | None,
+    ) -> dict[str, Any]:
+        return {
+            "provider": provider_name,
+            "research_model": research,
+            "summary_model": summary,
+            "catalog_checked_at": (
+                catalog_time.isoformat() if catalog_time else None
+            ),
+            "catalog_model_status": status_value,
+            "protocol": protocol,
+        }
+
+    if provider_name == "mock":
+        research = (research_model or "").strip() or "mock-gpt-5"
+        summary = (summary_model or "").strip() or "mock-gpt-5"
+        return snapshot(
+            research, summary, protocol="mock", status_value="available",
+            catalog_time=checked_at,
+        )
+
+    by_id: dict[str, AILLMModelCatalog] = {}
+    if provider_name == "opencode":
+        # Only OpenCode has a dynamic discovery cache today.
+        rows = (
+            await db.execute(
+                select(AILLMModelCatalog).where(
+                    AILLMModelCatalog.provider == provider_name
+                )
+            )
+        ).scalars().all()
+        by_id = {row.model_id: row for row in rows}
+
+    if not by_id:
+        # Legacy/static path keeps pre-catalog behavior working.
+        resolved = get_llm_model_catalog(provider_name)
+        allowed = {str(item["id"]) for item in resolved["models"]}
+        defaults = resolved["defaults"]
+        research = (research_model or "").strip() or str(defaults["research_model"])
+        summary = (summary_model or "").strip() or str(defaults["summary_model"])
+        if research not in allowed or summary not in allowed:
+            raise ValueError(
+                f"Unknown model for provider {provider_name}: "
+                f"research={research!r}, summary={summary!r}"
+            )
+        protocol = (
+            "chat_completions"
+            if provider_name == "opencode"
+            and research in set(DEFAULT_OPENCODE_CHAT_MODELS)
+            else "responses"
+        )
+        return snapshot(
+            research, summary, protocol=protocol,
+            status_value="legacy_static", catalog_time=None,
+        )
+
+    def validated(model_id: str | None) -> AILLMModelCatalog:
+        clean = (model_id or "").strip()
+        row = by_id.get(clean)
+        if row is None:
+            raise ValueError(
+                f"Model '{clean}' is not present in the {provider_name} catalog"
+            )
+        if not row.is_available:
+            raise ValueError(
+                f"Model '{clean}' is not available "
+                "(missing or failed availability check)"
+            )
+        return row
+
+    research_row = validated(research_model)
+    summary_row = validated(summary_model)
+    return snapshot(
+        research_row.model_id,
+        summary_row.model_id,
+        protocol=research_row.protocol,
+        status_value="available",
+        catalog_time=_as_utc(research_row.discovered_at),
+    )

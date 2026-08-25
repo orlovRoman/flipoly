@@ -984,6 +984,9 @@ class AIOptimizationRun(Base):
     llm_provider = Column(String(32), nullable=True)
     llm_research_model = Column(String(128), nullable=True)
     llm_summary_model = Column(String(128), nullable=True)
+    llm_snapshot = Column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
     agent_type = Column(String(64), nullable=True)
     permission_id = Column(
         Integer,
