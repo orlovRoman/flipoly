@@ -162,4 +162,3 @@ heartbeat failure / TTL expiry ------------------> lease reclaimable by any agen
 
 Error envelope: `{"detail": "<machine-readable reason>"}` with HTTP 401/404/
 409/422. A lost lease yields `409 LEASE_LOST` and the agent must drop the run.
-
