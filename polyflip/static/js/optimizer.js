@@ -310,6 +310,41 @@ async function loadRunDetail(runId) {
   }
 }
 
+function renderShadowGate(run) {
+  let summary = run && run.summary;
+  if (typeof summary === "string") {
+    try {
+      summary = JSON.parse(summary);
+    } catch (_err) {
+      summary = null;
+    }
+  }
+  const report = summary && typeof summary === "object"
+    ? (summary.report && typeof summary.report === "object" ? summary.report : summary)
+    : null;
+  if (!report) {
+    return `<div class="unavailable">Current status: ${escapeHtml(run.status)}. Finalization gate report is unavailable.</div>`;
+  }
+  const failures = Array.isArray(report.rejection_reasons)
+    ? report.rejection_reasons
+    : [];
+  const rows = Array.isArray(report.rows) ? report.rows : [];
+  const selected = rows.find(
+    (row) => row.config_id === report.recommended_config_id
+  ) || rows[0] || {};
+  const gateBadge = report.eligible_for_shadow
+    ? '<span class="badge badge-success">ELIGIBLE</span>'
+    : '<span class="badge badge-danger">REJECTED</span>';
+  const failureHtml = failures.length
+    ? `<ul>${failures.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>`
+    : "<p>No gate failures.</p>";
+  return `
+    <div>${gateBadge} ${formatStatusBadge(run.status)}</div>
+    <p>${escapeHtml(report.reason || "No gate explanation.")}</p>
+    <div class="diff-label">Config: #${escapeHtml(selected.config_id ?? "none")} · trades: ${escapeHtml(selected.total_trades ?? "—")} · windows: ${escapeHtml(selected.window_count ?? "—")} · median PnL: ${escapeHtml(selected.median_oot_pnl ?? "—")} · drawdown: ${escapeHtml(selected.median_oot_drawdown ?? "—")}</div>
+    ${failureHtml}
+  `;
+}
 function renderStage9Detail(run, steps, results, audits) {
   const timeline = document.getElementById("stage9-timeline");
   const candidates = document.getElementById("stage9-candidates");
@@ -319,7 +354,7 @@ function renderStage9Detail(run, steps, results, audits) {
   const items = steps || [];
   if (timeline) timeline.innerHTML = items.length ? items.map((step) => `<div class="timeline-item"><div class="timeline-content"><strong>#${escapeHtml(step.step_index)} ${escapeHtml(step.step_type)}</strong> ${formatStatusBadge(step.status)}<div class="diff-label">${escapeHtml(step.summary || step.hypothesis || "—")}</div></div></div>`).join("") : '<div class="unavailable">Шаги отсутствуют.</div>';
   if (candidates) candidates.innerHTML = results.length ? `<table class="opt-table"><thead><tr><th>Config</th><th>Type</th><th>Status</th><th>Trades</th><th>Net PnL</th><th>Drawdown</th></tr></thead><tbody>${results.map((r) => `<tr><td>#${escapeHtml(r.config_id)}</td><td>${escapeHtml(r.evaluation_kind)}</td><td>${formatStatusBadge(r.status)}</td><td>${escapeHtml(r.trade_count ?? "—")}</td><td>${escapeHtml(r.net_pnl ?? "—")}</td><td>${escapeHtml(r.max_drawdown ?? "—")}</td></tr>`).join("")}</tbody></table>` : '<div class="unavailable">Результаты отсутствуют.</div>';
-  if (shadow) shadow.innerHTML = String(run.status).toUpperCase() === "SHADOW" ? '<div class="status-badge badge-shadow">SHADOW</div><p>Пассивное наблюдение. LIVE-активация отключена.</p>' : `<div class="unavailable">Текущий статус: ${escapeHtml(run.status)}. SHADOW assignment не найден.</div>`;
+  if (shadow) shadow.innerHTML = renderShadowGate(run);
   const failed = [...items.filter((s) => ["FAILED", "ERROR"].includes(String(s.status).toUpperCase())), ...(audits || []).filter((a) => a.error_code || a.error_message)];
   if (errors) errors.innerHTML = failed.length ? failed.map((e) => `<div class="timeline-content"><strong>${escapeHtml(e.error_code || e.status || "ERROR")}</strong><div>${escapeHtml(e.error_message || e.error || "—")}</div></div>`).join("") : '<div class="unavailable">Ошибок не найдено.</div>';
   if (audit) audit.innerHTML = audits.length ? audits.map((a) => `<div class="timeline-content"><strong>${escapeHtml(a.action || "AUDIT")}</strong><div>${escapeHtml(a.created_at || "—")} — ${escapeHtml(a.error_message || a.reason || "OK")}</div></div>`).join("") : '<div class="unavailable">Аудит пуст.</div>';
@@ -648,7 +683,7 @@ function renderLLMModelOptions() {
     const discovered = item.is_discovered !== false;
     const probe = item.probe_status || (item.is_available === false ? "FAILED" : "UNCHECKED");
     const supports = item.supports_structured_output !== false;
-    return !discovered || !supports || probe !== "PASSED";
+    return !discovered || !supports;
   }
   const options = models.map((item) => {
     const badge = probeBadge(item);

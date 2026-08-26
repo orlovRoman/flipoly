@@ -168,8 +168,6 @@ class ConfigCreateRequest(BaseModel):
     parent_id: int | None = None
 
 
-
-
 class PermissionCreateRequest(BaseModel):
     profile_name: str = Field(min_length=1, max_length=64)
     allowed_actions: list[str] = Field(default_factory=list)
@@ -306,7 +304,10 @@ def _audit_payload(audit: Any) -> dict[str, Any]:
 # Audit responses deliberately contain a small, stable projection rather than
 # the executor payload.  In particular, executor error messages can contain a
 # traceback or an accidentally logged credential.
-_SECRET_KEY = re.compile(r"(?:secret|password|passwd|token|api[_-]?key|private[_-]?key|authorization|cookie)", re.I)
+_SECRET_KEY = re.compile(
+    r"(?:secret|password|passwd|token|api[_-]?key|private[_-]?key|authorization|cookie)",
+    re.I,
+)
 
 
 def _safe_text(value: Any, limit: int = 1000) -> str | None:
@@ -354,19 +355,24 @@ def verify_deployment_event_chain(events: list[Any]) -> dict[str, Any]:
     """Verify one revision's chain without changing database state."""
     previous = "0" * 64
     broken: list[dict[str, Any]] = []
-    for event in sorted(events, key=lambda row: (getattr(row, "created_at", None), getattr(row, "id", 0))):
+    for event in sorted(
+        events,
+        key=lambda row: (getattr(row, "created_at", None), getattr(row, "id", 0)),
+    ):
         if event.previous_hash != previous:
             broken.append({"event_id": event.id, "reason": "previous_hash_mismatch"})
         payload = event.payload if isinstance(event.payload, dict) else {}
-        expected = compute_manifest_hash({
-            "revision_id": event.revision_id,
-            "event_type": event.event_type,
-            "actor": event.actor,
-            "reason": event.reason,
-            "payload": payload,
-            "previous_hash": event.previous_hash,
-            "timestamp": event.created_at.isoformat() if event.created_at else None,
-        })
+        expected = compute_manifest_hash(
+            {
+                "revision_id": event.revision_id,
+                "event_type": event.event_type,
+                "actor": event.actor,
+                "reason": event.reason,
+                "payload": payload,
+                "previous_hash": event.previous_hash,
+                "timestamp": event.created_at.isoformat() if event.created_at else None,
+            }
+        )
         if event.event_hash != expected:
             broken.append({"event_id": event.id, "reason": "event_hash_mismatch"})
         previous = event.event_hash
@@ -456,11 +462,16 @@ async def create_ai_permission(
 @router.get("/permissions")
 async def list_ai_permissions(db: AsyncSession = Depends(get_db_session)):
     rows = (
-        await db.execute(
-            select(AIPermission)
-            .order_by(AIPermission.profile_name, AIPermission.version.desc())
+        (
+            await db.execute(
+                select(AIPermission).order_by(
+                    AIPermission.profile_name, AIPermission.version.desc()
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {
         "permissions": [
             {
@@ -512,7 +523,7 @@ async def list_llm_models(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@router.post("/llm/models/{provider}/{model_id}/check")
+@router.post("/llm/models/{provider}/{model_id:path}/check")
 async def check_llm_model(
     provider: str,
     model_id: str,
@@ -544,7 +555,9 @@ async def check_llm_model(
 
 
 @router.post("/runs", status_code=201)
-async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(get_db_session)):
+async def create_ai_run(
+    payload: RunCreateRequest, db: AsyncSession = Depends(get_db_session)
+):
     permission = None
     if payload.permission_id is not None:
         # Lock the concrete permission version while the run captures its
@@ -596,9 +609,7 @@ async def list_ai_runs(
 ):
     # Cursor pagination is stable even when multiple runs share a timestamp.
     limit = min(max(limit, 1), 100)
-    query = select(AIOptimizationRun).order_by(
-        AIOptimizationRun.id.desc()
-    ).limit(limit)
+    query = select(AIOptimizationRun).order_by(AIOptimizationRun.id.desc()).limit(limit)
     if status:
         query = query.where(AIOptimizationRun.status == status.strip().upper())
     if created_by:
@@ -1180,12 +1191,16 @@ async def list_ai_deployment_revisions(
     db: AsyncSession = Depends(get_db_session),
 ):
     revisions = (
-        await db.execute(
-            select(DeploymentRevision)
-            .order_by(DeploymentRevision.id.desc())
-            .limit(min(max(1, limit), 200))
+        (
+            await db.execute(
+                select(DeploymentRevision)
+                .order_by(DeploymentRevision.id.desc())
+                .limit(min(max(1, limit), 200))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         {
             "id": rev.id,
@@ -1207,12 +1222,22 @@ async def get_ai_run_audit(run_id: int, db: AsyncSession = Depends(get_db_sessio
     """Return the safe, normalized audit projection for one run."""
     if await db.get(AIOptimizationRun, run_id) is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
-    rows = (await db.execute(
-        select(AIStepAuditLog)
-        .where(AIStepAuditLog.run_id == run_id)
-        .order_by(AIStepAuditLog.created_at, AIStepAuditLog.id)
-    )).scalars().all()
-    return {"run_id": run_id, "audit": [_step_audit_payload(row) for row in rows], "count": len(rows)}
+    rows = (
+        (
+            await db.execute(
+                select(AIStepAuditLog)
+                .where(AIStepAuditLog.run_id == run_id)
+                .order_by(AIStepAuditLog.created_at, AIStepAuditLog.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "run_id": run_id,
+        "audit": [_step_audit_payload(row) for row in rows],
+        "count": len(rows),
+    }
 
 
 @router.get("/runs/{run_id}/timeline")
@@ -1220,18 +1245,28 @@ async def get_ai_run_timeline(run_id: int, db: AsyncSession = Depends(get_db_ses
     """Return a chronological, concise view of step and deployment audit records."""
     if await db.get(AIOptimizationRun, run_id) is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
-    step_rows = (await db.execute(
-        select(AIStepAuditLog).where(AIStepAuditLog.run_id == run_id)
-    )).scalars().all()
-    deployment_rows = (await db.execute(
-        select(DeploymentEvent)
-        .where(DeploymentEvent.payload["run_id"].as_string() == str(run_id))
-        .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
-    )).scalars().all()
-    events = [_step_audit_payload(row) for row in step_rows]
-    events.extend(
-        _audit_event_payload(row) for row in deployment_rows
+    step_rows = (
+        (
+            await db.execute(
+                select(AIStepAuditLog).where(AIStepAuditLog.run_id == run_id)
+            )
+        )
+        .scalars()
+        .all()
     )
+    deployment_rows = (
+        (
+            await db.execute(
+                select(DeploymentEvent)
+                .where(DeploymentEvent.payload["run_id"].as_string() == str(run_id))
+                .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    events = [_step_audit_payload(row) for row in step_rows]
+    events.extend(_audit_event_payload(row) for row in deployment_rows)
 
     def timeline_time(value: Any) -> datetime:
         if value is None:
@@ -1240,21 +1275,33 @@ async def get_ai_run_timeline(run_id: int, db: AsyncSession = Depends(get_db_ses
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
 
-    events.sort(key=lambda row: (row["created_at"] is None, timeline_time(row["created_at"])))
+    events.sort(
+        key=lambda row: (row["created_at"] is None, timeline_time(row["created_at"]))
+    )
     return {"run_id": run_id, "timeline": events, "count": len(events)}
 
 
 @router.get("/audit/verify")
 async def verify_ai_audit(db: AsyncSession = Depends(get_db_session)):
     """Verify every per-revision deployment event chain and return a summary."""
-    revisions = (await db.execute(select(DeploymentRevision).order_by(DeploymentRevision.id))).scalars().all()
+    revisions = (
+        (await db.execute(select(DeploymentRevision).order_by(DeploymentRevision.id)))
+        .scalars()
+        .all()
+    )
     results = []
     for revision in revisions:
-        events = (await db.execute(
-            select(DeploymentEvent)
-            .where(DeploymentEvent.revision_id == revision.id)
-            .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
-        )).scalars().all()
+        events = (
+            (
+                await db.execute(
+                    select(DeploymentEvent)
+                    .where(DeploymentEvent.revision_id == revision.id)
+                    .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
         result = verify_deployment_event_chain(events)
         results.append({"revision_id": revision.id, **result})
     broken = [item for item in results if not item["valid"]]
@@ -1276,12 +1323,16 @@ async def get_ai_deployment_revision(
     if rev is None:
         raise HTTPException(status_code=404, detail="Deployment revision not found")
     events = (
-        await db.execute(
-            select(DeploymentEvent)
-            .where(DeploymentEvent.revision_id == revision_id)
-            .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+        (
+            await db.execute(
+                select(DeploymentEvent)
+                .where(DeploymentEvent.revision_id == revision_id)
+                .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {
         "id": rev.id,
         "revision_key": rev.revision_key,
@@ -1377,7 +1428,9 @@ async def pause_optimization_run(
         "PENDING_APPROVAL",
         "PAUSED",
     }:
-        raise HTTPException(status_code=409, detail=f"Cannot pause run in status {run.status}")
+        raise HTTPException(
+            status_code=409, detail=f"Cannot pause run in status {run.status}"
+        )
     try:
         await transition_run(db, run, "PAUSED", reason="paused by operator")
         await db.commit()
@@ -1398,7 +1451,9 @@ async def resume_optimization_run(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     if run.status != "PAUSED":
-        raise HTTPException(status_code=409, detail=f"Run is not paused (current: {run.status})")
+        raise HTTPException(
+            status_code=409, detail=f"Run is not paused (current: {run.status})"
+        )
     try:
         await transition_run(db, run, "RUNNING", reason="resumed by operator")
         await db.commit()
@@ -1427,7 +1482,9 @@ async def cancel_optimization_run(
         "ROLLED_BACK",
         "ACTIVE",
     }:
-        raise HTTPException(status_code=409, detail=f"Cannot cancel run in status {run.status}")
+        raise HTTPException(
+            status_code=409, detail=f"Cannot cancel run in status {run.status}"
+        )
     try:
         await transition_run(db, run, "CANCELLED", reason="cancelled by operator")
         await db.commit()
