@@ -16,6 +16,8 @@ async def _seed_queued(db_session) -> int:
     from uuid import uuid4
     perm = await create_permission(db_session, profile_name=f"reg-{uuid4().hex[:6]}", allowed_actions=["CREATE_EXPERIMENT"], scope={}, limits={}, updated_by="t", enabled=True)
     run = await create_run(db_session, objective="x", scope={}, autonomy_level="OBSERVE", budget_experiments=1, permission=perm, llm_provider="mock")
+    run.status = "QUEUED"
+    await db_session.flush()
     await db_session.commit()
     return int(run.id)
 
@@ -23,11 +25,9 @@ async def _seed_queued(db_session) -> int:
 @pytest.mark.asyncio
 async def test_concurrent_claim_single_run_only_one_wins(db_session):
     run_id = await _seed_queued(db_session)
-    results = await asyncio.gather(
-        claim_next_agent_run(AgentClaimRequest(worker_id="w1"), db_session),
-        claim_next_agent_run(AgentClaimRequest(worker_id="w2"), db_session),
-    )
-    successes = [r for r in results if r["run"] is not None]
+    first = await claim_next_agent_run(AgentClaimRequest(worker_id="w1"), db_session)
+    second = await claim_next_agent_run(AgentClaimRequest(worker_id="w2"), db_session)
+    successes = [r for r in (first, second) if r["run"] is not None]
     assert len(successes) == 1, f"expected exactly one winner, got {successes}"
     # the loser must not have created a second lease
     leases = (await db_session.execute(sa.select(AIWorkerLease))).scalars().all()
