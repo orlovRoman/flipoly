@@ -265,6 +265,10 @@ class TradeHistory(Base):
     cost_buffer = Column(Float, nullable=True)
     net_edge = Column(Float, nullable=True)
     decision_run_id = Column(String(64), nullable=True)
+    ai_lab_overlay_ids = Column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+    )
     direction_value = Column(String(16), nullable=True)
     would_live_accept = Column(Boolean, nullable=True)
     p_flip_raw = Column(Float, nullable=True)

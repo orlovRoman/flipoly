@@ -22,6 +22,27 @@ logger = structlog.get_logger(__name__)
 class EnqueueRejected(Exception):
     pass
 
+
+def _overlay_ids_from_details(details: Optional[dict[str, Any]]) -> list[int]:
+    """Return normalized overlay IDs carried by a PAPER decision."""
+    if not isinstance(details, dict):
+        return []
+    raw = details.get("ai_lab_overlay_ids", details.get("ai_overlay_ids"))
+    if isinstance(raw, (str, int)):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple, set)):
+        return []
+    values: list[int] = []
+    for item in raw:
+        try:
+            value = int(item)
+        except (TypeError, ValueError):
+            continue
+        if value > 0 and value not in values:
+            values.append(value)
+    return values
+
+
 def _get_trade_active_features(asset_mode: str, active_features_str: str, decision_obj: Any, asset_name: str = "") -> str:
     if asset_mode == TRADING_MODE_COMBINED:
         from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS
@@ -188,6 +209,7 @@ async def save_or_update_skipped_trade(
             p_flip_raw=details.get("p_flip_raw"),
             entry_model_ece=details.get("entry_model_ece"),
             decision_run_id=details.get("decision_run_id"),
+            ai_lab_overlay_ids=_overlay_ids_from_details(details),
             created_at=start_time
         )
         db_session.add(history)
@@ -326,6 +348,7 @@ async def execute_and_record(
         cost_buffer=c_buffer,
         net_edge=n_edge,
         decision_run_id=dec_run_id,
+        ai_lab_overlay_ids=_overlay_ids_from_details(details),
         would_live_accept=details.get("would_live_accept"),
         p_flip_raw=details.get("p_flip_raw"),
         entry_model_ece=details.get("entry_model_ece"),

@@ -181,6 +181,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                     ):
                         details = dict(decision_res.decision_obj.decision_details or {})
                         details["ai_lab_overlay_ids"] = list(overlay_ids)
+                        details["ai_overlay_ids"] = list(overlay_ids)
                         decision_res.decision_obj = replace(
                             decision_res.decision_obj, decision_details=details
                         )
