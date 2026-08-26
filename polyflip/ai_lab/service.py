@@ -62,8 +62,8 @@ class AIResearchModeError(AILabError):
 RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     "DRAFT": frozenset({"QUEUED", "PLANNING", "CANCELLED"}),
     "QUEUED": frozenset({"PLANNING", "RUNNING", "CANCELLED", "FAILED"}),
-    "PLANNING": frozenset({"RUNNING", "CANCELLED", "FAILED", "PAUSED"}),
-    "RUNNING": frozenset({"EVALUATING", "FAILED", "CANCELLED", "PAUSED"}),
+    "PLANNING": frozenset({"QUEUED", "RUNNING", "CANCELLED", "FAILED", "PAUSED"}),
+    "RUNNING": frozenset({"QUEUED", "EVALUATING", "FAILED", "CANCELLED", "PAUSED"}),
     "EVALUATING": frozenset(
         {
             "PLANNING",

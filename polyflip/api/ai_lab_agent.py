@@ -13,7 +13,8 @@ from typing import Any, Literal
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.llm import (
@@ -250,9 +251,9 @@ async def claim_next_agent_run(
     db: AsyncSession = Depends(get_db_session),
 ):
     worker_id = (payload.worker_id if payload else None) or "external-ai-research-agent"
-    # Idempotent: active lease held by this worker is returned as-is.
     now = utc_now()
-    existing_lease = (
+    # Idempotent: active lease for this worker is returned as-is.
+    existing = (
         await db.execute(
             select(AIWorkerLease).where(
                 AIWorkerLease.worker_id == worker_id,
@@ -260,44 +261,96 @@ async def claim_next_agent_run(
             )
         )
     ).scalar_one_or_none()
-    if existing_lease is not None:
-        run = await db.get(AIOptimizationRun, existing_lease.run_id)
-        if run is not None and run.status in {
-            "QUEUED",
-            "PLANNING",
-            "RUNNING",
-            "EVALUATING",
-        }:
-            return {"run": _claimed_run_payload(run, existing_lease.owner_token)}
-    candidate_ids = (
-        await db.execute(
-            select(AIOptimizationRun.id)
-            .where(AIOptimizationRun.status == "QUEUED")
-            .order_by(AIOptimizationRun.id)
-            .limit(10)
-        )
-    ).scalars().all()
-    for run_id in candidate_ids:
-        token = await _acquire_lease(db, run_id, worker_id)
-        if token is None:
-            continue
-        result = await db.execute(
-            update(AIOptimizationRun)
+    if existing is not None:
+        run = await db.get(AIOptimizationRun, existing.run_id)
+        if run is not None and run.status in {"QUEUED", "PLANNING", "RUNNING", "EVALUATING"}:
+            return {"run": _claimed_run_payload(run, existing.owner_token)}
+    # Atomic claim: select candidate with row-level lock, use blocked row as serializer.
+    try:
+        stmt = (
+            select(AIOptimizationRun)
+            .outerjoin(AIWorkerLease, AIWorkerLease.run_id == AIOptimizationRun.id)
             .where(
-                AIOptimizationRun.id == run_id,
-                AIOptimizationRun.status == "QUEUED",
+                or_(
+                    AIOptimizationRun.status == "QUEUED",
+                    and_(
+                        AIOptimizationRun.status.in_(["PLANNING", "RUNNING", "EVALUATING"]),
+                        or_(
+                            AIWorkerLease.id.is_(None),
+                            AIWorkerLease.expires_at <= now,
+                        ),
+                    ),
+                )
             )
-            .values(status="RUNNING", started_at=utc_now(), agent_type="EXTERNAL_AGENT")
+            .order_by(AIOptimizationRun.id)
+            .with_for_update(skip_locked=True)
+            .limit(1)
         )
-        if result.rowcount != 1:
+        run = (await db.execute(stmt)).scalar_one_or_none()
+    except Exception:
+        # SQLite fallback without FOR UPDATE
+        stmt = (
+            select(AIOptimizationRun)
+            .outerjoin(AIWorkerLease, AIWorkerLease.run_id == AIOptimizationRun.id)
+            .where(
+                or_(
+                    AIOptimizationRun.status == "QUEUED",
+                    and_(
+                        AIOptimizationRun.status.in_(["PLANNING", "RUNNING", "EVALUATING"]),
+                        or_(
+                            AIWorkerLease.id.is_(None),
+                            AIWorkerLease.expires_at <= now,
+                        ),
+                    ),
+                )
+            )
+            .order_by(AIOptimizationRun.id)
+            .limit(1)
+        )
+        run = (await db.execute(stmt)).scalar_one_or_none()
+    if run is None:
+        await db.rollback()
+        return {"run": None}
+    # Create or update lease atomically; unique constraint on run_id serializes concurrent claims.
+    token = f"agent-{uuid.uuid4().hex}"
+    expires_at = now + timedelta(seconds=_lease_ttl_seconds())
+    lease = (
+        await db.execute(select(AIWorkerLease).where(AIWorkerLease.run_id == run.id))
+    ).scalar_one_or_none()
+    try:
+        if lease is None:
+            db.add(
+                AIWorkerLease(
+                    run_id=run.id,
+                    worker_id=worker_id,
+                    owner_token=token,
+                    acquired_at=now,
+                    heartbeat_at=now,
+                    expires_at=expires_at,
+                )
+            )
+        else:
+            lease.worker_id = worker_id
+            lease.owner_token = token
+            lease.acquired_at = now
+            lease.heartbeat_at = now
+            lease.expires_at = expires_at
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        return {"run": None}
+    # Transition QUEUED -> RUNNING
+    if run.status == "QUEUED":
+        try:
+            await transition_run(db, run, "RUNNING", reason="agent claimed")
+        except Exception:
             await db.rollback()
-            continue
-        run = await _require_run(db, run_id)
-        await db.commit()
-        logger.info("agent_run_claimed", run_id=run_id, worker=worker_id)
-        return {"run": _claimed_run_payload(run, token)}
-    await db.rollback()
-    return {"run": None}
+            return {"run": None}
+    await db.commit()
+    # Re-fetch to get committed state
+    run = await db.get(AIOptimizationRun, run.id)
+    logger.info("agent_run_claimed", run_id=run.id, worker=worker_id)
+    return {"run": _claimed_run_payload(run, token)}
 
 
 class HeartbeatRequest(BaseModel):
@@ -862,18 +915,7 @@ async def complete_agent_run(
     db: AsyncSession = Depends(get_db_session),
 ):
     run = await _require_run(db, run_id)
-    if payload.action != "REQUEUE":
-        # Terminal actions require the live lease; REQUEUE may also come from
-        # an agent whose lease just expired to avoid zombie RUNNING runs.
-        await _verify_lease(db, run_id, payload.lease_token)
-    elif payload.lease_token:
-        lease = (
-            await db.execute(
-                select(AIWorkerLease).where(AIWorkerLease.run_id == run_id)
-            )
-        ).scalar_one_or_none()
-        if lease is not None and lease.owner_token == payload.lease_token:
-            await _release_lease(db, run_id)
+    await _verify_lease(db, run_id, payload.lease_token)
     if payload.action == "COMPLETED":
         # Canonical state machine: RUNNING -> EVALUATING -> COMPLETED.
         # Decision already transitions to EVALUATING, so handle idempotent case.
@@ -883,9 +925,7 @@ async def complete_agent_run(
     elif payload.action == "FAILED":
         await transition_run(db, run, "FAILED", reason=payload.reason or "agent failed")
     else:
-        run.status = "QUEUED"
-        run.started_at = None
-        run.error = None
+        await transition_run(db, run, "QUEUED", reason=payload.reason or "requeue")
     await _release_lease(db, run_id)
     await db.commit()
     return {"run_id": run_id, "status": run.status}
