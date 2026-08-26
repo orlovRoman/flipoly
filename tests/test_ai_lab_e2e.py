@@ -249,6 +249,8 @@ async def test_e2e_real_router_separate_sessions_fake_opencode_real_runner(monke
         async with SessionLocal() as session:
             yield session
 
+    previous_overrides = dict(app.dependency_overrides)
+    app.dependency_overrides.clear()
     app.dependency_overrides[get_db_session] = override_db
 
     # Prepare AILabApiClient that talks to the FastAPI app via ASGI transport
@@ -474,6 +476,7 @@ async def test_e2e_real_router_separate_sessions_fake_opencode_real_runner(monke
             await inserter
         except asyncio.CancelledError:
             pass
-        app.dependency_overrides.pop(get_db_session, None)
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous_overrides)
         ac_mod.httpx.AsyncClient = original_async_client
         await engine.dispose()
