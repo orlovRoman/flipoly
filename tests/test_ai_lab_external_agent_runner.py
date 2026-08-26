@@ -60,7 +60,7 @@ class FakeClient:
             quality_gate={"min_trades": 30},
         )
 
-    async def submit_proposal(self, run_id: int, proposal, *, client_request_id=None):
+    async def submit_proposal(self, run_id: int, proposal, *, client_request_id=None, telemetry=None):
         self.calls.append("proposal")
         self.submitted_proposal = proposal
         self.proposal_request_id = client_request_id
@@ -83,7 +83,7 @@ class FakeClient:
             summary="positive",
         )
 
-    async def submit_decision(self, run_id: int, decision, *, client_request_id=None):
+    async def submit_decision(self, run_id: int, decision, *, client_request_id=None, telemetry=None):
         self.calls.append("decision")
         self.submitted_decision = decision
         self.decision_request_id = client_request_id
@@ -580,3 +580,29 @@ def test_decision_schema_describes_overlay_items_as_objects():
     assert overlay["type"] == ["array", "null"]
     assert overlay["items"]["type"] == "object"
     assert overlay["items"]["required"] == ["key", "value"]
+
+def test_opencode_decision_uses_snapshot_summary_model():
+    from opencode_client import OpenCodeClient
+
+    client = OpenCodeClient()
+    captured = {}
+
+    async def fake_structured_json(**kwargs):
+        captured.update(kwargs)
+        return (
+            {"action": "FINALIZE_NO_WINNER", "rationale": "ok", "key_findings": [],
+             "recommended_config_id": None, "proposed_overlay": None, "next_step_focus": None},
+            {"model": kwargs["model"], "latency_ms": 0, "prompt_tokens": 0,
+             "completion_tokens": 0, "total_tokens": 0},
+        )
+
+    client._structured_json = fake_structured_json
+    result = _run(client.decide(
+        context={"research": {"model_id": "m1", "protocol": "chat_completions"},
+                 "summary": {"model_id": "m2", "protocol": "responses"}},
+        proposal={},
+        result=None,
+    ))
+    assert captured["model"] == "m2"
+    assert captured["protocol"] == "responses"
+    assert result["telemetry"]["model"] == "m2"

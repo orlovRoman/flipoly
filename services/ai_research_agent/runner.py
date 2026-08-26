@@ -106,7 +106,9 @@ async def _single_iteration_fallback(
 
         proposal_bundle = await llm.propose_hypothesis(llm_context)
         proposal_payload = await client.submit_proposal(
-            run.id, proposal_bundle["proposal"]
+            run.id,
+            proposal_bundle["proposal"],
+            telemetry=proposal_bundle.get("telemetry"),
         )
 
         timeout_seconds = run.budget_seconds or 3600
@@ -127,7 +129,11 @@ async def _single_iteration_fallback(
             proposal=proposal_bundle["proposal"],
             result=result_payload,
         )
-        await client.submit_decision(run.id, decision_bundle["decision"])
+        await client.submit_decision(
+            run.id,
+            decision_bundle["decision"],
+            telemetry=decision_bundle.get("telemetry"),
+        )
         action = str(decision_bundle["decision"].get("action") or "").upper()
         if action in {"CONTINUE_RESEARCH", "MUTATE_HYPOTHESIS"} and (
             run.experiments_completed + 1 < run.budget_experiments
@@ -227,6 +233,7 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
                         client_request_id=(
                             f"proposal-{run.id}-{run.experiments_completed}"
                         ),
+                        telemetry=proposal_bundle.get("telemetry"),
                     )
                     continue
                 except LeaseLostError:
@@ -309,6 +316,7 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
                         run.id,
                         decision_bundle["decision"],
                         client_request_id=f"decision-{run.id}-{result_id}",
+                        telemetry=decision_bundle.get("telemetry"),
                     )
                     # Update local run for budget
                     run.experiments_completed = (run.experiments_completed or 0) + 1

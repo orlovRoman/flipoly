@@ -23,10 +23,17 @@ from polyflip.ai_lab.llm import (
     HypothesisProposal,
     OpenAIResponsesProvider,
 )
-from polyflip.ai_lab.orchestrator import plan_run
+from polyflip.ai_lab.agent_tools import apply_shadow_overlay, create_config_overlay
+from polyflip.ai_lab.orchestrator import finalize_run, plan_run
+from polyflip.ai_lab.policy import validate_agent_action_autonomy
 from polyflip.ai_lab.service import (
+    AILabError,
+    AIPermissionError,
     AIRunTransitionError,
+    AIResearchModeError,
     append_step,
+    authorize_run_action,
+    propose_live_deployment,
     transition_run,
     utc_now,
 )
@@ -254,14 +261,15 @@ async def _current_iteration(db: AsyncSession, run_id: int) -> dict[str, Any]:
             None,
         )
     current_decision = None
-    if result is not None:
+    terminal_result = result or failed_result
+    if terminal_result is not None:
         current_decision = next(
             (
                 step
                 for step in reversed(steps)
                 if step.step_type == "DECISION"
                 and isinstance(step.output_payload, dict)
-                and step.output_payload.get("result_id") == result.id
+                and step.output_payload.get("result_id") == terminal_result.id
             ),
             None,
         )
@@ -296,13 +304,13 @@ async def _current_iteration(db: AsyncSession, run_id: int) -> dict[str, Any]:
 async def _agent_phase(db, run_id: int) -> dict[str, Any]:
     iteration = await _current_iteration(db, run_id)
     proposal = iteration["proposal"]
-    term = iteration["result"]
+    terminal_result = iteration["result"] or iteration["failed_result"]
     decision = iteration["current_decision"]
     if proposal is None:
         phase = "NEEDS_PROPOSAL"
     elif iteration["pending"]:
         phase = "WAITING_RESULT"
-    elif term is not None and decision is None:
+    elif terminal_result is not None and decision is None:
         phase = "NEEDS_DECISION"
     elif decision is not None:
         phase = "NEEDS_COMPLETION"
@@ -311,7 +319,7 @@ async def _agent_phase(db, run_id: int) -> dict[str, Any]:
     return {
         "phase": phase,
         "latest_config_id": iteration["config_id"],
-        "latest_result_id": term.id if term else None,
+        "latest_result_id": terminal_result.id if terminal_result else None,
         "latest_decision": _decision_payload(decision or iteration["latest_decision"]),
     }
 
@@ -704,6 +712,7 @@ class ProposalRequest(BaseModel):
     lease_token: str
     client_request_id: str = Field(min_length=8, max_length=64)
     proposal: HypothesisProposal
+    telemetry: dict[str, Any] | None = None
 
     @field_validator("proposal", mode="before")
     @classmethod
@@ -740,6 +749,7 @@ class DecisionResponse(BaseModel):
     accepted: bool
     step_id: int
     action: str
+    effects: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentCompleteResponse(BaseModel):
@@ -842,7 +852,7 @@ async def submit_agent_proposal(
         status="SUCCEEDED",
         hypothesis=proposal.hypothesis[:2000],
         action="CREATE_EXPERIMENT",
-        input_payload={"proposal": payload.proposal.model_dump(mode="json")},
+        input_payload={"proposal": payload.proposal.model_dump(mode="json"), "telemetry": payload.telemetry},
         output_payload={"config_id": config.id},
         summary=f"External agent hypothesis for {proposal.asset}",
     )
@@ -883,6 +893,7 @@ class DecisionRequest(BaseModel):
     lease_token: str
     client_request_id: str = Field(min_length=8, max_length=64)
     decision: AgentDecision
+    telemetry: dict[str, Any] | None = None
 
     @field_validator("decision", mode="before")
     @classmethod
@@ -892,6 +903,74 @@ class DecisionRequest(BaseModel):
         return value
 
 
+async def _apply_decision_effects(
+    db: AsyncSession,
+    run: AIOptimizationRun,
+    decision: AgentDecision,
+) -> dict[str, Any]:
+    """Execute the one explicit side effect selected by an external agent."""
+    action = str(decision.action).upper()
+    effects: dict[str, Any] = {}
+    if action == "RECOMMEND_SHADOW":
+        await authorize_run_action(db, run.id, "PROMOTE_TO_SHADOW")
+        validate_agent_action_autonomy("ASSIGN_SHADOW", run.autonomy_level)
+        # Finalization promotes the winner from EVALUATING to SHADOW.  An
+        # external decision can arrive while the run is still RUNNING, so
+        # move it through the canonical state before ``finalize_run`` locks
+        # in the assignment.
+        if run.status in {"PLANNING", "RUNNING"}:
+            await transition_run(
+                db, run, "EVALUATING", reason="agent requested shadow finalization"
+            )
+        scope = run.scope if isinstance(run.scope, dict) else {}
+        finalized = await finalize_run(
+            db,
+            run.id,
+            auto_shadow=True,
+            asset=str(scope.get("asset") or "").strip() or None,
+            regime=str(scope.get("regime") or "").strip() or None,
+        )
+        assignment = finalized.get("assignment")
+        report = finalized.get("report") if isinstance(finalized, dict) else {}
+        effects["shadow_status"] = (
+            report.get("shadow_recommendation_status")
+            if isinstance(report, dict)
+            else None
+        )
+        if assignment is not None:
+            effects["shadow_assignment_id"] = int(assignment.id)
+            effects["candidate_artifact_id"] = int(assignment.candidate_artifact_id)
+    elif action == "APPLY_OVERLAY":
+        if not decision.proposed_overlay:
+            raise AILabError("APPLY_OVERLAY requires proposed_overlay")
+        await authorize_run_action(db, run.id, "APPLY_CONFIG_OVERLAY")
+        validate_agent_action_autonomy(
+            "APPLY_CONFIG_OVERLAY", run.autonomy_level
+        )
+        overlay = await create_config_overlay(
+            db,
+            run_id=run.id,
+            changes=decision.proposed_overlay,
+            created_by="external-agent",
+            scope={"asset": run.scope.get("asset"), "regime": run.scope.get("regime")} if isinstance(run.scope, dict) else None,
+        )
+        await apply_shadow_overlay(db, overlay.id)
+        effects["overlay_id"] = int(overlay.id)
+        effects["overlay_status"] = overlay.status
+    elif action == "REQUEST_LIVE_APPROVAL":
+        await authorize_run_action(db, run.id, "REQUEST_ACTIVATION")
+        validate_agent_action_autonomy(
+            "PROPOSE_LIVE_DEPLOYMENT", run.autonomy_level
+        )
+        approval, revision = await propose_live_deployment(
+            db,
+            run_id=run.id,
+            actor="external-agent",
+            reason=decision.rationale[:1000],
+        )
+        effects["approval_id"] = int(approval.id)
+        effects["revision_id"] = int(revision.id)
+    return effects
 @router.post("/runs/{run_id}/decision", response_model=DecisionResponse)
 async def submit_agent_decision(
     run_id: int,
@@ -911,8 +990,8 @@ async def submit_agent_decision(
     run = locked_run
     await _verify_lease(db, run_id, payload.lease_token)
     iteration = await _current_iteration(db, run_id)
-    term = iteration["result"]
-    if term is None:
+    result_row = iteration["result"] or iteration["failed_result"]
+    if result_row is None:
         raise HTTPException(status_code=409, detail="RESULT_NOT_READY")
 
     existing_request = (
@@ -925,7 +1004,7 @@ async def submit_agent_decision(
     ).scalar_one_or_none()
     if existing_request is not None:
         existing_result_id = (existing_request.output_payload or {}).get("result_id")
-        if existing_request.step_type != "DECISION" or existing_result_id != term.id:
+        if existing_request.step_type != "DECISION" or existing_result_id != result_row.id:
             raise HTTPException(
                 status_code=409,
                 detail="CLIENT_REQUEST_ID_REUSED",
@@ -934,17 +1013,24 @@ async def submit_agent_decision(
             "accepted": True,
             "step_id": int(existing_request.id),
             "action": str(existing_request.action or payload.decision.action),
+            "effects": (existing_request.output_payload or {}).get("effects", {}),
         }
 
     existing_for_result = iteration["current_decision"]
     if existing_for_result is not None:
         step_id = int(existing_for_result.id)
         action = str(existing_for_result.action or payload.decision.action)
+        stored_output = (
+            existing_for_result.output_payload
+            if isinstance(existing_for_result.output_payload, dict)
+            else {}
+        )
         await db.rollback()
         return {
             "accepted": True,
             "step_id": step_id,
             "action": action,
+            "effects": stored_output.get("effects", {}),
         }
     # Verify result belongs to run (already filtered) and recommended_config_id belongs.
     decision = payload.decision
@@ -959,9 +1045,9 @@ async def submit_agent_decision(
                 select(ExperimentResult).where(
                     ExperimentResult.run_id == run_id,
                     ExperimentResult.config_id == int(rec_id),
-                )
+                ).limit(1)
             )
-        ).scalar_one_or_none()
+        ).scalars().first()
         belongs_via_step = False
         if has_result is None:
             all_steps = (
@@ -987,7 +1073,7 @@ async def submit_agent_decision(
                 )
         # Also ensure the recommended config matches the terminal result when possible.
         # We allow any belonging config, but if term exists, we at least ensure term belongs.
-        if term.run_id != run_id:
+        if result_row.run_id != run_id:
             raise HTTPException(status_code=422, detail="result does not belong to run")
     # Compute next index via func.max.
     max_index = (
@@ -1005,16 +1091,34 @@ async def submit_agent_decision(
         action=decision.action,
         input_payload={
             "decision": payload.decision.model_dump(mode="json"),
-            "result_id": term.id,
+            "result_id": result_row.id,
+            "telemetry": payload.telemetry,
         },
         output_payload={
             "recommended_config_id": rec_id,
-            "result_id": term.id,
+            "result_id": result_row.id,
             "config_id": rec_id,
         },
         summary=decision.rationale[:400],
     )
     step.client_request_id = payload.client_request_id  # type: ignore[attr-defined]
+    await db.flush()
+    effects: dict[str, Any] = {}
+    try:
+        effects = await _apply_decision_effects(db, run, decision)
+    except AIResearchModeError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AIPermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AILabError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    step.output_payload = {
+        **(step.output_payload if isinstance(step.output_payload, dict) else {}),
+        "effects": effects,
+    }
     await db.flush()
     # Increment experiments_completed exactly once per successful decision.
     run.experiments_completed = (run.experiments_completed or 0) + 1
@@ -1029,6 +1133,7 @@ async def submit_agent_decision(
         "accepted": True,
         "step_id": step.id,
         "action": decision.action,
+        "effects": effects,
     }
 
 
@@ -1055,6 +1160,18 @@ async def complete_agent_run(
         raise HTTPException(status_code=404, detail="run not found")
     await _verify_lease(db, run_id, payload.lease_token)
     if payload.action == "COMPLETED":
+        if run.status in {
+            "SHADOW",
+            "PENDING_APPROVAL",
+            "ACTIVE",
+            "INSUFFICIENT_DATA",
+            "RESEARCH_PROVISIONAL",
+            "INSUFFICIENT_EVIDENCE",
+            "TECHNICAL_INVALID",
+        }:
+            await _release_lease(db, run_id)
+            await db.commit()
+            return {"run_id": run_id, "status": run.status}
         if run.status != "EVALUATING":
             await transition_run(db, run, "EVALUATING", reason="agent finalizing")
         await transition_run(

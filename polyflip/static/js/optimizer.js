@@ -2,6 +2,7 @@
 // Handles Runs, Diagnostics/Step Audits, Visual Diff/Approval, and Revision Hash Chain Rollback
 
 let currentSelectedRunId = null;
+let currentAgentRunId = null;
 let currentPendingApprovalId = null;
 let activeOptTab = "runs";
 let runsRefreshTimer = null;
@@ -18,11 +19,13 @@ function initOptimizerPage() {
   loadOptimizationRuns();
   loadRevisions();
   loadPermissions();
+  loadAgentStatus();
   switchOptTab("runs");
 
   // Auto-refresh every 10s if on runs tab
   if (runsRefreshTimer) clearInterval(runsRefreshTimer);
   runsRefreshTimer = setInterval(() => {
+    loadAgentStatus();
     if (activeOptTab === "runs") {
       loadOptimizationRuns(true);
     } else if (activeOptTab === "revisions") {
@@ -159,7 +162,7 @@ async function loadOptimizationRuns(silent = false) {
           <td style="font-weight: 700;">#${r.id}</td>
           <td>
             <div>${escapeHtml(objective)}</div>
-            <small style="color: var(--text-muted);">${escapeHtml(asset)} · ${escapeHtml(r.mode || "RESEARCH")} · ${escapeHtml(r.llm_provider || "mock")} / ${escapeHtml(r.llm_research_model || "default")}</small>
+            <small style="color: var(--text-muted);">${escapeHtml(asset)} · ${escapeHtml(r.mode || "RESEARCH")} · ${escapeHtml(r.llm_provider || "mock")} / research ${escapeHtml(r.llm_research_model || "default")} · summary ${escapeHtml(r.llm_summary_model || "default")}</small>
           </td>
           <td>${statusBadge}</td>
           <td><span class="badge badge-neutral" style="font-size: 0.75rem;">${escapeHtml(r.autonomy_level || "EXPERIMENT")}</span></td>
@@ -208,7 +211,7 @@ async function loadRunDetail(runId) {
     const run = data.run;
     const steps = data.steps || [];
     const audits = data.audits || [];
-    renderStage9Detail(run, steps, data.results || [], audits);
+    renderStage9Detail(run, steps, data.results || [], audits, data.shadow_assignments || [], data.shadow_observations || [], data.overlays || []);
     updateRunControls(run);
     const timelineRun = document.getElementById("timeline-selected-run");
     if (timelineRun) {
@@ -310,7 +313,25 @@ async function loadRunDetail(runId) {
   }
 }
 
-function renderShadowGate(run) {
+function displayMetric(value, digits = 3) {
+  if (value === null || value === undefined || value === "") return "—";
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toFixed(digits) : escapeHtml(value);
+}
+
+function displayCoverage(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "—";
+  const ratio = numeric > 1 ? numeric / 100 : numeric;
+  return (ratio * 100).toFixed(1) + "%";
+}
+
+function renderComparison(title, data) {
+  const row = data || {};
+  return `<div class="agent-status-detail"><strong>${escapeHtml(title)}</strong>: PnL ${displayMetric(row.median_pnl)} · DD ${displayMetric(row.median_drawdown)} · trades ${escapeHtml(row.median_trades ?? "—")} · coverage ${displayCoverage(row.coverage)}</div>`;
+}
+
+function renderShadowGate(run, assignments = [], observations = [], overlays = []) {
   let summary = run && run.summary;
   if (typeof summary === "string") {
     try {
@@ -323,29 +344,67 @@ function renderShadowGate(run) {
     ? (summary.report && typeof summary.report === "object" ? summary.report : summary)
     : null;
   if (!report) {
-    return `<div class="unavailable">Current status: ${escapeHtml(run.status)}. Finalization gate report is unavailable.</div>`;
+    return `<div class="unavailable">Current status: ${escapeHtml(run?.status || "—")}. Finalization gate report is unavailable.</div>`;
   }
-  const failures = Array.isArray(report.rejection_reasons)
-    ? report.rejection_reasons
-    : [];
+  const failures = Array.isArray(report.rejection_reasons) ? report.rejection_reasons : [];
   const rows = Array.isArray(report.rows) ? report.rows : [];
-  const selected = rows.find(
-    (row) => row.config_id === report.recommended_config_id
-  ) || rows[0] || {};
+  const selected = rows.find((row) => row.config_id === report.recommended_config_id) || rows[0] || {};
   const gateBadge = report.eligible_for_shadow
     ? '<span class="badge badge-success">ELIGIBLE</span>'
     : '<span class="badge badge-danger">REJECTED</span>';
-  const failureHtml = failures.length
-    ? `<ul>${failures.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>`
-    : "<p>No gate failures.</p>";
+  const requirements = report.gate_requirements || {};
+  const flow = (report.gate_flow || ["OOT", "VALID", "SHADOW", "PAPER_OBSERVATIONS", "DEPLOYMENT_OR_OVERLAY"]).map((item) => escapeHtml(item)).join(" → ");
+  const windows = Array.isArray(selected.windows) && selected.windows.length
+    ? `<table class="opt-table"><thead><tr><th>OOT window</th><th>Trades</th><th>Net PnL</th><th>Drawdown</th></tr></thead><tbody>${selected.windows.map((window) => `<tr><td>${escapeHtml(window.oot_window_start || "—")} → ${escapeHtml(window.oot_window_end || "—")}</td><td>${escapeHtml(window.trade_count ?? "—")}</td><td>${displayMetric(window.net_pnl)}</td><td>${displayMetric(window.max_drawdown)}</td></tr>`).join("")}</tbody></table>`
+    : '<div class="unavailable">Temporal OOT windows are unavailable.</div>';
+  const roleRows = Object.entries(selected.roles || {}).map(([role, metrics]) => `<tr><td>${escapeHtml(role)}</td><td>${displayMetric(metrics.median_pnl)}</td><td>${displayMetric(metrics.median_drawdown)}</td><td>${escapeHtml(metrics.median_trades ?? "—")}</td><td>${displayCoverage(metrics.coverage)}</td></tr>`).join("");
+  const assignmentsHtml = assignments.length
+    ? `<div class="agent-status-detail"><strong>SHADOW assignments:</strong> ${assignments.map((item) => `#${escapeHtml(item.id)} ${formatStatusBadge(item.status)} · artifact #${escapeHtml(item.candidate_artifact_id ?? "—")} · ${escapeHtml(item.asset || "—")}`).join("<br>")}</div>`
+    : '<div class="agent-status-detail">SHADOW assignments: —</div>';
+  const resultIds = (selected.result_ids || report.winner_result_ids || []).join(", ") || "—";
   return `
     <div>${gateBadge} ${formatStatusBadge(run.status)}</div>
     <p>${escapeHtml(report.reason || "No gate explanation.")}</p>
-    <div class="diff-label">Config: #${escapeHtml(selected.config_id ?? "none")} · trades: ${escapeHtml(selected.total_trades ?? "—")} · windows: ${escapeHtml(selected.window_count ?? "—")} · median PnL: ${escapeHtml(selected.median_oot_pnl ?? "—")} · drawdown: ${escapeHtml(selected.median_oot_drawdown ?? "—")}</div>
-    ${failureHtml}
+    <div class="agent-status-detail"><strong>Gate flow:</strong> ${flow}<br><strong>Requirements:</strong> ${escapeHtml(requirements.min_trades ?? "—")} trades / ${escapeHtml(requirements.min_windows ?? "—")} windows<br><strong>Result IDs:</strong> ${escapeHtml(resultIds)}<br><strong>PAPER observations:</strong> ${escapeHtml(observations.length)} · overlays: ${escapeHtml(overlays.length)}</div>
+    <div class="diff-label">Config #${escapeHtml(selected.config_id ?? "none")} · trades ${escapeHtml(selected.total_trades ?? "—")} · windows ${escapeHtml(selected.window_count ?? "—")} · median PnL ${displayMetric(selected.median_oot_pnl)} · drawdown ${displayMetric(selected.median_oot_drawdown)} · coverage ${displayCoverage(selected.coverage)}</div>
+    ${renderComparison("Baseline", selected.baseline)}
+    ${roleRows ? `<table class="opt-table"><thead><tr><th>Role</th><th>Median PnL</th><th>Drawdown</th><th>Trades</th><th>Coverage</th></tr></thead><tbody>${roleRows}</tbody></table>` : ""}
+    ${windows}
+    ${failures.length ? `<div class="agent-status-detail"><strong>Причины отклонения:</strong><ul>${failures.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div>` : '<div class="agent-status-detail">Gate failures: —</div>'}
+    ${assignmentsHtml}
   `;
 }
-function renderStage9Detail(run, steps, results, audits) {
+
+function renderOverlayCards(overlays = []) {
+  const target = document.getElementById("stage9-overlays");
+  if (!target) return;
+  if (!overlays.length) {
+    target.innerHTML = '<div class="unavailable">Для выбранного run PAPER-overlay ещё не создан.</div>';
+    return;
+  }
+  target.innerHTML = overlays.map((overlay) => {
+    const metrics = overlay.metrics || {};
+    const before = metrics.before || {};
+    const after = metrics.after || {};
+    const canRollback = ["APPLIED", "PENDING"].includes(String(overlay.status || "").toUpperCase());
+    const expires = overlay.expires_at ? new Date(overlay.expires_at).toLocaleString("ru-RU") : "без срока";
+    return `<article class="agent-status-detail"><div style="display:flex;justify-content:space-between;gap:1rem;align-items:center;"><strong>Overlay #${escapeHtml(overlay.id)}</strong>${formatStatusBadge(overlay.status)}</div><div>Срок: ${escapeHtml(expires)} · target: ${escapeHtml(overlay.scope?.target || "PAPER")}</div><pre style="white-space:pre-wrap;margin:.5rem 0;">${escapeHtml(JSON.stringify(overlay.changes || {}, null, 2))}</pre><div>До: ${escapeHtml(before.trade_count ?? "—")} trades / PnL ${displayMetric(before.pnl)} · После: ${escapeHtml(after.trade_count ?? "—")} trades / PnL ${displayMetric(after.pnl)} / coverage ${displayCoverage(after.coverage)}</div>${canRollback ? `<button class="btn btn-warning btn-sm" type="button" onclick="rollbackOverlay(${Number(overlay.id)})">↩ Rollback</button>` : ""}</article>`;
+  }).join("");
+}
+
+async function rollbackOverlay(overlayId) {
+  if (!window.confirm("Откатить PAPER-overlay #" + overlayId + "?")) return;
+  try {
+    const response = await fetch(`${window.API_BASE}/api/ai-lab/overlays/${overlayId}/rollback`, { method: "POST", headers: getAuthHeaders() });
+    if (!response.ok) throw new Error(await responseError(response));
+    showToast("PAPER-overlay #" + overlayId + " откатан.", "success");
+    if (currentSelectedRunId) await loadRunDetail(currentSelectedRunId);
+  } catch (error) {
+    showToast("Ошибка отката overlay: " + error.message, "danger");
+  }
+}
+
+function renderStage9Detail(run, steps, results, audits, assignments = [], observations = [], overlays = []) {
   const timeline = document.getElementById("stage9-timeline");
   const candidates = document.getElementById("stage9-candidates");
   const shadow = document.getElementById("stage9-shadow");
@@ -353,8 +412,9 @@ function renderStage9Detail(run, steps, results, audits) {
   const audit = document.getElementById("stage9-audit");
   const items = steps || [];
   if (timeline) timeline.innerHTML = items.length ? items.map((step) => `<div class="timeline-item"><div class="timeline-content"><strong>#${escapeHtml(step.step_index)} ${escapeHtml(step.step_type)}</strong> ${formatStatusBadge(step.status)}<div class="diff-label">${escapeHtml(step.summary || step.hypothesis || "—")}</div></div></div>`).join("") : '<div class="unavailable">Шаги отсутствуют.</div>';
-  if (candidates) candidates.innerHTML = results.length ? `<table class="opt-table"><thead><tr><th>Config</th><th>Type</th><th>Status</th><th>Trades</th><th>Net PnL</th><th>Drawdown</th></tr></thead><tbody>${results.map((r) => `<tr><td>#${escapeHtml(r.config_id)}</td><td>${escapeHtml(r.evaluation_kind)}</td><td>${formatStatusBadge(r.status)}</td><td>${escapeHtml(r.trade_count ?? "—")}</td><td>${escapeHtml(r.net_pnl ?? "—")}</td><td>${escapeHtml(r.max_drawdown ?? "—")}</td></tr>`).join("")}</tbody></table>` : '<div class="unavailable">Результаты отсутствуют.</div>';
-  if (shadow) shadow.innerHTML = renderShadowGate(run);
+  if (candidates) candidates.innerHTML = results.length ? `<table class="opt-table"><thead><tr><th>Config</th><th>Type</th><th>Status</th><th>Trades</th><th>Net PnL</th><th>Drawdown</th></tr></thead><tbody>${results.map((r) => `<tr><td>#${escapeHtml(r.config_id)}</td><td>${escapeHtml(r.evaluation_kind)}</td><td>${formatStatusBadge(r.status)}</td><td>${escapeHtml(r.trade_count ?? "—")}</td><td>${displayMetric(r.net_pnl)}</td><td>${displayMetric(r.max_drawdown)}</td></tr>`).join("")}</tbody></table>` : '<div class="unavailable">Результаты отсутствуют.</div>';
+  if (shadow) shadow.innerHTML = renderShadowGate(run, assignments, observations, overlays);
+  renderOverlayCards(overlays);
   const failed = [...items.filter((s) => ["FAILED", "ERROR"].includes(String(s.status).toUpperCase())), ...(audits || []).filter((a) => a.error_code || a.error_message)];
   if (errors) errors.innerHTML = failed.length ? failed.map((e) => `<div class="timeline-content"><strong>${escapeHtml(e.error_code || e.status || "ERROR")}</strong><div>${escapeHtml(e.error_message || e.error || "—")}</div></div>`).join("") : '<div class="unavailable">Ошибок не найдено.</div>';
   if (audit) audit.innerHTML = audits.length ? audits.map((a) => `<div class="timeline-content"><strong>${escapeHtml(a.action || "AUDIT")}</strong><div>${escapeHtml(a.created_at || "—")} — ${escapeHtml(a.error_message || a.reason || "OK")}</div></div>`).join("") : '<div class="unavailable">Аудит пуст.</div>';
@@ -373,6 +433,69 @@ async function loadPermissions() {
 }
 
 // 4. Approval & Visual Diff
+async function loadAgentStatus() {
+  const stateEl = document.getElementById("agent-status-state");
+  const metaEl = document.getElementById("agent-status-meta");
+  const queueEl = document.getElementById("agent-queue-count");
+  const runEl = document.getElementById("agent-current-run");
+  const modelEl = document.getElementById("agent-current-model");
+  const hypothesisEl = document.getElementById("agent-current-hypothesis");
+  const ootEl = document.getElementById("agent-latest-oot");
+  const telemetryEl = document.getElementById("agent-status-telemetry");
+  const errorEl = document.getElementById("agent-status-error");
+  const overlaysEl = document.getElementById("agent-active-overlays");
+  const decisionsEl = document.getElementById("agent-decision-history");
+  try {
+    const response = await fetch(`${window.API_BASE}/api/ai-lab/agent/status`, { headers: getAuthHeaders() });
+    if (!response.ok) throw new Error(await responseError(response));
+    const data = await response.json();
+    const state = String(data.state || "idle").toLowerCase();
+    const badgeStatus = state === "working" ? "RUNNING" : state === "error" ? "FAILED" : "COMPLETED";
+    if (stateEl) stateEl.innerHTML = formatStatusBadge(badgeStatus);
+    if (metaEl) metaEl.textContent = `${state.toUpperCase()} · ${data.health || "unknown"}`;
+    if (queueEl) queueEl.textContent = String(data.queue_count ?? 0);
+    const current = data.current_run;
+    currentAgentRunId = current ? current.id : null;
+    updateRunControls(current);
+    if (runEl) runEl.textContent = current ? `#${current.id} · ${current.status} · итерация ${current.iteration ?? 0}/${current.budget_experiments ?? "—"} · ${current.phase || "—"}` : "Нет активного run";
+    if (modelEl) modelEl.textContent = current ? `${current.research_model || "—"} / ${current.summary_model || "—"}` : "—";
+    const hypothesis = data.current_hypothesis;
+    if (hypothesisEl) hypothesisEl.textContent = hypothesis && typeof hypothesis === "object" ? (hypothesis.hypothesis || JSON.stringify(hypothesis)) : (hypothesis || "—");
+    const oot = data.latest_oot_result;
+    if (ootEl) ootEl.textContent = oot ? `#${oot.result_id} · ${oot.status} · PnL ${displayMetric(oot.net_pnl)} · ${escapeHtml(oot.trade_count ?? "—")} trades · DD ${displayMetric(oot.max_drawdown)}` : "—";
+    const telemetry = data.latest_telemetry || {};
+    if (telemetryEl) telemetryEl.textContent = telemetry.latency_ms !== undefined ? `${telemetry.latency_ms}ms · ${telemetry.total_tokens ?? 0} tokens (${telemetry.prompt_tokens ?? 0}+${telemetry.completion_tokens ?? 0}) · ${telemetry.model || "model"}` : "—";
+    if (overlaysEl) {
+      const activeOverlays = Array.isArray(data.active_overlays) ? data.active_overlays : [];
+      overlaysEl.innerHTML = activeOverlays.length
+        ? activeOverlays.map((overlay) => {
+          const metrics = overlay.metrics || {};
+          const after = metrics.after || {};
+          return "#" + escapeHtml(overlay.id) + " " + formatStatusBadge(overlay.status) + " · asset " + escapeHtml(overlay.scope?.asset || "all") + " · " + displayMetric(after.pnl) + " PnL · coverage " + displayCoverage(after.coverage);
+        }).join("<br>")
+        : "—";
+    }
+    if (decisionsEl) {
+      const decisions = Array.isArray(data.decision_history) ? data.decision_history : [];
+      decisionsEl.innerHTML = decisions.length
+        ? decisions.map((item) => "#" + escapeHtml(item.step_id ?? "—") + " " + formatStatusBadge(item.action) + " · " + escapeHtml(item.rationale || "—") + (item.result_id ? " · result #" + escapeHtml(item.result_id) : "")).join("<br>")
+        : "—";
+    }
+    if (errorEl) {
+      const latestError = data.latest_error;
+      errorEl.style.display = latestError ? "block" : "none";
+      errorEl.textContent = latestError ? `Последняя ошибка #${latestError.run_id}: ${latestError.message || "—"}` : "";
+    }
+  } catch (error) {
+    if (stateEl) stateEl.innerHTML = '<span class="badge badge-danger">UNAVAILABLE</span>';
+    if (metaEl) metaEl.textContent = "status API недоступен";
+    if (errorEl) {
+      errorEl.style.display = "block";
+      errorEl.textContent = "Не удалось получить состояние агента: " + error.message;
+    }
+  }
+}
+
 async function loadApprovalView(runId) {
   if (!runId) return;
 
@@ -683,7 +806,14 @@ function renderLLMModelOptions() {
     const discovered = item.is_discovered !== false;
     const probe = item.probe_status || (item.is_available === false ? "FAILED" : "UNCHECKED");
     const supports = item.supports_structured_output !== false;
-    return !discovered || !supports;
+    // Dynamic OpenCode rows must pass the persisted probe before a run can
+    // reference them. Legacy static catalogs remain selectable for providers
+    // that do not expose discovery/probe state.
+    const requiresProbe = String(llmCatalogCache.provider || "").toLowerCase() === "opencode"
+      && String(llmCatalogCache.source || "").toLowerCase() !== "static";
+    return !discovered || !supports || (
+      requiresProbe && (probe !== "PASSED" || item.is_available === false)
+    );
   }
   const options = models.map((item) => {
     const badge = probeBadge(item);
@@ -857,10 +987,16 @@ async function submitCreateRun() {
     const find = (id) => (llmCatalogCache.models || []).find((m) => m.id === id);
     const researchEntry = researchModel ? find(researchModel) : null;
     const summaryEntry = summaryModel ? find(summaryModel) : null;
+    const requiresProbe = String(llmCatalogCache.provider || "").toLowerCase() === "opencode"
+      && String(llmCatalogCache.source || "").toLowerCase() !== "static";
     function isReady(entry) {
       if (!entry) return false;
+      if (!requiresProbe) {
+        return entry.is_available !== false && entry.supports_structured_output !== false;
+      }
       const probe = entry.probe_status || (entry.is_available === false ? "FAILED" : "UNCHECKED");
-      return entry.is_discovered !== false && probe === "PASSED" && entry.supports_structured_output !== false;
+      return entry.is_discovered !== false && entry.is_available !== false
+        && probe === "PASSED" && entry.supports_structured_output !== false;
     }
     if (researchModel && !isReady(researchEntry)) {
       showToast("Research модель не прошла проверку (требуется PASSED). Нажмите «Проверить модель».", "danger");
@@ -876,11 +1012,11 @@ async function submitCreateRun() {
       const d = new Date(entry.last_checked_at);
       return isNaN(d.getTime()) || (Date.now() - d.getTime()) > 24*3600*1000;
     };
-    if (researchEntry && isStale(researchEntry)) {
+    if (requiresProbe && researchEntry && isStale(researchEntry)) {
       showToast("Research модель: probe stale (>24h), требуется повторная проверка.", "warning");
       return;
     }
-    if (summaryEntry && isStale(summaryEntry)) {
+    if (requiresProbe && summaryEntry && isStale(summaryEntry)) {
       showToast("Summary модель: probe stale (>24h), требуется повторная проверка.", "warning");
       return;
     }
@@ -939,20 +1075,35 @@ function showToast(message, level = "info") {
 function updateRunControls(run) {
   const status = String(run?.status || "").toUpperCase();
   const terminal = new Set(["COMPLETED", "INSUFFICIENT_DATA", "INSUFFICIENT_EVIDENCE", "TECHNICAL_INVALID", "FAILED", "REJECTED", "CANCELLED", "ROLLED_BACK", "ACTIVE"]);
-  const iterate = document.getElementById("btn-run-iterate");
-  const pause = document.getElementById("btn-run-pause");
-  const resume = document.getElementById("btn-run-resume");
-  const cancel = document.getElementById("btn-run-cancel");
+  const controls = {
+    iterate: ["btn-run-iterate", "agent-btn-iterate"],
+    pause: ["btn-run-pause", "agent-btn-pause"],
+    resume: ["btn-run-resume", "agent-btn-resume"],
+    cancel: ["btn-run-cancel", "agent-btn-cancel"],
+  };
+  const setDisplay = (names, visible) => names.forEach((name) => {
+    const button = document.getElementById(name);
+    if (button) button.style.display = visible ? "inline-flex" : "none";
+  });
   // Queueing is valid only for a fresh draft or an evaluating run.
   // Never expose it while the worker already owns the run.
-  if (iterate) iterate.style.display = ["DRAFT", "EVALUATING"].includes(status) ? "inline-flex" : "none";
-  if (pause) pause.style.display = ["PLANNING", "RUNNING", "EVALUATING", "SHADOW"].includes(status) ? "inline-flex" : "none";
-  if (resume) resume.style.display = status === "PAUSED" ? "inline-flex" : "none";
-  if (cancel) cancel.style.display = terminal.has(status) ? "none" : "inline-flex";
+  setDisplay(controls.iterate, ["DRAFT", "EVALUATING"].includes(status));
+  setDisplay(controls.pause, ["PLANNING", "RUNNING", "EVALUATING", "SHADOW"].includes(status));
+  setDisplay(controls.resume, status === "PAUSED");
+  setDisplay(controls.cancel, !terminal.has(status));
+}
+
+function openAgentRun() {
+  const runId = currentAgentRunId || currentSelectedRunId;
+  if (!runId) {
+    showToast("Активного run агента нет.", "info");
+    return;
+  }
+  selectRun(runId);
 }
 
 async function triggerRunIterate() {
-  const runId = currentSelectedRunId;
+  const runId = currentAgentRunId || currentSelectedRunId;
   if (!runId) return;
   const btn = document.getElementById("btn-run-iterate");
   if (btn) { btn.disabled = true; btn.textContent = "⚡ Выполняется..."; }
@@ -970,7 +1121,7 @@ async function triggerRunIterate() {
 }
 
 async function pauseRun() {
-  const runId = currentSelectedRunId;
+  const runId = currentAgentRunId || currentSelectedRunId;
   if (!runId) return;
   try {
     const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${runId}/pause`, { method: "POST", headers: getAuthHeaders() });
@@ -983,7 +1134,7 @@ async function pauseRun() {
 }
 
 async function resumeRun() {
-  const runId = currentSelectedRunId;
+  const runId = currentAgentRunId || currentSelectedRunId;
   if (!runId) return;
   try {
     const resp = await fetch(`${window.API_BASE}/api/ai-lab/runs/${runId}/resume`, { method: "POST", headers: getAuthHeaders() });
@@ -996,7 +1147,7 @@ async function resumeRun() {
 }
 
 async function cancelRun() {
-  const runId = currentSelectedRunId;
+  const runId = currentAgentRunId || currentSelectedRunId;
   if (!runId) return;
   if (!window.confirm("Отменить исследовательский запуск #" + runId + "?")) return;
   try {

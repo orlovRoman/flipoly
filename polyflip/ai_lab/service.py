@@ -26,6 +26,7 @@ from polyflip.ai_lab.manifests import (
 )
 from polyflip.db.models import (
     AIApprovalRequest,
+    AIConfigOverlay,
     AIExperimentConfig,
     AIModelArtifact,
     AIOptimizationRun,
@@ -33,6 +34,7 @@ from polyflip.db.models import (
     AIRunStep,
     AIStepAuditLog,
     AIShadowAssignment,
+    AIShadowObservation,
     DeploymentEvent,
     DeploymentRevision,
     ExperimentResult,
@@ -107,6 +109,7 @@ LAB_ACTIONS = frozenset(
         "RUN_OOT_BACKTEST",
         "RUN_POLYMARKET_OOT",
         "PROMOTE_TO_SHADOW",
+        "APPLY_CONFIG_OVERLAY",
         "STOP_EXPERIMENT",
         "REQUEST_ACTIVATION",
         "REQUEST_ROLLBACK",
@@ -1274,12 +1277,36 @@ async def get_run_detail(
             .order_by(AIApprovalRequest.id.desc())
         )
     ).scalars().all()
+    shadow_assignments = (
+        await session.execute(
+            select(AIShadowAssignment)
+            .where(AIShadowAssignment.run_id == run_id)
+            .order_by(AIShadowAssignment.id)
+        )
+    ).scalars().all()
+    shadow_observations = (
+        await session.execute(
+            select(AIShadowObservation)
+            .where(AIShadowObservation.run_id == run_id)
+            .order_by(AIShadowObservation.snapshot_at, AIShadowObservation.id)
+        )
+    ).scalars().all()
+    overlays = (
+        await session.execute(
+            select(AIConfigOverlay)
+            .where(AIConfigOverlay.run_id == run_id)
+            .order_by(AIConfigOverlay.id.desc())
+        )
+    ).scalars().all()
     return {
         "run": run,
         "steps": list(steps),
         "results": list(results),
         "audits": list(audits),
         "approvals": list(approvals),
+        "shadow_assignments": list(shadow_assignments),
+        "shadow_observations": list(shadow_observations),
+        "overlays": list(overlays),
     }
 
 

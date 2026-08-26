@@ -7,8 +7,8 @@ activate models or mutate live execution settings.
 from __future__ import annotations
 
 from polyflip.ai_lab.agent import AILabAgent
+from polyflip.ai_lab.paper_overlay import get_paper_overlay_runtime_summary
 from polyflip.ai_lab.agent_tools import expire_overlays, rollback_overlay
-from polyflip.db.models import AIConfigOverlay
 
 from datetime import datetime, timezone
 import re
@@ -17,7 +17,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException
 import structlog
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.executor import ExecutionBatchError
@@ -68,12 +68,17 @@ from polyflip.api.auth import verify_api_key
 from polyflip.db.connection import get_db_session
 from polyflip.db.models import (
     AIApprovalRequest,
+    AIConfigOverlay,
     AIExperimentConfig,
     AIOptimizationRun,
     AIPermission,
     AIRunStep,
+    AIShadowAssignment,
+    AIShadowObservation,
+    AIWorkerLease,
     DeploymentEvent,
     DeploymentRevision,
+    ExperimentResult,
     AIStepAuditLog,
 )
 
@@ -411,6 +416,51 @@ def _assignment_payload(assignment: Any) -> dict[str, Any]:
     }
 
 
+
+def _observation_payload(observation: Any) -> dict[str, Any]:
+    return {
+        "id": observation.id,
+        "assignment_id": observation.assignment_id,
+        "run_id": observation.run_id,
+        "market_id": observation.market_id,
+        "snapshot_at": observation.snapshot_at,
+        "active_model_key": observation.active_model_key,
+        "candidate_model_key": observation.candidate_model_key,
+        "active_action": observation.active_action,
+        "candidate_action": observation.candidate_action,
+        "active_probability": observation.active_probability,
+        "candidate_probability": observation.candidate_probability,
+        "active_ask": observation.active_ask,
+        "candidate_ask": observation.candidate_ask,
+        "active_net_edge": observation.active_net_edge,
+        "candidate_net_edge": observation.candidate_net_edge,
+        "active_pnl": observation.active_pnl,
+        "candidate_pnl": observation.candidate_pnl,
+        "market_outcome": observation.market_outcome,
+        "lr_direction_vote": observation.lr_direction_vote,
+        "lgbm_direction_vote": observation.lgbm_direction_vote,
+        "consensus_type": observation.consensus_type,
+        "shadow_logreg_action": observation.shadow_logreg_action,
+        "actual_combined_action": observation.actual_combined_action,
+        "shadow_logreg_net_edge": observation.shadow_logreg_net_edge,
+        "actual_net_edge": observation.actual_net_edge,
+        "status": observation.status,
+    }
+
+
+def _overlay_payload(overlay: Any, *, metrics: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "id": overlay.id,
+        "run_id": overlay.run_id,
+        "parent_overlay_id": overlay.parent_overlay_id,
+        "scope": overlay.scope,
+        "changes": overlay.changes,
+        "status": overlay.status,
+        "created_by": overlay.created_by,
+        "expires_at": overlay.expires_at,
+        "created_at": overlay.created_at,
+        "metrics": metrics or {},
+    }
 def _approval_payload(app: Any) -> dict[str, Any]:
     return {
         "id": app.id,
@@ -599,6 +649,181 @@ async def create_ai_run(
     return _run_payload(run)
 
 
+
+@router.get("/agent/status")
+async def get_ai_agent_status(db: AsyncSession = Depends(get_db_session)):
+    """Return a compact health/queue/telemetry snapshot for the dashboard."""
+    now = utc_now()
+    lease = (
+        await db.execute(
+            select(AIWorkerLease)
+            .where(AIWorkerLease.expires_at > now)
+            .order_by(AIWorkerLease.heartbeat_at.desc(), AIWorkerLease.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    queue_count = int(
+        (
+            await db.execute(
+                select(func.count(AIOptimizationRun.id)).where(
+                    AIOptimizationRun.status == "QUEUED"
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    current_run = await db.get(AIOptimizationRun, lease.run_id) if lease else None
+    latest_failed = (
+        await db.execute(
+            select(AIOptimizationRun)
+            .where(AIOptimizationRun.status == "FAILED")
+            .order_by(AIOptimizationRun.updated_at.desc(), AIOptimizationRun.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    latest_step = None
+    if current_run is not None:
+        latest_step = (
+            await db.execute(
+                select(AIRunStep)
+                .where(AIRunStep.run_id == current_run.id)
+                .order_by(AIRunStep.step_index.desc(), AIRunStep.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if latest_step is None:
+        latest_step = (
+            await db.execute(
+                select(AIRunStep)
+                .order_by(AIRunStep.created_at.desc(), AIRunStep.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    telemetry: dict[str, Any] = {}
+    if latest_step is not None:
+        for payload in (latest_step.input_payload, latest_step.output_payload):
+            if isinstance(payload, dict) and isinstance(payload.get("telemetry"), dict):
+                telemetry.update(payload["telemetry"])
+    proposal_query = select(AIRunStep).where(AIRunStep.step_type == "PROPOSAL")
+    if current_run is not None:
+        proposal_query = proposal_query.where(AIRunStep.run_id == current_run.id)
+    latest_proposal = (
+        await db.execute(
+            proposal_query.order_by(AIRunStep.created_at.desc(), AIRunStep.id.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    proposal_payload = (
+        latest_proposal.input_payload
+        if latest_proposal is not None and isinstance(latest_proposal.input_payload, dict)
+        else {}
+    )
+    current_hypothesis = proposal_payload.get("proposal") if proposal_payload else None
+    decision_query = select(AIRunStep).where(AIRunStep.step_type == "DECISION")
+    if current_run is not None:
+        decision_query = decision_query.where(AIRunStep.run_id == current_run.id)
+    decision_rows = (
+        await db.execute(
+            decision_query.order_by(AIRunStep.created_at.desc(), AIRunStep.id.desc()).limit(10)
+        )
+    ).scalars().all()
+    decision_history = []
+    telemetry_query = select(AIRunStep)
+    if current_run is not None:
+        telemetry_query = telemetry_query.where(AIRunStep.run_id == current_run.id)
+    telemetry_rows = (
+        await db.execute(
+            telemetry_query.order_by(
+                AIRunStep.created_at.desc(), AIRunStep.id.desc()
+            ).limit(20)
+        )
+    ).scalars().all()
+    for telemetry_step in reversed(telemetry_rows):
+        for payload in (
+            telemetry_step.input_payload,
+            telemetry_step.output_payload,
+        ):
+            if isinstance(payload, dict) and isinstance(
+                payload.get("telemetry"), dict
+            ):
+                telemetry.update(payload["telemetry"])
+    for step in decision_rows:
+        input_payload = step.input_payload if isinstance(step.input_payload, dict) else {}
+        output_payload = step.output_payload if isinstance(step.output_payload, dict) else {}
+        decision_payload = input_payload.get("decision") if isinstance(input_payload.get("decision"), dict) else {}
+        decision_history.append(
+            {
+                "step_id": step.id,
+                "run_id": step.run_id,
+                "action": step.action or decision_payload.get("action"),
+                "rationale": decision_payload.get("rationale") or step.summary,
+                "result_id": output_payload.get("result_id") or input_payload.get("result_id"),
+                "effects": output_payload.get("effects", {}),
+                "created_at": step.created_at,
+            }
+        )
+    oot_query = select(ExperimentResult).where(
+        ExperimentResult.evaluation_kind == "POLYMARKET_OOT"
+    )
+    if current_run is not None:
+        oot_query = oot_query.where(ExperimentResult.run_id == current_run.id)
+    latest_oot = (
+        await db.execute(
+            oot_query.order_by(ExperimentResult.created_at.desc(), ExperimentResult.id.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    latest_oot_result = (
+        {
+            "result_id": latest_oot.id,
+            "run_id": latest_oot.run_id,
+            "config_id": latest_oot.config_id,
+            "status": latest_oot.status,
+            "net_pnl": latest_oot.net_pnl,
+            "trade_count": latest_oot.trade_count,
+            "max_drawdown": latest_oot.max_drawdown,
+            "metrics": latest_oot.metrics or {},
+        }
+        if latest_oot is not None
+        else None
+    )
+    state = "working" if current_run is not None else ("error" if latest_failed else "idle")
+    current = None
+    if current_run is not None:
+        current = {
+            "id": current_run.id,
+            "status": current_run.status,
+            "iteration": current_run.experiments_completed,
+            "budget_experiments": current_run.budget_experiments,
+            "phase": latest_step.step_type if latest_step else None,
+            "research_model": current_run.llm_research_model,
+            "summary_model": current_run.llm_summary_model,
+            "heartbeat_at": lease.heartbeat_at if lease else None,
+            "expires_at": lease.expires_at if lease else None,
+        }
+    runtime_overlays = await get_paper_overlay_runtime_summary(db)
+    active_overlays = [
+        item for item in runtime_overlays
+        if str(item.get("status") or "").upper() == "APPLIED"
+    ]
+    # Runtime summary expires overlays as part of the read; persist that
+    # lifecycle transition so the dashboard and workers see the same state.
+    await db.commit()
+    return {
+        "state": state,
+        "health": "healthy" if state != "error" else "degraded",
+        "queue_count": queue_count,
+        "current_run": current,
+        "latest_telemetry": telemetry,
+        "current_hypothesis": current_hypothesis,
+        "decision_history": decision_history,
+        "latest_oot_result": latest_oot_result,
+        "active_overlays": active_overlays,
+        "latest_error": (
+            {"run_id": latest_failed.id, "message": latest_failed.error}
+            if latest_failed is not None
+            else None
+        ),
+        "checked_at": now,
+    }
 @router.get("/runs")
 async def list_ai_runs(
     status: str | None = None,
@@ -629,6 +854,11 @@ async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
     detail = await get_run_detail(db, run_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
+    runtime_overlays = await get_paper_overlay_runtime_summary(db, run_id=run_id)
+    await db.commit()
+    overlay_metrics = {
+        int(item["id"]): item.get("metrics", {}) for item in runtime_overlays
+    }
     return {
         "run": _run_payload(detail["run"]),
         "steps": [_step_payload(step) for step in detail["steps"]],
@@ -656,6 +886,16 @@ async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
         ],
         "audits": [_audit_payload(audit) for audit in detail.get("audits", [])],
         "approvals": [_approval_payload(app) for app in detail.get("approvals", [])],
+        "shadow_assignments": [
+            _assignment_payload(item) for item in detail.get("shadow_assignments", [])
+        ],
+        "shadow_observations": [
+            _observation_payload(item) for item in detail.get("shadow_observations", [])
+        ],
+        "overlays": [
+            _overlay_payload(item, metrics=overlay_metrics.get(int(item.id)))
+            for item in detail.get("overlays", [])
+        ],
     }
 
 
@@ -1501,29 +1741,35 @@ async def list_run_overlays(
     db: AsyncSession = Depends(get_db_session),
 ):
     """List all runtime setting overlays associated with an optimization run."""
-    await expire_overlays(db)
+    rows = await get_paper_overlay_runtime_summary(db, run_id=run_id)
     await db.commit()
-    stmt = (
-        select(AIConfigOverlay)
-        .where(AIConfigOverlay.run_id == run_id)
-        .order_by(AIConfigOverlay.id.desc())
-    )
-    rows = (await db.execute(stmt)).scalars().all()
-    return [
-        {
-            "id": r.id,
-            "run_id": r.run_id,
-            "parent_overlay_id": r.parent_overlay_id,
-            "scope": r.scope,
-            "changes": r.changes,
-            "status": r.status,
-            "created_by": r.created_by,
-            "expires_at": r.expires_at,
-            "created_at": r.created_at,
-        }
-        for r in rows
-    ]
+    return rows
 
+
+
+@router.get("/overlays")
+async def list_ai_overlays(
+    status: str | None = None,
+    active_only: bool = False,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """List active/all AI Lab overlays with PAPER runtime impact metrics."""
+    await expire_overlays(db)
+    query = select(AIConfigOverlay).order_by(AIConfigOverlay.id.desc()).limit(
+        min(max(limit, 1), 500)
+    )
+    if status:
+        query = query.where(AIConfigOverlay.status == status.strip().upper())
+    if active_only:
+        query = query.where(AIConfigOverlay.status == "APPLIED")
+    rows = (await db.execute(query)).scalars().all()
+    metrics = {
+        int(item["id"]): item.get("metrics", {})
+        for item in await get_paper_overlay_runtime_summary(db)
+    }
+    await db.commit()
+    return [_overlay_payload(row, metrics=metrics.get(int(row.id))) for row in rows]
 
 @router.post("/overlays/{overlay_id}/rollback")
 async def rollback_config_overlay_endpoint(

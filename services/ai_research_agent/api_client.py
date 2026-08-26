@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -98,7 +99,17 @@ class AILabApiClient:
             json_body={"run_id": run_id, "lease_token": self._lease_token},
         )
         leased_until = str((data or {}).get("leased_until") or "")
-        return 0.0 if not leased_until else 0.0  # server TTL drives renewal
+        if not leased_until:
+            return 0.0
+        try:
+            expires_at = datetime.fromisoformat(leased_until.replace("Z", "+00:00"))
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            remaining = (expires_at - datetime.now(timezone.utc)).total_seconds()
+            return max(0.0, remaining)
+        except (TypeError, ValueError):
+            # A malformed server timestamp must not keep a worker alive.
+            return 0.0
 
     def require_lease(self) -> str:
         if not self._lease_token:
@@ -136,6 +147,7 @@ class AILabApiClient:
         proposal: dict[str, Any],
         *,
         client_request_id: str | None = None,
+        telemetry: dict[str, Any] | None = None,
     ) -> dict:
         lease_token = self.require_lease()
         request_id = client_request_id or __import__("uuid").uuid4().hex
@@ -146,6 +158,7 @@ class AILabApiClient:
                 "lease_token": lease_token,
                 "client_request_id": request_id,
                 "proposal": proposal,
+                "telemetry": telemetry,
             },
         )
 
@@ -185,6 +198,7 @@ class AILabApiClient:
         decision: dict[str, Any],
         *,
         client_request_id: str | None = None,
+        telemetry: dict[str, Any] | None = None,
     ) -> dict:
         lease_token = self.require_lease()
         request_id = client_request_id or __import__("uuid").uuid4().hex
@@ -195,6 +209,7 @@ class AILabApiClient:
                 "lease_token": lease_token,
                 "client_request_id": request_id,
                 "decision": decision,
+                "telemetry": telemetry,
             },
         )
 

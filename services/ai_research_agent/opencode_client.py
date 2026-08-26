@@ -124,6 +124,69 @@ def _coerce_kv_lists(payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _usage_telemetry(data: dict[str, Any], latency_ms: int, *, model: str) -> dict[str, Any]:
+    usage = data.get("usage") if isinstance(data, dict) else {}
+    usage = usage if isinstance(usage, dict) else {}
+    prompt = usage.get("prompt_tokens", usage.get("input_tokens", 0))
+    completion = usage.get("completion_tokens", usage.get("output_tokens", 0))
+    total = usage.get("total_tokens")
+    try:
+        prompt = int(prompt or 0)
+    except (TypeError, ValueError):
+        prompt = 0
+    try:
+        completion = int(completion or 0)
+    except (TypeError, ValueError):
+        completion = 0
+    try:
+        total = int(total) if total is not None else prompt + completion
+    except (TypeError, ValueError):
+        total = prompt + completion
+    return {
+        "latency_ms": int(latency_ms),
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": total,
+        "model": model,
+    }
+
+def _model_selection(
+    context: dict[str, Any],
+    role: str,
+    *,
+    fallback_role: str | None = None,
+) -> tuple[str, str | None]:
+    """Resolve the immutable model/protocol selection for one agent role."""
+    selected = context.get(role)
+    model = None
+    protocol = None
+    if isinstance(selected, dict):
+        model = selected.get("model_id") or selected.get("model") or selected.get("id")
+        protocol = selected.get("protocol")
+    if not model:
+        model = context.get(f"{role}_model")
+    if not model and fallback_role:
+        fallback = context.get(fallback_role)
+        if isinstance(fallback, dict):
+            model = (
+                fallback.get("model_id")
+                or fallback.get("model")
+                or fallback.get("id")
+            )
+            protocol = protocol or fallback.get("protocol")
+        if not model:
+            model = context.get(f"{fallback_role}_model")
+    if not model:
+        model = "gpt-5.6"
+    if not protocol:
+        protocol = context.get(f"{role}_protocol")
+    if not protocol and fallback_role:
+        protocol = context.get(f"{fallback_role}_protocol")
+    if not protocol:
+        protocol = context.get("protocol")
+    return str(model), (str(protocol) if protocol else None)
+
+
 class OpenCodeClient:
     def __init__(self) -> None:
         self.api_key = os.getenv("AI_LAB_LLM_API_KEY", "")
@@ -161,7 +224,7 @@ class OpenCodeClient:
         schema_name: str,
         schema: dict[str, Any],
         protocol: str | None = None,
-    ) -> tuple[dict[str, Any], int]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         # Use explicit protocol when provided (snapshot-provided), else guess via model.
         if protocol:
             endpoint, is_chat = self._endpoint_for_protocol(protocol)
@@ -214,6 +277,7 @@ class OpenCodeClient:
             response.raise_for_status()
             data = response.json()
         latency_ms = int((time.monotonic() - started) * 1000)
+        telemetry = _usage_telemetry(data, latency_ms, model=model)
         if is_chat:
             choices = data.get("choices") or []
             text = ""
@@ -240,25 +304,12 @@ class OpenCodeClient:
                         break
         if not text:
             raise ValueError(f"{schema_name}: empty structured output from {model}")
-        return _coerce_kv_lists(json.loads(text)), latency_ms
+        return _coerce_kv_lists(json.loads(text)), telemetry
 
     async def propose_hypothesis(self, context: dict[str, Any]) -> dict[str, Any]:
         # Snapshot provides explicit per-model protocol; use it when available.
-        research = context.get("research")
-        if isinstance(research, dict):
-            model = str(
-                research.get("model_id") or context.get("research_model") or "gpt-5.6"
-            )
-            protocol = str(research.get("protocol") or "")
-            if not protocol:
-                protocol = None
-        else:
-            model = str(context.get("research_model") or "gpt-5.6")
-            protocol = str(
-                context.get("research_protocol") or context.get("protocol") or ""
-            )
-            protocol = protocol or None
-        payload, latency_ms = await self._structured_json(
+        model, protocol = _model_selection(context, "research")
+        payload, telemetry = await self._structured_json(
             model=model,
             protocol=protocol,
             instructions=(
@@ -271,7 +322,7 @@ class OpenCodeClient:
             schema_name="hypothesis_proposal",
             schema=_hypothesis_schema(),
         )
-        return {"proposal": payload, "latency_ms": latency_ms}
+        return {"proposal": payload, "telemetry": telemetry, **telemetry}
 
     async def decide(
         self,
@@ -280,20 +331,10 @@ class OpenCodeClient:
         proposal: dict[str, Any],
         result: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        research = context.get("research")
-        if isinstance(research, dict):
-            model = str(
-                research.get("model_id") or context.get("research_model") or "gpt-5.6"
-            )
-            protocol = str(research.get("protocol") or "")
-            protocol = protocol or None
-        else:
-            model = str(context.get("research_model") or "gpt-5.6")
-            protocol = str(
-                context.get("research_protocol") or context.get("protocol") or ""
-            )
-            protocol = protocol or None
-        payload, latency_ms = await self._structured_json(
+        model, protocol = _model_selection(
+            context, "summary", fallback_role="research"
+        )
+        payload, telemetry = await self._structured_json(
             model=model,
             protocol=protocol,
             instructions=(
@@ -308,4 +349,4 @@ class OpenCodeClient:
             schema_name="agent_decision",
             schema=_decision_schema(),
         )
-        return {"decision": payload, "latency_ms": latency_ms}
+        return {"decision": payload, "telemetry": telemetry, **telemetry}

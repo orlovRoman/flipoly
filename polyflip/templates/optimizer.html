@@ -110,6 +110,48 @@
     }
     .mode-banner .mode-label { font-family: var(--font-mono); letter-spacing: .08em; }
     .unavailable { color: var(--text-muted); padding: 1rem; text-align: center; }
+    .agent-status-panel {
+      border-color: rgba(0, 114, 245, 0.35);
+      background: linear-gradient(135deg, rgba(0, 114, 245, 0.08), rgba(10, 14, 23, 0.85));
+    }
+    .agent-status-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+    .agent-status-cell {
+      min-height: 3.75rem;
+      padding: 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.12);
+    }
+    .agent-status-label {
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.35rem;
+    }
+    .agent-status-value {
+      color: var(--text-main);
+      font-size: 0.9rem;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    .agent-status-detail {
+      margin-top: 0.85rem;
+      padding: 0.75rem;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.18);
+      color: var(--text-secondary);
+      font-size: 0.84rem;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+    @media (max-width: 900px) {
+      .agent-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
 
     /* Navigation Tabs */
     .opt-tabs {
@@ -470,6 +512,55 @@
           <div class="hero-right"><span class="status-badge badge-shadow">READ-ONLY</span></div>
         </div>
 
+        <!-- Independent external research agent status -->
+        <section class="opt-panel agent-status-panel" id="agent-status-panel" aria-live="polite">
+          <div class="panel-header">
+            <div class="panel-title">🤖 Independent AI research agent</div>
+            <div id="agent-status-state" class="status-badge badge-neutral">IDLE</div>
+          </div>
+          <div class="agent-status-grid">
+            <div class="agent-status-cell">
+              <div class="agent-status-label">Состояние / health</div>
+              <div class="agent-status-value" id="agent-status-meta">Проверка сервиса...</div>
+            </div>
+            <div class="agent-status-cell">
+              <div class="agent-status-label">Очередь</div>
+              <div class="agent-status-value" id="agent-queue-count">—</div>
+            </div>
+            <div class="agent-status-cell">
+              <div class="agent-status-label">Текущий run / итерация</div>
+              <div class="agent-status-value" id="agent-current-run">—</div>
+            </div>
+            <div class="agent-status-cell">
+              <div class="agent-status-label">OpenCode модели</div>
+              <div class="agent-status-value" id="agent-current-model">—</div>
+            </div>
+          </div>
+          <div class="agent-status-detail">
+            <strong>Гипотеза:</strong> <span id="agent-current-hypothesis">—</span>
+          </div>
+          <div class="agent-status-detail">
+            <strong>Последний Polymarket OOT:</strong> <span id="agent-latest-oot">—</span>
+            <span style="margin-left:1rem;"><strong>Телеметрия:</strong> <span id="agent-status-telemetry">—</span></span>
+          </div>
+          <div class="agent-status-detail">
+            <strong>Активные PAPER-overlays:</strong> <span id="agent-active-overlays">—</span>
+          </div>
+          <div class="agent-status-detail">
+            <strong>История решений:</strong>
+            <div id="agent-decision-history">—</div>
+          </div>
+          <div class="agent-status-detail" id="agent-status-error" style="display:none; color: var(--color-failed);"></div>
+          <div id="agent-control-actions" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-top:0.85rem;">
+            <button class="btn btn-primary btn-sm" id="agent-btn-iterate" type="button" onclick="triggerRunIterate()" style="display:none;">⚡ Run one iteration</button>
+            <button class="btn btn-outline btn-sm" id="agent-btn-pause" type="button" onclick="pauseRun()" style="display:none;">⏸ Pause</button>
+            <button class="btn btn-outline btn-sm" id="agent-btn-resume" type="button" onclick="resumeRun()" style="display:none;">▶ Resume</button>
+            <button class="btn btn-warning btn-sm" id="agent-btn-cancel" type="button" onclick="cancelRun()" style="display:none;">✕ Cancel</button>
+            <button class="btn btn-secondary btn-sm" type="button" onclick="openAgentRun()">Открыть текущий run</button>
+          </div>
+        </section>
+
+
         <!-- Navigation Tabs -->
         <div class="opt-tabs">
           <button class="opt-tab-btn active" data-tab="runs" onclick="switchOptTab('runs')">
@@ -515,7 +606,16 @@
           </div>
         </div>
         <div id="tab-candidates" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Candidates / results</div><div id="stage9-candidates"><div class="unavailable">Выберите запуск.</div></div></div></div>
-        <div id="tab-shadow" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">SHADOW</div><div id="stage9-shadow"><div class="unavailable">SHADOW assignment data is unavailable.</div></div></div></div>
+        <div id="tab-shadow" class="tab-pane" style="display:none">
+          <div class="opt-panel">
+            <div class="panel-title">SHADOW</div>
+            <div id="stage9-shadow"><div class="unavailable">SHADOW assignment data is unavailable.</div></div>
+          </div>
+          <div class="opt-panel" style="margin-top:1.5rem;">
+            <div class="panel-title">PAPER overlays / runtime impact</div>
+            <div id="stage9-overlays"><div class="unavailable">Выберите запуск.</div></div>
+          </div>
+        </div>
         <div id="tab-deployments" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Deployments</div><div id="stage9-deployments"><div class="unavailable">Загрузка ревизий...</div></div></div></div>
         <div id="tab-permissions" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Permissions</div><div id="stage9-permissions"><div class="unavailable">Загрузка разрешений...</div></div></div></div>
         <div id="tab-errors" class="tab-pane" style="display:none"><div class="opt-panel"><div class="panel-title">Errors</div><div id="stage9-errors"><div class="unavailable">Ошибок не найдено.</div></div></div></div>
