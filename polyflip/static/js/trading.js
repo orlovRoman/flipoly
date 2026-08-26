@@ -536,7 +536,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const isV3 = Number(data.policy_version) === 3 ||
         Number(settingsElements.mrfFilterVersion?.value) === 3;
       if (settingsElements.mrfStatScoreLabel) {
-        settingsElements.mrfStatScoreLabel.textContent = isV3 ? 'Regime evidence' : 'Мультипликатор';
+        settingsElements.mrfStatScoreLabel.textContent = isV3 ? 'Legacy multiplier' : 'Мультипликатор';
       }
       if (settingsElements.mrfStatMultiplier) {
         const m = data.avg_multiplier != null ? Number(data.avg_multiplier) : 1.0;

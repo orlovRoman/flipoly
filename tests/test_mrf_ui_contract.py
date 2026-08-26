@@ -28,5 +28,6 @@ def test_trading_js_loads_and_saves_mrf_v3_settings():
     assert "MARKET_REGIME_ASSET_WEIGHT" in js
     assert "MARKET_REGIME_GLOBAL_WEIGHT" in js
     assert "avg_regime_evidence" in js
-    assert "Regime evidence" in js
+    assert "mrfStatEvidence" in js
+    assert "Legacy multiplier" in js
     assert "updateMrfVersionUI" in js
