@@ -4,6 +4,7 @@ Mirrors the structured-output behavior of ``polyflip.ai_lab.llm`` without
 importing platform code: the same JSON schemas are sent over either the
 Responses or Chat Completions transport, selected per model.
 """
+
 from __future__ import annotations
 
 import json
@@ -68,9 +69,17 @@ def _hypothesis_schema() -> dict[str, Any]:
             },
         },
         "required": [
-            "hypothesis", "asset", "market_role", "model_family", "feature_set",
-            "parameter_changes", "strategy_parameter_changes", "expected_effect",
-            "reasoning", "risks", "test_plan",
+            "hypothesis",
+            "asset",
+            "market_role",
+            "model_family",
+            "feature_set",
+            "parameter_changes",
+            "strategy_parameter_changes",
+            "expected_effect",
+            "reasoning",
+            "risks",
+            "test_plan",
         ],
         "additionalProperties": False,
     }
@@ -85,13 +94,18 @@ def _decision_schema() -> dict[str, Any]:
             "key_findings": {"type": "array", "items": {"type": "string"}},
             "recommended_config_id": {"type": ["integer", "null"]},
             "proposed_overlay": {
-                "type": ["array", "null"], "items": _kv_schema()
+                "type": ["array", "null"],
+                "items": _kv_schema()["items"],
             },
             "next_step_focus": {"type": ["string", "null"]},
         },
         "required": [
-            "action", "rationale", "key_findings", "recommended_config_id",
-            "proposed_overlay", "next_step_focus",
+            "action",
+            "rationale",
+            "key_findings",
+            "recommended_config_id",
+            "proposed_overlay",
+            "next_step_focus",
         ],
         "additionalProperties": False,
     }
@@ -120,17 +134,14 @@ class OpenCodeClient:
             "AI_LAB_OPENCODE_CHAT_ENDPOINT", DEFAULT_CHAT_ENDPOINT
         )
         chat_models_csv = os.getenv("AI_LAB_OPENCODE_CHAT_MODELS", "")
-        self.chat_models = (
-            {item.strip() for item in chat_models_csv.split(",") if item.strip()}
-            or set(DEFAULT_CHAT_MODELS)
-        )
+        self.chat_models = {
+            item.strip() for item in chat_models_csv.split(",") if item.strip()
+        } or set(DEFAULT_CHAT_MODELS)
 
     def _endpoint_for(self, model: str) -> tuple[str, bool]:
         is_chat = model in self.chat_models
         return (
-            (self.chat_endpoint, True)
-            if is_chat
-            else (self.responses_endpoint, False)
+            (self.chat_endpoint, True) if is_chat else (self.responses_endpoint, False)
         )
 
     def _endpoint_for_protocol(self, protocol: str | None) -> tuple[str, bool]:
@@ -167,7 +178,9 @@ class OpenCodeClient:
                 "response_format": {
                     "type": "json_schema",
                     "json_schema": {
-                        "name": schema_name, "strict": True, "schema": schema,
+                        "name": schema_name,
+                        "strict": True,
+                        "schema": schema,
                     },
                 },
             }
@@ -233,13 +246,17 @@ class OpenCodeClient:
         # Snapshot provides explicit per-model protocol; use it when available.
         research = context.get("research")
         if isinstance(research, dict):
-            model = str(research.get("model_id") or context.get("research_model") or "gpt-5.6")
+            model = str(
+                research.get("model_id") or context.get("research_model") or "gpt-5.6"
+            )
             protocol = str(research.get("protocol") or "")
             if not protocol:
                 protocol = None
         else:
             model = str(context.get("research_model") or "gpt-5.6")
-            protocol = str(context.get("research_protocol") or context.get("protocol") or "")
+            protocol = str(
+                context.get("research_protocol") or context.get("protocol") or ""
+            )
             protocol = protocol or None
         payload, latency_ms = await self._structured_json(
             model=model,
@@ -265,12 +282,16 @@ class OpenCodeClient:
     ) -> dict[str, Any]:
         research = context.get("research")
         if isinstance(research, dict):
-            model = str(research.get("model_id") or context.get("research_model") or "gpt-5.6")
+            model = str(
+                research.get("model_id") or context.get("research_model") or "gpt-5.6"
+            )
             protocol = str(research.get("protocol") or "")
             protocol = protocol or None
         else:
             model = str(context.get("research_model") or "gpt-5.6")
-            protocol = str(context.get("research_protocol") or context.get("protocol") or "")
+            protocol = str(
+                context.get("research_protocol") or context.get("protocol") or ""
+            )
             protocol = protocol or None
         payload, latency_ms = await self._structured_json(
             model=model,

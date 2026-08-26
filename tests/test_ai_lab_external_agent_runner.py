@@ -1,4 +1,5 @@
 """Autonomous research-loop behavior of the external agent runner (T08)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -26,6 +27,8 @@ class FakeClient:
         self.submitted_proposal = None
         self.submitted_decision = None
         self._lease_token: str | None = "lease-token"
+        self.proposal_request_id = None
+        self.decision_request_id = None
 
     def drop_lease(self) -> None:
         self._lease_token = None
@@ -50,17 +53,22 @@ class FakeClient:
     async def get_context(self, run_id: int):
         self.calls.append("context")
         return SimpleNamespace(
-            active_models=[], recent_trade_statistics={},
-            prior_experiments=[], available_feature_sets=["FS_D0"],
+            active_models=[],
+            recent_trade_statistics={},
+            prior_experiments=[],
+            available_feature_sets=["FS_D0"],
             quality_gate={"min_trades": 30},
         )
 
-    async def submit_proposal(self, run_id: int, proposal):
+    async def submit_proposal(self, run_id: int, proposal, *, client_request_id=None):
         self.calls.append("proposal")
         self.submitted_proposal = proposal
+        self.proposal_request_id = client_request_id
         return {"config_id": 91}
 
-    async def wait_for_experiment_result(self, *, run_id: int, timeout_seconds: int, context=None):
+    async def wait_for_experiment_result(
+        self, *, run_id: int, timeout_seconds: int, context=None
+    ):
         self.calls.append("wait")
         if self._wait_timeout:
             return None
@@ -75,9 +83,10 @@ class FakeClient:
             summary="positive",
         )
 
-    async def submit_decision(self, run_id: int, decision):
+    async def submit_decision(self, run_id: int, decision, *, client_request_id=None):
         self.calls.append("decision")
         self.submitted_decision = decision
+        self.decision_request_id = client_request_id
         return {"accepted": True}
 
     async def complete(self, run_id: int, action: str, reason: str = ""):
@@ -100,12 +109,17 @@ class FakeLLM:
                 "parameter_changes": {},
                 "strategy_parameter_changes": {},
                 "expected_effect": {
-                    "metric": "median_oot_pnl", "direction": "increase",
+                    "metric": "median_oot_pnl",
+                    "direction": "increase",
                     "target_gain": None,
                 },
-                "reasoning": [], "risks": [],
-                "test_plan": {"oot_windows": 3, "min_markets": 50,
-                               "execution_mode": "PAPER_REALISTIC"},
+                "reasoning": [],
+                "risks": [],
+                "test_plan": {
+                    "oot_windows": 3,
+                    "min_markets": 50,
+                    "execution_mode": "PAPER_REALISTIC",
+                },
             },
             "latency_ms": 12,
         }
@@ -149,9 +163,9 @@ def test_wait_timeout_fails_run_without_llm_decision():
 
 def test_continue_research_within_budget_requeues_iteration():
     client = FakeClient()
-    progressed = _run(agent_runner.process_one_run(
-        client, FakeLLM(action="CONTINUE_RESEARCH")
-    ))
+    progressed = _run(
+        agent_runner.process_one_run(client, FakeLLM(action="CONTINUE_RESEARCH"))
+    )
     assert progressed is True
     # budget_experiments == 1 already consumed -> terminal COMPLETED, no REQUEUE.
     assert client.calls[-1] == "complete:COMPLETED"
@@ -201,10 +215,25 @@ def test_api_client_params_and_lease_lost_clears_token():
         if request.url.path.endswith("/context"):
             # Verify lease_token in query params
             assert captured["params"].get("lease_token") == "test-lease"
-            return httpx.Response(200, json={
-                "run": {"id": 1, "status": "RUNNING", "objective": "x", "scope": {}, "autonomy_level": "EXPERIMENT", "iteration": 0, "budget_remaining_steps": 1},
-                "active_models": [], "recent_trade_statistics": {}, "prior_experiments": [], "available_feature_sets": [], "quality_gate": {}
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "run": {
+                        "id": 1,
+                        "status": "RUNNING",
+                        "objective": "x",
+                        "scope": {},
+                        "autonomy_level": "EXPERIMENT",
+                        "iteration": 0,
+                        "budget_remaining_steps": 1,
+                    },
+                    "active_models": [],
+                    "recent_trade_statistics": {},
+                    "prior_experiments": [],
+                    "available_feature_sets": [],
+                    "quality_gate": {},
+                },
+            )
         return httpx.Response(200, json={})
 
     transport = httpx.MockTransport(handler)
@@ -219,6 +248,7 @@ def test_api_client_params_and_lease_lost_clears_token():
             super().__init__(*args, **kwargs)
 
     import api_client as ac_module
+
     ac_module.httpx.AsyncClient = PatchedAsyncClient
     try:
         # GET context should include lease_token in params
@@ -260,9 +290,25 @@ def test_opencode_client_uses_explicit_protocol():
         captured["url"] = str(request.url)
         # Return minimal structured output
         if "chat/completions" in captured["url"]:
-            return httpx.Response(200, json={"choices": [{"message": {"content": '{"hypothesis": "h", "asset": "BTC", "market_role": "ALL", "model_family": "LOGREG", "feature_set": "FS_D0", "parameter_changes": [], "strategy_parameter_changes": [], "expected_effect": {"metric": "median_oot_pnl", "direction": "increase", "target_gain": null}, "reasoning": [], "risks": [], "test_plan": {"oot_windows": 3, "min_markets": 50, "execution_mode": "PAPER_REALISTIC"}}'}}]})
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": '{"hypothesis": "h", "asset": "BTC", "market_role": "ALL", "model_family": "LOGREG", "feature_set": "FS_D0", "parameter_changes": [], "strategy_parameter_changes": [], "expected_effect": {"metric": "median_oot_pnl", "direction": "increase", "target_gain": null}, "reasoning": [], "risks": [], "test_plan": {"oot_windows": 3, "min_markets": 50, "execution_mode": "PAPER_REALISTIC"}}'
+                            }
+                        }
+                    ]
+                },
+            )
         else:
-            return httpx.Response(200, json={"output_text": '{"hypothesis": "h", "asset": "BTC", "market_role": "ALL", "model_family": "LOGREG", "feature_set": "FS_D0", "parameter_changes": [], "strategy_parameter_changes": [], "expected_effect": {"metric": "median_oot_pnl", "direction": "increase", "target_gain": null}, "reasoning": [], "risks": [], "test_plan": {"oot_windows": 3, "min_markets": 50, "execution_mode": "PAPER_REALISTIC"}}'})
+            return httpx.Response(
+                200,
+                json={
+                    "output_text": '{"hypothesis": "h", "asset": "BTC", "market_role": "ALL", "model_family": "LOGREG", "feature_set": "FS_D0", "parameter_changes": [], "strategy_parameter_changes": [], "expected_effect": {"metric": "median_oot_pnl", "direction": "increase", "target_gain": null}, "reasoning": [], "risks": [], "test_plan": {"oot_windows": 3, "min_markets": 50, "execution_mode": "PAPER_REALISTIC"}}'
+                },
+            )
 
     # Patch httpx.AsyncClient to use mock transport
     original = httpx.AsyncClient
@@ -274,21 +320,33 @@ def test_opencode_client_uses_explicit_protocol():
             super().__init__(*args, **kwargs)
 
     import opencode_client as oc_mod
+
     oc_mod.httpx.AsyncClient = PatchedAsyncClient
     try:
         client = OpenCodeClient()
         # Case 1: explicit chat_completions protocol should hit chat endpoint
-        ctx_chat = {"research": {"model_id": "any-model", "protocol": "chat_completions"}, "research_model": "any-model"}
+        ctx_chat = {
+            "research": {"model_id": "any-model", "protocol": "chat_completions"},
+            "research_model": "any-model",
+        }
         captured.clear()
         _run(client.propose_hypothesis(ctx_chat))
         assert "chat/completions" in captured["url"]
         # Case 2: explicit responses protocol should hit responses endpoint
-        ctx_resp = {"research": {"model_id": "any-model", "protocol": "responses"}, "research_model": "any-model"}
+        ctx_resp = {
+            "research": {"model_id": "any-model", "protocol": "responses"},
+            "research_model": "any-model",
+        }
         captured.clear()
         _run(client.propose_hypothesis(ctx_resp))
         assert "responses" in captured["url"]
         # Case 3: context via runner's snapshot shape
-        snap_ctx = {"research": {"model_id": "m1", "protocol": "chat_completions"}, "summary": {"model_id": "m2", "protocol": "responses"}, "research_model": "m1", "summary_model": "m2"}
+        snap_ctx = {
+            "research": {"model_id": "m1", "protocol": "chat_completions"},
+            "summary": {"model_id": "m2", "protocol": "responses"},
+            "research_model": "m1",
+            "summary_model": "m2",
+        }
         captured.clear()
         _run(client.propose_hypothesis(snap_ctx))
         assert "chat/completions" in captured["url"]
@@ -303,7 +361,12 @@ def test_resumable_runner_phases_and_heartbeat():
             super().__init__()
             self.phase_calls = 0
             self.heartbeats = 0
-            self.phases = ["NEEDS_PROPOSAL", "WAITING_RESULT", "NEEDS_DECISION", "NEEDS_COMPLETION"]
+            self.phases = [
+                "NEEDS_PROPOSAL",
+                "WAITING_RESULT",
+                "NEEDS_DECISION",
+                "NEEDS_COMPLETION",
+            ]
             self._lease_token = "lease-token"
 
         async def get_phase(self, run_id: int):
@@ -312,11 +375,23 @@ def test_resumable_runner_phases_and_heartbeat():
             self.phase_calls += 1
             # Track calls
             self.calls.append(f"phase:{self.phases[idx]}")
-            return {"phase": self.phases[idx], "latest_config_id": 91, "latest_result_id": 1}
+            return {
+                "phase": self.phases[idx],
+                "latest_config_id": 91,
+                "latest_result_id": 1,
+            }
 
         async def get_result(self, run_id: int):
             self.calls.append("get_result")
-            return {"state": "READY", "result": {"result_id": 1, "config_id": 91, "evaluation_kind": "POLYMARKET_OOT", "status": "SUCCEEDED"}}
+            return {
+                "state": "READY",
+                "result": {
+                    "result_id": 1,
+                    "config_id": 91,
+                    "evaluation_kind": "POLYMARKET_OOT",
+                    "status": "SUCCEEDED",
+                },
+            }
 
         async def heartbeat(self, run_id: int):
             self.heartbeats += 1
@@ -325,22 +400,60 @@ def test_resumable_runner_phases_and_heartbeat():
 
         async def get_context(self, run_id: int):
             self.calls.append("context")
-            return SimpleNamespace(active_models=[], recent_trade_statistics={}, prior_experiments=[], available_feature_sets=["FS_D0"], quality_gate={"min_trades": 30})
+            return SimpleNamespace(
+                active_models=[],
+                recent_trade_statistics={},
+                prior_experiments=[],
+                available_feature_sets=["FS_D0"],
+                quality_gate={"min_trades": 30},
+            )
 
-        async def wait_for_experiment_result(self, *, run_id: int, timeout_seconds: int, context=None):
+        async def wait_for_experiment_result(
+            self, *, run_id: int, timeout_seconds: int, context=None
+        ):
             self.calls.append("wait")
             await asyncio.sleep(0.12)
-            return ExperimentResult(config_id=91, evaluation_kind="POLYMARKET_OOT", status="SUCCEEDED", metrics={"median_pnl": 1.2}, net_pnl=1.2, trade_count=100, max_drawdown=-0.5, summary="ok")
+            return ExperimentResult(
+                config_id=91,
+                evaluation_kind="POLYMARKET_OOT",
+                status="SUCCEEDED",
+                metrics={"median_pnl": 1.2},
+                net_pnl=1.2,
+                trade_count=100,
+                max_drawdown=-0.5,
+                summary="ok",
+            )
 
     # Patch POLL_SECONDS to make heartbeat fast
     import runner as rmod
+
     orig_poll = rmod.POLL_SECONDS
     rmod.POLL_SECONDS = 0.05
     try:
         client = PhaseClient()
+
         # Need to also have claim return a run with budget 2 so it can go through phases
         async def fast_claim():
-            return SimpleNamespace(id=99, status="RUNNING", objective="test", scope={"asset": "BTC"}, autonomy_level="EXPERIMENT", budget_experiments=2, experiments_completed=0, budget_seconds=10, lease_token="lease-token", llm_provider="opencode", llm_research_model="m", llm_summary_model="m", llm_snapshot={"provider": "opencode", "research": {"model_id": "m", "protocol": "responses"}, "summary": {"model_id": "m", "protocol": "responses"}})
+            return SimpleNamespace(
+                id=99,
+                status="RUNNING",
+                objective="test",
+                scope={"asset": "BTC"},
+                autonomy_level="EXPERIMENT",
+                budget_experiments=2,
+                experiments_completed=0,
+                budget_seconds=10,
+                lease_token="lease-token",
+                llm_provider="opencode",
+                llm_research_model="m",
+                llm_summary_model="m",
+                llm_snapshot={
+                    "provider": "opencode",
+                    "research": {"model_id": "m", "protocol": "responses"},
+                    "summary": {"model_id": "m", "protocol": "responses"},
+                },
+            )
+
         client.claim = fast_claim
         progressed = _run(agent_runner.process_one_run(client, FakeLLM()))
         assert progressed is True
@@ -348,6 +461,8 @@ def test_resumable_runner_phases_and_heartbeat():
         assert any("phase:NEEDS_PROPOSAL" in c for c in client.calls)
         assert any("phase:WAITING_RESULT" in c for c in client.calls)
         assert any("phase:NEEDS_DECISION" in c for c in client.calls)
+        assert client.proposal_request_id == "proposal-99-0"
+        assert client.decision_request_id == "decision-99-1"
         assert any("phase:NEEDS_COMPLETION" in c for c in client.calls)
         assert client.completed_with in ("COMPLETED", "REQUEUE", "FAILED")
         # Heartbeat over whole run should have been called at least once
@@ -361,10 +476,24 @@ def test_runner_handles_lease_loss_and_transient_errors():
     class LeaseLostClient(FakeClient):
         async def claim(self):
             self.calls.append("claim")
-            return SimpleNamespace(id=1, status="RUNNING", objective="x", scope={}, autonomy_level="EXPERIMENT", budget_experiments=1, experiments_completed=0, budget_seconds=10, lease_token="lease-token", llm_provider="opencode", llm_research_model="m", llm_summary_model="m")
+            return SimpleNamespace(
+                id=1,
+                status="RUNNING",
+                objective="x",
+                scope={},
+                autonomy_level="EXPERIMENT",
+                budget_experiments=1,
+                experiments_completed=0,
+                budget_seconds=10,
+                lease_token="lease-token",
+                llm_provider="opencode",
+                llm_research_model="m",
+                llm_summary_model="m",
+            )
 
         async def get_phase(self, run_id: int):
             from api_client import LeaseLostError
+
             raise LeaseLostError()
 
     client = LeaseLostClient()
@@ -380,12 +509,26 @@ def test_runner_handles_lease_loss_and_transient_errors():
             self._lease_token = "lease-token"
 
         async def claim(self):
-            return SimpleNamespace(id=2, status="RUNNING", objective="x", scope={}, autonomy_level="EXPERIMENT", budget_experiments=1, experiments_completed=0, budget_seconds=10, lease_token="lease-token", llm_provider="opencode", llm_research_model="m", llm_summary_model="m")
+            return SimpleNamespace(
+                id=2,
+                status="RUNNING",
+                objective="x",
+                scope={},
+                autonomy_level="EXPERIMENT",
+                budget_experiments=1,
+                experiments_completed=0,
+                budget_seconds=10,
+                lease_token="lease-token",
+                llm_provider="opencode",
+                llm_research_model="m",
+                llm_summary_model="m",
+            )
 
         async def get_phase(self, run_id: int):
             self.attempts += 1
             if self.attempts == 1:
                 from api_client import AgentAPIError
+
                 raise AgentAPIError(500, "transient")
             return {"phase": "NEEDS_COMPLETION"}
 
@@ -403,7 +546,20 @@ def test_runner_budget_exhaustion():
     class BudgetClient(FakeClient):
         async def claim(self):
             self.calls.append("claim")
-            return SimpleNamespace(id=3, status="RUNNING", objective="x", scope={}, autonomy_level="EXPERIMENT", budget_experiments=1, experiments_completed=1, budget_seconds=10, lease_token="lease-token", llm_provider="opencode", llm_research_model="m", llm_summary_model="m")
+            return SimpleNamespace(
+                id=3,
+                status="RUNNING",
+                objective="x",
+                scope={},
+                autonomy_level="EXPERIMENT",
+                budget_experiments=1,
+                experiments_completed=1,
+                budget_seconds=10,
+                lease_token="lease-token",
+                llm_provider="opencode",
+                llm_research_model="m",
+                llm_summary_model="m",
+            )
 
         async def complete(self, run_id: int, action: str, reason: str = ""):
             self.calls.append(f"complete:{action}")
@@ -412,5 +568,15 @@ def test_runner_budget_exhaustion():
     client = BudgetClient()
     progressed = _run(agent_runner.process_one_run(client, FakeLLM()))
     assert progressed is True
-    assert client.completed_with == "FAILED"
-    assert any("budget" in str(c).lower() or c == "complete:FAILED" for c in client.calls)
+
+    assert client.completed_with == "COMPLETED"
+    assert client.calls[-1] == "complete:COMPLETED"
+
+
+def test_decision_schema_describes_overlay_items_as_objects():
+    from opencode_client import _decision_schema
+
+    overlay = _decision_schema()["properties"]["proposed_overlay"]
+    assert overlay["type"] == ["array", "null"]
+    assert overlay["items"]["type"] == "object"
+    assert overlay["items"]["required"] == ["key", "value"]

@@ -1,4 +1,5 @@
-﻿"""External agent API behavior (T07)."""
+"""External agent API behavior (T07)."""
+
 from __future__ import annotations
 
 import uuid
@@ -17,6 +18,7 @@ from polyflip.api.ai_lab_agent import (
     HeartbeatRequest,
     ProposalRequest,
     _acquire_lease,
+    get_agent_phase,
     claim_next_agent_run,
     complete_agent_run,
     get_agent_context,
@@ -36,16 +38,19 @@ VALID_PROPOSAL = {
     "model_family": "LOGREG",
     "feature_set": "FS_D1",
     "parameter_changes": [{"key": "C", "value": 0.5}],
-    "strategy_parameter_changes": [
-        {"key": "decision_threshold", "value": 0.58}
-    ],
+    "strategy_parameter_changes": [{"key": "decision_threshold", "value": 0.58}],
     "expected_effect": {
-        "metric": "median_oot_pnl", "direction": "increase", "target_gain": 0.05,
+        "metric": "median_oot_pnl",
+        "direction": "increase",
+        "target_gain": 0.05,
     },
     "reasoning": ["baseline drift"],
     "risks": [],
-    "test_plan": {"oot_windows": 3, "min_markets": 50,
-                   "execution_mode": "PAPER_REALISTIC"},
+    "test_plan": {
+        "oot_windows": 3,
+        "min_markets": 50,
+        "execution_mode": "PAPER_REALISTIC",
+    },
 }
 
 VALID_DECISION = {
@@ -106,9 +111,7 @@ async def test_claim_transitions_to_running_and_returns_lease(db_session):
 
     stored = await db_session.get(AIOptimizationRun, run_id)
     assert stored.status == "RUNNING"
-    lease = (
-        await db_session.execute(sa.select(AIWorkerLease))
-    ).scalar_one()
+    lease = (await db_session.execute(sa.select(AIWorkerLease))).scalar_one()
     assert lease.owner_token == claimed["lease_token"]
 
 
@@ -138,9 +141,7 @@ async def test_heartbeat_renews_and_wrong_token_is_lost(db_session):
     )
     assert renewed["run_id"] == run_id
 
-    lease = (
-        await db_session.execute(sa.select(AIWorkerLease))
-    ).scalar_one()
+    lease = (await db_session.execute(sa.select(AIWorkerLease))).scalar_one()
     expires_at = (
         lease.expires_at
         if lease.expires_at.tzinfo
@@ -164,8 +165,12 @@ async def test_context_snapshot_shape_is_aggregated_only(db_session):
         run_id=run_id, lease_token=claimed["lease_token"], db=db_session
     )
     assert set(context) == {
-        "run", "active_models", "recent_trade_statistics",
-        "prior_experiments", "available_feature_sets", "quality_gate",
+        "run",
+        "active_models",
+        "recent_trade_statistics",
+        "prior_experiments",
+        "available_feature_sets",
+        "quality_gate",
     }
     assert context["run"]["budget_remaining_steps"] == 2
     assert "FS_D0" in context["available_feature_sets"]
@@ -190,18 +195,20 @@ async def test_proposal_creates_config_and_canonical_steps(db_session):
     config = await db_session.get(AIExperimentConfig, result["config_id"])
     assert config.model_family == "LogisticRegression"
     assert config.created_by == "external-agent"
-    steps = (
-        await db_session.execute(
-            sa.select(AIOptimizationRun)  # placeholder to keep sa import used
-        )
+    steps = await db_session.execute(
+        sa.select(AIOptimizationRun)  # placeholder to keep sa import used
     )
     from polyflip.db.models import AIRunStep
 
     step_rows = (
-        await db_session.execute(
-            sa.select(AIRunStep).where(AIRunStep.run_id == run_id)
+        (
+            await db_session.execute(
+                sa.select(AIRunStep).where(AIRunStep.run_id == run_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     step_types = {row.step_type for row in step_rows}
     # Canonical executor pipeline created by plan_run for the agent config.
     assert {"TRAIN_MODEL", "RUN_OOT_BACKTEST", "RUN_POLYMARKET_OOT"} <= step_types
@@ -277,9 +284,7 @@ async def test_decision_persisted_and_complete_releases_lease(db_session):
         db_session,
     )
     assert completed["status"] == "COMPLETED"
-    leases = (
-        await db_session.execute(sa.select(AIWorkerLease))
-    ).scalars().all()
+    leases = (await db_session.execute(sa.select(AIWorkerLease))).scalars().all()
     assert leases == []
 
 
@@ -289,12 +294,32 @@ async def test_requeue_returns_run_to_queue_without_lease(db_session):
     claimed = (await claim_next_agent_run(AgentClaimRequest(), db_session))["run"]
     result = await complete_agent_run(
         run_id,
-        CompleteRequest(action="REQUEUE", reason="retry", lease_token=claimed["lease_token"]),
+        CompleteRequest(
+            action="REQUEUE", reason="retry", lease_token=claimed["lease_token"]
+        ),
         db_session,
     )
     assert result["status"] == "QUEUED"
     again = await claim_next_agent_run(AgentClaimRequest(), db_session)
     assert again["run"]["id"] == run_id
+    phase = await get_agent_phase(
+        run_id,
+        lease_token=again["run"]["lease_token"],
+        db=db_session,
+    )
+    assert phase["phase"] == "NEEDS_PROPOSAL"
+    from polyflip.db.models import AIRunStep
+
+    markers = (
+        (
+            await db_session.execute(
+                sa.select(AIRunStep).where(AIRunStep.step_type == "ITERATION_REQUEUED")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(markers) == 1
 
 
 def test_verify_agent_token_falls_back_to_api_key():
@@ -391,6 +416,7 @@ async def test_fallback_api_key_when_agent_token_not_set(db_session, monkeypatch
     from polyflip.db.connection import get_db_session
 
     monkeypatch.setattr(cfg, "AI_LAB_AGENT_TOKEN", "")
+
     async def override_db():
         yield db_session
 
@@ -418,6 +444,7 @@ async def test_invalid_proposal_422_via_http(db_session, monkeypatch):
 
     monkeypatch.setattr(cfg, "AI_LAB_AGENT_TOKEN", "agent-secret")
     run_id = await _seed_run(db_session)
+
     async def override_db():
         yield db_session
 
@@ -458,6 +485,7 @@ async def test_invalid_decision_422_via_http(db_session, monkeypatch):
 
     monkeypatch.setattr(cfg, "AI_LAB_AGENT_TOKEN", "agent-secret")
     run_id = await _seed_run(db_session)
+
     async def override_db():
         yield db_session
 
@@ -500,7 +528,9 @@ async def test_proposal_ordering_and_idempotency(db_session):
     # First proposal creates iteration.
     first = await submit_agent_proposal(
         run_id,
-        ProposalRequest(lease_token=lease, client_request_id=req_id_a, proposal=VALID_PROPOSAL),
+        ProposalRequest(
+            lease_token=lease, client_request_id=req_id_a, proposal=VALID_PROPOSAL
+        ),
         db_session,
     )
     assert first["config_id"] > 0
@@ -508,31 +538,63 @@ async def test_proposal_ordering_and_idempotency(db_session):
     # Idempotent retry with same client_request_id must not create a new config.
     from polyflip.db.models import AIRunStep
 
-    steps_before = (await db_session.execute(sa.select(AIRunStep).where(AIRunStep.run_id == run_id))).scalars().all()
-    configs_before = (await db_session.execute(sa.select(AIExperimentConfig))).scalars().all()
+    steps_before = (
+        (
+            await db_session.execute(
+                sa.select(AIRunStep).where(AIRunStep.run_id == run_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    configs_before = (
+        (await db_session.execute(sa.select(AIExperimentConfig))).scalars().all()
+    )
     retry = await submit_agent_proposal(
         run_id,
-        ProposalRequest(lease_token=lease, client_request_id=req_id_a, proposal=VALID_PROPOSAL),
+        ProposalRequest(
+            lease_token=lease, client_request_id=req_id_a, proposal=VALID_PROPOSAL
+        ),
         db_session,
     )
     assert retry["config_id"] == first["config_id"]
     assert retry["step_ids"] == first["step_ids"]
-    steps_after_retry = (await db_session.execute(sa.select(AIRunStep).where(AIRunStep.run_id == run_id))).scalars().all()
-    configs_after_retry = (await db_session.execute(sa.select(AIExperimentConfig))).scalars().all()
+    steps_after_retry = (
+        (
+            await db_session.execute(
+                sa.select(AIRunStep).where(AIRunStep.run_id == run_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    configs_after_retry = (
+        (await db_session.execute(sa.select(AIExperimentConfig))).scalars().all()
+    )
     assert len(steps_after_retry) == len(steps_before)
     assert len(configs_after_retry) == len(configs_before)
     # Different client_request_id creates a new iteration.
     second = await submit_agent_proposal(
         run_id,
-        ProposalRequest(lease_token=lease, client_request_id=req_id_b, proposal=VALID_PROPOSAL),
+        ProposalRequest(
+            lease_token=lease, client_request_id=req_id_b, proposal=VALID_PROPOSAL
+        ),
         db_session,
     )
     assert second["config_id"] != first["config_id"]
     assert second["config_id"] > 0
     # No (run_id, step_index) conflicts and ordering is monotonic.
     all_steps = (
-        await db_session.execute(sa.select(AIRunStep).where(AIRunStep.run_id == run_id).order_by(AIRunStep.step_index))
-    ).scalars().all()
+        (
+            await db_session.execute(
+                sa.select(AIRunStep)
+                .where(AIRunStep.run_id == run_id)
+                .order_by(AIRunStep.step_index)
+            )
+        )
+        .scalars()
+        .all()
+    )
     indices = [s.step_index for s in all_steps]
     assert indices == sorted(indices)
     assert len(indices) == len(set(indices))
@@ -554,7 +616,11 @@ async def test_result_returns_only_terminal_oot(db_session):
     lease = claimed["lease_token"]
     proposal = await submit_agent_proposal(
         run_id,
-        ProposalRequest(lease_token=lease, client_request_id=uuid.uuid4().hex, proposal=VALID_PROPOSAL),
+        ProposalRequest(
+            lease_token=lease,
+            client_request_id=uuid.uuid4().hex,
+            proposal=VALID_PROPOSAL,
+        ),
         db_session,
     )
     # Before any OOT result, state is PENDING and TRAIN results are ignored.
@@ -574,7 +640,9 @@ async def test_result_returns_only_terminal_oot(db_session):
     )
     db_session.add(train_res)
     await db_session.flush()
-    pending = await get_agent_latest_result(run_id=run_id, lease_token=lease, db=db_session)
+    pending = await get_agent_latest_result(
+        run_id=run_id, lease_token=lease, db=db_session
+    )
     assert pending["state"] == "PENDING"
     assert pending["result"] is None
     # Add terminal POLYMARKET_OOT SUCCEEDED – now READY.
@@ -590,7 +658,9 @@ async def test_result_returns_only_terminal_oot(db_session):
     )
     db_session.add(oot)
     await db_session.flush()
-    ready = await get_agent_latest_result(run_id=run_id, lease_token=lease, db=db_session)
+    ready = await get_agent_latest_result(
+        run_id=run_id, lease_token=lease, db=db_session
+    )
     assert ready["state"] == "READY"
     assert ready["result"] is not None
     assert ready["result"]["evaluation_kind"] == "POLYMARKET_OOT"
@@ -604,14 +674,22 @@ async def test_decision_requires_ready_and_validates_config(db_session):
     lease = claimed["lease_token"]
     proposal = await submit_agent_proposal(
         run_id,
-        ProposalRequest(lease_token=lease, client_request_id=uuid.uuid4().hex, proposal=VALID_PROPOSAL),
+        ProposalRequest(
+            lease_token=lease,
+            client_request_id=uuid.uuid4().hex,
+            proposal=VALID_PROPOSAL,
+        ),
         db_session,
     )
     # No terminal result yet – decision should be rejected with RESULT_NOT_READY.
     with pytest.raises(HTTPException) as exc:
         await submit_agent_decision(
             run_id,
-            DecisionRequest(lease_token=lease, client_request_id=uuid.uuid4().hex, decision=VALID_DECISION),
+            DecisionRequest(
+                lease_token=lease,
+                client_request_id=uuid.uuid4().hex,
+                decision=VALID_DECISION,
+            ),
             db_session,
         )
     assert exc.value.status_code == 409
@@ -649,13 +727,19 @@ async def test_decision_requires_ready_and_validates_config(db_session):
     )
     db_session.add(term)
     await db_session.flush()
+    term_id = int(term.id)
+
     # Try decision with non-belonging recommended_config_id.
     bad_decision = dict(VALID_DECISION)
     bad_decision["recommended_config_id"] = int(other_cfg.id)
     with pytest.raises(HTTPException) as exc2:
         await submit_agent_decision(
             run_id,
-            DecisionRequest(lease_token=lease, client_request_id=uuid.uuid4().hex, decision=bad_decision),
+            DecisionRequest(
+                lease_token=lease,
+                client_request_id=uuid.uuid4().hex,
+                decision=bad_decision,
+            ),
             db_session,
         )
     assert exc2.value.status_code == 422
@@ -664,7 +748,11 @@ async def test_decision_requires_ready_and_validates_config(db_session):
     good_decision["recommended_config_id"] = int(proposal["config_id"])
     first_ok = await submit_agent_decision(
         run_id,
-        DecisionRequest(lease_token=lease, client_request_id="decision-aaa-12345678", decision=good_decision),
+        DecisionRequest(
+            lease_token=lease,
+            client_request_id="decision-aaa-12345678",
+            decision=good_decision,
+        ),
         db_session,
     )
     assert first_ok["accepted"] is True
@@ -673,26 +761,36 @@ async def test_decision_requires_ready_and_validates_config(db_session):
     # Idempotent retry same client_request_id must not increment again.
     retry = await submit_agent_decision(
         run_id,
-        DecisionRequest(lease_token=lease, client_request_id="decision-aaa-12345678", decision=good_decision),
+        DecisionRequest(
+            lease_token=lease,
+            client_request_id="decision-aaa-12345678",
+            decision=good_decision,
+        ),
         db_session,
     )
     assert retry["step_id"] == first_ok["step_id"]
     run_after = await db_session.get(AIOptimizationRun, run_id)
     assert int(run_after.experiments_completed) == completed_before
-    # Different ID increments again? Actually budget allows only one decision per iteration; second distinct ID after READY should create new DECISION but still READY? For test, just check that second distinct ID creates different step.
+    # A different request ID is still the same logical decision for this result.
     second = await submit_agent_decision(
         run_id,
-        DecisionRequest(lease_token=lease, client_request_id="decision-bbb-12345678", decision=good_decision),
+        DecisionRequest(
+            lease_token=lease,
+            client_request_id="decision-bbb-12345678",
+            decision=good_decision,
+        ),
         db_session,
     )
-    assert second["step_id"] != first_ok["step_id"]
-    # Check that decision step links to result.
+    assert second["step_id"] == first_ok["step_id"]
+    await db_session.refresh(run_after)
+    assert int(run_after.experiments_completed) == completed_before
+    # Check that the single decision step links to the result.
     from polyflip.db.models import AIRunStep
 
     dec_step = await db_session.get(AIRunStep, second["step_id"])
     assert dec_step is not None
-    assert dec_step.client_request_id == "decision-bbb-12345678"
-    assert dec_step.output_payload.get("result_id") == term.id
+    assert dec_step.client_request_id == "decision-aaa-12345678"
+    assert dec_step.output_payload.get("result_id") == term_id
 
 
 @pytest.mark.asyncio
@@ -704,9 +802,18 @@ async def test_context_asset_filtering_and_quality_gate(db_session):
     run_id = await _seed_run(db_session)
     # Update scope to BTCUSDT (should normalize to BTC) and custom gate
     run = await db_session.get(AIOptimizationRun, run_id)
-    run.scope = {"asset": "BTCUSDT", "min_trades": 55, "max_ece": 0.12, "min_positive_oot_windows": 5}
+    run.scope = {
+        "asset": "BTCUSDT",
+        "min_trades": 55,
+        "max_ece": 0.12,
+        "min_positive_oot_windows": 5,
+    }
     await db_session.flush()
-    claimed = (await claim_next_agent_run(AgentClaimRequest(worker_id="ctx-tester"), db_session))["run"]
+    claimed = (
+        await claim_next_agent_run(
+            AgentClaimRequest(worker_id="ctx-tester"), db_session
+        )
+    )["run"]
     # Need to claim the existing queued run; the previous claim used external-ai-research-agent,
     # so we force a new claim after releasing? Simpler: use the already claimed lease.
     # Actually _seed_run created QUEUED, claim_next_agent_run with ctx-tester will claim.
@@ -714,14 +821,74 @@ async def test_context_asset_filtering_and_quality_gate(db_session):
     lease = claimed["lease_token"]
     # Create ModelRegistry entries for BTC and ETH
     now = datetime.now(timezone.utc)
-    btc_model = ModelRegistry(asset="BTC", version=1, is_active=True, trained_at=now, decision_threshold=0.55, accuracy=0.6, ece=0.05, quality_gate_passed=True)
-    eth_model = ModelRegistry(asset="ETH", version=1, is_active=True, trained_at=now, decision_threshold=0.55, accuracy=0.7, ece=0.04, quality_gate_passed=True)
+    btc_model = ModelRegistry(
+        asset="BTC",
+        version=1,
+        is_active=True,
+        trained_at=now,
+        decision_threshold=0.55,
+        accuracy=0.6,
+        ece=0.05,
+        quality_gate_passed=True,
+    )
+    eth_model = ModelRegistry(
+        asset="ETH",
+        version=1,
+        is_active=True,
+        trained_at=now,
+        decision_threshold=0.55,
+        accuracy=0.7,
+        ece=0.04,
+        quality_gate_passed=True,
+    )
     db_session.add_all([btc_model, eth_model])
     # Create TradeHistory for BTC and ETH with required fields
-    t_btc = TradeHistory(market_id="m-btc-1", asset="BTC", outcome_bought="YES", amount_usdc=10, executed_price=0.5, predicted_flip_prob=0.6, active_features="f1", status="FILLED", mode="PAPER", position_status="OPEN", pnl=1.0, timestamp=now - timedelta(hours=1), created_at=now - timedelta(hours=1))
-    t_eth = TradeHistory(market_id="m-eth-1", asset="ETH", outcome_bought="YES", amount_usdc=10, executed_price=0.5, predicted_flip_prob=0.6, active_features="f1", status="FILLED", mode="PAPER", position_status="OPEN", pnl=5.0, timestamp=now - timedelta(hours=1), created_at=now - timedelta(hours=1))
+    t_btc = TradeHistory(
+        market_id="m-btc-1",
+        asset="BTC",
+        outcome_bought="YES",
+        amount_usdc=10,
+        executed_price=0.5,
+        predicted_flip_prob=0.6,
+        active_features="f1",
+        status="FILLED",
+        mode="PAPER",
+        position_status="OPEN",
+        pnl=1.0,
+        timestamp=now - timedelta(hours=1),
+        created_at=now - timedelta(hours=1),
+    )
+    t_eth = TradeHistory(
+        market_id="m-eth-1",
+        asset="ETH",
+        outcome_bought="YES",
+        amount_usdc=10,
+        executed_price=0.5,
+        predicted_flip_prob=0.6,
+        active_features="f1",
+        status="FILLED",
+        mode="PAPER",
+        position_status="OPEN",
+        pnl=5.0,
+        timestamp=now - timedelta(hours=1),
+        created_at=now - timedelta(hours=1),
+    )
     # Also BTCUSDT variant to test normalization
-    t_btcusdt = TradeHistory(market_id="m-btc-2", asset="BTCUSDT", outcome_bought="YES", amount_usdc=10, executed_price=0.5, predicted_flip_prob=0.6, active_features="f1", status="PAPER_FILLED", mode="PAPER", position_status="OPEN", pnl=2.0, timestamp=now - timedelta(hours=2), created_at=now - timedelta(hours=2))
+    t_btcusdt = TradeHistory(
+        market_id="m-btc-2",
+        asset="BTCUSDT",
+        outcome_bought="YES",
+        amount_usdc=10,
+        executed_price=0.5,
+        predicted_flip_prob=0.6,
+        active_features="f1",
+        status="PAPER_FILLED",
+        mode="PAPER",
+        position_status="OPEN",
+        pnl=2.0,
+        timestamp=now - timedelta(hours=2),
+        created_at=now - timedelta(hours=2),
+    )
     db_session.add_all([t_btc, t_eth, t_btcusdt])
     await db_session.flush()
     ctx = await get_agent_context(run_id=run_id, lease_token=lease, db=db_session)
@@ -747,7 +914,9 @@ async def test_heartbeat_returns_real_expiry(db_session):
     lease = claimed["lease_token"]
     from polyflip.api.ai_lab_agent import agent_heartbeat
 
-    first = await agent_heartbeat(HeartbeatRequest(run_id=run_id, lease_token=lease), db_session)
+    first = await agent_heartbeat(
+        HeartbeatRequest(run_id=run_id, lease_token=lease), db_session
+    )
     # leased_until should be future ISO timestamp
     from datetime import datetime, timezone
 
@@ -758,7 +927,9 @@ async def test_heartbeat_returns_real_expiry(db_session):
     import asyncio as _asyncio
 
     await _asyncio.sleep(0.01)
-    second = await agent_heartbeat(HeartbeatRequest(run_id=run_id, lease_token=lease), db_session)
+    second = await agent_heartbeat(
+        HeartbeatRequest(run_id=run_id, lease_token=lease), db_session
+    )
     leased2 = datetime.fromisoformat(second["leased_until"].replace("Z", "+00:00"))
     assert leased2 >= leased_until
 
@@ -770,16 +941,60 @@ async def test_claim_returns_snapshot_with_per_model_protocol(db_session):
 
     now = datetime.now(timezone.utc)
     # Seed two models with distinct protocols
-    db_session.add(AILLMModelCatalog(provider="opencode", model_id="resp-model", display_name="resp", protocol="responses", is_available=True, is_discovered=True, probe_status="PASSED", last_checked_at=now, discovered_at=now, supports_structured_output=True))
-    db_session.add(AILLMModelCatalog(provider="opencode", model_id="chat-model", display_name="chat", protocol="chat_completions", is_available=True, is_discovered=True, probe_status="PASSED", last_checked_at=now, discovered_at=now, supports_structured_output=True))
+    db_session.add(
+        AILLMModelCatalog(
+            provider="opencode",
+            model_id="resp-model",
+            display_name="resp",
+            protocol="responses",
+            is_available=True,
+            is_discovered=True,
+            probe_status="PASSED",
+            last_checked_at=now,
+            discovered_at=now,
+            supports_structured_output=True,
+        )
+    )
+    db_session.add(
+        AILLMModelCatalog(
+            provider="opencode",
+            model_id="chat-model",
+            display_name="chat",
+            protocol="chat_completions",
+            is_available=True,
+            is_discovered=True,
+            probe_status="PASSED",
+            last_checked_at=now,
+            discovered_at=now,
+            supports_structured_output=True,
+        )
+    )
     await db_session.flush()
     # Create run with those models
     from polyflip.ai_lab.service import create_run
     from polyflip.ai_lab.service import create_permission
     from uuid import uuid4
 
-    perm = await create_permission(db_session, profile_name=f"snap-{uuid4().hex[:4]}", allowed_actions=["CREATE_EXPERIMENT"], scope={}, limits={}, updated_by="test", enabled=True)
-    run = await create_run(db_session, objective="snap test", scope={}, autonomy_level="OBSERVE", budget_experiments=1, permission=perm, llm_provider="opencode", llm_research_model="resp-model", llm_summary_model="chat-model")
+    perm = await create_permission(
+        db_session,
+        profile_name=f"snap-{uuid4().hex[:4]}",
+        allowed_actions=["CREATE_EXPERIMENT"],
+        scope={},
+        limits={},
+        updated_by="test",
+        enabled=True,
+    )
+    run = await create_run(
+        db_session,
+        objective="snap test",
+        scope={},
+        autonomy_level="OBSERVE",
+        budget_experiments=1,
+        permission=perm,
+        llm_provider="opencode",
+        llm_research_model="resp-model",
+        llm_summary_model="chat-model",
+    )
     run.status = "QUEUED"
     await db_session.flush()
     await db_session.commit()

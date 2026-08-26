@@ -1,4 +1,5 @@
 """HTTP client for the AI Lab agent API (no DB, no shell, no docker)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -129,17 +130,21 @@ class AILabApiClient:
         )
         return data
 
-    async def submit_proposal(self, run_id: int, proposal: dict[str, Any]) -> dict:
-        self.require_lease()
-        import uuid
-
-        client_request_id = uuid.uuid4().hex
+    async def submit_proposal(
+        self,
+        run_id: int,
+        proposal: dict[str, Any],
+        *,
+        client_request_id: str | None = None,
+    ) -> dict:
+        lease_token = self.require_lease()
+        request_id = client_request_id or __import__("uuid").uuid4().hex
         return await self._request(
             "POST",
             f"/api/ai-lab/agent/runs/{run_id}/proposal",
             json_body={
-                "lease_token": self._lease_token,
-                "client_request_id": client_request_id,
+                "lease_token": lease_token,
+                "client_request_id": request_id,
                 "proposal": proposal,
             },
         )
@@ -174,17 +179,21 @@ class AILabApiClient:
             await asyncio.sleep(self._poll_seconds)
         return None
 
-    async def submit_decision(self, run_id: int, decision: dict[str, Any]) -> dict:
-        self.require_lease()
-        import uuid
-
-        client_request_id = uuid.uuid4().hex
+    async def submit_decision(
+        self,
+        run_id: int,
+        decision: dict[str, Any],
+        *,
+        client_request_id: str | None = None,
+    ) -> dict:
+        lease_token = self.require_lease()
+        request_id = client_request_id or __import__("uuid").uuid4().hex
         return await self._request(
             "POST",
             f"/api/ai-lab/agent/runs/{run_id}/decision",
             json_body={
-                "lease_token": self._lease_token,
-                "client_request_id": client_request_id,
+                "lease_token": lease_token,
+                "client_request_id": request_id,
                 "decision": decision,
             },
         )
@@ -195,9 +204,12 @@ class AILabApiClient:
         action: str,
         reason: str = "",
     ) -> dict:
-        body: dict[str, Any] = {"action": action, "reason": reason}
-        if self._lease_token:
-            body["lease_token"] = self._lease_token
+        lease_token = self.require_lease()
+        body: dict[str, Any] = {
+            "action": action,
+            "reason": reason,
+            "lease_token": lease_token,
+        }
         data = await self._request(
             "POST", f"/api/ai-lab/agent/runs/{run_id}/complete", json_body=body
         )

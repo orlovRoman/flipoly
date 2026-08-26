@@ -5,6 +5,7 @@ decision -> complete. All side effects go through the AI Lab HTTP API.
 Resumable: branches on server phase NEEDS_PROPOSAL/WAITING_RESULT/NEEDS_DECISION/NEEDS_COMPLETION,
 heartbeat over whole run, handles lease loss, transient errors, budget exhaustion.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,19 +28,23 @@ def _context_for_llm(run: ClaimedRun, context) -> dict:
     research = getattr(run, "llm_research", None)
     summary = getattr(run, "llm_summary", None)
     if not isinstance(research, dict):
-        research = snap.get("research") if isinstance(snap.get("research"), dict) else None
+        research = (
+            snap.get("research") if isinstance(snap.get("research"), dict) else None
+        )
     if not isinstance(summary, dict):
         summary = snap.get("summary") if isinstance(snap.get("summary"), dict) else None
     # Fallback to flat fields with protocol from snapshot.
     if not isinstance(research, dict):
         research = {
             "model_id": run.llm_research_model or "",
-            "protocol": (snap.get("protocol") if isinstance(snap, dict) else "") or "responses",
+            "protocol": (snap.get("protocol") if isinstance(snap, dict) else "")
+            or "responses",
         }
     if not isinstance(summary, dict):
         summary = {
             "model_id": run.llm_summary_model or "",
-            "protocol": (snap.get("protocol") if isinstance(snap, dict) else "") or "responses",
+            "protocol": (snap.get("protocol") if isinstance(snap, dict) else "")
+            or "responses",
         }
     return {
         "run_id": run.id,
@@ -62,7 +67,9 @@ def _context_for_llm(run: ClaimedRun, context) -> dict:
     }
 
 
-async def _heartbeat_loop(client: AILabApiClient, run_id: int, stop_event: asyncio.Event) -> None:
+async def _heartbeat_loop(
+    client: AILabApiClient, run_id: int, stop_event: asyncio.Event
+) -> None:
     while not stop_event.is_set():
         try:
             await asyncio.sleep(POLL_SECONDS)
@@ -76,13 +83,24 @@ async def _heartbeat_loop(client: AILabApiClient, run_id: int, stop_event: async
         except asyncio.CancelledError:
             break
         except Exception as exc:  # noqa: BLE001
-            logger.warning("heartbeat transient error", extra={"run_id": run_id, "error": str(exc)})
+            logger.warning(
+                "heartbeat transient error", extra={"run_id": run_id, "error": str(exc)}
+            )
             # continue looping
 
 
-async def _single_iteration_fallback(client: AILabApiClient, llm: OpenCodeClient, run: ClaimedRun) -> bool:
+async def _single_iteration_fallback(
+    client: AILabApiClient, llm: OpenCodeClient, run: ClaimedRun
+) -> bool:
     """Legacy single-iteration path for clients without phase support (tests)."""
     try:
+        if run.experiments_completed >= run.budget_experiments:
+            await client.complete(
+                run.id,
+                "COMPLETED",
+                reason="budget exhausted",
+            )
+            return True
         context = await client.get_context(run.id)
         llm_context = _context_for_llm(run, context)
 
@@ -147,27 +165,6 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
     logger.info(
         "claimed run", extra={"run_id": run.id, "objective": run.objective[:120]}
     )
-    # Budget exhaustion check before any work
-    if run.experiments_completed >= run.budget_experiments:
-        logger.info("budget exhausted", extra={"run_id": run.id})
-        try:
-            await client.complete(run.id, "FAILED", reason="budget exhausted")
-        except LeaseLostError:
-            client.drop_lease()
-            return False
-        except AgentAPIError as exc:
-            if exc.status_code >= 500:
-                try:
-                    await client.complete(run.id, "REQUEUE", reason="budget exhausted transient")
-                except Exception:
-                    pass
-            else:
-                try:
-                    await client.complete(run.id, "FAILED", reason=str(exc)[:400])
-                except Exception:
-                    pass
-        return True
-
     # If client doesn't support phase (FakeClient in tests), fallback to single iteration
     if not hasattr(client, "get_phase"):
         return await _single_iteration_fallback(client, llm, run)
@@ -179,18 +176,27 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
         for _ in range(20):  # safety bound
             try:
                 phase_data = await client.get_phase(run.id)
-                phase = str(phase_data.get("phase") or "NEEDS_PROPOSAL") if isinstance(phase_data, dict) else "NEEDS_PROPOSAL"
+                phase = (
+                    str(phase_data.get("phase") or "NEEDS_PROPOSAL")
+                    if isinstance(phase_data, dict)
+                    else "NEEDS_PROPOSAL"
+                )
             except LeaseLostError:
                 logger.warning("lease lost on get_phase", extra={"run_id": run.id})
                 client.drop_lease()
                 return False
             except AgentAPIError as exc:
                 if exc.status_code >= 500:
-                    logger.warning("transient get_phase error", extra={"run_id": run.id, "error": str(exc)})
+                    logger.warning(
+                        "transient get_phase error",
+                        extra={"run_id": run.id, "error": str(exc)},
+                    )
                     await asyncio.sleep(POLL_SECONDS)
                     continue
                 else:
-                    logger.error("get_phase failed", extra={"run_id": run.id, "error": str(exc)})
+                    logger.error(
+                        "get_phase failed", extra={"run_id": run.id, "error": str(exc)}
+                    )
                     try:
                         await client.complete(run.id, "FAILED", reason=str(exc)[:400])
                     except Exception:
@@ -201,15 +207,27 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
 
             if phase == "NEEDS_PROPOSAL":
                 if run.experiments_completed >= run.budget_experiments:
-                    await client.complete(run.id, "FAILED", reason="budget exhausted")
+                    await client.complete(
+                        run.id,
+                        "COMPLETED",
+                        reason="budget exhausted",
+                    )
                     break
                 try:
                     context = await client.get_context(run.id)
                     llm_context = _context_for_llm(run, context)
+                    if isinstance(phase_data, dict):
+                        llm_context["previous_decision"] = phase_data.get(
+                            "latest_decision"
+                        )
                     proposal_bundle = await llm.propose_hypothesis(llm_context)
-                    await client.submit_proposal(run.id, proposal_bundle["proposal"])
-                    # Refresh run state for budget check (increment happens after decision, not proposal)
-                    # Continue to waiting
+                    await client.submit_proposal(
+                        run.id,
+                        proposal_bundle["proposal"],
+                        client_request_id=(
+                            f"proposal-{run.id}-{run.experiments_completed}"
+                        ),
+                    )
                     continue
                 except LeaseLostError:
                     client.drop_lease()
@@ -238,7 +256,11 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
                         context=context,
                     )
                     if result is None:
-                        await client.complete(run.id, "FAILED", reason="experiment timeout without results")
+                        await client.complete(
+                            run.id,
+                            "FAILED",
+                            reason="experiment timeout without results",
+                        )
                         break
                     # Result ready, next phase will be NEEDS_DECISION
                     continue
@@ -269,14 +291,25 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
                     # For now, use empty proposal; LLM will handle.
                     # Try to get last proposal from context or phase_data
                     proposal = {}
-                    if isinstance(phase_data, dict) and phase_data.get("latest_config_id"):
+                    if isinstance(phase_data, dict) and phase_data.get(
+                        "latest_config_id"
+                    ):
                         proposal = {"config_id": phase_data["latest_config_id"]}
                     decision_bundle = await llm.decide(
                         context=llm_context,
                         proposal=proposal,
                         result=result_payload,
                     )
-                    await client.submit_decision(run.id, decision_bundle["decision"])
+                    result_id = (
+                        phase_data.get("latest_result_id")
+                        if isinstance(phase_data, dict)
+                        else None
+                    )
+                    await client.submit_decision(
+                        run.id,
+                        decision_bundle["decision"],
+                        client_request_id=f"decision-{run.id}-{result_id}",
+                    )
                     # Update local run for budget
                     run.experiments_completed = (run.experiments_completed or 0) + 1
                     continue
@@ -296,16 +329,29 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
             elif phase == "NEEDS_COMPLETION":
                 try:
                     last_action = "COMPLETED"
-                    if isinstance(phase_data, dict) and isinstance(phase_data.get("latest_decision"), dict):
-                        last_action = str(phase_data["latest_decision"].get("action") or "COMPLETED").upper()
-                    elif isinstance(phase_data, dict) and isinstance(phase_data.get("latest_decision"), bool):
+                    if isinstance(phase_data, dict) and isinstance(
+                        phase_data.get("latest_decision"), dict
+                    ):
+                        last_action = str(
+                            phase_data["latest_decision"].get("action") or "COMPLETED"
+                        ).upper()
+                    elif isinstance(phase_data, dict) and isinstance(
+                        phase_data.get("latest_decision"), bool
+                    ):
                         # Legacy boolean case, fallback
                         last_action = "COMPLETED"
-                    remaining = max(run.budget_experiments - run.experiments_completed, 0)
-                    if last_action in {"CONTINUE_RESEARCH", "MUTATE_HYPOTHESIS"} and remaining > 0:
+                    remaining = max(
+                        run.budget_experiments - run.experiments_completed, 0
+                    )
+                    if (
+                        last_action in {"CONTINUE_RESEARCH", "MUTATE_HYPOTHESIS"}
+                        and remaining > 0
+                    ):
                         await client.complete(run.id, "REQUEUE", reason=last_action)
                     elif last_action in {"CONTINUE_RESEARCH", "MUTATE_HYPOTHESIS"}:
-                        await client.complete(run.id, "COMPLETED", reason="budget exhausted")
+                        await client.complete(
+                            run.id, "COMPLETED", reason="budget exhausted"
+                        )
                     else:
                         await client.complete(run.id, "COMPLETED", reason=last_action)
                     break
@@ -326,7 +372,21 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
                 # Unknown phase, fallback to single iteration
                 return await _single_iteration_fallback(client, llm, run)
 
-        # If loop exhausted without break, complete
+        else:
+            try:
+                await client.complete(
+                    run.id,
+                    "REQUEUE",
+                    reason="phase loop retry limit reached",
+                )
+            except LeaseLostError:
+                client.drop_lease()
+                return False
+            except AgentAPIError:
+                logger.exception(
+                    "failed to release run after phase loop",
+                    extra={"run_id": run.id},
+                )
         return True
     except LeaseLostError:
         logger.warning("lease lost", extra={"run_id": run.id})
@@ -336,7 +396,9 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
         logger.error("agent api error", extra={"run_id": run.id, "error": str(exc)})
         try:
             if exc.status_code >= 500:
-                await client.complete(run.id, "REQUEUE", reason=f"api error {exc.status_code}")
+                await client.complete(
+                    run.id, "REQUEUE", reason=f"api error {exc.status_code}"
+                )
             else:
                 await client.complete(run.id, "FAILED", reason=str(exc)[:400])
         except LeaseLostError:
