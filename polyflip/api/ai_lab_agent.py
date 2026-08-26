@@ -182,23 +182,35 @@ async def _require_run(db: AsyncSession, run_id: int) -> AIOptimizationRun:
 async def _agent_phase(db, run_id: int) -> dict[str, Any]:
     from polyflip.db.models import AIRunStep
     steps = (await db.execute(select(AIRunStep).where(AIRunStep.run_id == run_id).order_by(AIRunStep.step_index))).scalars().all()
-    has_proposal = any(s.step_type == "PROPOSAL" for s in steps)
-    pending = any(s.status == "PENDING" and s.step_type in {"TRAIN_MODEL", "RUN_OOT_BACKTEST", "RUN_POLYMARKET_OOT"} for s in steps)
-    has_decision = any(s.step_type == "DECISION" for s in steps)
-    # terminal OOT result
-    term = (await db.execute(select(ExperimentResult).where(ExperimentResult.run_id == run_id, ExperimentResult.evaluation_kind == "POLYMARKET_OOT", ExperimentResult.status == "SUCCEEDED").order_by(ExperimentResult.id.desc()).limit(1))).scalar_one_or_none()
-    if not has_proposal:
+    # Per-iteration: last decision determines current iteration
+    last_decision = max((s for s in steps if s.step_type == "DECISION"), key=lambda s: s.step_index, default=None)
+    cutoff = last_decision.step_index if last_decision else -1
+    proposal_after = next((s for s in reversed(steps) if s.step_type == "PROPOSAL" and s.step_index > cutoff), None)
+    # Find pending and terminal result for that proposal's config
+    pending = False
+    term = None
+    latest_cfg = None
+    if proposal_after:
+        cfg_id = (proposal_after.output_payload or {}).get("config_id") or (proposal_after.input_payload or {}).get("config_id")
+        latest_cfg = cfg_id
+        if cfg_id:
+            pending = any(s.status == "PENDING" and s.step_type in {"TRAIN_MODEL", "RUN_OOT_BACKTEST", "RUN_POLYMARKET_OOT"} and (s.input_payload or {}).get("config_id") == cfg_id for s in steps)
+            term = (await db.execute(select(ExperimentResult).where(ExperimentResult.run_id == run_id, ExperimentResult.config_id == cfg_id, ExperimentResult.evaluation_kind == "POLYMARKET_OOT", ExperimentResult.status == "SUCCEEDED").order_by(ExperimentResult.id.desc()).limit(1))).scalar_one_or_none()
+    if proposal_after is None:
         phase = "NEEDS_PROPOSAL"
     elif pending:
         phase = "WAITING_RESULT"
-    elif term is not None and not has_decision:
-        phase = "NEEDS_DECISION"
-    elif has_decision:
-        phase = "NEEDS_COMPLETION"
+    elif term is not None:
+        # Check if decision exists for this term
+        has_dec_for_term = any(s.step_type == "DECISION" and (s.output_payload or {}).get("result_id") == term.id for s in steps)
+        if not has_dec_for_term:
+            phase = "NEEDS_DECISION"
+        else:
+            phase = "NEEDS_COMPLETION"
     else:
-        phase = "NEEDS_PROPOSAL"
-    latest_cfg = next((s.input_payload.get("config_id") for s in reversed(steps) if s.input_payload and s.input_payload.get("config_id")), None)
-    return {"phase": phase, "latest_config_id": latest_cfg, "latest_result_id": term.id if term else None, "latest_decision": has_decision}
+        # Proposal exists but no terminal result yet
+        phase = "WAITING_RESULT"
+    return {"phase": phase, "latest_config_id": latest_cfg, "latest_result_id": term.id if term else None, "latest_decision": last_decision is not None}
 
 
 @router.get("/runs/{run_id}/phase")
