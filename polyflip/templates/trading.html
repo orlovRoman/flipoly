@@ -914,20 +914,44 @@
                                         <input type="number" step="0.05" min="0.5" max="1" id="MARKET_REGIME_BREADTH_THRESHOLD" value="0.65">
                                     </div>
                                     <div class="form-group">
-                                        <label for="MARKET_REGIME_MIN_HISTORY" title="Минимальное количество 15-мин свечей (≈24ч = 96). Ниже — MRF пропускает.">Мин. история (свечи)</label>
-                                        <input type="number" step="1" min="20" max="500" id="MARKET_REGIME_MIN_HISTORY" value="97">
+                                        <label for="MARKET_REGIME_MIN_HISTORY" title="Минимум 97 закрытых 15-минутных свечей требуется для расчёта MRF (около 24 часов).">Мин. история (закрытые свечи)</label>
+                                        <input type="number" step="1" min="97" max="500" id="MARKET_REGIME_MIN_HISTORY" value="97">
                                     </div>
-                                    <div class="form-group">
-                                        <label for="MARKET_REGIME_UNKNOWN_MULTIPLIER" title="Мультипликатор ставки при UNKNOWN регионе (0.8 = снижение на 20%).">Мультипликатор UNKNOWN (0.0–1.0)</label>
-                                        <input type="number" step="0.05" min="0" max="1" id="MARKET_REGIME_UNKNOWN_MULTIPLIER" value="0.8">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER" title="Мультипликатор ставки на аутсайдера в TREND (0.0 = не менять).">Мультипликатор аутсайдера в TREND</label>
-                                        <input type="number" step="0.1" min="0" max="2" id="MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER" value="0.0">
+                                    <div id="mrf-v2-settings" style="display: contents;">
+                                        <div class="form-group">
+                                            <label for="MARKET_REGIME_UNKNOWN_MULTIPLIER" title="Мультипликатор ставки при UNKNOWN регионе (0.8 = снижение на 20%).">Мультипликатор UNKNOWN (0.0–1.0)</label>
+                                            <input type="number" step="0.05" min="0" max="1" id="MARKET_REGIME_UNKNOWN_MULTIPLIER" value="0.8">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER" title="Мультипликатор ставки на аутсайдера в TREND (0.0 = не менять).">Мультипликатор аутсайдера в TREND</label>
+                                            <input type="number" step="0.1" min="0" max="2" id="MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER" value="0.0">
+                                        </div>
                                     </div>
                                     <div class="form-group">
                                         <label for="MARKET_REGIME_FILTER_VERSION" title="Версия MRF для сопоставления телеметрии с экспериментами.">Версия MRF</label>
-                                        <input type="number" step="1" min="1" max="99" id="MARKET_REGIME_FILTER_VERSION" value="1">
+                                        <select id="MARKET_REGIME_FILTER_VERSION">
+                                            <option value="1">v1 — legacy policy</option>
+                                            <option value="2">v2 — multiplier policy</option>
+                                            <option value="3">v3 — veto gate</option>
+                                        </select>
+                                    </div>
+                                    <div id="mrf-v3-settings" style="display:none; grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem;">
+                                        <div class="form-group">
+                                            <label for="MARKET_REGIME_VETO_THRESHOLD" title="При таком отрицательном regime evidence кандидат блокируется.">Порог regime veto (0.0–1.0)</label>
+                                            <input type="number" step="0.01" min="0" max="1" id="MARKET_REGIME_VETO_THRESHOLD" value="0.15">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="MARKET_REGIME_EDGE_OVERRIDE_MARGIN" title="Минимальный запас edge, при котором veto можно обойти.">Edge margin для override</label>
+                                            <input type="number" step="0.01" min="0" max="1" id="MARKET_REGIME_EDGE_OVERRIDE_MARGIN" value="0.05">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="MARKET_REGIME_ASSET_WEIGHT">Вес режима актива</label>
+                                            <input type="number" step="0.05" min="0" max="1" id="MARKET_REGIME_ASSET_WEIGHT" value="0.70">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="MARKET_REGIME_GLOBAL_WEIGHT">Вес глобального режима</label>
+                                            <input type="number" step="0.05" min="0" max="1" id="MARKET_REGIME_GLOBAL_WEIGHT" value="0.30">
+                                        </div>
                                     </div>
                                 </div>
 
@@ -948,8 +972,12 @@
                                             <div class="value" id="mrf-stat-blocked">—</div>
                                         </div>
                                         <div class="mrf-stat-item">
-                                            <div class="label">Мультипликатор</div>
+                                            <div class="label" id="mrf-stat-score-label">Мультипликатор</div>
                                             <div class="value" id="mrf-stat-multiplier">×1.0</div>
+                                        </div>
+                                        <div class="mrf-stat-item">
+                                            <div class="label">Regime evidence</div>
+                                            <div class="value" id="mrf-stat-evidence">—</div>
                                         </div>
                                         <div class="mrf-stat-item">
                                             <div class="label">Сила</div>

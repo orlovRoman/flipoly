@@ -65,6 +65,12 @@ def _mrf_audit_payload(funnel) -> dict | None:
         "mrf_confidence",
         "mrf_multiplier",
         "mrf_applied",
+        "mrf_policy_version",
+        "mrf_regime_evidence",
+        "mrf_gate_threshold",
+        "mrf_edge_margin",
+        "mrf_gate_would_block",
+        "mrf_gate_reason",
         "mrf_failure_reason",
         "mrf_final_action",
     )
@@ -81,6 +87,12 @@ def _mrf_audit_payload(funnel) -> dict | None:
     payload.setdefault("global_strength", getattr(funnel, "mrf_strength", None))
     payload.setdefault("global_confidence", getattr(funnel, "mrf_confidence", None))
     payload.setdefault("applied", getattr(funnel, "mrf_applied", None))
+    payload.setdefault("policy_version", getattr(funnel, "mrf_policy_version", None))
+    payload.setdefault("regime_evidence", getattr(funnel, "mrf_regime_evidence", None))
+    payload.setdefault("gate_threshold", getattr(funnel, "mrf_gate_threshold", None))
+    payload.setdefault("edge_margin", getattr(funnel, "mrf_edge_margin", None))
+    payload.setdefault("gate_would_block", getattr(funnel, "mrf_gate_would_block", None))
+    payload.setdefault("gate_reason", getattr(funnel, "mrf_gate_reason", None))
     payload.setdefault("failure_reason", getattr(funnel, "mrf_failure_reason", None))
 
     policy = payload.get("policy")

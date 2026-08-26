@@ -1,6 +1,7 @@
 import dataclasses
 from dataclasses import dataclass
 from polyflip.config import settings
+from polyflip.crypto.market_regime import MIN_HISTORY_CANDLES
 from polyflip.utils import parse_float_setting
 
 def _parse_bool(val, default: bool) -> bool:
@@ -77,6 +78,10 @@ class TradingConfig:
     mrf_unknown_multiplier: float = 0.8
     mrf_breadth_threshold: float = 0.65
     mrf_efficiency_threshold: float = 0.4
+    mrf_veto_threshold: float = 0.15
+    mrf_edge_override_margin: float = 0.05
+    mrf_asset_weight: float = 0.70
+    mrf_global_weight: float = 0.30
 
     def get_min_edge(self, is_outsider: bool) -> float:
         """Единый источник правды для минимального Edge."""
@@ -121,6 +126,16 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         import structlog
         structlog.get_logger(__name__).warning("unknown_trading_mode", mode=mode_raw, new_mode="combined")
         mode = "combined"
+
+    mrf_version = _parse_int(
+        raw.get("MARKET_REGIME_FILTER_VERSION"),
+        getattr(settings, "MARKET_REGIME_FILTER_VERSION", 1),
+    )
+    if mrf_version not in (1, 2, 3):
+        raise ValueError(
+            f"Unsupported MARKET_REGIME_FILTER_VERSION: {mrf_version}; "
+            "expected 1, 2, or 3"
+        )
 
     return TradingConfig(
         trading_enabled=_parse_bool(raw.get("TRADING_ENABLED"), getattr(settings, "TRADING_ENABLED", True)),
@@ -184,10 +199,20 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
             if raw.get("MARKET_REGIME_FILTER_MODE", "OFF").strip().upper() in {"OFF", "SHADOW", "ACTIVE"}
             else "OFF"
         ),
-        mrf_version=_parse_int(raw.get("MARKET_REGIME_FILTER_VERSION"), 1),
-        mrf_min_history=_parse_int(raw.get("MARKET_REGIME_MIN_HISTORY"), 97),
+        mrf_version=mrf_version,
+        mrf_min_history=max(
+            MIN_HISTORY_CANDLES,
+            _parse_int(
+                raw.get("MARKET_REGIME_MIN_HISTORY"),
+                MIN_HISTORY_CANDLES,
+            ),
+        ),
         mrf_outsider_trend_multiplier=parse_float_setting(raw, "MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER", 0.0),
         mrf_unknown_multiplier=parse_float_setting(raw, "MARKET_REGIME_UNKNOWN_MULTIPLIER", 0.8),
         mrf_breadth_threshold=parse_float_setting(raw, "MARKET_REGIME_BREADTH_THRESHOLD", 0.65),
         mrf_efficiency_threshold=parse_float_setting(raw, "MARKET_REGIME_EFFICIENCY_THRESHOLD", 0.4),
+        mrf_veto_threshold=parse_float_setting(raw, "MARKET_REGIME_VETO_THRESHOLD", 0.15),
+        mrf_edge_override_margin=parse_float_setting(raw, "MARKET_REGIME_EDGE_OVERRIDE_MARGIN", 0.05),
+        mrf_asset_weight=parse_float_setting(raw, "MARKET_REGIME_ASSET_WEIGHT", 0.70),
+        mrf_global_weight=parse_float_setting(raw, "MARKET_REGIME_GLOBAL_WEIGHT", 0.30),
     )

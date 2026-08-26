@@ -21,7 +21,10 @@ from polyflip.crypto.market_regime_policy import (
     FilterMode,
     PolicyConfig,
     PolicyResult,
+    RegimeGateResult,
     StrategyType,
+    VetoGateConfig,
+    evaluate_veto_gate,
     evaluate_policy,
 )
 from polyflip.crypto.market_regime_audit import serialize_regime_audit
@@ -44,6 +47,8 @@ class RegimeDecisionOutcome:
     skip_reason: str | None = None
     global_phase: str | None = None
     asset_phase: str | None = None
+    gate_result: RegimeGateResult | None = None
+    policy_version: int = 2
 
 
 def _determine_strategy_type(
@@ -124,6 +129,7 @@ def apply_regime_policy(
             adjusted_bet_size=bet_size_usdc,
             original_action=action,
             adjusted_action=action,
+            policy_version=cfg.mrf_version,
         )
 
     # Build regime config from UI thresholds
@@ -200,6 +206,7 @@ def apply_regime_policy(
             adjusted_action=action,
             global_phase=policy_result.phase.value,
             asset_phase=asset_phase_str,
+            policy_version=cfg.mrf_version,
         )
 
     # ACTIVE: apply multiplier
@@ -215,4 +222,161 @@ def apply_regime_policy(
         skip_reason=skip_reason,
         global_phase=policy_result.phase.value,
         asset_phase=asset_phase_str,
+        policy_version=cfg.mrf_version,
     )
+
+
+def apply_regime_veto_gate(
+    *,
+    cfg: TradingConfig,
+    snapshot: MarketRegimeSnapshot,
+    asset_symbol: str,
+    candidate_side: str,
+    candidate_ask: float,
+    net_edge: float,
+    min_edge_used: float,
+    bet_size_usdc: float,
+    action: str,
+    decision_run_id: str = "",
+) -> RegimeDecisionOutcome:
+    """Apply MRF v3's binary veto gate without resizing an allowed bet."""
+    mode = FilterMode(cfg.mrf_mode)
+    candidate_direction = {
+        "BUY_YES": 1.0,
+        "BUY_NO": -1.0,
+    }.get(candidate_side)
+    if candidate_direction is None:
+        raise ValueError(f"Unsupported MRF candidate side: {candidate_side}")
+
+    regime_cfg = _build_regime_config(cfg)
+    gate_cfg = VetoGateConfig(
+        asset_weight=cfg.mrf_asset_weight,
+        global_weight=cfg.mrf_global_weight,
+        veto_threshold=cfg.mrf_veto_threshold,
+        edge_override_margin=cfg.mrf_edge_override_margin,
+    )
+    gate_result = evaluate_veto_gate(
+        snapshot=snapshot,
+        asset_symbol=asset_symbol,
+        candidate_direction=candidate_direction,
+        net_edge=net_edge,
+        min_edge_used=min_edge_used,
+        config=gate_cfg,
+        regime_config=regime_cfg,
+    )
+
+    effective_block = (
+        mode == FilterMode.ACTIVE
+        and gate_result.would_block
+        and action != "SKIP"
+    )
+    adjusted_action = "SKIP" if effective_block else action
+    adjusted_bet_size = 0.0 if effective_block else bet_size_usdc
+    skip_reason = None
+    if effective_block:
+        skip_reason = (
+            f"MRF:V3:{gate_result.global_phase.value}:"
+            f"{gate_result.asset_phase.value}:{gate_result.reason}"
+        )
+        logger.info(
+            "mrf_v3_blocked",
+            decision_run_id=decision_run_id,
+            reason=gate_result.reason,
+            regime_evidence=gate_result.regime_evidence,
+            edge_margin=gate_result.edge_margin,
+        )
+
+    audit_dict = serialize_regime_audit(
+        snapshot=snapshot,
+        policy_result=None,
+        mode=mode,
+        mrf_version=3,
+        applied=effective_block,
+        regime_config=regime_cfg,
+        gate_result=gate_result,
+        effective_block=effective_block,
+        candidate_role=(
+            "OUTSIDER"
+            if candidate_ask is not None and candidate_ask < 0.50
+            else "FAVORITE"
+        ),
+    )
+
+    # SHADOW computes and records the gate but leaves the decision untouched.
+    return RegimeDecisionOutcome(
+        regime_snapshot=snapshot,
+        policy_result=None,
+        audit_dict=audit_dict,
+        applied=effective_block,
+        original_bet_size=bet_size_usdc,
+        adjusted_bet_size=adjusted_bet_size,
+        original_action=action,
+        adjusted_action=adjusted_action,
+        skip_reason=skip_reason,
+        global_phase=gate_result.global_phase.value,
+        asset_phase=gate_result.asset_phase.value,
+        gate_result=gate_result,
+        policy_version=3,
+    )
+
+
+def apply_market_regime_filter(
+    *,
+    cfg: TradingConfig,
+    snapshot: MarketRegimeSnapshot,
+    candidate_side: str | None,
+    candidate_ask: float,
+    fresh_yes_price: float,
+    lgbm_applied: bool,
+    bet_size_usdc: float,
+    net_edge: float,
+    min_edge_used: float,
+    action: str,
+    decision_run_id: str = "",
+    asset_symbol: str = "",
+) -> RegimeDecisionOutcome:
+    """Dispatch MRF version while preserving the v1/v2 contract."""
+    if cfg.mrf_version not in (1, 2, 3):
+        raise ValueError(f"Unsupported MRF policy version: {cfg.mrf_version}")
+    # OFF is a hard short-circuit for every policy version.  In particular,
+    # v3 must not classify a snapshot or emit gate telemetry while disabled.
+    if cfg.mrf_mode == "OFF":
+        return apply_regime_policy(
+            cfg=cfg,
+            snapshot=snapshot,
+            candidate_side=candidate_side,
+            fresh_yes_price=fresh_yes_price,
+            lgbm_applied=lgbm_applied,
+            bet_size_usdc=bet_size_usdc,
+            action=action,
+            decision_run_id=decision_run_id,
+            asset_symbol=asset_symbol,
+        )
+    if cfg.mrf_version in (1, 2):
+        return apply_regime_policy(
+            cfg=cfg,
+            snapshot=snapshot,
+            candidate_side=candidate_side,
+            fresh_yes_price=fresh_yes_price,
+            lgbm_applied=lgbm_applied,
+            bet_size_usdc=bet_size_usdc,
+            action=action,
+            decision_run_id=decision_run_id,
+            asset_symbol=asset_symbol,
+        )
+    if cfg.mrf_version == 3:
+        if candidate_side is None:
+            raise ValueError("MRF v3 requires candidate_side")
+        return apply_regime_veto_gate(
+            cfg=cfg,
+            snapshot=snapshot,
+            asset_symbol=asset_symbol,
+            candidate_side=candidate_side,
+            candidate_ask=candidate_ask,
+            net_edge=net_edge,
+            min_edge_used=min_edge_used,
+            bet_size_usdc=bet_size_usdc,
+            action=action,
+            decision_run_id=decision_run_id,
+        )
+    raise AssertionError("unreachable MRF version dispatch")

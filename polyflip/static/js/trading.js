@@ -331,12 +331,20 @@ document.addEventListener("DOMContentLoaded", () => {
     mrfUnknownMultiplier: document.getElementById('MARKET_REGIME_UNKNOWN_MULTIPLIER'),
     mrfOutsiderTrendMultiplier: document.getElementById('MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER'),
     mrfFilterVersion: document.getElementById('MARKET_REGIME_FILTER_VERSION'),
+    mrfV2Settings: document.getElementById('mrf-v2-settings'),
+    mrfV3Settings: document.getElementById('mrf-v3-settings'),
+    mrfVetoThreshold: document.getElementById('MARKET_REGIME_VETO_THRESHOLD'),
+    mrfEdgeOverrideMargin: document.getElementById('MARKET_REGIME_EDGE_OVERRIDE_MARGIN'),
+    mrfAssetWeight: document.getElementById('MARKET_REGIME_ASSET_WEIGHT'),
+    mrfGlobalWeight: document.getElementById('MARKET_REGIME_GLOBAL_WEIGHT'),
     mrfStatusPanel: document.getElementById('mrf-status-panel'),
     mrfCurrentRegime: document.getElementById('mrf-current-regime'),
     mrfStatusDetails: document.getElementById('mrf-status-details'),
     mrfStatEvaluated: document.getElementById('mrf-stat-evaluated'),
     mrfStatBlocked: document.getElementById('mrf-stat-blocked'),
     mrfStatMultiplier: document.getElementById('mrf-stat-multiplier'),
+    mrfStatScoreLabel: document.getElementById('mrf-stat-score-label'),
+    mrfStatEvidence: document.getElementById('mrf-stat-evidence'),
     mrfStatStrength: document.getElementById('mrf-stat-strength'),
     mrfPerAssetCards: document.getElementById('mrf-per-asset-cards'),
   };
@@ -458,6 +466,21 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function updateMrfVersionUI() {
+    const version = Number(settingsElements.mrfFilterVersion?.value || 1);
+    if (settingsElements.mrfV2Settings) {
+      settingsElements.mrfV2Settings.style.display = version < 3 ? 'contents' : 'none';
+    }
+    if (settingsElements.mrfV3Settings) {
+      settingsElements.mrfV3Settings.style.display = version === 3 ? 'grid' : 'none';
+    }
+  }
+
+  if (settingsElements.mrfFilterVersion) {
+    settingsElements.mrfFilterVersion.addEventListener('change', updateMrfVersionUI);
+    updateMrfVersionUI();
+  }
+
   if (settingsElements.mrfModeRadios) {
     settingsElements.mrfModeRadios.forEach(radio => {
       radio.addEventListener('change', () => {
@@ -510,9 +533,19 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.mrfStatBlocked) {
         settingsElements.mrfStatBlocked.textContent = data.total_blocked != null ? data.total_blocked : '—';
       }
+      const isV3 = Number(data.policy_version) === 3 ||
+        Number(settingsElements.mrfFilterVersion?.value) === 3;
+      if (settingsElements.mrfStatScoreLabel) {
+        settingsElements.mrfStatScoreLabel.textContent = isV3 ? 'Regime evidence' : 'Мультипликатор';
+      }
       if (settingsElements.mrfStatMultiplier) {
-        const m = data.avg_multiplier != null ? data.avg_multiplier : 1.0;
-        settingsElements.mrfStatMultiplier.textContent = '×' + m.toFixed(2);
+        const m = data.avg_multiplier != null ? Number(data.avg_multiplier) : 1.0;
+        settingsElements.mrfStatMultiplier.textContent = isV3 ? '—' : '×' + m.toFixed(2);
+      }
+      if (settingsElements.mrfStatEvidence) {
+        const evidence = data.avg_regime_evidence;
+        settingsElements.mrfStatEvidence.textContent =
+          isV3 && evidence != null ? Number(evidence).toFixed(3) : '—';
       }
       if (settingsElements.mrfStatStrength) {
         const s = globalPhaseKnown && data.latest_strength != null
@@ -540,6 +573,10 @@ document.addEventListener("DOMContentLoaded", () => {
           const pnl = info && info.pnl != null ? (info.pnl >= 0 ? '+' : '') + info.pnl.toFixed(2) : '—';
           const winRate = info ? info.win_rate_pct.toFixed(0) + '%' : '—';
           const mult = phaseKnown && info.avg_multiplier != null ? '\u00d7' + info.avg_multiplier.toFixed(2) : '—';
+          const evidence = isV3 && info && info.avg_regime_evidence != null
+            ? Number(info.avg_regime_evidence).toFixed(3)
+            : '—';
+          const wouldBlock = isV3 && info ? (info.would_block ?? 0) : '—';
           card.innerHTML =
             '<div style="display:flex;justify-content:space-between;align-items:center;">' +
               '<span class="asset-name">' + asset + '</span>' +
@@ -550,6 +587,8 @@ document.addEventListener("DOMContentLoaded", () => {
               '<span>\u0443\u0432\u0435\u0440: ' + confVal + '</span>' +
               '<span>\u0431\u043b\u043e\u043a: ' + (info ? info.blocked : 0) + strength + '</span>' +
               '<span>mult: ' + mult + '</span>' +
+              '<span>evidence: ' + evidence + '</span>' +
+              '<span>would-block: ' + wouldBlock + '</span>' +
               '<span>PnL: <span style="color:' + (info && info.pnl >= 0 ? '#4ade80' : '#f87171') + '">' + pnl + '</span></span>' +
               '<span>win: ' + winRate + '</span>' +
             '</div>';
@@ -809,6 +848,15 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.mrfOutsiderTrendMultiplier.value = data.MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER;
       if (settingsElements.mrfFilterVersion && data.MARKET_REGIME_FILTER_VERSION !== undefined)
         settingsElements.mrfFilterVersion.value = data.MARKET_REGIME_FILTER_VERSION;
+      if (settingsElements.mrfVetoThreshold && data.MARKET_REGIME_VETO_THRESHOLD !== undefined)
+        settingsElements.mrfVetoThreshold.value = data.MARKET_REGIME_VETO_THRESHOLD;
+      if (settingsElements.mrfEdgeOverrideMargin && data.MARKET_REGIME_EDGE_OVERRIDE_MARGIN !== undefined)
+        settingsElements.mrfEdgeOverrideMargin.value = data.MARKET_REGIME_EDGE_OVERRIDE_MARGIN;
+      if (settingsElements.mrfAssetWeight && data.MARKET_REGIME_ASSET_WEIGHT !== undefined)
+        settingsElements.mrfAssetWeight.value = data.MARKET_REGIME_ASSET_WEIGHT;
+      if (settingsElements.mrfGlobalWeight && data.MARKET_REGIME_GLOBAL_WEIGHT !== undefined)
+        settingsElements.mrfGlobalWeight.value = data.MARKET_REGIME_GLOBAL_WEIGHT;
+      updateMrfVersionUI();
       if (data.MARKET_REGIME_FILTER_MODE) {
         const mode = data.MARKET_REGIME_FILTER_MODE.toUpperCase();
         const radio = document.querySelector('input[name="mrf_mode"][value="' + mode + '"]');
@@ -983,6 +1031,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.mrfUnknownMultiplier) settingsToSave.MARKET_REGIME_UNKNOWN_MULTIPLIER = parseFloat(settingsElements.mrfUnknownMultiplier.value);
       if (settingsElements.mrfOutsiderTrendMultiplier) settingsToSave.MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER = parseFloat(settingsElements.mrfOutsiderTrendMultiplier.value);
       if (settingsElements.mrfFilterVersion) settingsToSave.MARKET_REGIME_FILTER_VERSION = parseInt(settingsElements.mrfFilterVersion.value);
+      if (settingsElements.mrfVetoThreshold) settingsToSave.MARKET_REGIME_VETO_THRESHOLD = parseFloat(settingsElements.mrfVetoThreshold.value);
+      if (settingsElements.mrfEdgeOverrideMargin) settingsToSave.MARKET_REGIME_EDGE_OVERRIDE_MARGIN = parseFloat(settingsElements.mrfEdgeOverrideMargin.value);
+      if (settingsElements.mrfAssetWeight) settingsToSave.MARKET_REGIME_ASSET_WEIGHT = parseFloat(settingsElements.mrfAssetWeight.value);
+      if (settingsElements.mrfGlobalWeight) settingsToSave.MARKET_REGIME_GLOBAL_WEIGHT = parseFloat(settingsElements.mrfGlobalWeight.value);
       const mrfModeChecked = document.querySelector('input[name="mrf_mode"]:checked');
       if (mrfModeChecked) settingsToSave.MARKET_REGIME_FILTER_MODE = mrfModeChecked.value;
 

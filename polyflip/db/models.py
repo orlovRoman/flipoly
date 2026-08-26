@@ -755,6 +755,13 @@ class DecisionFunnelLog(Base):
     mrf_original_bet = Column(Float, nullable=True)
     mrf_final_action = Column(String(16), nullable=True)
     mrf_final_bet = Column(Float, nullable=True)
+    # MRF v3 binary veto-gate telemetry.  Keep separate from legacy multiplier.
+    mrf_policy_version = Column(Integer, nullable=True)
+    mrf_regime_evidence = Column(Float, nullable=True)
+    mrf_gate_threshold = Column(Float, nullable=True)
+    mrf_edge_margin = Column(Float, nullable=True)
+    mrf_gate_would_block = Column(Boolean, nullable=True)
+    mrf_gate_reason = Column(String(128), nullable=True)
 
 
 class Binance15mBar(Base):

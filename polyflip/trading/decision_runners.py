@@ -17,7 +17,8 @@ from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.trading.utils import compute_dead_zone
 from polyflip.trading.funnel_logger import log_funnel
 from polyflip.crypto.market_regime_integration import build_snapshot_from_candles
-from polyflip.crypto.market_regime_apply import apply_regime_policy
+from polyflip.crypto.market_regime import MIN_HISTORY_CANDLES
+from polyflip.crypto.market_regime_apply import apply_market_regime_filter
 from polyflip.crypto.market_regime_classifier import Regime
 
 logger = structlog.get_logger(__name__)
@@ -232,7 +233,10 @@ async def _apply_mrf_filter(
     start_time,
     candidate_side: str | None,
     fresh_yes_price: float,
+    candidate_ask: float,
     bet_size_usdc: float,
+    net_edge: float,
+    min_edge_used: float,
     action: str,
     decision_run_id: str = "",
     lgbm_applied: bool = False,
@@ -247,7 +251,7 @@ async def _apply_mrf_filter(
         from polyflip.constants import COMBINED_BINANCE_SYMBOLS, COMBINED_MODE_SUPPORTED_ASSETS
         from polyflip.crypto.market_regime_integration import build_snapshot_from_multi_asset_candles
 
-        limit = cfg.mrf_min_history + 10
+        limit = max(cfg.mrf_min_history, MIN_HISTORY_CANDLES) + 10
         tasks = {}
         for asset_name in COMBINED_MODE_SUPPORTED_ASSETS:
             sym = COMBINED_BINANCE_SYMBOLS.get(asset_name)
@@ -314,13 +318,16 @@ async def _apply_mrf_filter(
                 fail,
             )
 
-        outcome = apply_regime_policy(
+        outcome = apply_market_regime_filter(
             cfg=cfg,
             snapshot=snapshot,
             candidate_side=candidate_side,
+            candidate_ask=candidate_ask,
             fresh_yes_price=fresh_yes_price,
             lgbm_applied=lgbm_applied,
             bet_size_usdc=bet_size_usdc,
+            net_edge=net_edge,
+            min_edge_used=min_edge_used,
             action=action,
             decision_run_id=decision_run_id,
             asset_symbol=asset_upper,
@@ -793,6 +800,7 @@ async def decide_combined_mode(
     mrf_audit = None
     mrf_outcome = None
     mrf_failure_reason = None
+    mrf_pre_outcome_reason = None
 
     if comb_res.action in ("BUY_YES", "BUY_NO") and cfg.mrf_mode != "OFF":
         mrf_adjusted_action, mrf_adjusted_bet, mrf_audit, mrf_outcome, mrf_pre_outcome_reason = await _apply_mrf_filter(
@@ -803,7 +811,10 @@ async def decide_combined_mode(
             start_time=start_time,
             candidate_side=comb_res.candidate_side,
             fresh_yes_price=fresh_yes_price,
+            candidate_ask=comb_res.candidate_ask or fresh_yes_price,
             bet_size_usdc=comb_res.bet_size_usdc,
+            net_edge=comb_res.net_edge or 0.0,
+            min_edge_used=min_edge_val,
             action=comb_res.action,
             decision_run_id=decision_run_id,
             lgbm_applied=lgbm_applied,  # MRF-FIX-07: real lgbm flag from lgbm_mode == "ACTIVE"
@@ -820,16 +831,36 @@ async def decide_combined_mode(
     mrf_strength_val = 0.0
     mrf_confidence_val = 0.0
     mrf_multiplier_val = None
+    mrf_policy_version_val = None
+    mrf_regime_evidence_val = None
+    mrf_gate_threshold_val = None
+    mrf_edge_margin_val = None
+    mrf_gate_would_block_val = None
+    mrf_gate_reason_val = None
 
     if mrf_outcome:
         mrf_phase = mrf_outcome.global_phase or "UNKNOWN"
         mrf_asset_phase_str = mrf_outcome.asset_phase or "UNKNOWN"
+        mrf_policy_version_val = mrf_outcome.policy_version
         if mrf_outcome.policy_result:
             mrf_strength_val = mrf_outcome.policy_result.global_strength
             mrf_confidence_val = mrf_outcome.policy_result.global_confidence
             mrf_multiplier_val = mrf_outcome.policy_result.stake_multiplier
+        if mrf_outcome.gate_result is not None:
+            gate = mrf_outcome.gate_result
+            mrf_strength_val = gate.global_strength
+            mrf_confidence_val = gate.global_confidence
+            mrf_regime_evidence_val = gate.regime_evidence
+            mrf_gate_threshold_val = gate.veto_threshold
+            mrf_edge_margin_val = gate.edge_margin
+            mrf_gate_would_block_val = gate.would_block
+            mrf_gate_reason_val = gate.reason
+            # v3 is binary and must never be represented as a legacy
+            # stake multiplier.
+            mrf_multiplier_val = None
     elif mrf_audit and isinstance(mrf_audit, dict):
         mrf_phase = mrf_audit.get("global_phase", "UNKNOWN")
+        mrf_policy_version_val = mrf_audit.get("version")
 
     if mrf_adjusted_action != comb_res.action or mrf_adjusted_bet != comb_res.bet_size_usdc:
         skip_reason = mrf_outcome.skip_reason if mrf_outcome and mrf_outcome.skip_reason else f"MRF:{mrf_phase}"
@@ -952,7 +983,12 @@ async def decide_combined_mode(
         mrf_strength=mrf_strength_val,
         mrf_confidence=mrf_confidence_val,
         mrf_multiplier=mrf_multiplier_val,
-        mrf_applied=mrf_adjusted_action != original_action or mrf_adjusted_bet != original_bet,
+        mrf_applied=(
+            mrf_outcome.applied
+            if mrf_outcome is not None and mrf_outcome.policy_version == 3
+            else mrf_adjusted_action != original_action
+            or mrf_adjusted_bet != original_bet
+        ),
         mrf_evaluated=mrf_evaluated,
         mrf_as_of=start_time,
         mrf_failure_reason=mrf_failure_reason,
@@ -961,6 +997,12 @@ async def decide_combined_mode(
         mrf_original_bet=original_bet,
         mrf_final_action=mrf_adjusted_action,
         mrf_final_bet=mrf_adjusted_bet,
+        mrf_policy_version=mrf_policy_version_val,
+        mrf_regime_evidence=mrf_regime_evidence_val,
+        mrf_gate_threshold=mrf_gate_threshold_val,
+        mrf_edge_margin=mrf_edge_margin_val,
+        mrf_gate_would_block=mrf_gate_would_block_val,
+        mrf_gate_reason=mrf_gate_reason_val,
 
         final_action=mrf_adjusted_action,
         skip_reason=trade_decision.reason if trade_decision.action == "SKIP" else None,
@@ -976,7 +1018,10 @@ async def decide_combined_mode(
         p_flip=comb_res.p_flip if comb_res.p_flip is not None else 0.0,
         model_ver=comb_res.entry_model_version,
         edge=comb_res.net_edge,
-        skip_reason=comb_res.reason if comb_res.action == "SKIP" else None,
+        # ``comb_res`` is the pre-MRF decision.  When v3 actively vetoes a
+        # BUY, the final ``trade_decision`` is the source of truth for the
+        # returned skip reason.
+        skip_reason=trade_decision.reason if trade_decision.action == "SKIP" else None,
         lgbm_metadata=lgbm_meta,
         used_model_key=comb_res.entry_model_key,
         confirm_model_key=confirm_model_key,

@@ -313,6 +313,14 @@ REGISTRY: list[SettingDef] = [
                description="Порог breadth (доля активов с ret>0) для определения TREND (0.65 = 65% активов растут)"),
     SettingDef("MARKET_REGIME_EFFICIENCY_THRESHOLD", "0.40",
                description="Порог рыночной эффективности (efficiency = mean_abs_ret / volatility). 0.40 = 40% эффективности"),
+    SettingDef("MARKET_REGIME_VETO_THRESHOLD", "0.15",
+               description="MRF v3: порог отрицательного regime evidence для veto"),
+    SettingDef("MARKET_REGIME_EDGE_OVERRIDE_MARGIN", "0.05",
+               description="MRF v3: минимальный запас edge для override veto"),
+    SettingDef("MARKET_REGIME_ASSET_WEIGHT", "0.70",
+               description="MRF v3: вес режима отдельного актива"),
+    SettingDef("MARKET_REGIME_GLOBAL_WEIGHT", "0.30",
+               description="MRF v3: вес глобального режима рынка"),
 ]
 
 

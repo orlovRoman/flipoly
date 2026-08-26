@@ -110,6 +110,12 @@ async def log_funnel(
     mrf_original_bet: Optional[float] = None,
     mrf_final_action: Optional[str] = None,
     mrf_final_bet: Optional[float] = None,
+    mrf_policy_version: Optional[int] = None,
+    mrf_regime_evidence: Optional[float] = None,
+    mrf_gate_threshold: Optional[float] = None,
+    mrf_edge_margin: Optional[float] = None,
+    mrf_gate_would_block: Optional[bool] = None,
+    mrf_gate_reason: Optional[str] = None,
 
     # Итог
     final_action: str = "SKIP",
@@ -202,6 +208,16 @@ async def log_funnel(
             mrf_original_bet=mrf_original_bet,
             mrf_final_action=mrf_final_action,
             mrf_final_bet=mrf_final_bet,
+            mrf_policy_version=mrf_policy_version,
+            mrf_regime_evidence=mrf_regime_evidence,
+            mrf_gate_threshold=mrf_gate_threshold,
+            mrf_edge_margin=mrf_edge_margin,
+            mrf_gate_would_block=mrf_gate_would_block,
+            mrf_gate_reason=(
+                mrf_gate_reason[:128]
+                if mrf_gate_reason
+                else None
+            ),
 
             final_action=final_action,
             skip_reason=skip_reason[:256] if skip_reason else None,

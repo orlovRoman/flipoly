@@ -12,7 +12,11 @@ from typing import Any
 
 from polyflip.crypto.market_regime import MarketRegimeSnapshot, MIN_HISTORY_CANDLES
 from polyflip.crypto.market_regime_classifier import MarketPhase, classify_global_regime, classify_asset_regime, RegimeConfig
-from polyflip.crypto.market_regime_policy import FilterMode, PolicyResult
+from polyflip.crypto.market_regime_policy import (
+    FilterMode,
+    PolicyResult,
+    RegimeGateResult,
+)
 
 
 def serialize_regime_audit(
@@ -24,6 +28,9 @@ def serialize_regime_audit(
     applied: bool = False,
     failure_reason: str | None = None,
     regime_config: RegimeConfig | None = None,
+    gate_result: RegimeGateResult | None = None,
+    effective_block: bool = False,
+    candidate_role: str = "",
 ) -> dict[str, Any]:
     """
     Build a compact audit dict for the decision funnel.
@@ -31,8 +38,19 @@ def serialize_regime_audit(
     Includes both global phase and per-asset phases.
     Uses the same RegimeConfig as the classifier for consistency.
     """
-    global_phase, global_confidence = _extract_global_phase(snapshot, regime_config=regime_config)
+    global_phase, global_confidence = _extract_global_phase(
+        snapshot, regime_config=regime_config,
+    )
     global_strength = snapshot.basket.strength if snapshot.basket.history_ready else 0.0
+    if gate_result is not None:
+        global_phase = gate_result.global_phase
+        global_confidence = gate_result.global_confidence
+        global_strength = gate_result.global_strength
+    elif policy_result is not None:
+        # Legacy policy already computed the exact classifier values used for
+        # the decision.  Prefer them over the snapshot's cached basket score
+        # so v1/v2 telemetry remains internally consistent.
+        global_strength = policy_result.global_strength
 
     # Per-asset phases (using same RegimeConfig)
     assets_phases = {}
@@ -73,6 +91,30 @@ def serialize_regime_audit(
             "phase": policy_result.phase.value,
         }
 
+    gate_summary = {}
+    if gate_result is not None:
+        gate_summary = {
+            "would_block": gate_result.would_block,
+            "effective_block": effective_block,
+            "reason": gate_result.reason,
+            "candidate_direction": round(gate_result.candidate_direction, 4),
+            "candidate_role": candidate_role,
+            "asset_phase": gate_result.asset_phase.value,
+            "global_phase": gate_result.global_phase.value,
+            "asset_strength": round(gate_result.asset_strength, 4),
+            "asset_confidence": round(gate_result.asset_confidence, 4),
+            "global_strength": round(gate_result.global_strength, 4),
+            "global_confidence": round(gate_result.global_confidence, 4),
+            "asset_evidence": round(gate_result.asset_evidence, 6),
+            "global_evidence": round(gate_result.global_evidence, 6),
+            "regime_evidence": round(gate_result.regime_evidence, 6),
+            "net_edge": round(gate_result.net_edge, 6),
+            "min_edge_used": round(gate_result.min_edge_used, 6),
+            "edge_margin": round(gate_result.edge_margin, 6),
+            "veto_threshold": round(gate_result.veto_threshold, 6),
+            "edge_override_margin": round(gate_result.edge_override_margin, 6),
+        }
+
     audit = {
         "mode": mode.value,
         "version": mrf_version,
@@ -85,6 +127,7 @@ def serialize_regime_audit(
         "assets": assets_phases,
         "basket": basket_summary,
         "policy": policy_summary,
+        "gate": gate_summary,
         "applied": applied,
         "failure_reason": failure_reason,
         "reason_codes": snapshot.reason_codes,
@@ -102,11 +145,23 @@ def serialize_regime_audit_json(
     applied: bool = False,
     failure_reason: str | None = None,
     regime_config: RegimeConfig | None = None,
+    gate_result: RegimeGateResult | None = None,
+    effective_block: bool = False,
+    candidate_role: str = "",
 ) -> str:
     """Serialize audit to JSON string."""
     audit = serialize_regime_audit(
-        snapshot, policy_result, mode, mrf_version,
-        strategy_type, applied, failure_reason, regime_config=regime_config,
+        snapshot=snapshot,
+        policy_result=policy_result,
+        mode=mode,
+        mrf_version=mrf_version,
+        strategy_type=strategy_type,
+        applied=applied,
+        failure_reason=failure_reason,
+        regime_config=regime_config,
+        gate_result=gate_result,
+        effective_block=effective_block,
+        candidate_role=candidate_role,
     )
     return json.dumps(audit, ensure_ascii=False, separators=(",", ":"))
 
