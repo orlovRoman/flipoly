@@ -1,8 +1,15 @@
 import dataclasses
 from dataclasses import dataclass
+from math import isfinite
+
+import structlog
+
 from polyflip.config import settings
 from polyflip.crypto.market_regime import MIN_HISTORY_CANDLES
 from polyflip.utils import parse_float_setting
+
+logger = structlog.get_logger(__name__)
+
 
 def _parse_bool(val, default: bool) -> bool:
     if val is None or str(val).strip() == "":
@@ -14,8 +21,9 @@ def _parse_int(val, default: int) -> int:
         return default
     try:
         return int(float(val))  # handle "300.0" if any
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         return default
+
 
 @dataclass(frozen=True)
 class TradingConfig:
@@ -132,10 +140,55 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         getattr(settings, "MARKET_REGIME_FILTER_VERSION", 1),
     )
     if mrf_version not in (1, 2, 3):
-        raise ValueError(
-            f"Unsupported MARKET_REGIME_FILTER_VERSION: {mrf_version}; "
-            "expected 1, 2, or 3"
+        logger.warning(
+            "invalid_market_regime_filter_version",
+            value=mrf_version,
+            fallback=1,
         )
+        # Settings are read on every scheduler cycle. A stale or manually
+        # edited DB value must not take down the trading loop.
+        mrf_version = 1
+
+    mrf_veto_threshold = parse_float_setting(
+        raw, "MARKET_REGIME_VETO_THRESHOLD", 0.15,
+    )
+    mrf_edge_override_margin = parse_float_setting(
+        raw, "MARKET_REGIME_EDGE_OVERRIDE_MARGIN", 0.05,
+    )
+    mrf_asset_weight = parse_float_setting(
+        raw, "MARKET_REGIME_ASSET_WEIGHT", 0.70,
+    )
+    mrf_global_weight = parse_float_setting(
+        raw, "MARKET_REGIME_GLOBAL_WEIGHT", 0.30,
+    )
+    # Validate the complete v3 gate contract while parsing settings instead
+    # of waiting for the first decision (where an exception would otherwise
+    # be swallowed by the MRF wrapper). Invalid values use safe defaults.
+    if (
+        not all(isfinite(value) for value in (
+            mrf_asset_weight,
+            mrf_global_weight,
+            mrf_veto_threshold,
+            mrf_edge_override_margin,
+        ))
+        or mrf_asset_weight < 0
+        or mrf_global_weight < 0
+        or mrf_asset_weight + mrf_global_weight <= 0
+        or not 0 <= mrf_veto_threshold <= 1
+        or mrf_edge_override_margin < 0
+    ):
+        logger.warning(
+            "invalid_market_regime_filter_config",
+            asset_weight=mrf_asset_weight,
+            global_weight=mrf_global_weight,
+            veto_threshold=mrf_veto_threshold,
+            edge_override_margin=mrf_edge_override_margin,
+            fallback="asset_weight=0.70,global_weight=0.30,veto_threshold=0.15,edge_override_margin=0.05",
+        )
+        mrf_asset_weight = 0.70
+        mrf_global_weight = 0.30
+        mrf_veto_threshold = 0.15
+        mrf_edge_override_margin = 0.05
 
     return TradingConfig(
         trading_enabled=_parse_bool(raw.get("TRADING_ENABLED"), getattr(settings, "TRADING_ENABLED", True)),
@@ -211,8 +264,8 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         mrf_unknown_multiplier=parse_float_setting(raw, "MARKET_REGIME_UNKNOWN_MULTIPLIER", 0.8),
         mrf_breadth_threshold=parse_float_setting(raw, "MARKET_REGIME_BREADTH_THRESHOLD", 0.65),
         mrf_efficiency_threshold=parse_float_setting(raw, "MARKET_REGIME_EFFICIENCY_THRESHOLD", 0.4),
-        mrf_veto_threshold=parse_float_setting(raw, "MARKET_REGIME_VETO_THRESHOLD", 0.15),
-        mrf_edge_override_margin=parse_float_setting(raw, "MARKET_REGIME_EDGE_OVERRIDE_MARGIN", 0.05),
-        mrf_asset_weight=parse_float_setting(raw, "MARKET_REGIME_ASSET_WEIGHT", 0.70),
-        mrf_global_weight=parse_float_setting(raw, "MARKET_REGIME_GLOBAL_WEIGHT", 0.30),
+        mrf_veto_threshold=mrf_veto_threshold,
+        mrf_edge_override_margin=mrf_edge_override_margin,
+        mrf_asset_weight=mrf_asset_weight,
+        mrf_global_weight=mrf_global_weight,
     )

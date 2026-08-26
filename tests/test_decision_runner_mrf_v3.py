@@ -10,7 +10,7 @@ from polyflip.crypto.market_regime_classifier import MarketPhase
 from polyflip.crypto.market_regime_policy import PolicyResult, RegimeGateResult
 from polyflip.crypto.predictor import CryptoSignal
 from polyflip.crypto.market_regime_apply import RegimeDecisionOutcome
-from polyflip.trading.decision_runners import decide_combined_mode
+from polyflip.trading.decision_runners import _apply_mrf_filter, decide_combined_mode
 from polyflip.trading.trading_config import parse_trading_settings
 
 
@@ -103,6 +103,37 @@ def _make_runner_context(mode: str):
         policy_version=3,
     )
     return db_session, api_client, market, cfg, models_cache, signal, outcome
+
+
+def test_mrf_v3_active_invalid_candidate_side_fails_closed():
+    cfg = parse_trading_settings(
+        {
+            "MARKET_REGIME_FILTER_MODE": "ACTIVE",
+            "MARKET_REGIME_FILTER_VERSION": "3",
+        }
+    )
+
+    action, bet, audit, outcome, failure = asyncio.run(
+        _apply_mrf_filter(
+            db_session=AsyncMock(),
+            cfg=cfg,
+            asset_upper="BTC",
+            binance_symbol="BTCUSDT",
+            start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            candidate_side=None,
+            fresh_yes_price=0.7,
+            candidate_ask=0.7,
+            bet_size_usdc=10.0,
+            net_edge=0.1,
+            min_edge_used=0.05,
+            action="BUY_YES",
+        )
+    )
+
+    assert (action, bet) == ("SKIP", 0.0)
+    assert outcome is None
+    assert failure == "invalid_candidate_side:NONE"
+    assert audit["failure_reason"] == failure
 
 
 @pytest.mark.parametrize("mode, expected_action, expected_applied", [

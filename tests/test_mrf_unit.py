@@ -29,7 +29,8 @@ from polyflip.crypto.market_regime_policy import (
     StrategyType,
 )
 from polyflip.crypto.market_regime_audit import serialize_regime_audit
-from polyflip.crypto.market_regime_apply import apply_regime_policy, RegimeDecisionOutcome, TradingConfig
+from polyflip.crypto.market_regime_apply import apply_regime_policy, RegimeDecisionOutcome
+from polyflip.trading.trading_config import TradingConfig
 
 
 def _asset(

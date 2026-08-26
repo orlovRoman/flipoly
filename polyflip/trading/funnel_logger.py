@@ -15,6 +15,9 @@ from polyflip.db.models import DecisionFunnelLog
 
 logger = structlog.get_logger(__name__)
 
+MRF_FAILURE_REASON_MAX_LEN = 256
+MRF_GATE_REASON_MAX_LEN = 128
+
 
 async def log_funnel(
     db: AsyncSession,
@@ -202,7 +205,11 @@ async def log_funnel(
             mrf_applied=mrf_applied,
             mrf_evaluated=mrf_evaluated,
             mrf_as_of=mrf_as_of,
-            mrf_failure_reason=mrf_failure_reason,
+            mrf_failure_reason=(
+                mrf_failure_reason[:MRF_FAILURE_REASON_MAX_LEN]
+                if mrf_failure_reason
+                else None
+            ),
             mrf_audit_json=mrf_audit_json,
             mrf_original_action=mrf_original_action,
             mrf_original_bet=mrf_original_bet,
@@ -214,7 +221,7 @@ async def log_funnel(
             mrf_edge_margin=mrf_edge_margin,
             mrf_gate_would_block=mrf_gate_would_block,
             mrf_gate_reason=(
-                mrf_gate_reason[:128]
+                mrf_gate_reason[:MRF_GATE_REASON_MAX_LEN]
                 if mrf_gate_reason
                 else None
             ),

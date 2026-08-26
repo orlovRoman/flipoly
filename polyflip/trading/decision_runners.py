@@ -245,6 +245,17 @@ async def _apply_mrf_filter(
     if cfg.mrf_mode == "OFF":
         return action, bet_size_usdc, None, None, None
 
+    # A v3 gate only has a meaningful direction for a concrete BUY side.
+    # Do not let an inconsistent decision silently bypass an ACTIVE veto.
+    if cfg.mrf_version == 3 and candidate_side not in {"BUY_YES", "BUY_NO"}:
+        side_label = candidate_side or "NONE"
+        failure = f"invalid_candidate_side:{side_label}"
+        logger.error("mrf_invalid_candidate_side", asset=asset_upper, candidate_side=side_label)
+        audit = _build_mrf_failure_audit(cfg, failure, as_of=start_time)
+        if cfg.mrf_mode == "ACTIVE":
+            return "SKIP", 0.0, audit, None, failure
+        return action, bet_size_usdc, audit, None, failure
+
     try:
         import asyncio
         from polyflip.crypto.candle_repository import get_recent_candles
@@ -380,8 +391,6 @@ async def decide_combined_mode(
     4. Записывается ровно ОДИН лог воронки в DecisionFunnelLog со всеми полями.
     """
     import uuid
-    import json
-    import time
     from polyflip.constants import COMBINED_MODE_SUPPORTED_ASSETS, COMBINED_BINANCE_SYMBOLS
     from polyflip.trading.combined_voting import evaluate_combined_entry
     from polyflip.crypto.predictor import CryptoSignal
@@ -891,8 +900,8 @@ async def decide_combined_mode(
     # Build MRF audit JSON for funnel
     mrf_audit_json = None
     if mrf_audit and isinstance(mrf_audit, dict):
-        import json as _json
-        mrf_audit_json = _json.dumps(mrf_audit, ensure_ascii=False, default=str)
+
+        mrf_audit_json = json.dumps(mrf_audit, ensure_ascii=False, default=str)
 
     # ── Log funnel (MRF-FIX-08: now includes MRF results) ─────────────────
     # Step 5: mrf_evaluated=true ONLY if MRF actually classified and evaluated.
@@ -984,7 +993,12 @@ async def decide_combined_mode(
         mrf_confidence=mrf_confidence_val,
         mrf_multiplier=mrf_multiplier_val,
         mrf_applied=(
-            mrf_outcome.applied
+            # v3 is a binary veto.  ``RegimeDecisionOutcome.applied`` is
+            # intentionally mode-aware (False in SHADOW), while this field
+            # records whether the final decision was actually changed.  Use
+            # the action diff so a future v3 implementation cannot report a
+            # veto as applied merely because an internal flag was set.
+            mrf_adjusted_action != original_action
             if mrf_outcome is not None and mrf_outcome.policy_version == 3
             else mrf_adjusted_action != original_action
             or mrf_adjusted_bet != original_bet
