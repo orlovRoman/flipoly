@@ -289,7 +289,7 @@ async def test_requeue_returns_run_to_queue_without_lease(db_session):
     claimed = (await claim_next_agent_run(AgentClaimRequest(), db_session))["run"]
     result = await complete_agent_run(
         run_id,
-        CompleteRequest(action="REQUEUE", reason="retry"),
+        CompleteRequest(action="REQUEUE", reason="retry", lease_token=claimed["lease_token"]),
         db_session,
     )
     assert result["status"] == "QUEUED"
