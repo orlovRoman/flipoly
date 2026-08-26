@@ -295,19 +295,19 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
 
             elif phase == "NEEDS_COMPLETION":
                 try:
-                    # Need to decide whether to REQUEUE or COMPLETE based on budget and last decision
-                    # Fetch last decision action if available
                     last_action = "COMPLETED"
-                    if isinstance(phase_data, dict):
-                        # phase_data doesn't contain action, need to fetch via context? For now assume COMPLETED
-                        pass
-                    # Check budget
-                    if run.experiments_completed < run.budget_experiments:
-                        # If budget still remains and last action was CONTINUE, REQUEUE
-                        # We don't have last action, so default to COMPLETED
-                        await client.complete(run.id, "COMPLETED", reason="done")
+                    if isinstance(phase_data, dict) and isinstance(phase_data.get("latest_decision"), dict):
+                        last_action = str(phase_data["latest_decision"].get("action") or "COMPLETED").upper()
+                    elif isinstance(phase_data, dict) and isinstance(phase_data.get("latest_decision"), bool):
+                        # Legacy boolean case, fallback
+                        last_action = "COMPLETED"
+                    remaining = max(run.budget_experiments - run.experiments_completed, 0)
+                    if last_action in {"CONTINUE_RESEARCH", "MUTATE_HYPOTHESIS"} and remaining > 0:
+                        await client.complete(run.id, "REQUEUE", reason=last_action)
+                    elif last_action in {"CONTINUE_RESEARCH", "MUTATE_HYPOTHESIS"}:
+                        await client.complete(run.id, "COMPLETED", reason="budget exhausted")
                     else:
-                        await client.complete(run.id, "COMPLETED", reason="budget exhausted or done")
+                        await client.complete(run.id, "COMPLETED", reason=last_action)
                     break
                 except LeaseLostError:
                     client.drop_lease()

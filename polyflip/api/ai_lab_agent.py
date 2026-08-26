@@ -197,7 +197,18 @@ async def _agent_phase(db, run_id: int) -> dict[str, Any]:
             pending = any(s.status == "PENDING" and s.step_type in {"TRAIN_MODEL", "RUN_OOT_BACKTEST", "RUN_POLYMARKET_OOT"} and (s.input_payload or {}).get("config_id") == cfg_id for s in steps)
             term = (await db.execute(select(ExperimentResult).where(ExperimentResult.run_id == run_id, ExperimentResult.config_id == cfg_id, ExperimentResult.evaluation_kind == "POLYMARKET_OOT", ExperimentResult.status == "SUCCEEDED").order_by(ExperimentResult.id.desc()).limit(1))).scalar_one_or_none()
     if proposal_after is None:
-        phase = "NEEDS_PROPOSAL"
+        if last_decision is not None:
+            # After any decision, the next step is completion, not a new proposal,
+            # until the run is explicitly completed or requeued.
+            phase = "NEEDS_COMPLETION"
+            latest_cfg = (last_decision.output_payload or {}).get("config_id") or latest_cfg
+            # Preserve the result_id from the decision if available
+            if not term:
+                term_id = (last_decision.output_payload or {}).get("result_id")
+                if term_id:
+                    term = await db.get(ExperimentResult, term_id)
+        else:
+            phase = "NEEDS_PROPOSAL"
     elif pending:
         phase = "WAITING_RESULT"
     elif term is not None:
@@ -210,7 +221,15 @@ async def _agent_phase(db, run_id: int) -> dict[str, Any]:
     else:
         # Proposal exists but no terminal result yet
         phase = "WAITING_RESULT"
-    return {"phase": phase, "latest_config_id": latest_cfg, "latest_result_id": term.id if term else None, "latest_decision": last_decision is not None}
+    # Return full decision payload for completion handling, not just boolean
+    decision_payload = None
+    if last_decision is not None:
+        decision_payload = {
+            "action": last_decision.action,
+            "output_payload": last_decision.output_payload,
+            "step_id": last_decision.id,
+        }
+    return {"phase": phase, "latest_config_id": latest_cfg, "latest_result_id": term.id if term else None, "latest_decision": decision_payload}
 
 
 @router.get("/runs/{run_id}/phase")
@@ -295,11 +314,12 @@ async def claim_next_agent_run(
                 )
             )
             .order_by(AIOptimizationRun.id)
-            .with_for_update(skip_locked=True)
+            .with_for_update(of=AIOptimizationRun, skip_locked=True)
             .limit(1)
         )
         run = (await db.execute(stmt)).scalar_one_or_none()
     except Exception:
+        await db.rollback()
         # SQLite fallback without FOR UPDATE
         stmt = (
             select(AIOptimizationRun)
