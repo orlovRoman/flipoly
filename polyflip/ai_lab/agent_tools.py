@@ -365,6 +365,7 @@ async def create_config_overlay(
     parent_overlay_id: int | None = None,
     ttl_seconds: int = 3600,
     created_by: str = "ai_agent",
+    scope: Mapping[str, Any] | None = None,
 ) -> AIConfigOverlay:
     """Create a versioned runtime settings overlay."""
     cleaned_changes = validate_overlay_changes(changes)
@@ -386,10 +387,16 @@ async def create_config_overlay(
         json.dumps(resulting_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     ).hexdigest()
 
+    overlay_scope: dict[str, Any] = {"target": "SHADOW_SIMULATION"}
+    for key in ("asset", "regime"):
+        value = scope.get(key) if isinstance(scope, Mapping) else None
+        if value is not None and str(value).strip():
+            overlay_scope[key] = str(value).strip()
+
     overlay = AIConfigOverlay(
         run_id=run_id,
         parent_overlay_id=parent_overlay_id,
-        scope={"target": "SHADOW_SIMULATION"},
+        scope=overlay_scope,
         changes=cleaned_changes,
         base_settings_hash=base_settings_hash,
         resulting_settings_hash=resulting_hash,

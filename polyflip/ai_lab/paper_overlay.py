@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polyflip.ai_lab.agent_tools import expire_overlays
 from polyflip.db.models import AIConfigOverlay, TradeHistory
 
 _PAPER_TARGETS = {"PAPER", "PAPER_TRADING", "SHADOW_SIMULATION"}
@@ -19,13 +20,22 @@ def _as_utc(value: datetime) -> datetime:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
 
+def _normalize_asset(value: Any) -> str:
+    text = str(value or "").strip().upper().replace("/", "").replace("-", "")
+    return text[:-4] if text.endswith("USDT") else text
+
 
 async def get_active_paper_overlays(
     session: AsyncSession,
     *,
     now: datetime | None = None,
+    asset: str | None = None,
+    regime: str | None = None,
 ) -> list[AIConfigOverlay]:
     cutoff = _as_utc(now or datetime.now(timezone.utc))
+    await expire_overlays(session, now=cutoff)
+    requested_asset = _normalize_asset(asset)
+    requested_regime = str(regime or "").strip().lower()
     result = await session.execute(
         select(AIConfigOverlay)
         .where(
@@ -43,6 +53,16 @@ async def get_active_paper_overlays(
         target = str(scope.get("target") or "").strip().upper()
         if target and target not in _PAPER_TARGETS:
             continue
+        scoped_asset = _normalize_asset(scope.get("asset"))
+        if requested_asset and scoped_asset and scoped_asset != requested_asset:
+            continue
+        scoped_regime = str(scope.get("regime") or "").strip().lower()
+        # A regime-scoped overlay must never leak into an unclassified market;
+        # callers need to provide the matching regime explicitly.
+        if scoped_regime and (
+            not requested_regime or scoped_regime != requested_regime
+        ):
+            continue
         overlays.append(overlay)
     return overlays
 
@@ -52,9 +72,13 @@ async def resolve_paper_runtime_settings(
     base: dict[str, Any],
     *,
     now: datetime | None = None,
+    asset: str | None = None,
+    regime: str | None = None,
 ) -> tuple[dict[str, str], list[int]]:
     effective = {str(key): str(value) for key, value in base.items()}
-    overlays = await get_active_paper_overlays(session, now=now)
+    overlays = await get_active_paper_overlays(
+        session, now=now, asset=asset, regime=regime
+    )
     applied_ids: list[int] = []
     for overlay in overlays:
         changes = overlay.changes if isinstance(overlay.changes, dict) else {}
@@ -121,11 +145,11 @@ async def get_paper_overlay_runtime_summary(
     result: list[dict[str, Any]] = []
     for overlay in overlays:
         scope = overlay.scope if isinstance(overlay.scope, dict) else {}
-        asset = str(scope.get("asset") or "").strip().upper()
+        asset = _normalize_asset(scope.get("asset"))
         scoped_trades = [
             row
             for row in trade_rows
-            if not asset or str(row.asset or "").strip().upper() == asset
+            if not asset or _normalize_asset(row.asset) == asset
         ]
         created_at = _as_utc(overlay.created_at) if overlay.created_at else None
         before = [

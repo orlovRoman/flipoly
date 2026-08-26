@@ -366,6 +366,7 @@ class AILabAgent:
                     self.session,
                     run_id=run.id,
                     changes=decision.proposed_overlay,
+                    scope={"asset": run.scope.get("asset"), "regime": run.scope.get("regime")} if isinstance(run.scope, dict) else None,
                     created_by="ai_agent",
                 )
                 await apply_shadow_overlay(self.session, overlay.id)

@@ -73,3 +73,4 @@ async def test_paper_overlay_filters_expired_and_non_paper_rows(db_session):
     assert effective["TRADE_BET_SIZE_USDC"] == "20"
     assert effective["TRADING_ENABLED"] == "False"
     assert overlay_ids == [active.id]
+    assert expired.status == "EXPIRED"

@@ -105,6 +105,7 @@ async def save_or_update_skipped_trade(
     strk_prx = details.get("strike_proxy")
     und_price = details.get("underlying_price")
     dist_strk = details.get("distance_to_strike_pct")
+    overlay_ids = _overlay_ids_from_details(details)
 
     if existing_skipped:
         decision_changed = (
@@ -113,7 +114,8 @@ async def save_or_update_skipped_trade(
             existing_skipped.edge != edge or
             existing_skipped.active_features != active_features or
             existing_skipped.lgbm_metadata != lgbm_metadata or
-            (market_role and existing_skipped.market_role != market_role)
+            (market_role and existing_skipped.market_role != market_role) or
+            ((existing_skipped.ai_lab_overlay_ids or []) != overlay_ids)
         )
         direction_attribution_changed = (
             dir_val is not None and existing_skipped.direction_value != dir_val
@@ -170,6 +172,7 @@ async def save_or_update_skipped_trade(
             existing_skipped.entry_model_ece = details.get("entry_model_ece")
             if details.get("decision_run_id"):
                 existing_skipped.decision_run_id = details.get("decision_run_id")
+            existing_skipped.ai_lab_overlay_ids = overlay_ids or None
             
             existing_skipped.updated_at = start_time
     else:
@@ -209,7 +212,7 @@ async def save_or_update_skipped_trade(
             p_flip_raw=details.get("p_flip_raw"),
             entry_model_ece=details.get("entry_model_ece"),
             decision_run_id=details.get("decision_run_id"),
-            ai_lab_overlay_ids=_overlay_ids_from_details(details),
+            ai_lab_overlay_ids=overlay_ids,
             created_at=start_time
         )
         db_session.add(history)

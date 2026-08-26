@@ -53,6 +53,8 @@ async def _record_skip(
     existing_skipped,
     asset_mode,
     cfg,
+    *,
+    overlay_ids: list[int] | None = None,
 ) -> None:
     from polyflip.trading.trade_recorder import _get_trade_active_features
 
@@ -61,6 +63,10 @@ async def _record_skip(
         if (decision_res and decision_res.decision_obj)
         else None
     )
+    if overlay_ids:
+        dec_details = dict(dec_details or {})
+        dec_details["ai_lab_overlay_ids"] = list(overlay_ids)
+        dec_details["ai_overlay_ids"] = list(overlay_ids)
     await save_or_update_skipped_trade(
         db_session,
         market,
@@ -98,15 +104,10 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
     execution_mode = os.getenv("EXECUTION_MODE", "PAPER")
 
     try:
-        raw_settings = await load_trading_settings(db_session)
+        base_raw_settings = await load_trading_settings(db_session)
+        raw_settings = base_raw_settings
         overlay_ids: list[int] = []
-        if execution_mode.strip().upper() == "PAPER":
-            from polyflip.ai_lab.paper_overlay import resolve_paper_runtime_settings
-
-            raw_settings, overlay_ids = await resolve_paper_runtime_settings(
-                db_session, raw_settings, now=start_time
-            )
-        cfg = parse_trading_settings(raw_settings)
+        cfg = parse_trading_settings(base_raw_settings)
 
         if not cfg.trading_enabled:
             logger.info("trading_disabled_skipping", mode=cfg.trading_mode)
@@ -125,6 +126,17 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                 continue
             _ACTIVE_MARKETS.add(market.market_id)
             try:
+                raw_settings = base_raw_settings
+                overlay_ids = []
+                if execution_mode.strip().upper() == "PAPER":
+                    from polyflip.ai_lab.paper_overlay import resolve_paper_runtime_settings
+
+                    raw_settings, overlay_ids = await resolve_paper_runtime_settings(
+                        db_session, raw_settings, now=start_time, asset=market.asset
+                    )
+                    cfg = parse_trading_settings(raw_settings)
+                    if not cfg.trading_enabled:
+                        continue
                 asset_mode = cfg.trading_mode.lower() if cfg.trading_mode else ""
                 asset_min_edge = cfg.outs_min_edge
                 asset_max_price = cfg.trade_max_price
@@ -151,6 +163,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                             model_version=None,
                             start_time=start_time,
                             existing_skipped=guard_res.existing_skipped,
+                            decision_details={"ai_lab_overlay_ids": list(overlay_ids), "ai_overlay_ids": list(overlay_ids)} if overlay_ids else None,
                         )
                     continue
 
@@ -197,6 +210,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         None,
                         start_time,
                         existing_skipped,
+                        decision_details={"ai_lab_overlay_ids": list(overlay_ids), "ai_overlay_ids": list(overlay_ids)} if overlay_ids else None,
                     )
                     continue
 
@@ -215,6 +229,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         existing_skipped,
                         asset_mode,
                         cfg,
+                        overlay_ids=overlay_ids,
                     )
                     continue
 
@@ -241,6 +256,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         existing_skipped,
                         asset_mode,
                         cfg,
+                        overlay_ids=overlay_ids,
                     )
                     continue
 
@@ -278,6 +294,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         existing_skipped,
                         asset_mode,
                         cfg,
+                        overlay_ids=overlay_ids,
                     )
                     continue
             finally:
