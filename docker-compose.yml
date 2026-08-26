@@ -101,6 +101,10 @@ services:
   ai_lab_agent:
     build: .
     container_name: polyflip_ai_lab_agent
+    # The legacy in-process runner stays available for rollback, but is
+    # opt-in after the independent agent e2e cutover. This prevents two
+    # workers from claiming the same research run by default.
+    profiles: ["legacy-ai-lab"]
     restart: always
     depends_on:
       - db
