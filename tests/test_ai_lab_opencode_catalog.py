@@ -67,6 +67,19 @@ async def test_normalize_models_supports_data_and_models_shapes():
     assert [item["model_id"] for item in normalized_models] == ["model-a", "model-b"]
     assert normalized_models[1]["display_name"] == "Model B"
     assert all(item["protocol"] == "responses" for item in normalized_models)
+    metadata = normalize_models(
+        _payload(
+            {
+                "id": "model-meta",
+                "owned_by": "team",
+                "capabilities": {"json": True},
+                "api_key": "must-not-persist",
+            }
+        )
+    )[0]["raw_metadata"]
+    assert metadata["owned_by"] == "team"
+    assert metadata["capabilities"] == {"json": True}
+    assert "api_key" not in metadata
     assert normalize_models({"data": "not-a-list"}) == []
     assert normalize_models(None) == []
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
@@ -33,6 +34,45 @@ logger = structlog.get_logger("polyflip.ai_lab.llm_catalog")
 
 SUPPORTED_PROTOCOLS = {"responses", "chat_completions"}
 DEFAULT_TTL_SECONDS = 3600
+
+
+_MODEL_FIELDS = {
+    "id",
+    "name",
+    "display_name",
+    "protocol",
+    "supports_structured_output",
+}
+
+
+def _metadata_snapshot(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep provider model metadata without exposing credentials in the catalog."""
+    raw = row.get("metadata")
+    if not isinstance(raw, Mapping):
+        raw = {
+            str(key): value
+            for key, value in row.items()
+            if str(key) not in _MODEL_FIELDS
+        }
+    blocked = ("password", "secret", "token", "api_key", "authorization")
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                str(key): clean(item)
+                for key, item in value.items()
+                if not any(part in str(key).lower() for part in blocked)
+            }
+        if isinstance(value, (list, tuple)):
+            return [clean(item) for item in value]
+        try:
+            json.dumps(value)
+            return value
+        except (TypeError, ValueError):
+            return str(value)
+
+    cleaned = clean(raw)
+    return dict(cleaned) if isinstance(cleaned, Mapping) else {}
 
 
 def normalize_models(payload: Any) -> list[dict[str, Any]]:
@@ -70,6 +110,7 @@ def normalize_models(payload: Any) -> list[dict[str, Any]]:
             "supports_structured_output": bool(
                 row.get("supports_structured_output", True)
             ),
+            "raw_metadata": _metadata_snapshot(row),
         }
     return [result[key] for key in sorted(result)]
 
@@ -143,7 +184,10 @@ def _catalog_response(
     error: str | None = None,
 ) -> dict[str, Any]:
     payload = dict(static_shape)
-    if models:
+    # Dynamic sources must reflect the provider response exactly, including
+    # an empty live catalog. Keep the legacy static shape only for the
+    # explicit ``source=static`` path.
+    if models or source != "static":
         payload["models"] = models
         payload["defaults"] = _defaults_for(models)
     payload.update({
@@ -191,6 +235,7 @@ async def _upsert_live_rows(
         row.protocol = item["protocol"]
         row.supports_structured_output = item["supports_structured_output"]
         row.is_available = True
+        row.raw_metadata = item.get("raw_metadata") or {}
         row.is_discovered = True  # type: ignore[attr-defined]
         if is_new:
             row.probe_status = "UNCHECKED"  # type: ignore[attr-defined]
@@ -295,16 +340,12 @@ async def refresh_model_catalog(
         elif rows:
             # Live fetch failed (or cache expired): serve the last known
             # catalog and flag it stale so the UI can warn operators.
-            cached_available = [
-                row for row in rows if row.is_available
+            models = [
+                _row_to_item(row)
+                for row in sorted(rows, key=lambda r: r.model_id)
             ]
-            if cached_available:
-                models = [
-                    _row_to_item(row)
-                    for row in sorted(cached_available, key=lambda r: r.model_id)
-                ]
-                source = "cache"
-                stale = True
+            source = "cache"
+            stale = True
         if models is None:
             fallback_csv = str(
                 getattr(cfg, "AI_LAB_OPENCODE_MODELS_FALLBACK", "") or ""
@@ -442,16 +483,22 @@ def _probe_candidates(provider_name: str, settings_obj: Any) -> list[dict[str, A
         )
         return [{"url": override.rstrip("/"), "protocol": protocol}]
     if provider_name == "openai":
-        return [
-            {
-                "url": "https://api.openai.com/v1/responses",
-                "protocol": "responses",
-            }
-        ]
-    return [
-        {"url": DEFAULT_OPENCODE_ENDPOINT, "protocol": "responses"},
-        {"url": DEFAULT_OPENCODE_CHAT_ENDPOINT, "protocol": "chat_completions"},
-    ]
+        responses_endpoint = "https://api.openai.com/v1/responses"
+        return [{"url": responses_endpoint, "protocol": "responses"}]
+    responses_endpoint = str(
+        getattr(settings_obj, "AI_LAB_OPENCODE_RESPONSES_ENDPOINT", DEFAULT_OPENCODE_ENDPOINT)
+        or DEFAULT_OPENCODE_ENDPOINT
+    ).strip()
+    chat_endpoint = str(
+        getattr(settings_obj, "AI_LAB_OPENCODE_CHAT_ENDPOINT", DEFAULT_OPENCODE_CHAT_ENDPOINT)
+        or DEFAULT_OPENCODE_CHAT_ENDPOINT
+    ).strip()
+    candidates: list[dict[str, str]] = []
+    if responses_endpoint:
+        candidates.append({"url": responses_endpoint, "protocol": "responses"})
+    if chat_endpoint:
+        candidates.append({"url": chat_endpoint, "protocol": "chat_completions"})
+    return candidates
 
 
 async def _default_probe_sender(url: str, headers: dict[str, str], body: dict[str, Any]) -> Any:
@@ -665,9 +712,35 @@ async def resolve_llm_snapshot(
             )
         ).scalars().all()
         by_id = {row.model_id: row for row in rows}
+        if not by_id and str(
+            getattr(cfg, "AI_LAB_OPENCODE_MODELS_ENDPOINT", "") or ""
+        ).strip():
+            # A configured discovery endpoint is authoritative; populate a
+            # cold cache before validating a new run.
+            await refresh_model_catalog(
+                db,
+                provider=provider_name,
+                refresh=False,
+                settings_obj=cfg,
+            )
+            rows = (
+                await db.execute(
+                    select(AILLMModelCatalog).where(
+                        AILLMModelCatalog.provider == provider_name
+                    )
+                )
+            ).scalars().all()
+            by_id = {row.model_id: row for row in rows}
 
     if not by_id:
         # Legacy/static path keeps pre-catalog behavior working.
+        if provider_name == "opencode" and str(
+            getattr(cfg, "AI_LAB_OPENCODE_MODELS_ENDPOINT", "") or ""
+        ).strip():
+            raise ValueError(
+                "OpenCode model catalog is unavailable; refresh discovery "
+                "and pass the model probe before creating a run"
+            )
         resolved = get_llm_model_catalog(provider_name)
         allowed = {str(item["id"]) for item in resolved["models"]}
         defaults = resolved["defaults"]
@@ -715,6 +788,8 @@ async def resolve_llm_snapshot(
             )
         if not supports:
             raise ValueError(f"Model '{clean}' does not support structured output")
+        if not bool(row.is_available):
+            raise ValueError(f"Model '{clean}' is unavailable in the catalog")
         # Probe TTL: stale probes require re-check.
         last = _as_utc(getattr(row, "last_checked_at", None))
         if last is None:

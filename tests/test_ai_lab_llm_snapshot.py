@@ -241,3 +241,30 @@ async def test_mock_provider_defaults_snapshot(db_session):
     run = await _create(db_session, provider="mock")
     assert run.llm_snapshot["provider"] == "mock"
     assert run.llm_snapshot["catalog_model_status"] == "available"
+
+
+@pytest.mark.asyncio
+async def test_configured_endpoint_is_authoritative_for_new_run(db_session, monkeypatch):
+    from polyflip.config import settings
+
+    async def fake_fetch(endpoint_url, api_key, **kwargs):
+        return {"data": [{"id": "fresh-provider-model"}]}
+
+    monkeypatch.setattr(
+        "polyflip.ai_lab.llm_catalog.fetch_opencode_models", fake_fetch
+    )
+    monkeypatch.setattr(
+        settings,
+        "AI_LAB_OPENCODE_MODELS_ENDPOINT",
+        "http://opencode.test/models",
+    )
+    monkeypatch.setattr(settings, "AI_LAB_OPENCODE_CATALOG_TTL_SECONDS", 3600)
+    monkeypatch.setattr(settings, "AI_LAB_OPENCODE_MODELS_FALLBACK", "")
+
+    with pytest.raises(AILabError, match="probe status is UNCHECKED"):
+        await _create(
+            db_session,
+            provider="opencode",
+            research="fresh-provider-model",
+            summary="fresh-provider-model",
+        )

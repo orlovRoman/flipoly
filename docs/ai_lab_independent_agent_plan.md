@@ -150,7 +150,7 @@ heartbeat failure / TTL expiry ------------------> lease reclaimable by any agen
                    "min_positive_oot_windows": 2}}
 
 // POST /runs/41/proposal  -> HypothesisProposal (validated pydantic schema)
-// -> {"config_id": 91, "step_id": 501}
+// -> {"config_id": 91, "step_ids": [501]}
 
 // POST /runs/41/decision   -> AgentDecision (validated pydantic schema)
 // -> {"accepted": true, "assignment_id": null, "overlay_id": null}
