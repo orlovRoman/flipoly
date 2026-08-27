@@ -171,11 +171,6 @@ class AILabApiClient:
     ) -> ExperimentResult | None:
         deadline = time.monotonic() + max(timeout_seconds, 1)
         while time.monotonic() < deadline:
-            await self._request(
-                "POST",
-                "/api/ai-lab/agent/heartbeat",
-                json_body={"run_id": run_id, "lease_token": self._lease_token},
-            )
             try:
                 data = await self._request(
                     "GET",

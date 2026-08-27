@@ -190,6 +190,7 @@ def _model_selection(
 class OpenCodeClient:
     def __init__(self) -> None:
         self.api_key = os.getenv("AI_LAB_LLM_API_KEY", "")
+        self.provider = os.getenv("AI_LAB_LLM_PROVIDER", "opencode").strip().lower()
         self.responses_endpoint = os.getenv(
             "AI_LAB_OPENCODE_RESPONSES_ENDPOINT", DEFAULT_RESPONSES_ENDPOINT
         )
@@ -215,6 +216,46 @@ class OpenCodeClient:
         # Fallback to responses for unknown or mock
         return (self.responses_endpoint, False)
 
+    @staticmethod
+    def _mock_payload(schema_name: str, context: dict[str, Any]) -> dict[str, Any]:
+        root = context.get("context") if isinstance(context, dict) else context
+        root = root if isinstance(root, dict) else {}
+        scope = root.get("scope") if isinstance(root.get("scope"), dict) else {}
+        asset = str(scope.get("asset") or "BTC").upper().replace("USDT", "")
+        if asset not in {"BTC", "ETH", "SOL", "XRP", "DOGE"}:
+            asset = "BTC"
+        if schema_name == "hypothesis_proposal":
+            return {
+                "hypothesis": f"Deterministic mock baseline for {asset} outsider markets",
+                "asset": asset,
+                "market_role": "OUTSIDER",
+                "model_family": "LOGREG",
+                "feature_set": "FS_D0",
+                "parameter_changes": {},
+                "strategy_parameter_changes": {},
+                "expected_effect": {
+                    "metric": "median_oot_pnl",
+                    "direction": "increase",
+                    "target_gain": 0.0,
+                },
+                "reasoning": ["mock provider is deterministic and offline"],
+                "risks": ["synthetic output is not evidence of performance"],
+                "test_plan": {
+                    "oot_windows": 3,
+                    "min_markets": 50,
+                    "execution_mode": "PAPER_REALISTIC",
+                },
+            }
+        if schema_name == "agent_decision":
+            return {
+                "action": "FINALIZE_NO_WINNER",
+                "rationale": "Deterministic mock provider completed without promotion.",
+                "key_findings": ["mock output must be replaced by a real model"],
+                "recommended_config_id": None,
+                "proposed_overlay": None,
+                "next_step_focus": None,
+            }
+        raise ValueError(f"unsupported mock schema: {schema_name}")
     async def _structured_json(
         self,
         *,
@@ -225,6 +266,10 @@ class OpenCodeClient:
         schema: dict[str, Any],
         protocol: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if self.provider == "mock":
+            payload = self._mock_payload(schema_name, context)
+            return payload, _usage_telemetry({}, 0, model=model)
+
         # Use explicit protocol when provided (snapshot-provided), else guess via model.
         if protocol:
             endpoint, is_chat = self._endpoint_for_protocol(protocol)
