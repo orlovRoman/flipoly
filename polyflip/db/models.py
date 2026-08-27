@@ -182,6 +182,7 @@ class TradeHistory(Base):
         Index("idx_trades_model_registry_id", "model_registry_id"),
         Index("idx_trade_history_market_id", "market_id"),
         Index("idx_trade_model_analytics", "mode", "model_key", "model_version", "position_status", "closed_at"),
+        Index("idx_trade_history_mode_asset_created", "mode", "asset", "created_at"),
         CheckConstraint(
             "position_accounting_version = 0 OR (entry_filled_shares IS NOT NULL AND entry_cost_usdc IS NOT NULL AND remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
             name="ck_trade_position_accounting_initialized",
@@ -265,6 +266,10 @@ class TradeHistory(Base):
     cost_buffer = Column(Float, nullable=True)
     net_edge = Column(Float, nullable=True)
     decision_run_id = Column(String(64), nullable=True)
+    ai_lab_overlay_ids = Column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+    )
     direction_value = Column(String(16), nullable=True)
     would_live_accept = Column(Boolean, nullable=True)
     p_flip_raw = Column(Float, nullable=True)
@@ -991,6 +996,9 @@ class AIOptimizationRun(Base):
     llm_provider = Column(String(32), nullable=True)
     llm_research_model = Column(String(128), nullable=True)
     llm_summary_model = Column(String(128), nullable=True)
+    llm_snapshot = Column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
     agent_type = Column(String(64), nullable=True)
     permission_id = Column(
         Integer,
@@ -1129,9 +1137,15 @@ class AIRunStep(Base):
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
 
+    client_request_id = Column(String(64), nullable=True)
+
     __table_args__ = (
         UniqueConstraint("run_id", "step_index", name="uix_ai_run_step_index"),
+        UniqueConstraint(
+            "run_id", "client_request_id", name="uix_ai_run_step_client_id"
+        ),
         Index("idx_ai_run_steps_run_status", "run_id", "status"),
+        Index("idx_ai_run_steps_client_id", "run_id", "client_request_id"),
         CheckConstraint(
             "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SKIPPED')",
             name="ck_ai_run_steps_status",
@@ -1710,6 +1724,7 @@ class AIWorkerLease(Base):
         nullable=False,
         unique=True,
     )
+    worker_id = Column(String(128), nullable=False, server_default="external-ai-research-agent")
     owner_token = Column(String(128), nullable=False)
     acquired_at = Column(DateTime(timezone=True), nullable=False)
     heartbeat_at = Column(DateTime(timezone=True), nullable=False)
@@ -1717,6 +1732,7 @@ class AIWorkerLease(Base):
 
     __table_args__ = (
         Index("idx_ai_worker_leases_expires", "expires_at"),
+        Index("idx_ai_worker_leases_worker", "worker_id"),
     )
 
 
@@ -1753,4 +1769,44 @@ class AIConfigOverlay(Base):
             "status IN ('PENDING', 'APPLIED', 'EXPIRED', 'ROLLED_BACK', 'REJECTED')",
             name="ck_ai_config_overlays_status",
         ),
+    )
+
+
+class AILLMModelCatalog(Base):
+    """Cached snapshot of one provider's LLM models discovered dynamically.
+
+    The dashboard must offer every model the configured provider actually
+    returns, so this table caches discovery results per ``(provider,
+    model_id)`` and keeps serving the last known catalog when the provider
+    endpoint is temporarily unreachable (``is_available``/``expires_at``
+    drive staleness).
+    """
+
+    __tablename__ = "ai_llm_model_catalog"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    provider = Column(String(32), nullable=False)
+    model_id = Column(String(128), nullable=False)
+    display_name = Column(String(256), nullable=True)
+    protocol = Column(String(32), nullable=False, server_default="responses")
+    supports_structured_output = Column(
+        Boolean, nullable=False, server_default="true"
+    )
+    is_available = Column(Boolean, nullable=False, server_default="true")
+    is_discovered = Column(Boolean, nullable=False, server_default="true")
+    probe_status = Column(String(16), nullable=False, server_default="UNCHECKED")
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
+    discovered_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    raw_metadata = Column(
+        "metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "provider", "model_id", name="uix_ai_llm_catalog_provider_model"
+        ),
+        Index("idx_ai_llm_catalog_provider", "provider"),
     )

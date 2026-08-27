@@ -19,13 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from polyflip.config import normalize_ai_lab_mode, settings
-from polyflip.ai_lab.llm import normalize_llm_selection
+from polyflip.ai_lab.llm_catalog import resolve_llm_snapshot
 from polyflip.ai_lab.manifests import (
     build_deployment_manifest,
     compute_manifest_hash,
 )
 from polyflip.db.models import (
     AIApprovalRequest,
+    AIConfigOverlay,
     AIExperimentConfig,
     AIModelArtifact,
     AIOptimizationRun,
@@ -33,6 +34,7 @@ from polyflip.db.models import (
     AIRunStep,
     AIStepAuditLog,
     AIShadowAssignment,
+    AIShadowObservation,
     DeploymentEvent,
     DeploymentRevision,
     ExperimentResult,
@@ -62,8 +64,8 @@ class AIResearchModeError(AILabError):
 RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     "DRAFT": frozenset({"QUEUED", "PLANNING", "CANCELLED"}),
     "QUEUED": frozenset({"PLANNING", "RUNNING", "CANCELLED", "FAILED"}),
-    "PLANNING": frozenset({"RUNNING", "CANCELLED", "FAILED", "PAUSED"}),
-    "RUNNING": frozenset({"EVALUATING", "FAILED", "CANCELLED", "PAUSED"}),
+    "PLANNING": frozenset({"QUEUED", "RUNNING", "CANCELLED", "FAILED", "PAUSED"}),
+    "RUNNING": frozenset({"QUEUED", "EVALUATING", "FAILED", "CANCELLED", "PAUSED"}),
     "EVALUATING": frozenset(
         {
             "PLANNING",
@@ -107,6 +109,7 @@ LAB_ACTIONS = frozenset(
         "RUN_OOT_BACKTEST",
         "RUN_POLYMARKET_OOT",
         "PROMOTE_TO_SHADOW",
+        "APPLY_CONFIG_OVERLAY",
         "STOP_EXPERIMENT",
         "REQUEST_ACTIVATION",
         "REQUEST_ROLLBACK",
@@ -176,11 +179,22 @@ async def create_run(
 ) -> AIOptimizationRun:
     autonomy_level = autonomy_level.upper()
     try:
-        resolved_provider, resolved_research_model, resolved_summary_model = normalize_llm_selection(
-            llm_provider, llm_research_model, llm_summary_model
+        snapshot = await resolve_llm_snapshot(
+            session,
+            provider=llm_provider,
+            research_model=llm_research_model,
+            summary_model=llm_summary_model,
         )
     except ValueError as exc:
         raise AILabError(str(exc)) from exc
+    resolved_provider = str(snapshot["provider"])
+    # Support new nested snapshot {research:{model_id,protocol}, summary:{...}}
+    if isinstance(snapshot.get("research"), dict):
+        resolved_research_model = str(snapshot["research"].get("model_id") or snapshot.get("research_model"))
+        resolved_summary_model = str(snapshot["summary"].get("model_id") or snapshot.get("summary_model"))
+    else:
+        resolved_research_model = str(snapshot["research_model"])
+        resolved_summary_model = str(snapshot["summary_model"])
     resolved_mode = normalize_ai_lab_mode(mode or settings.AI_LAB_MODE)
     if permission is None and autonomy_level != "OBSERVE":
         raise AIPermissionError(
@@ -238,6 +252,7 @@ async def create_run(
         llm_provider=resolved_provider,
         llm_research_model=resolved_research_model,
         llm_summary_model=resolved_summary_model,
+        llm_snapshot=dict(snapshot),
         created_at=now,
     )
     session.add(row)
@@ -1262,12 +1277,36 @@ async def get_run_detail(
             .order_by(AIApprovalRequest.id.desc())
         )
     ).scalars().all()
+    shadow_assignments = (
+        await session.execute(
+            select(AIShadowAssignment)
+            .where(AIShadowAssignment.run_id == run_id)
+            .order_by(AIShadowAssignment.id)
+        )
+    ).scalars().all()
+    shadow_observations = (
+        await session.execute(
+            select(AIShadowObservation)
+            .where(AIShadowObservation.run_id == run_id)
+            .order_by(AIShadowObservation.snapshot_at, AIShadowObservation.id)
+        )
+    ).scalars().all()
+    overlays = (
+        await session.execute(
+            select(AIConfigOverlay)
+            .where(AIConfigOverlay.run_id == run_id)
+            .order_by(AIConfigOverlay.id.desc())
+        )
+    ).scalars().all()
     return {
         "run": run,
         "steps": list(steps),
         "results": list(results),
         "audits": list(audits),
         "approvals": list(approvals),
+        "shadow_assignments": list(shadow_assignments),
+        "shadow_observations": list(shadow_observations),
+        "overlays": list(overlays),
     }
 
 

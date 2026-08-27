@@ -40,21 +40,21 @@ def fetch_all(symbol, total=4320):
 def main():
     print("MRF T13: Feature Diagnostics")
     print("=" * 70)
-    
+
     for asset in ASSETS:
         try:
             candles = fetch_all(asset)
         except Exception as e:
             print(f"{asset}: error {e}")
             continue
-        
+
         if len(candles) < MIN_HISTORY_CANDLES + 20:
             continue
-        
+
         rets, effs, up_ratios, vol_ratios = [], [], [], []
         window = MIN_HISTORY_CANDLES + 20
         step = 4
-        
+
         for i in range(window, len(candles), step):
             chunk = candles[i - window:i + 1]
             closes = np.array([c["close"] for c in chunk], dtype=np.float64)
@@ -62,7 +62,7 @@ def main():
             lows = np.array([c["low"] for c in chunk], dtype=np.float64)
             opens = np.array([c["open"] for c in chunk], dtype=np.float64)
             as_of = datetime.fromtimestamp(chunk[-1]["open_time"] / 1000, tz=timezone.utc)
-            
+
             snap = build_regime_snapshot(
                 {asset: {"closes": closes, "highs": highs, "lows": lows,
                          "opens": opens, "count": len(closes)}},
@@ -70,13 +70,13 @@ def main():
             )
             if not snap.basket.history_ready:
                 continue
-            
+
             f = snap.assets[asset]
             rets.append(f.ret_24h)
             effs.append(f.efficiency_24h)
             up_ratios.append(f.up_ratio_24h)
             vol_ratios.append(f.vol_ratio)
-        
+
         print(f"\n{asset}: {len(rets)} evaluations")
         print(f"  ret_24h:      min={min(rets):.4f} max={max(rets):.4f} "
               f"mean={np.mean(rets):.4f} std={np.std(rets):.4f}")
@@ -86,20 +86,20 @@ def main():
               f"mean={np.mean(up_ratios):.4f} std={np.std(up_ratios):.4f}")
         print(f"  vol_ratio:    min={min(vol_ratios):.4f} max={max(vol_ratios):.4f} "
               f"mean={np.mean(vol_ratios):.4f} std={np.std(vol_ratios):.4f}")
-        
+
         # How often would trends trigger with default thresholds?
-        trend_up = sum(1 for r, e, u in zip(rets, effs, up_ratios) 
+        trend_up = sum(1 for r, e, u in zip(rets, effs, up_ratios)
                        if r > 0.02 and e > 0.4 and u > 0.65)
-        trend_down = sum(1 for r, e, u in zip(rets, effs, up_ratios) 
+        trend_down = sum(1 for r, e, u in zip(rets, effs, up_ratios)
                          if r < -0.02 and e > 0.4 and u < 0.35)
         print(f"  TREND_UP (default):   {trend_up} ({trend_up/len(rets)*100:.1f}%)")
         print(f"  TREND_DOWN (default): {trend_down} ({trend_down/len(rets)*100:.1f}%)")
-        
+
         # Check which condition fails most
         fail_ret = sum(1 for r in rets if abs(r) <= 0.02)
         fail_eff = sum(1 for r, e in zip(rets, effs) if abs(r) > 0.02 and e <= 0.4)
-        fail_breadth = sum(1 for r, e, u in zip(rets, effs, up_ratios) 
-                          if abs(r) > 0.02 and e > 0.4 
+        fail_breadth = sum(1 for r, e, u in zip(rets, effs, up_ratios)
+                          if abs(r) > 0.02 and e > 0.4
                           and not (u > 0.65 or u < 0.35))
         print(f"  Fail reason (when |ret|>0.02 & eff>0.4):")
         print(f"    ret <= 0.02: {fail_ret} ({fail_ret/len(rets)*100:.1f}%)")

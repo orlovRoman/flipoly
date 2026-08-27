@@ -144,7 +144,8 @@ async def update_settings_bulk(
     
     return {"status": "partial" if errors else "ok", "saved": saved, "errors": errors}
 
-@router.api_route("/security/{key}", methods=["PUT", "POST"])
+@router.put("/security/{key}", operation_id="update_security_setting_put")
+@router.post("/security/{key}", operation_id="update_security_setting_post")
 async def update_security_setting(key: str, payload: SettingValue, request: Optional[Request] = Depends(get_request), db: AsyncSession = Depends(get_db_session)):
     """
     Отдельный эндпоинт для обновления флагов безопасности, которые недоступны через основной API.
@@ -186,7 +187,8 @@ async def update_security_setting(key: str, payload: SettingValue, request: Opti
     return {"message": "Security setting updated", "key": key, "value": payload.value}
 
 
-@router.api_route("/{key}", methods=["PUT", "POST"])
+@router.put("/{key}", operation_id="update_setting_put")
+@router.post("/{key}", operation_id="update_setting_post")
 async def update_setting(key: str, payload: SettingValue, request: Optional[Request] = Depends(get_request), db: AsyncSession = Depends(get_db_session)):
     """
     Обновляет или создает настройку в БД.

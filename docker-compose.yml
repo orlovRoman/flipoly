@@ -41,6 +41,16 @@ services:
       - AI_LAB_ALLOWED_MODELS=${AI_LAB_ALLOWED_MODELS:-}
       - AI_LAB_THREAD_PROVIDER=${AI_LAB_THREAD_PROVIDER:-none}
       - LIVE_TRADING_ENABLED=${LIVE_TRADING_ENABLED:-false}
+      - AI_LAB_AGENT_TOKEN=${AI_LAB_AGENT_TOKEN:-}
+      - AI_LAB_AGENT_LEASE_TTL_SECONDS=${AI_LAB_AGENT_LEASE_TTL_SECONDS:-120}
+      - AI_LAB_API_BASE_URL=${AI_LAB_API_BASE_URL:-http://api:8001}
+      - AI_LAB_OPENCODE_MODELS_ENDPOINT=${AI_LAB_OPENCODE_MODELS_ENDPOINT:-}
+      - AI_LAB_OPENCODE_CATALOG_TTL_SECONDS=${AI_LAB_OPENCODE_CATALOG_TTL_SECONDS:-3600}
+      - AI_LAB_OPENCODE_MODELS_FALLBACK=${AI_LAB_OPENCODE_MODELS_FALLBACK:-}
+      - AI_LAB_OPENCODE_RESPONSES_ENDPOINT=${AI_LAB_OPENCODE_RESPONSES_ENDPOINT:-https://opencode.ai/zen/v1/responses}
+      - AI_LAB_OPENCODE_CHAT_ENDPOINT=${AI_LAB_OPENCODE_CHAT_ENDPOINT:-https://opencode.ai/zen/v1/chat/completions}
+      - AI_LAB_OPENCODE_PROBE_TTL_SECONDS=${AI_LAB_OPENCODE_PROBE_TTL_SECONDS:-86400}
+      - AI_LAB_LLM_API_KEY=${AI_LAB_LLM_API_KEY:-}
     volumes:
       - ./polyflip:/app/polyflip
       - ./scripts:/app/scripts
@@ -91,6 +101,10 @@ services:
   ai_lab_agent:
     build: .
     container_name: polyflip_ai_lab_agent
+    # The legacy in-process runner stays available for rollback, but is
+    # opt-in after the independent agent e2e cutover. This prevents two
+    # workers from claiming the same research run by default.
+    profiles: ["legacy-ai-lab"]
     restart: always
     depends_on:
       - db
@@ -124,6 +138,27 @@ services:
         limits:
           memory: 384M
           cpus: "0.50"
+
+  ai_research_agent:
+    build:
+      context: .
+      dockerfile: services/ai_research_agent/Dockerfile
+    container_name: polyflip_ai_research_agent
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - AI_LAB_API_BASE_URL=${AI_LAB_API_BASE_URL:-http://api:8001}
+      - AI_LAB_AGENT_TOKEN=${AI_LAB_AGENT_TOKEN:-${API_KEY:-test-key}}
+      - AI_LAB_AGENT_WORKER_ID=${AI_LAB_AGENT_WORKER_ID:-}
+      - AI_LAB_LLM_PROVIDER=${AI_LAB_LLM_PROVIDER:-opencode}
+      - AI_LAB_LLM_API_KEY=${AI_LAB_LLM_API_KEY:-}
+      - AI_LAB_OPENCODE_RESPONSES_ENDPOINT=${AI_LAB_OPENCODE_RESPONSES_ENDPOINT:-https://opencode.ai/zen/v1/responses}
+      - AI_LAB_OPENCODE_CHAT_ENDPOINT=${AI_LAB_OPENCODE_CHAT_ENDPOINT:-https://opencode.ai/zen/v1/chat/completions}
+      - AI_LAB_OPENCODE_CHAT_MODELS=${AI_LAB_OPENCODE_CHAT_MODELS:-big-pickle,nemotron-3-ultra-free}
+      - AI_LAB_POLL_SECONDS=${AI_LAB_POLL_SECONDS:-10}
+      - AI_LAB_AGENT_LEASE_TTL_SECONDS=${AI_LAB_AGENT_LEASE_TTL_SECONDS:-120}
 
   scheduler:
     build: .
