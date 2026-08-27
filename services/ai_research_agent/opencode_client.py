@@ -17,6 +17,32 @@ import httpx
 DEFAULT_RESPONSES_ENDPOINT = "https://opencode.ai/zen/v1/responses"
 DEFAULT_CHAT_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
 DEFAULT_CHAT_MODELS = {"big-pickle", "nemotron-3-ultra-free"}
+DEFAULT_OPENROUTER_CHAT_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_OPENROUTER_MODELS = {
+    "x-ai/grok-4.6",
+    "openai/gpt-5.6-luna",
+    "z-ai/glm-5.3-flash",
+    "z-ai/glm-5.3",
+    "z-ai/glm-5.2",
+    "z-ai/glm-5.1",
+    "moonshotai/kimi-k3",
+    "moonshotai/kimi-k2.7-code",
+    "moonshotai/kimi-k2.6",
+    "meituan/longcat-2.0",
+    "xiaomi/mimo-v2.5",
+    "xiaomi/mimo-v2.5-pro",
+    "minimax/minimax-m3",
+    "minimax/minimax-m2.7",
+    "meta/muse-spark-1.2-contributor",
+    "qwen/qwen3.8-max",
+    "qwen/qwen3.7-max",
+    "qwen/qwen3.7-plus",
+    "qwen/qwen3.6-plus",
+    "deepseek/deepseek-v4-pro",
+    "deepseek/deepseek-v4-flash",
+    "deepseek/deepseek-v4-flash-vision-exp",
+    "tencent/hy3",
+}
 ALLOWED_MARKET_ROLES = ("FAVORITE", "OUTSIDER", "COMBINED", "DIRECTION_ONLY", "ALL")
 _MARKET_ROLE_ALIASES = {"TAKER": "OUTSIDER"}
 
@@ -195,18 +221,43 @@ def _model_selection(
 
 class OpenCodeClient:
     def __init__(self) -> None:
-        self.api_key = os.getenv("AI_LAB_LLM_API_KEY", "")
         self.provider = os.getenv("AI_LAB_LLM_PROVIDER", "opencode").strip().lower()
-        self.responses_endpoint = os.getenv(
-            "AI_LAB_OPENCODE_RESPONSES_ENDPOINT", DEFAULT_RESPONSES_ENDPOINT
-        )
-        self.chat_endpoint = os.getenv(
-            "AI_LAB_OPENCODE_CHAT_ENDPOINT", DEFAULT_CHAT_ENDPOINT
-        )
-        chat_models_csv = os.getenv("AI_LAB_OPENCODE_CHAT_MODELS", "")
+        self.api_key = os.getenv("AI_LAB_LLM_API_KEY", "")
+        if self.provider == "openrouter" and not self.api_key:
+            self.api_key = os.getenv("OPENROUTER_API_KEY", "")
+        if self.provider == "openrouter":
+            self.responses_endpoint = os.getenv(
+                "AI_LAB_OPENROUTER_ENDPOINT", DEFAULT_OPENROUTER_CHAT_ENDPOINT
+            )
+            self.chat_endpoint = self.responses_endpoint
+            default_chat_models = DEFAULT_OPENROUTER_MODELS
+            chat_models_csv = os.getenv("AI_LAB_OPENROUTER_MODELS", "")
+        else:
+            self.responses_endpoint = os.getenv(
+                "AI_LAB_OPENCODE_RESPONSES_ENDPOINT", DEFAULT_RESPONSES_ENDPOINT
+            )
+            self.chat_endpoint = os.getenv(
+                "AI_LAB_OPENCODE_CHAT_ENDPOINT", DEFAULT_CHAT_ENDPOINT
+            )
+            default_chat_models = DEFAULT_CHAT_MODELS
+            chat_models_csv = os.getenv("AI_LAB_OPENCODE_CHAT_MODELS", "")
         self.chat_models = {
             item.strip() for item in chat_models_csv.split(",") if item.strip()
-        } or set(DEFAULT_CHAT_MODELS)
+        } or set(default_chat_models)
+
+    def _request_headers(self) -> dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        if self.provider == "openrouter":
+            referer = os.getenv("AI_LAB_OPENROUTER_HTTP_REFERER", "").strip()
+            title = os.getenv("AI_LAB_OPENROUTER_X_TITLE", "").strip()
+            if referer:
+                headers["HTTP-Referer"] = referer
+            if title:
+                headers["X-Title"] = title
+        return headers
 
     def _endpoint_for(self, model: str) -> tuple[str, bool]:
         is_chat = model in self.chat_models
@@ -215,6 +266,9 @@ class OpenCodeClient:
         )
 
     def _endpoint_for_protocol(self, protocol: str | None) -> tuple[str, bool]:
+        if self.provider == "openrouter":
+            # OpenRouter exposes this catalogue through Chat Completions.
+            return (self.chat_endpoint, True)
         if protocol == "chat_completions":
             return (self.chat_endpoint, True)
         if protocol == "responses":
@@ -319,10 +373,7 @@ class OpenCodeClient:
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 endpoint,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=self._request_headers(),
                 json=body,
             )
             response.raise_for_status()
@@ -334,9 +385,24 @@ class OpenCodeClient:
             text = ""
             if choices and isinstance(choices[0], dict):
                 message = choices[0].get("message") or {}
-                content = message.get("content")
-                if isinstance(content, str):
-                    text = content
+                if isinstance(message, dict):
+                    parsed = message.get("parsed")
+                    if isinstance(parsed, dict):
+                        text = json.dumps(parsed)
+                    else:
+                        content = message.get("content")
+                        if isinstance(content, str):
+                            text = content
+                        elif isinstance(content, list):
+                            text = "".join(
+                                str(part.get("text") or part.get("content") or "")
+                                for part in content
+                                if isinstance(part, dict)
+                            )
+                        if not text and message.get("refusal"):
+                            text = str(message["refusal"])
+            if not text and isinstance(data.get("output_text"), str):
+                text = data["output_text"]
         else:
             text = data.get("output_text") or ""
             if not text:
@@ -354,7 +420,7 @@ class OpenCodeClient:
                     if text:
                         break
         if not text:
-            raise ValueError(f"{schema_name}: empty structured output from {model}")
+            raise ValueError(f"{schema_name}: empty structured output from {model} ({self.provider})")
         return _coerce_kv_lists(json.loads(text)), telemetry
 
     async def propose_hypothesis(self, context: dict[str, Any]) -> dict[str, Any]:
