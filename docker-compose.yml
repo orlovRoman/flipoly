@@ -145,13 +145,12 @@ services:
       dockerfile: services/ai_research_agent/Dockerfile
     container_name: polyflip_ai_research_agent
     restart: unless-stopped
-    profiles: ["ai-research"]
     depends_on:
       api:
         condition: service_healthy
     environment:
       - AI_LAB_API_BASE_URL=${AI_LAB_API_BASE_URL:-http://api:8001}
-      - AI_LAB_AGENT_TOKEN=${AI_LAB_AGENT_TOKEN}
+      - AI_LAB_AGENT_TOKEN=${AI_LAB_AGENT_TOKEN:-${API_KEY:-test-key}}
       - AI_LAB_AGENT_WORKER_ID=${AI_LAB_AGENT_WORKER_ID:-}
       - AI_LAB_LLM_PROVIDER=${AI_LAB_LLM_PROVIDER:-opencode}
       - AI_LAB_LLM_API_KEY=${AI_LAB_LLM_API_KEY:-}
