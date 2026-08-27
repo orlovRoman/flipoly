@@ -17,7 +17,11 @@ from polyflip.ai_lab.llm import (
     DEFAULT_OPENROUTER_MODELS,
     get_llm_model_catalog,
 )
-from polyflip.ai_lab.llm_catalog import normalize_models
+from polyflip.ai_lab.llm_catalog import (
+    check_model_availability,
+    fetch_opencode_models,
+    normalize_models,
+)
 
 
 def test_openrouter_static_catalog_contains_go_models(monkeypatch):
@@ -89,6 +93,52 @@ class _FakeAsyncClient:
         self.request = (endpoint, headers, json)
         return _FakeResponse(self.response)
 
+    async def get(self, endpoint, *, headers):
+        self.request = (endpoint, headers, None)
+        return _FakeResponse(self.response)
+
+
+@pytest.mark.asyncio
+async def test_catalog_discovery_skips_non_ascii_api_key(monkeypatch):
+    import polyflip.ai_lab.llm_catalog as llm_catalog
+
+    fake = _FakeAsyncClient({"data": [{"id": "x-ai/grok-4.6"}]})
+    monkeypatch.setattr(llm_catalog.httpx, "AsyncClient", lambda **_: fake)
+
+    payload = await fetch_opencode_models(
+        "https://openrouter.ai/api/v1/models",
+        "ключ-с-ошибкой",
+    )
+
+    assert payload["data"][0]["id"] == "x-ai/grok-4.6"
+    assert "Authorization" not in fake.request[1]
+
+
+@pytest.mark.asyncio
+async def test_model_probe_reports_non_ascii_api_key_without_http_call():
+    class _Config:
+        OPENROUTER_API_KEY = "ключ-с-ошибкой"
+        AI_LAB_LLM_API_KEY = ""
+        AI_LAB_OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+
+    called = False
+
+    async def sender(**kwargs):
+        nonlocal called
+        called = True
+        return {}
+
+    report = await check_model_availability(
+        "openrouter",
+        "x-ai/grok-4.6",
+        settings_obj=_Config(),
+        sender=sender,
+    )
+
+    assert report["available"] is False
+    assert "non-ASCII" in report["error"]
+    assert called is False
+
 
 @pytest.mark.asyncio
 async def test_external_client_reads_parsed_chat_message(monkeypatch):
@@ -127,7 +177,6 @@ async def test_external_client_reads_parsed_chat_message(monkeypatch):
     assert telemetry["total_tokens"] == 5
     assert fake.request[0].endswith("/chat/completions")
     assert fake.request[2]["model"] == "x-ai/grok-4.6"
-
 
 
 
