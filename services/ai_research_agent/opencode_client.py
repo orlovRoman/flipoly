@@ -17,6 +17,8 @@ import httpx
 DEFAULT_RESPONSES_ENDPOINT = "https://opencode.ai/zen/v1/responses"
 DEFAULT_CHAT_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
 DEFAULT_CHAT_MODELS = {"big-pickle", "nemotron-3-ultra-free"}
+ALLOWED_MARKET_ROLES = ("FAVORITE", "OUTSIDER", "COMBINED", "DIRECTION_ONLY", "ALL")
+_MARKET_ROLE_ALIASES = {"TAKER": "OUTSIDER"}
 
 
 def _kv_schema() -> dict[str, Any]:
@@ -40,7 +42,7 @@ def _hypothesis_schema() -> dict[str, Any]:
         "properties": {
             "hypothesis": {"type": "string"},
             "asset": {"type": "string"},
-            "market_role": {"type": "string"},
+            "market_role": {"type": "string", "enum": list(ALLOWED_MARKET_ROLES)},
             "model_family": {"type": "string"},
             "feature_set": {"type": "string"},
             "parameter_changes": _kv_schema(),
@@ -121,6 +123,10 @@ def _coerce_kv_lists(payload: dict[str, Any]) -> dict[str, Any]:
                 for item in value
                 if isinstance(item, dict) and isinstance(item.get("key"), str)
             }
+    role = result.get("market_role")
+    if isinstance(role, str):
+        normalized = role.strip().upper()
+        result["market_role"] = _MARKET_ROLE_ALIASES.get(normalized, normalized)
     return result
 
 
