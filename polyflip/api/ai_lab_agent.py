@@ -659,6 +659,8 @@ async def get_agent_context(
         "min_positive_oot_windows": int(qg.get("min_positive_oot_windows", 2)),
     }
 
+    completed = int(run.experiments_completed or 0)
+
     return {
         "run": {
             "id": run.id,
@@ -666,9 +668,9 @@ async def get_agent_context(
             "objective": run.objective,
             "scope": run.scope or {},
             "autonomy_level": run.autonomy_level,
-            "iteration": run.experiments_completed,
+            "iteration": completed,
             "budget_remaining_steps": max(
-                run.budget_experiments - run.experiments_completed, 0
+                run.budget_experiments - completed, 0
             ),
         },
         "active_models": active_models,
@@ -1229,7 +1231,7 @@ async def complete_agent_run(
                 "decision_step_id": decision.id if decision is not None else None,
                 "decision_action": (decision.action if decision is not None else None),
             },
-            output_payload={"next_iteration": run.experiments_completed},
+            output_payload={"next_iteration": int(run.experiments_completed or 0)},
             summary=payload.reason or "agent requeued",
         )
         await transition_run(db, run, "QUEUED", reason=payload.reason or "requeue")
