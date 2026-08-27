@@ -182,6 +182,7 @@ class TradeHistory(Base):
         Index("idx_trades_model_registry_id", "model_registry_id"),
         Index("idx_trade_history_market_id", "market_id"),
         Index("idx_trade_model_analytics", "mode", "model_key", "model_version", "position_status", "closed_at"),
+        Index("idx_trade_history_mode_asset_created", "mode", "asset", "created_at"),
         CheckConstraint(
             "position_accounting_version = 0 OR (entry_filled_shares IS NOT NULL AND entry_cost_usdc IS NOT NULL AND remaining_shares IS NOT NULL AND realized_pnl_usdc IS NOT NULL)",
             name="ck_trade_position_accounting_initialized",
