@@ -33,13 +33,15 @@ async def _requeue_after_worker_error(
     run to the queue while the lease is still held; if the recovery request also
     fails, clear the local token so the next poll cannot reuse a stale lease.
     """
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    action = "REQUEUE" if status_code is None or status_code >= 500 or status_code in {408, 409, 425, 429} else "FAILED"
     reason = f"worker error ({type(exc).__name__}): {str(exc)[:320]}"
     logger.error(
-        "unexpected worker error; requeueing run",
+        f"unexpected worker error; {action.lower()} run",
         extra={"run_id": run.id, "error": str(exc), "exception": type(exc).__name__},
     )
     try:
-        await client.complete(run.id, "REQUEUE", reason=reason)
+        await client.complete(run.id, action, reason=reason)
     except LeaseLostError:
         logger.warning(
             "lease lost while recovering worker error", extra={"run_id": run.id}
