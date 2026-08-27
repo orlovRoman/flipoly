@@ -321,6 +321,13 @@ async def _agent_phase(db, run_id: int) -> dict[str, Any]:
         "latest_config_id": iteration["config_id"],
         "latest_result_id": terminal_result.id if terminal_result else None,
         "latest_decision": _decision_payload(decision or iteration["latest_decision"]),
+        "latest_proposal": (
+            iteration["proposal"].input_payload.get("proposal")
+            if iteration["proposal"] is not None
+            and isinstance(iteration["proposal"].input_payload, dict)
+            and isinstance(iteration["proposal"].input_payload.get("proposal"), dict)
+            else None
+        ),
     }
 
 
@@ -913,6 +920,14 @@ async def _apply_decision_effects(
     effects: dict[str, Any] = {}
     if action == "RECOMMEND_SHADOW":
         await authorize_run_action(db, run.id, "PROMOTE_TO_SHADOW")
+        autonomy_level = str(run.autonomy_level or "").upper()
+        if autonomy_level in {"OBSERVE", "EXPERIMENT"}:
+            effects["shadow_status"] = "PENDING_MANUAL_ASSIGNMENT"
+            effects["autonomy_blocked"] = True
+            effects["reason"] = (
+                "autonomy level does not permit automatic shadow assignment"
+            )
+            return effects
         validate_agent_action_autonomy("ASSIGN_SHADOW", run.autonomy_level)
         # Finalization promotes the winner from EVALUATING to SHADOW.  An
         # external decision can arrive while the run is still RUNNING, so
@@ -1034,20 +1049,26 @@ async def submit_agent_decision(
         }
     # Verify result belongs to run (already filtered) and recommended_config_id belongs.
     decision = payload.decision
+    decision_warnings: list[str] = []
     rec_id = decision.recommended_config_id
     if rec_id is not None:
         cfg = await db.get(AIExperimentConfig, int(rec_id))
         if cfg is None:
-            raise HTTPException(status_code=422, detail="unknown recommended_config_id")
+            decision_warnings.append("unknown recommended_config_id ignored")
+            rec_id = None
         # Verify the config was proposed for this run (via steps or results).
         has_result = (
-            await db.execute(
-                select(ExperimentResult).where(
-                    ExperimentResult.run_id == run_id,
-                    ExperimentResult.config_id == int(rec_id),
-                ).limit(1)
-            )
-        ).scalars().first()
+            (
+                await db.execute(
+                    select(ExperimentResult).where(
+                        ExperimentResult.run_id == run_id,
+                        ExperimentResult.config_id == int(rec_id),
+                    ).limit(1)
+                )
+            ).scalars().first()
+            if cfg is not None
+            else True
+        )
         belongs_via_step = False
         if has_result is None:
             all_steps = (
@@ -1115,6 +1136,8 @@ async def submit_agent_decision(
     except AILabError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if decision_warnings:
+        effects = {**effects, "warnings": decision_warnings}
     step.output_payload = {
         **(step.output_payload if isinstance(step.output_payload, dict) else {}),
         "effects": effects,
