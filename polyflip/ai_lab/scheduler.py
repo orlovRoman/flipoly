@@ -159,6 +159,7 @@ async def run_lgbm_scheduler(
     interval_seconds: float = 0.0,
     lease_ttl_seconds: float = 120.0,
     owner_token: str | None = None,
+    manage_run_lease: bool = True,
 ) -> SchedulerResult:
     """Run a finite, leased sequence of offline worker batches.
 
@@ -178,11 +179,15 @@ async def run_lgbm_scheduler(
         raise ValueError(f"run {run_id} cannot execute from {run.status}")
 
     token = owner_token or uuid.uuid4().hex
-    acquired = await acquire_worker_lease(
-        session,
-        run_id,
-        token,
-        ttl_seconds=lease_ttl_seconds,
+    acquired = (
+        await acquire_worker_lease(
+            session,
+            run_id,
+            token,
+            ttl_seconds=lease_ttl_seconds,
+        )
+        if manage_run_lease
+        else True
     )
     if not acquired:
         return SchedulerResult(
@@ -215,7 +220,7 @@ async def run_lgbm_scheduler(
                 status = "STOPPED_ON_OUTCOME"
                 stop_reason = "non_success_outcome"
                 break
-            if not await renew_worker_lease(
+            if manage_run_lease and not await renew_worker_lease(
                 session,
                 run_id,
                 token,
@@ -240,7 +245,8 @@ async def run_lgbm_scheduler(
         try:
             await session.rollback()
         finally:
-            await release_worker_lease(session, run_id, token)
+            if manage_run_lease:
+                await release_worker_lease(session, run_id, token)
 
     return SchedulerResult(
         status=status,
