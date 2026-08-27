@@ -195,6 +195,12 @@ async def test_proposal_creates_config_and_canonical_steps(db_session):
     config = await db_session.get(AIExperimentConfig, result["config_id"])
     assert config.model_family == "LogisticRegression"
     assert config.created_by == "external-agent"
+    phase = await get_agent_phase(
+        run_id,
+        lease_token=claimed["lease_token"],
+        db=db_session,
+    )
+    assert phase["latest_proposal"]["hypothesis"] == VALID_PROPOSAL["hypothesis"]
     steps = await db_session.execute(
         sa.select(AIOptimizationRun)  # placeholder to keep sa import used
     )

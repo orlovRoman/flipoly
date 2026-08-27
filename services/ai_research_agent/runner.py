@@ -328,14 +328,13 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
                     if isinstance(result_data, dict) and result_data.get("result"):
                         # result_data is {"state":..., "result": {...}}
                         result_payload = result_data["result"]
-                    # Need proposal for decide context – fetch prior_experiments last proposal?
-                    # For now, use empty proposal; LLM will handle.
-                    # Try to get last proposal from context or phase_data
                     proposal = {}
-                    if isinstance(phase_data, dict) and phase_data.get(
-                        "latest_config_id"
-                    ):
-                        proposal = {"config_id": phase_data["latest_config_id"]}
+                    if isinstance(phase_data, dict):
+                        latest_proposal = phase_data.get("latest_proposal")
+                        if isinstance(latest_proposal, dict):
+                            proposal = dict(latest_proposal)
+                        if not proposal and phase_data.get("latest_config_id"):
+                            proposal = {"config_id": phase_data["latest_config_id"]}
                     decision_bundle = await llm.decide(
                         context=llm_context,
                         proposal=proposal,
