@@ -12,7 +12,7 @@ import asyncio
 import logging
 import signal
 
-from api_client import AILabApiClient, AgentAPIError, LeaseLostError
+from api_client import AgentAPIError, AILabApiClient, LeaseLostError
 from opencode_client import OpenCodeClient
 from schemas import ClaimedRun
 
@@ -20,6 +20,37 @@ logger = logging.getLogger("ai_research_agent")
 
 POLL_SECONDS = float(__import__("os").getenv("AI_LAB_POLL_SECONDS", "10"))
 IDLE_SLEEP_SECONDS = max(POLL_SECONDS, 2.0)
+
+
+async def _requeue_after_worker_error(
+    client: AILabApiClient, run: ClaimedRun, exc: Exception
+) -> None:
+    """Best-effort recovery for errors outside the API error contract.
+
+    LLM transports can raise httpx and JSON/parsing exceptions directly.
+    If those escape the phase loop, the heartbeat is stopped in finally and
+    the run would otherwise remain RUNNING until its lease expires. Return the
+    run to the queue while the lease is still held; if the recovery request also
+    fails, clear the local token so the next poll cannot reuse a stale lease.
+    """
+    reason = f"worker error ({type(exc).__name__}): {str(exc)[:320]}"
+    logger.error(
+        "unexpected worker error; requeueing run",
+        extra={"run_id": run.id, "error": str(exc), "exception": type(exc).__name__},
+    )
+    try:
+        await client.complete(run.id, "REQUEUE", reason=reason)
+    except LeaseLostError:
+        logger.warning(
+            "lease lost while recovering worker error", extra={"run_id": run.id}
+        )
+    except Exception as recovery_exc:  # noqa: BLE001 - recovery is best effort
+        logger.error(
+            "failed to requeue run after worker error",
+            extra={"run_id": run.id, "error": str(recovery_exc)},
+        )
+    finally:
+        client.drop_lease()
 
 
 def _context_for_llm(run: ClaimedRun, context) -> dict:
@@ -162,6 +193,9 @@ async def _single_iteration_fallback(
         except Exception:
             pass
         return True
+    except Exception as exc:  # noqa: BLE001 - an LLM/runtime error must not strand a run
+        await _requeue_after_worker_error(client, run, exc)
+        return False
 
 
 async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
@@ -415,6 +449,9 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
         except Exception:
             pass
         return True
+    except Exception as exc:  # noqa: BLE001 - requeue unexpected LLM/runtime failures
+        await _requeue_after_worker_error(client, run, exc)
+        return False
     finally:
         stop_event.set()
         hb_task.cancel()

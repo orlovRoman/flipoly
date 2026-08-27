@@ -138,6 +138,23 @@ class FakeLLM:
         }
 
 
+class FailingLLM(FakeLLM):
+    async def propose_hypothesis(self, context: dict):
+        import httpx
+
+        raise httpx.TimeoutException("OpenCode request timed out")
+
+
+def test_runner_requeues_unexpected_llm_error_and_drops_lease():
+    client = FakeClient()
+
+    progressed = _run(agent_runner.process_one_run(client, FailingLLM()))
+
+    assert progressed is False
+    assert client.calls[-1] == "complete:REQUEUE"
+    assert client._lease_token is None
+
+
 def _run(coro):
     return asyncio.run(coro)
 
