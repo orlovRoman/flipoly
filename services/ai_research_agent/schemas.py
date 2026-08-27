@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ClaimedRun(BaseModel):
@@ -29,6 +29,12 @@ class ClaimedRun(BaseModel):
     llm_snapshot: dict[str, Any] | None = None
     llm_research: dict[str, Any] | None = None
     llm_summary: dict[str, Any] | None = None
+
+    @field_validator("experiments_completed", mode="before")
+    @classmethod
+    def normalize_experiments_completed(cls, value: Any) -> int:
+        """Accept null counters from legacy runs as the initial iteration."""
+        return 0 if value is None else value
 
 
 class AgentContext(BaseModel):
