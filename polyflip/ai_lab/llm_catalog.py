@@ -38,6 +38,18 @@ SUPPORTED_PROTOCOLS = {"responses", "chat_completions"}
 DEFAULT_TTL_SECONDS = 3600
 
 
+def _ascii_header_value(value: str) -> str | None:
+    """Return a header-safe token or ``None`` for non-ASCII credentials."""
+    token = str(value or "").strip()
+    if not token:
+        return None
+    try:
+        token.encode("ascii")
+    except UnicodeEncodeError:
+        return None
+    return token
+
+
 _MODEL_FIELDS = {
     "id",
     "name",
@@ -148,8 +160,14 @@ async def fetch_opencode_models(
     if not endpoint_url.strip():
         raise RuntimeError("AI_LAB_OPENCODE_MODELS_ENDPOINT is not configured")
     headers = {"Content-Type": "application/json"}
-    if api_key.strip():
-        headers["Authorization"] = f"Bearer {api_key.strip()}"
+    token = _ascii_header_value(api_key)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    elif str(api_key or "").strip():
+        logger.warning(
+            "llm_model_discovery_auth_header_skipped",
+            reason="non_ascii_api_key",
+        )
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         response = await client.get(endpoint_url.strip(), headers=headers)
         response.raise_for_status()
@@ -609,10 +627,16 @@ async def check_model_availability(
         or getattr(cfg, "OPENAI_API_KEY", "")
         or ""
     )
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
+    token = _ascii_header_value(api_key)
+    if api_key.strip() and token is None:
+        report["error"] = (
+            "API key contains non-ASCII characters; replace it with the raw "
+            "OpenRouter token"
+        )
+        return report
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     send = sender or _default_probe_sender
     last_error = "no candidate endpoint responded"
     for candidate in _probe_candidates(provider, cfg):
