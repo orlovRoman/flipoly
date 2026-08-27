@@ -25,12 +25,44 @@ ALLOWED_ASSETS = {
 
 
 # ---------------------------------------------------------------------------
-LLM_PROVIDERS = ("mock", "openai", "opencode")
+LLM_PROVIDERS = ("mock", "openai", "opencode", "openrouter")
 DEFAULT_OPENCODE_ENDPOINT = "https://opencode.ai/zen/v1/responses"
 DEFAULT_OPENCODE_CHAT_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
 DEFAULT_OPENCODE_RESPONSES_MODELS = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "muse-spark-1.2-contributor-free")
 DEFAULT_OPENCODE_CHAT_MODELS = ("big-pickle", "nemotron-3-ultra-free")
 DEFAULT_OPENCODE_MODELS = DEFAULT_OPENCODE_RESPONSES_MODELS + DEFAULT_OPENCODE_CHAT_MODELS
+DEFAULT_OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_OPENROUTER_MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models"
+# OpenRouter's GO catalogue (canonical model slugs, not display names).
+# Models without response_format support remain visible but are rejected when
+# selected for a structured AI Lab run.
+OPENROUTER_GO_MODEL_CATALOG = (
+    ("x-ai/grok-4.6", "Grok 4.6", True),
+    ("openai/gpt-5.6-luna", "GPT 5.6 Luna", True),
+    ("z-ai/glm-5.3-flash", "GLM-5.3-Flash", True),
+    ("z-ai/glm-5.3", "GLM-5.3", True),
+    ("z-ai/glm-5.2", "GLM-5.2", True),
+    ("z-ai/glm-5.1", "GLM-5.1", True),
+    ("moonshotai/kimi-k3", "Kimi K3", True),
+    ("moonshotai/kimi-k2.7-code", "Kimi K2.7 Code", True),
+    ("moonshotai/kimi-k2.6", "Kimi K2.6", True),
+    ("meituan/longcat-2.0", "LongCat-2.0", False),
+    ("xiaomi/mimo-v2.5", "MiMo-V2.5", True),
+    ("xiaomi/mimo-v2.5-pro", "MiMo-V2.5-Pro", True),
+    ("minimax/minimax-m3", "MiniMax M3", True),
+    ("minimax/minimax-m2.7", "MiniMax M2.7", True),
+    ("meta/muse-spark-1.2-contributor", "Muse Spark 1.2 Contributor", True),
+    ("qwen/qwen3.8-max", "Qwen3.8 Max", True),
+    ("qwen/qwen3.7-max", "Qwen3.7 Max", True),
+    ("qwen/qwen3.7-plus", "Qwen3.7 Plus", True),
+    ("qwen/qwen3.6-plus", "Qwen3.6 Plus", True),
+    ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro", True),
+    ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash", True),
+    ("deepseek/deepseek-v4-flash-vision-exp", "DeepSeek V4 Flash Vision Exp", True),
+    ("tencent/hy3", "Hy3", True),
+)
+DEFAULT_OPENROUTER_MODELS = tuple(item[0] for item in OPENROUTER_GO_MODEL_CATALOG)
+OPENROUTER_MODEL_LABELS = {item[0]: item[1] for item in OPENROUTER_GO_MODEL_CATALOG}
 OPENCODE_MODEL_LABELS = {
     "big-pickle": "Big Pickle",
     "muse-spark-1.2-contributor-free": "Muse Spark 1.2 Free",
@@ -58,11 +90,12 @@ def llm_provider_configured(provider_name: str, settings_obj: Any | None = None)
     provider = str(provider_name or "").strip().lower()
     if provider == "mock":
         return True
-    return bool(str(_settings_value(
-        settings_obj,
-        "AI_LAB_LLM_API_KEY",
-        _settings_value(settings_obj, "OPENAI_API_KEY", ""),
-    ) or "").strip())
+    key_name = "OPENROUTER_API_KEY" if provider == "openrouter" else "AI_LAB_LLM_API_KEY"
+    fallback_key = (
+        _settings_value(settings_obj, "AI_LAB_LLM_API_KEY", "")
+        or _settings_value(settings_obj, "OPENAI_API_KEY", "")
+    )
+    return bool(str(_settings_value(settings_obj, key_name, fallback_key) or "").strip())
 
 
 def get_llm_model_catalog(provider_name: str | None = None) -> dict[str, Any]:
@@ -86,6 +119,18 @@ def get_llm_model_catalog(provider_name: str | None = None) -> dict[str, Any]:
             if configured_models:
                 models = [m for m in configured_models if m in models] or configured_models
             return models
+        if provider == "openrouter":
+            models = list(DEFAULT_OPENROUTER_MODELS)
+            provider_models = _csv_values(
+                _settings_value(settings, "AI_LAB_OPENROUTER_MODELS", "")
+            )
+            if provider_models:
+                models = [m for m in provider_models if m in models] or provider_models
+            elif configured_models:
+                matching = [m for m in configured_models if m in models]
+                if matching:
+                    models = matching
+            return models
         models = [research_default, summary_default]
         if configured_models:
             models = [m for m in configured_models if m] or models
@@ -93,7 +138,7 @@ def get_llm_model_catalog(provider_name: str | None = None) -> dict[str, Any]:
 
     providers = [{
         "id": provider,
-        "label": {"mock": "Mock (offline)", "openai": "OpenAI", "opencode": "OpenCode"}[provider],
+        "label": {"mock": "Mock (offline)", "openai": "OpenAI", "opencode": "OpenCode", "openrouter": "OpenRouter"}[provider],
         "configured": llm_provider_configured(provider, settings),
     } for provider in available]
     if selected and selected not in available:
@@ -102,19 +147,46 @@ def get_llm_model_catalog(provider_name: str | None = None) -> dict[str, Any]:
     if target not in available:
         target = available[0]
     models = models_for(target)
+    model_specs = {
+        model_id: {
+            "label": label,
+            "protocol": "chat_completions",
+            "supports_structured_output": supports,
+        }
+        for model_id, label, supports in OPENROUTER_GO_MODEL_CATALOG
+    }
     return {
         "provider": target,
         "providers": providers,
         "models": [{
             "id": model,
-            "label": OPENCODE_MODEL_LABELS.get(model, model) if target == "opencode" else model,
-            "supports_structured_output": True,
+            "label": (
+                OPENCODE_MODEL_LABELS.get(model, model)
+                if target == "opencode"
+                else model_specs.get(model, {}).get("label", model)
+                if target == "openrouter"
+                else model
+            ),
+            "protocol": (
+                model_specs.get(model, {}).get("protocol")
+                if target == "openrouter"
+                else (
+                    "chat_completions"
+                    if target == "opencode" and model in set(DEFAULT_OPENCODE_CHAT_MODELS)
+                    else "responses"
+                )
+            ),
+            "supports_structured_output": (
+                bool(model_specs.get(model, {}).get("supports_structured_output", True))
+                if target == "openrouter"
+                else True
+            ),
             "default_research": model == research_default,
             "default_summary": model == summary_default,
         } for model in models],
         "defaults": {
-            "research_model": research_default if target not in {"mock", "opencode"} else models[0],
-            "summary_model": summary_default if target not in {"mock", "opencode"} else models[-1],
+            "research_model": research_default if target not in {"mock", "opencode", "openrouter"} else models[0],
+            "summary_model": summary_default if target not in {"mock", "opencode", "openrouter"} else models[-1],
         },
     }
 
@@ -571,8 +643,19 @@ class OpenAIResponsesProvider:
             if choices and isinstance(choices[0], Mapping):
                 message = choices[0].get("message") or {}
                 if isinstance(message, Mapping):
-                    return cls._chat_content_text(message.get("content"))
-            return ""
+                    parsed = message.get("parsed")
+                    if isinstance(parsed, Mapping):
+                        return json.dumps(dict(parsed), separators=(",", ":"))
+                    text = cls._chat_content_text(message.get("content"))
+                    if text:
+                        return text
+                    refusal = message.get("refusal")
+                    if refusal:
+                        return str(refusal)
+            # A few OpenAI-compatible gateways return output_text even for
+            # Chat Completions responses.
+            raw = data.get("output_text") or ""
+            return str(raw) if raw else ""
         raw = data.get("output_text") or ""
         if raw:
             return str(raw)
@@ -650,7 +733,9 @@ class OpenAIResponsesProvider:
         raw = self._response_text(data, is_chat_completion=is_chat_completion)
         if not raw:
             provider_api = "Chat Completions" if is_chat_completion else "Responses"
-            raise ValueError(f"OpenCode {provider_api} API returned no structured output")
+            raise ValueError(
+                f"{self.provider_name.title()} {provider_api} API returned no structured output"
+            )
         usage = data.get("usage") or {}
         prompt_tokens = int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)
         completion_tokens = int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)
@@ -782,17 +867,28 @@ def get_llm_provider(
     from polyflip.config import settings
 
     provider = (provider_name or settings.AI_LAB_LLM_PROVIDER or "mock").lower()
-    key = api_key or getattr(settings, "AI_LAB_LLM_API_KEY", "") or getattr(settings, "OPENAI_API_KEY", "")
+    provider_key = (
+        getattr(settings, "OPENROUTER_API_KEY", "")
+        if provider == "openrouter"
+        else getattr(settings, "AI_LAB_LLM_API_KEY", "")
+    )
+    key = api_key or provider_key or getattr(settings, "AI_LAB_LLM_API_KEY", "") or getattr(settings, "OPENAI_API_KEY", "")
     if provider == "mock":
         return MockLLMProvider(model_name=model_research or "mock-gpt-5")
-    if provider in {"openai", "opencode"}:
+    if provider in {"openai", "opencode", "openrouter"}:
         if not key:
-            key_name = "AI_LAB_LLM_API_KEY" if provider == "opencode" else "OPENAI_API_KEY"
+            key_name = (
+                "OPENAI_API_KEY"
+                if provider == "openai"
+                else "OPENROUTER_API_KEY"
+                if provider == "openrouter"
+                else "AI_LAB_LLM_API_KEY"
+            )
             raise RuntimeError(
                 f"AI_LAB_LLM_PROVIDER={provider} requires {key_name}; "
                 "set AI_LAB_LLM_PROVIDER=mock explicitly for offline tests"
             )
-        default_endpoint = "https://api.openai.com/v1/responses" if provider == "openai" else DEFAULT_OPENCODE_ENDPOINT
+        default_endpoint = {"openai": "https://api.openai.com/v1/responses", "opencode": DEFAULT_OPENCODE_ENDPOINT, "openrouter": DEFAULT_OPENROUTER_ENDPOINT}[provider]
         configured_endpoint = endpoint_url or getattr(settings, "AI_LAB_LLM_ENDPOINT", "") or ""
         return OpenAIResponsesProvider(
             api_key=key,

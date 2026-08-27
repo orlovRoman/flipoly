@@ -25,6 +25,8 @@ from polyflip.ai_lab.llm import (
     DEFAULT_OPENCODE_CHAT_ENDPOINT,
     DEFAULT_OPENCODE_CHAT_MODELS,
     DEFAULT_OPENCODE_ENDPOINT,
+    DEFAULT_OPENROUTER_ENDPOINT,
+    DEFAULT_OPENROUTER_MODELS_ENDPOINT,
     get_llm_model_catalog,
 )
 from polyflip.config import settings as default_settings
@@ -42,6 +44,7 @@ _MODEL_FIELDS = {
     "display_name",
     "protocol",
     "supports_structured_output",
+    "supported_parameters",
 }
 
 
@@ -75,7 +78,11 @@ def _metadata_snapshot(row: Mapping[str, Any]) -> dict[str, Any]:
     return dict(cleaned) if isinstance(cleaned, Mapping) else {}
 
 
-def normalize_models(payload: Any) -> list[dict[str, Any]]:
+def normalize_models(
+    payload: Any,
+    *,
+    default_protocol: str = "responses",
+) -> list[dict[str, Any]]:
     """Normalize the supported discovery payload shapes into catalog rows.
 
     Supported inputs::
@@ -98,18 +105,30 @@ def normalize_models(payload: Any) -> list[dict[str, Any]]:
         raw_id = str(row.get("id") or row.get("name") or "").strip()
         if not raw_id:
             continue
-        protocol = str(row.get("protocol") or "responses").strip().lower()
+        protocol = str(row.get("protocol") or default_protocol).strip().lower()
         if protocol not in SUPPORTED_PROTOCOLS:
-            protocol = "responses"
+            protocol = default_protocol if default_protocol in SUPPORTED_PROTOCOLS else "responses"
+        supported_parameters = row.get("supported_parameters")
+        if isinstance(supported_parameters, (list, tuple, set, frozenset)):
+            supported_parameters = {
+                str(item).strip().lower() for item in supported_parameters
+            }
+        else:
+            supported_parameters = set()
+        explicit_support = row.get("supports_structured_output")
+        if explicit_support is None and supported_parameters:
+            explicit_support = bool(
+                {"response_format", "structured_outputs"} & supported_parameters
+            )
+        if explicit_support is None:
+            explicit_support = True
         result[raw_id] = {
             "model_id": raw_id,
             "display_name": str(
                 row.get("display_name") or row.get("name") or raw_id
             ),
             "protocol": protocol,
-            "supports_structured_output": bool(
-                row.get("supports_structured_output", True)
-            ),
+            "supports_structured_output": bool(explicit_support),
             "raw_metadata": _metadata_snapshot(row),
         }
     return [result[key] for key in sorted(result)]
@@ -270,16 +289,23 @@ async def refresh_model_catalog(
     def static_shape() -> dict[str, Any]:
         return get_llm_model_catalog(provider_name)
 
-    if provider_name != "opencode":
-        # Only OpenCode has a dynamic discovery endpoint today; other
-        # providers keep their static configuration-driven catalog.
+    if provider_name not in {"opencode", "openrouter"}:
+        # Providers without a discovery endpoint keep their static catalog.
         return _catalog_response(
             static_shape(), [], source="static", stale=False, checked_at=now
         )
 
-    endpoint = str(getattr(cfg, "AI_LAB_OPENCODE_MODELS_ENDPOINT", "") or "")
+    prefix = "OPENCODE" if provider_name == "opencode" else "OPENROUTER"
+    endpoint = str(
+        getattr(
+            cfg,
+            f"AI_LAB_{prefix}_MODELS_ENDPOINT",
+            "" if provider_name == "opencode" else DEFAULT_OPENROUTER_MODELS_ENDPOINT,
+        )
+        or ""
+    )
     ttl_seconds = int(
-        getattr(cfg, "AI_LAB_OPENCODE_CATALOG_TTL_SECONDS", DEFAULT_TTL_SECONDS)
+        getattr(cfg, f"AI_LAB_{prefix}_CATALOG_TTL_SECONDS", DEFAULT_TTL_SECONDS)
         or DEFAULT_TTL_SECONDS
     )
     rows = (
@@ -305,12 +331,22 @@ async def refresh_model_catalog(
     if should_refresh_live:
         api_key = str(
             getattr(cfg, "AI_LAB_LLM_API_KEY", "")
+            or (
+                getattr(cfg, "OPENROUTER_API_KEY", "")
+                if provider_name == "openrouter"
+                else getattr(cfg, "OPENAI_API_KEY", "")
+            )
             or getattr(cfg, "OPENAI_API_KEY", "")
             or ""
         )
         try:
             raw_payload = await fetch_opencode_models(endpoint, api_key)
-            fetched = normalize_models(raw_payload)
+            fetched = normalize_models(
+                raw_payload,
+                default_protocol=(
+                    "chat_completions" if provider_name == "openrouter" else "responses"
+                ),
+            )
             models = await _upsert_live_rows(
                 db,
                 provider_name,
@@ -323,7 +359,7 @@ async def refresh_model_catalog(
             live_failed = True
             live_error = f"{type(exc).__name__}: {exc}"
             logger.warning(
-                "opencode_model_discovery_failed",
+                "llm_model_discovery_failed",
                 endpoint=endpoint,
                 error=live_error,
             )
@@ -348,7 +384,7 @@ async def refresh_model_catalog(
             stale = True
         if models is None:
             fallback_csv = str(
-                getattr(cfg, "AI_LAB_OPENCODE_MODELS_FALLBACK", "") or ""
+                getattr(cfg, f"AI_LAB_{prefix}_MODELS_FALLBACK", "") or ""
             )
             fallback_ids = [item.strip() for item in fallback_csv.split(",") if item.strip()]
             if fallback_ids:
@@ -356,7 +392,11 @@ async def refresh_model_catalog(
                     {
                         "id": model_id,
                         "label": model_id,
-                        "protocol": "responses",
+                        "protocol": (
+                            "chat_completions"
+                            if provider_name == "openrouter"
+                            else "responses"
+                        ),
                         "supports_structured_output": True,
                         "is_available": True,
                     }
@@ -405,7 +445,8 @@ async def get_available_catalog_models(
         )
     ).scalars().all()
     # Apply probe TTL filtering.
-    ttl = int(getattr(cfg, "AI_LAB_OPENCODE_PROBE_TTL_SECONDS", 86400) or 86400)
+    ttl_name = ("AI_LAB_OPENROUTER_PROBE_TTL_SECONDS" if provider_name == "openrouter" else "AI_LAB_OPENCODE_PROBE_TTL_SECONDS")
+    ttl = int(getattr(cfg, ttl_name, 86400) or 86400)
     now = datetime.now(timezone.utc)
     fresh: dict[str, AILLMModelCatalog] = {}
     for row in rows:
@@ -485,6 +526,16 @@ def _probe_candidates(provider_name: str, settings_obj: Any) -> list[dict[str, A
     if provider_name == "openai":
         responses_endpoint = "https://api.openai.com/v1/responses"
         return [{"url": responses_endpoint, "protocol": "responses"}]
+    if provider_name == "openrouter":
+        chat_endpoint = str(
+            getattr(
+                settings_obj,
+                "AI_LAB_OPENROUTER_ENDPOINT",
+                DEFAULT_OPENROUTER_ENDPOINT,
+            )
+            or DEFAULT_OPENROUTER_ENDPOINT
+        ).strip()
+        return [{"url": chat_endpoint, "protocol": "chat_completions"}]
     responses_endpoint = str(
         getattr(settings_obj, "AI_LAB_OPENCODE_RESPONSES_ENDPOINT", DEFAULT_OPENCODE_ENDPOINT)
         or DEFAULT_OPENCODE_ENDPOINT
@@ -546,10 +597,15 @@ async def check_model_availability(
     if provider == "mock":
         report.update({"available": True, "protocol": "mock", "latency_ms": 0})
         return report
-    if provider not in {"openai", "opencode"}:
+    if provider not in {"openai", "opencode", "openrouter"}:
         raise ValueError(f"Unsupported AI Lab LLM provider: {provider}")
     api_key = str(
         getattr(cfg, "AI_LAB_LLM_API_KEY", "")
+        or (
+            getattr(cfg, "OPENROUTER_API_KEY", "")
+            if provider == "openrouter"
+            else getattr(cfg, "OPENAI_API_KEY", "")
+        )
         or getattr(cfg, "OPENAI_API_KEY", "")
         or ""
     )
@@ -702,8 +758,8 @@ async def resolve_llm_snapshot(
         )
 
     by_id: dict[str, AILLMModelCatalog] = {}
-    if provider_name == "opencode":
-        # Only OpenCode has a dynamic discovery cache today.
+    if provider_name in {"opencode", "openrouter"}:
+        # Dynamic discovery is available for OpenCode and OpenRouter.
         rows = (
             await db.execute(
                 select(AILLMModelCatalog).where(
@@ -713,7 +769,16 @@ async def resolve_llm_snapshot(
         ).scalars().all()
         by_id = {row.model_id: row for row in rows}
         if not by_id and str(
-            getattr(cfg, "AI_LAB_OPENCODE_MODELS_ENDPOINT", "") or ""
+            getattr(
+                cfg,
+                (
+                    "AI_LAB_OPENCODE_MODELS_ENDPOINT"
+                    if provider_name == "opencode"
+                    else "AI_LAB_OPENROUTER_MODELS_ENDPOINT"
+                ),
+                "",
+            )
+            or ""
         ).strip():
             # A configured discovery endpoint is authoritative; populate a
             # cold cache before validating a new run.
@@ -734,11 +799,16 @@ async def resolve_llm_snapshot(
 
     if not by_id:
         # Legacy/static path keeps pre-catalog behavior working.
-        if provider_name == "opencode" and str(
-            getattr(cfg, "AI_LAB_OPENCODE_MODELS_ENDPOINT", "") or ""
+        discovery_setting = (
+            "AI_LAB_OPENCODE_MODELS_ENDPOINT"
+            if provider_name == "opencode"
+            else "AI_LAB_OPENROUTER_MODELS_ENDPOINT"
+        )
+        if provider_name in {"opencode", "openrouter"} and str(
+            getattr(cfg, discovery_setting, "") or ""
         ).strip():
             raise ValueError(
-                "OpenCode model catalog is unavailable; refresh discovery "
+                f"{provider_name.title()} model catalog is unavailable; refresh discovery "
                 "and pass the model probe before creating a run"
             )
         resolved = get_llm_model_catalog(provider_name)
@@ -755,6 +825,8 @@ async def resolve_llm_snapshot(
         def _legacy_protocol(model_id: str) -> str:
             if provider_name == "opencode" and model_id in set(DEFAULT_OPENCODE_CHAT_MODELS):
                 return "chat_completions"
+            if provider_name == "openrouter":
+                return "chat_completions"
             return "responses"
 
         return snapshot(
@@ -762,7 +834,12 @@ async def resolve_llm_snapshot(
             status_value="legacy_static", catalog_time=None,
         )
 
-    PROBE_TTL_SECONDS = int(getattr(cfg, "AI_LAB_OPENCODE_PROBE_TTL_SECONDS", 86400) or 86400)
+    probe_ttl_name = (
+        "AI_LAB_OPENROUTER_PROBE_TTL_SECONDS"
+        if provider_name == "openrouter"
+        else "AI_LAB_OPENCODE_PROBE_TTL_SECONDS"
+    )
+    PROBE_TTL_SECONDS = int(getattr(cfg, probe_ttl_name, 86400) or 86400)
 
     def validated(model_id: str | None) -> AILLMModelCatalog:
         clean = (model_id or "").strip()
