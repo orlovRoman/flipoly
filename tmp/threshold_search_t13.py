@@ -54,13 +54,13 @@ def evaluate_config(candles_by_asset, config):
     """Run classification with given config, return regime distribution."""
     counts = {r.value: 0 for r in Regime}
     total = 0
-    
+
     for asset, candles in candles_by_asset.items():
         if len(candles) < MIN_HISTORY_CANDLES + 20:
             continue
         window = MIN_HISTORY_CANDLES + 20
         step = 4
-        
+
         for i in range(window, len(candles), step):
             chunk = candles[i - window:i + 1]
             closes = np.array([c["close"] for c in chunk], dtype=np.float64)
@@ -68,7 +68,7 @@ def evaluate_config(candles_by_asset, config):
             lows = np.array([c["low"] for c in chunk], dtype=np.float64)
             opens = np.array([c["open"] for c in chunk], dtype=np.float64)
             as_of = datetime.fromtimestamp(chunk[-1]["open_time"] / 1000, tz=timezone.utc)
-            
+
             snap = build_regime_snapshot(
                 {asset: {"closes": closes, "highs": highs, "lows": lows,
                          "opens": opens, "count": len(closes)}},
@@ -76,18 +76,18 @@ def evaluate_config(candles_by_asset, config):
             )
             if not snap.basket.history_ready:
                 continue
-            
+
             cl = classify_asset_regime(snap.assets[asset], config=config)
             counts[cl.regime.value] += 1
             total += 1
-    
+
     return counts, total
 
 # ── Main ───────────────────────────────────────────────────────────────────
 def main():
     print("MRF T13: Threshold Optimization")
     print("=" * 60)
-    
+
     # Fetch data once
     print("Fetching candles...")
     candles_by_asset = {}
@@ -97,7 +97,7 @@ def main():
             print(f"  {asset}: {len(candles_by_asset[asset])} candles")
         except Exception as e:
             print(f"  {asset}: error {e}")
-    
+
     # Default config
     default_cfg = RegimeConfig()
     counts, total = evaluate_config(candles_by_asset, default_cfg)
@@ -105,7 +105,7 @@ def main():
     for r, c in sorted(counts.items(), key=lambda x: -x[1]):
         if c > 0:
             print(f"  {r}: {c} ({c/total*100:.1f}%)")
-    
+
     # Grid search over key thresholds
     print("\n--- Grid Search ---")
     grid = {
@@ -113,29 +113,29 @@ def main():
         "sideways_ret_max": [0.003, 0.005, 0.008, 0.01],
         "trend_efficiency_min": [0.2, 0.3, 0.4, 0.5],
     }
-    
+
     keys = list(grid.keys())
     combos = list(itertools.product(*[grid[k] for k in keys]))
-    
+
     best_score = -1
     best_params = None
     best_counts = None
     results = []
-    
+
     for combo in combos:
         params = dict(zip(keys, combo))
         cfg = RegimeConfig(**params)
         counts, total = evaluate_config(candles_by_asset, cfg)
-        
+
         if total == 0:
             continue
-        
+
         # Score: want a mix of regimes, not all MIXED
         trend_pct = (counts.get("TREND_UP", 0) + counts.get("TREND_DOWN", 0)) / total
         side_pct = counts.get("SIDEWAYS", 0) / total
         mixed_pct = counts.get("MIXED", 0) / total
         chop_pct = counts.get("HIGH_VOL_CHOP", 0) / total
-        
+
         # Want: some trends (10-30%), some sideways, not too much MIXED
         score = 0
         if 0.05 < trend_pct < 0.40:
@@ -148,15 +148,15 @@ def main():
             score += 20  # penalize too much MIXED
         if chop_pct < 0.2:
             score += 10
-        
+
         results.append({"params": params, "counts": counts, "total": total,
                         "trend_pct": trend_pct, "mixed_pct": mixed_pct, "score": score})
-        
+
         if score > best_score:
             best_score = score
             best_params = params
             best_counts = counts
-    
+
     # Top 5 results
     results.sort(key=lambda x: -x["score"])
     print(f"\nTop 5 parameter combinations (of {len(combos)}):")
@@ -166,7 +166,7 @@ def main():
         for regime, cnt in sorted(r["counts"].items(), key=lambda x: -x[1]):
             if cnt > 0:
                 print(f"    {regime}: {cnt} ({cnt/r['total']*100:.1f}%)")
-    
+
     if best_params:
         print(f"\n{'='*60}")
         print(f"BEST CONFIG:")
@@ -177,7 +177,7 @@ def main():
         for regime, cnt in sorted(best_counts.items(), key=lambda x: -x[1]):
             if cnt > 0:
                 print(f"  {regime}: {cnt} ({cnt/total*100:.1f}%)")
-    
+
     # Save
     output = Path("/tmp/mrf_t13_results.json")
     with open(output, "w") as f:
