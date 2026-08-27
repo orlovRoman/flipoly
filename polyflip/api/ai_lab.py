@@ -791,7 +791,7 @@ async def get_ai_agent_status(db: AsyncSession = Depends(get_db_session)):
         current = {
             "id": current_run.id,
             "status": current_run.status,
-            "iteration": current_run.experiments_completed,
+            "iteration": int(current_run.experiments_completed or 0),
             "budget_experiments": current_run.budget_experiments,
             "phase": latest_step.step_type if latest_step else None,
             "research_model": current_run.llm_research_model,
