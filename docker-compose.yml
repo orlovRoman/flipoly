@@ -49,6 +49,9 @@ services:
       - AI_LAB_OPENCODE_MODELS_FALLBACK=${AI_LAB_OPENCODE_MODELS_FALLBACK:-}
       - AI_LAB_OPENCODE_RESPONSES_ENDPOINT=${AI_LAB_OPENCODE_RESPONSES_ENDPOINT:-https://opencode.ai/zen/v1/responses}
       - AI_LAB_OPENCODE_CHAT_ENDPOINT=${AI_LAB_OPENCODE_CHAT_ENDPOINT:-https://opencode.ai/zen/v1/chat/completions}
+      - AI_LAB_OPENCODE_GO_RESPONSES_ENDPOINT=${AI_LAB_OPENCODE_GO_RESPONSES_ENDPOINT:-https://opencode.ai/zen/go/v1/responses}
+      - AI_LAB_OPENCODE_GO_CHAT_ENDPOINT=${AI_LAB_OPENCODE_GO_CHAT_ENDPOINT:-https://opencode.ai/zen/go/v1/chat/completions}
+      - AI_LAB_OPENCODE_GO_MESSAGES_ENDPOINT=${AI_LAB_OPENCODE_GO_MESSAGES_ENDPOINT:-https://opencode.ai/zen/go/v1/messages}
       - AI_LAB_OPENCODE_PROBE_TTL_SECONDS=${AI_LAB_OPENCODE_PROBE_TTL_SECONDS:-86400}
       - AI_LAB_OPENROUTER_ENDPOINT=${AI_LAB_OPENROUTER_ENDPOINT:-https://openrouter.ai/api/v1/chat/completions}
       - AI_LAB_OPENROUTER_MODELS_ENDPOINT=${AI_LAB_OPENROUTER_MODELS_ENDPOINT:-https://openrouter.ai/api/v1/models}
@@ -168,6 +171,9 @@ services:
       - AI_LAB_OPENCODE_RESPONSES_ENDPOINT=${AI_LAB_OPENCODE_RESPONSES_ENDPOINT:-https://opencode.ai/zen/v1/responses}
       - AI_LAB_OPENCODE_CHAT_ENDPOINT=${AI_LAB_OPENCODE_CHAT_ENDPOINT:-https://opencode.ai/zen/v1/chat/completions}
       - AI_LAB_OPENCODE_CHAT_MODELS=${AI_LAB_OPENCODE_CHAT_MODELS:-big-pickle,nemotron-3-ultra-free}
+      - AI_LAB_OPENCODE_GO_RESPONSES_ENDPOINT=${AI_LAB_OPENCODE_GO_RESPONSES_ENDPOINT:-https://opencode.ai/zen/go/v1/responses}
+      - AI_LAB_OPENCODE_GO_CHAT_ENDPOINT=${AI_LAB_OPENCODE_GO_CHAT_ENDPOINT:-https://opencode.ai/zen/go/v1/chat/completions}
+      - AI_LAB_OPENCODE_GO_MESSAGES_ENDPOINT=${AI_LAB_OPENCODE_GO_MESSAGES_ENDPOINT:-https://opencode.ai/zen/go/v1/messages}
       - AI_LAB_OPENROUTER_ENDPOINT=${AI_LAB_OPENROUTER_ENDPOINT:-https://openrouter.ai/api/v1/chat/completions}
       - AI_LAB_OPENROUTER_MODELS=${AI_LAB_OPENROUTER_MODELS:-}
       - AI_LAB_OPENROUTER_HTTP_REFERER=${AI_LAB_OPENROUTER_HTTP_REFERER:-}

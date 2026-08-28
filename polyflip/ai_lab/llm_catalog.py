@@ -23,10 +23,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.llm import (
     DEFAULT_OPENCODE_CHAT_ENDPOINT,
-    DEFAULT_OPENCODE_CHAT_MODELS,
     DEFAULT_OPENCODE_ENDPOINT,
+    DEFAULT_OPENCODE_GO_CHAT_ENDPOINT,
+    DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT,
+    DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT,
+    DEFAULT_OPENCODE_MODELS,
     DEFAULT_OPENROUTER_ENDPOINT,
     DEFAULT_OPENROUTER_MODELS_ENDPOINT,
+    OPENCODE_MODEL_SPECS,
     get_llm_model_catalog,
 )
 from polyflip.config import settings as default_settings
@@ -34,7 +38,7 @@ from polyflip.db.models import AILLMModelCatalog
 
 logger = structlog.get_logger("polyflip.ai_lab.llm_catalog")
 
-SUPPORTED_PROTOCOLS = {"responses", "chat_completions"}
+SUPPORTED_PROTOCOLS = {"responses", "chat_completions", "messages"}
 DEFAULT_TTL_SECONDS = 3600
 
 
@@ -197,6 +201,14 @@ def _row_to_item(row: AILLMModelCatalog) -> dict[str, Any]:
         "last_checked_at": _as_utc(last).isoformat() if last else None,
         "is_unchecked": str(getattr(row, "probe_status", "UNCHECKED")) == "UNCHECKED",
     }
+
+
+def _filter_visible_models(provider: str, models: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the OpenCode UI and run resolver on the curated allow-list."""
+    if provider != "opencode":
+        return models
+    allowed = set(DEFAULT_OPENCODE_MODELS)
+    return [item for item in models if str(item.get("id", "")) in allowed]
 
 
 def _defaults_for(models: list[dict[str, Any]]) -> dict[str, str]:
@@ -365,12 +377,31 @@ async def refresh_model_catalog(
                     "chat_completions" if provider_name == "openrouter" else "responses"
                 ),
             )
-            models = await _upsert_live_rows(
-                db,
+            if provider_name == "opencode":
+                # OpenCode discovery can expose paid/experimental models too.
+                # Keep the AI Lab menu limited to the documented Go catalogue
+                # and the explicitly free Zen models.
+                allowed = set(DEFAULT_OPENCODE_MODELS)
+                fetched = [
+                    item for item in fetched if item["model_id"] in allowed
+                ]
+                for item in fetched:
+                    spec = OPENCODE_MODEL_SPECS.get(item["model_id"])
+                    if spec:
+                        item["display_name"] = spec["label"]
+                        item["protocol"] = spec["protocol"]
+                        item["supports_structured_output"] = bool(
+                            spec["supports_structured_output"]
+                        )
+            models = _filter_visible_models(
                 provider_name,
-                fetched,
-                now=now,
-                ttl_seconds=ttl_seconds,
+                await _upsert_live_rows(
+                    db,
+                    provider_name,
+                    fetched,
+                    now=now,
+                    ttl_seconds=ttl_seconds,
+                ),
             )
             source = "live"
         except Exception as exc:
@@ -385,19 +416,25 @@ async def refresh_model_catalog(
     if models is None:
         if fresh_rows and not live_failed:
             # Healthy TTL cache served without hitting the endpoint.
-            models = [
-                _row_to_item(row)
-                for row in sorted(fresh_rows, key=lambda r: r.model_id)
-            ]
+            models = _filter_visible_models(
+                provider_name,
+                [
+                    _row_to_item(row)
+                    for row in sorted(fresh_rows, key=lambda r: r.model_id)
+                ],
+            )
             source = "cache"
             stale = False
         elif rows:
             # Live fetch failed (or cache expired): serve the last known
             # catalog and flag it stale so the UI can warn operators.
-            models = [
-                _row_to_item(row)
-                for row in sorted(rows, key=lambda r: r.model_id)
-            ]
+            models = _filter_visible_models(
+                provider_name,
+                [
+                    _row_to_item(row)
+                    for row in sorted(rows, key=lambda r: r.model_id)
+                ],
+            )
             source = "cache"
             stale = True
         if models is None:
@@ -405,17 +442,31 @@ async def refresh_model_catalog(
                 getattr(cfg, f"AI_LAB_{prefix}_MODELS_FALLBACK", "") or ""
             )
             fallback_ids = [item.strip() for item in fallback_csv.split(",") if item.strip()]
+            if provider_name == "opencode":
+                fallback_ids = [
+                    item for item in fallback_ids if item in OPENCODE_MODEL_SPECS
+                ]
             if fallback_ids:
                 models = [
                     {
                         "id": model_id,
-                        "label": model_id,
+                        "label": (
+                            OPENCODE_MODEL_SPECS[model_id]["label"]
+                            if provider_name == "opencode"
+                            else model_id
+                        ),
                         "protocol": (
-                            "chat_completions"
+                            OPENCODE_MODEL_SPECS[model_id]["protocol"]
+                            if provider_name == "opencode"
+                            else "chat_completions"
                             if provider_name == "openrouter"
                             else "responses"
                         ),
-                        "supports_structured_output": True,
+                        "supports_structured_output": (
+                            bool(OPENCODE_MODEL_SPECS[model_id]["supports_structured_output"])
+                            if provider_name == "opencode"
+                            else True
+                        ),
                         "is_available": True,
                     }
                     for model_id in fallback_ids
@@ -473,6 +524,8 @@ async def get_available_catalog_models(
             continue
         if (now - last).total_seconds() > ttl:
             continue
+        if provider_name == "opencode" and row.model_id not in OPENCODE_MODEL_SPECS:
+            continue
         fresh[row.model_id] = row
     return fresh
 
@@ -491,6 +544,25 @@ ProbeSender = Callable[..., Awaitable[Any]]
 
 
 def _probe_body(protocol: str, model_id: str) -> dict[str, Any]:
+    if protocol == "messages":
+        return {
+            "model": model_id,
+            "max_tokens": 256,
+            "system": PROBE_INSTRUCTIONS,
+            "messages": [{
+                "role": "user",
+                "content": json.dumps({
+                    "task": PROBE_INSTRUCTIONS,
+                    "schema": {"ok": "boolean"},
+                }),
+            }],
+            "tools": [{
+                "name": "model_probe",
+                "description": "Return the probe result.",
+                "input_schema": PROBE_SCHEMA,
+            }],
+            "tool_choice": {"type": "tool", "name": "model_probe"},
+        }
     if protocol == "chat_completions":
         return {
             "model": model_id,
@@ -531,13 +603,19 @@ def _probe_body(protocol: str, model_id: str) -> dict[str, Any]:
     }
 
 
-def _probe_candidates(provider_name: str, settings_obj: Any) -> list[dict[str, Any]]:
+def _probe_candidates(
+    provider_name: str,
+    settings_obj: Any,
+    model_id: str | None = None,
+) -> list[dict[str, Any]]:
     """Ordered probe targets; a custom endpoint override always wins."""
     override = str(getattr(settings_obj, "AI_LAB_LLM_ENDPOINT", "") or "").strip()
     if override:
         protocol = (
             "chat_completions"
             if override.rstrip("/").endswith("/chat/completions")
+            else "messages"
+            if override.rstrip("/").endswith("/messages")
             else "responses"
         )
         return [{"url": override.rstrip("/"), "protocol": protocol}]
@@ -554,6 +632,26 @@ def _probe_candidates(provider_name: str, settings_obj: Any) -> list[dict[str, A
             or DEFAULT_OPENROUTER_ENDPOINT
         ).strip()
         return [{"url": chat_endpoint, "protocol": "chat_completions"}]
+    model_spec = OPENCODE_MODEL_SPECS.get(model_id or "")
+    if model_spec and model_spec.get("is_go"):
+        protocol = str(model_spec.get("protocol") or "responses")
+        endpoint_by_protocol = {
+            "responses": (
+                "AI_LAB_OPENCODE_GO_RESPONSES_ENDPOINT",
+                DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT,
+            ),
+            "chat_completions": (
+                "AI_LAB_OPENCODE_GO_CHAT_ENDPOINT",
+                DEFAULT_OPENCODE_GO_CHAT_ENDPOINT,
+            ),
+            "messages": (
+                "AI_LAB_OPENCODE_GO_MESSAGES_ENDPOINT",
+                DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT,
+            ),
+        }
+        setting_name, fallback = endpoint_by_protocol[protocol]
+        endpoint = str(getattr(settings_obj, setting_name, fallback) or fallback).strip()
+        return [{"url": endpoint, "protocol": protocol}]
     responses_endpoint = str(
         getattr(settings_obj, "AI_LAB_OPENCODE_RESPONSES_ENDPOINT", DEFAULT_OPENCODE_ENDPOINT)
         or DEFAULT_OPENCODE_ENDPOINT
@@ -577,10 +675,24 @@ async def _default_probe_sender(url: str, headers: dict[str, str], body: dict[st
         return response.json()
 
 
-def _extract_output_text(data: Any, *, is_chat_completion: bool) -> str:
+def _extract_output_text(
+    data: Any,
+    *,
+    is_chat_completion: bool,
+    protocol: str | None = None,
+) -> str:
     from polyflip.ai_lab.llm import OpenAIResponsesProvider
 
     if not isinstance(data, dict):
+        return ""
+    if protocol == "messages":
+        for part in data.get("content") or []:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "tool_use" and isinstance(part.get("input"), dict):
+                return json.dumps(part["input"])
+            if part.get("type") == "text" and isinstance(part.get("text"), str):
+                return part["text"]
         return ""
     return OpenAIResponsesProvider._response_text(
         data, is_chat_completion=is_chat_completion
@@ -639,16 +751,21 @@ async def check_model_availability(
         headers["Authorization"] = f"Bearer {token}"
     send = sender or _default_probe_sender
     last_error = "no candidate endpoint responded"
-    for candidate in _probe_candidates(provider, cfg):
+    for candidate in _probe_candidates(provider, cfg, model):
         started = time.monotonic()
         try:
+            request_headers = dict(headers)
+            if candidate["protocol"] == "messages":
+                request_headers["anthropic-version"] = "2023-06-01"
             data = await send(
                 url=candidate["url"],
-                headers=headers,
+                headers=request_headers,
                 body=_probe_body(candidate["protocol"], model),
             )
             raw_text = _extract_output_text(
-                data, is_chat_completion=candidate["protocol"] == "chat_completions"
+                data,
+                is_chat_completion=candidate["protocol"] == "chat_completions",
+                protocol=candidate["protocol"],
             ).strip()
             payload = json.loads(raw_text)
             if not (
@@ -791,7 +908,11 @@ async def resolve_llm_snapshot(
                 )
             )
         ).scalars().all()
-        by_id = {row.model_id: row for row in rows}
+        by_id = {
+            row.model_id: row
+            for row in rows
+            if provider_name != "opencode" or row.model_id in OPENCODE_MODEL_SPECS
+        }
         if not by_id and str(
             getattr(
                 cfg,
@@ -819,7 +940,11 @@ async def resolve_llm_snapshot(
                     )
                 )
             ).scalars().all()
-            by_id = {row.model_id: row for row in rows}
+            by_id = {
+                row.model_id: row
+                for row in rows
+                if provider_name != "opencode" or row.model_id in OPENCODE_MODEL_SPECS
+            }
 
     if not by_id:
         # Legacy/static path keeps pre-catalog behavior working.
@@ -840,15 +965,14 @@ async def resolve_llm_snapshot(
         defaults = resolved["defaults"]
         research = (research_model or "").strip() or str(defaults["research_model"])
         summary = (summary_model or "").strip() or str(defaults["summary_model"])
-        if research not in allowed or summary not in allowed:
-            raise ValueError(
-                f"Unknown model for provider {provider_name}: "
-                f"research={research!r}, summary={summary!r}"
-            )
+        if research not in allowed:
+            raise ValueError(f"Model '{research}' is not present in the {provider_name} catalog")
+        if summary not in allowed:
+            raise ValueError(f"Model '{summary}' is not present in the {provider_name} catalog")
         # Determine per-model protocol for legacy static catalog.
         def _legacy_protocol(model_id: str) -> str:
-            if provider_name == "opencode" and model_id in set(DEFAULT_OPENCODE_CHAT_MODELS):
-                return "chat_completions"
+            if provider_name == "opencode":
+                return str(OPENCODE_MODEL_SPECS.get(model_id, {}).get("protocol", "responses"))
             if provider_name == "openrouter":
                 return "chat_completions"
             return "responses"

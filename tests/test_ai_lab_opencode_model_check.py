@@ -34,6 +34,14 @@ def _chat_payload(ok: bool = True) -> dict:
     }
 
 
+def _messages_payload(ok: bool = True) -> dict:
+    return {
+        "content": [
+            {"type": "tool_use", "name": "model_probe", "input": {"ok": ok}}
+        ]
+    }
+
+
 @pytest.mark.asyncio
 async def test_mock_provider_is_available_without_network(db_session):
     report = await check_model_availability("mock", "mock-gpt-5")
@@ -106,6 +114,26 @@ async def test_chat_completions_fallback_when_responses_fails(monkeypatch):
     assert len(attempted) == 2
     assert report["available"] is True
     assert report["protocol"] == "chat_completions"
+
+
+@pytest.mark.asyncio
+async def test_go_messages_probe_uses_go_endpoint_and_tool_output(monkeypatch):
+    async def sender(*, url, headers, body):
+        assert url == "https://opencode.ai/zen/go/v1/messages"
+        assert body["model"] == "minimax-m3"
+        assert body["tool_choice"] == {"type": "tool", "name": "model_probe"}
+        assert headers["anthropic-version"] == "2023-06-01"
+        return _messages_payload(True)
+
+    report = await check_model_availability(
+        "opencode",
+        "minimax-m3",
+        settings_obj=_cfg(),
+        sender=sender,
+    )
+
+    assert report["available"] is True
+    assert report["protocol"] == "messages"
 
 
 @pytest.mark.asyncio

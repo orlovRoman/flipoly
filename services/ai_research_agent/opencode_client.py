@@ -14,9 +14,20 @@ from typing import Any
 
 import httpx
 
-DEFAULT_RESPONSES_ENDPOINT = "https://opencode.ai/zen/v1/responses"
-DEFAULT_CHAT_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
-DEFAULT_CHAT_MODELS = {"big-pickle", "nemotron-3-ultra-free"}
+from polyflip.ai_lab.llm import (
+    DEFAULT_OPENCODE_CHAT_ENDPOINT,
+    DEFAULT_OPENCODE_CHAT_MODELS,
+    DEFAULT_OPENCODE_ENDPOINT,
+    DEFAULT_OPENCODE_GO_CHAT_ENDPOINT,
+    DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT,
+    DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT,
+    OPENCODE_GO_MODELS,
+    OPENCODE_MODEL_SPECS,
+)
+
+DEFAULT_RESPONSES_ENDPOINT = DEFAULT_OPENCODE_ENDPOINT
+DEFAULT_CHAT_ENDPOINT = DEFAULT_OPENCODE_CHAT_ENDPOINT
+DEFAULT_CHAT_MODELS = set(DEFAULT_OPENCODE_CHAT_MODELS)
 DEFAULT_OPENROUTER_CHAT_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_OPENROUTER_MODELS = {
     "x-ai/grok-4.6",
@@ -239,7 +250,23 @@ class OpenCodeClient:
             self.chat_endpoint = os.getenv(
                 "AI_LAB_OPENCODE_CHAT_ENDPOINT", DEFAULT_CHAT_ENDPOINT
             )
-            default_chat_models = DEFAULT_CHAT_MODELS
+            self.go_responses_endpoint = os.getenv(
+                "AI_LAB_OPENCODE_GO_RESPONSES_ENDPOINT",
+                DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT,
+            )
+            self.go_chat_endpoint = os.getenv(
+                "AI_LAB_OPENCODE_GO_CHAT_ENDPOINT",
+                DEFAULT_OPENCODE_GO_CHAT_ENDPOINT,
+            )
+            self.go_messages_endpoint = os.getenv(
+                "AI_LAB_OPENCODE_GO_MESSAGES_ENDPOINT",
+                DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT,
+            )
+            default_chat_models = DEFAULT_CHAT_MODELS | {
+                model_id
+                for model_id, spec in OPENCODE_MODEL_SPECS.items()
+                if spec["protocol"] == "chat_completions"
+            }
             chat_models_csv = os.getenv("AI_LAB_OPENCODE_CHAT_MODELS", "")
         self.chat_models = {
             item.strip() for item in chat_models_csv.split(",") if item.strip()
@@ -260,15 +287,30 @@ class OpenCodeClient:
         return headers
 
     def _endpoint_for(self, model: str) -> tuple[str, bool]:
+        spec = OPENCODE_MODEL_SPECS.get(model)
+        if self.provider == "opencode" and spec:
+            return self._endpoint_for_protocol(spec["protocol"], model)
         is_chat = model in self.chat_models
         return (
             (self.chat_endpoint, True) if is_chat else (self.responses_endpoint, False)
         )
 
-    def _endpoint_for_protocol(self, protocol: str | None) -> tuple[str, bool]:
+    def _endpoint_for_protocol(
+        self,
+        protocol: str | None,
+        model: str | None = None,
+    ) -> tuple[str, bool]:
         if self.provider == "openrouter":
             # OpenRouter exposes this catalogue through Chat Completions.
             return (self.chat_endpoint, True)
+        if self.provider == "opencode" and model in OPENCODE_GO_MODELS:
+            if protocol == "messages":
+                return (self.go_messages_endpoint, False)
+            if protocol == "chat_completions":
+                return (self.go_chat_endpoint, True)
+            return (self.go_responses_endpoint, False)
+        if protocol == "messages":
+            return (self.chat_endpoint, False)
         if protocol == "chat_completions":
             return (self.chat_endpoint, True)
         if protocol == "responses":
@@ -330,13 +372,29 @@ class OpenCodeClient:
             payload = self._mock_payload(schema_name, context)
             return payload, _usage_telemetry({}, 0, model=model)
 
-        # Use explicit protocol when provided (snapshot-provided), else guess via model.
-        if protocol:
-            endpoint, is_chat = self._endpoint_for_protocol(protocol)
+        # Use explicit protocol when provided (snapshot-provided), else use
+        # the curated model specification to select transport and endpoint.
+        selected_protocol = protocol or OPENCODE_MODEL_SPECS.get(model, {}).get("protocol")
+        if selected_protocol:
+            endpoint, is_chat = self._endpoint_for_protocol(selected_protocol, model)
         else:
             endpoint, is_chat = self._endpoint_for(model)
+        is_messages = selected_protocol == "messages"
         user_content = json.dumps(context, indent=2, default=str)
-        if is_chat:
+        if is_messages:
+            body: dict[str, Any] = {
+                "model": model,
+                "max_tokens": 4096,
+                "system": instructions,
+                "messages": [{"role": "user", "content": user_content}],
+                "tools": [{
+                    "name": schema_name,
+                    "description": "Return the requested structured result.",
+                    "input_schema": schema,
+                }],
+                "tool_choice": {"type": "tool", "name": schema_name},
+            }
+        elif is_chat:
             body: dict[str, Any] = {
                 "model": model,
                 "messages": [
@@ -371,16 +429,30 @@ class OpenCodeClient:
             }
         started = time.monotonic()
         async with httpx.AsyncClient(timeout=60.0) as client:
+            headers = self._request_headers()
+            if is_messages:
+                headers["anthropic-version"] = "2023-06-01"
             response = await client.post(
                 endpoint,
-                headers=self._request_headers(),
+                headers=headers,
                 json=body,
             )
             response.raise_for_status()
             data = response.json()
         latency_ms = int((time.monotonic() - started) * 1000)
         telemetry = _usage_telemetry(data, latency_ms, model=model)
-        if is_chat:
+        if is_messages:
+            text = ""
+            for part in data.get("content") or []:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "tool_use" and isinstance(part.get("input"), dict):
+                    text = json.dumps(part["input"])
+                    break
+                if part.get("type") == "text" and isinstance(part.get("text"), str):
+                    text = part["text"]
+                    break
+        elif is_chat:
             choices = data.get("choices") or []
             text = ""
             if choices and isinstance(choices[0], dict):
