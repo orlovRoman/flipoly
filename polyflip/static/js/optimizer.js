@@ -6,8 +6,24 @@ let currentAgentRunId = null;
 let currentPendingApprovalId = null;
 let activeOptTab = "runs";
 let runsRefreshTimer = null;
+let runsPage = 1;
+let runsPages = 1;
+const RUNS_PAGE_SIZE = 10;
 let apiKeyPromptShown = false;
 let aiLabApiKey = "";
+
+const DELETABLE_RUN_STATUSES = new Set([
+  "DRAFT",
+  "COMPLETED",
+  "INSUFFICIENT_DATA",
+  "RESEARCH_PROVISIONAL",
+  "INSUFFICIENT_EVIDENCE",
+  "TECHNICAL_INVALID",
+  "FAILED",
+  "REJECTED",
+  "CANCELLED",
+  "ROLLED_BACK",
+]);
 
 // Initialize when DOM loaded
 document.addEventListener("DOMContentLoaded", () => {
@@ -84,8 +100,31 @@ function formatStatusBadge(status) {
 
 // Compatibility aliases for the existing template contract. Stage 9 keeps
 // these read-only and deliberately does not expose deployment mutations.
-function loadRuns(silent = false) { return loadOptimizationRuns(silent); }
+function loadRuns(silent = false) {
+  runsPage = 1;
+  return loadOptimizationRuns(silent);
+}
 function closeModal(id) { const modal = document.getElementById(id); if (modal) modal.classList.remove("show"); }
+
+function renderRunsPagination(data = {}) {
+  const pageInfo = document.getElementById("runs-page-info");
+  const prev = document.getElementById("runs-prev-page");
+  const next = document.getElementById("runs-next-page");
+  runsPage = Number(data.page) || runsPage || 1;
+  runsPages = Math.max(Number(data.pages) || 1, 1);
+  if (pageInfo) {
+    pageInfo.textContent = `Стр. ${runsPage} из ${runsPages} · всего ${Number(data.total) || 0}`;
+  }
+  if (prev) prev.disabled = runsPage <= 1;
+  if (next) next.disabled = runsPage >= runsPages;
+}
+
+async function changeRunsPage(delta) {
+  const nextPage = runsPage + Number(delta || 0);
+  if (nextPage < 1 || nextPage > runsPages || nextPage === runsPage) return;
+  runsPage = nextPage;
+  await loadOptimizationRuns();
+}
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return "";
@@ -137,12 +176,19 @@ async function loadOptimizationRuns(silent = false) {
   }
 
   try {
-    const res = await fetch(`${window.API_BASE}/api/ai-lab/runs?limit=50`, {
+    const status = document.getElementById("filter-run-status")?.value || "";
+    const params = new URLSearchParams({
+      page: String(runsPage),
+      page_size: String(RUNS_PAGE_SIZE),
+    });
+    if (status) params.set("status", status);
+    const res = await fetch(`${window.API_BASE}/api/ai-lab/runs?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const runs = data.runs || [];
+    renderRunsPagination(data);
 
     if (runs.length === 0) {
       tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Запусков оптимизатора не найдено. Нажмите «Новый PAPER/RESEARCH запуск» для старта.</td></tr>`;
@@ -155,7 +201,12 @@ async function loadOptimizationRuns(silent = false) {
         const asset = (r.scope && r.scope.asset) || "BTCUSDT";
         const objective = r.objective || "Автономная оптимизация";
         const statusBadge = formatStatusBadge(r.status);
-        const actionBtn = `<button class="btn btn-secondary btn-sm" onclick="selectRun(${r.id})">🔍 Детали / Анализ</button>`;
+        const canDelete = DELETABLE_RUN_STATUSES.has(String(r.status || "").toUpperCase());
+        const deleteTitle = canDelete
+          ? "Удалить завершённый запуск"
+          : "Активный запуск удалить нельзя";
+        const deleteBtn = `<button class="btn btn-danger btn-sm" type="button" title="${deleteTitle}" ${canDelete ? `onclick="event.stopPropagation(); deleteRun(${r.id})"` : "disabled"}>🗑️ Удалить</button>`;
+        const actionBtn = `<div style="display:flex; gap:0.4rem; flex-wrap:wrap;"><button class="btn btn-secondary btn-sm" type="button" onclick="event.stopPropagation(); selectRun(${r.id})">🔍 Детали / Анализ</button>${deleteBtn}</div>`;
 
         return `
         <tr class="run-row ${currentSelectedRunId === r.id ? "selected-row" : ""}" onclick="selectRun(${r.id})">
@@ -179,6 +230,30 @@ async function loadOptimizationRuns(silent = false) {
     if (!silent) {
       tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--color-failed); padding: 2rem;">Ошибка загрузки запусков: ${escapeHtml(err.message)}</td></tr>`;
     }
+  }
+}
+
+async function deleteRun(runId) {
+  if (!runId) return;
+  if (!window.confirm(`Удалить запуск #${runId} и связанные шаги/результаты?`)) return;
+
+  try {
+    const res = await fetch(`${window.API_BASE}/api/ai-lab/runs/${runId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload.detail || `HTTP ${res.status}`);
+
+    if (currentSelectedRunId === runId) {
+      currentSelectedRunId = null;
+      switchOptTab("runs");
+    }
+    await loadOptimizationRuns();
+    showToast(`Запуск #${runId} удалён.`, "success");
+  } catch (err) {
+    console.error("deleteRun error:", err);
+    showToast(`Не удалось удалить запуск: ${err.message}`, "error");
   }
 }
 
@@ -910,8 +985,7 @@ async function checkSelectedLLMModel() {
   }
   for (const modelId of ids) {
     try {
-      const url = `${window.API_BASE}/api/ai-lab/llm/models/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/check`;
-      const res = await fetch(url, { method: "POST", headers: getAuthHeaders() });
+      const res = await fetch(`${window.API_BASE}/api/ai-lab/llm/models/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/check`, { method: "POST", headers: getAuthHeaders() });
       if (!res.ok) throw new Error(await responseError(res));
       const data = await res.json();
       if (llmCatalogCache) {

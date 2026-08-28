@@ -17,7 +17,8 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException
 import structlog
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.executor import ExecutionBatchError
@@ -70,6 +71,8 @@ from polyflip.db.models import (
     AIApprovalRequest,
     AIConfigOverlay,
     AIExperimentConfig,
+    AIExperimentJob,
+    AIModelArtifact,
     AIOptimizationRun,
     AIPermission,
     AIRunStep,
@@ -89,6 +92,21 @@ router = APIRouter(
 )
 
 logger = structlog.get_logger(__name__)
+
+DELETABLE_RUN_STATUSES = frozenset(
+    {
+        "DRAFT",
+        "COMPLETED",
+        "INSUFFICIENT_DATA",
+        "RESEARCH_PROVISIONAL",
+        "INSUFFICIENT_EVIDENCE",
+        "TECHNICAL_INVALID",
+        "FAILED",
+        "REJECTED",
+        "CANCELLED",
+        "ROLLED_BACK",
+    }
+)
 
 
 class WorkerRunRequest(BaseModel):
@@ -830,23 +848,121 @@ async def list_ai_runs(
     created_by: str | None = None,
     before_id: int | None = None,
     limit: int = 50,
+    page: int = 1,
+    page_size: int | None = None,
     db: AsyncSession = Depends(get_db_session),
 ):
-    # Cursor pagination is stable even when multiple runs share a timestamp.
-    limit = min(max(limit, 1), 100)
-    query = select(AIOptimizationRun).order_by(AIOptimizationRun.id.desc()).limit(limit)
+    # ``before_id`` remains supported for workers/older clients. The dashboard
+    # uses page/page_size so it can render deterministic previous/next controls.
+    page = max(page, 1)
+    page_size = min(max(page_size if page_size is not None else limit, 1), 100)
+    filters = []
     if status:
-        query = query.where(AIOptimizationRun.status == status.strip().upper())
+        filters.append(AIOptimizationRun.status == status.strip().upper())
     if created_by:
-        query = query.where(AIOptimizationRun.created_by == created_by.strip())
+        filters.append(AIOptimizationRun.created_by == created_by.strip())
     if before_id is not None:
-        query = query.where(AIOptimizationRun.id < before_id)
+        filters.append(AIOptimizationRun.id < before_id)
+
+    total = int(
+        (await db.execute(
+            select(func.count(AIOptimizationRun.id)).where(*filters)
+        )).scalar_one()
+    )
+    total_pages = max((total + page_size - 1) // page_size, 1)
+
+    query = (
+        select(AIOptimizationRun)
+        .where(*filters)
+        .order_by(AIOptimizationRun.id.desc())
+        .limit(page_size)
+    )
+    if before_id is None:
+        query = query.offset((page - 1) * page_size)
     rows = (await db.execute(query)).scalars().all()
-    next_before_id = rows[-1].id if len(rows) == limit else None
+    has_next = (
+        len(rows) == page_size
+        if before_id is not None
+        else page < total_pages
+    )
+    next_before_id = rows[-1].id if rows and has_next else None
     return {
         "runs": [_run_payload(row) for row in rows],
         "next_before_id": next_before_id,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "pages": total_pages,
+        "has_next": has_next,
+        "has_prev": before_id is None and page > 1,
     }
+
+
+@router.delete("/runs/{run_id}")
+async def delete_ai_run(
+    run_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Delete a finished AI Lab run and its run-owned execution records."""
+    run = (
+        await db.execute(
+            select(AIOptimizationRun)
+            .where(AIOptimizationRun.id == run_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=404, detail="AI Lab run not found")
+    if run.status not in DELETABLE_RUN_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"run {run_id} cannot be deleted from {run.status}",
+        )
+
+    # A terminal run should not have a lease, but explicitly check it so a
+    # stale worker can never race a destructive operation.
+    lease = (
+        await db.execute(
+            select(AIWorkerLease.id).where(AIWorkerLease.run_id == run_id)
+        )
+    ).scalar_one_or_none()
+    if lease is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"run {run_id} is still leased by a worker",
+        )
+
+    # Preserve immutable artifacts and historical shadow observations while
+    # removing the run-owned rows. PostgreSQL has SET NULL FKs for these; the
+    # explicit updates keep the same behavior in SQLite-based tests.
+    for model in (AIModelArtifact, AIShadowAssignment, AIShadowObservation):
+        await db.execute(
+            update(model).where(model.run_id == run_id).values(run_id=None)
+        )
+
+    # Delete children explicitly instead of relying only on database cascades;
+    # this also makes the operation deterministic for all supported databases.
+    for model in (
+        AIWorkerLease,
+        AIExperimentJob,
+        AIStepAuditLog,
+        ExperimentResult,
+        AIApprovalRequest,
+        AIConfigOverlay,
+        AIRunStep,
+    ):
+        await db.execute(delete(model).where(model.run_id == run_id))
+
+    await db.execute(delete(AIOptimizationRun).where(AIOptimizationRun.id == run_id))
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="run cannot be deleted because it is referenced by another record",
+        ) from exc
+    return {"deleted": True, "run_id": run_id}
 
 
 @router.get("/runs/{run_id}")
