@@ -661,6 +661,11 @@
                 <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Загрузка списка запусков...</td></tr>
               </tbody>
             </table>
+            <div id="runs-pagination" class="table-pagination" style="display:flex; justify-content:flex-end; align-items:center; gap:0.75rem; margin-top:1rem;">
+              <button class="btn btn-outline btn-sm" id="runs-prev-page" type="button" onclick="changeRunsPage(-1)" disabled>← Назад</button>
+              <span id="runs-page-info" style="color:var(--text-muted); font-size:0.85rem;">Стр. 1 из 1</span>
+              <button class="btn btn-outline btn-sm" id="runs-next-page" type="button" onclick="changeRunsPage(1)" disabled>Вперёд →</button>
+            </div>
           </div>
         </div>
 
