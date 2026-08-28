@@ -206,7 +206,7 @@ async function loadOptimizationRuns(silent = false) {
           ? "Удалить завершённый запуск"
           : "Активный запуск удалить нельзя";
         const deleteBtn = `<button class="btn btn-danger btn-sm" type="button" title="${deleteTitle}" ${canDelete ? `onclick="event.stopPropagation(); deleteRun(${r.id})"` : "disabled"}>🗑️ Удалить</button>`;
-        const actionBtn = `<div style="display:flex; gap:0.4rem; flex-wrap:wrap;"><button class="btn btn-secondary btn-sm" type="button" onclick="event.stopPropagation(); selectRun(${r.id})">🔍 Детали / Анализ</button>${deleteBtn}</div>`;
+        const actionBtn = `<div class="run-actions" aria-label="Действия запуска"><button class="btn btn-secondary btn-sm" type="button" onclick="event.stopPropagation(); selectRun(${r.id})">🔍 Детали / Анализ</button>${deleteBtn}</div>`;
 
         return `
         <tr class="run-row ${currentSelectedRunId === r.id ? "selected-row" : ""}" onclick="selectRun(${r.id})">

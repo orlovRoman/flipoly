@@ -32,8 +32,10 @@
       flex-direction: column;
       gap: 1.5rem;
       padding: 1.5rem 2rem 3rem 2rem;
-      max-width: 1600px;
-      margin: 0 auto;
+      width: 100%;
+      max-width: none;
+      margin: 0;
+      box-sizing: border-box;
     }
 
     /* Active Model Hero Banner */
@@ -263,6 +265,49 @@
 
     .opt-table tr:hover td {
       background: var(--bg-panel-hover);
+    }
+
+    /* Full-width runs list and compact, side-by-side actions. */
+    .runs-panel {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .runs-panel .panel-header {
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .runs-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .runs-panel .opt-table {
+      min-width: 1060px;
+    }
+
+    .runs-panel .opt-table th:last-child,
+    .runs-panel .opt-table td:last-child {
+      min-width: 232px;
+      white-space: nowrap;
+    }
+
+    .run-actions {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: nowrap;
+      gap: 0.5rem;
+      white-space: nowrap;
+    }
+
+    .run-actions .btn {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.78rem;
+      white-space: nowrap;
     }
 
     /* Buttons */
@@ -623,10 +668,10 @@
 
         <!-- TAB 1: RUNS LIST -->
         <div id="tab-runs" class="tab-pane">
-          <div class="opt-panel">
+          <div class="opt-panel runs-panel">
             <div class="panel-header">
               <div class="panel-title">Экспериментальные прогоны (AIOptimizationRun)</div>
-              <div style="display: flex; gap: 0.75rem; align-items: center;">
+              <div class="runs-toolbar">
                 <select class="form-select" id="filter-run-status" onchange="loadRuns()" style="width: 180px;">
                   <option value="">Все статусы</option>
                   <option value="DRAFT">DRAFT</option>
