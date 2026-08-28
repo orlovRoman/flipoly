@@ -14,17 +14,62 @@ from typing import Any
 
 import httpx
 
-from polyflip.ai_lab.llm import (
-    DEFAULT_OPENCODE_CHAT_ENDPOINT,
-    DEFAULT_OPENCODE_CHAT_MODELS,
-    DEFAULT_OPENCODE_ENDPOINT,
-    DEFAULT_OPENCODE_GO_CHAT_ENDPOINT,
-    DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT,
-    DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT,
-    OPENCODE_GO_MODELS,
-    OPENCODE_MODEL_SPECS,
+DEFAULT_OPENCODE_ENDPOINT = "https://opencode.ai/zen/v1/responses"
+DEFAULT_OPENCODE_CHAT_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
+DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT = "https://opencode.ai/zen/go/v1/responses"
+DEFAULT_OPENCODE_GO_CHAT_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions"
+DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT = "https://opencode.ai/zen/go/v1/messages"
+_OPENCODE_GO_MODEL_PROTOCOLS = {
+    "grok-4.6": "responses",
+    "glm-5.3-flash": "chat_completions",
+    "glm-5.3": "chat_completions",
+    "glm-5.2": "chat_completions",
+    "glm-5.1": "chat_completions",
+    "gpt-5.6-luna": "responses",
+    "kimi-k3": "chat_completions",
+    "kimi-k2.7-code": "chat_completions",
+    "kimi-k2.6": "chat_completions",
+    "longcat-2.0": "chat_completions",
+    "mimo-v2.5": "chat_completions",
+    "mimo-v2.5-pro": "chat_completions",
+    "minimax-m3": "messages",
+    "minimax-m2.7": "messages",
+    "muse-spark-1.2-contributor": "responses",
+    "qwen3.8-max": "messages",
+    "qwen3.8-flash": "messages",
+    "qwen3.7-max": "messages",
+    "qwen3.7-plus": "messages",
+    "qwen3.6-plus": "messages",
+    "deepseek-v4-pro": "chat_completions",
+    "deepseek-v4-flash": "chat_completions",
+    "deepseek-v4-flash-vision-exp": "chat_completions",
+    "hy3": "chat_completions",
+}
+_OPENCODE_FREE_MODEL_PROTOCOLS = {
+    "big-pickle": "chat_completions",
+    "x-preview-f-free": "chat_completions",
+    "mimo-v2.5-free": "chat_completions",
+    "hy3-free": "chat_completions",
+    "nemotron-3-ultra-free": "chat_completions",
+    "nemotron-3.5-lightning-free": "chat_completions",
+    "muse-spark-1.2-contributor-free": "responses",
+}
+OPENCODE_GO_MODELS = frozenset(_OPENCODE_GO_MODEL_PROTOCOLS)
+OPENCODE_MODEL_SPECS = {
+    model_id: {"protocol": protocol, "is_go": True}
+    for model_id, protocol in _OPENCODE_GO_MODEL_PROTOCOLS.items()
+}
+OPENCODE_MODEL_SPECS.update(
+    {
+        model_id: {"protocol": protocol, "is_go": False}
+        for model_id, protocol in _OPENCODE_FREE_MODEL_PROTOCOLS.items()
+    }
 )
-
+DEFAULT_OPENCODE_CHAT_MODELS = {
+    model_id
+    for model_id, spec in OPENCODE_MODEL_SPECS.items()
+    if spec["protocol"] == "chat_completions"
+}
 DEFAULT_RESPONSES_ENDPOINT = DEFAULT_OPENCODE_ENDPOINT
 DEFAULT_CHAT_ENDPOINT = DEFAULT_OPENCODE_CHAT_ENDPOINT
 DEFAULT_CHAT_MODELS = set(DEFAULT_OPENCODE_CHAT_MODELS)
