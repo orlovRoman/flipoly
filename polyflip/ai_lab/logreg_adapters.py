@@ -50,6 +50,15 @@ LOGREG_MODEL_FAMILIES = frozenset(
     {"LOGREG", "LOGISTIC", "LOGISTIC_REGRESSION", "LOGISTICREGRESSION"}
 )
 REGIMES = ("contested", "leaning", "decided")
+FEATURE_SET_ALIASES = {
+    "FS_D0": "A",
+    "FS_D1": "B",
+    "FS_D2": "C",
+    "FS_D3": "C",
+    "FS_D4": "C",
+    "FS_D5": "C",
+    "DEFAULT": "AUTO",
+}
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -306,10 +315,12 @@ async def train_logreg(context: StepContext, session: AsyncSession) -> AdapterRe
             )
         ).scalars().all()
     }
+    requested_feature_set = str(context.feature_set or "AUTO").strip().upper()
+    feature_set = FEATURE_SET_ALIASES.get(requested_feature_set, requested_feature_set)
     trained = await ModelTrainer(session).train(
         asset,
         save_settings=False,
-        feature_set=context.feature_set or "AUTO",
+        feature_set=feature_set,
         activate_after_train=False,
     )
     if not trained:

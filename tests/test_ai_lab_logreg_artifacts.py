@@ -40,6 +40,18 @@ def _context():
     )
 
 
+def test_logreg_feature_set_aliases_match_trainer_contract():
+    assert logreg_adapters.FEATURE_SET_ALIASES == {
+        "FS_D0": "A",
+        "FS_D1": "B",
+        "FS_D2": "C",
+        "FS_D3": "C",
+        "FS_D4": "C",
+        "FS_D5": "C",
+        "DEFAULT": "AUTO",
+    }
+
+
 def test_logreg_train_artifact_contains_exact_linked_bundle_contract():
     row = SimpleNamespace(
         id=77,
