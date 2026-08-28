@@ -334,6 +334,12 @@ async def refresh_model_catalog(
         )
         or ""
     )
+    # With no discovery endpoint configured, the curated OpenCode catalogue
+    # is the source of truth. Do not let an old DB cache shrink the UI list.
+    if provider_name == "opencode" and not endpoint.strip():
+        return _catalog_response(
+            static_shape(), [], source="static", stale=False, checked_at=now
+        )
     ttl_seconds = int(
         getattr(cfg, f"AI_LAB_{prefix}_CATALOG_TTL_SECONDS", DEFAULT_TTL_SECONDS)
         or DEFAULT_TTL_SECONDS
@@ -913,6 +919,18 @@ async def resolve_llm_snapshot(
             for row in rows
             if provider_name != "opencode" or row.model_id in OPENCODE_MODEL_SPECS
         }
+        if provider_name == "opencode" and not str(
+            getattr(cfg, "AI_LAB_OPENCODE_MODELS_ENDPOINT", "") or ""
+        ).strip():
+            requested = {
+                value.strip()
+                for value in (research_model, summary_model)
+                if isinstance(value, str) and value.strip()
+            }
+            # Keep probe validation for explicitly cached models, while an
+            # unprobed static-list selection follows the legacy path.
+            if not requested or not requested.issubset(by_id):
+                by_id = {}
         if not by_id and str(
             getattr(
                 cfg,
