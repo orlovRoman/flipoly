@@ -530,10 +530,11 @@ async function loadAgentStatus() {
     if (metaEl) metaEl.textContent = `${state.toUpperCase()} · ${data.health || "unknown"}`;
     if (queueEl) queueEl.textContent = String(data.queue_count ?? 0);
     const current = data.current_run;
+    const displayedRun = current || data.latest_run;
     currentAgentRunId = current ? current.id : null;
     updateRunControls(current);
     if (runEl) runEl.textContent = current ? `#${current.id} · ${current.status} · итерация ${current.iteration ?? 0}/${current.budget_experiments ?? "—"} · ${current.phase || "—"}` : "Нет активного run";
-    if (modelEl) modelEl.textContent = current ? `${current.research_model || "—"} / ${current.summary_model || "—"}` : "—";
+    if (modelEl) modelEl.textContent = displayedRun ? `${displayedRun.research_model || "—"} / ${displayedRun.summary_model || "—"}` : "—";
     const hypothesis = data.current_hypothesis;
     if (hypothesisEl) hypothesisEl.textContent = hypothesis && typeof hypothesis === "object" ? (hypothesis.hypothesis || JSON.stringify(hypothesis)) : (hypothesis || "—");
     const oot = data.latest_oot_result;

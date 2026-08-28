@@ -175,6 +175,13 @@ class TestAILabAgentPhase10(unittest.TestCase):
         with self.assertRaises(AILabError):
             canonical_feature_set("FS_UNKNOWN")
 
+    def test_legacy_agent_decision_action_is_normalized(self):
+        decision = AgentDecision(
+            action="HOLD_LIVE_RETRY_PAPER_TRAIN_ONLY",
+            rationale="Retry the paper-only training experiment.",
+        )
+        self.assertEqual(decision.action, "CONTINUE_RESEARCH")
+
     def test_nullable_experiment_counter_is_normalized(self):
         self.assertEqual(_completed_experiments(type("Run", (), {"experiments_completed": None})()), 0)
         self.assertEqual(_completed_experiments(type("Run", (), {"experiments_completed": "2"})()), 2)

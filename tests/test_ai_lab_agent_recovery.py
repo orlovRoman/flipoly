@@ -127,6 +127,39 @@ async def test_status_endpoint_exposes_queue_and_active_overlays(db_session):
 
 
 @pytest.mark.asyncio
+async def test_status_surfaces_failed_step_error_and_last_models(db_session):
+    run_id = await _seed_run(db_session)
+    run = await db_session.get(AIOptimizationRun, run_id)
+    run.status = "FAILED"
+    run.error = None
+    run.summary = "agent iteration failed"
+    run.llm_provider = "opencode"
+    run.llm_research_model = "grok-4.6"
+    run.llm_summary_model = "muse-spark-1.2-contributor-free"
+    db_session.add(
+        AIRunStep(
+            run_id=run_id,
+            step_index=0,
+            step_type="TRAIN_MODEL",
+            status="FAILED",
+            error_code="ADAPTER_EXECUTION_FAILED",
+            error_message="feature_set must be AUTO, A, B or C",
+            summary="TRAIN_MODEL adapter failed.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.commit()
+
+    payload = await get_ai_agent_status(db_session)
+
+    assert payload["state"] == "error"
+    assert payload["health"] == "degraded"
+    assert payload["latest_error"]["message"] == "feature_set must be AUTO, A, B or C"
+    assert payload["latest_error"]["error_code"] == "ADAPTER_EXECUTION_FAILED"
+    assert payload["latest_run"]["research_model"] == "grok-4.6"
+
+
+@pytest.mark.asyncio
 async def test_apply_overlay_decision_persists_effect_and_scope(db_session):
     run_id = await _seed_run(
         db_session,

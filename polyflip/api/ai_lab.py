@@ -691,14 +691,43 @@ async def get_ai_agent_status(db: AsyncSession = Depends(get_db_session)):
         or 0
     )
     current_run = await db.get(AIOptimizationRun, lease.run_id) if lease else None
-    latest_failed = (
+    latest_run = (
         await db.execute(
             select(AIOptimizationRun)
-            .where(AIOptimizationRun.status == "FAILED")
             .order_by(AIOptimizationRun.updated_at.desc(), AIOptimizationRun.id.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
+    latest_failed = (
+        latest_run
+        if latest_run is not None and latest_run.status == "FAILED"
+        else None
+    )
+    failed_step = None
+    failed_result = None
+    if latest_failed is not None:
+        failed_step = (
+            await db.execute(
+                select(AIRunStep)
+                .where(
+                    AIRunStep.run_id == latest_failed.id,
+                    AIRunStep.status == "FAILED",
+                )
+                .order_by(AIRunStep.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        failed_result = (
+            await db.execute(
+                select(ExperimentResult)
+                .where(
+                    ExperimentResult.run_id == latest_failed.id,
+                    ExperimentResult.status == "FAILED",
+                )
+                .order_by(ExperimentResult.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
     latest_step = None
     if current_run is not None:
         latest_step = (
@@ -830,13 +859,44 @@ async def get_ai_agent_status(db: AsyncSession = Depends(get_db_session)):
         "health": "healthy" if state != "error" else "degraded",
         "queue_count": queue_count,
         "current_run": current,
+        "latest_run": (
+            {
+                "id": latest_run.id,
+                "status": latest_run.status,
+                "research_model": latest_run.llm_research_model,
+                "summary_model": latest_run.llm_summary_model,
+                "iteration": int(latest_run.experiments_completed or 0),
+                "budget_experiments": latest_run.budget_experiments,
+            }
+            if latest_run is not None
+            else None
+        ),
         "latest_telemetry": telemetry,
         "current_hypothesis": current_hypothesis,
         "decision_history": decision_history,
         "latest_oot_result": latest_oot_result,
         "active_overlays": active_overlays,
         "latest_error": (
-            {"run_id": latest_failed.id, "message": latest_failed.error}
+            {
+                "run_id": latest_failed.id,
+                "message": (
+                    latest_failed.error
+                    or (failed_step.error_message if failed_step else None)
+                    or (failed_result.error_message if failed_result else None)
+                    or latest_failed.summary
+                    or (failed_step.summary if failed_step else None)
+                    or (failed_result.summary if failed_result else None)
+                    or "AI Lab run failed"
+                ),
+                "error_code": (
+                    failed_step.error_code
+                    if failed_step is not None
+                    else failed_result.error_code
+                    if failed_result is not None
+                    else None
+                ),
+                "step_id": failed_step.id if failed_step is not None else None,
+            }
             if latest_failed is not None
             else None
         ),

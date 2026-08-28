@@ -18,6 +18,18 @@ logger = structlog.get_logger("polyflip.ai_lab.llm")
 ALLOWED_MODEL_FAMILIES = {"LOGREG", "LIGHTGBM", "LogisticRegression", "LightGBM"}
 ALLOWED_FEATURE_SETS = {"FS_D0", "FS_D1", "FS_D2", "FS_D3", "FS_D4", "FS_D5", "DEFAULT"}
 ALLOWED_MARKET_ROLES = {"FAVORITE", "OUTSIDER", "COMBINED", "DIRECTION_ONLY", "ALL"}
+AGENT_ACTIONS = (
+    "CONTINUE_RESEARCH",
+    "MUTATE_HYPOTHESIS",
+    "RECOMMEND_SHADOW",
+    "FINALIZE_NO_WINNER",
+    "APPLY_OVERLAY",
+    "REQUEST_LIVE_APPROVAL",
+    "STOP_BUDGET_EXHAUSTED",
+)
+AGENT_ACTION_ALIASES = {
+    "HOLD_LIVE_RETRY_PAPER_TRAIN_ONLY": "CONTINUE_RESEARCH",
+}
 ALLOWED_ASSETS = {
     "BTC", "ETH", "SOL", "XRP", "DOGE",
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
@@ -364,7 +376,7 @@ class AgentDecision(BaseModel):
 
     action: str = Field(
         ...,
-        description="Action to take: CONTINUE_RESEARCH, MUTATE_HYPOTHESIS, RECOMMEND_SHADOW, FINALIZE_NO_WINNER, APPLY_OVERLAY, REQUEST_LIVE_APPROVAL",
+        description="Use exactly one action: CONTINUE_RESEARCH, MUTATE_HYPOTHESIS, RECOMMEND_SHADOW, FINALIZE_NO_WINNER, APPLY_OVERLAY, REQUEST_LIVE_APPROVAL, or STOP_BUDGET_EXHAUSTED.",
     )
     rationale: str = Field(..., min_length=10, description="Detailed explanation of the analytical reasoning")
     key_findings: list[str] = Field(default_factory=list, description="Key empirical observations from OOT metrics")
@@ -377,18 +389,13 @@ class AgentDecision(BaseModel):
     @field_validator("action")
     @classmethod
     def validate_action(cls, v: str) -> str:
-        allowed = {
-            "CONTINUE_RESEARCH",
-            "MUTATE_HYPOTHESIS",
-            "RECOMMEND_SHADOW",
-            "FINALIZE_NO_WINNER",
-            "APPLY_OVERLAY",
-            "REQUEST_LIVE_APPROVAL",
-            "STOP_BUDGET_EXHAUSTED",
-        }
-        if v.upper() not in allowed:
-            raise ValueError(f"Invalid agent action '{v}'. Must be one of {sorted(allowed)}")
-        return v.upper()
+        normalized = str(v).strip().upper()
+        normalized = AGENT_ACTION_ALIASES.get(normalized, normalized)
+        if normalized not in AGENT_ACTIONS:
+            raise ValueError(
+                f"Invalid agent action '{v}'. Must be one of {sorted(AGENT_ACTIONS)}"
+            )
+        return normalized
 
 
 class LLMUsageStats(BaseModel):
@@ -670,7 +677,7 @@ class OpenAIResponsesProvider:
         return {
             "type": "object",
             "properties": {
-                "action": {"type": "string"},
+                "action": {"type": "string", "enum": list(AGENT_ACTIONS)},
                 "rationale": {"type": "string"},
                 "key_findings": {"type": "array", "items": {"type": "string"}},
                 "recommended_config_id": {"type": ["integer", "null"]},

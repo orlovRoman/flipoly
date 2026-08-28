@@ -32,11 +32,11 @@ from polyflip.db.models import AIExperimentConfig, AIOptimizationRun, AIWorkerLe
 
 
 VALID_PROPOSAL = {
-    "hypothesis": "Calibrated LogReg on FS_D1 improves outsider OOT PnL",
+    "hypothesis": "Calibrated LogReg on FS_D2 improves outsider OOT PnL",
     "asset": "BTC",
     "market_role": "OUTSIDER",
     "model_family": "LOGREG",
-    "feature_set": "FS_D1",
+    "feature_set": "FS_D2",
     "parameter_changes": [{"key": "C", "value": 0.5}],
     "strategy_parameter_changes": [{"key": "decision_threshold", "value": 0.58}],
     "expected_effect": {
@@ -194,6 +194,8 @@ async def test_proposal_creates_config_and_canonical_steps(db_session):
     assert result["config_id"] > 0
     config = await db_session.get(AIExperimentConfig, result["config_id"])
     assert config.model_family == "LogisticRegression"
+    assert config.feature_set == "C"
+    assert config.strategy_params["requested_feature_set"] == "FS_D2"
     assert config.created_by == "external-agent"
     phase = await get_agent_phase(
         run_id,

@@ -101,6 +101,20 @@ DEFAULT_OPENROUTER_MODELS = {
 }
 ALLOWED_MARKET_ROLES = ("FAVORITE", "OUTSIDER", "COMBINED", "DIRECTION_ONLY", "ALL")
 _MARKET_ROLE_ALIASES = {"TAKER": "OUTSIDER"}
+ALLOWED_AGENT_ACTIONS = (
+    "CONTINUE_RESEARCH",
+    "MUTATE_HYPOTHESIS",
+    "RECOMMEND_SHADOW",
+    "FINALIZE_NO_WINNER",
+    "APPLY_OVERLAY",
+    "REQUEST_LIVE_APPROVAL",
+    "STOP_BUDGET_EXHAUSTED",
+)
+AGENT_ACTION_ALIASES = {
+    # Historical model wording: explicitly paper-only, so it maps to the
+    # existing action that requeues research when budget remains.
+    "HOLD_LIVE_RETRY_PAPER_TRAIN_ONLY": "CONTINUE_RESEARCH",
+}
 
 
 def _kv_schema() -> dict[str, Any]:
@@ -173,7 +187,7 @@ def _decision_schema() -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
-            "action": {"type": "string"},
+            "action": {"type": "string", "enum": list(ALLOWED_AGENT_ACTIONS)},
             "rationale": {"type": "string"},
             "key_findings": {"type": "array", "items": {"type": "string"}},
             "recommended_config_id": {"type": ["integer", "null"]},
@@ -209,6 +223,15 @@ def _coerce_kv_lists(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(role, str):
         normalized = role.strip().upper()
         result["market_role"] = _MARKET_ROLE_ALIASES.get(normalized, normalized)
+    return result
+
+
+def _coerce_decision_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    result = _coerce_kv_lists(payload)
+    action = result.get("action")
+    if isinstance(action, str):
+        normalized = action.strip().upper()
+        result["action"] = AGENT_ACTION_ALIASES.get(normalized, normalized)
     return result
 
 
@@ -538,7 +561,14 @@ class OpenCodeClient:
                         break
         if not text:
             raise ValueError(f"{schema_name}: empty structured output from {model} ({self.provider})")
-        return _coerce_kv_lists(json.loads(text)), telemetry
+        payload = json.loads(text)
+        if not isinstance(payload, dict):
+            raise ValueError(f"{schema_name}: structured output must be an object")
+        if schema_name == "agent_decision":
+            payload = _coerce_decision_payload(payload)
+        else:
+            payload = _coerce_kv_lists(payload)
+        return payload, telemetry
 
     async def propose_hypothesis(self, context: dict[str, Any]) -> dict[str, Any]:
         # Snapshot provides explicit per-model protocol; use it when available.
@@ -573,7 +603,11 @@ class OpenCodeClient:
             protocol=protocol,
             instructions=(
                 "Analyze Polymarket-OOT results versus baseline and choose one "
-                "action. Never request direct LIVE activation."
+                "exactly one action from this list: CONTINUE_RESEARCH, "
+                "MUTATE_HYPOTHESIS, RECOMMEND_SHADOW, FINALIZE_NO_WINNER, "
+                "APPLY_OVERLAY, REQUEST_LIVE_APPROVAL, or "
+                "STOP_BUDGET_EXHAUSTED. Use the exact uppercase token. Never "
+                "request direct LIVE activation."
             ),
             context={
                 "context": context,

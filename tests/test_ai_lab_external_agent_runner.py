@@ -598,6 +598,21 @@ def test_decision_schema_describes_overlay_items_as_objects():
     assert overlay["items"]["type"] == "object"
     assert overlay["items"]["required"] == ["key", "value"]
 
+
+def test_decision_schema_enumerates_actions_and_normalizes_legacy_alias():
+    from opencode_client import _coerce_decision_payload, _decision_schema
+
+    actions = _decision_schema()["properties"]["action"]["enum"]
+    assert "CONTINUE_RESEARCH" in actions
+    assert "HOLD_LIVE_RETRY_PAPER_TRAIN_ONLY" not in actions
+    assert (
+        _coerce_decision_payload(
+            {"action": "HOLD_LIVE_RETRY_PAPER_TRAIN_ONLY"}
+        )["action"]
+        == "CONTINUE_RESEARCH"
+    )
+
+
 def test_opencode_decision_uses_snapshot_summary_model():
     from opencode_client import OpenCodeClient
 

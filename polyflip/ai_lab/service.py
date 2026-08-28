@@ -362,7 +362,38 @@ async def create_experiment_config(
     created_by: str = "system",
     parent_id: int | None = None,
 ) -> AIExperimentConfig:
-    if str(model_family).strip().upper() in {"LGBM", "LIGHTGBM", "CRYPTO_LGBM"}:
+    model_family_name = str(model_family).strip().upper()
+    normalized_strategy_params = dict(strategy_params)
+    if model_family_name in {
+        "LOGREG",
+        "LOGISTIC",
+        "LOGISTIC_REGRESSION",
+        "LOGISTICREGRESSION",
+        "LOGISTIC REGRESSION",
+    }:
+        feature_aliases = {
+            "FS_D0": "A",
+            "FS_D1": "B",
+            "FS_D2": "C",
+            "FS_D3": "C",
+            "FS_D4": "C",
+            "FS_D5": "C",
+            "DEFAULT": "AUTO",
+        }
+        requested_feature_set = str(feature_set or "AUTO").strip().upper()
+        canonical_feature_set = feature_aliases.get(
+            requested_feature_set, requested_feature_set
+        )
+        from polyflip.models.sequence_features import normalize_experiment_variant
+
+        try:
+            feature_set = normalize_experiment_variant(canonical_feature_set)
+        except ValueError as exc:
+            raise AILabError(str(exc)) from exc
+        normalized_strategy_params.setdefault(
+            "requested_feature_set", requested_feature_set
+        )
+    elif model_family_name in {"LGBM", "LIGHTGBM", "CRYPTO_LGBM"}:
         feature_aliases = {
             "FS_D0": "A",
             "FS_D1": "B",
@@ -392,7 +423,7 @@ async def create_experiment_config(
         "feature_set": feature_set,
         "feature_pipeline_version": feature_pipeline_version,
         "model_params": dict(model_params),
-        "strategy_params": dict(strategy_params),
+        "strategy_params": normalized_strategy_params,
         "backtest_params": dict(backtest_params),
         "parent_id": parent_id,
     }
