@@ -1114,7 +1114,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 method: 'POST', headers: getAuthHeaders()
             });
             if (res.ok) {
-                alert("Заявка переведена в RECONCILING");
+                alert("Запущена сверка заявки с Polymarket. Таблица обновится после ответа worker.");
                 loadLiveDashboard({ force: true });
             } else {
                 const err = await res.json();

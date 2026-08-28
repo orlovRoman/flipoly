@@ -1765,13 +1765,6 @@ async def reconcile_request(
     if req.requested_mode != "LIVE":
         raise HTTPException(409, "Сверка разрешена только для LIVE-заявок")
 
-    if req.state == "RECONCILING":
-        return {
-            "request_id": str(req.id),
-            "state": "RECONCILING",
-            "idempotent": True,
-        }
-
     allowed_states = {
         "SUBMITTING",
         "ACCEPTED",
@@ -1800,11 +1793,20 @@ async def reconcile_request(
             "Нет provider_order_id — сверка с Polymarket невозможна",
         )
 
+    previous_state = req.state
     req.state = "RECONCILING"
-    req.updated_at = datetime.now(timezone.utc)
+    # The worker skips requests touched less than 60 seconds ago. Move the
+    # timestamp just outside that debounce window so this button triggers a
+    # real provider check on the next worker cycle.
+    req.updated_at = datetime.now(timezone.utc) - timedelta(seconds=61)
     await db.commit()
 
-    return {"request_id": str(req.id), "state": "RECONCILING"}
+    return {
+        "request_id": str(req.id),
+        "state": "RECONCILING",
+        "previous_state": previous_state,
+        "queued": True,
+    }
 
 
 # ---------------------------------------------------------------------------
