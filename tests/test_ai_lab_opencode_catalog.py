@@ -7,7 +7,8 @@ from types import SimpleNamespace
 import pytest
 import sqlalchemy as sa
 
-import polyflip.ai_lab.llm_catalog as llm_catalog
+from polyflip.ai_lab import llm_catalog
+from polyflip.ai_lab.llm import DEFAULT_OPENCODE_MODELS, OPENCODE_MODEL_SPECS
 from polyflip.ai_lab.llm_catalog import normalize_models, refresh_model_catalog
 from polyflip.config import settings
 from polyflip.db.models import AILLMModelCatalog
@@ -90,7 +91,11 @@ async def test_refresh_live_upsert_marks_missing_rows_unavailable(
 ):
     _make_fetch(
         monkeypatch,
-        _payload({"id": "model-b", "name": "Model B"}, {"id": "model-a"}),
+        _payload(
+            {"id": "big-pickle", "name": "Big Pickle"},
+            {"id": "muse-spark-1.2-contributor-free"},
+            {"id": "gpt-5.6-sol", "name": "Legacy paid model"},
+        ),
     )
     cfg = _cfg()
 
@@ -100,25 +105,26 @@ async def test_refresh_live_upsert_marks_missing_rows_unavailable(
     assert first["source"] == "live"
     assert first["stale"] is False
     ids_first = {item["id"]: item for item in first["models"]}
-    assert set(ids_first) == {"model-a", "model-b"}
-    assert ids_first["model-b"]["label"] == "Model B"
+    assert set(ids_first) == {"big-pickle", "muse-spark-1.2-contributor-free"}
+    assert "gpt-5.6-sol" not in ids_first
+    assert ids_first["big-pickle"]["label"] == "Big Pickle"
 
     # Next discovery drops model-a: the cached row must become unavailable.
-    _make_fetch(monkeypatch, _payload({"id": "model-b", "name": "Model B"}))
+    _make_fetch(monkeypatch, _payload({"id": "big-pickle", "name": "Big Pickle"}))
     second = await refresh_model_catalog(
         db_session, provider="opencode", refresh=True, settings_obj=cfg
     )
     ids_second = {item["id"]: item for item in second["models"]}
-    assert set(ids_second) == {"model-a", "model-b"}
-    assert ids_second["model-a"]["is_available"] is False
+    assert set(ids_second) == {"big-pickle", "muse-spark-1.2-contributor-free"}
+    assert ids_second["muse-spark-1.2-contributor-free"]["is_available"] is False
 
     rows = (
         (await db_session.execute(sa.select(AILLMModelCatalog)))
         .scalars().all()
     )
     assert {row.model_id: row.is_available for row in rows} == {
-        "model-a": False,
-        "model-b": True,
+        "muse-spark-1.2-contributor-free": False,
+        "big-pickle": True,
     }
 
 
@@ -126,7 +132,7 @@ async def test_refresh_live_upsert_marks_missing_rows_unavailable(
 async def test_refresh_serves_stale_cache_when_endpoint_fails(
     db_session, monkeypatch
 ):
-    _make_fetch(monkeypatch, _payload({"id": "cached-model"}))
+    _make_fetch(monkeypatch, _payload({"id": "big-pickle"}))
     cfg = _cfg()
     await refresh_model_catalog(
         db_session, provider="opencode", refresh=True, settings_obj=cfg
@@ -146,7 +152,7 @@ async def test_refresh_serves_stale_cache_when_endpoint_fails(
     )
     assert result["source"] == "cache"
     assert result["stale"] is True
-    assert [item["id"] for item in result["models"]] == ["cached-model"]
+    assert [item["id"] for item in result["models"]] == ["big-pickle"]
     assert result["error"]
 
 
@@ -173,7 +179,7 @@ async def test_llm_models_endpoint_returns_dynamic_catalog(db_session, monkeypat
 
     _make_fetch(
         monkeypatch,
-        _payload({"id": "real-account-model", "name": "Real Model"}),
+        _payload({"id": "big-pickle", "name": "Big Pickle"}),
     )
     monkeypatch.setattr(
         settings, "AI_LAB_OPENCODE_MODELS_ENDPOINT", "http://opencode.test/models"
@@ -185,6 +191,15 @@ async def test_llm_models_endpoint_returns_dynamic_catalog(db_session, monkeypat
 
     assert payload["source"] == "live"
     assert payload["stale"] is False
-    assert [item["id"] for item in payload["models"]] == ["real-account-model"]
-    assert payload["defaults"]["research_model"] == "real-account-model"
+    assert [item["id"] for item in payload["models"]] == ["big-pickle"]
+    assert payload["defaults"]["research_model"] == "big-pickle"
     assert payload["checked_at"]
+
+
+def test_opencode_catalog_contains_only_go_and_free_models():
+    from polyflip.ai_lab.llm import get_llm_model_catalog
+
+    catalog = get_llm_model_catalog("opencode")
+    assert [item["id"] for item in catalog["models"]] == list(DEFAULT_OPENCODE_MODELS)
+    assert set(OPENCODE_MODEL_SPECS) == set(DEFAULT_OPENCODE_MODELS)
+    assert all(item["protocol"] in {"responses", "chat_completions", "messages"} for item in catalog["models"])

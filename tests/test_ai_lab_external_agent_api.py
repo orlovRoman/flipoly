@@ -950,8 +950,8 @@ async def test_claim_returns_snapshot_with_per_model_protocol(db_session):
     db_session.add(
         AILLMModelCatalog(
             provider="opencode",
-            model_id="resp-model",
-            display_name="resp",
+            model_id="gpt-5.6-luna",
+            display_name="GPT 5.6 Luna",
             protocol="responses",
             is_available=True,
             is_discovered=True,
@@ -964,8 +964,8 @@ async def test_claim_returns_snapshot_with_per_model_protocol(db_session):
     db_session.add(
         AILLMModelCatalog(
             provider="opencode",
-            model_id="chat-model",
-            display_name="chat",
+            model_id="big-pickle",
+            display_name="Big Pickle",
             protocol="chat_completions",
             is_available=True,
             is_discovered=True,
@@ -998,8 +998,8 @@ async def test_claim_returns_snapshot_with_per_model_protocol(db_session):
         budget_experiments=1,
         permission=perm,
         llm_provider="opencode",
-        llm_research_model="resp-model",
-        llm_summary_model="chat-model",
+        llm_research_model="gpt-5.6-luna",
+        llm_summary_model="big-pickle",
     )
     run.status = "QUEUED"
     await db_session.flush()
@@ -1009,14 +1009,14 @@ async def test_claim_returns_snapshot_with_per_model_protocol(db_session):
     snap = claimed.get("llm_snapshot")
     assert snap is not None
     assert snap["provider"] == "opencode"
-    assert snap["research"]["model_id"] == "resp-model"
+    assert snap["research"]["model_id"] == "gpt-5.6-luna"
     assert snap["research"]["protocol"] == "responses"
-    assert snap["summary"]["model_id"] == "chat-model"
+    assert snap["summary"]["model_id"] == "big-pickle"
     assert snap["summary"]["protocol"] == "chat_completions"
     assert snap["catalog_checked_at"]
     # Also flat legacy fields still present
-    assert claimed["llm_research_model"] == "resp-model"
-    assert claimed["llm_summary_model"] == "chat-model"
+    assert claimed["llm_research_model"] == "gpt-5.6-luna"
+    assert claimed["llm_summary_model"] == "big-pickle"
 
 
 def test_openapi_contains_hypothesis_and_decision_schemas():

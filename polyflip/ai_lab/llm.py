@@ -28,9 +28,83 @@ ALLOWED_ASSETS = {
 LLM_PROVIDERS = ("mock", "openai", "opencode", "openrouter")
 DEFAULT_OPENCODE_ENDPOINT = "https://opencode.ai/zen/v1/responses"
 DEFAULT_OPENCODE_CHAT_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
-DEFAULT_OPENCODE_RESPONSES_MODELS = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "muse-spark-1.2-contributor-free")
-DEFAULT_OPENCODE_CHAT_MODELS = ("big-pickle", "nemotron-3-ultra-free")
-DEFAULT_OPENCODE_MODELS = DEFAULT_OPENCODE_RESPONSES_MODELS + DEFAULT_OPENCODE_CHAT_MODELS
+DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT = "https://opencode.ai/zen/go/v1/responses"
+DEFAULT_OPENCODE_GO_CHAT_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions"
+DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT = "https://opencode.ai/zen/go/v1/messages"
+DEFAULT_OPENCODE_GO_MODEL_SPECS = (
+    ("grok-4.6", "Grok 4.6", "responses"),
+    ("glm-5.3-flash", "GLM-5.3-Flash", "chat_completions"),
+    ("glm-5.3", "GLM-5.3", "chat_completions"),
+    ("glm-5.2", "GLM-5.2", "chat_completions"),
+    ("glm-5.1", "GLM-5.1", "chat_completions"),
+    ("gpt-5.6-luna", "GPT 5.6 Luna", "responses"),
+    ("kimi-k3", "Kimi K3", "chat_completions"),
+    ("kimi-k2.7-code", "Kimi K2.7 Code", "chat_completions"),
+    ("kimi-k2.6", "Kimi K2.6", "chat_completions"),
+    ("longcat-2.0", "LongCat-2.0", "chat_completions"),
+    ("mimo-v2.5", "MiMo-V2.5", "chat_completions"),
+    ("mimo-v2.5-pro", "MiMo-V2.5-Pro", "chat_completions"),
+    ("minimax-m3", "MiniMax M3", "messages"),
+    ("minimax-m2.7", "MiniMax M2.7", "messages"),
+    ("muse-spark-1.2-contributor", "Muse Spark 1.2 Contributor", "responses"),
+    ("qwen3.8-max", "Qwen3.8 Max", "messages"),
+    ("qwen3.8-flash", "Qwen3.8 Flash", "messages"),
+    ("qwen3.7-max", "Qwen3.7 Max", "messages"),
+    ("qwen3.7-plus", "Qwen3.7 Plus", "messages"),
+    ("qwen3.6-plus", "Qwen3.6 Plus", "messages"),
+    ("deepseek-v4-pro", "DeepSeek V4 Pro", "chat_completions"),
+    ("deepseek-v4-flash", "DeepSeek V4 Flash", "chat_completions"),
+    ("deepseek-v4-flash-vision-exp", "DeepSeek V4 Flash Vision Exp", "chat_completions"),
+    ("hy3", "Hy3", "chat_completions"),
+)
+DEFAULT_OPENCODE_FREE_MODEL_SPECS = (
+    ("big-pickle", "Big Pickle", "chat_completions"),
+    ("x-preview-f-free", "Ox Alpha Free", "chat_completions"),
+    ("mimo-v2.5-free", "MiMo-V2.5 Free", "chat_completions"),
+    ("hy3-free", "Hy3 Free", "chat_completions"),
+    ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free", "chat_completions"),
+    ("nemotron-3.5-lightning-free", "Nemotron 3.5 Lightning Free", "chat_completions"),
+    ("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Contributor Free", "responses"),
+)
+OPENCODE_MODEL_SPECS = {
+    model_id: {
+        "label": label,
+        "protocol": protocol,
+        "is_go": model_id in {item[0] for item in DEFAULT_OPENCODE_GO_MODEL_SPECS},
+        "supports_structured_output": True,
+    }
+    for model_id, label, protocol in (
+        DEFAULT_OPENCODE_GO_MODEL_SPECS + DEFAULT_OPENCODE_FREE_MODEL_SPECS
+    )
+}
+OPENCODE_GO_MODELS = frozenset(
+    item[0] for item in DEFAULT_OPENCODE_GO_MODEL_SPECS
+)
+OPENCODE_FREE_MODELS = frozenset(
+    item[0] for item in DEFAULT_OPENCODE_FREE_MODEL_SPECS
+)
+DEFAULT_OPENCODE_RESPONSES_MODELS = tuple(
+    model_id
+    for model_id, _label, protocol in (
+        DEFAULT_OPENCODE_GO_MODEL_SPECS + DEFAULT_OPENCODE_FREE_MODEL_SPECS
+    )
+    if protocol == "responses"
+)
+DEFAULT_OPENCODE_CHAT_MODELS = tuple(
+    model_id
+    for model_id, _label, protocol in (
+        DEFAULT_OPENCODE_GO_MODEL_SPECS + DEFAULT_OPENCODE_FREE_MODEL_SPECS
+    )
+    if protocol == "chat_completions"
+)
+DEFAULT_OPENCODE_MESSAGES_MODELS = tuple(
+    model_id
+    for model_id, _label, protocol in DEFAULT_OPENCODE_GO_MODEL_SPECS
+    if protocol == "messages"
+)
+DEFAULT_OPENCODE_MODELS = tuple(
+    item[0] for item in DEFAULT_OPENCODE_GO_MODEL_SPECS + DEFAULT_OPENCODE_FREE_MODEL_SPECS
+)
 DEFAULT_OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_OPENROUTER_MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models"
 # OpenRouter's GO catalogue (canonical model slugs, not display names).
@@ -64,9 +138,10 @@ OPENROUTER_GO_MODEL_CATALOG = (
 DEFAULT_OPENROUTER_MODELS = tuple(item[0] for item in OPENROUTER_GO_MODEL_CATALOG)
 OPENROUTER_MODEL_LABELS = {item[0]: item[1] for item in OPENROUTER_GO_MODEL_CATALOG}
 OPENCODE_MODEL_LABELS = {
-    "big-pickle": "Big Pickle",
-    "muse-spark-1.2-contributor-free": "Muse Spark 1.2 Free",
-    "nemotron-3-ultra-free": "Nemotron 3 Ultra Free",
+    model_id: label
+    for model_id, label, _protocol in (
+        DEFAULT_OPENCODE_GO_MODEL_SPECS + DEFAULT_OPENCODE_FREE_MODEL_SPECS
+    )
 }
 
 
@@ -117,7 +192,13 @@ def get_llm_model_catalog(provider_name: str | None = None) -> dict[str, Any]:
         if provider == "opencode":
             models = list(DEFAULT_OPENCODE_MODELS)
             if configured_models:
-                models = [m for m in configured_models if m in models] or configured_models
+                # The OpenCode menu is intentionally limited to the documented
+                # Go catalogue and the explicitly free Zen models.  Ignore
+                # stale/unknown values from AI_LAB_ALLOWED_MODELS instead of
+                # re-introducing arbitrary provider models.
+                matching = [m for m in configured_models if m in models]
+                if matching:
+                    models = matching
             return models
         if provider == "openrouter":
             models = list(DEFAULT_OPENROUTER_MODELS)
@@ -147,6 +228,12 @@ def get_llm_model_catalog(provider_name: str | None = None) -> dict[str, Any]:
     if target not in available:
         target = available[0]
     models = models_for(target)
+    effective_research = (
+        models[0] if target in {"mock", "opencode", "openrouter"} else research_default
+    )
+    effective_summary = (
+        models[-1] if target in {"mock", "opencode", "openrouter"} else summary_default
+    )
     model_specs = {
         model_id: {
             "label": label,
@@ -171,22 +258,24 @@ def get_llm_model_catalog(provider_name: str | None = None) -> dict[str, Any]:
                 model_specs.get(model, {}).get("protocol")
                 if target == "openrouter"
                 else (
-                    "chat_completions"
-                    if target == "opencode" and model in set(DEFAULT_OPENCODE_CHAT_MODELS)
+                    OPENCODE_MODEL_SPECS.get(model, {}).get("protocol", "responses")
+                    if target == "opencode"
                     else "responses"
                 )
             ),
             "supports_structured_output": (
                 bool(model_specs.get(model, {}).get("supports_structured_output", True))
                 if target == "openrouter"
+                else bool(OPENCODE_MODEL_SPECS.get(model, {}).get("supports_structured_output", True))
+                if target == "opencode"
                 else True
             ),
-            "default_research": model == research_default,
-            "default_summary": model == summary_default,
+            "default_research": model == effective_research,
+            "default_summary": model == effective_summary,
         } for model in models],
         "defaults": {
-            "research_model": research_default if target not in {"mock", "opencode", "openrouter"} else models[0],
-            "summary_model": summary_default if target not in {"mock", "opencode", "openrouter"} else models[-1],
+            "research_model": effective_research,
+            "summary_model": effective_summary,
         },
     }
 
@@ -498,6 +587,9 @@ class OpenAIResponsesProvider:
         endpoint_url: str = "https://api.openai.com/v1/responses",
         provider_name: str = "openai",
         route_opencode_models: bool = False,
+        opencode_go_responses_endpoint: str = DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT,
+        opencode_go_chat_endpoint: str = DEFAULT_OPENCODE_GO_CHAT_ENDPOINT,
+        opencode_go_messages_endpoint: str = DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT,
     ) -> None:
         self.api_key = api_key
         self.model_research = model_research
@@ -507,6 +599,9 @@ class OpenAIResponsesProvider:
         self.endpoint_url = endpoint_url
         self.provider_name = provider_name
         self.route_opencode_models = route_opencode_models
+        self.opencode_go_responses_endpoint = opencode_go_responses_endpoint
+        self.opencode_go_chat_endpoint = opencode_go_chat_endpoint
+        self.opencode_go_messages_endpoint = opencode_go_messages_endpoint
 
     def _compute_cost(self, prompt_tokens: int, completion_tokens: int, model: str) -> float:
         # Approximate pricing per 1M tokens
@@ -608,13 +703,18 @@ class OpenAIResponsesProvider:
         The default OpenCode catalog contains both Responses and Chat Completions
         models. A custom endpoint is always respected and is never rewritten.
         """
-        if (
-            self.route_opencode_models
-            and self.provider_name == "opencode"
-            and model in DEFAULT_OPENCODE_CHAT_MODELS
-            and self.endpoint_url == DEFAULT_OPENCODE_ENDPOINT
-        ):
-            return DEFAULT_OPENCODE_CHAT_ENDPOINT
+        if self.route_opencode_models and self.provider_name == "opencode":
+            spec = OPENCODE_MODEL_SPECS.get(model)
+            if spec and self.endpoint_url == DEFAULT_OPENCODE_ENDPOINT:
+                protocol = str(spec.get("protocol") or "responses")
+                if spec.get("is_go"):
+                    return {
+                        "responses": self.opencode_go_responses_endpoint,
+                        "chat_completions": self.opencode_go_chat_endpoint,
+                        "messages": self.opencode_go_messages_endpoint,
+                    }.get(protocol, self.endpoint_url)
+                if protocol == "chat_completions":
+                    return DEFAULT_OPENCODE_CHAT_ENDPOINT
         return self.endpoint_url
 
     @staticmethod
@@ -634,6 +734,17 @@ class OpenAIResponsesProvider:
         if isinstance(content, Mapping):
             value = content.get("text") or content.get("content") or content.get("value")
             return str(value) if value else ""
+        return ""
+
+    @staticmethod
+    def _messages_content_text(data: Mapping[str, Any]) -> str:
+        for item in data.get("content", []) or []:
+            if not isinstance(item, Mapping):
+                continue
+            if item.get("type") == "tool_use" and isinstance(item.get("input"), Mapping):
+                return json.dumps(dict(item["input"]), separators=(",", ":"))
+            if item.get("type") == "text" and item.get("text"):
+                return str(item["text"])
         return ""
 
     @classmethod
@@ -685,7 +796,24 @@ class OpenAIResponsesProvider:
 
         request_endpoint = self._endpoint_for_model(model)
         is_chat_completion = request_endpoint.rstrip("/").endswith("/chat/completions")
-        if is_chat_completion:
+        is_messages = request_endpoint.rstrip("/").endswith("/messages")
+        if is_messages:
+            body = {
+                "model": model,
+                "max_tokens": 2048,
+                "system": instructions,
+                "messages": [{
+                    "role": "user",
+                    "content": json.dumps(dict(context), indent=2, default=str),
+                }],
+                "tools": [{
+                    "name": schema_name,
+                    "description": "Return the requested structured result.",
+                    "input_schema": schema,
+                }],
+                "tool_choice": {"type": "tool", "name": schema_name},
+            }
+        elif is_chat_completion:
             body: dict[str, Any] = {
                 "model": model,
                 "messages": [
@@ -721,6 +849,8 @@ class OpenAIResponsesProvider:
         if temperature is not None and not model.lower().startswith("gpt-5"):
             body["temperature"] = temperature
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        if is_messages:
+            headers["anthropic-version"] = "2023-06-01"
         started = time.time()
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.post(
@@ -730,9 +860,19 @@ class OpenAIResponsesProvider:
             )
             response.raise_for_status()
             data = response.json()
-        raw = self._response_text(data, is_chat_completion=is_chat_completion)
+        raw = (
+            self._messages_content_text(data)
+            if is_messages
+            else self._response_text(data, is_chat_completion=is_chat_completion)
+        )
         if not raw:
-            provider_api = "Chat Completions" if is_chat_completion else "Responses"
+            provider_api = (
+                "Anthropic Messages"
+                if is_messages
+                else "Chat Completions"
+                if is_chat_completion
+                else "Responses"
+            )
             raise ValueError(
                 f"{self.provider_name.title()} {provider_api} API returned no structured output"
             )
@@ -803,9 +943,17 @@ class OpenAIResponsesProvider:
 
         request_endpoint = self._endpoint_for_model(self.model_summary)
         is_chat_completion = request_endpoint.rstrip("/").endswith("/chat/completions")
+        is_messages = request_endpoint.rstrip("/").endswith("/messages")
         system_prompt = "Summarize one execution step in 1-2 concise Russian sentences. Do not invent metrics."
         user_prompt = f"Step: {step_name}\nDetails: {json.dumps(dict(details), default=str)}"
-        if is_chat_completion:
+        if is_messages:
+            body = {
+                "model": self.model_summary,
+                "max_tokens": 512,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": user_prompt}],
+            }
+        elif is_chat_completion:
             body: dict[str, Any] = {
                 "model": self.model_summary,
                 "messages": [
@@ -823,6 +971,8 @@ class OpenAIResponsesProvider:
                 "store": False,
             }
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        if is_messages:
+            headers["anthropic-version"] = "2023-06-01"
         started = time.time()
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -833,7 +983,11 @@ class OpenAIResponsesProvider:
                 )
                 response.raise_for_status()
                 data = response.json()
-            text = self._response_text(data, is_chat_completion=is_chat_completion).strip()
+            text = (
+                self._messages_content_text(data)
+                if is_messages
+                else self._response_text(data, is_chat_completion=is_chat_completion)
+            ).strip()
             usage = data.get("usage") or {}
             prompt_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
             completion_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
@@ -898,5 +1052,17 @@ def get_llm_provider(
             endpoint_url=configured_endpoint or default_endpoint,
             provider_name=provider,
             route_opencode_models=(provider == "opencode" and not configured_endpoint),
+            opencode_go_responses_endpoint=str(
+                getattr(settings, "AI_LAB_OPENCODE_GO_RESPONSES_ENDPOINT", DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT)
+                or DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT
+            ),
+            opencode_go_chat_endpoint=str(
+                getattr(settings, "AI_LAB_OPENCODE_GO_CHAT_ENDPOINT", DEFAULT_OPENCODE_GO_CHAT_ENDPOINT)
+                or DEFAULT_OPENCODE_GO_CHAT_ENDPOINT
+            ),
+            opencode_go_messages_endpoint=str(
+                getattr(settings, "AI_LAB_OPENCODE_GO_MESSAGES_ENDPOINT", DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT)
+                or DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT
+            ),
         )
     raise ValueError(f"Unsupported AI_LAB_LLM_PROVIDER: {provider}")

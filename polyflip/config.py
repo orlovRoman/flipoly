@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     AI_LAB_OPENCODE_RESPONSES_ENDPOINT: str = "https://opencode.ai/zen/v1/responses"
     AI_LAB_OPENCODE_CHAT_ENDPOINT: str = "https://opencode.ai/zen/v1/chat/completions"
     AI_LAB_OPENCODE_CHAT_MODELS: str = "big-pickle,nemotron-3-ultra-free"
+    AI_LAB_OPENCODE_GO_RESPONSES_ENDPOINT: str = "https://opencode.ai/zen/go/v1/responses"
+    AI_LAB_OPENCODE_GO_CHAT_ENDPOINT: str = "https://opencode.ai/zen/go/v1/chat/completions"
+    AI_LAB_OPENCODE_GO_MESSAGES_ENDPOINT: str = "https://opencode.ai/zen/go/v1/messages"
     AI_LAB_OPENCODE_PROBE_TTL_SECONDS: int = 86400
     # OpenRouter uses the OpenAI-compatible Chat Completions API.
     AI_LAB_OPENROUTER_ENDPOINT: str = "https://openrouter.ai/api/v1/chat/completions"

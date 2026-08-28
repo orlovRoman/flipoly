@@ -190,8 +190,8 @@ async def test_e2e_real_router_separate_sessions_fake_opencode_real_runner(monke
     async with SessionLocal() as seed_session:
         now = datetime.now(timezone.utc)
         for mid, proto in [
-            ("resp-model", "responses"),
-            ("chat-model", "chat_completions"),
+            ("gpt-5.6-luna", "responses"),
+            ("big-pickle", "chat_completions"),
         ]:
             seed_session.add(
                 AILLMModelCatalog(
@@ -236,8 +236,8 @@ async def test_e2e_real_router_separate_sessions_fake_opencode_real_runner(monke
             budget_experiments=1,
             permission=perm,
             llm_provider="opencode",
-            llm_research_model="resp-model",
-            llm_summary_model="resp-model",
+            llm_research_model="gpt-5.6-luna",
+            llm_summary_model="gpt-5.6-luna",
         )
         run.status = "QUEUED"
         await s.flush()

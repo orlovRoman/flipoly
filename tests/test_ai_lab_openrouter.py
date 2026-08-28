@@ -100,7 +100,7 @@ class _FakeAsyncClient:
 
 @pytest.mark.asyncio
 async def test_catalog_discovery_skips_non_ascii_api_key(monkeypatch):
-    import polyflip.ai_lab.llm_catalog as llm_catalog
+    from polyflip.ai_lab import llm_catalog
 
     fake = _FakeAsyncClient({"data": [{"id": "x-ai/grok-4.6"}]})
     monkeypatch.setattr(llm_catalog.httpx, "AsyncClient", lambda **_: fake)
@@ -179,4 +179,29 @@ async def test_external_client_reads_parsed_chat_message(monkeypatch):
     assert fake.request[2]["model"] == "x-ai/grok-4.6"
 
 
+@pytest.mark.asyncio
+async def test_external_client_routes_go_messages_model(monkeypatch):
+    import opencode_client
+
+    monkeypatch.setenv("AI_LAB_LLM_PROVIDER", "opencode")
+    monkeypatch.setenv("AI_LAB_LLM_API_KEY", "test-key")
+    fake = _FakeAsyncClient(
+        {"content": [{"type": "tool_use", "input": {"ok": True}}]}
+    )
+    monkeypatch.setattr(opencode_client.httpx, "AsyncClient", lambda **_: fake)
+    client = OpenCodeClient()
+
+    payload, _telemetry = await client._structured_json(
+        model="minimax-m3",
+        instructions="return JSON",
+        context={},
+        schema_name="model_probe",
+        schema={"type": "object"},
+        protocol="messages",
+    )
+
+    assert payload == {"ok": True}
+    assert fake.request[0] == "https://opencode.ai/zen/go/v1/messages"
+    assert fake.request[1]["anthropic-version"] == "2023-06-01"
+    assert fake.request[2]["model"] == "minimax-m3"
 
