@@ -18,6 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from polyflip.db.models import Base
+from polyflip.execution.assets import LIVE_TRADING_ASSETS
 
 
 class ExecutionRequest(Base):
@@ -422,6 +423,12 @@ class LiveTradingSession(Base):
     filled_usdc = Column(Numeric(18, 6), nullable=False, default=0)
     max_single_order_usdc = Column(Numeric(18, 6), nullable=False)
     max_total_exposure_usdc = Column(Numeric(18, 6), nullable=False)
+    selected_assets = Column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=lambda: list(LIVE_TRADING_ASSETS),
+        server_default=text("""'["BTC","ETH","SOL","XRP","DOGE"]'"""),
+    )
     max_open_positions = Column(Integer, nullable=False)
     started_at = Column(DateTime(timezone=True), nullable=True)
     stopped_at = Column(DateTime(timezone=True), nullable=True)

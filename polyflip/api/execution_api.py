@@ -829,6 +829,7 @@ from polyflip.execution.live_session_service import (
     evaluate_live_readiness, get_latest_live_worker_status,
     serialize_live_session_dto,
 )
+from polyflip.execution.assets import LIVE_TRADING_ASSETS, normalize_live_assets
 
 
 class CreateLiveSessionRequest(BaseModel):
@@ -836,6 +837,9 @@ class CreateLiveSessionRequest(BaseModel):
     order_amount_usdc: Optional[Decimal] = None
     max_single_order_usdc: Decimal
     max_open_positions: int
+    selected_assets: list[str] = Field(
+        default_factory=lambda: list(LIVE_TRADING_ASSETS)
+    )
     max_total_exposure_usdc: Decimal
 
     @model_validator(mode="after")
@@ -843,6 +847,10 @@ class CreateLiveSessionRequest(BaseModel):
         from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
         minimum_live = f"{LIVE_MIN_GROSS_BUY_USDC:.2f}"
 
+        self.selected_assets = normalize_live_assets(
+            self.selected_assets,
+            default_all=False,
+        )
         if self.budget_usdc <= 0:
             raise ValueError("Бюджет должен быть больше нуля")
 
@@ -893,6 +901,7 @@ async def create_live_session(
         )
 
     session = LiveTradingSession(
+        selected_assets=payload.selected_assets,
         status="DRAFT",
         budget_usdc=payload.budget_usdc,
         order_amount_usdc=payload.order_amount_usdc,
@@ -912,6 +921,7 @@ async def create_live_session(
 class UpdateLiveSessionLimitsRequest(BaseModel):
     order_amount_usdc: Optional[Decimal] = None
     max_single_order_usdc: Optional[Decimal] = None
+    selected_assets: Optional[list[str]] = None
     max_total_exposure_usdc: Optional[Decimal] = None
     max_open_positions: Optional[int] = None
     budget_usdc: Optional[Decimal] = None
@@ -974,6 +984,14 @@ async def update_live_session_limits(
         if payload.max_open_positions is not None
         else session_obj.max_open_positions
     )
+    try:
+        new_selected_assets = (
+            normalize_live_assets(payload.selected_assets, default_all=False)
+            if "selected_assets" in payload.model_fields_set
+            else normalize_live_assets(getattr(session_obj, "selected_assets", None))
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # Валидируем консистентность обновлённых лимитов
     if new_budget <= 0:
@@ -1047,6 +1065,7 @@ async def update_live_session_limits(
     session_obj.max_total_exposure_usdc = new_max_total_exposure
     session_obj.max_open_positions = new_max_open_positions
 
+    session_obj.selected_assets = new_selected_assets
     if session_obj.status in {"READY", "STOPPED"}:
         session_obj.status = "DRAFT"
 

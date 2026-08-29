@@ -186,6 +186,10 @@
                             <div style="font-size: 0.85rem; color: var(--text-muted);">Макс. Экспозиция</div>
                             <div id="limit-max-exposure" style="font-weight: 600;">-- USDC</div>
                         </div>
+                        <div style="grid-column: 1 / -1;">
+                            <div style="font-size: 0.85rem; color: var(--text-muted);">Торговые активы (LIVE)</div>
+                            <div id="limit-selected-assets" style="font-weight: 600;">--</div>
+                        </div>
                     </div>
                 </div>
                 
@@ -207,6 +211,17 @@
                         <div>
                             <label>Макс. Позиций</label>
                             <input type="number" id="edit-max-positions" class="form-control">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Торговые активы (LIVE)</label>
+                            <div id="edit-live-assets" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:6px;">
+                                <label><input type="checkbox" class="live-asset-checkbox" data-scope="edit" data-asset="BTC"> BTC</label>
+                                <label><input type="checkbox" class="live-asset-checkbox" data-scope="edit" data-asset="ETH"> ETH</label>
+                                <label><input type="checkbox" class="live-asset-checkbox" data-scope="edit" data-asset="SOL"> SOL</label>
+                                <label><input type="checkbox" class="live-asset-checkbox" data-scope="edit" data-asset="XRP"> XRP</label>
+                                <label><input type="checkbox" class="live-asset-checkbox" data-scope="edit" data-asset="DOGE"> DOGE</label>
+                            </div>
+                            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Меняется только до активации или после остановки входов.</div>
                         </div>
                         <div>
                             <label>Макс. Экспозиция (USDC)</label>
@@ -237,6 +252,17 @@
                     <div>
                         <label>Макс. Позиций</label>
                         <input type="number" id="input-max-positions" class="form-control" value="30" min="1" max="100">
+                    </div>
+                    <div style="grid-column: 1 / -1;">
+                        <label>Торговые активы (LIVE)</label>
+                        <div id="create-live-assets" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:6px;">
+                            <label><input type="checkbox" class="live-asset-checkbox" data-scope="create" data-asset="BTC" checked> BTC</label>
+                            <label><input type="checkbox" class="live-asset-checkbox" data-scope="create" data-asset="ETH" checked> ETH</label>
+                            <label><input type="checkbox" class="live-asset-checkbox" data-scope="create" data-asset="SOL" checked> SOL</label>
+                            <label><input type="checkbox" class="live-asset-checkbox" data-scope="create" data-asset="XRP" checked> XRP</label>
+                            <label><input type="checkbox" class="live-asset-checkbox" data-scope="create" data-asset="DOGE" checked> DOGE</label>
+                        </div>
+                        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">В LIVE будут выпускаться только выбранные активы; PAPER и его анализ не меняются.</div>
                     </div>
                     <div>
                         <label>Макс. Экспозиция (USDC)</label>
@@ -543,6 +569,39 @@
         });
 
         let currentSessionId = null;
+        const LIVE_ASSET_OPTIONS = ["BTC", "ETH", "SOL", "XRP", "DOGE"];
+        function getSelectedLiveAssets(scope) {
+            return Array.from(document.querySelectorAll(
+                '.live-asset-checkbox[data-scope="' + scope + '"]:checked'
+            )).map((el) => el.dataset.asset);
+        }
+        function setSelectedLiveAssets(scope, selectedAssets) {
+            const selected = new Set(
+                (Array.isArray(selectedAssets) && selectedAssets.length
+                    ? selectedAssets
+                    : LIVE_ASSET_OPTIONS
+                ).map((asset) => String(asset).toUpperCase().replace(/USDT$/, ""))
+            );
+            document.querySelectorAll(
+                '.live-asset-checkbox[data-scope="' + scope + '"]'
+            ).forEach((checkbox) => {
+                checkbox.checked = selected.has(checkbox.dataset.asset);
+            });
+        }
+        function formatSelectedLiveAssets(assets) {
+            const normalized = Array.isArray(assets) && assets.length
+                ? assets
+                : LIVE_ASSET_OPTIONS;
+            return normalized.join(", ");
+        }
+        function validateSelectedLiveAssets(scope) {
+            const assets = getSelectedLiveAssets(scope);
+            if (!assets.length) {
+                alert("Выберите хотя бы один актив для LIVE-торговли");
+                return null;
+            }
+            return assets;
+        }
 
         const readinessElementIds = {
             live_worker: "check-worker",
@@ -667,6 +726,7 @@ if (typeof translateError === 'undefined') {
                     document.getElementById('session-limits-block').style.display = 'block';
                     document.getElementById('limit-budget').textContent = (s.budget_usdc || 0).toFixed(2) + " USDC";
                     document.getElementById('limit-order-amount').textContent = s.order_amount_usdc !== null ? s.order_amount_usdc.toFixed(2) + " USDC" : "АВТО (из PAPER)";
+                    document.getElementById('limit-selected-assets').textContent = formatSelectedLiveAssets(s.selected_assets);
                     document.getElementById('limit-max-order').textContent = (s.max_single_order_usdc || 0).toFixed(2) + " USDC";
                     document.getElementById('limit-max-positions').textContent = s.max_open_positions || 0;
                     document.getElementById('limit-max-exposure').textContent = (s.max_total_exposure_usdc || 0).toFixed(2) + " USDC";
@@ -678,6 +738,7 @@ if (typeof translateError === 'undefined') {
                             if (!currentlyEditing) {
                                 document.getElementById('edit-order-amount').value = s.order_amount_usdc !== null ? s.order_amount_usdc : "";
                                 document.getElementById('edit-budget').value = s.budget_usdc;
+                                setSelectedLiveAssets('edit', s.selected_assets);
                                 document.getElementById('edit-max-order').value = s.max_single_order_usdc;
                                 document.getElementById('edit-max-exposure').value = s.max_total_exposure_usdc;
                                 document.getElementById('edit-max-positions').value = s.max_open_positions;
@@ -1278,9 +1339,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert("Минимальная ставка (Max Single Order) для LIVE должна быть не менее 1.10 USDC!");
                 return;
             }
+            const selectedAssets = validateSelectedLiveAssets('create');
+            if (!selectedAssets) return;
             const body = {
                 budget_usdc: parseFloat(document.getElementById('input-budget').value),
                 order_amount_usdc: orderAmountStr ? parseFloat(orderAmountStr) : null,
+                selected_assets: selectedAssets,
                 max_single_order_usdc: maxOrderUsdc,
                 max_open_positions: parseInt(document.getElementById('input-max-positions').value),
                 max_total_exposure_usdc: parseFloat(document.getElementById('input-max-exposure').value)
@@ -1552,9 +1616,12 @@ document.addEventListener('DOMContentLoaded', () => {
         async function saveSessionLimits() {
             if (!currentSessionId) return;
             const amtStr = document.getElementById('edit-order-amount').value;
+            const selectedAssets = validateSelectedLiveAssets('edit');
+            if (!selectedAssets) return;
             const body = {
                 order_amount_usdc: amtStr ? parseFloat(amtStr) : null,
                 budget_usdc: parseFloat(document.getElementById('edit-budget').value),
+                selected_assets: selectedAssets,
                 max_single_order_usdc: parseFloat(document.getElementById('edit-max-order').value),
                 max_total_exposure_usdc: parseFloat(document.getElementById('edit-max-exposure').value),
                 max_open_positions: parseInt(document.getElementById('edit-max-positions').value)

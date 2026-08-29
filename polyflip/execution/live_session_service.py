@@ -21,6 +21,7 @@ from polyflip.db.execution_models import (
     ExposureReservation,
 )
 from polyflip.db.models import TradeHistory
+from polyflip.execution.assets import LIVE_TRADING_ASSETS, normalize_live_assets
 
 ACTIVE_TRADABLE_STATUSES = frozenset(["OPENING", "OPEN", "CLOSING", "RECONCILING"])
 
@@ -439,6 +440,13 @@ async def evaluate_live_readiness(
 def serialize_live_session_dto(
     session: LiveTradingSession, budget_snapshot: Optional[SessionBudgetSnapshot] = None
 ) -> dict:
+    try:
+        selected_assets = normalize_live_assets(
+            getattr(session, "selected_assets", None)
+        )
+    except ValueError:
+        # A malformed legacy row must not make the dashboard unavailable.
+        selected_assets = list(LIVE_TRADING_ASSETS)
     if budget_snapshot is not None:
         filled_val = float(budget_snapshot.filled_usdc)
         reserved_val = float(budget_snapshot.reserved_usdc)
@@ -458,6 +466,7 @@ def serialize_live_session_dto(
         "committed_usdc": committed_val,
         "remaining_budget_usdc": remaining_val,
         "filled_usdc": filled_val,
+        "selected_assets": selected_assets,
         "max_single_order_usdc": float(session.max_single_order_usdc),
         "order_amount_usdc": (
             float(session.order_amount_usdc)

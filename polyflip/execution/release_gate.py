@@ -59,6 +59,7 @@ from polyflip.execution.live_mirror_worker import (
 )
 from polyflip.execution.risk_checks import check_risk_limits
 from polyflip.execution.config import LIVE_MIN_GROSS_BUY_USDC
+from polyflip.execution.assets import normalize_live_asset, normalize_live_assets
 import structlog
 
 logger = structlog.get_logger("release_gate")
@@ -705,6 +706,17 @@ async def validate_live_release(
         if active_session is None:
             raise ReleaseDeferred("No active LIVE trading session")
 
+        try:
+            requested_asset = normalize_live_asset(paper_request.asset)
+            selected_assets = normalize_live_assets(
+                getattr(active_session, "selected_assets", None)
+            )
+        except ValueError as exc:
+            raise ReleaseDeferred(f"Invalid LIVE asset selection: {exc}") from exc
+        if requested_asset not in selected_assets:
+            raise ReleaseDeferred(
+                f"LIVE asset {requested_asset} is not selected for this session"
+            )
         # 5.2 Проверка стоимости ордера max(target_amount_usdc, max_spend_usdc)
         # Сначала применяем размер LIVE-сессии, затем проверяем Polymarket minimum.
         live_amount = calculate_live_order_amount(paper_request, active_session)
