@@ -24,6 +24,7 @@ from polyflip.db.execution_models import (
 from polyflip.db.models import LiveMarket, TradeHistory, RuntimeSettings
 from polyflip.execution.order_strategies import (
     FAKRetryEdgePolicy,
+    MAX_MAKER_REPRICE_MAX_RETRIES,
     evaluate_fak_retry_buy_price,
     execute_gtc_ttl,
     execute_fak_retry,
@@ -593,6 +594,12 @@ async def process_ready_requests():
                 trade_for_edge,
                 runtime_execution_settings,
             )
+        edge_revalidation_required = (
+            req.intent == "OPEN"
+            and req.requested_mode in {"LIVE", "PAPER"}
+            and side.upper() == "BUY"
+            and is_dynamic_revalidation_route
+        )
 
         # These values are only relaxed after the saved probability is
         # revalidated against a fresh quote.  The persisted request continues
@@ -916,9 +923,20 @@ async def process_ready_requests():
                 order_mode = "GTC_TTL"
             maker_reprice_enabled = str(settings_dict.get("LIVE_MAKER_REPRICE_ON_CROSS", "true")).strip().lower() in {"1", "true", "yes", "on"}
             try:
-                maker_reprice_attempts = min(1, max(0, int(settings_dict.get("LIVE_MAKER_REPRICE_MAX_RETRIES", "1"))))
+                maker_reprice_attempts = min(
+                    MAX_MAKER_REPRICE_MAX_RETRIES,
+                    max(
+                        0,
+                        int(
+                            settings_dict.get(
+                                "LIVE_MAKER_REPRICE_MAX_RETRIES",
+                                "3",
+                            )
+                        ),
+                    ),
+                )
             except (TypeError, ValueError):
-                maker_reprice_attempts = 1
+                maker_reprice_attempts = 3
             try:
                 maker_tick_size = Decimal(str(settings_dict.get("LIVE_MAKER_TICK_SIZE", "0.01")))
                 if maker_tick_size <= 0:
@@ -951,8 +969,12 @@ async def process_ready_requests():
                     ttl_seconds=gtc_ttl_sec,
                     api_client=api_client,
                     max_acceptable_price=req.max_acceptable_price,
-                    max_reprice_attempts=(maker_reprice_attempts if maker_reprice_enabled else 0),
+                    max_reprice_attempts=(
+                        maker_reprice_attempts if maker_reprice_enabled else 0
+                    ),
                     tick_size=maker_tick_size,
+                    edge_policy=fak_retry_edge_policy,
+                    require_edge_revalidation=edge_revalidation_required,
                 )
             elif order_mode == "GTD":
                 sub_res = await execute_maker_limit(
@@ -961,8 +983,12 @@ async def process_ready_requests():
                     order_type="GTD",
                     api_client=api_client,
                     max_acceptable_price=req.max_acceptable_price,
-                    max_reprice_attempts=(maker_reprice_attempts if maker_reprice_enabled else 0),
+                    max_reprice_attempts=(
+                        maker_reprice_attempts if maker_reprice_enabled else 0
+                    ),
                     tick_size=maker_tick_size,
+                    edge_policy=fak_retry_edge_policy,
+                    require_edge_revalidation=edge_revalidation_required,
                 )
             elif order_mode == "FAK_RETRY":
                 api_client_retry = api_client if api_client else None
@@ -974,6 +1000,7 @@ async def process_ready_requests():
                     delay_seconds=retry_delay,
                     max_acceptable_price=execution_max_acceptable_price,
                     edge_policy=fak_retry_edge_policy,
+                    require_edge_revalidation=edge_revalidation_required,
                 )
             else:
                 sub_res = await gateway.submit(order)
@@ -999,6 +1026,27 @@ async def process_ready_requests():
                 "maker_best_bid": (str(sub_res.maker_best_bid) if sub_res.maker_best_bid is not None else None),
                 "maker_best_ask": (str(sub_res.maker_best_ask) if sub_res.maker_best_ask is not None else None),
                 "submitted_limit_price": str(req.submitted_limit_price),
+                "dynamic_edge_checked": sub_res.fak_retry_dynamic_edge_checked,
+                "dynamic_net_edge": (
+                    str(sub_res.fak_retry_dynamic_net_edge)
+                    if sub_res.fak_retry_dynamic_net_edge is not None
+                    else None
+                ),
+                "dynamic_min_edge": (
+                    str(sub_res.fak_retry_dynamic_min_edge)
+                    if sub_res.fak_retry_dynamic_min_edge is not None
+                    else None
+                ),
+                "dynamic_probability": (
+                    str(sub_res.fak_retry_dynamic_probability)
+                    if sub_res.fak_retry_dynamic_probability is not None
+                    else None
+                ),
+                "dynamic_max_price": (
+                    str(sub_res.fak_retry_dynamic_max_price)
+                    if sub_res.fak_retry_dynamic_max_price is not None
+                    else None
+                ),
             }
             existing_response = attempt.raw_response if isinstance(attempt.raw_response, dict) else {}
             paper_telemetry = {
@@ -1044,6 +1092,7 @@ async def process_ready_requests():
                     if sub_res.fak_retry_dynamic_max_price is not None
                     else None
                 ),
+                "attempts_made": sub_res.fak_retry_attempts,
                 "initial_quote_revalidation": initial_dynamic_edge,
             }
             attempt.raw_response = {

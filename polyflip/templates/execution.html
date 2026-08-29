@@ -302,8 +302,7 @@
                                                 <div id="param-maker-block" style="display: none; align-items: center; gap: 12px;">
                             <label style="font-size: 0.8rem; color: #a0aec0; display: flex; align-items: center; gap: 5px;"><input type="checkbox" id="input-maker-reprice" checked onchange="saveOrderModeParams()"> Перевыставить maker при пересечении стакана</label>
                             <label style="font-size: 0.8rem; color: #a0aec0;">Тик: <input type="number" id="input-maker-tick" value="0.01" step="0.001" min="0.0001" max="0.1" style="width: 65px; padding: 4px 8px; border-radius: 4px; background: #2d3748; border: 1px solid #4a5568; color: #fff;" onchange="saveOrderModeParams()"></label>
-                            <span style="font-size: 0.75rem; color: #718096;">Повтор: максимум 1</span>
-                        </div>
+                            <label style="font-size: 0.8rem; color: #a0aec0;">Повторов edge: <input type="number" id="input-maker-retries" value="3" step="1" min="0" max="10" style="width: 55px; padding: 4px 8px; border-radius: 4px; background: #2d3748; border: 1px solid #4a5568; color: #fff;" onchange="saveOrderModeParams()"></label>                            <span style="font-size: 0.75rem; color: #718096;">только при допустимом edge</span>                        </div>
 <div id="param-fak-retry-block" style="display: none; align-items: center; gap: 12px;">
                             <div style="display: flex; align-items: center; gap: 6px;">
                                 <label style="font-size: 0.8rem; color: #a0aec0;">Макс. попыток:</label>
@@ -1466,6 +1465,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const el = document.getElementById('input-maker-tick');
                 if (el && document.activeElement !== el) el.value = cfg.maker_tick_size;
             }
+            if (cfg.maker_reprice_max_retries !== undefined) {
+                const el = document.getElementById('input-maker-retries');
+                if (el && document.activeElement !== el) el.value = cfg.maker_reprice_max_retries;
+            }
 
             if (cfg.fak_retry_delay_sec) {
                 const el = document.getElementById('input-fak-retry-delay');
@@ -1489,6 +1492,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const retryDelay = parseFloat(document.getElementById('input-fak-retry-delay').value) || 0.75;
             const makerReprice = document.getElementById('input-maker-reprice').checked;
             const makerTick = parseFloat(document.getElementById('input-maker-tick').value) || 0.01;
+            const makerRetriesRaw = parseInt(document.getElementById('input-maker-retries').value, 10);
+            const makerRetries = Number.isFinite(makerRetriesRaw) ? makerRetriesRaw : 3;
 
             const payload = {
                 mode: currentOrderMode,
@@ -1496,7 +1501,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 fak_retry_max_attempts: retryAttempts,
                 fak_retry_delay_sec: retryDelay,
                 maker_reprice_on_cross: makerReprice,
-                maker_reprice_max_retries: 1,
+                maker_reprice_max_retries: makerRetries,
                 maker_tick_size: makerTick
             };
 

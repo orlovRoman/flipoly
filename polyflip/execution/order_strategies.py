@@ -10,6 +10,8 @@ logger = structlog.get_logger(__name__)
 DEFAULT_GTC_TTL_SECONDS = 10.0
 DEFAULT_FAK_RETRY_MAX_ATTEMPTS = 3
 DEFAULT_FAK_RETRY_DELAY_SEC = 0.75
+DEFAULT_MAKER_REPRICE_MAX_RETRIES = 3
+MAX_MAKER_REPRICE_MAX_RETRIES = 10
 
 POST_ONLY_REJECT_MARKERS = (
     "post_only",
@@ -190,14 +192,47 @@ async def execute_maker_limit(
     order_type: str = "GTC",
     api_client: Any = None,
     max_acceptable_price: Decimal | None = None,
-    max_reprice_attempts: int = 1,
+    max_reprice_attempts: int = DEFAULT_MAKER_REPRICE_MAX_RETRIES,
     tick_size: Decimal = Decimal("0.01"),
+    edge_policy: FAKRetryEdgePolicy | None = None,
+    require_edge_revalidation: bool = False,
 ) -> SubmissionResult:
-    """Submit a post-only GTC/GTD order and reprice once after a book cross."""
-    attempts_allowed = 1 + max(0, min(int(max_reprice_attempts), 1))
+    """Submit a post-only GTC/GTD order and reprice after a book cross.
+
+    For BUY orders on the dynamic route, every reprice is checked against the
+    saved probability and the fresh maker quote. A stale quote is never
+    submitted again when that revalidation is required.
+    """
+    attempts_allowed = 1 + max(
+        0, min(int(max_reprice_attempts), MAX_MAKER_REPRICE_MAX_RETRIES)
+    )
     current_order = order.model_copy(update={"post_only": True})
     last_best_bid = None
     last_best_ask = None
+    dynamic_edge_checked = False
+    dynamic_net_edge: Decimal | None = None
+
+    def _with_dynamic_edge_telemetry(
+        result: SubmissionResult,
+    ) -> SubmissionResult:
+        return result.model_copy(
+            update={
+                "fak_retry_dynamic_edge_checked": dynamic_edge_checked,
+                "fak_retry_dynamic_net_edge": dynamic_net_edge,
+                "fak_retry_dynamic_min_edge": (
+                    edge_policy.min_net_edge if edge_policy is not None else None
+                ),
+                "fak_retry_dynamic_probability": (
+                    edge_policy.p_candidate_win if edge_policy is not None else None
+                ),
+                "fak_retry_dynamic_max_price": (
+                    edge_policy.max_permitted_price
+                    if edge_policy is not None
+                    else None
+                ),
+            }
+        )
+
     for attempt_no in range(1, attempts_allowed + 1):
         try:
             try:
@@ -207,72 +242,165 @@ async def execute_maker_limit(
         except Exception as exc:
             if _is_cross_error(str(exc)):
                 result = SubmissionResult(
-                    accepted=False, provider_status="POST_ONLY_REJECTED",
-                    rejection_code="POST_ONLY_REJECTED", error_message=str(exc),
+                    accepted=False,
+                    provider_status="POST_ONLY_REJECTED",
+                    rejection_code="POST_ONLY_REJECTED",
+                    error_message=str(exc),
                 )
             else:
-                return SubmissionResult(
-                    accepted=False, provider_status="NETWORK_ERROR",
-                    error_message=str(exc), maker_attempts=attempt_no,
-                )
+                return _with_dynamic_edge_telemetry(SubmissionResult(
+                    accepted=False,
+                    provider_status="NETWORK_ERROR",
+                    error_message=str(exc),
+                    maker_attempts=attempt_no,
+                ))
+
         if result.accepted or not _is_post_only_rejection(result):
-            return result.model_copy(update={
+            return _with_dynamic_edge_telemetry(result.model_copy(update={
                 "submitted_limit_price": current_order.limit_price,
                 "submitted_requested_shares": current_order.requested_shares,
                 "maker_attempts": attempt_no,
-                "maker_status": ("MAKER_REPRICED" if result.accepted and attempt_no > 1 else ("RESTING" if result.accepted else None)),
+                "maker_status": (
+                    "MAKER_REPRICED"
+                    if result.accepted and attempt_no > 1
+                    else ("RESTING" if result.accepted else None)
+                ),
                 "maker_best_bid": last_best_bid,
                 "maker_best_ask": last_best_ask,
-            })
-        cross_text = " ".join(str(value or "") for value in (result.provider_status, result.error_message))
+            }))
+
+        cross_text = " ".join(
+            str(value or "") for value in (result.provider_status, result.error_message)
+        )
         if not _is_cross_error(cross_text):
             error_message = str(result.error_message or "")
             if "POST_ONLY_REJECTED" not in error_message:
                 error_message = f"POST_ONLY_REJECTED: {error_message}".rstrip()
-            return result.model_copy(update={
+            return _with_dynamic_edge_telemetry(result.model_copy(update={
                 "provider_status": "POST_ONLY_REJECTED",
                 "rejection_code": "POST_ONLY_REJECTED",
                 "error_message": error_message,
                 "maker_attempts": attempt_no,
-            })
+            }))
+
         if api_client is None:
             error_message = str(result.error_message or "")
             if "POST_ONLY_REJECTED" not in error_message:
                 error_message = f"POST_ONLY_REJECTED: {error_message}".rstrip()
-            return result.model_copy(update={"provider_status": "POST_ONLY_REJECTED", "rejection_code": "POST_ONLY_REJECTED", "error_message": error_message, "maker_attempts": attempt_no})
+            return _with_dynamic_edge_telemetry(result.model_copy(update={
+                "provider_status": "POST_ONLY_REJECTED",
+                "rejection_code": "POST_ONLY_REJECTED",
+                "error_message": error_message,
+                "maker_attempts": attempt_no,
+            }))
+
         if attempt_no >= attempts_allowed:
             error_message = str(result.error_message or "")
             if "MAKER_NOT_POSTABLE" not in error_message:
                 error_message = f"MAKER_NOT_POSTABLE: {error_message}".rstrip()
-            return result.model_copy(update={
+            return _with_dynamic_edge_telemetry(result.model_copy(update={
                 "provider_status": "MAKER_NOT_POSTABLE",
                 "rejection_code": "MAKER_NOT_POSTABLE",
                 "error_message": error_message,
-                "maker_attempts": attempt_no, "maker_status": "MAKER_NOT_POSTABLE",
-            })
+                "maker_attempts": attempt_no,
+                "maker_status": "MAKER_NOT_POSTABLE",
+            }))
+
         prices = await _fresh_prices(api_client, current_order.token_id)
         maker_price, best_bid, best_ask, failure = calculate_maker_price(
-            current_order, prices, max_acceptable_price=max_acceptable_price, tick_size=tick_size,
+            current_order,
+            prices,
+            max_acceptable_price=(
+                None
+                if edge_policy is not None and current_order.side.upper() == "BUY"
+                else max_acceptable_price
+            ),
+            tick_size=tick_size,
         )
         last_best_bid = best_bid
         last_best_ask = best_ask
         if maker_price is None:
             status = failure or "MAKER_NOT_POSTABLE"
-            return result.model_copy(update={
-                "provider_status": status, "rejection_code": status, "error_message": status,
-                "maker_attempts": attempt_no, "maker_status": status,
-                "maker_best_bid": best_bid, "maker_best_ask": best_ask,
-            })
+            return _with_dynamic_edge_telemetry(result.model_copy(update={
+                "provider_status": status,
+                "rejection_code": status,
+                "error_message": status,
+                "maker_attempts": attempt_no,
+                "maker_status": status,
+                "maker_best_bid": best_bid,
+                "maker_best_ask": best_ask,
+            }))
+
+        if current_order.side.upper() == "BUY" and (
+            edge_policy is not None or require_edge_revalidation
+        ):
+            dynamic_edge_checked = True
+            if edge_policy is None:
+                edge_error = (
+                    "Dynamic edge policy unavailable; maker retry was not submitted"
+                )
+                logger.info(
+                    "maker_dynamic_edge_unavailable",
+                    attempt=attempt_no,
+                    fresh_price=str(maker_price),
+                    reason=edge_error,
+                )
+                return _with_dynamic_edge_telemetry(result.model_copy(update={
+                    "provider_status": "PRICE_MOVED",
+                    "rejection_code": "DYNAMIC_EDGE_UNAVAILABLE",
+                    "error_message": edge_error,
+                    "maker_attempts": attempt_no,
+                    "maker_status": "DYNAMIC_EDGE_UNAVAILABLE",
+                }))
+            edge_ok, dynamic_net_edge, edge_error = evaluate_fak_retry_buy_price(
+                edge_policy,
+                maker_price,
+            )
+            if not edge_ok:
+                logger.info(
+                    "maker_dynamic_edge_rejected",
+                    attempt=attempt_no,
+                    fresh_price=str(maker_price),
+                    net_edge=(
+                        str(dynamic_net_edge)
+                        if dynamic_net_edge is not None
+                        else None
+                    ),
+                    min_net_edge=str(edge_policy.min_net_edge),
+                    reason=edge_error,
+                )
+                return _with_dynamic_edge_telemetry(result.model_copy(update={
+                    "provider_status": "PRICE_MOVED",
+                    "rejection_code": "DYNAMIC_EDGE_REJECTED",
+                    "error_message": edge_error or "DYNAMIC_EDGE_REJECTED",
+                    "maker_attempts": attempt_no,
+                    "maker_status": "DYNAMIC_EDGE_REJECTED",
+                }))
+
         requested_shares = current_order.requested_shares
         if current_order.side.upper() == "BUY" and current_order.max_spend_usdc:
             requested_shares = current_order.max_spend_usdc / maker_price
-        current_order = current_order.model_copy(update={
-            "limit_price": maker_price, "requested_shares": requested_shares,
-        })
-        logger.info("maker_order_repriced", token_id=current_order.token_id,
-                    attempt=attempt_no + 1, order_type=order_type,
-                    best_bid=str(best_bid), best_ask=str(best_ask), maker_price=str(maker_price))
-    return SubmissionResult(accepted=False, provider_status="MAKER_NOT_POSTABLE")
+        updates: dict[str, Any] = {
+            "limit_price": maker_price,
+            "requested_shares": requested_shares,
+        }
+        if edge_policy is not None and current_order.side.upper() == "BUY":
+            updates["max_acceptable_price"] = edge_policy.max_permitted_price
+        current_order = current_order.model_copy(update=updates)
+        logger.info(
+            "maker_order_repriced",
+            token_id=current_order.token_id,
+            attempt=attempt_no + 1,
+            order_type=order_type,
+            best_bid=str(best_bid),
+            best_ask=str(best_ask),
+            maker_price=str(maker_price),
+        )
+
+    return _with_dynamic_edge_telemetry(
+        SubmissionResult(accepted=False, provider_status="MAKER_NOT_POSTABLE")
+    )
+
 
 async def execute_gtc_ttl(
     gateway: Any,
@@ -284,8 +412,10 @@ async def execute_gtc_ttl(
     *,
     api_client: Any = None,
     max_acceptable_price: Decimal | None = None,
-    max_reprice_attempts: int = 1,
+    max_reprice_attempts: int = DEFAULT_MAKER_REPRICE_MAX_RETRIES,
     tick_size: Decimal = Decimal("0.01"),
+    edge_policy: FAKRetryEdgePolicy | None = None,
+    require_edge_revalidation: bool = False,
 ) -> SubmissionResult:
     """Place a maker GTC order, wait for the TTL, then cancel if unfilled."""
     maker_order = order.model_copy(update={"post_only": post_only})
@@ -294,7 +424,10 @@ async def execute_gtc_ttl(
     sub_res = await execute_maker_limit(
         gateway, maker_order, order_type="GTC", api_client=api_client,
         max_acceptable_price=max_acceptable_price,
-        max_reprice_attempts=max_reprice_attempts, tick_size=tick_size,
+        max_reprice_attempts=max_reprice_attempts,
+        tick_size=tick_size,
+        edge_policy=edge_policy,
+        require_edge_revalidation=require_edge_revalidation,
     )
     if not sub_res.accepted or not sub_res.provider_order_id:
         return sub_res
@@ -380,6 +513,7 @@ async def execute_fak_retry(
     delay_seconds: float = DEFAULT_FAK_RETRY_DELAY_SEC,
     max_acceptable_price: Decimal | None = None,
     edge_policy: FAKRetryEdgePolicy | None = None,
+    require_edge_revalidation: bool = False,
 ) -> SubmissionResult:
     """
     Выполняет попытки FAK-ордера. Если NO_LIQUIDITY — выдерживает паузу,
@@ -400,6 +534,7 @@ async def execute_fak_retry(
     price_cap_blocked: str | None = None
     dynamic_edge_checked = False
     dynamic_net_edge: Decimal | None = None
+    attempts_made = 0
 
     def _with_dynamic_edge_telemetry(
         result: SubmissionResult,
@@ -417,10 +552,12 @@ async def execute_fak_retry(
                 "fak_retry_dynamic_max_price": (
                     edge_policy.max_permitted_price if edge_policy is not None else None
                 ),
+                "fak_retry_attempts": attempts_made,
             }
         )
 
     for attempt in range(1, max_attempts + 1):
+        attempts_made = attempt
         try:
             sub_res = await gateway.submit(current_order)
         except Exception as e:
@@ -562,6 +699,31 @@ async def execute_fak_retry(
                             attempt=attempt,
                             error=str(refresh_err),
                         )
+                if (
+                    current_order.side.upper() == "BUY"
+                    and require_edge_revalidation
+                    and (edge_policy is None or not prices)
+                ):
+                    reason = (
+                        "Dynamic edge policy unavailable; retry was not submitted"
+                        if edge_policy is None
+                        else "Fresh quote unavailable; dynamic edge was not revalidated"
+                    )
+                    logger.info(
+                        "fak_retry_dynamic_edge_unavailable",
+                        attempt=attempt,
+                        reason=reason,
+                    )
+                    return _with_dynamic_edge_telemetry(
+                        last_result.model_copy(
+                            update={
+                                "provider_status": "PRICE_MOVED",
+                                "rejection_code": "DYNAMIC_EDGE_UNAVAILABLE",
+                                "error_message": reason,
+                            }
+                        )
+                    )
+
                 if prices:
                     quote_key = (
                         "best_ask"
@@ -569,6 +731,26 @@ async def execute_fak_retry(
                         else "best_bid"
                     )
                     new_price = _decimal(prices.get(quote_key))
+                    if (
+                        new_price is None
+                        and current_order.side.upper() == "BUY"
+                        and require_edge_revalidation
+                    ):
+                        reason = "Fresh quote missing best ask; dynamic edge was not revalidated"
+                        logger.info(
+                            "fak_retry_dynamic_edge_unavailable",
+                            attempt=attempt,
+                            reason=reason,
+                        )
+                        return _with_dynamic_edge_telemetry(
+                            last_result.model_copy(
+                                update={
+                                    "provider_status": "PRICE_MOVED",
+                                    "rejection_code": "DYNAMIC_EDGE_UNAVAILABLE",
+                                    "error_message": reason,
+                                }
+                            )
+                        )
                     cap = effective_max_price
                     if new_price is not None and new_price > 0:
                         price_exceeds_stale_cap = (

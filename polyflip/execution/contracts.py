@@ -131,6 +131,7 @@ class SubmissionResult(BaseModel):
     fak_retry_dynamic_min_edge: Decimal | None = None
     fak_retry_dynamic_probability: Decimal | None = None
     fak_retry_dynamic_max_price: Decimal | None = None
+    fak_retry_attempts: int = 0
 
 
 

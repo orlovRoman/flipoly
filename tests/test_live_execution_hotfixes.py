@@ -474,6 +474,7 @@ async def test_minimum_live_order_amount_validation():
     db_session.scalar.side_effect = mock_scalar
 
     active_session_mock = MagicMock()
+    active_session_mock.selected_assets = None
     active_session_mock.max_single_order_usdc = Decimal("10.0")
     active_session_mock.budget_usdc = Decimal("100.0")
     active_session_mock.max_open_positions = 5

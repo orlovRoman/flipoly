@@ -139,7 +139,7 @@ def test_maker_price_normalizes_float_limits_and_tick():
     assert reason is None
 
 @pytest.mark.asyncio
-async def test_maker_cross_retry_is_capped_at_one_attempt():
+async def test_maker_cross_retry_is_capped_at_ten_reprices():
     gateway = _PostOnlyRejectGateway()
     gateway.submit = AsyncMock(return_value=SubmissionResult(
         accepted=False,
@@ -160,7 +160,7 @@ async def test_maker_cross_retry_is_capped_at_one_attempt():
     assert result.provider_status == "MAKER_NOT_POSTABLE"
     assert result.rejection_code == "MAKER_NOT_POSTABLE"
     assert result.maker_status == "MAKER_NOT_POSTABLE"
-    assert gateway.submit.await_count == 2
+    assert gateway.submit.await_count == 11
 
 def test_terminal_codes_keep_manual_review_separate_from_network_errors():
     assert _terminal_code("MANUAL_REVIEW_FAILED", None) == "MANUAL_REJECTED"
@@ -244,7 +244,7 @@ async def test_fak_retry_refreshes_paper_ask_and_recalculates_shares():
     gateway = FakeExecutionGateway(
         profile="LIVE_PARITY",
         quote_provider=quote_provider,
-        slippage_pct="0.5",
+        slippage_pct="0",
         fee_rate="0",
     )
     order = GatewayOrder(
@@ -582,7 +582,7 @@ async def test_fake_fak_allows_equal_ask_with_modeled_slippage():
             side="BUY",
             limit_price="0.27",
             requested_shares="3.7",
-            max_spend_usdc="1",
+            max_spend_usdc="1.01",
             max_acceptable_price="0.284",
         ),
         order_type="FAK",
@@ -590,3 +590,135 @@ async def test_fake_fak_allows_equal_ask_with_modeled_slippage():
 
     assert result.accepted is True
     assert result.provider_status == "FILLED"
+
+
+@pytest.mark.asyncio
+async def test_maker_retry_recalculates_edge_before_resubmit():
+    gateway = _PostOnlyRejectGateway()
+    gateway.submit = AsyncMock(side_effect=[
+        SubmissionResult(
+            accepted=False,
+            provider_status="POST_ONLY_REJECTED",
+            error_message="order crosses book",
+        ),
+        SubmissionResult(
+            accepted=True,
+            provider_order_id="maker-edge-2",
+            provider_status="OPEN",
+        ),
+    ])
+
+    class _Prices:
+        async def get_market_prices(self, token_id):
+            assert token_id == "token-1"
+            return {"best_bid": "0.33", "best_ask": "0.35"}
+
+    result = await execute_maker_limit(
+        gateway,
+        GatewayOrder(
+            attempt_id=uuid4(),
+            market_id="market-1",
+            asset="BTC",
+            outcome_to_buy="YES",
+            token_id="token-1",
+            side="BUY",
+            limit_price="0.36",
+            requested_shares="3.7",
+            max_spend_usdc="1",
+            max_acceptable_price="0.303",
+        ),
+        api_client=_Prices(),
+        max_acceptable_price=Decimal("0.303"),
+        max_reprice_attempts=3,
+        edge_policy=_outsider_dynamic_edge_policy(),
+        require_edge_revalidation=True,
+    )
+
+    assert result.accepted is True
+    assert result.maker_attempts == 2
+    assert result.fak_retry_dynamic_edge_checked is True
+    assert result.fak_retry_dynamic_net_edge == Decimal("0.05")
+    second_order = gateway.submit.await_args_list[1].args[0]
+    assert second_order.limit_price == Decimal("0.33")
+    assert second_order.requested_shares == Decimal("1") / Decimal("0.33")
+    assert second_order.max_acceptable_price == Decimal("0.40")
+
+
+@pytest.mark.asyncio
+async def test_maker_retry_stops_when_fresh_edge_is_spent():
+    gateway = _PostOnlyRejectGateway()
+    gateway.submit = AsyncMock(return_value=SubmissionResult(
+        accepted=False,
+        provider_status="POST_ONLY_REJECTED",
+        error_message="order crosses book",
+    ))
+
+    class _Prices:
+        async def get_market_prices(self, token_id):
+            return {"best_bid": "0.33", "best_ask": "0.35"}
+
+    result = await execute_maker_limit(
+        gateway,
+        GatewayOrder(
+            attempt_id=uuid4(),
+            market_id="market-1",
+            asset="BTC",
+            outcome_to_buy="YES",
+            token_id="token-1",
+            side="BUY",
+            limit_price="0.36",
+            requested_shares="3.7",
+            max_spend_usdc="1",
+            max_acceptable_price="0.303",
+        ),
+        api_client=_Prices(),
+        max_acceptable_price=Decimal("0.303"),
+        max_reprice_attempts=3,
+        edge_policy=_outsider_dynamic_edge_policy("0.38"),
+        require_edge_revalidation=True,
+    )
+
+    assert result.accepted is False
+    assert result.provider_status == "PRICE_MOVED"
+    assert result.rejection_code == "DYNAMIC_EDGE_REJECTED"
+    assert result.fak_retry_dynamic_net_edge == Decimal("0.03")
+    assert result.maker_attempts == 1
+    gateway.submit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_fak_retry_does_not_resubmit_without_fresh_edge_quote():
+    class _NoQuoteGateway:
+        def __init__(self):
+            self.submit = AsyncMock(return_value=SubmissionResult(
+                accepted=False,
+                provider_status="NO_LIQUIDITY_FAK",
+            ))
+            self.quote_provider = AsyncMock(return_value=None)
+
+    gateway = _NoQuoteGateway()
+    result = await execute_fak_retry(
+        gateway,
+        GatewayOrder(
+            attempt_id=uuid4(),
+            market_id="market-1",
+            asset="BTC",
+            outcome_to_buy="YES",
+            token_id="token-1",
+            side="BUY",
+            limit_price="0.27",
+            requested_shares=Decimal("1") / Decimal("0.27"),
+            max_spend_usdc="1",
+            max_acceptable_price="0.303",
+        ),
+        max_attempts=2,
+        delay_seconds=0,
+        max_acceptable_price=Decimal("0.303"),
+        edge_policy=_outsider_dynamic_edge_policy(),
+        require_edge_revalidation=True,
+    )
+
+    assert result.accepted is False
+    assert result.rejection_code == "DYNAMIC_EDGE_UNAVAILABLE"
+    assert result.fak_retry_attempts == 1
+    gateway.submit.assert_awaited_once()
