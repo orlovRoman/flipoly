@@ -421,6 +421,96 @@ async def test_fak_retry_reprices_above_stale_cap_when_dynamic_edge_survives():
 
 
 @pytest.mark.asyncio
+async def test_fak_retry_rejects_first_paper_fill_when_dynamic_edge_is_spent():
+    from polyflip.execution.gateways.fake import FakeExecutionGateway
+
+    async def quote_provider(token_id):
+        return {
+            "best_bid": "0.32",
+            "best_ask": "0.33",
+            "asks": [{"price": "0.33", "size": "20"}],
+            "bids": [{"price": "0.32", "size": "20"}],
+        }
+
+    gateway = FakeExecutionGateway(
+        profile="LIVE_PARITY",
+        quote_provider=quote_provider,
+        slippage_pct="0",
+        fee_rate="0",
+    )
+    result = await execute_fak_retry(
+        gateway,
+        GatewayOrder(
+            attempt_id=uuid4(),
+            market_id="market-1",
+            asset="BTC",
+            outcome_to_buy="YES",
+            token_id="token-1",
+            side="BUY",
+            limit_price="0.33",
+            requested_shares=Decimal("1") / Decimal("0.33"),
+            max_spend_usdc="1",
+            max_acceptable_price="0.33",
+        ),
+        max_attempts=1,
+        delay_seconds=0,
+        max_acceptable_price=Decimal("0.33"),
+        edge_policy=_outsider_dynamic_edge_policy("0.38"),
+    )
+
+    assert result.accepted is False
+    assert result.provider_status == "PRICE_MOVED"
+    assert result.rejection_code == "DYNAMIC_EDGE_REJECTED"
+    assert result.fak_retry_dynamic_edge_checked is True
+    assert result.fak_retry_dynamic_net_edge == Decimal("0.03")
+    assert result.fills == ()
+
+
+@pytest.mark.asyncio
+async def test_fak_retry_records_dynamic_edge_for_first_paper_fill():
+    from polyflip.execution.gateways.fake import FakeExecutionGateway
+
+    async def quote_provider(token_id):
+        return {
+            "best_bid": "0.32",
+            "best_ask": "0.33",
+            "asks": [{"price": "0.33", "size": "20"}],
+            "bids": [{"price": "0.32", "size": "20"}],
+        }
+
+    gateway = FakeExecutionGateway(
+        profile="LIVE_PARITY",
+        quote_provider=quote_provider,
+        slippage_pct="0",
+        fee_rate="0",
+    )
+    result = await execute_fak_retry(
+        gateway,
+        GatewayOrder(
+            attempt_id=uuid4(),
+            market_id="market-1",
+            asset="BTC",
+            outcome_to_buy="YES",
+            token_id="token-1",
+            side="BUY",
+            limit_price="0.33",
+            requested_shares="3",
+            max_spend_usdc="1",
+            max_acceptable_price="0.33",
+        ),
+        max_attempts=1,
+        delay_seconds=0,
+        max_acceptable_price=Decimal("0.33"),
+        edge_policy=_outsider_dynamic_edge_policy("0.40"),
+    )
+
+    assert result.accepted is True
+    assert result.provider_status == "FILLED"
+    assert result.fak_retry_dynamic_edge_checked is True
+    assert result.fak_retry_dynamic_net_edge == Decimal("0.05")
+
+
+@pytest.mark.asyncio
 async def test_fak_retry_rejects_refreshed_price_when_dynamic_edge_is_spent():
     class _NoLiquidityGateway:
         def __init__(self):

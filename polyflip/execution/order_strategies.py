@@ -438,6 +438,60 @@ async def execute_fak_retry(
 
         last_result = sub_res
 
+        # LIVE_PARITY PAPER must apply the same economic guard as a fresh
+        # LIVE validation before treating a synthetic fill as executable. The
+        # parity gateway has already waited for its configured delay and put
+        # the exact quote used for the simulated fill in paper_quote_price.
+        # Rejecting here keeps that quote and the edge decision atomic from
+        # the caller's perspective; the in-memory fake fill is never persisted.
+        if (
+            sub_res.accepted
+            and sub_res.fills
+            and sub_res.paper_quote_price is not None
+            and getattr(gateway, "profile", None) == "LIVE_PARITY"
+            and edge_policy is not None
+            and current_order.side.upper() == "BUY"
+        ):
+            dynamic_edge_checked = True
+            (
+                edge_ok,
+                dynamic_net_edge,
+                edge_error,
+            ) = evaluate_fak_retry_buy_price(
+                edge_policy,
+                sub_res.paper_quote_price,
+            )
+            if not edge_ok:
+                logger.info(
+                    "paper_dynamic_edge_rejected_after_fill_simulation",
+                    attempt=attempt,
+                    fresh_price=str(sub_res.paper_quote_price),
+                    net_edge=(
+                        str(dynamic_net_edge)
+                        if dynamic_net_edge is not None
+                        else None
+                    ),
+                    min_net_edge=str(edge_policy.min_net_edge),
+                    reason=edge_error,
+                )
+                return _with_dynamic_edge_telemetry(
+                    sub_res.model_copy(
+                        update={
+                            "accepted": False,
+                            "provider_status": "PRICE_MOVED",
+                            "rejection_code": "DYNAMIC_EDGE_REJECTED",
+                            "error_message": (
+                                edge_error or "DYNAMIC_EDGE_REJECTED"
+                            ),
+                            "settlement_state": "FAILED",
+                            # The fake gateway fill is only a probe result;
+                            # do not let the worker persist it as a trade.
+                            "provider_trade_ids": (),
+                            "fills": (),
+                        }
+                    )
+                )
+
         status_text = " ".join(
             str(value or "")
             for value in (sub_res.provider_status, sub_res.error_message)
