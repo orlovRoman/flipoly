@@ -25,16 +25,20 @@ IDLE_SLEEP_SECONDS = max(POLL_SECONDS, 2.0)
 async def _requeue_after_worker_error(
     client: AILabApiClient, run: ClaimedRun, exc: Exception
 ) -> None:
-    """Best-effort recovery for errors outside the API error contract.
+    """Finish errors outside the API contract without an unbounded retry loop.
 
     LLM transports can raise httpx and JSON/parsing exceptions directly.
     If those escape the phase loop, the heartbeat is stopped in finally and
-    the run would otherwise remain RUNNING until its lease expires. Return the
-    run to the queue while the lease is still held; if the recovery request also
-    fails, clear the local token so the next poll cannot reuse a stale lease.
+    the run would otherwise remain RUNNING until its lease expires. Only
+    explicit transient API errors may be requeued; worker errors are terminal
+    for this attempt so an unavailable upstream cannot claim the same run forever.
     """
     status_code = getattr(getattr(exc, "response", None), "status_code", None)
-    action = "REQUEUE" if status_code is None or status_code >= 500 or status_code in {408, 409, 425, 429} else "FAILED"
+    transient_api_error = (
+        status_code is not None
+        and (status_code >= 500 or status_code in {408, 409, 425, 429})
+    )
+    action = "REQUEUE" if transient_api_error else "FAILED"
     reason = f"worker error ({type(exc).__name__}): {str(exc)[:320]}"
     logger.error(
         f"unexpected worker error; {action.lower()} run",

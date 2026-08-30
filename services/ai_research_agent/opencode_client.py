@@ -19,6 +19,19 @@ DEFAULT_OPENCODE_CHAT_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
 DEFAULT_OPENCODE_GO_RESPONSES_ENDPOINT = "https://opencode.ai/zen/go/v1/responses"
 DEFAULT_OPENCODE_GO_CHAT_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions"
 DEFAULT_OPENCODE_GO_MESSAGES_ENDPOINT = "https://opencode.ai/zen/go/v1/messages"
+DEFAULT_LLM_TIMEOUT_SECONDS = 180.0
+MIN_LLM_TIMEOUT_SECONDS = 5.0
+MAX_LLM_TIMEOUT_SECONDS = 900.0
+
+
+def _configured_timeout_seconds() -> float:
+    raw = os.getenv("AI_LAB_LLM_TIMEOUT_SECONDS", str(DEFAULT_LLM_TIMEOUT_SECONDS))
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_LLM_TIMEOUT_SECONDS
+    return min(max(value, MIN_LLM_TIMEOUT_SECONDS), MAX_LLM_TIMEOUT_SECONDS)
+
 _OPENCODE_GO_MODEL_PROTOCOLS = {
     "grok-4.6": "responses",
     "glm-5.3-flash": "chat_completions",
@@ -302,6 +315,7 @@ class OpenCodeClient:
     def __init__(self) -> None:
         self.provider = os.getenv("AI_LAB_LLM_PROVIDER", "opencode").strip().lower()
         self.api_key = os.getenv("AI_LAB_LLM_API_KEY", "")
+        self.request_timeout_seconds = _configured_timeout_seconds()
         if self.provider == "openrouter" and not self.api_key:
             self.api_key = os.getenv("OPENROUTER_API_KEY", "")
         if self.provider == "openrouter":
@@ -496,7 +510,7 @@ class OpenCodeClient:
                 "store": False,
             }
         started = time.monotonic()
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
             headers = self._request_headers()
             if is_messages:
                 headers["anthropic-version"] = "2023-06-01"

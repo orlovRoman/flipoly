@@ -145,14 +145,22 @@ class FailingLLM(FakeLLM):
         raise httpx.TimeoutException("OpenCode request timed out")
 
 
-def test_runner_requeues_unexpected_llm_error_and_drops_lease():
+def test_runner_marks_unexpected_llm_error_failed_and_drops_lease():
     client = FakeClient()
 
     progressed = _run(agent_runner.process_one_run(client, FailingLLM()))
 
     assert progressed is False
-    assert client.calls[-1] == "complete:REQUEUE"
+    assert client.calls[-1] == "complete:FAILED"
     assert client._lease_token is None
+
+
+def test_opencode_timeout_is_configurable(monkeypatch):
+    monkeypatch.setenv("AI_LAB_LLM_TIMEOUT_SECONDS", "240")
+    from opencode_client import OpenCodeClient
+
+    client = OpenCodeClient()
+    assert client.request_timeout_seconds == 240.0
 
 
 def _run(coro):
