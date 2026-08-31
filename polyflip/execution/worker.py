@@ -478,7 +478,9 @@ async def _load_paper_execution_config(session, settings: ExecutionSettings) -> 
         "PAPER_EXECUTION_PROFILE",
         "PAPER_LIVE_DELAY_SEC",
         "PAPER_SLIPPAGE_PCT",
+        "PAPER_FEE_MODEL",
         "PAPER_FEE_RATE",
+        "PAPER_FEE_EXPONENT",
         "PAPER_MIN_ORDER_SHARES",
     )
     try:
@@ -512,7 +514,9 @@ async def _load_paper_execution_config(session, settings: ExecutionSettings) -> 
         "profile": profile,
         "delay_sec": str(values.get("PAPER_LIVE_DELAY_SEC", settings.paper_live_delay_sec)),
         "slippage_pct": str(values.get("PAPER_SLIPPAGE_PCT", settings.paper_slippage_pct)),
+        "fee_model": str(values.get("PAPER_FEE_MODEL", settings.paper_fee_model)),
         "fee_rate": str(values.get("PAPER_FEE_RATE", settings.paper_fee_rate)),
+        "fee_exponent": str(values.get("PAPER_FEE_EXPONENT", settings.paper_fee_exponent)),
         "min_order_shares": str(values.get("PAPER_MIN_ORDER_SHARES", settings.paper_min_order_shares)),
     }
 

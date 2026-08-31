@@ -18,6 +18,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.db.models import MarketSnapshot
+from polyflip.trading.weighted_policy import (
+    WeightedPolicyConfig,
+    WeightedSideQuote,
+    select_weighted_side,
+)
 
 
 DEFAULT_MIN_EDGE = 0.04
@@ -27,6 +32,9 @@ DEFAULT_MIN_PRICE = 0.05
 DEFAULT_MAX_PRICE = 0.95
 DEFAULT_OUTSIDER_MAX_PRICE = 0.45
 DEFAULT_STAKE_USDC = 1.0
+DEFAULT_WEIGHTED_FEE_RATE = 0.07
+DEFAULT_WEIGHTED_FEE_EXPONENT = 1.0
+DEFAULT_WEIGHTED_SLIPPAGE_RATE = 0.005
 
 
 @dataclass(frozen=True)
@@ -68,6 +76,47 @@ def _quote_prices(row: pd.Series) -> tuple[float | None, float | None]:
         float(np.clip(yes_ask, 0.001, 0.999)),
         float(np.clip(1.0 - yes_bid, 0.001, 0.999)),
     )
+
+
+def _market_mid_price(
+    row: pd.Series,
+    yes_ask: float,
+    no_ask: float,
+) -> float:
+    """Return the YES mid used as the market prior in weighted mode."""
+    mid = _as_float(row.get("mid_price"))
+    if mid is None:
+        yes_bid = _as_float(row.get("best_bid"))
+        if yes_bid is not None:
+            mid = (yes_ask + yes_bid) / 2.0
+        else:
+            # ``no_ask = 1 - YES bid`` when the quote is top-of-book.  This
+            # fallback is only for old artifacts that persisted asks but not
+            # a midpoint or bid.
+            mid = (yes_ask + (1.0 - no_ask)) / 2.0
+    return float(np.clip(mid, 0.001, 0.999))
+
+
+def _normalize_score_series(
+    values: Iterable[float] | float | None,
+    expected_length: int,
+    name: str,
+) -> np.ndarray | None:
+    """Normalize an optional scalar/iterable model output for OOF replay."""
+    if values is None:
+        return None
+    if isinstance(values, (str, bytes)):
+        raise ValueError(f"{name} must be a numeric iterable")
+    try:
+        if np.isscalar(values):
+            array = np.full(expected_length, float(values), dtype=float)
+        else:
+            array = np.asarray(list(values), dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must contain numeric values") from exc
+    if len(array) != expected_length:
+        raise ValueError(f"{name} must have the same length as frame")
+    return array
 
 
 def _price_bucket(price: float) -> str:
@@ -140,6 +189,39 @@ def _pnl_for_trade(
     gross_profit = stake_usdc * (1.0 - price) / price
     # Polymarket's fee is charged on the winning profit, not on the stake.
     return gross_profit - max(gross_profit, 0.0) * fee_rate
+
+
+def _weighted_trade_accounting(
+    *,
+    won: bool,
+    candidate: WeightedSideQuote,
+    stake_usdc: float,
+) -> tuple[float, float, float, float, float]:
+    """Return budget-inclusive weighted PnL and execution accounting.
+
+    ``stake_usdc`` is the maximum entry budget, including the modeled fee and
+    slippage.  This matches the PAPER gateway's ``max_spend_usdc`` contract:
+    a full-loss consumes the budget, while a win pays one USDC per share.
+    """
+    entry_cost_per_share = candidate.ask + candidate.cost.total_per_share
+    if entry_cost_per_share <= 0.0:
+        raise ValueError("weighted candidate has non-positive entry cost")
+    shares = stake_usdc / entry_cost_per_share
+    gross_quote = candidate.ask * shares
+    fee = candidate.cost.fee_per_share * shares
+    slippage = candidate.cost.slippage_per_share * shares
+    spread_and_latency = (
+        candidate.cost.spread_per_share + candidate.cost.latency_buffer_per_share
+    ) * shares
+    total_cost = gross_quote + fee + slippage + spread_and_latency
+    pnl = shares - total_cost if won else -total_cost
+    return (
+        float(pnl),
+        float(shares),
+        float(gross_quote),
+        float(fee),
+        float(total_cost),
+    )
 def _oot_window_summaries(trades: list[dict[str, Any]], stake_usdc: float) -> list[dict[str, Any]]:
     """Summarize chronological OOT windows for robust experiment ranking.
 
@@ -192,12 +274,23 @@ def compute_oof_polymarket_backtest(
     strategy_branch: str = "OUTSIDER_ONLY",
     min_edge: float = DEFAULT_MIN_EDGE,
     cost_buffer: float = DEFAULT_COST_BUFFER,
-    fee_rate: float = DEFAULT_FEE_RATE,
+    fee_rate: float | None = None,
     min_price: float = DEFAULT_MIN_PRICE,
     max_price: float = DEFAULT_MAX_PRICE,
     outsider_max_price: float = DEFAULT_OUTSIDER_MAX_PRICE,
     stake_usdc: float = DEFAULT_STAKE_USDC,
     slippage_pct: float = 0.0,
+    policy_mode: str = "LEGACY",
+    p_logreg_scores: Iterable[float] | float | None = None,
+    mrf_evidence_scores: Iterable[float] | float | None = None,
+    market_weight: float = 0.90,
+    logreg_weight: float = 0.05,
+    lgbm_weight: float = 0.05,
+    mrf_beta: float = 0.0,
+    weighted_fee_rate: float = DEFAULT_WEIGHTED_FEE_RATE,
+    weighted_fee_exponent: float = DEFAULT_WEIGHTED_FEE_EXPONENT,
+    weighted_slippage_rate: float = DEFAULT_WEIGHTED_SLIPPAGE_RATE,
+    execution_role: str = "TAKER",
 ) -> dict[str, Any]:
     """Compute comparable Polymarket PnL from strictly OOF probabilities.
 
@@ -205,6 +298,11 @@ def compute_oof_polymarket_backtest(
     (YES=1/NO=0).  ``quotes`` contains at most one entry snapshot per market.
     Rows without an OOF probability or an entry quote are reported in the
     coverage counters and never silently treated as losses.
+
+    ``p_logreg_scores`` is optional and, when supplied, must already be on the
+    P(YES wins) axis.  Live LogReg produces P(flip), so callers should convert
+    it with ``logreg_flip_to_yes_probability`` (or the equivalent canonical
+    helper) before passing it here.
     """
     scores = np.asarray(list(oof_scores), dtype=float)
     if len(scores) != len(frame):
@@ -214,7 +312,82 @@ def compute_oof_polymarket_backtest(
     if not 0.0 <= slippage_pct < 1.0:
         raise ValueError("slippage_pct must be in [0, 1)")
 
+    normalized_policy_mode = str(policy_mode or "LEGACY").strip().upper()
+    weighted_mode = normalized_policy_mode in {
+        "WEIGHTED",
+        "WEIGHTED_SHADOW",
+        "WEIGHTED_ACTIVE",
+    }
+    if not weighted_mode and normalized_policy_mode != "LEGACY":
+        raise ValueError(
+            "policy_mode must be LEGACY, WEIGHTED, WEIGHTED_SHADOW or WEIGHTED_ACTIVE"
+        )
+    branch = strategy_branch.strip().upper()
+    if weighted_mode and branch not in {
+        "OUTSIDER",
+        "OUTSIDER_ONLY",
+        "FAVORITE",
+        "FAVORITE_ONLY",
+        "COMBINED",
+        "MIXED",
+        "WEIGHTED",
+        "WEIGHTED_ACTIVE",
+    }:
+        raise ValueError(
+            "weighted policy backtest strategy_branch must be OUTSIDER_ONLY, "
+            "FAVORITE_ONLY or COMBINED"
+        )
+    if weighted_mode:
+        weighted_lr_scores = _normalize_score_series(
+            p_logreg_scores, len(frame), "p_logreg_scores"
+        )
+        weighted_mrf_scores = _normalize_score_series(
+            mrf_evidence_scores, len(frame), "mrf_evidence_scores"
+        )
+        try:
+            weighted_fee_rate = float(weighted_fee_rate)
+            weighted_fee_exponent = float(weighted_fee_exponent)
+            weighted_slippage_rate = float(weighted_slippage_rate)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("weighted fee/slippage rates must be numeric") from exc
+        if not np.isfinite(weighted_fee_rate) or weighted_fee_rate < 0.0:
+            raise ValueError("weighted_fee_rate must be finite and non-negative")
+        if not np.isfinite(weighted_fee_exponent) or weighted_fee_exponent < 0.0:
+            raise ValueError("weighted_fee_exponent must be finite and non-negative")
+        if not np.isfinite(weighted_slippage_rate) or not 0.0 <= weighted_slippage_rate < 1.0:
+            raise ValueError("weighted_slippage_rate must be in [0, 1)")
+        policy_config = WeightedPolicyConfig(
+            market_weight=market_weight,
+            logreg_weight=logreg_weight,
+            lgbm_weight=lgbm_weight,
+            mrf_beta=mrf_beta,
+            fee_rate=weighted_fee_rate,
+            fee_exponent=weighted_fee_exponent,
+            slippage_rate=weighted_slippage_rate,
+            execution_role=execution_role,
+        )
+    else:
+        weighted_lr_scores = weighted_mrf_scores = None
+        policy_config = None
+        if fee_rate is None:
+            fee_rate = DEFAULT_FEE_RATE
+        try:
+            fee_rate = float(fee_rate)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("fee_rate must be numeric") from exc
+        if not np.isfinite(fee_rate) or fee_rate < 0.0:
+            raise ValueError("fee_rate must be finite and non-negative")
+    accounting_model = (
+        "POLYMARKET_PRICE_DEPENDENT_BUDGET"
+        if weighted_mode
+        else "LEGACY_WIN_PROFIT"
+    )
+    effective_fee_rate = (
+        float(weighted_fee_rate) if weighted_mode else float(fee_rate)
+    )
+
     base = frame.reset_index(drop=True).copy()
+    base["_oof_index"] = np.arange(len(base), dtype=int)
     base["_p_yes"] = scores
     base["market_id"] = base["market_id"].astype(str)
     quote_frame = quotes.copy() if quotes is not None else pd.DataFrame()
@@ -235,6 +408,7 @@ def compute_oof_polymarket_backtest(
     coverage_reasons["missing_oof"] = int(np.isnan(scores).sum())
     coverage_reasons["missing_quote"] = max(int(len(base) - len(merged)), 0)
     for _, row in merged.iterrows():
+        source_index = int(row["_oof_index"])
         raw_p_yes = row.get("_p_yes")
         p_yes = _as_float(raw_p_yes)
         if p_yes is None:
@@ -248,15 +422,76 @@ def compute_oof_polymarket_backtest(
         if yes_ask is None or no_ask is None:
             coverage_reasons["invalid_quote"] += 1
             continue
-        candidate = _select_candidate(
-            p_yes,
-            yes_ask,
-            no_ask,
-            strategy_branch=strategy_branch,
-            cost_buffer=cost_buffer,
-        )
-        branch = strategy_branch.strip().upper()
-        price_cap = outsider_max_price if branch in {"OUTSIDER", "OUTSIDER_ONLY"} else max_price
+        weighted_candidate: WeightedSideQuote | None = None
+        if weighted_mode:
+            p_market_yes = _market_mid_price(row, yes_ask, no_ask)
+            p_logreg_yes = (
+                _as_float(weighted_lr_scores[source_index])
+                if weighted_lr_scores is not None
+                else None
+            )
+            mrf_evidence = (
+                _as_float(weighted_mrf_scores[source_index])
+                if weighted_mrf_scores is not None
+                else None
+            )
+            if weighted_lr_scores is not None and p_logreg_yes is None:
+                coverage_reasons["invalid_logreg"] += 1
+            if weighted_mrf_scores is not None and mrf_evidence is None:
+                coverage_reasons["invalid_mrf_evidence"] += 1
+            selection = select_weighted_side(
+                p_market_yes=p_market_yes,
+                p_logreg_yes=p_logreg_yes,
+                p_lgbm_yes=p_yes,
+                yes_ask=yes_ask,
+                no_ask=no_ask,
+                config=policy_config,
+                mrf_evidence=mrf_evidence,
+                min_net_ev=0.0,
+                fee_source="BACKTEST_CONFIG",
+                spread=_as_float(row.get("spread"), 0.0) or 0.0,
+            )
+            # The combined policy normally takes the best side.  Branch
+            # reports still need to answer the old diagnostic question
+            # "what if we traded only favorites/outsiders?", so constrain the
+            # same cost-aware quotes before applying the branch price cap.
+            if branch in {"OUTSIDER", "OUTSIDER_ONLY"}:
+                weighted_candidate = (
+                    selection.no_quote if yes_ask >= 0.5 else selection.yes_quote
+                )
+            elif branch in {"FAVORITE", "FAVORITE_ONLY"}:
+                weighted_candidate = (
+                    selection.yes_quote if yes_ask >= 0.5 else selection.no_quote
+                )
+            else:
+                weighted_candidate = selection.selected
+            if weighted_candidate is None:
+                coverage_reasons["no_positive_weighted_ev"] += 1
+                continue
+            if weighted_candidate.net_ev_per_share < 0.0:
+                coverage_reasons["no_positive_weighted_ev"] += 1
+                continue
+            candidate = Candidate(
+                weighted_candidate.side,
+                weighted_candidate.ask,
+                weighted_candidate.p_win,
+                weighted_candidate.gross_ev_per_share,
+                weighted_candidate.net_edge,
+            )
+            price_cap = (
+                outsider_max_price
+                if branch in {"OUTSIDER", "OUTSIDER_ONLY"}
+                else max_price
+            )
+        else:
+            candidate = _select_candidate(
+                p_yes,
+                yes_ask,
+                no_ask,
+                strategy_branch=strategy_branch,
+                cost_buffer=cost_buffer,
+            )
+            price_cap = outsider_max_price if branch in {"OUTSIDER", "OUTSIDER_ONLY"} else max_price
         if not min_price <= candidate.price <= min(max_price, price_cap):
             coverage_reasons["price_out_of_bounds"] += 1
             continue
@@ -265,11 +500,42 @@ def compute_oof_polymarket_backtest(
             coverage_reasons["insufficient_edge"] += 1
             continue
 
-        executed_price = min(candidate.price * (1.0 + slippage_pct), 0.99)
-        outcome = str(row.get("final_outcome") or ("YES" if row.get("target") == 1 else "NO"))
+        executed_price = (
+            candidate.price
+            if weighted_mode
+            else min(candidate.price * (1.0 + slippage_pct), 0.99)
+        )
+        outcome = str(
+            row.get("final_outcome") or ("YES" if row.get("target") == 1 else "NO")
+        ).strip().upper()
         won = (candidate.side == "BUY_YES" and outcome == "YES") or (
             candidate.side == "BUY_NO" and outcome == "NO"
         )
+        trade_pnl = None
+        trade_shares = None
+        gross_quote_usdc = None
+        fee_usdc = None
+        total_cost_usdc = None
+        if weighted_mode:
+            assert weighted_candidate is not None
+            (
+                trade_pnl,
+                trade_shares,
+                gross_quote_usdc,
+                fee_usdc,
+                total_cost_usdc,
+            ) = _weighted_trade_accounting(
+                won=won,
+                candidate=weighted_candidate,
+                stake_usdc=stake_usdc,
+            )
+        else:
+            trade_pnl = _pnl_for_trade(
+                won=won,
+                price=executed_price,
+                stake_usdc=stake_usdc,
+                fee_rate=fee_rate,
+            )
         trades.append(
             {
                 "market_id": str(row["market_id"]),
@@ -281,12 +547,12 @@ def compute_oof_polymarket_backtest(
                 "net_edge": candidate.net_edge,
                 "outcome": outcome,
                 "won": bool(won),
-                "pnl": _pnl_for_trade(
-                    won=won,
-                    price=executed_price,
-                    stake_usdc=stake_usdc,
-                    fee_rate=fee_rate,
-                ),
+                "pnl": trade_pnl,
+                "shares": trade_shares,
+                "gross_quote_usdc": gross_quote_usdc,
+                "fee_usdc": fee_usdc,
+                "total_cost_usdc": total_cost_usdc,
+                "policy_mode": normalized_policy_mode,
                 "entry_time": row.get("recorded_at") or row.get("market_start"),
                 "time_left_min": _as_float(row.get("time_left_min")),
                 "price_bucket": _price_bucket(executed_price),
@@ -300,6 +566,20 @@ def compute_oof_polymarket_backtest(
     if not trades:
         return {
             "strategy_branch": strategy_branch.upper(),
+            "policy_mode": normalized_policy_mode,
+            "accounting_model": accounting_model,
+            "fee_model": (
+                "POLYMARKET_PRICE_DEPENDENT"
+                if weighted_mode
+                else "LEGACY_WIN_PROFIT"
+            ),
+            "fee_rate": effective_fee_rate,
+            "fee_exponent": (float(weighted_fee_exponent) if weighted_mode else 1.0),
+            "execution_role": (
+                str(execution_role or "TAKER").strip().upper()
+                if weighted_mode
+                else None
+            ),
             "n_markets": int(len(base)),
             "n_quotes": int(len(merged)),
             "n_oof": int(np.isfinite(scores).sum()),
@@ -378,6 +658,20 @@ def compute_oof_polymarket_backtest(
 
     return {
         "strategy_branch": strategy_branch.upper(),
+        "policy_mode": normalized_policy_mode,
+        "accounting_model": accounting_model,
+        "fee_model": (
+            "POLYMARKET_PRICE_DEPENDENT"
+            if weighted_mode
+            else "LEGACY_WIN_PROFIT"
+        ),
+        "fee_rate": effective_fee_rate,
+        "fee_exponent": (float(weighted_fee_exponent) if weighted_mode else 1.0),
+        "execution_role": (
+            str(execution_role or "TAKER").strip().upper()
+            if weighted_mode
+            else None
+        ),
         "n_markets": int(len(base)),
         "n_quotes": int(len(merged)),
         "n_oof": int(np.isfinite(scores).sum()),
@@ -425,7 +719,33 @@ def aggregate_stored_polymarket_backtests(
     weighted_stake = 0.0
     weighted_stake_count = 0
     coverage_reasons = Counter()
+    policy_modes: set[str] = set()
+    accounting_models: set[str] = set()
+    fee_models: set[str] = set()
+    execution_roles: set[str] = set()
+    fee_rates: list[float] = []
+    fee_exponents: list[float] = []
     for result in results:
+        for value, bucket in (
+            (result.get("policy_mode"), policy_modes),
+            (result.get("accounting_model"), accounting_models),
+            (result.get("fee_model"), fee_models),
+            (result.get("execution_role"), execution_roles),
+        ):
+            if value is not None and str(value).strip():
+                bucket.add(str(value).strip().upper())
+        try:
+            result_fee_rate = float(result.get("fee_rate"))
+            if np.isfinite(result_fee_rate):
+                fee_rates.append(result_fee_rate)
+        except (TypeError, ValueError, OverflowError):
+            pass
+        try:
+            result_fee_exponent = float(result.get("fee_exponent"))
+            if np.isfinite(result_fee_exponent):
+                fee_exponents.append(result_fee_exponent)
+        except (TypeError, ValueError, OverflowError):
+            pass
         n_markets += int(result.get("n_markets") or 0)
         n_quotes += int(result.get("n_quotes") or 0)
         n_oof += int(result.get("n_oof") or 0)
@@ -493,8 +813,20 @@ def aggregate_stored_polymarket_backtests(
         if weighted_stake_count
         else (total_invested / n_trades if n_trades else 1.0)
     )
+
+    def _single_or_mixed(values: set[str]) -> str | None:
+        if not values:
+            return None
+        return next(iter(values)) if len(values) == 1 else "MIXED"
+
     return {
         "strategy_branch": branch,
+        "policy_mode": _single_or_mixed(policy_modes),
+        "accounting_model": _single_or_mixed(accounting_models),
+        "fee_model": _single_or_mixed(fee_models),
+        "fee_rate": float(np.mean(fee_rates)) if fee_rates else None,
+        "fee_exponent": float(np.mean(fee_exponents)) if fee_exponents else None,
+        "execution_role": _single_or_mixed(execution_roles),
         "n_markets": n_markets,
         "n_quotes": n_quotes,
         "n_oof": n_oof,

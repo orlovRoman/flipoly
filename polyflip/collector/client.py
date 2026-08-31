@@ -4,6 +4,7 @@ from typing import List, Dict, Any, TypedDict
 from datetime import datetime, timezone
 import structlog
 import json
+import time
 from polyflip.constants import HTTP_TIMEOUT_SEC, VOLUME_WINDOW_MIN
 
 logger = structlog.get_logger(__name__)
@@ -51,6 +52,7 @@ class PolymarketClient:
 
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SEC)
+        self._market_info_cache: dict[str, tuple[float, Dict[str, Any]]] = {}
 
     async def close(self):
         await self.client.aclose()
@@ -60,6 +62,159 @@ class PolymarketClient:
 
     async def __aexit__(self, *args):
         await self.client.aclose()
+
+    async def get_clob_market_info(self, condition_id: str) -> Dict[str, Any] | None:
+        """Return official CLOB V2 market metadata.
+
+        The V2 endpoint returns market-level fields such as ``mos`` (minimum
+        order size), ``mts`` (minimum tick size), and ``fd`` (fee curve).
+        Fee metadata is cached briefly because it is market-level data rather
+        than a per-tick quote. A failed lookup returns ``None`` and callers
+        must use their explicit fallback cost model.
+        """
+        condition_id = str(condition_id or "").strip()
+        if not condition_id:
+            return None
+        now = time.monotonic()
+        cached = self._market_info_cache.get(condition_id)
+        if cached and now - cached[0] < 600.0:
+            return cached[1]
+        try:
+            response = await self.client.get(f"{self.CLOB_API}/clob-markets/{condition_id}")
+            if response.status_code != 200:
+                logger.debug(
+                    "clob_market_info_unavailable",
+                    condition_id=condition_id,
+                    status=response.status_code,
+                )
+                return None
+            payload = response.json()
+            if not isinstance(payload, dict):
+                return None
+            self._market_info_cache[condition_id] = (now, payload)
+            return payload
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            logger.debug(
+                "clob_market_info_network_error",
+                condition_id=condition_id,
+                error=str(exc),
+            )
+            return None
+        except Exception as exc:
+            logger.debug(
+                "clob_market_info_error",
+                condition_id=condition_id,
+                error=str(exc),
+            )
+            return None
+
+    async def get_market_fee_schedule(self, condition_id: str) -> Dict[str, Any] | None:
+        """Extract the CLOB V2 fee curve and minimum order size.
+
+        CLOB V2 exposes ``fd={r, e, to}``: rate, price-curve exponent and
+        taker-only flag. The legacy ``feeSchedule`` shape remains supported
+        for old fixtures and transitional deployments.
+        """
+        info = await self.get_clob_market_info(condition_id)
+        if not info:
+            return None
+        def _number(value: Any, default: float | None = None) -> float | None:
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError, OverflowError):
+                return default
+            return parsed if parsed == parsed and parsed not in (float("inf"), float("-inf")) else default
+
+        def _rate(value: Any) -> float | None:
+            parsed = _number(value)
+            if parsed is None:
+                return None
+            if parsed > 1.0:
+                parsed /= 10000.0
+            return parsed if 0.0 <= parsed <= 1.0 else None
+
+        def _bool(value: Any, default: bool = False) -> bool:
+            if isinstance(value, str):
+                return value.strip().lower() not in {"false", "0", "no", "off", "disabled"}
+            return default if value is None else bool(value)
+
+        minimum_order_shares = _number(info.get("mos"))
+        if "fd" in info:
+            fee_details = info.get("fd")
+            if fee_details is None:
+                return {
+                    "fee_rate": 0.0,
+                    "fee_exponent": 1.0,
+                    "maker_fee_rate": 0.0,
+                    "fees_enabled": False,
+                    "taker_only": False,
+                    "min_order_shares": minimum_order_shares,
+                    "source": "CLOB_FD_DISABLED",
+                }
+            if not isinstance(fee_details, dict):
+                return None
+            fee_rate = _rate(fee_details.get("r"))
+            if fee_rate is None:
+                return None
+            fee_exponent = _number(fee_details.get("e"), 1.0)
+            if fee_exponent is None or fee_exponent < 0.0:
+                return None
+            return {
+                "fee_rate": fee_rate,
+                "fee_exponent": fee_exponent,
+                "maker_fee_rate": 0.0,
+                "fees_enabled": fee_rate > 0.0,
+                "taker_only": _bool(fee_details.get("to"), False),
+                "min_order_shares": minimum_order_shares,
+                "source": "CLOB_FD",
+            }
+
+        schedule = info.get("feeSchedule") or info.get("fee_schedule")
+        if not isinstance(schedule, dict):
+            return None
+
+        raw_rate = (
+            schedule.get("r")
+            if schedule.get("r") is not None
+            else schedule.get("feeRate", schedule.get("fee_rate"))
+        )
+        try:
+            fee_rate = float(raw_rate)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if fee_rate > 1.0:
+            # Some SDK payloads expose the rate in basis points.
+            fee_rate /= 10000.0
+        if not 0.0 <= fee_rate <= 1.0:
+            return None
+        maker_rate = schedule.get("makerFeeRate", schedule.get("maker_fee_rate", 0.0))
+        try:
+            maker_rate = float(maker_rate)
+        except (TypeError, ValueError, OverflowError):
+            maker_rate = 0.0
+        if maker_rate > 1.0:
+            maker_rate /= 10000.0
+        raw_fees_enabled = info.get(
+            "feesEnabled", info.get("fees_enabled", True)
+        )
+        if isinstance(raw_fees_enabled, str):
+            fees_enabled = raw_fees_enabled.strip().lower() not in {
+                "false", "0", "no", "off", "disabled",
+            }
+        else:
+            fees_enabled = bool(raw_fees_enabled)
+        fee_exponent = _number(schedule.get("e"), 1.0)
+        if fee_exponent is None or fee_exponent < 0.0:
+            return None
+        return {
+            "fee_rate": fee_rate if fees_enabled else 0.0,
+            "fee_exponent": fee_exponent,
+            "maker_fee_rate": max(0.0, maker_rate),
+            "fees_enabled": fees_enabled,
+            "taker_only": _bool(schedule.get("to"), False),
+            "min_order_shares": minimum_order_shares,
+            "source": "CLOB_FEE_SCHEDULE" if fees_enabled else "CLOB_FEE_SCHEDULE_DISABLED",
+        }
 
     async def get_active_15m_markets(self, assets: List[str]) -> List[Dict[str, Any]]:
         """
@@ -135,6 +290,7 @@ class PolymarketClient:
 
                     markets.append({
                         "market_id": market.get("id"),
+                        "condition_id": market.get("conditionId") or market.get("condition_id"),
                         "yes_token_id": yes_token_id,
                         "no_token_id": no_token_id,
                         "question": market.get("question"),
