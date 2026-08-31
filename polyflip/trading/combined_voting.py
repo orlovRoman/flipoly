@@ -28,6 +28,13 @@ if TYPE_CHECKING:
 
 from polyflip.crypto.predictor import CryptoSignal
 from polyflip.trading.position_sizing import compute_edge
+from polyflip.trading.weighted_policy import (
+    WeightedPolicyConfig,
+    WeightedSelection,
+    logreg_flip_to_yes_probability,
+    probability_for_side,
+    select_weighted_side,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -148,6 +155,29 @@ class CombinedEntryResult:
     p_flip_effective: Optional[float] = None
     entry_model_ece: float = 0.0
     would_live_accept: Optional[bool] = None
+    # Weighted policy telemetry.  These fields are also populated in shadow
+    # mode, while LEGACY behavior remains unchanged.
+    weighted_policy_mode: str = "LEGACY"
+    weighted_p_market_yes: Optional[float] = None
+    weighted_p_logreg_yes: Optional[float] = None
+    weighted_p_lgbm_yes: Optional[float] = None
+    weighted_p_final_yes: Optional[float] = None
+    weighted_market_weight: Optional[float] = None
+    weighted_logreg_weight: Optional[float] = None
+    weighted_lgbm_weight: Optional[float] = None
+    weighted_mrf_evidence: Optional[float] = None
+    weighted_selected_side: Optional[str] = None
+    weighted_yes_net_ev: Optional[float] = None
+    weighted_no_net_ev: Optional[float] = None
+    weighted_net_ev_per_share: Optional[float] = None
+    weighted_cost_per_share: Optional[float] = None
+    weighted_fee_rate: Optional[float] = None
+    weighted_fee_exponent: Optional[float] = None
+    weighted_fee_per_share: Optional[float] = None
+    weighted_slippage_per_share: Optional[float] = None
+    weighted_missing_components: Optional[str] = None
+    weighted_selection_reason: Optional[str] = None
+    weighted_fee_source: Optional[str] = None
 
 
 def _normalize_threshold(value: float) -> float:
@@ -191,6 +221,91 @@ def apply_direction_confidence_discount(
     return round(max(0.0, min(1.0, discounted)), 4)
 
 
+def _build_weighted_selection(
+    *,
+    crypto_sig: CryptoSignal,
+    p_flip: Optional[float],
+    fresh_yes_price: float,
+    yes_ask: Optional[float],
+    no_ask: Optional[float],
+    cfg: "TradingConfig",
+    mrf_evidence: Optional[float] = None,
+    fee_rate: Optional[float] = None,
+    fee_exponent: Optional[float] = None,
+    fee_source: str = "CONFIG_DEFAULT",
+    spread: float = 0.0,
+) -> WeightedSelection:
+    """Build the shared weighted-policy result for active or shadow mode."""
+    lgbm_available = bool(
+        getattr(crypto_sig, "features_ok", False)
+        and getattr(crypto_sig, "model_version", None) is not None
+        and getattr(crypto_sig, "model_version", -1) >= 0
+    )
+    p_lgbm_yes = getattr(crypto_sig, "p_up", None) if lgbm_available else None
+    policy_cfg = WeightedPolicyConfig(
+        market_weight=float(getattr(cfg, "weighted_market_weight", 0.90)),
+        logreg_weight=float(getattr(cfg, "weighted_logreg_weight", 0.05)),
+        lgbm_weight=float(getattr(cfg, "weighted_lgbm_weight", 0.05)),
+        mrf_beta=float(getattr(cfg, "weighted_mrf_beta", 0.0)),
+        fee_rate=(
+            float(fee_rate)
+            if fee_rate is not None
+            else float(getattr(cfg, "weighted_fee_rate", 0.07))
+        ),
+        fee_exponent=(
+            float(fee_exponent)
+            if fee_exponent is not None
+            else float(getattr(cfg, "weighted_fee_exponent", 1.0))
+        ),
+        slippage_rate=float(getattr(cfg, "weighted_slippage_rate", 0.005)),
+        execution_role=str(getattr(cfg, "weighted_execution_role", "TAKER")),
+    )
+    return select_weighted_side(
+        p_market_yes=fresh_yes_price,
+        p_logreg_yes=logreg_flip_to_yes_probability(p_flip, fresh_yes_price),
+        p_lgbm_yes=p_lgbm_yes,
+        yes_ask=yes_ask,
+        no_ask=no_ask,
+        config=policy_cfg,
+        mrf_evidence=mrf_evidence,
+        min_net_ev=0.0,
+        fee_source=fee_source,
+        spread=spread,
+    )
+
+
+def _weighted_result_fields(
+    policy_mode: str,
+    selection: WeightedSelection,
+) -> dict[str, Any]:
+    """Flatten weighted policy telemetry into ``CombinedEntryResult`` fields."""
+    probability = selection.probability
+    selected = selection.selected
+    return {
+        "weighted_policy_mode": policy_mode,
+        "weighted_p_market_yes": probability.p_market_yes,
+        "weighted_p_logreg_yes": probability.p_logreg_yes,
+        "weighted_p_lgbm_yes": probability.p_lgbm_yes,
+        "weighted_p_final_yes": probability.p_final_yes,
+        "weighted_market_weight": probability.market_weight,
+        "weighted_logreg_weight": probability.logreg_weight,
+        "weighted_lgbm_weight": probability.lgbm_weight,
+        "weighted_mrf_evidence": probability.mrf_evidence,
+        "weighted_selected_side": selected.side if selected else None,
+        "weighted_yes_net_ev": selection.yes_quote.net_ev_per_share if selection.yes_quote else None,
+        "weighted_no_net_ev": selection.no_quote.net_ev_per_share if selection.no_quote else None,
+        "weighted_net_ev_per_share": selected.net_ev_per_share if selected else None,
+        "weighted_cost_per_share": selected.cost.total_per_share if selected else None,
+        "weighted_fee_rate": selected.cost.fee_rate if selected else None,
+        "weighted_fee_exponent": selected.cost.fee_exponent if selected else None,
+        "weighted_fee_per_share": selected.cost.fee_per_share if selected else None,
+        "weighted_slippage_per_share": selected.cost.slippage_per_share if selected else None,
+        "weighted_missing_components": ",".join(probability.missing_components) or None,
+        "weighted_selection_reason": selection.reason,
+        "weighted_fee_source": selected.cost.source if selected else None,
+    }
+
+
 def evaluate_combined_entry(
     crypto_sig: CryptoSignal,
     market_phase: str,
@@ -209,6 +324,12 @@ def evaluate_combined_entry(
     fallback_reason: Optional[str] = None,
     time_left_sec: float = 0.0,
     entry_model_ece: float = 0.0,
+    flip_threshold: Optional[float] = None,
+    mrf_evidence: Optional[float] = None,
+    weighted_fee_rate: Optional[float] = None,
+    weighted_fee_exponent: Optional[float] = None,
+    weighted_fee_source: str = "CONFIG_DEFAULT",
+    spread: Optional[float] = None,
 ) -> CombinedEntryResult:
     """Обёртка для переноса флагов LightGBM в результат."""
     result = _evaluate_combined_entry_inner(
@@ -229,7 +350,33 @@ def evaluate_combined_entry(
         fallback_reason=fallback_reason,
         time_left_sec=time_left_sec,
         entry_model_ece=entry_model_ece,
+        flip_threshold=flip_threshold,
+        mrf_evidence=mrf_evidence,
+        weighted_fee_rate=weighted_fee_rate,
+        weighted_fee_exponent=weighted_fee_exponent,
+        weighted_fee_source=weighted_fee_source,
+        spread=spread,
     )
+    policy_mode = str(getattr(cfg, "trading_policy_mode", "LEGACY") or "LEGACY").upper()
+    if policy_mode in {"WEIGHTED_SHADOW", "WEIGHTED_ACTIVE"}:
+        # Compute once at the wrapper boundary so SHADOW has identical maths
+        # to ACTIVE without changing the legacy result returned by ``inner``.
+        shadow_p_flip = result.p_flip_effective if result.p_flip_effective is not None else p_flip
+        weighted_selection = _build_weighted_selection(
+            crypto_sig=crypto_sig,
+            p_flip=shadow_p_flip,
+            fresh_yes_price=fresh_yes_price,
+            yes_ask=yes_ask,
+            no_ask=no_ask,
+            cfg=cfg,
+            mrf_evidence=mrf_evidence,
+            fee_rate=weighted_fee_rate,
+            fee_exponent=weighted_fee_exponent,
+            fee_source=weighted_fee_source,
+            spread=spread or 0.0,
+        )
+        result = replace(result, **_weighted_result_fields(policy_mode, weighted_selection))
+
     if crypto_sig:
         result = replace(
             result,
@@ -261,6 +408,12 @@ def _evaluate_combined_entry_inner(
     fallback_reason: Optional[str] = None,
     time_left_sec: float = 0.0,
     entry_model_ece: float = 0.0,
+    flip_threshold: Optional[float] = None,
+    mrf_evidence: Optional[float] = None,
+    weighted_fee_rate: Optional[float] = None,
+    weighted_fee_exponent: Optional[float] = None,
+    weighted_fee_source: str = "CONFIG_DEFAULT",
+    spread: Optional[float] = None,
 ) -> CombinedEntryResult:
     """Внутренняя логика оценки."""
 
@@ -281,6 +434,14 @@ def _evaluate_combined_entry_inner(
 
     p_flip = p_flip_effective
 
+    configured_flip_threshold = cfg.flip_threshold if flip_threshold is None else flip_threshold
+    try:
+        flip_threshold_value = _normalize_threshold(float(configured_flip_threshold))
+    except (TypeError, ValueError):
+        flip_threshold_value = _normalize_threshold(float(cfg.flip_threshold))
+    if not 0.0 <= flip_threshold_value <= 1.0:
+        flip_threshold_value = _normalize_threshold(float(cfg.flip_threshold))
+
     if crypto_sig.direction == "UP":
         dir_prob = crypto_sig.p_up or 0.0
     elif crypto_sig.direction == "DOWN":
@@ -298,13 +459,42 @@ def _evaluate_combined_entry_inner(
         dist_pct = round((und_price - strike) / strike * 100.0, 4)
 
     lgbm_mode = getattr(cfg, "lightgbm_decision_mode", "SHADOW")
-    logreg_only = lgbm_mode in {"SHADOW", "OFF"}
+    policy_mode = str(getattr(cfg, "trading_policy_mode", "LEGACY") or "LEGACY").upper()
+    weighted_active = policy_mode == "WEIGHTED_ACTIVE"
+    logreg_only = lgbm_mode in {"SHADOW", "OFF"} and not weighted_active
 
-    if logreg_only:
+    weighted_selection: Optional[WeightedSelection] = None
+    if weighted_active:
+        weighted_selection = _build_weighted_selection(
+            crypto_sig=crypto_sig,
+            p_flip=p_flip,
+            fresh_yes_price=fresh_yes_price,
+            yes_ask=yes_ask,
+            no_ask=no_ask,
+            cfg=cfg,
+            mrf_evidence=mrf_evidence,
+            fee_rate=weighted_fee_rate,
+            fee_exponent=weighted_fee_exponent,
+            fee_source=weighted_fee_source,
+            spread=spread or 0.0,
+        )
+        if weighted_selection.selected is None:
+            consensus = DirectionConsensus(
+                "SKIP",
+                "WEIGHTED_SCORE",
+                weighted_selection.reason,
+            )
+        else:
+            consensus = DirectionConsensus(
+                cast(Literal["BUY_YES", "BUY_NO", "SKIP"], weighted_selection.candidate_side),
+                "WEIGHTED_SCORE",
+                "Selected side with highest cost-aware expected value",
+            )
+    elif logreg_only:
         dir_status = "SHADOW_NOT_APPLIED" if lgbm_mode == "SHADOW" else "DISABLED_BY_OPERATOR"
 
     # 1. Валидация LightGBM Direction (пропускается в режиме logreg_only)
-    if not logreg_only and (not crypto_sig.features_ok or crypto_sig.model_version is None or crypto_sig.model_version < 0):
+    if not weighted_active and not logreg_only and (not crypto_sig.features_ok or crypto_sig.model_version is None or crypto_sig.model_version < 0):
         # P0: формируем информативный reason
         symbol = crypto_sig.symbol or ""
         regime = crypto_sig.regime or ""
@@ -406,7 +596,7 @@ def _evaluate_combined_entry_inner(
         )
 
     # 3. Валидация LogReg Entry Model
-    if p_flip is None or entry_model_key is None:
+    if not weighted_active and (p_flip is None or entry_model_key is None):
         return CombinedEntryResult(
             action="SKIP",
             reason="Entry Model (LogReg) evaluation failed or unavailable",
@@ -444,7 +634,7 @@ def _evaluate_combined_entry_inner(
     min_direction_prob_cfg = getattr(cfg, "min_direction_prob", 0.505)
     # 3.5 Валидация минимальной уверенности LightGBM (для UP / DOWN) - пропускается в logreg_only
     min_direction_prob_cfg = getattr(cfg, "min_direction_prob", 0.505)
-    if not logreg_only and crypto_sig.direction in ("UP", "DOWN") and dir_prob < min_direction_prob_cfg:
+    if not weighted_active and not logreg_only and crypto_sig.direction in ("UP", "DOWN") and dir_prob < min_direction_prob_cfg:
         return CombinedEntryResult(
             action="SKIP",
             reason=f"Direction prob {dir_prob:.4f} < min {min_direction_prob_cfg:.4f} (floor)",
@@ -478,10 +668,20 @@ def _evaluate_combined_entry_inner(
 
     # 3.6 Consensus / LogReg-Only Direction Selection
     lr_abstain_band = getattr(cfg, "combined_logreg_abstain_band", _LOGREG_ABSTAIN_BAND)
-    lr_vote = logreg_direction_vote(p_flip, fresh_yes_price, cfg.flip_threshold, abstain_band=lr_abstain_band)
+    lr_vote = logreg_direction_vote(
+        p_flip,
+        fresh_yes_price,
+        flip_threshold_value,
+        abstain_band=lr_abstain_band,
+    )
     lgbm_vote = crypto_sig.direction or "NONE"
     
-    if logreg_only:
+    if weighted_active:
+        # ``consensus`` was already selected by the cost-aware weighted
+        # scorer above.  Do not let the legacy hard-vote resolver overwrite
+        # that choice later in the function.
+        assert weighted_selection is not None
+    elif logreg_only:
         if lr_vote == "ABSTAIN":
             return CombinedEntryResult(
                 action="SKIP",
@@ -576,8 +776,15 @@ def _evaluate_combined_entry_inner(
             threshold_down=getattr(crypto_sig, 'threshold_down', None),
         )
 
-    if not logreg_only and crypto_sig.direction not in ("UP", "DOWN"):
+    if not logreg_only and not weighted_active and crypto_sig.direction not in ("UP", "DOWN"):
         dir_status_for_result = "DIRECTION_NONE_FALLBACK_LR"
+    elif weighted_active:
+        dir_status_for_result = (
+            "WEIGHTED_LGBM_USED"
+            if weighted_selection is not None
+            and weighted_selection.probability.p_lgbm_yes is not None
+            else "WEIGHTED_LGBM_MISSING"
+        )
     else:
         dir_status_for_result = dir_status
 
@@ -623,41 +830,104 @@ def _evaluate_combined_entry_inner(
             p_flip=p_flip,
         )
 
-    # 4. Probabilities & Discountвероятности победы кандидата (p_candidate_win)
-    # p_flip = вероятность смены лидера (флипа от фаворита к аутсайдеру)
-    if candidate_side == "BUY_YES":
-        # Кандидат YES. Если YES - фаворит (price >= 0.50), win prob = 1 - p_flip.
-        # Если YES - аутсайдер (price < 0.50), win prob = p_flip.
-        p_logreg_win = (1.0 - p_flip) if fresh_yes_price >= 0.50 else p_flip
-    else:
-        # Кандидат NO. Если YES - фаворит (price >= 0.50), NO - аутсайдер, win prob = p_flip.
-        # Если YES - аутсайдер (price < 0.50), NO - фаворит, win prob = 1 - p_flip.
-        p_logreg_win = p_flip if fresh_yes_price >= 0.50 else (1.0 - p_flip)
+    # Spread is an execution-quality guard, not a directional model vote.
+    # The old setting existed but was never enforced in the combined path.
+    if spread is not None:
+        try:
+            spread_value = abs(float(spread))
+            max_spread_pct = float(getattr(cfg, "max_spread_pct", 0.0))
+            spread_ratio = spread_value / max(fresh_yes_price, 1e-9)
+        except (TypeError, ValueError, OverflowError):
+            spread_value = 0.0
+            max_spread_pct = 0.0
+            spread_ratio = 0.0
+        if max_spread_pct > 0.0 and spread_ratio > max_spread_pct:
+            return CombinedEntryResult(
+                action="SKIP",
+                reason=(
+                    f"Spread {spread_value:.4f} / mid {fresh_yes_price:.4f} "
+                    f"= {spread_ratio:.4f} > max {max_spread_pct:.4f}"
+                ),
+                direction_status=dir_status_for_result,
+                direction_model_key=crypto_sig.model_key or None,
+                direction_model_version=crypto_sig.model_version,
+                direction_regime=crypto_sig.regime or None,
+                direction_probability=dir_prob,
+                direction_p_up=getattr(crypto_sig, "p_up", None),
+                direction_p_down=getattr(crypto_sig, "p_down", None),
+                direction_value=dir_val,
+                entry_requested_key=entry_requested_key,
+                entry_model_key=entry_model_key,
+                entry_model_version=entry_model_version,
+                entry_model_phase=market_phase,
+                entry_model_source=entry_model_source,
+                entry_status="SPREAD_TOO_WIDE",
+                fallback_reason=fallback_reason,
+                lr_direction_vote=lr_vote,
+                lgbm_direction_vote=lgbm_vote,
+                consensus_type=consensus.consensus_type,
+                candidate_side=candidate_side,
+                candidate_ask=candidate_ask,
+                cost_buffer=cost_buffer,
+                strike_source="BINANCE_LAST_CANDLE" if strike else None,
+                strike_proxy=strike,
+                underlying_price=und_price,
+                distance_to_strike_pct=dist_pct,
+                p_flip=p_flip,
+                p_flip_raw=p_flip_raw,
+                p_flip_effective=p_flip_effective,
+                entry_model_ece=entry_model_ece,
+            )
 
-    p_logreg_win = round(max(0.0, min(1.0, p_logreg_win)), 4)
-
-    # Применяем дисконт за неуверенность LightGBM (отключен в logreg_only режиме)
-    if logreg_only:
+    # 4. Probability of the candidate side winning.
+    if weighted_active:
+        assert weighted_selection is not None and weighted_selection.selected is not None
+        p_candidate_win = weighted_selection.p_candidate_win
+        if p_candidate_win is None:
+            p_candidate_win = 0.0
+        p_logreg_win = probability_for_side(
+            weighted_selection.probability.p_logreg_yes,
+            candidate_side,
+        )
+        if p_logreg_win is None:
+            p_logreg_win = p_candidate_win
+        p_candidate_win = round(max(0.0, min(1.0, p_candidate_win)), 4)
+        p_logreg_win = round(max(0.0, min(1.0, p_logreg_win)), 4)
+        # The weighted score already accounts for the model blend; do not
+        # apply the legacy LightGBM discount a second time.
         discount_weight = 0.0
-        p_candidate_win = p_logreg_win
         discount_mult = 1.0
     else:
-        discount_weight = getattr(cfg, "combined_dir_discount_weight", 0.0)
-        strong_thresh = getattr(cfg, "combined_dir_strong_threshold", 0.65)
-        min_dir_prob_val = getattr(cfg, "min_direction_prob", 0.505)
-
-        p_candidate_win = apply_direction_confidence_discount(
-            p_logreg_win=p_logreg_win,
-            dir_prob=dir_prob,
-            min_direction_prob=min_dir_prob_val,
-            strong_threshold=strong_thresh,
-            discount_weight=discount_weight,
-        )
-        if p_logreg_win > 0:
-            discount_mult = round(p_candidate_win / p_logreg_win, 4)
+        # Legacy p_flip conversion: probability that the selected side wins.
+        if candidate_side == "BUY_YES":
+            p_logreg_win = (1.0 - p_flip) if fresh_yes_price >= 0.50 else p_flip
         else:
-            discount_mult = 0.0
-            logger.warning("combined_discount_mult_zero_logreg", asset=crypto_sig.symbol, p_flip=p_flip)
+            p_logreg_win = p_flip if fresh_yes_price >= 0.50 else (1.0 - p_flip)
+
+        p_logreg_win = round(max(0.0, min(1.0, p_logreg_win)), 4)
+
+        # Применяем дисконт за неуверенность LightGBM (отключен в logreg_only режиме)
+        if logreg_only:
+            discount_weight = 0.0
+            p_candidate_win = p_logreg_win
+            discount_mult = 1.0
+        else:
+            discount_weight = getattr(cfg, "combined_dir_discount_weight", 0.0)
+            strong_thresh = getattr(cfg, "combined_dir_strong_threshold", 0.65)
+            min_dir_prob_val = getattr(cfg, "min_direction_prob", 0.505)
+
+            p_candidate_win = apply_direction_confidence_discount(
+                p_logreg_win=p_logreg_win,
+                dir_prob=dir_prob,
+                min_direction_prob=min_dir_prob_val,
+                strong_threshold=strong_thresh,
+                discount_weight=discount_weight,
+            )
+            if p_logreg_win > 0:
+                discount_mult = round(p_candidate_win / p_logreg_win, 4)
+            else:
+                discount_mult = 0.0
+                logger.warning("combined_discount_mult_zero_logreg", asset=crypto_sig.symbol, p_flip=p_flip)
 
     if discount_weight > 0.0:
         logger.info(
@@ -785,8 +1055,8 @@ def _evaluate_combined_entry_inner(
             entry_model_ece=entry_model_ece,
         )
 
-    if is_outsider:
-        flip_thresh_val = _normalize_threshold(cfg.flip_threshold)
+    if not weighted_active and is_outsider:
+        flip_thresh_val = flip_threshold_value
         if p_flip is not None and p_flip < flip_thresh_val:
             return CombinedEntryResult(
                 action="SKIP",
@@ -868,9 +1138,15 @@ def _evaluate_combined_entry_inner(
             entry_model_ece=entry_model_ece,
         )
 
-    # 6. Расчет Gross Edge и Net Edge
+    # 6. Расчет Gross Edge и Net Edge.  Weighted mode uses the same
+    # per-share cost estimate that selected the side; legacy keeps its
+    # historical configurable buffer for backward compatibility.
     gross_edge = compute_edge(p_candidate_win, candidate_ask)
-    net_edge = round(gross_edge - cost_buffer, 4)
+    if weighted_active and weighted_selection is not None and weighted_selection.selected is not None:
+        cost_buffer = weighted_selection.selected.cost.total_per_share
+        net_edge = weighted_selection.selected.net_ev_per_share
+    else:
+        net_edge = round(gross_edge - cost_buffer, 4)
     min_net_edge = cfg.get_min_edge(is_outsider)
 
     if net_edge < min_net_edge:

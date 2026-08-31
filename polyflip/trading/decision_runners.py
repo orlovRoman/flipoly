@@ -24,18 +24,43 @@ from polyflip.crypto.market_regime_classifier import Regime
 logger = structlog.get_logger(__name__)
 
 
+def _resolve_entry_flip_threshold(
+    models_cache: Any,
+    model_key: Optional[str],
+    fallback: float,
+) -> float:
+    """Return an explicitly opted-in model threshold, otherwise the global fallback."""
+    raw_threshold: Any = None
+    thresholds = getattr(models_cache, "thresholds", None)
+    if model_key and isinstance(thresholds, dict):
+        raw_threshold = thresholds.get(model_key)
+    if raw_threshold is None:
+        raw_threshold = fallback
+    try:
+        value = float(raw_threshold)
+        if value > 1.0:
+            value /= 100.0
+        if 0.0 <= value <= 1.0:
+            return value
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return float(fallback)
+
+
 def _resolve_lgbm_attribution(
     mode: str,
     direction_value: Any,
     model_key: Optional[str],
     model_version: Optional[int],
+    probability_applied: bool = False,
 ) -> dict[str, Any]:
     """Normalize LGBM direction telemetry and separate applied vs observed attribution.
 
     A loaded model is not an applied directional model when it abstains (NONE or an
-    empty value).  Shadow mode still exposes the loaded model for telemetry, while
-    ``direction_model_key`` in active/funnel attribution only identifies a model that
-    selected UP or DOWN.
+    empty value).  The weighted policy is an exception: it can apply the model's
+    calibrated probability without using its legacy UP/DOWN threshold.  Shadow mode
+    still exposes the loaded model for telemetry, while ``direction_model_key`` in
+    active/funnel attribution identifies a model used by the active policy.
     """
     if mode == "OFF":
         return {
@@ -51,7 +76,7 @@ def _resolve_lgbm_attribution(
     normalized_value = str(direction_value or "").strip().upper()
     if normalized_value not in {"UP", "DOWN"}:
         normalized_value = "NONE"
-    actually_decided = normalized_value in {"UP", "DOWN"}
+    actually_decided = normalized_value in {"UP", "DOWN"} or bool(probability_applied)
     is_active = mode == "ACTIVE"
     is_shadow = mode == "SHADOW"
     return {
@@ -225,40 +250,20 @@ def _build_mrf_failure_audit(
     }
 
 
-async def _apply_mrf_filter(
+async def _load_mrf_snapshot(
     db_session,
     cfg,
-    asset_upper: str,
-    binance_symbol: str,
     start_time,
-    candidate_side: str | None,
-    fresh_yes_price: float,
-    candidate_ask: float,
-    bet_size_usdc: float,
-    net_edge: float,
-    min_edge_used: float,
-    action: str,
-    decision_run_id: str = "",
-    lgbm_applied: bool = False,
-):
-    """Apply MRF filter. Returns (adjusted_action, adjusted_bet_size, mrf_audit, outcome, failure_reason)."""
-    if cfg.mrf_mode == "OFF":
-        return action, bet_size_usdc, None, None, None
+    asset_upper: str = "",
+) -> tuple[Any | None, dict | None, str | None]:
+    """Load and validate the shared multi-asset MRF snapshot once.
 
-    # A v3 gate only has a meaningful direction for a concrete BUY side.
-    # Do not let an inconsistent decision silently bypass an ACTIVE veto.
-    if cfg.mrf_version == 3 and candidate_side not in {"BUY_YES", "BUY_NO"}:
-        side_label = candidate_side or "NONE"
-        failure = f"invalid_candidate_side:{side_label}"
-        logger.error("mrf_invalid_candidate_side", asset=asset_upper, candidate_side=side_label)
-        audit = _build_mrf_failure_audit(cfg, failure, as_of=start_time)
-        if cfg.mrf_mode == "ACTIVE":
-            return "SKIP", 0.0, audit, None, failure
-        return action, bet_size_usdc, audit, None, failure
-
+    Weighted policy may need the regime evidence before it chooses a side,
+    while the legacy MRF gate is applied after the decision.  Returning the
+    snapshot and the failure audit lets both stages use the same candle
+    window without issuing a second set of database reads.
+    """
     try:
-        import asyncio
-        from polyflip.crypto.candle_repository import get_recent_candles
         from polyflip.constants import COMBINED_BINANCE_SYMBOLS, COMBINED_MODE_SUPPORTED_ASSETS
         from polyflip.crypto.market_regime_integration import build_snapshot_from_multi_asset_candles
 
@@ -285,13 +290,7 @@ async def _apply_mrf_filter(
         if not candles_by_asset:
             logger.warning("mrf_no_candles_any_asset")
             failure = "candle_error:no_candles"
-            return (
-                action,
-                bet_size_usdc,
-                _build_mrf_failure_audit(cfg, failure, as_of=start_time),
-                None,
-                failure,
-            )
+            return None, _build_mrf_failure_audit(cfg, failure, as_of=start_time), failure
 
         snapshot = build_snapshot_from_multi_asset_candles(
             candles_by_asset,
@@ -302,32 +301,130 @@ async def _apply_mrf_filter(
         if not snapshot.basket.history_ready:
             reason_codes = snapshot.reason_codes or []
             if any("asset_missing" in r for r in reason_codes):
-                fail = "missing_asset:" + ",".join(
+                failure = "missing_asset:" + ",".join(
                     r.split(":", 1)[1] for r in reason_codes if "asset_missing" in r
                 )
             elif any("no_candles" in r for r in reason_codes):
-                fail = "candle_error:" + ",".join(
+                failure = "candle_error:" + ",".join(
                     r.split(":", 1)[1] for r in reason_codes if "no_candles" in r
                 )
             elif any("candle_continuity" in r for r in reason_codes):
-                fail = "continuity_error:" + ",".join(
+                failure = "continuity_error:" + ",".join(
                     r.split(":", 1)[1] for r in reason_codes if "candle_continuity" in r
                 )
             elif any("insufficient_history" in r for r in reason_codes):
-                fail = "insufficient_history"
+                failure = "insufficient_history"
             else:
-                fail = "not_ready"
-            logger.info("mrf_history_not_ready", asset=asset_upper,
-                        reason_codes=reason_codes, failure_reason=fail)
+                failure = "not_ready"
+            logger.info(
+                "mrf_history_not_ready",
+                asset=asset_upper,
+                reason_codes=reason_codes,
+                failure_reason=failure,
+            )
+            return (
+                None,
+                _build_mrf_failure_audit(
+                    cfg, failure, reason_codes=reason_codes, as_of=start_time,
+                ),
+                failure,
+            )
+
+        return snapshot, None, None
+    except Exception as exc:
+        logger.error("mrf_snapshot_load_error", asset=asset_upper, error=str(exc))
+        failure = f"runtime_error:{type(exc).__name__}"
+        return None, _build_mrf_failure_audit(cfg, failure, as_of=start_time), failure
+
+
+def _weighted_mrf_yes_evidence(snapshot: Any, cfg, asset_upper: str) -> float:
+    """Return MRF evidence oriented to the YES/UP side for the scorer.
+
+    ``RegimeGateResult.regime_evidence`` is signed relative to a candidate
+    direction.  Evaluating it with ``+1`` makes the result a stable YES-axis
+    signal; the weighted scorer then naturally applies the opposite sign to a
+    BUY_NO candidate.
+    """
+    from polyflip.crypto.market_regime_apply import _build_regime_config
+    from polyflip.crypto.market_regime_policy import VetoGateConfig, evaluate_veto_gate
+
+    gate = evaluate_veto_gate(
+        snapshot=snapshot,
+        asset_symbol=asset_upper,
+        candidate_direction=1.0,
+        net_edge=0.0,
+        min_edge_used=0.0,
+        config=VetoGateConfig(
+            asset_weight=cfg.mrf_asset_weight,
+            global_weight=cfg.mrf_global_weight,
+            veto_threshold=cfg.mrf_veto_threshold,
+            edge_override_margin=cfg.mrf_edge_override_margin,
+        ),
+        regime_config=_build_regime_config(cfg),
+    )
+    return float(gate.regime_evidence)
+
+
+async def _apply_mrf_filter(
+    db_session,
+    cfg,
+    asset_upper: str,
+    binance_symbol: str,
+    start_time,
+    candidate_side: str | None,
+    fresh_yes_price: float,
+    candidate_ask: float,
+    bet_size_usdc: float,
+    net_edge: float,
+    min_edge_used: float,
+    action: str,
+    decision_run_id: str = "",
+    lgbm_applied: bool = False,
+    preloaded_snapshot: Any | None = None,
+    preloaded_audit: dict | None = None,
+    preloaded_failure_reason: str | None = None,
+):
+    """Apply MRF filter. Returns (adjusted_action, adjusted_bet_size, mrf_audit, outcome, failure_reason)."""
+    if cfg.mrf_mode == "OFF":
+        return action, bet_size_usdc, None, None, None
+
+    # A v3 gate only has a meaningful direction for a concrete BUY side.
+    # Do not let an inconsistent decision silently bypass an ACTIVE veto.
+    if cfg.mrf_version == 3 and candidate_side not in {"BUY_YES", "BUY_NO"}:
+        side_label = candidate_side or "NONE"
+        failure = f"invalid_candidate_side:{side_label}"
+        logger.error("mrf_invalid_candidate_side", asset=asset_upper, candidate_side=side_label)
+        audit = _build_mrf_failure_audit(cfg, failure, as_of=start_time)
+        if cfg.mrf_mode == "ACTIVE":
+            return "SKIP", 0.0, audit, None, failure
+        return action, bet_size_usdc, audit, None, failure
+
+    try:
+        if preloaded_snapshot is not None:
+            snapshot = preloaded_snapshot
+            preloaded_failure_reason = None
+        elif preloaded_failure_reason:
+            failure = preloaded_failure_reason
             return (
                 action,
                 bet_size_usdc,
-                _build_mrf_failure_audit(
-                    cfg, fail, reason_codes=reason_codes, as_of=start_time,
-                ),
+                preloaded_audit or _build_mrf_failure_audit(cfg, failure, as_of=start_time),
                 None,
-                fail,
+                failure,
             )
+        else:
+            snapshot, loaded_audit, loaded_failure = await _load_mrf_snapshot(
+                db_session, cfg, start_time, asset_upper,
+            )
+            if snapshot is None:
+                failure = loaded_failure or "not_ready"
+                return (
+                    action,
+                    bet_size_usdc,
+                    loaded_audit or _build_mrf_failure_audit(cfg, failure, as_of=start_time),
+                    None,
+                    failure,
+                )
 
         outcome = apply_market_regime_filter(
             cfg=cfg,
@@ -482,6 +579,48 @@ async def decide_combined_mode(
             if fresh_no_prices.get("current_yes_price") is not None:
                 fresh_no_price = float(fresh_no_prices["current_yes_price"])
 
+    # Weighted policy may use the market's feeSchedule.  If the metadata is
+    # unavailable, keep the explicit configured fallback and record its
+    # provenance in decision_details.
+    weighted_fee_rate = None
+    weighted_fee_exponent = None
+    weighted_fee_source = "CONFIG_DEFAULT"
+    policy_mode = str(getattr(cfg, "trading_policy_mode", "LEGACY") or "LEGACY").upper()
+    condition_id = getattr(market, "condition_id", None)
+    if (
+        policy_mode in {"WEIGHTED_SHADOW", "WEIGHTED_ACTIVE"}
+        and isinstance(condition_id, (str, int))
+        and str(condition_id).strip()
+        and hasattr(api_client, "get_market_fee_schedule")
+    ):
+        try:
+            fee_schedule = await api_client.get_market_fee_schedule(str(condition_id))
+            if isinstance(fee_schedule, dict):
+                if fee_schedule.get("fees_enabled") is False:
+                    weighted_fee_rate = 0.0
+                    weighted_fee_source = "CLOB_FEE_SCHEDULE_DISABLED"
+                elif fee_schedule.get("fee_rate") is not None:
+                    weighted_fee_rate = float(fee_schedule["fee_rate"])
+                    weighted_fee_source = str(
+                        fee_schedule.get("source") or "CLOB_FEE_SCHEDULE"
+                    )
+                if fee_schedule.get("fee_exponent") is not None:
+                    weighted_fee_exponent = float(fee_schedule["fee_exponent"])
+        except (TypeError, ValueError, OverflowError) as exc:
+            logger.debug(
+                "weighted_fee_schedule_parse_failed",
+                asset=asset_upper,
+                condition_id=str(condition_id),
+                error=str(exc),
+            )
+        except Exception as exc:
+            logger.debug(
+                "weighted_fee_schedule_lookup_failed",
+                asset=asset_upper,
+                condition_id=str(condition_id),
+                error=str(exc),
+            )
+
     # 2. Получаем сигнал LightGBM (Direction Model)
     binance_symbol = COMBINED_BINANCE_SYMBOLS.get(asset_upper)
     lgbm_mode = getattr(cfg, "lightgbm_decision_mode", "SHADOW")
@@ -522,6 +661,7 @@ async def decide_combined_mode(
     entry_source = "NONE"
     fallback_reason = None
     p_flip: Optional[float] = None
+    entry_flip_threshold: Optional[float] = None
 
     candidate_specs: list[tuple[str, str]] = []
     fallback_notes: list[str] = []
@@ -552,6 +692,9 @@ async def decide_combined_mode(
         entry_model_ver = models_cache.versions.get(candidate_key)
         entry_features = models_cache.features.get(candidate_key, [])
         entry_source = candidate_source
+        entry_flip_threshold = _resolve_entry_flip_threshold(
+            models_cache, candidate_key, cfg.flip_threshold
+        )
         try:
             p_flip = await infer_flip_for_market(
                 db_session=db_session,
@@ -624,6 +767,43 @@ async def decide_combined_mode(
             if isinstance(val, (int, float)) and not isinstance(val, bool):
                 entry_model_ece = float(val)
 
+    # A non-zero weighted MRF coefficient needs regime evidence before the
+    # side is selected.  Preload the same snapshot that the post-decision MRF
+    # gate will consume, so the two stages cannot disagree because of a new
+    # candle arriving between reads.  With beta=0 the existing post-decision
+    # MRF path remains unchanged and no extra query is made.
+    weighted_mrf_evidence = None
+    preloaded_mrf_snapshot = None
+    preloaded_mrf_audit = None
+    preloaded_mrf_failure_reason = None
+    try:
+        weighted_mrf_beta = float(getattr(cfg, "weighted_mrf_beta", 0.0))
+    except (TypeError, ValueError, OverflowError):
+        weighted_mrf_beta = 0.0
+    if (
+        policy_mode in {"WEIGHTED_SHADOW", "WEIGHTED_ACTIVE"}
+        and cfg.mrf_mode != "OFF"
+        and weighted_mrf_beta != 0.0
+    ):
+        (
+            preloaded_mrf_snapshot,
+            preloaded_mrf_audit,
+            preloaded_mrf_failure_reason,
+        ) = await _load_mrf_snapshot(
+            db_session, cfg, start_time, asset_upper,
+        )
+        if preloaded_mrf_snapshot is not None:
+            try:
+                weighted_mrf_evidence = _weighted_mrf_yes_evidence(
+                    preloaded_mrf_snapshot, cfg, asset_upper,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "weighted_mrf_evidence_unavailable",
+                    asset=asset_upper,
+                    error=str(exc),
+                )
+
     comb_res = evaluate_combined_entry(
         crypto_sig=direction_signal,
         market_phase=phase,
@@ -642,19 +822,35 @@ async def decide_combined_mode(
         time_left_sec=time_left_sec,
         fallback_reason=fallback_reason,
         entry_model_ece=entry_model_ece,
+        flip_threshold=entry_flip_threshold,
+        mrf_evidence=weighted_mrf_evidence,
+        spread=fresh_spread,
+        weighted_fee_rate=weighted_fee_rate,
+        weighted_fee_exponent=weighted_fee_exponent,
+        weighted_fee_source=weighted_fee_source,
     )
 
     elapsed = time.monotonic() - t0
     logger.info("combined_mode_latency", asset=asset_upper, elapsed_ms=round(elapsed * 1000, 1))
 
     lgbm_mode = getattr(cfg, "lightgbm_decision_mode", "SHADOW")
-    lgbm_applied = (lgbm_mode == "ACTIVE")
-    lgbm_shadow = (lgbm_mode == "SHADOW")
+    # In weighted ACTIVE, a valid LightGBM probability is an applied input
+    # even when the legacy LightGBM switch remains SHADOW.  Without this
+    # distinction telemetry and MRF strategy attribution would incorrectly
+    # label a weighted decision as LogReg-only.
+    weighted_lgbm_used = (
+        policy_mode == "WEIGHTED_ACTIVE"
+        and comb_res.weighted_p_lgbm_yes is not None
+    )
+    effective_lgbm_mode = "ACTIVE" if weighted_lgbm_used else lgbm_mode
+    lgbm_applied = (effective_lgbm_mode == "ACTIVE")
+    lgbm_shadow = (effective_lgbm_mode == "SHADOW")
     lgbm_attribution = _resolve_lgbm_attribution(
-        lgbm_mode,
+        effective_lgbm_mode,
         comb_res.direction_value,
         comb_res.direction_model_key,
         comb_res.direction_model_version,
+        probability_applied=weighted_lgbm_used,
     )
     lgbm_direction_value = lgbm_attribution["direction_value"]
     applied_direction_key = lgbm_attribution["applied_model_key"]
@@ -665,9 +861,34 @@ async def decide_combined_mode(
         "decision_run_id": decision_run_id,
         "lightgbm_decision_mode": lgbm_mode,
         "lightgbm_applied": lgbm_applied,
-        "decision_source": "LOGREG_PLUS_LIGHTGBM" if lgbm_applied else "LOGREG_ONLY",
+        "decision_source": (
+            "WEIGHTED_POLICY"
+            if getattr(cfg, "trading_policy_mode", "LEGACY") == "WEIGHTED_ACTIVE"
+            else ("LOGREG_PLUS_LIGHTGBM" if lgbm_applied else "LOGREG_ONLY")
+        ),
+        "weighted_policy_mode": comb_res.weighted_policy_mode,
+        "weighted_p_market_yes": comb_res.weighted_p_market_yes,
+        "weighted_p_logreg_yes": comb_res.weighted_p_logreg_yes,
+        "weighted_p_lgbm_yes": comb_res.weighted_p_lgbm_yes,
+        "weighted_p_final_yes": comb_res.weighted_p_final_yes,
+        "weighted_market_weight": comb_res.weighted_market_weight,
+        "weighted_logreg_weight": comb_res.weighted_logreg_weight,
+        "weighted_lgbm_weight": comb_res.weighted_lgbm_weight,
+        "weighted_mrf_evidence": comb_res.weighted_mrf_evidence,
+        "weighted_selected_side": comb_res.weighted_selected_side,
+        "weighted_yes_net_ev": comb_res.weighted_yes_net_ev,
+        "weighted_no_net_ev": comb_res.weighted_no_net_ev,
+        "weighted_net_ev_per_share": comb_res.weighted_net_ev_per_share,
+        "weighted_cost_per_share": comb_res.weighted_cost_per_share,
+        "weighted_fee_rate": comb_res.weighted_fee_rate,
+        "weighted_fee_exponent": comb_res.weighted_fee_exponent,
+        "weighted_fee_per_share": comb_res.weighted_fee_per_share,
+        "weighted_slippage_per_share": comb_res.weighted_slippage_per_share,
+        "weighted_missing_components": comb_res.weighted_missing_components,
+        "weighted_selection_reason": comb_res.weighted_selection_reason,
+        "weighted_fee_source": comb_res.weighted_fee_source,
         "consensus_type": comb_res.consensus_type,
-        "direction_status": "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if lgbm_mode == "OFF" else comb_res.direction_status),
+        "direction_status": "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if effective_lgbm_mode == "OFF" else comb_res.direction_status),
         "direction_model_key": applied_direction_key,
         "direction_model_version": applied_direction_version,
         "shadow_direction_model_key": lgbm_attribution["shadow_model_key"],
@@ -688,6 +909,7 @@ async def decide_combined_mode(
         "entry_model_version": comb_res.entry_model_version,
         "entry_model_phase": comb_res.entry_model_phase,
         "entry_model_source": comb_res.entry_model_source,
+        "entry_flip_threshold": entry_flip_threshold,
         "entry_status": comb_res.entry_status,
         "fallback_reason": comb_res.fallback_reason,
         "p_candidate_win": comb_res.p_candidate_win,
@@ -739,7 +961,16 @@ async def decide_combined_mode(
         "original_strategy": "COMBINED" if lgbm_applied else "LOGREG_ONLY",
         "lightgbm_decision_mode": lgbm_mode,
         "lightgbm_applied": lgbm_applied,
-        "decision_source": "LOGREG_PLUS_LIGHTGBM" if lgbm_applied else "LOGREG_ONLY",
+        "decision_source": (
+            "WEIGHTED_POLICY"
+            if comb_res.weighted_policy_mode == "WEIGHTED_ACTIVE"
+            else ("LOGREG_PLUS_LIGHTGBM" if lgbm_applied else "LOGREG_ONLY")
+        ),
+        "weighted_policy_mode": comb_res.weighted_policy_mode,
+        "weighted_p_final_yes": comb_res.weighted_p_final_yes,
+        "weighted_selected_side": comb_res.weighted_selected_side,
+        "weighted_net_ev_per_share": comb_res.weighted_net_ev_per_share,
+        "weighted_cost_per_share": comb_res.weighted_cost_per_share,
         "ml_phase_model": comb_res.entry_model_key,
     }
     lgbm_meta = json.dumps(lgbm_meta_dict)
@@ -758,6 +989,7 @@ async def decide_combined_mode(
             p_win_effective=comb_res.p_candidate_win,
             p_win_raw=comb_res.p_logreg_win if comb_res.p_logreg_win is not None else comb_res.p_candidate_win,
             decision_details=decision_details,
+            direction_value=comb_res.direction_value,
         )
     else:
         trade_decision = TradeDecision(
@@ -773,6 +1005,7 @@ async def decide_combined_mode(
             p_win_effective=comb_res.p_candidate_win,
             p_win_raw=comb_res.p_logreg_win if comb_res.p_logreg_win is not None else comb_res.p_candidate_win,
             decision_details=decision_details,
+            direction_value=comb_res.direction_value,
         )
 
     # 7. Записываем воронку (DecisionFunnelLog) — ровно одна запись!
@@ -784,7 +1017,12 @@ async def decide_combined_mode(
 
     g1_loaded = bool(entry_model is not None and (lgbm_applied or comb_res.entry_status not in ("MODEL_NOT_FOUND", "MODEL_NOT_LOADED")))
     g2_fetched = True
-    if lgbm_applied:
+    if weighted_lgbm_used:
+        g3_dir = bool(
+            comb_res.weighted_p_lgbm_yes is not None
+            and comb_res.entry_status not in ("DIRECTION_UNAVAILABLE", "DIRECTION_VETOED")
+        )
+    elif lgbm_applied:
         g3_dir = bool(comb_res.direction_status in ("READY", "DIRECTION_NONE_FALLBACK_LR") and comb_res.entry_status not in ("DIRECTION_UNAVAILABLE", "DIRECTION_VETOED", "LOW_DIRECTION_PROB"))
     else:
         g3_dir = bool(comb_res.entry_status not in ("LOGREG_ABSTAIN", "MODEL_NOT_FOUND") and comb_res.candidate_side in ("BUY_YES", "BUY_NO"))
@@ -798,7 +1036,11 @@ async def decide_combined_mode(
 
     confirm_model_key = applied_direction_key
     confirm_model_version = applied_direction_version
-    confirm_passed = (comb_res.direction_status == "READY") if lgbm_applied else None
+    confirm_passed = (
+        True
+        if weighted_lgbm_used and comb_res.weighted_p_lgbm_yes is not None
+        else ((comb_res.direction_status == "READY") if lgbm_applied else None)
+    )
     final_dir_status = "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if lgbm_mode == "OFF" else comb_res.direction_status)
 
     # ── MRF: apply regime filter BEFORE funnel logging (MRF-FIX-08) ──────
@@ -827,6 +1069,9 @@ async def decide_combined_mode(
             action=comb_res.action,
             decision_run_id=decision_run_id,
             lgbm_applied=lgbm_applied,  # MRF-FIX-07: real lgbm flag from lgbm_mode == "ACTIVE"
+            preloaded_snapshot=preloaded_mrf_snapshot,
+            preloaded_audit=preloaded_mrf_audit,
+            preloaded_failure_reason=preloaded_mrf_failure_reason,
         )
         if mrf_outcome and mrf_outcome.skip_reason:
             mrf_failure_reason = mrf_outcome.skip_reason
@@ -894,7 +1139,9 @@ async def decide_combined_mode(
             edge=trade_decision.edge,
             p_win_effective=trade_decision.p_win_effective,
             p_win_raw=trade_decision.p_win_raw,
+            probability_adjustment=trade_decision.probability_adjustment,
             decision_details=trade_decision.decision_details,
+            direction_value=trade_decision.direction_value,
         )
 
     # Build MRF audit JSON for funnel
@@ -914,6 +1161,10 @@ async def decide_combined_mode(
     )
     mrf_evaluated = mrf_actually_evaluated
 
+    funnel_flip_threshold = _resolve_entry_flip_threshold(
+        models_cache, comb_res.entry_model_key, cfg.flip_threshold
+    )
+
     await log_funnel(
         db_session,
         market_id=market.market_id,
@@ -925,8 +1176,8 @@ async def decide_combined_mode(
         p_flip=comb_res.p_flip,
         edge=comb_res.net_edge,
         fresh_price=comb_res.candidate_ask or fresh_yes_price,
-        threshold_lower=1.0 - cfg.flip_threshold,
-        threshold_upper=cfg.flip_threshold,
+        threshold_lower=1.0 - funnel_flip_threshold,
+        threshold_upper=funnel_flip_threshold,
         min_edge_used=min_edge_val,
         g1_model_loaded=g1_loaded,
         g2_price_fetched=g2_fetched,

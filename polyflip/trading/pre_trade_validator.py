@@ -8,6 +8,7 @@ from polyflip.trading.trading_config import TradingConfig
 from polyflip.trading.decision_logic import TradeDecision
 from polyflip.trading.position_sizing import compute_bet_size_edge_scaled
 from polyflip.crypto.edge import compute_economic_edge
+from polyflip.trading.weighted_policy import estimate_trade_cost
 from polyflip.constants import TRADING_MODE_COMBINED
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -73,6 +74,30 @@ async def validate_pre_trade(
 
     actual_role = "OUTSIDER" if fresh_mid < 0.50 else "FAVORITE"
 
+    # Re-check execution quality against the same spread limit used during
+    # decision making.  This closes the race where the book widens between
+    # signal generation and submission.
+    try:
+        fresh_spread = abs(float(fresh_prices.get("current_spread")))
+        max_spread_pct = float(getattr(cfg, "max_spread_pct", 0.0))
+        spread_ratio = fresh_spread / max(fresh_mid, 1e-9)
+    except (TypeError, ValueError, OverflowError):
+        fresh_spread = 0.0
+        max_spread_pct = 0.0
+        spread_ratio = 0.0
+    if max_spread_pct > 0.0 and spread_ratio > max_spread_pct:
+        return PreTradeValidation(
+            valid=False,
+            buy_price=buy_price,
+            actual_bet_size=actual_bet_size,
+            edge=decision_obj.edge or 0.0,
+            skip_reason=(
+                f"validation: Spread {fresh_spread:.4f} / mid {fresh_mid:.4f} "
+                f"= {spread_ratio:.4f} > max {max_spread_pct:.4f}"
+            ),
+            market_role=actual_role,
+        )
+
     # Validate Market Role invariants using fresh prices
     if decision_obj.strategy_type == "OUTSIDER" and actual_role != "OUTSIDER":
         return PreTradeValidation(
@@ -121,8 +146,31 @@ async def validate_pre_trade(
     else:
         current_min_edge = asset_min_edge
     
-    # Считаем новый edge
-    edge = compute_economic_edge(p_win, buy_price, cfg.fee_rate, cfg.slippage_rate)
+    # Re-use the same units and cost model as the decision stage.  The legacy
+    # path keeps its historical ROI-style edge for compatibility; weighted
+    # active mode uses cost-aware expected value per share.
+    if (
+        decision_obj.decision_details
+        and decision_obj.decision_details.get("weighted_policy_mode") == "WEIGHTED_ACTIVE"
+    ):
+        weighted_cost = estimate_trade_cost(
+            buy_price,
+            fee_rate=decision_obj.decision_details.get(
+                "weighted_fee_rate",
+                getattr(cfg, "weighted_fee_rate", 0.07),
+            ),
+            fee_exponent=decision_obj.decision_details.get(
+                "weighted_fee_exponent",
+                getattr(cfg, "weighted_fee_exponent", 1.0),
+            ),
+            slippage_rate=getattr(cfg, "weighted_slippage_rate", 0.005),
+            role=getattr(cfg, "weighted_execution_role", "TAKER"),
+            spread=fresh_spread,
+            source=decision_obj.decision_details.get("weighted_fee_source") or "CONFIG_DEFAULT",
+        )
+        edge = round(p_win - buy_price - weighted_cost.total_per_share, 4)
+    else:
+        edge = compute_economic_edge(p_win, buy_price, cfg.fee_rate, cfg.slippage_rate)
     
     if edge < current_min_edge:
         return PreTradeValidation(

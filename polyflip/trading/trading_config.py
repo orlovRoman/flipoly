@@ -78,6 +78,17 @@ class TradingConfig:
     lgbm_unavailable_policy: str = "SKIP"
     lightgbm_decision_mode: str = "SHADOW"
     enable_ece_correction: bool = True
+    # Weighted trading policy rollout.  Keep LEGACY as the safe default so
+    # adding these settings cannot silently change an existing deployment.
+    trading_policy_mode: str = "LEGACY"
+    weighted_market_weight: float = 0.90
+    weighted_logreg_weight: float = 0.05
+    weighted_lgbm_weight: float = 0.05
+    weighted_mrf_beta: float = 0.0
+    weighted_fee_rate: float = 0.07
+    weighted_fee_exponent: float = 1.0
+    weighted_slippage_rate: float = 0.005
+    weighted_execution_role: str = "TAKER"
     # ── Market Regime Filter (MRF-T09) ──────────────────────
     mrf_mode: str = "OFF"                 # OFF|SHADOW|ACTIVE
     mrf_version: int = 1
@@ -190,6 +201,56 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         mrf_veto_threshold = 0.15
         mrf_edge_override_margin = 0.05
 
+    trading_policy_mode = str(
+        raw.get("TRADING_POLICY_MODE", getattr(settings, "TRADING_POLICY_MODE", "LEGACY"))
+        or "LEGACY"
+    ).strip().upper()
+    if trading_policy_mode not in {"LEGACY", "WEIGHTED_SHADOW", "WEIGHTED_ACTIVE"}:
+        logger.warning(
+            "invalid_trading_policy_mode",
+            value=trading_policy_mode,
+            fallback="LEGACY",
+        )
+        trading_policy_mode = "LEGACY"
+
+    weighted_execution_role = str(
+        raw.get("WEIGHTED_EXECUTION_ROLE", getattr(settings, "WEIGHTED_EXECUTION_ROLE", "TAKER"))
+        or "TAKER"
+    ).strip().upper()
+    if weighted_execution_role not in {"MAKER", "TAKER"}:
+        logger.warning(
+            "invalid_weighted_execution_role",
+            value=weighted_execution_role,
+            fallback="TAKER",
+        )
+        weighted_execution_role = "TAKER"
+
+    weighted_mrf_beta = parse_float_setting(
+        raw, "WEIGHTED_MRF_BETA", getattr(settings, "WEIGHTED_MRF_BETA", 0.0)
+    )
+    # Keep the regime log-odds adjustment bounded.  A beta of +/-2 already
+    # changes odds by roughly 7.4x; larger values would let an uncalibrated
+    # regime classifier overpower the market prior.
+    if not isfinite(weighted_mrf_beta) or not -2.0 <= weighted_mrf_beta <= 2.0:
+        logger.warning(
+            "invalid_weighted_mrf_beta",
+            value=weighted_mrf_beta,
+            fallback=0.0,
+        )
+        weighted_mrf_beta = 0.0
+
+    weighted_fee_exponent = parse_float_setting(
+        raw, "WEIGHTED_FEE_EXPONENT",
+        getattr(settings, "WEIGHTED_FEE_EXPONENT", 1.0),
+    )
+    if not isfinite(weighted_fee_exponent) or not 0.0 <= weighted_fee_exponent <= 16.0:
+        logger.warning(
+            "invalid_weighted_fee_exponent",
+            value=weighted_fee_exponent,
+            fallback=1.0,
+        )
+        weighted_fee_exponent = 1.0
+
     return TradingConfig(
         trading_enabled=_parse_bool(raw.get("TRADING_ENABLED"), getattr(settings, "TRADING_ENABLED", True)),
         trading_mode=mode,
@@ -246,6 +307,25 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
             else "SHADOW"
         ),
         enable_ece_correction=_parse_bool(raw.get("ENABLE_ECE_CORRECTION"), getattr(settings, "ENABLE_ECE_CORRECTION", True)),
+        trading_policy_mode=trading_policy_mode,
+        weighted_market_weight=parse_float_setting(
+            raw, "WEIGHTED_MARKET_WEIGHT", getattr(settings, "WEIGHTED_MARKET_WEIGHT", 0.90)
+        ),
+        weighted_logreg_weight=parse_float_setting(
+            raw, "WEIGHTED_LOGREG_WEIGHT", getattr(settings, "WEIGHTED_LOGREG_WEIGHT", 0.05)
+        ),
+        weighted_lgbm_weight=parse_float_setting(
+            raw, "WEIGHTED_LGBM_WEIGHT", getattr(settings, "WEIGHTED_LGBM_WEIGHT", 0.05)
+        ),
+        weighted_mrf_beta=weighted_mrf_beta,
+       weighted_fee_rate=parse_float_setting(
+           raw, "WEIGHTED_FEE_RATE", getattr(settings, "WEIGHTED_FEE_RATE", 0.07)
+       ),
+        weighted_fee_exponent=weighted_fee_exponent,
+        weighted_slippage_rate=parse_float_setting(
+           raw, "WEIGHTED_SLIPPAGE_RATE", getattr(settings, "WEIGHTED_SLIPPAGE_RATE", 0.005)
+       ),
+        weighted_execution_role=weighted_execution_role,
         # ── Market Regime Filter (MRF-T09) ──────────────────────
         mrf_mode=(
             raw.get("MARKET_REGIME_FILTER_MODE", "OFF").strip().upper()

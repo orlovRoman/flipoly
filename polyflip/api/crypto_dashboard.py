@@ -45,7 +45,9 @@ from polyflip.crypto.predictor import CryptoPredictor
 from polyflip.crypto.oof_artifact import OOF_ARTIFACT_SCHEMA_VERSION, deserialize_oof_artifact
 from polyflip.settings_registry import registry_defaults
 from polyflip.crypto.experiment_configs import (
-    normalize_experiment_config, experiment_config_hash,
+    legacy_threshold_backtest_options,
+    normalize_experiment_config,
+    experiment_config_hash,
 )
 
 logger = structlog.get_logger(__name__)
@@ -794,6 +796,11 @@ async def _stored_lgbm_polymarket_backtest(
         "pnl_mode": "POLYMARKET_OOF",
         "feature_set": feature_set,
         "strategy_branch": branch,
+        "policy_mode": summary.get("policy_mode"),
+        "accounting_model": summary.get("accounting_model"),
+        "fee_model": summary.get("fee_model"),
+        "fee_rate": summary.get("fee_rate"),
+        "execution_role": summary.get("execution_role"),
         "n_markets": summary["n_markets"],
         "n_quotes": summary["n_quotes"],
         "n_oof": summary["n_oof"],
@@ -1105,6 +1112,8 @@ async def _saved_lgbm_model_polymarket_backtest(
         result = compute_oof_polymarket_backtest(
             payload["frame"], payload["oof_scores"], payload["quotes"],
             strategy_branch=branch,
+            # The replay endpoint evaluates the complete saved economic
+            # policy, including weighted-policy parameters when present.
             **backtest_options,
         )
     except ValueError as exc:
@@ -1163,7 +1172,9 @@ async def _saved_lgbm_threshold_audit(
             target_coverages=TARGET_COVERAGES,
             selected_target_coverage=selected_target_coverage,
             strategy_branches=("OUTSIDER_ONLY", "FAVORITE_ONLY", "COMBINED"),
-            **backtest_options,
+            # This endpoint audits the directional LGBM threshold and accepts
+            # only the historical threshold-optimizer options.
+            **legacy_threshold_backtest_options(backtest_options),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"error": "OOF_ARTIFACT_INVALID", "message": str(exc)}) from exc

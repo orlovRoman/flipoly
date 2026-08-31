@@ -2,6 +2,7 @@ import pytest
 
 from polyflip.crypto.experiment_configs import (
     experiment_config_hash,
+    legacy_threshold_backtest_options,
     normalize_experiment_config,
 )
 
@@ -36,3 +37,30 @@ def test_config_rejects_unknown_calibration_method():
 def test_config_rejects_boolean_as_number():
     with pytest.raises(ValueError, match="must be a number"):
         normalize_experiment_config({"model": {"n_estimators": True}})
+
+
+def test_weighted_backtest_config_is_canonical_and_threshold_safe():
+    config = normalize_experiment_config({
+        "backtest": {
+            "policy_mode": "weighted_active",
+            "market_weight": "0.80",
+            "lgbm_weight": "0.20",
+            "weighted_fee_rate": "0.07",
+            "execution_role": "taker",
+        }
+    })
+
+    assert config["backtest"]["policy_mode"] == "WEIGHTED_ACTIVE"
+    assert config["backtest"]["execution_role"] == "TAKER"
+    assert config["backtest"]["market_weight"] == pytest.approx(0.80)
+    assert config["backtest"]["weighted_fee_exponent"] == pytest.approx(1.0)
+    assert set(legacy_threshold_backtest_options(config["backtest"])) == {
+        "min_edge",
+        "cost_buffer",
+        "fee_rate",
+        "min_price",
+        "max_price",
+        "outsider_max_price",
+        "stake_usdc",
+        "slippage_pct",
+    }

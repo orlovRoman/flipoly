@@ -47,7 +47,11 @@ from polyflip.crypto.threshold_optimizer import TARGET_COVERAGES, optimize_joint
 # Изменение TRAIN_MAX_PARALLEL_JOBS в RuntimeSettings вступит в силу только после рестарта.
 from polyflip.models.trainer import _get_training_semaphore
 from polyflip.crypto.feature_sets import CONTROL_FEATURES, feature_schema_hash, get_feature_set
-from polyflip.crypto.experiment_configs import normalize_experiment_config, experiment_config_hash
+from polyflip.crypto.experiment_configs import (
+    experiment_config_hash,
+    legacy_threshold_backtest_options,
+    normalize_experiment_config,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -524,7 +528,11 @@ def _fit_lgbm_and_serialize(
             backtest_quotes,
             target_coverages=TARGET_COVERAGES,
             selected_target_coverage=selected_target_coverage,
-            **(backtest_options or {}),
+            # The threshold sweep remains a directional diagnostic. The
+            # economic scorer may additionally receive weighted-policy
+            # parameters, which the threshold optimizer deliberately does not
+            # interpret.
+            **legacy_threshold_backtest_options(backtest_options),
         )
         optimal_threshold = float(threshold_audit["selected_lower_threshold"])
         optimal_threshold_up = float(threshold_audit["selected_upper_threshold"])
@@ -921,6 +929,15 @@ class CryptoModelTrainer:
         backtest_outsider_max = await _get_float_setting(self.db, "OUTSIDER_MAX_PRICE", 0.45)
         backtest_stake_usdc = 1.0
         backtest_slippage_pct = 0.0
+        backtest_policy_mode = "LEGACY"
+        backtest_market_weight = 0.90
+        backtest_logreg_weight = 0.05
+        backtest_lgbm_weight = 0.05
+        backtest_mrf_beta = 0.0
+        backtest_weighted_fee_rate = 0.07
+        backtest_weighted_fee_exponent = 1.0
+        backtest_weighted_slippage_rate = 0.005
+        backtest_execution_role = "TAKER"
         if normalized_config:
             backtest_params = normalized_config["backtest"]
             backtest_min_edge = float(backtest_params["min_edge"])
@@ -931,6 +948,25 @@ class CryptoModelTrainer:
             backtest_outsider_max = float(backtest_params["outsider_max_price"])
             backtest_stake_usdc = float(backtest_params["stake_usdc"])
             backtest_slippage_pct = float(backtest_params["slippage_pct"])
+            backtest_policy_mode = str(
+                backtest_params.get("policy_mode", "LEGACY")
+            ).strip().upper()
+            backtest_market_weight = float(backtest_params.get("market_weight", 0.90))
+            backtest_logreg_weight = float(backtest_params.get("logreg_weight", 0.05))
+            backtest_lgbm_weight = float(backtest_params.get("lgbm_weight", 0.05))
+            backtest_mrf_beta = float(backtest_params.get("mrf_beta", 0.0))
+            backtest_weighted_fee_rate = float(
+                backtest_params.get("weighted_fee_rate", 0.07)
+            )
+            backtest_weighted_fee_exponent = float(
+                backtest_params.get("weighted_fee_exponent", 1.0)
+            )
+            backtest_weighted_slippage_rate = float(
+                backtest_params.get("weighted_slippage_rate", 0.005)
+            )
+            backtest_execution_role = str(
+                backtest_params.get("execution_role", "TAKER")
+            ).strip().upper()
         try:
             entry_quotes = await load_market_entry_quotes(
                 self.db, df_filtered[["market_id", "market_start"]]
@@ -1051,6 +1087,15 @@ class CryptoModelTrainer:
                                     "outsider_max_price": backtest_outsider_max,
                                     "stake_usdc": backtest_stake_usdc,
                                     "slippage_pct": backtest_slippage_pct,
+                                    "policy_mode": backtest_policy_mode,
+                                    "market_weight": backtest_market_weight,
+                                    "logreg_weight": backtest_logreg_weight,
+                                    "lgbm_weight": backtest_lgbm_weight,
+                                    "mrf_beta": backtest_mrf_beta,
+                                    "weighted_fee_rate": backtest_weighted_fee_rate,
+                                    "weighted_fee_exponent": backtest_weighted_fee_exponent,
+                                    "weighted_slippage_rate": backtest_weighted_slippage_rate,
+                                    "execution_role": backtest_execution_role,
                                 },
                                 calibration_method=calibration_method,
                                 selected_target_coverage=selected_target_coverage,
@@ -1115,6 +1160,15 @@ class CryptoModelTrainer:
                             outsider_max_price=backtest_outsider_max,
                             stake_usdc=backtest_stake_usdc,
                             slippage_pct=backtest_slippage_pct,
+                            policy_mode=backtest_policy_mode,
+                            market_weight=backtest_market_weight,
+                            logreg_weight=backtest_logreg_weight,
+                            lgbm_weight=backtest_lgbm_weight,
+                            mrf_beta=backtest_mrf_beta,
+                            weighted_fee_rate=backtest_weighted_fee_rate,
+                            weighted_fee_exponent=backtest_weighted_fee_exponent,
+                            weighted_slippage_rate=backtest_weighted_slippage_rate,
+                            execution_role=backtest_execution_role,
                         )
                         backtest_variants[branch] = {
                             key: value for key, value in branch_result.items()
@@ -1251,6 +1305,15 @@ class CryptoModelTrainer:
                             "outsider_max_price": backtest_outsider_max,
                             "stake_usdc": backtest_stake_usdc,
                             "slippage_pct": backtest_slippage_pct,
+                            "policy_mode": backtest_policy_mode,
+                            "market_weight": backtest_market_weight,
+                            "logreg_weight": backtest_logreg_weight,
+                            "lgbm_weight": backtest_lgbm_weight,
+                            "mrf_beta": backtest_mrf_beta,
+                            "weighted_fee_rate": backtest_weighted_fee_rate,
+                            "weighted_fee_exponent": backtest_weighted_fee_exponent,
+                            "weighted_slippage_rate": backtest_weighted_slippage_rate,
+                            "execution_role": backtest_execution_role,
                         },
                         "resolution_source": "CHAINLINK",
                         "alignment_version": "MARKET_WINDOW_V1",

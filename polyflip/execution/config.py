@@ -35,7 +35,12 @@ class ExecutionSettings(BaseSettings):
     paper_execution_profile: str = "LIVE_PARITY"
     paper_live_delay_sec: float = 2.0
     paper_slippage_pct: float = 0.5
-    paper_fee_rate: float = 0.002
+    # PAPER parity uses the price-dependent Polymarket crypto fee formula by
+    # default.  Keep the model explicit so historical flat-fee tests can opt
+    # into FLAT_NOTIONAL without ambiguity.
+    paper_fee_model: str = "POLYMARKET_PRICE_DEPENDENT"
+    paper_fee_rate: float = 0.07
+    paper_fee_exponent: float = 1.0
 
     paper_min_order_shares: Decimal = POLYMARKET_MIN_ORDER_SHARES
 
