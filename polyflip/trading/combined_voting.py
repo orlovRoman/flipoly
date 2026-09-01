@@ -106,27 +106,49 @@ def _weighted_sizing_fields(
         }
     mode = str(getattr(cfg, "weighted_sizing_mode", "FIXED") or "FIXED").upper()
     if mode != "LOWER_BOUND_KELLY":
-        return {
-            "weighted_edge_lower_bound": selected.net_ev_per_share,
-            "weighted_size_multiplier": 1.0,
-        }
-    is_outsider = (
-        (selected.side == "BUY_YES" and fresh_yes_price < 0.50)
-        or (selected.side == "BUY_NO" and fresh_yes_price >= 0.50)
-    )
-    sizing = conservative_size(
-        selected.p_win,
-        price=selected.ask,
-        cost_per_share=selected.cost.total_per_share,
-        standard_error=getattr(cfg, "weighted_standard_error", 0.0),
-        fraction=getattr(cfg, "weighted_kelly_fraction", 0.025),
-        min_edge_lower=_weighted_min_net_ev(cfg, is_outsider),
-    )
-    fixed_bet = max(0.01, float(getattr(cfg, "weighted_fixed_bet_usdc", 1.0)))
-    cap = max(fixed_bet, float(getattr(cfg, "weighted_size_cap_usdc", fixed_bet)))
-    multiplier = min(1.0, max(0.0, sizing.size_multiplier), cap / fixed_bet)
+        edge_lower = selected.net_ev_per_share
+        multiplier = 1.0
+    else:
+        is_outsider = (
+            (selected.side == "BUY_YES" and fresh_yes_price < 0.50)
+            or (selected.side == "BUY_NO" and fresh_yes_price >= 0.50)
+        )
+        sizing = conservative_size(
+            selected.p_win,
+            price=selected.ask,
+            cost_per_share=selected.cost.total_per_share,
+            standard_error=getattr(cfg, "weighted_standard_error", 0.0),
+            fraction=getattr(cfg, "weighted_kelly_fraction", 0.025),
+            min_edge_lower=_weighted_min_net_ev(cfg, is_outsider),
+        )
+        edge_lower = sizing.edge_lower
+        multiplier = sizing.size_multiplier
+
+    artifact = _weighted_artifact(cfg)
+    artifact_config = artifact.policy_config if artifact is not None else {}
+    application = str(
+        artifact_config.get(
+            "mrf_application",
+            getattr(cfg, "weighted_mrf_application", "PROBABILITY"),
+        )
+        or "PROBABILITY"
+    ).upper()
+    if application == "STAKE":
+        try:
+            gamma = float(
+                artifact_config.get(
+                    "mrf_sizing_gamma",
+                    getattr(cfg, "weighted_mrf_sizing_gamma", 0.0),
+                )
+            )
+            evidence = float(selection.probability.mrf_evidence)
+        except (TypeError, ValueError, OverflowError):
+            gamma, evidence = 0.0, 0.0
+        mrf_multiplier = max(0.5, min(1.25, 1.0 + gamma * evidence))
+        multiplier *= mrf_multiplier
+    multiplier = max(0.0, min(1.0, multiplier))
     return {
-        "weighted_edge_lower_bound": round(sizing.edge_lower, 8),
+        "weighted_edge_lower_bound": round(edge_lower, 8),
         "weighted_size_multiplier": round(multiplier, 8),
     }
 
@@ -251,6 +273,7 @@ class CombinedEntryResult:
     weighted_logreg_contribution_logodds: Optional[float] = None
     weighted_lgbm_contribution_logodds: Optional[float] = None
     weighted_mrf_contribution_logodds: Optional[float] = None
+    weighted_models_agree_contribution_logodds: Optional[float] = None
     weighted_intercept_contribution_logodds: Optional[float] = None
     weighted_models_agree: Optional[bool] = None
     # mode, while LEGACY behavior remains unchanged.
@@ -357,6 +380,14 @@ def _build_weighted_selection(
         logreg_weight=float(getattr(cfg, "weighted_logreg_weight", 0.05)),
         lgbm_weight=float(getattr(cfg, "weighted_lgbm_weight", 0.05)),
         mrf_beta=float(getattr(cfg, "weighted_mrf_beta", 0.0)),
+        models_agree_beta=float(getattr(cfg, "weighted_models_agree_beta", 0.0)),
+        mrf_application=str(
+            getattr(cfg, "weighted_mrf_application", "PROBABILITY")
+            or "PROBABILITY"
+        ).upper(),
+        mrf_sizing_gamma=float(
+            getattr(cfg, "weighted_mrf_sizing_gamma", 0.0)
+        ),
         intercept=float(getattr(cfg, "weighted_intercept", 0.0)),
         fee_rate=(
             float(fee_rate)
@@ -424,6 +455,12 @@ def _build_weighted_selection(
             ),
             policy_id=artifact.artifact_id[:64],
         )
+    application = str(policy_cfg.mrf_application or "PROBABILITY").upper()
+    if application not in {"PROBABILITY", "STAKE"}:
+        application = "PROBABILITY"
+        policy_cfg = replace(policy_cfg, mrf_application=application)
+    if application == "STAKE":
+        policy_cfg = replace(policy_cfg, mrf_beta=0.0)
     if artifact_path and artifact is None:
         probability = score_weighted_probability(
             p_market_yes=p_market_yes,
@@ -480,6 +517,7 @@ def _weighted_result_fields(
         "weighted_logreg_contribution_logodds": probability.logreg_contribution_logodds,
         "weighted_lgbm_contribution_logodds": probability.lgbm_contribution_logodds,
         "weighted_mrf_contribution_logodds": probability.mrf_adjustment_logodds,
+        "weighted_models_agree_contribution_logodds": probability.models_agree_adjustment_logodds,
         "weighted_intercept_contribution_logodds": probability.intercept_contribution_logodds,
         "weighted_models_agree": probability.models_agree,
         "weighted_mrf_evidence": probability.mrf_evidence,

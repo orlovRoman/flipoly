@@ -28,6 +28,7 @@ WEIGHTED_TELEMETRY_FIELDS: tuple[str, ...] = (
     "weighted_logreg_contribution_logodds",
     "weighted_lgbm_contribution_logodds",
     "weighted_mrf_contribution_logodds",
+    "weighted_models_agree_contribution_logodds",
     "weighted_intercept_contribution_logodds",
     "weighted_models_agree",
     "weighted_selected_side",

@@ -186,3 +186,29 @@ def test_net_ev_and_compatibility_edge_use_per_share_usdc():
     )
     assert selection.selected is not None
     assert selection.selected.net_edge == selection.selected.net_ev_per_share
+
+
+def test_models_agree_beta_is_a_separate_auditable_contribution():
+    base = score_weighted_probability(
+        p_market_yes=0.60,
+        p_logreg_yes=0.70,
+        p_lgbm_yes=0.80,
+        config=WeightedPolicyConfig(models_agree_beta=0.0),
+    )
+    boosted = score_weighted_probability(
+        p_market_yes=0.60,
+        p_logreg_yes=0.70,
+        p_lgbm_yes=0.80,
+        config=WeightedPolicyConfig(models_agree_beta=0.25),
+    )
+    disagree = score_weighted_probability(
+        p_market_yes=0.60,
+        p_logreg_yes=0.70,
+        p_lgbm_yes=0.40,
+        config=WeightedPolicyConfig(models_agree_beta=0.25),
+    )
+    assert base.models_agree is True
+    assert boosted.models_agree_adjustment_logodds == 0.25
+    assert boosted.p_final_yes > base.p_final_yes
+    assert disagree.models_agree is False
+    assert disagree.models_agree_adjustment_logodds == 0.0

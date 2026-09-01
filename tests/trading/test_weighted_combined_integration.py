@@ -183,3 +183,32 @@ def test_weighted_active_rejects_missing_policy_artifact(tmp_path):
 
     assert result.action == "SKIP"
     assert "POLICY_ARTIFACT_INVALID" in result.reason
+
+
+def test_weighted_mrf_stake_mode_does_not_double_adjust_probability():
+    cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_mrf_application="STAKE",
+        weighted_mrf_sizing_gamma=0.5,
+        weighted_fixed_bet_usdc=1.0,
+    )
+    result = evaluate_combined_entry(
+        crypto_sig=_signal(),
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=4,
+        entry_model_source="PHASE",
+        p_flip=0.20,
+        fresh_yes_price=0.55,
+        yes_ask=0.54,
+        no_ask=0.46,
+        cost_buffer=0.0,
+        time_left_sec=300.0,
+        cfg=cfg,
+        mrf_evidence=-1.0,
+    )
+    assert result.action == "BUY_YES"
+    assert result.weighted_mrf_contribution_logodds == 0.0
+    assert result.weighted_size_multiplier == 0.5
+    assert result.bet_size_usdc == 0.5

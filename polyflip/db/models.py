@@ -291,6 +291,7 @@ class TradeHistory(Base):
     weighted_logreg_contribution_logodds = Column(Float, nullable=True)
     weighted_lgbm_contribution_logodds = Column(Float, nullable=True)
     weighted_mrf_contribution_logodds = Column(Float, nullable=True)
+    weighted_models_agree_contribution_logodds = Column(Float, nullable=True)
     weighted_intercept_contribution_logodds = Column(Float, nullable=True)
     weighted_models_agree = Column(Boolean, nullable=True)
     weighted_selected_side = Column(String(16), nullable=True)
@@ -315,7 +316,6 @@ class TradeHistory(Base):
     weighted_policy_id = Column(String(64), nullable=True)
     weighted_edge_lower_bound = Column(Float, nullable=True)
     weighted_size_multiplier = Column(Float, nullable=True)
-    weighted_execution_role = Column(String(16), nullable=True)
     weighted_benchmark_json = Column(Text, nullable=True)
 
 
@@ -802,6 +802,7 @@ class DecisionFunnelLog(Base):
     weighted_logreg_contribution_logodds = Column(Float, nullable=True)
     weighted_lgbm_contribution_logodds = Column(Float, nullable=True)
     weighted_mrf_contribution_logodds = Column(Float, nullable=True)
+    weighted_models_agree_contribution_logodds = Column(Float, nullable=True)
     weighted_intercept_contribution_logodds = Column(Float, nullable=True)
     weighted_models_agree = Column(Boolean, nullable=True)
     weighted_selected_side = Column(String(16), nullable=True)
@@ -826,7 +827,6 @@ class DecisionFunnelLog(Base):
     weighted_policy_id = Column(String(64), nullable=True)
     weighted_edge_lower_bound = Column(Float, nullable=True)
     weighted_size_multiplier = Column(Float, nullable=True)
-    weighted_execution_role = Column(String(16), nullable=True)
     weighted_benchmark_json = Column(Text, nullable=True)
 
     # MRF telemetry (added in v2)

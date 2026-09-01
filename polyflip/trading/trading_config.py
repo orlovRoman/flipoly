@@ -105,6 +105,9 @@ class TradingConfig:
     weighted_logreg_weight: float = 0.05
     weighted_lgbm_weight: float = 0.05
     weighted_mrf_beta: float = 0.0
+    weighted_models_agree_beta: float = 0.0
+    weighted_mrf_application: str = "PROBABILITY"
+    weighted_mrf_sizing_gamma: float = 0.0
     weighted_intercept: float = 0.0
     weighted_fee_rate: float = 0.07
     weighted_maker_fee_rate: float = 0.0
@@ -309,6 +312,35 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         )
         weighted_mrf_beta = 0.0
 
+    weighted_models_agree_beta = _parse_bounded_float(
+        raw,
+        "WEIGHTED_MODELS_AGREE_BETA",
+        getattr(settings, "WEIGHTED_MODELS_AGREE_BETA", 0.0),
+        -2.0,
+        2.0,
+    )
+    weighted_mrf_application = str(
+        raw.get(
+            "WEIGHTED_MRF_APPLICATION",
+            getattr(settings, "WEIGHTED_MRF_APPLICATION", "PROBABILITY"),
+        )
+        or "PROBABILITY"
+    ).strip().upper()
+    if weighted_mrf_application not in {"PROBABILITY", "STAKE"}:
+        logger.warning(
+            "invalid_weighted_mrf_application",
+            value=weighted_mrf_application,
+            fallback="PROBABILITY",
+        )
+        weighted_mrf_application = "PROBABILITY"
+    weighted_mrf_sizing_gamma = _parse_bounded_float(
+        raw,
+        "WEIGHTED_MRF_SIZING_GAMMA",
+        getattr(settings, "WEIGHTED_MRF_SIZING_GAMMA", 0.0),
+        -1.0,
+        1.0,
+    )
+
     weighted_fee_exponent = parse_float_setting(
         raw, "WEIGHTED_FEE_EXPONENT",
         getattr(settings, "WEIGHTED_FEE_EXPONENT", 1.0),
@@ -383,6 +415,9 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         weighted_logreg_weight=_parse_bounded_float(raw, "WEIGHTED_LOGREG_WEIGHT", getattr(settings, "WEIGHTED_LOGREG_WEIGHT", 0.05), 0.0, 1.0),
         weighted_lgbm_weight=_parse_bounded_float(raw, "WEIGHTED_LGBM_WEIGHT", getattr(settings, "WEIGHTED_LGBM_WEIGHT", 0.05), 0.0, 1.0),
         weighted_mrf_beta=weighted_mrf_beta,
+        weighted_models_agree_beta=weighted_models_agree_beta,
+        weighted_mrf_application=weighted_mrf_application,
+        weighted_mrf_sizing_gamma=weighted_mrf_sizing_gamma,
         weighted_intercept=_parse_bounded_float(raw, "WEIGHTED_INTERCEPT", getattr(settings, "WEIGHTED_INTERCEPT", 0.0), -5.0, 5.0),
         weighted_fee_rate=_parse_bounded_float(raw, "WEIGHTED_FEE_RATE", getattr(settings, "WEIGHTED_FEE_RATE", 0.07), 0.0, 1.0),
         weighted_maker_fee_rate=_parse_bounded_float(raw, "WEIGHTED_MAKER_FEE_RATE", getattr(settings, "WEIGHTED_MAKER_FEE_RATE", 0.0), 0.0, 1.0),

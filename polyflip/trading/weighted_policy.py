@@ -106,6 +106,9 @@ class WeightedPolicyConfig:
     logreg_weight: float = 0.05
     lgbm_weight: float = 0.05
     mrf_beta: float = 0.0
+    models_agree_beta: float = 0.0
+    mrf_application: str = "PROBABILITY"
+    mrf_sizing_gamma: float = 0.0
     intercept: float = 0.0
     fee_rate: float = 0.07
     maker_fee_rate: float = 0.0
@@ -280,6 +283,7 @@ class WeightedProbability:
     lgbm_weight: float
     mrf_evidence: float
     mrf_adjustment_logodds: float
+    models_agree_adjustment_logodds: float
     market_contribution_logodds: float
     logreg_contribution_logodds: float
     lgbm_contribution_logodds: float
@@ -295,6 +299,7 @@ class WeightedProbability:
             "logreg": self.logreg_contribution_logodds,
             "lgbm": self.lgbm_contribution_logodds,
             "mrf": self.mrf_adjustment_logodds,
+            "models_agree": self.models_agree_adjustment_logodds,
             "intercept": self.intercept_contribution_logodds,
         }
 
@@ -346,6 +351,17 @@ def score_weighted_probability(
     if not isfinite(intercept):
         intercept = 0.0
     adjustment = beta * signed_evidence
+    try:
+        agreement_beta = float(config.models_agree_beta)
+    except (TypeError, ValueError, OverflowError):
+        agreement_beta = 0.0
+    if not isfinite(agreement_beta):
+        agreement_beta = 0.0
+    agreement_adjustment = (
+        max(-2.0, min(2.0, agreement_beta))
+        if inputs.models_agree is True
+        else 0.0
+    )
 
     if market is None or sum(weights.values()) <= 0.0:
         market_contribution = 0.0
@@ -370,6 +386,7 @@ def score_weighted_probability(
             + logreg_contribution
             + lgbm_contribution
             + adjustment
+            + agreement_adjustment
             + intercept
         )
     missing = tuple(name for name in ("market", "logreg", "lgbm") if name not in available)
@@ -383,6 +400,7 @@ def score_weighted_probability(
         lgbm_weight=round(weights["lgbm"], 8),
         mrf_evidence=round(signed_evidence, 8),
         mrf_adjustment_logodds=round(adjustment, 8),
+        models_agree_adjustment_logodds=round(agreement_adjustment, 8),
         market_contribution_logodds=round(market_contribution, 8),
         logreg_contribution_logodds=round(logreg_contribution, 8),
         lgbm_contribution_logodds=round(lgbm_contribution, 8),
