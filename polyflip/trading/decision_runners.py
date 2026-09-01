@@ -571,7 +571,7 @@ async def decide_combined_mode(
 
     # NO prices
     fresh_no_price = 1.0 - fresh_yes_price
-    no_best_ask = 1.0 - fresh_yes_price
+    no_best_ask = round(1.0 - yes_best_ask, 8)  # mirror of YES best ask as NO fallback
     if market.no_token_id:
         fresh_no_prices = await api_client.get_market_prices(market.no_token_id)
         if fresh_no_prices and fresh_no_prices.get("best_ask") is not None:
@@ -817,7 +817,7 @@ async def decide_combined_mode(
         entry_model_ece=entry_model_ece,
         flip_threshold=entry_flip_threshold,
         mrf_evidence=weighted_mrf_evidence,
-        spread=fresh_spread,
+        spread=0.0,  # yes_best_ask/no_best_ask are executable asks, not midpoints
         weighted_fee_rate=weighted_fee_rate,
         weighted_fee_exponent=weighted_fee_exponent,
         weighted_fee_source=weighted_fee_source,
