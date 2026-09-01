@@ -287,9 +287,10 @@ class FakeExecutionGateway:
             execution_limit = order.limit_price
             if side == "BUY":
                 execution_limit *= Decimal("1") + slippage_factor
-                if order.max_acceptable_price is not None:
+                max_acceptable_price = getattr(order, "max_acceptable_price", None)
+                if max_acceptable_price is not None:
                     execution_limit = min(
-                        execution_limit, order.max_acceptable_price
+                        execution_limit, max_acceptable_price
                     )
             if side == "BUY" and execution_price > execution_limit:
                 break

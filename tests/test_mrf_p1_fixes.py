@@ -25,7 +25,7 @@ passed = 0
 failed = 0
 total = 0
 
-def test(name, condition, detail=""):
+def check(name, condition, detail=""):
     global passed, failed, total
     total += 1
     if condition:
@@ -37,6 +37,9 @@ def test(name, condition, detail=""):
 
 # ═══════════════════════════════════════════════════════════════════════════
 print("\n── 1. _log_returns off-by-one fix ──")
+test = check
+test.__test__ = False
+
 # ═══════════════════════════════════════════════════════════════════════════
 
 # 97 closes → 96 intervals

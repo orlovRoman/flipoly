@@ -910,8 +910,7 @@ async function checkSelectedLLMModel() {
   }
   for (const modelId of ids) {
     try {
-      const url = `${window.API_BASE}/api/ai-lab/llm/models/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/check`;
-      const res = await fetch(url, { method: "POST", headers: getAuthHeaders() });
+      const res = await fetch(`${window.API_BASE}/api/ai-lab/llm/models/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/check`, { method: "POST", headers: getAuthHeaders() });
       if (!res.ok) throw new Error(await responseError(res));
       const data = await res.json();
       if (llmCatalogCache) {
