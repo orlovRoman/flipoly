@@ -1075,7 +1075,7 @@ def _evaluate_combined_entry_inner(
             entry_model_ece=entry_model_ece,
         )
 
-    if not weighted_active and is_outsider:
+    if is_outsider:  # safety gate in all modes
         flip_thresh_val = flip_threshold_value
         if p_flip is not None and p_flip < flip_thresh_val:
             return CombinedEntryResult(
